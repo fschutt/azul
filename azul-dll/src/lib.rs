@@ -532,6 +532,10 @@ pub use AzNodeDataVecTT as AzNodeDataVec;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_node_data_vec_deep_copy(object: &AzNodeDataVec) -> AzNodeDataVec { object.clone() }
 
+/// Re-export of rust-allocated (stack based) `OptionRendererType` struct
+pub type AzOptionRendererTypeTT = azul_impl::window::OptionRendererType;
+pub use AzOptionRendererTypeTT as AzOptionRendererType;
+
 /// Re-export of rust-allocated (stack based) `OptionCallback` struct
 pub type AzOptionCallbackTT = azul_impl::callbacks::OptionCallback;
 pub use AzOptionCallbackTT as AzOptionCallback;
@@ -1174,7 +1178,7 @@ pub use AzAppConfigTT as AzAppConfig;
 /// Pointer to rust-allocated `Box<App>` struct
 #[repr(C)] pub struct AzAppPtr { ptr: *mut c_void }
 /// Creates a new App instance from the given `AppConfig`
-#[no_mangle] pub extern "C" fn az_app_ptr_new(data: AzRefAny, config: AzAppConfig) -> AzAppPtr { let object: App = App::new(data, config).unwrap(); let ptr = Box::into_raw(Box::new(object)) as *mut c_void; AzAppPtr { ptr } }
+#[no_mangle] pub extern "C" fn az_app_ptr_new(data: AzRefAny, config: AzAppConfig) -> AzAppPtr { let object: App = App::new(data, config); let ptr = Box::into_raw(Box::new(object)) as *mut c_void; AzAppPtr { ptr } }
 /// Spawn a new window on the screen when the app is run.
 #[no_mangle] pub extern "C" fn az_app_ptr_add_window(app: &mut AzAppPtr, window: AzWindowCreateOptions) { az_app_ptr_downcast_refmut(app, |a| a.add_window(window)) }
 /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
@@ -1500,7 +1504,7 @@ pub use AzCssTT as AzCss;
 /// Returns an empty CSS style
 #[no_mangle] pub extern "C" fn az_css_empty() -> AzCss { AzCss::empty() }
 /// Returns a CSS style parsed from a `String`
-#[no_mangle] pub extern "C" fn az_css_from_string(s: AzString) -> AzCss { css::from_str(s.as_str()).unwrap() }
+#[no_mangle] pub extern "C" fn az_css_from_string(s: AzString) -> AzCss { css::from_str(s.as_str()).unwrap_or_default() }
 /// Destructor: Takes ownership of the `Css` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_delete(object: &mut AzCss) { }
 /// Clones the object
@@ -3056,7 +3060,7 @@ pub use AzGlContextPtrTT as AzGlContextPtr;
 /// Equivalent to the Rust `GlContextPtr::fence_sync()` function.
 #[no_mangle] pub extern "C" fn az_gl_context_ptr_fence_sync(glcontextptr: &AzGlContextPtr, condition: u32, flags: u32) -> AzGLsyncPtr { glcontextptr.fence_sync(condition, flags) }
 /// Equivalent to the Rust `GlContextPtr::client_wait_sync()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_client_wait_sync(glcontextptr: &AzGlContextPtr, sync: AzGLsyncPtr, flags: u32, timeout: u64) { glcontextptr.client_wait_sync(sync, flags, timeout) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_client_wait_sync(glcontextptr: &AzGlContextPtr, sync: AzGLsyncPtr, flags: u32, timeout: u64) -> u32 { glcontextptr.client_wait_sync(sync, flags, timeout) }
 /// Equivalent to the Rust `GlContextPtr::wait_sync()` function.
 #[no_mangle] pub extern "C" fn az_gl_context_ptr_wait_sync(glcontextptr: &AzGlContextPtr, sync: AzGLsyncPtr, flags: u32, timeout: u64) { glcontextptr.wait_sync(sync, flags, timeout) }
 /// Equivalent to the Rust `GlContextPtr::delete_sync()` function.
@@ -3103,6 +3107,10 @@ pub use AzGlContextPtrTT as AzGlContextPtr;
 #[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_texture_3d_angle(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glcontextptr.copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
 /// Equivalent to the Rust `GlContextPtr::copy_sub_texture_3d_angle()` function.
 #[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_sub_texture_3d_angle(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glcontextptr.copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+/// Equivalent to the Rust `GlContextPtr::buffer_storage()` function.
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_buffer_storage(glcontextptr: &AzGlContextPtr, target: u32, size: isize, data: *const c_void, flags: u32) { glcontextptr.buffer_storage(target, size, data, flags) }
+/// Equivalent to the Rust `GlContextPtr::flush_mapped_buffer_range()` function.
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_flush_mapped_buffer_range(glcontextptr: &AzGlContextPtr, target: u32, offset: isize, length: isize) { glcontextptr.flush_mapped_buffer_range(target, offset, length) }
 /// Destructor: Takes ownership of the `GlContextPtr` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_gl_context_ptr_delete(object: &mut AzGlContextPtr) { }
 /// Clones the object
@@ -3402,6 +3410,22 @@ pub use AzThreadWriteBackMsgTT as AzThreadWriteBackMsg;
 pub type AzThreadIdTT = azul_impl::task::ThreadId;
 pub use AzThreadIdTT as AzThreadId;
 
+/// Re-export of rust-allocated (stack based) `RendererOptions` struct
+pub type AzRendererOptionsTT = azul_impl::window::RendererOptions;
+pub use AzRendererOptionsTT as AzRendererOptions;
+
+/// Re-export of rust-allocated (stack based) `Vsync` struct
+pub type AzVsyncTT = azul_impl::window::Vsync;
+pub use AzVsyncTT as AzVsync;
+
+/// Re-export of rust-allocated (stack based) `Srgb` struct
+pub type AzSrgbTT = azul_impl::window::Srgb;
+pub use AzSrgbTT as AzSrgb;
+
+/// Re-export of rust-allocated (stack based) `HwAcceleration` struct
+pub type AzHwAccelerationTT = azul_impl::window::HwAcceleration;
+pub use AzHwAccelerationTT as AzHwAcceleration;
+
 /// Re-export of rust-allocated (stack based) `LayoutPoint` struct
 pub type AzLayoutPointTT = azul_impl::css::LayoutPoint;
 pub use AzLayoutPointTT as AzLayoutPoint;
@@ -3582,11 +3606,6 @@ pub use AzWaylandThemeTT as AzWaylandTheme;
 /// Re-export of rust-allocated (stack based) `RendererType` struct
 pub type AzRendererTypeTT = azul_impl::window::RendererType;
 pub use AzRendererTypeTT as AzRendererType;
-/// Destructor: Takes ownership of the `RendererType` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_renderer_type_delete(object: &mut AzRendererType) { match object { azul_impl::window::RendererType::Default => { }, azul_impl::window::RendererType::ForceHardware => { }, azul_impl::window::RendererType::ForceSoftware => { }, azul_impl::window::RendererType::Custom(_) => { }, }
-}
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_renderer_type_deep_copy(object: &AzRendererType) -> AzRendererType { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `StringPair` struct
 pub type AzStringPairTT = azul_impl::window::AzStringPair;
@@ -3919,6 +3938,11 @@ mod test_sizes {
         pub(crate) ptr: *mut AzNodeData,
         pub len: usize,
         pub cap: usize,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionRendererType` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionRendererType {
+        None,
+        Some(AzRendererType),
     }
     /// Re-export of rust-allocated (stack based) `OptionCallback` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionCallback {
@@ -6747,6 +6771,27 @@ mod test_sizes {
     #[repr(C)] #[derive(Debug)] pub struct AzThreadId {
         pub id: usize,
     }
+    /// Re-export of rust-allocated (stack based) `RendererOptions` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzRendererOptions {
+        pub vsync: AzVsync,
+        pub srgb: AzSrgb,
+        pub hw_accel: AzHwAcceleration,
+    }
+    /// Re-export of rust-allocated (stack based) `Vsync` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzVsync {
+        Enabled,
+        Disabled,
+    }
+    /// Re-export of rust-allocated (stack based) `Srgb` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzSrgb {
+        Enabled,
+        Disabled,
+    }
+    /// Re-export of rust-allocated (stack based) `HwAcceleration` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzHwAcceleration {
+        Enabled,
+        Disabled,
+    }
     /// Re-export of rust-allocated (stack based) `LayoutPoint` struct
     #[repr(C)] #[derive(Debug)] pub struct AzLayoutPoint {
         pub x: isize,
@@ -7077,12 +7122,26 @@ mod test_sizes {
         pub gpu_sample_queries: bool,
         pub disable_batching: bool,
         pub epochs: bool,
-        pub compact_profiler: bool,
         pub echo_driver_messages: bool,
-        pub new_frame_indicator: bool,
-        pub new_scene_indicator: bool,
         pub show_overdraw: bool,
         pub gpu_cache_dbg: bool,
+        pub texture_cache_dbg_clear_evicted: bool,
+        pub picture_caching_dbg: bool,
+        pub primitive_dbg: bool,
+        pub zoom_dbg: bool,
+        pub small_screen: bool,
+        pub disable_opaque_pass: bool,
+        pub disable_alpha_pass: bool,
+        pub disable_clip_masks: bool,
+        pub disable_text_prims: bool,
+        pub disable_gradient_prims: bool,
+        pub obscure_images: bool,
+        pub glyph_flashing: bool,
+        pub smart_profiler: bool,
+        pub invalidation_dbg: bool,
+        pub tile_cache_logging_dbg: bool,
+        pub profiler_capture: bool,
+        pub force_picture_invalidation: bool,
     }
     /// Re-export of rust-allocated (stack based) `KeyboardState` struct
     #[repr(C)] #[derive(Debug)] pub struct AzKeyboardState {
@@ -7182,11 +7241,9 @@ mod test_sizes {
         pub minimize_button_color_disabled: [u8;4],
     }
     /// Re-export of rust-allocated (stack based) `RendererType` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzRendererType {
-        Default,
-        ForceHardware,
-        ForceSoftware,
-        Custom(AzGlContextPtr),
+    #[repr(C)] #[derive(Debug)] pub enum AzRendererType {
+        Hardware,
+        Software,
     }
     /// Re-export of rust-allocated (stack based) `StringPair` struct
     #[repr(C)] #[derive(Debug)] pub struct AzStringPair {
@@ -7255,6 +7312,7 @@ mod test_sizes {
         pub touch_state: AzTouchState,
         pub ime_position: AzImePosition,
         pub platform_specific_options: AzPlatformSpecificOptions,
+        pub renderer_options: AzRendererOptions,
         pub background_color: AzColorU,
         pub layout_callback: AzLayoutCallback,
         pub close_callback: AzOptionCallback,
@@ -7267,7 +7325,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
     #[repr(C)] #[derive(Debug)] pub struct AzWindowCreateOptions {
         pub state: AzWindowState,
-        pub renderer_type: AzRendererType,
+        pub renderer_type: AzOptionRendererType,
         pub theme: AzOptionWindowTheme,
         pub create_callback: AzOptionCallback,
     }
@@ -7311,6 +7369,7 @@ mod test_sizes {
         assert_eq!(Layout::new::<azul_impl::styled_dom::TagIdsToNodeIdsMappingVec>(), Layout::new::<AzTagIdsToNodeIdsMappingVec>());
         assert_eq!(Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), Layout::new::<AzParentWithNodeDepthVec>());
         assert_eq!(Layout::new::<azul_impl::styled_dom::NodeDataVec>(), Layout::new::<AzNodeDataVec>());
+        assert_eq!(Layout::new::<azul_impl::window::OptionRendererType>(), Layout::new::<AzOptionRendererType>());
         assert_eq!(Layout::new::<azul_impl::callbacks::OptionCallback>(), Layout::new::<AzOptionCallback>());
         assert_eq!(Layout::new::<azul_impl::task::OptionThreadSendMsg>(), Layout::new::<AzOptionThreadSendMsg>());
         assert_eq!(Layout::new::<azul_impl::css::OptionLayoutRect>(), Layout::new::<AzOptionLayoutRect>());
@@ -7728,6 +7787,10 @@ mod test_sizes {
         assert_eq!(Layout::new::<azul_impl::task::ThreadReceiveMsg>(), Layout::new::<AzThreadReceiveMsg>());
         assert_eq!(Layout::new::<azul_impl::task::ThreadWriteBackMsg>(), Layout::new::<AzThreadWriteBackMsg>());
         assert_eq!(Layout::new::<azul_impl::task::ThreadId>(), Layout::new::<AzThreadId>());
+        assert_eq!(Layout::new::<azul_impl::window::RendererOptions>(), Layout::new::<AzRendererOptions>());
+        assert_eq!(Layout::new::<azul_impl::window::Vsync>(), Layout::new::<AzVsync>());
+        assert_eq!(Layout::new::<azul_impl::window::Srgb>(), Layout::new::<AzSrgb>());
+        assert_eq!(Layout::new::<azul_impl::window::HwAcceleration>(), Layout::new::<AzHwAcceleration>());
         assert_eq!(Layout::new::<azul_impl::css::LayoutPoint>(), Layout::new::<AzLayoutPoint>());
         assert_eq!(Layout::new::<azul_impl::css::LayoutSize>(), Layout::new::<AzLayoutSize>());
         assert_eq!(Layout::new::<azul_impl::css::LayoutRect>(), Layout::new::<AzLayoutRect>());

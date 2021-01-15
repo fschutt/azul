@@ -406,7 +406,7 @@ const fn tag(chars: [u8; 4]) -> u32 {
 #[allow(dead_code)]
 pub fn estimate_script_and_language(text: &str) -> (u32, u32) {
 
-    use allsorts::tag;
+    use allsorts::tag as tag_mod;
     use whatlang::{Script, Lang};
 
     // https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags
@@ -586,7 +586,7 @@ pub fn estimate_script_and_language(text: &str) -> (u32, u32) {
         .map(|info| (info.lang(), info.script()))
         .unwrap_or((Lang::Eng, Script::Latin));
 
-    let lang = tag::from_string(&lang.code().to_string().to_uppercase()).unwrap();
+    let lang = tag_mod::from_string(&lang.code().to_string().to_uppercase()).unwrap();
 
     let script = match script {
         Script::Arabic          => TAG_ARAB,

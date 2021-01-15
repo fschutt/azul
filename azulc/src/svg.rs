@@ -679,11 +679,9 @@ impl Default for SvgParseOptions {
 
 impl From<SvgParseOptions> for usvg::Options {
     fn from(e: SvgParseOptions) -> usvg::Options {
-        use usvg::SystemFontDB;
-        use std::path::PathBuf;
 
         let mut options = usvg::Options {
-            path: e.relative_image_path.into_option().map(|e| { let p: String = e.clone().into(); PathBuf::from(p) }),
+            // path: e.relative_image_path.into_option().map(|e| { let p: String = e.clone().into(); PathBuf::from(p) }),
             dpi: e.dpi as f64,
             font_family: e.default_font_family.clone().into(),
             font_size: e.font_size.into(),
@@ -695,10 +693,16 @@ impl From<SvgParseOptions> for usvg::Options {
             .. usvg::Options::default()
         };
 
+        /*
+        // only available with
+        use usvg::SystemFontDB;
+        use std::path::PathBuf;
+
         match e.fontdb {
             FontDatabase::Empty => { },
             FontDatabase::System => { options.fontdb.load_system_fonts(); },
         }
+        */
 
         options
     }
@@ -884,7 +888,7 @@ fn decode_raster_glyph_image(i: owned_ttf_parser::RasterGlyphImage) -> Option<Ra
     use image_crate::GenericImage;
 
     let decoded = image_crate::load_from_memory_with_format(i.data, image_crate::ImageFormat::Png).ok()?;
-    let mut decoded = decoded.into_rgba();
+    let mut decoded = decoded.into_rgba8();
     let sub = decoded.sub_image(i.x.max(0) as u32, i.y.max(0) as u32, i.width as u32, i.height as u32).to_image();
     let sub_width = sub.width() as usize;
     let sub_height = sub.height() as usize;

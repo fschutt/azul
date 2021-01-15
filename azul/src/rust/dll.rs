@@ -252,6 +252,11 @@
         pub len: usize,
         pub cap: usize,
     }
+    /// Re-export of rust-allocated (stack based) `OptionRendererType` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionRendererType {
+        None,
+        Some(AzRendererType),
+    }
     /// Re-export of rust-allocated (stack based) `OptionCallback` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionCallback {
         None,
@@ -3079,6 +3084,27 @@
     #[repr(C)] #[derive(Debug)] pub struct AzThreadId {
         pub id: usize,
     }
+    /// Re-export of rust-allocated (stack based) `RendererOptions` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzRendererOptions {
+        pub vsync: AzVsync,
+        pub srgb: AzSrgb,
+        pub hw_accel: AzHwAcceleration,
+    }
+    /// Re-export of rust-allocated (stack based) `Vsync` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzVsync {
+        Enabled,
+        Disabled,
+    }
+    /// Re-export of rust-allocated (stack based) `Srgb` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzSrgb {
+        Enabled,
+        Disabled,
+    }
+    /// Re-export of rust-allocated (stack based) `HwAcceleration` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzHwAcceleration {
+        Enabled,
+        Disabled,
+    }
     /// Re-export of rust-allocated (stack based) `LayoutPoint` struct
     #[repr(C)] #[derive(Debug)] pub struct AzLayoutPoint {
         pub x: isize,
@@ -3409,12 +3435,26 @@
         pub gpu_sample_queries: bool,
         pub disable_batching: bool,
         pub epochs: bool,
-        pub compact_profiler: bool,
         pub echo_driver_messages: bool,
-        pub new_frame_indicator: bool,
-        pub new_scene_indicator: bool,
         pub show_overdraw: bool,
         pub gpu_cache_dbg: bool,
+        pub texture_cache_dbg_clear_evicted: bool,
+        pub picture_caching_dbg: bool,
+        pub primitive_dbg: bool,
+        pub zoom_dbg: bool,
+        pub small_screen: bool,
+        pub disable_opaque_pass: bool,
+        pub disable_alpha_pass: bool,
+        pub disable_clip_masks: bool,
+        pub disable_text_prims: bool,
+        pub disable_gradient_prims: bool,
+        pub obscure_images: bool,
+        pub glyph_flashing: bool,
+        pub smart_profiler: bool,
+        pub invalidation_dbg: bool,
+        pub tile_cache_logging_dbg: bool,
+        pub profiler_capture: bool,
+        pub force_picture_invalidation: bool,
     }
     /// Re-export of rust-allocated (stack based) `KeyboardState` struct
     #[repr(C)] #[derive(Debug)] pub struct AzKeyboardState {
@@ -3514,11 +3554,9 @@
         pub minimize_button_color_disabled: [u8;4],
     }
     /// Re-export of rust-allocated (stack based) `RendererType` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzRendererType {
-        Default,
-        ForceHardware,
-        ForceSoftware,
-        Custom(AzGlContextPtr),
+    #[repr(C)] #[derive(Debug)] pub enum AzRendererType {
+        Hardware,
+        Software,
     }
     /// Re-export of rust-allocated (stack based) `StringPair` struct
     #[repr(C)] #[derive(Debug)] pub struct AzStringPair {
@@ -3587,6 +3625,7 @@
         pub touch_state: AzTouchState,
         pub ime_position: AzImePosition,
         pub platform_specific_options: AzPlatformSpecificOptions,
+        pub renderer_options: AzRendererOptions,
         pub background_color: AzColorU,
         pub layout_callback: AzLayoutCallback,
         pub close_callback: AzOptionCallback,
@@ -3599,2374 +3638,781 @@
     /// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
     #[repr(C)] #[derive(Debug)] pub struct AzWindowCreateOptions {
         pub state: AzWindowState,
-        pub renderer_type: AzRendererType,
+        pub renderer_type: AzOptionRendererType,
         pub theme: AzOptionWindowTheme,
         pub create_callback: AzOptionCallback,
     }
 
 
-    use libloading_mini::Library;
-    pub struct AzulDll {
-        pub lib: Library,
-        pub az_string_from_utf8_unchecked: extern "C" fn(_:  *const u8, _:  usize) -> AzString,
-        pub az_string_from_utf8_lossy: extern "C" fn(_:  *const u8, _:  usize) -> AzString,
-        pub az_string_into_bytes: extern "C" fn(_:  AzString) -> AzU8Vec,
-        pub az_string_delete: extern "C" fn(_:  &mut AzString),
-        pub az_string_deep_copy: extern "C" fn(_:  &AzString) -> AzString,
-        pub az_style_transform_vec_new: extern "C" fn() -> AzStyleTransformVec,
-        pub az_style_transform_vec_with_capacity: extern "C" fn(_:  usize) -> AzStyleTransformVec,
-        pub az_style_transform_vec_copy_from: extern "C" fn(_:  *const AzStyleTransform, _:  usize) -> AzStyleTransformVec,
-        pub az_style_transform_vec_delete: extern "C" fn(_:  &mut AzStyleTransformVec),
-        pub az_style_transform_vec_deep_copy: extern "C" fn(_:  &AzStyleTransformVec) -> AzStyleTransformVec,
-        pub az_content_group_vec_new: extern "C" fn() -> AzContentGroupVec,
-        pub az_content_group_vec_with_capacity: extern "C" fn(_:  usize) -> AzContentGroupVec,
-        pub az_content_group_vec_copy_from: extern "C" fn(_:  *const AzContentGroup, _:  usize) -> AzContentGroupVec,
-        pub az_content_group_vec_delete: extern "C" fn(_:  &mut AzContentGroupVec),
-        pub az_content_group_vec_deep_copy: extern "C" fn(_:  &AzContentGroupVec) -> AzContentGroupVec,
-        pub az_css_property_vec_new: extern "C" fn() -> AzCssPropertyVec,
-        pub az_css_property_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssPropertyVec,
-        pub az_css_property_vec_copy_from: extern "C" fn(_:  *const AzCssProperty, _:  usize) -> AzCssPropertyVec,
-        pub az_css_property_vec_delete: extern "C" fn(_:  &mut AzCssPropertyVec),
-        pub az_css_property_vec_deep_copy: extern "C" fn(_:  &AzCssPropertyVec) -> AzCssPropertyVec,
-        pub az_svg_multi_polygon_vec_new: extern "C" fn() -> AzSvgMultiPolygonVec,
-        pub az_svg_multi_polygon_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgMultiPolygonVec,
-        pub az_svg_multi_polygon_vec_copy_from: extern "C" fn(_:  *const AzSvgMultiPolygon, _:  usize) -> AzSvgMultiPolygonVec,
-        pub az_svg_multi_polygon_vec_delete: extern "C" fn(_:  &mut AzSvgMultiPolygonVec),
-        pub az_svg_multi_polygon_vec_deep_copy: extern "C" fn(_:  &AzSvgMultiPolygonVec) -> AzSvgMultiPolygonVec,
-        pub az_svg_path_vec_new: extern "C" fn() -> AzSvgPathVec,
-        pub az_svg_path_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgPathVec,
-        pub az_svg_path_vec_copy_from: extern "C" fn(_:  *const AzSvgPath, _:  usize) -> AzSvgPathVec,
-        pub az_svg_path_vec_delete: extern "C" fn(_:  &mut AzSvgPathVec),
-        pub az_svg_path_vec_deep_copy: extern "C" fn(_:  &AzSvgPathVec) -> AzSvgPathVec,
-        pub az_vertex_attribute_vec_new: extern "C" fn() -> AzVertexAttributeVec,
-        pub az_vertex_attribute_vec_with_capacity: extern "C" fn(_:  usize) -> AzVertexAttributeVec,
-        pub az_vertex_attribute_vec_copy_from: extern "C" fn(_:  *const AzVertexAttribute, _:  usize) -> AzVertexAttributeVec,
-        pub az_vertex_attribute_vec_delete: extern "C" fn(_:  &mut AzVertexAttributeVec),
-        pub az_vertex_attribute_vec_deep_copy: extern "C" fn(_:  &AzVertexAttributeVec) -> AzVertexAttributeVec,
-        pub az_svg_path_element_vec_new: extern "C" fn() -> AzSvgPathElementVec,
-        pub az_svg_path_element_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgPathElementVec,
-        pub az_svg_path_element_vec_copy_from: extern "C" fn(_:  *const AzSvgPathElement, _:  usize) -> AzSvgPathElementVec,
-        pub az_svg_path_element_vec_delete: extern "C" fn(_:  &mut AzSvgPathElementVec),
-        pub az_svg_path_element_vec_deep_copy: extern "C" fn(_:  &AzSvgPathElementVec) -> AzSvgPathElementVec,
-        pub az_svg_vertex_vec_new: extern "C" fn() -> AzSvgVertexVec,
-        pub az_svg_vertex_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgVertexVec,
-        pub az_svg_vertex_vec_copy_from: extern "C" fn(_:  *const AzSvgVertex, _:  usize) -> AzSvgVertexVec,
-        pub az_svg_vertex_vec_delete: extern "C" fn(_:  &mut AzSvgVertexVec),
-        pub az_svg_vertex_vec_deep_copy: extern "C" fn(_:  &AzSvgVertexVec) -> AzSvgVertexVec,
-        pub az_u32_vec_new: extern "C" fn() -> AzU32Vec,
-        pub az_u32_vec_with_capacity: extern "C" fn(_:  usize) -> AzU32Vec,
-        pub az_u32_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzU32Vec,
-        pub az_u32_vec_delete: extern "C" fn(_:  &mut AzU32Vec),
-        pub az_u32_vec_deep_copy: extern "C" fn(_:  &AzU32Vec) -> AzU32Vec,
-        pub az_x_window_type_vec_new: extern "C" fn() -> AzXWindowTypeVec,
-        pub az_x_window_type_vec_with_capacity: extern "C" fn(_:  usize) -> AzXWindowTypeVec,
-        pub az_x_window_type_vec_copy_from: extern "C" fn(_:  *const AzXWindowType, _:  usize) -> AzXWindowTypeVec,
-        pub az_x_window_type_vec_delete: extern "C" fn(_:  &mut AzXWindowTypeVec),
-        pub az_x_window_type_vec_deep_copy: extern "C" fn(_:  &AzXWindowTypeVec) -> AzXWindowTypeVec,
-        pub az_virtual_key_code_vec_new: extern "C" fn() -> AzVirtualKeyCodeVec,
-        pub az_virtual_key_code_vec_with_capacity: extern "C" fn(_:  usize) -> AzVirtualKeyCodeVec,
-        pub az_virtual_key_code_vec_copy_from: extern "C" fn(_:  *const AzVirtualKeyCode, _:  usize) -> AzVirtualKeyCodeVec,
-        pub az_virtual_key_code_vec_delete: extern "C" fn(_:  &mut AzVirtualKeyCodeVec),
-        pub az_virtual_key_code_vec_deep_copy: extern "C" fn(_:  &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec,
-        pub az_cascade_info_vec_new: extern "C" fn() -> AzCascadeInfoVec,
-        pub az_cascade_info_vec_with_capacity: extern "C" fn(_:  usize) -> AzCascadeInfoVec,
-        pub az_cascade_info_vec_copy_from: extern "C" fn(_:  *const AzCascadeInfo, _:  usize) -> AzCascadeInfoVec,
-        pub az_cascade_info_vec_delete: extern "C" fn(_:  &mut AzCascadeInfoVec),
-        pub az_cascade_info_vec_deep_copy: extern "C" fn(_:  &AzCascadeInfoVec) -> AzCascadeInfoVec,
-        pub az_scan_code_vec_new: extern "C" fn() -> AzScanCodeVec,
-        pub az_scan_code_vec_with_capacity: extern "C" fn(_:  usize) -> AzScanCodeVec,
-        pub az_scan_code_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzScanCodeVec,
-        pub az_scan_code_vec_delete: extern "C" fn(_:  &mut AzScanCodeVec),
-        pub az_scan_code_vec_deep_copy: extern "C" fn(_:  &AzScanCodeVec) -> AzScanCodeVec,
-        pub az_css_declaration_vec_new: extern "C" fn() -> AzCssDeclarationVec,
-        pub az_css_declaration_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssDeclarationVec,
-        pub az_css_declaration_vec_copy_from: extern "C" fn(_:  *const AzCssDeclaration, _:  usize) -> AzCssDeclarationVec,
-        pub az_css_declaration_vec_delete: extern "C" fn(_:  &mut AzCssDeclarationVec),
-        pub az_css_declaration_vec_deep_copy: extern "C" fn(_:  &AzCssDeclarationVec) -> AzCssDeclarationVec,
-        pub az_css_path_selector_vec_new: extern "C" fn() -> AzCssPathSelectorVec,
-        pub az_css_path_selector_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssPathSelectorVec,
-        pub az_css_path_selector_vec_copy_from: extern "C" fn(_:  *const AzCssPathSelector, _:  usize) -> AzCssPathSelectorVec,
-        pub az_css_path_selector_vec_delete: extern "C" fn(_:  &mut AzCssPathSelectorVec),
-        pub az_css_path_selector_vec_deep_copy: extern "C" fn(_:  &AzCssPathSelectorVec) -> AzCssPathSelectorVec,
-        pub az_stylesheet_vec_new: extern "C" fn() -> AzStylesheetVec,
-        pub az_stylesheet_vec_with_capacity: extern "C" fn(_:  usize) -> AzStylesheetVec,
-        pub az_stylesheet_vec_copy_from: extern "C" fn(_:  *const AzStylesheet, _:  usize) -> AzStylesheetVec,
-        pub az_stylesheet_vec_delete: extern "C" fn(_:  &mut AzStylesheetVec),
-        pub az_stylesheet_vec_deep_copy: extern "C" fn(_:  &AzStylesheetVec) -> AzStylesheetVec,
-        pub az_css_rule_block_vec_new: extern "C" fn() -> AzCssRuleBlockVec,
-        pub az_css_rule_block_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssRuleBlockVec,
-        pub az_css_rule_block_vec_copy_from: extern "C" fn(_:  *const AzCssRuleBlock, _:  usize) -> AzCssRuleBlockVec,
-        pub az_css_rule_block_vec_delete: extern "C" fn(_:  &mut AzCssRuleBlockVec),
-        pub az_css_rule_block_vec_deep_copy: extern "C" fn(_:  &AzCssRuleBlockVec) -> AzCssRuleBlockVec,
-        pub az_u8_vec_new: extern "C" fn() -> AzU8Vec,
-        pub az_u8_vec_with_capacity: extern "C" fn(_:  usize) -> AzU8Vec,
-        pub az_u8_vec_copy_from: extern "C" fn(_:  *const u8, _:  usize) -> AzU8Vec,
-        pub az_u8_vec_delete: extern "C" fn(_:  &mut AzU8Vec),
-        pub az_u8_vec_deep_copy: extern "C" fn(_:  &AzU8Vec) -> AzU8Vec,
-        pub az_callback_data_vec_new: extern "C" fn() -> AzCallbackDataVec,
-        pub az_callback_data_vec_with_capacity: extern "C" fn(_:  usize) -> AzCallbackDataVec,
-        pub az_callback_data_vec_copy_from: extern "C" fn(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec,
-        pub az_callback_data_vec_delete: extern "C" fn(_:  &mut AzCallbackDataVec),
-        pub az_callback_data_vec_deep_copy: extern "C" fn(_:  &AzCallbackDataVec) -> AzCallbackDataVec,
-        pub az_debug_message_vec_new: extern "C" fn() -> AzDebugMessageVec,
-        pub az_debug_message_vec_with_capacity: extern "C" fn(_:  usize) -> AzDebugMessageVec,
-        pub az_debug_message_vec_copy_from: extern "C" fn(_:  *const AzDebugMessage, _:  usize) -> AzDebugMessageVec,
-        pub az_debug_message_vec_delete: extern "C" fn(_:  &mut AzDebugMessageVec),
-        pub az_debug_message_vec_deep_copy: extern "C" fn(_:  &AzDebugMessageVec) -> AzDebugMessageVec,
-        pub az_g_luint_vec_new: extern "C" fn() -> AzGLuintVec,
-        pub az_g_luint_vec_with_capacity: extern "C" fn(_:  usize) -> AzGLuintVec,
-        pub az_g_luint_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzGLuintVec,
-        pub az_g_luint_vec_delete: extern "C" fn(_:  &mut AzGLuintVec),
-        pub az_g_luint_vec_deep_copy: extern "C" fn(_:  &AzGLuintVec) -> AzGLuintVec,
-        pub az_g_lint_vec_new: extern "C" fn() -> AzGLintVec,
-        pub az_g_lint_vec_with_capacity: extern "C" fn(_:  usize) -> AzGLintVec,
-        pub az_g_lint_vec_copy_from: extern "C" fn(_:  *const i32, _:  usize) -> AzGLintVec,
-        pub az_g_lint_vec_delete: extern "C" fn(_:  &mut AzGLintVec),
-        pub az_g_lint_vec_deep_copy: extern "C" fn(_:  &AzGLintVec) -> AzGLintVec,
-        pub az_dom_vec_new: extern "C" fn() -> AzDomVec,
-        pub az_dom_vec_with_capacity: extern "C" fn(_:  usize) -> AzDomVec,
-        pub az_dom_vec_copy_from: extern "C" fn(_:  *const AzDom, _:  usize) -> AzDomVec,
-        pub az_dom_vec_delete: extern "C" fn(_:  &mut AzDomVec),
-        pub az_dom_vec_deep_copy: extern "C" fn(_:  &AzDomVec) -> AzDomVec,
-        pub az_string_vec_new: extern "C" fn() -> AzStringVec,
-        pub az_string_vec_with_capacity: extern "C" fn(_:  usize) -> AzStringVec,
-        pub az_string_vec_copy_from: extern "C" fn(_:  *const AzString, _:  usize) -> AzStringVec,
-        pub az_string_vec_delete: extern "C" fn(_:  &mut AzStringVec),
-        pub az_string_vec_deep_copy: extern "C" fn(_:  &AzStringVec) -> AzStringVec,
-        pub az_string_pair_vec_new: extern "C" fn() -> AzStringPairVec,
-        pub az_string_pair_vec_with_capacity: extern "C" fn(_:  usize) -> AzStringPairVec,
-        pub az_string_pair_vec_copy_from: extern "C" fn(_:  *const AzStringPair, _:  usize) -> AzStringPairVec,
-        pub az_string_pair_vec_delete: extern "C" fn(_:  &mut AzStringPairVec),
-        pub az_string_pair_vec_deep_copy: extern "C" fn(_:  &AzStringPairVec) -> AzStringPairVec,
-        pub az_gradient_stop_pre_vec_new: extern "C" fn() -> AzGradientStopPreVec,
-        pub az_gradient_stop_pre_vec_with_capacity: extern "C" fn(_:  usize) -> AzGradientStopPreVec,
-        pub az_gradient_stop_pre_vec_copy_from: extern "C" fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec,
-        pub az_gradient_stop_pre_vec_delete: extern "C" fn(_:  &mut AzGradientStopPreVec),
-        pub az_gradient_stop_pre_vec_deep_copy: extern "C" fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec,
-        pub az_cascaded_css_property_with_source_vec_new: extern "C" fn() -> AzCascadedCssPropertyWithSourceVec,
-        pub az_cascaded_css_property_with_source_vec_with_capacity: extern "C" fn(_:  usize) -> AzCascadedCssPropertyWithSourceVec,
-        pub az_cascaded_css_property_with_source_vec_copy_from: extern "C" fn(_:  *const AzCascadedCssPropertyWithSource, _:  usize) -> AzCascadedCssPropertyWithSourceVec,
-        pub az_cascaded_css_property_with_source_vec_delete: extern "C" fn(_:  &mut AzCascadedCssPropertyWithSourceVec),
-        pub az_cascaded_css_property_with_source_vec_deep_copy: extern "C" fn(_:  &AzCascadedCssPropertyWithSourceVec) -> AzCascadedCssPropertyWithSourceVec,
-        pub az_node_id_vec_new: extern "C" fn() -> AzNodeIdVec,
-        pub az_node_id_vec_with_capacity: extern "C" fn(_:  usize) -> AzNodeIdVec,
-        pub az_node_id_vec_copy_from: extern "C" fn(_:  *const AzNodeId, _:  usize) -> AzNodeIdVec,
-        pub az_node_id_vec_delete: extern "C" fn(_:  &mut AzNodeIdVec),
-        pub az_node_id_vec_deep_copy: extern "C" fn(_:  &AzNodeIdVec) -> AzNodeIdVec,
-        pub az_node_vec_new: extern "C" fn() -> AzNodeVec,
-        pub az_node_vec_with_capacity: extern "C" fn(_:  usize) -> AzNodeVec,
-        pub az_node_vec_copy_from: extern "C" fn(_:  *const AzNode, _:  usize) -> AzNodeVec,
-        pub az_node_vec_delete: extern "C" fn(_:  &mut AzNodeVec),
-        pub az_node_vec_deep_copy: extern "C" fn(_:  &AzNodeVec) -> AzNodeVec,
-        pub az_styled_node_vec_new: extern "C" fn() -> AzStyledNodeVec,
-        pub az_styled_node_vec_with_capacity: extern "C" fn(_:  usize) -> AzStyledNodeVec,
-        pub az_styled_node_vec_copy_from: extern "C" fn(_:  *const AzStyledNode, _:  usize) -> AzStyledNodeVec,
-        pub az_styled_node_vec_delete: extern "C" fn(_:  &mut AzStyledNodeVec),
-        pub az_styled_node_vec_deep_copy: extern "C" fn(_:  &AzStyledNodeVec) -> AzStyledNodeVec,
-        pub az_tag_ids_to_node_ids_mapping_vec_new: extern "C" fn() -> AzTagIdsToNodeIdsMappingVec,
-        pub az_tag_ids_to_node_ids_mapping_vec_with_capacity: extern "C" fn(_:  usize) -> AzTagIdsToNodeIdsMappingVec,
-        pub az_tag_ids_to_node_ids_mapping_vec_copy_from: extern "C" fn(_:  *const AzTagIdToNodeIdMapping, _:  usize) -> AzTagIdsToNodeIdsMappingVec,
-        pub az_tag_ids_to_node_ids_mapping_vec_delete: extern "C" fn(_:  &mut AzTagIdsToNodeIdsMappingVec),
-        pub az_tag_ids_to_node_ids_mapping_vec_deep_copy: extern "C" fn(_:  &AzTagIdsToNodeIdsMappingVec) -> AzTagIdsToNodeIdsMappingVec,
-        pub az_parent_with_node_depth_vec_new: extern "C" fn() -> AzParentWithNodeDepthVec,
-        pub az_parent_with_node_depth_vec_with_capacity: extern "C" fn(_:  usize) -> AzParentWithNodeDepthVec,
-        pub az_parent_with_node_depth_vec_copy_from: extern "C" fn(_:  *const AzParentWithNodeDepth, _:  usize) -> AzParentWithNodeDepthVec,
-        pub az_parent_with_node_depth_vec_delete: extern "C" fn(_:  &mut AzParentWithNodeDepthVec),
-        pub az_parent_with_node_depth_vec_deep_copy: extern "C" fn(_:  &AzParentWithNodeDepthVec) -> AzParentWithNodeDepthVec,
-        pub az_node_data_vec_new: extern "C" fn() -> AzNodeDataVec,
-        pub az_node_data_vec_with_capacity: extern "C" fn(_:  usize) -> AzNodeDataVec,
-        pub az_node_data_vec_copy_from: extern "C" fn(_:  *const AzNodeData, _:  usize) -> AzNodeDataVec,
-        pub az_node_data_vec_delete: extern "C" fn(_:  &mut AzNodeDataVec),
-        pub az_node_data_vec_deep_copy: extern "C" fn(_:  &AzNodeDataVec) -> AzNodeDataVec,
-        pub az_option_ref_any_delete: extern "C" fn(_:  &mut AzOptionRefAny),
-        pub az_option_ref_any_deep_copy: extern "C" fn(_:  &AzOptionRefAny) -> AzOptionRefAny,
-        pub az_option_style_transform_vec_value_delete: extern "C" fn(_:  &mut AzOptionStyleTransformVecValue),
-        pub az_option_style_transform_vec_value_deep_copy: extern "C" fn(_:  &AzOptionStyleTransformVecValue) -> AzOptionStyleTransformVecValue,
-        pub az_option_raw_image_delete: extern "C" fn(_:  &mut AzOptionRawImage),
-        pub az_option_raw_image_deep_copy: extern "C" fn(_:  &AzOptionRawImage) -> AzOptionRawImage,
-        pub az_option_wayland_theme_delete: extern "C" fn(_:  &mut AzOptionWaylandTheme),
-        pub az_option_wayland_theme_deep_copy: extern "C" fn(_:  &AzOptionWaylandTheme) -> AzOptionWaylandTheme,
-        pub az_option_task_bar_icon_delete: extern "C" fn(_:  &mut AzOptionTaskBarIcon),
-        pub az_option_task_bar_icon_deep_copy: extern "C" fn(_:  &AzOptionTaskBarIcon) -> AzOptionTaskBarIcon,
-        pub az_option_window_icon_delete: extern "C" fn(_:  &mut AzOptionWindowIcon),
-        pub az_option_window_icon_deep_copy: extern "C" fn(_:  &AzOptionWindowIcon) -> AzOptionWindowIcon,
-        pub az_option_string_delete: extern "C" fn(_:  &mut AzOptionString),
-        pub az_option_string_deep_copy: extern "C" fn(_:  &AzOptionString) -> AzOptionString,
-        pub az_option_dom_delete: extern "C" fn(_:  &mut AzOptionDom),
-        pub az_option_dom_deep_copy: extern "C" fn(_:  &AzOptionDom) -> AzOptionDom,
-        pub az_option_texture_delete: extern "C" fn(_:  &mut AzOptionTexture),
-        pub az_option_image_mask_delete: extern "C" fn(_:  &mut AzOptionImageMask),
-        pub az_option_image_mask_deep_copy: extern "C" fn(_:  &AzOptionImageMask) -> AzOptionImageMask,
-        pub az_option_style_background_content_value_delete: extern "C" fn(_:  &mut AzOptionStyleBackgroundContentValue),
-        pub az_option_style_background_content_value_deep_copy: extern "C" fn(_:  &AzOptionStyleBackgroundContentValue) -> AzOptionStyleBackgroundContentValue,
-        pub az_option_style_font_family_value_delete: extern "C" fn(_:  &mut AzOptionStyleFontFamilyValue),
-        pub az_option_style_font_family_value_deep_copy: extern "C" fn(_:  &AzOptionStyleFontFamilyValue) -> AzOptionStyleFontFamilyValue,
-        pub az_option_box_shadow_pre_display_item_value_delete: extern "C" fn(_:  &mut AzOptionBoxShadowPreDisplayItemValue),
-        pub az_option_box_shadow_pre_display_item_value_deep_copy: extern "C" fn(_:  &AzOptionBoxShadowPreDisplayItemValue) -> AzOptionBoxShadowPreDisplayItemValue,
-        pub az_option_instant_ptr_delete: extern "C" fn(_:  &mut AzOptionInstantPtr),
-        pub az_option_instant_ptr_deep_copy: extern "C" fn(_:  &AzOptionInstantPtr) -> AzOptionInstantPtr,
-        pub az_option_u8_vec_ref_delete: extern "C" fn(_:  &mut AzOptionU8VecRef),
-        pub az_result_svg_svg_parse_error_delete: extern "C" fn(_:  &mut AzResultSvgSvgParseError),
-        pub az_result_svg_svg_parse_error_deep_copy: extern "C" fn(_:  &AzResultSvgSvgParseError) -> AzResultSvgSvgParseError,
-        pub az_svg_parse_error_delete: extern "C" fn(_:  &mut AzSvgParseError),
-        pub az_svg_parse_error_deep_copy: extern "C" fn(_:  &AzSvgParseError) -> AzSvgParseError,
-        pub az_xml_error_delete: extern "C" fn(_:  &mut AzXmlError),
-        pub az_xml_error_deep_copy: extern "C" fn(_:  &AzXmlError) -> AzXmlError,
-        pub az_duplicated_namespace_error_delete: extern "C" fn(_:  &mut AzDuplicatedNamespaceError),
-        pub az_duplicated_namespace_error_deep_copy: extern "C" fn(_:  &AzDuplicatedNamespaceError) -> AzDuplicatedNamespaceError,
-        pub az_unknown_namespace_error_delete: extern "C" fn(_:  &mut AzUnknownNamespaceError),
-        pub az_unknown_namespace_error_deep_copy: extern "C" fn(_:  &AzUnknownNamespaceError) -> AzUnknownNamespaceError,
-        pub az_unexpected_close_tag_error_delete: extern "C" fn(_:  &mut AzUnexpectedCloseTagError),
-        pub az_unexpected_close_tag_error_deep_copy: extern "C" fn(_:  &AzUnexpectedCloseTagError) -> AzUnexpectedCloseTagError,
-        pub az_unknown_entity_reference_error_delete: extern "C" fn(_:  &mut AzUnknownEntityReferenceError),
-        pub az_unknown_entity_reference_error_deep_copy: extern "C" fn(_:  &AzUnknownEntityReferenceError) -> AzUnknownEntityReferenceError,
-        pub az_duplicated_attribute_error_delete: extern "C" fn(_:  &mut AzDuplicatedAttributeError),
-        pub az_duplicated_attribute_error_deep_copy: extern "C" fn(_:  &AzDuplicatedAttributeError) -> AzDuplicatedAttributeError,
-        pub az_xml_parse_error_delete: extern "C" fn(_:  &mut AzXmlParseError),
-        pub az_xml_parse_error_deep_copy: extern "C" fn(_:  &AzXmlParseError) -> AzXmlParseError,
-        pub az_xml_text_error_delete: extern "C" fn(_:  &mut AzXmlTextError),
-        pub az_xml_text_error_deep_copy: extern "C" fn(_:  &AzXmlTextError) -> AzXmlTextError,
-        pub az_xml_stream_error_delete: extern "C" fn(_:  &mut AzXmlStreamError),
-        pub az_xml_stream_error_deep_copy: extern "C" fn(_:  &AzXmlStreamError) -> AzXmlStreamError,
-        pub az_invalid_char_multiple_error_delete: extern "C" fn(_:  &mut AzInvalidCharMultipleError),
-        pub az_invalid_char_multiple_error_deep_copy: extern "C" fn(_:  &AzInvalidCharMultipleError) -> AzInvalidCharMultipleError,
-        pub az_invalid_string_error_delete: extern "C" fn(_:  &mut AzInvalidStringError),
-        pub az_invalid_string_error_deep_copy: extern "C" fn(_:  &AzInvalidStringError) -> AzInvalidStringError,
-        pub az_instant_ptr_now: extern "C" fn() -> AzInstantPtr,
-        pub az_instant_ptr_delete: extern "C" fn(_:  &mut AzInstantPtr),
-        pub az_duration_milliseconds: extern "C" fn(_:  usize) -> AzDuration,
-        pub az_duration_seconds: extern "C" fn(_:  usize) -> AzDuration,
-        pub az_app_config_default: extern "C" fn() -> AzAppConfig,
-        pub az_app_config_delete: extern "C" fn(_:  &mut AzAppConfig),
-        pub az_app_config_deep_copy: extern "C" fn(_:  &AzAppConfig) -> AzAppConfig,
-        pub az_app_ptr_new: extern "C" fn(_:  AzRefAny, _:  AzAppConfig) -> AzAppPtr,
-        pub az_app_ptr_add_window: extern "C" fn(_:  &mut AzAppPtr, _:  AzWindowCreateOptions),
-        pub az_app_ptr_run: extern "C" fn(_:  AzAppPtr, _:  AzWindowCreateOptions),
-        pub az_app_ptr_delete: extern "C" fn(_:  &mut AzAppPtr),
-        pub az_hidpi_adjusted_bounds_get_logical_size: extern "C" fn(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize,
-        pub az_hidpi_adjusted_bounds_get_physical_size: extern "C" fn(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32,
-        pub az_hidpi_adjusted_bounds_get_hidpi_factor: extern "C" fn(_:  &AzHidpiAdjustedBounds) -> f32,
-        pub az_focus_target_delete: extern "C" fn(_:  &mut AzFocusTarget),
-        pub az_focus_target_deep_copy: extern "C" fn(_:  &AzFocusTarget) -> AzFocusTarget,
-        pub az_focus_target_path_delete: extern "C" fn(_:  &mut AzFocusTargetPath),
-        pub az_focus_target_path_deep_copy: extern "C" fn(_:  &AzFocusTargetPath) -> AzFocusTargetPath,
-        pub az_callback_info_get_hit_node: extern "C" fn(_:  &AzCallbackInfo) -> AzDomNodeId,
-        pub az_callback_info_get_cursor_relative_to_viewport: extern "C" fn(_:  &AzCallbackInfo) -> AzOptionLayoutPoint,
-        pub az_callback_info_get_cursor_relative_to_node: extern "C" fn(_:  &AzCallbackInfo) -> AzOptionLayoutPoint,
-        pub az_callback_info_get_parent: extern "C" fn(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId,
-        pub az_callback_info_get_previous_sibling: extern "C" fn(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId,
-        pub az_callback_info_get_next_sibling: extern "C" fn(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId,
-        pub az_callback_info_get_first_child: extern "C" fn(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId,
-        pub az_callback_info_get_last_child: extern "C" fn(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId,
-        pub az_callback_info_get_dataset: extern "C" fn(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionRefAny,
-        pub az_callback_info_get_window_state: extern "C" fn(_:  &AzCallbackInfo) -> AzWindowState,
-        pub az_callback_info_get_keyboard_state: extern "C" fn(_:  &AzCallbackInfo) -> AzKeyboardState,
-        pub az_callback_info_get_mouse_state: extern "C" fn(_:  &AzCallbackInfo) -> AzMouseState,
-        pub az_callback_info_get_current_window_handle: extern "C" fn(_:  &AzCallbackInfo) -> AzRawWindowHandle,
-        pub az_callback_info_get_gl_context: extern "C" fn(_:  &AzCallbackInfo) -> AzGlContextPtr,
-        pub az_callback_info_set_window_state: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzWindowState),
-        pub az_callback_info_set_focus: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzFocusTarget),
-        pub az_callback_info_set_css_property: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzCssProperty),
-        pub az_callback_info_stop_propagation: extern "C" fn(_:  &mut AzCallbackInfo),
-        pub az_callback_info_create_window: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzWindowCreateOptions),
-        pub az_callback_info_start_thread: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallbackType),
-        pub az_callback_info_start_timer: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzTimerId, _:  AzTimer),
-        pub az_callback_info_delete: extern "C" fn(_:  &mut AzCallbackInfo),
-        pub az_i_frame_callback_info_get_bounds: extern "C" fn(_:  &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds,
-        pub az_i_frame_callback_info_delete: extern "C" fn(_:  &mut AzIFrameCallbackInfo),
-        pub az_i_frame_callback_return_delete: extern "C" fn(_:  &mut AzIFrameCallbackReturn),
-        pub az_i_frame_callback_return_deep_copy: extern "C" fn(_:  &AzIFrameCallbackReturn) -> AzIFrameCallbackReturn,
-        pub az_gl_callback_info_get_gl_context: extern "C" fn(_:  &AzGlCallbackInfo) -> AzGlContextPtr,
-        pub az_gl_callback_info_delete: extern "C" fn(_:  &mut AzGlCallbackInfo),
-        pub az_gl_callback_return_delete: extern "C" fn(_:  &mut AzGlCallbackReturn),
-        pub az_timer_callback_info_delete: extern "C" fn(_:  &mut AzTimerCallbackInfo),
-        pub az_timer_callback_return_delete: extern "C" fn(_:  &mut AzTimerCallbackReturn),
-        pub az_timer_callback_return_deep_copy: extern "C" fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn,
-        pub az_write_back_callback_delete: extern "C" fn(_:  &mut AzWriteBackCallback),
-        pub az_write_back_callback_deep_copy: extern "C" fn(_:  &AzWriteBackCallback) -> AzWriteBackCallback,
-        pub az_atomic_ref_count_can_be_shared: extern "C" fn(_:  &AzAtomicRefCount) -> bool,
-        pub az_atomic_ref_count_can_be_shared_mut: extern "C" fn(_:  &AzAtomicRefCount) -> bool,
-        pub az_atomic_ref_count_increase_ref: extern "C" fn(_:  &AzAtomicRefCount),
-        pub az_atomic_ref_count_decrease_ref: extern "C" fn(_:  &AzAtomicRefCount),
-        pub az_atomic_ref_count_increase_refmut: extern "C" fn(_:  &AzAtomicRefCount),
-        pub az_atomic_ref_count_decrease_refmut: extern "C" fn(_:  &AzAtomicRefCount),
-        pub az_atomic_ref_count_delete: extern "C" fn(_:  &mut AzAtomicRefCount),
-        pub az_atomic_ref_count_deep_copy: extern "C" fn(_:  &AzAtomicRefCount) -> AzAtomicRefCount,
-        pub az_atomic_ref_count_fmt_debug: extern "C" fn(_:  &AzAtomicRefCount) -> AzString,
-        pub az_ref_any_new_c: extern "C" fn(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny,
-        pub az_ref_any_is_type: extern "C" fn(_:  &AzRefAny, _:  u64) -> bool,
-        pub az_ref_any_get_type_name: extern "C" fn(_:  &AzRefAny) -> AzString,
-        pub az_ref_any_can_be_shared: extern "C" fn(_:  &AzRefAny) -> bool,
-        pub az_ref_any_can_be_shared_mut: extern "C" fn(_:  &AzRefAny) -> bool,
-        pub az_ref_any_increase_ref: extern "C" fn(_:  &AzRefAny),
-        pub az_ref_any_decrease_ref: extern "C" fn(_:  &AzRefAny),
-        pub az_ref_any_increase_refmut: extern "C" fn(_:  &AzRefAny),
-        pub az_ref_any_decrease_refmut: extern "C" fn(_:  &AzRefAny),
-        pub az_ref_any_delete: extern "C" fn(_:  &mut AzRefAny),
-        pub az_ref_any_deep_copy: extern "C" fn(_:  &AzRefAny) -> AzRefAny,
-        pub az_layout_info_window_width_larger_than: extern "C" fn(_:  &mut AzLayoutInfo, _:  f32) -> bool,
-        pub az_layout_info_window_width_smaller_than: extern "C" fn(_:  &mut AzLayoutInfo, _:  f32) -> bool,
-        pub az_layout_info_window_height_larger_than: extern "C" fn(_:  &mut AzLayoutInfo, _:  f32) -> bool,
-        pub az_layout_info_window_height_smaller_than: extern "C" fn(_:  &mut AzLayoutInfo, _:  f32) -> bool,
-        pub az_layout_info_delete: extern "C" fn(_:  &mut AzLayoutInfo),
-        pub az_css_rule_block_delete: extern "C" fn(_:  &mut AzCssRuleBlock),
-        pub az_css_rule_block_deep_copy: extern "C" fn(_:  &AzCssRuleBlock) -> AzCssRuleBlock,
-        pub az_css_declaration_delete: extern "C" fn(_:  &mut AzCssDeclaration),
-        pub az_css_declaration_deep_copy: extern "C" fn(_:  &AzCssDeclaration) -> AzCssDeclaration,
-        pub az_dynamic_css_property_delete: extern "C" fn(_:  &mut AzDynamicCssProperty),
-        pub az_dynamic_css_property_deep_copy: extern "C" fn(_:  &AzDynamicCssProperty) -> AzDynamicCssProperty,
-        pub az_css_path_delete: extern "C" fn(_:  &mut AzCssPath),
-        pub az_css_path_deep_copy: extern "C" fn(_:  &AzCssPath) -> AzCssPath,
-        pub az_css_path_selector_delete: extern "C" fn(_:  &mut AzCssPathSelector),
-        pub az_css_path_selector_deep_copy: extern "C" fn(_:  &AzCssPathSelector) -> AzCssPathSelector,
-        pub az_stylesheet_delete: extern "C" fn(_:  &mut AzStylesheet),
-        pub az_stylesheet_deep_copy: extern "C" fn(_:  &AzStylesheet) -> AzStylesheet,
-        pub az_css_empty: extern "C" fn() -> AzCss,
-        pub az_css_from_string: extern "C" fn(_:  AzString) -> AzCss,
-        pub az_css_delete: extern "C" fn(_:  &mut AzCss),
-        pub az_css_deep_copy: extern "C" fn(_:  &AzCss) -> AzCss,
-        pub az_color_u_from_str: extern "C" fn(_:  AzString) -> AzColorU,
-        pub az_color_u_to_hash: extern "C" fn(_:  &AzColorU) -> AzString,
-        pub az_linear_gradient_delete: extern "C" fn(_:  &mut AzLinearGradient),
-        pub az_linear_gradient_deep_copy: extern "C" fn(_:  &AzLinearGradient) -> AzLinearGradient,
-        pub az_radial_gradient_delete: extern "C" fn(_:  &mut AzRadialGradient),
-        pub az_radial_gradient_deep_copy: extern "C" fn(_:  &AzRadialGradient) -> AzRadialGradient,
-        pub az_css_image_id_delete: extern "C" fn(_:  &mut AzCssImageId),
-        pub az_css_image_id_deep_copy: extern "C" fn(_:  &AzCssImageId) -> AzCssImageId,
-        pub az_style_background_content_delete: extern "C" fn(_:  &mut AzStyleBackgroundContent),
-        pub az_style_background_content_deep_copy: extern "C" fn(_:  &AzStyleBackgroundContent) -> AzStyleBackgroundContent,
-        pub az_style_font_family_delete: extern "C" fn(_:  &mut AzStyleFontFamily),
-        pub az_style_font_family_deep_copy: extern "C" fn(_:  &AzStyleFontFamily) -> AzStyleFontFamily,
-        pub az_style_background_content_value_delete: extern "C" fn(_:  &mut AzStyleBackgroundContentValue),
-        pub az_style_background_content_value_deep_copy: extern "C" fn(_:  &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue,
-        pub az_style_font_family_value_delete: extern "C" fn(_:  &mut AzStyleFontFamilyValue),
-        pub az_style_font_family_value_deep_copy: extern "C" fn(_:  &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue,
-        pub az_style_transform_vec_value_delete: extern "C" fn(_:  &mut AzStyleTransformVecValue),
-        pub az_style_transform_vec_value_deep_copy: extern "C" fn(_:  &AzStyleTransformVecValue) -> AzStyleTransformVecValue,
-        pub az_css_property_delete: extern "C" fn(_:  &mut AzCssProperty),
-        pub az_css_property_deep_copy: extern "C" fn(_:  &AzCssProperty) -> AzCssProperty,
-        pub az_rect_style_delete: extern "C" fn(_:  &mut AzRectStyle),
-        pub az_rect_style_deep_copy: extern "C" fn(_:  &AzRectStyle) -> AzRectStyle,
-        pub az_rect_layout_delete: extern "C" fn(_:  &mut AzRectLayout),
-        pub az_rect_layout_deep_copy: extern "C" fn(_:  &AzRectLayout) -> AzRectLayout,
-        pub az_cascaded_css_property_with_source_delete: extern "C" fn(_:  &mut AzCascadedCssPropertyWithSource),
-        pub az_cascaded_css_property_with_source_deep_copy: extern "C" fn(_:  &AzCascadedCssPropertyWithSource) -> AzCascadedCssPropertyWithSource,
-        pub az_css_property_source_delete: extern "C" fn(_:  &mut AzCssPropertySource),
-        pub az_css_property_source_deep_copy: extern "C" fn(_:  &AzCssPropertySource) -> AzCssPropertySource,
-        pub az_styled_node_delete: extern "C" fn(_:  &mut AzStyledNode),
-        pub az_styled_node_deep_copy: extern "C" fn(_:  &AzStyledNode) -> AzStyledNode,
-        pub az_content_group_delete: extern "C" fn(_:  &mut AzContentGroup),
-        pub az_content_group_deep_copy: extern "C" fn(_:  &AzContentGroup) -> AzContentGroup,
-        pub az_styled_dom_new: extern "C" fn(_:  AzDom, _:  AzCss) -> AzStyledDom,
-        pub az_styled_dom_append: extern "C" fn(_:  &mut AzStyledDom, _:  AzStyledDom),
-        pub az_styled_dom_delete: extern "C" fn(_:  &mut AzStyledDom),
-        pub az_styled_dom_deep_copy: extern "C" fn(_:  &AzStyledDom) -> AzStyledDom,
-        pub az_dom_new: extern "C" fn(_:  AzNodeType) -> AzDom,
-        pub az_dom_div: extern "C" fn() -> AzDom,
-        pub az_dom_body: extern "C" fn() -> AzDom,
-        pub az_dom_label: extern "C" fn(_:  AzString) -> AzDom,
-        pub az_dom_text: extern "C" fn(_:  AzTextId) -> AzDom,
-        pub az_dom_image: extern "C" fn(_:  AzImageId) -> AzDom,
-        pub az_dom_gl_texture: extern "C" fn(_:  AzRefAny, _:  AzGlCallbackType) -> AzDom,
-        pub az_dom_iframe: extern "C" fn(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzDom,
-        pub az_dom_add_id: extern "C" fn(_:  &mut AzDom, _:  AzString),
-        pub az_dom_with_id: extern "C" fn(_:  AzDom, _:  AzString) -> AzDom,
-        pub az_dom_set_ids: extern "C" fn(_:  &mut AzDom, _:  AzStringVec),
-        pub az_dom_with_ids: extern "C" fn(_:  AzDom, _:  AzStringVec) -> AzDom,
-        pub az_dom_add_class: extern "C" fn(_:  &mut AzDom, _:  AzString),
-        pub az_dom_with_class: extern "C" fn(_:  AzDom, _:  AzString) -> AzDom,
-        pub az_dom_set_classes: extern "C" fn(_:  &mut AzDom, _:  AzStringVec),
-        pub az_dom_with_classes: extern "C" fn(_:  AzDom, _:  AzStringVec) -> AzDom,
-        pub az_dom_add_callback: extern "C" fn(_:  &mut AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType),
-        pub az_dom_with_callback: extern "C" fn(_:  AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzDom,
-        pub az_dom_set_dataset: extern "C" fn(_:  &mut AzDom, _:  AzRefAny),
-        pub az_dom_with_dataset: extern "C" fn(_:  AzDom, _:  AzRefAny) -> AzDom,
-        pub az_dom_add_inline_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty),
-        pub az_dom_with_inline_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom,
-        pub az_dom_add_inline_hover_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty),
-        pub az_dom_with_inline_hover_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom,
-        pub az_dom_add_inline_active_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty),
-        pub az_dom_with_inline_active_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom,
-        pub az_dom_add_inline_focus_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty),
-        pub az_dom_with_inline_focus_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom,
-        pub az_dom_set_is_draggable: extern "C" fn(_:  &mut AzDom, _:  bool),
-        pub az_dom_with_clip_mask: extern "C" fn(_:  AzDom, _:  AzOptionImageMask) -> AzDom,
-        pub az_dom_set_clip_mask: extern "C" fn(_:  &mut AzDom, _:  AzOptionImageMask),
-        pub az_dom_is_draggable: extern "C" fn(_:  AzDom, _:  bool) -> AzDom,
-        pub az_dom_set_tab_index: extern "C" fn(_:  &mut AzDom, _:  AzOptionTabIndex),
-        pub az_dom_with_tab_index: extern "C" fn(_:  AzDom, _:  AzOptionTabIndex) -> AzDom,
-        pub az_dom_add_child: extern "C" fn(_:  &mut AzDom, _:  AzDom),
-        pub az_dom_with_child: extern "C" fn(_:  AzDom, _:  AzDom) -> AzDom,
-        pub az_dom_get_html_string: extern "C" fn(_:  &AzDom) -> AzString,
-        pub az_dom_style: extern "C" fn(_:  AzDom, _:  AzCss) -> AzStyledDom,
-        pub az_dom_delete: extern "C" fn(_:  &mut AzDom),
-        pub az_dom_deep_copy: extern "C" fn(_:  &AzDom) -> AzDom,
-        pub az_gl_texture_node_delete: extern "C" fn(_:  &mut AzGlTextureNode),
-        pub az_gl_texture_node_deep_copy: extern "C" fn(_:  &AzGlTextureNode) -> AzGlTextureNode,
-        pub az_i_frame_node_delete: extern "C" fn(_:  &mut AzIFrameNode),
-        pub az_i_frame_node_deep_copy: extern "C" fn(_:  &AzIFrameNode) -> AzIFrameNode,
-        pub az_callback_data_delete: extern "C" fn(_:  &mut AzCallbackData),
-        pub az_callback_data_deep_copy: extern "C" fn(_:  &AzCallbackData) -> AzCallbackData,
-        pub az_image_mask_delete: extern "C" fn(_:  &mut AzImageMask),
-        pub az_image_mask_deep_copy: extern "C" fn(_:  &AzImageMask) -> AzImageMask,
-        pub az_node_data_new: extern "C" fn(_:  AzNodeType) -> AzNodeData,
-        pub az_node_data_div: extern "C" fn() -> AzNodeData,
-        pub az_node_data_body: extern "C" fn() -> AzNodeData,
-        pub az_node_data_label: extern "C" fn(_:  AzString) -> AzNodeData,
-        pub az_node_data_text: extern "C" fn(_:  AzTextId) -> AzNodeData,
-        pub az_node_data_image: extern "C" fn(_:  AzImageId) -> AzNodeData,
-        pub az_node_data_gl_texture: extern "C" fn(_:  AzRefAny, _:  AzGlCallbackType) -> AzNodeData,
-        pub az_node_data_iframe: extern "C" fn(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzNodeData,
-        pub az_node_data_default: extern "C" fn() -> AzNodeData,
-        pub az_node_data_add_id: extern "C" fn(_:  &mut AzNodeData, _:  AzString),
-        pub az_node_data_with_id: extern "C" fn(_:  AzNodeData, _:  AzString) -> AzNodeData,
-        pub az_node_data_set_ids: extern "C" fn(_:  &mut AzNodeData, _:  AzStringVec),
-        pub az_node_data_with_ids: extern "C" fn(_:  AzNodeData, _:  AzStringVec) -> AzNodeData,
-        pub az_node_data_add_class: extern "C" fn(_:  &mut AzNodeData, _:  AzString),
-        pub az_node_data_with_class: extern "C" fn(_:  AzNodeData, _:  AzString) -> AzNodeData,
-        pub az_node_data_set_classes: extern "C" fn(_:  &mut AzNodeData, _:  AzStringVec),
-        pub az_node_data_with_classes: extern "C" fn(_:  AzNodeData, _:  AzStringVec) -> AzNodeData,
-        pub az_node_data_add_dataset: extern "C" fn(_:  &mut AzNodeData, _:  AzRefAny),
-        pub az_node_data_with_dataset: extern "C" fn(_:  AzNodeData, _:  AzRefAny) -> AzNodeData,
-        pub az_node_data_add_callback: extern "C" fn(_:  &mut AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType),
-        pub az_node_data_with_callback: extern "C" fn(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData,
-        pub az_node_data_add_inline_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty),
-        pub az_node_data_with_inline_css: extern "C" fn(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData,
-        pub az_node_data_add_inline_hover_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty),
-        pub az_node_data_add_inline_active_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty),
-        pub az_node_data_add_inline_focus_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty),
-        pub az_node_data_with_clip_mask: extern "C" fn(_:  AzNodeData, _:  AzOptionImageMask) -> AzNodeData,
-        pub az_node_data_set_clip_mask: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionImageMask),
-        pub az_node_data_set_is_draggable: extern "C" fn(_:  &mut AzNodeData, _:  bool),
-        pub az_node_data_is_draggable: extern "C" fn(_:  AzNodeData, _:  bool) -> AzNodeData,
-        pub az_node_data_set_tab_index: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionTabIndex),
-        pub az_node_data_with_tab_index: extern "C" fn(_:  AzNodeData, _:  AzOptionTabIndex) -> AzNodeData,
-        pub az_node_data_delete: extern "C" fn(_:  &mut AzNodeData),
-        pub az_node_data_deep_copy: extern "C" fn(_:  &AzNodeData) -> AzNodeData,
-        pub az_node_type_delete: extern "C" fn(_:  &mut AzNodeType),
-        pub az_node_type_deep_copy: extern "C" fn(_:  &AzNodeType) -> AzNodeType,
-        pub az_on_into_event_filter: extern "C" fn(_:  AzOn) -> AzEventFilter,
-        pub az_vertex_attribute_delete: extern "C" fn(_:  &mut AzVertexAttribute),
-        pub az_vertex_attribute_deep_copy: extern "C" fn(_:  &AzVertexAttribute) -> AzVertexAttribute,
-        pub az_vertex_layout_delete: extern "C" fn(_:  &mut AzVertexLayout),
-        pub az_vertex_layout_deep_copy: extern "C" fn(_:  &AzVertexLayout) -> AzVertexLayout,
-        pub az_vertex_array_object_delete: extern "C" fn(_:  &mut AzVertexArrayObject),
-        pub az_vertex_buffer_delete: extern "C" fn(_:  &mut AzVertexBuffer),
-        pub az_debug_message_delete: extern "C" fn(_:  &mut AzDebugMessage),
-        pub az_debug_message_deep_copy: extern "C" fn(_:  &AzDebugMessage) -> AzDebugMessage,
-        pub az_u8_vec_ref_delete: extern "C" fn(_:  &mut AzU8VecRef),
-        pub az_u8_vec_ref_mut_delete: extern "C" fn(_:  &mut AzU8VecRefMut),
-        pub az_f32_vec_ref_delete: extern "C" fn(_:  &mut AzF32VecRef),
-        pub az_i32_vec_ref_delete: extern "C" fn(_:  &mut AzI32VecRef),
-        pub az_g_luint_vec_ref_delete: extern "C" fn(_:  &mut AzGLuintVecRef),
-        pub az_g_lenum_vec_ref_delete: extern "C" fn(_:  &mut AzGLenumVecRef),
-        pub az_g_lint_vec_ref_mut_delete: extern "C" fn(_:  &mut AzGLintVecRefMut),
-        pub az_g_lint64_vec_ref_mut_delete: extern "C" fn(_:  &mut AzGLint64VecRefMut),
-        pub az_g_lboolean_vec_ref_mut_delete: extern "C" fn(_:  &mut AzGLbooleanVecRefMut),
-        pub az_g_lfloat_vec_ref_mut_delete: extern "C" fn(_:  &mut AzGLfloatVecRefMut),
-        pub az_refstr_vec_ref_delete: extern "C" fn(_:  &mut AzRefstrVecRef),
-        pub az_refstr_delete: extern "C" fn(_:  &mut AzRefstr),
-        pub az_get_program_binary_return_delete: extern "C" fn(_:  &mut AzGetProgramBinaryReturn),
-        pub az_get_program_binary_return_deep_copy: extern "C" fn(_:  &AzGetProgramBinaryReturn) -> AzGetProgramBinaryReturn,
-        pub az_get_active_attrib_return_delete: extern "C" fn(_:  &mut AzGetActiveAttribReturn),
-        pub az_get_active_attrib_return_deep_copy: extern "C" fn(_:  &AzGetActiveAttribReturn) -> AzGetActiveAttribReturn,
-        pub az_g_lsync_ptr_delete: extern "C" fn(_:  &mut AzGLsyncPtr),
-        pub az_get_active_uniform_return_delete: extern "C" fn(_:  &mut AzGetActiveUniformReturn),
-        pub az_get_active_uniform_return_deep_copy: extern "C" fn(_:  &AzGetActiveUniformReturn) -> AzGetActiveUniformReturn,
-        pub az_gl_context_ptr_get_type: extern "C" fn(_:  &AzGlContextPtr) -> AzGlType,
-        pub az_gl_context_ptr_buffer_data_untyped: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32),
-        pub az_gl_context_ptr_buffer_sub_data_untyped: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  *const c_void),
-        pub az_gl_context_ptr_map_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> *mut c_void,
-        pub az_gl_context_ptr_map_buffer_range: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  u32) -> *mut c_void,
-        pub az_gl_context_ptr_unmap_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u8,
-        pub az_gl_context_ptr_tex_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_shader_source: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzStringVec),
-        pub az_gl_context_ptr_read_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_read_pixels_into_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut),
-        pub az_gl_context_ptr_read_pixels: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32) -> AzU8Vec,
-        pub az_gl_context_ptr_read_pixels_into_pbo: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_sample_coverage: extern "C" fn(_:  &AzGlContextPtr, _:  f32, _:  bool),
-        pub az_gl_context_ptr_polygon_offset: extern "C" fn(_:  &AzGlContextPtr, _:  f32, _:  f32),
-        pub az_gl_context_ptr_pixel_store_i: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32),
-        pub az_gl_context_ptr_gen_buffers: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec,
-        pub az_gl_context_ptr_gen_renderbuffers: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec,
-        pub az_gl_context_ptr_gen_framebuffers: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec,
-        pub az_gl_context_ptr_gen_textures: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec,
-        pub az_gl_context_ptr_gen_vertex_arrays: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec,
-        pub az_gl_context_ptr_gen_queries: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec,
-        pub az_gl_context_ptr_begin_query: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_end_query: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_query_counter: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_get_query_object_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32,
-        pub az_gl_context_ptr_get_query_object_uiv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u32,
-        pub az_gl_context_ptr_get_query_object_i64v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i64,
-        pub az_gl_context_ptr_get_query_object_ui64v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u64,
-        pub az_gl_context_ptr_delete_queries: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef),
-        pub az_gl_context_ptr_delete_vertex_arrays: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef),
-        pub az_gl_context_ptr_delete_buffers: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef),
-        pub az_gl_context_ptr_delete_renderbuffers: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef),
-        pub az_gl_context_ptr_delete_framebuffers: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef),
-        pub az_gl_context_ptr_delete_textures: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef),
-        pub az_gl_context_ptr_framebuffer_renderbuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_renderbuffer_storage: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_depth_func: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_active_texture: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_attach_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_bind_attrib_location: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzRefstr),
-        pub az_gl_context_ptr_get_uniform_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  AzGLintVecRefMut),
-        pub az_gl_context_ptr_get_uniform_fv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  AzGLfloatVecRefMut),
-        pub az_gl_context_ptr_get_uniform_block_index: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> u32,
-        pub az_gl_context_ptr_get_uniform_indices: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstrVecRef) -> AzGLuintVec,
-        pub az_gl_context_ptr_bind_buffer_base: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_bind_buffer_range: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  isize, _:  isize),
-        pub az_gl_context_ptr_uniform_block_binding: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_bind_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_bind_vertex_array: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_bind_renderbuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_bind_framebuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_bind_texture: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_draw_buffers: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLenumVecRef),
-        pub az_gl_context_ptr_tex_image_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef),
-        pub az_gl_context_ptr_compressed_tex_image_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  AzU8VecRef),
-        pub az_gl_context_ptr_compressed_tex_sub_image_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  AzU8VecRef),
-        pub az_gl_context_ptr_tex_image_3d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef),
-        pub az_gl_context_ptr_copy_tex_image_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_copy_tex_sub_image_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_copy_tex_sub_image_3d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_tex_sub_image_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef),
-        pub az_gl_context_ptr_tex_sub_image_2d_pbo: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize),
-        pub az_gl_context_ptr_tex_sub_image_3d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef),
-        pub az_gl_context_ptr_tex_sub_image_3d_pbo: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize),
-        pub az_gl_context_ptr_tex_storage_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_tex_storage_3d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_get_tex_image_into_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut),
-        pub az_gl_context_ptr_copy_image_sub_data: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_invalidate_framebuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef),
-        pub az_gl_context_ptr_invalidate_sub_framebuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef, _:  i32, _:  i32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_get_integer_v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLintVecRefMut),
-        pub az_gl_context_ptr_get_integer_64v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLint64VecRefMut),
-        pub az_gl_context_ptr_get_integer_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut),
-        pub az_gl_context_ptr_get_integer_64iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLint64VecRefMut),
-        pub az_gl_context_ptr_get_boolean_v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLbooleanVecRefMut),
-        pub az_gl_context_ptr_get_float_v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLfloatVecRefMut),
-        pub az_gl_context_ptr_get_framebuffer_attachment_parameter_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> i32,
-        pub az_gl_context_ptr_get_renderbuffer_parameter_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32,
-        pub az_gl_context_ptr_get_tex_parameter_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32,
-        pub az_gl_context_ptr_get_tex_parameter_fv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> f32,
-        pub az_gl_context_ptr_tex_parameter_i: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32),
-        pub az_gl_context_ptr_tex_parameter_f: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  f32),
-        pub az_gl_context_ptr_framebuffer_texture_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32, _:  i32),
-        pub az_gl_context_ptr_framebuffer_texture_layer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_blit_framebuffer: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_vertex_attrib_4f: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  f32, _:  f32, _:  f32, _:  f32),
-        pub az_gl_context_ptr_vertex_attrib_pointer_f32: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  bool, _:  i32, _:  u32),
-        pub az_gl_context_ptr_vertex_attrib_pointer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  bool, _:  i32, _:  u32),
-        pub az_gl_context_ptr_vertex_attrib_i_pointer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  u32),
-        pub az_gl_context_ptr_vertex_attrib_divisor: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_viewport: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_scissor: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_line_width: extern "C" fn(_:  &AzGlContextPtr, _:  f32),
-        pub az_gl_context_ptr_use_program: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_validate_program: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_draw_arrays: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_draw_arrays_instanced: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_draw_elements: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_draw_elements_instanced: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32),
-        pub az_gl_context_ptr_blend_color: extern "C" fn(_:  &AzGlContextPtr, _:  f32, _:  f32, _:  f32, _:  f32),
-        pub az_gl_context_ptr_blend_func: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_blend_func_separate: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_blend_equation: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_blend_equation_separate: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_color_mask: extern "C" fn(_:  &AzGlContextPtr, _:  bool, _:  bool, _:  bool, _:  bool),
-        pub az_gl_context_ptr_cull_face: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_front_face: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_enable: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_disable: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_hint: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_is_enabled: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u8,
-        pub az_gl_context_ptr_is_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u8,
-        pub az_gl_context_ptr_is_texture: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u8,
-        pub az_gl_context_ptr_is_framebuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u8,
-        pub az_gl_context_ptr_is_renderbuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u8,
-        pub az_gl_context_ptr_check_frame_buffer_status: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u32,
-        pub az_gl_context_ptr_enable_vertex_attrib_array: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_disable_vertex_attrib_array: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_uniform_1f: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  f32),
-        pub az_gl_context_ptr_uniform_1fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef),
-        pub az_gl_context_ptr_uniform_1i: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32),
-        pub az_gl_context_ptr_uniform_1iv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef),
-        pub az_gl_context_ptr_uniform_1ui: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  u32),
-        pub az_gl_context_ptr_uniform_2f: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32),
-        pub az_gl_context_ptr_uniform_2fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef),
-        pub az_gl_context_ptr_uniform_2i: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_uniform_2iv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef),
-        pub az_gl_context_ptr_uniform_2ui: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_uniform_3f: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32, _:  f32),
-        pub az_gl_context_ptr_uniform_3fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef),
-        pub az_gl_context_ptr_uniform_3i: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_uniform_3iv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef),
-        pub az_gl_context_ptr_uniform_3ui: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_uniform_4f: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32, _:  f32, _:  f32),
-        pub az_gl_context_ptr_uniform_4i: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32),
-        pub az_gl_context_ptr_uniform_4iv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef),
-        pub az_gl_context_ptr_uniform_4ui: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_uniform_4fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef),
-        pub az_gl_context_ptr_uniform_matrix_2fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef),
-        pub az_gl_context_ptr_uniform_matrix_3fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef),
-        pub az_gl_context_ptr_uniform_matrix_4fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef),
-        pub az_gl_context_ptr_depth_mask: extern "C" fn(_:  &AzGlContextPtr, _:  bool),
-        pub az_gl_context_ptr_depth_range: extern "C" fn(_:  &AzGlContextPtr, _:  f64, _:  f64),
-        pub az_gl_context_ptr_get_active_attrib: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGetActiveAttribReturn,
-        pub az_gl_context_ptr_get_active_uniform: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGetActiveUniformReturn,
-        pub az_gl_context_ptr_get_active_uniforms_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLuintVec, _:  u32) -> AzGLintVec,
-        pub az_gl_context_ptr_get_active_uniform_block_i: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> i32,
-        pub az_gl_context_ptr_get_active_uniform_block_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> AzGLintVec,
-        pub az_gl_context_ptr_get_active_uniform_block_name: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString,
-        pub az_gl_context_ptr_get_attrib_location: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32,
-        pub az_gl_context_ptr_get_frag_data_location: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32,
-        pub az_gl_context_ptr_get_uniform_location: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32,
-        pub az_gl_context_ptr_get_program_info_log: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> AzString,
-        pub az_gl_context_ptr_get_program_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut),
-        pub az_gl_context_ptr_get_program_binary: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> AzGetProgramBinaryReturn,
-        pub az_gl_context_ptr_program_binary: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzU8VecRef),
-        pub az_gl_context_ptr_program_parameter_i: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32),
-        pub az_gl_context_ptr_get_vertex_attrib_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut),
-        pub az_gl_context_ptr_get_vertex_attrib_fv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLfloatVecRefMut),
-        pub az_gl_context_ptr_get_vertex_attrib_pointer_v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> isize,
-        pub az_gl_context_ptr_get_buffer_parameter_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32,
-        pub az_gl_context_ptr_get_shader_info_log: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> AzString,
-        pub az_gl_context_ptr_get_string: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> AzString,
-        pub az_gl_context_ptr_get_string_i: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString,
-        pub az_gl_context_ptr_get_shader_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut),
-        pub az_gl_context_ptr_get_shader_precision_format: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGlShaderPrecisionFormatReturn,
-        pub az_gl_context_ptr_compile_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_create_program: extern "C" fn(_:  &AzGlContextPtr) -> u32,
-        pub az_gl_context_ptr_delete_program: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_create_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u32,
-        pub az_gl_context_ptr_delete_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_detach_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_link_program: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_clear_color: extern "C" fn(_:  &AzGlContextPtr, _:  f32, _:  f32, _:  f32, _:  f32),
-        pub az_gl_context_ptr_clear: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_clear_depth: extern "C" fn(_:  &AzGlContextPtr, _:  f64),
-        pub az_gl_context_ptr_clear_stencil: extern "C" fn(_:  &AzGlContextPtr, _:  i32),
-        pub az_gl_context_ptr_flush: extern "C" fn(_:  &AzGlContextPtr),
-        pub az_gl_context_ptr_finish: extern "C" fn(_:  &AzGlContextPtr),
-        pub az_gl_context_ptr_get_error: extern "C" fn(_:  &AzGlContextPtr) -> u32,
-        pub az_gl_context_ptr_stencil_mask: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_stencil_mask_separate: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_stencil_func: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32),
-        pub az_gl_context_ptr_stencil_func_separate: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  u32),
-        pub az_gl_context_ptr_stencil_op: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_stencil_op_separate: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32),
-        pub az_gl_context_ptr_egl_image_target_texture2d_oes: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  *const c_void),
-        pub az_gl_context_ptr_generate_mipmap: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_insert_event_marker_ext: extern "C" fn(_:  &AzGlContextPtr, _:  AzRefstr),
-        pub az_gl_context_ptr_push_group_marker_ext: extern "C" fn(_:  &AzGlContextPtr, _:  AzRefstr),
-        pub az_gl_context_ptr_pop_group_marker_ext: extern "C" fn(_:  &AzGlContextPtr),
-        pub az_gl_context_ptr_debug_message_insert_khr: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32, _:  AzRefstr),
-        pub az_gl_context_ptr_push_debug_group_khr: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzRefstr),
-        pub az_gl_context_ptr_pop_debug_group_khr: extern "C" fn(_:  &AzGlContextPtr),
-        pub az_gl_context_ptr_fence_sync: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGLsyncPtr,
-        pub az_gl_context_ptr_client_wait_sync: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLsyncPtr, _:  u32, _:  u64),
-        pub az_gl_context_ptr_wait_sync: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLsyncPtr, _:  u32, _:  u64),
-        pub az_gl_context_ptr_delete_sync: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLsyncPtr),
-        pub az_gl_context_ptr_texture_range_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzU8VecRef),
-        pub az_gl_context_ptr_gen_fences_apple: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec,
-        pub az_gl_context_ptr_delete_fences_apple: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef),
-        pub az_gl_context_ptr_set_fence_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_finish_fence_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_test_fence_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_test_object_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u8,
-        pub az_gl_context_ptr_finish_object_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32),
-        pub az_gl_context_ptr_get_frag_data_index: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32,
-        pub az_gl_context_ptr_blend_barrier_khr: extern "C" fn(_:  &AzGlContextPtr),
-        pub az_gl_context_ptr_bind_frag_data_location_indexed: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  AzRefstr),
-        pub az_gl_context_ptr_get_debug_messages: extern "C" fn(_:  &AzGlContextPtr) -> AzDebugMessageVec,
-        pub az_gl_context_ptr_provoking_vertex_angle: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_gen_vertex_arrays_apple: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec,
-        pub az_gl_context_ptr_bind_vertex_array_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
-        pub az_gl_context_ptr_delete_vertex_arrays_apple: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef),
-        pub az_gl_context_ptr_copy_texture_chromium: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8),
-        pub az_gl_context_ptr_copy_sub_texture_chromium: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8),
-        pub az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  *const c_void),
-        pub az_gl_context_ptr_copy_texture_3d_angle: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8),
-        pub az_gl_context_ptr_copy_sub_texture_3d_angle: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8),
-        pub az_gl_context_ptr_delete: extern "C" fn(_:  &mut AzGlContextPtr),
-        pub az_gl_context_ptr_deep_copy: extern "C" fn(_:  &AzGlContextPtr) -> AzGlContextPtr,
-        pub az_texture_delete: extern "C" fn(_:  &mut AzTexture),
-        pub az_texture_flags_default: extern "C" fn() -> AzTextureFlags,
-        pub az_raw_image_format_delete: extern "C" fn(_:  &mut AzRawImageFormat),
-        pub az_raw_image_format_deep_copy: extern "C" fn(_:  &AzRawImageFormat) -> AzRawImageFormat,
-        pub az_text_id_new: extern "C" fn() -> AzTextId,
-        pub az_image_id_new: extern "C" fn() -> AzImageId,
-        pub az_font_id_new: extern "C" fn() -> AzFontId,
-        pub az_image_source_delete: extern "C" fn(_:  &mut AzImageSource),
-        pub az_image_source_deep_copy: extern "C" fn(_:  &AzImageSource) -> AzImageSource,
-        pub az_font_source_delete: extern "C" fn(_:  &mut AzFontSource),
-        pub az_font_source_deep_copy: extern "C" fn(_:  &AzFontSource) -> AzFontSource,
-        pub az_raw_image_new: extern "C" fn(_:  AzU8Vec, _:  usize, _:  usize, _:  AzRawImageFormat) -> AzRawImage,
-        pub az_raw_image_delete: extern "C" fn(_:  &mut AzRawImage),
-        pub az_raw_image_deep_copy: extern "C" fn(_:  &AzRawImage) -> AzRawImage,
-        pub az_svg_multi_polygon_delete: extern "C" fn(_:  &mut AzSvgMultiPolygon),
-        pub az_svg_multi_polygon_deep_copy: extern "C" fn(_:  &AzSvgMultiPolygon) -> AzSvgMultiPolygon,
-        pub az_svg_node_delete: extern "C" fn(_:  &mut AzSvgNode),
-        pub az_svg_node_deep_copy: extern "C" fn(_:  &AzSvgNode) -> AzSvgNode,
-        pub az_svg_styled_node_delete: extern "C" fn(_:  &mut AzSvgStyledNode),
-        pub az_svg_styled_node_deep_copy: extern "C" fn(_:  &AzSvgStyledNode) -> AzSvgStyledNode,
-        pub az_svg_path_delete: extern "C" fn(_:  &mut AzSvgPath),
-        pub az_svg_path_deep_copy: extern "C" fn(_:  &AzSvgPath) -> AzSvgPath,
-        pub az_tesselated_cpu_svg_node_delete: extern "C" fn(_:  &mut AzTesselatedCPUSvgNode),
-        pub az_tesselated_cpu_svg_node_deep_copy: extern "C" fn(_:  &AzTesselatedCPUSvgNode) -> AzTesselatedCPUSvgNode,
-        pub az_svg_parse_options_default: extern "C" fn() -> AzSvgParseOptions,
-        pub az_svg_parse_options_delete: extern "C" fn(_:  &mut AzSvgParseOptions),
-        pub az_svg_parse_options_deep_copy: extern "C" fn(_:  &AzSvgParseOptions) -> AzSvgParseOptions,
-        pub az_svg_render_options_default: extern "C" fn() -> AzSvgRenderOptions,
-        pub az_svg_render_options_delete: extern "C" fn(_:  &mut AzSvgRenderOptions),
-        pub az_svg_render_options_deep_copy: extern "C" fn(_:  &AzSvgRenderOptions) -> AzSvgRenderOptions,
-        pub az_svg_parse: extern "C" fn(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError,
-        pub az_svg_delete: extern "C" fn(_:  &mut AzSvg),
-        pub az_svg_deep_copy: extern "C" fn(_:  &AzSvg) -> AzSvg,
-        pub az_svg_xml_node_delete: extern "C" fn(_:  &mut AzSvgXmlNode),
-        pub az_svg_xml_node_deep_copy: extern "C" fn(_:  &AzSvgXmlNode) -> AzSvgXmlNode,
-        pub az_timer_id_unique: extern "C" fn() -> AzTimerId,
-        pub az_timer_new: extern "C" fn(_:  AzRefAny, _:  AzTimerCallbackType) -> AzTimer,
-        pub az_timer_with_delay: extern "C" fn(_:  AzTimer, _:  AzDuration) -> AzTimer,
-        pub az_timer_with_interval: extern "C" fn(_:  AzTimer, _:  AzDuration) -> AzTimer,
-        pub az_timer_with_timeout: extern "C" fn(_:  AzTimer, _:  AzDuration) -> AzTimer,
-        pub az_timer_delete: extern "C" fn(_:  &mut AzTimer),
-        pub az_timer_deep_copy: extern "C" fn(_:  &AzTimer) -> AzTimer,
-        pub az_thread_sender_send: extern "C" fn(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool,
-        pub az_thread_sender_delete: extern "C" fn(_:  &mut AzThreadSender),
-        pub az_thread_receiver_receive: extern "C" fn(_:  &mut AzThreadReceiver) -> AzOptionThreadSendMsg,
-        pub az_thread_receiver_delete: extern "C" fn(_:  &mut AzThreadReceiver),
-        pub az_thread_receive_msg_delete: extern "C" fn(_:  &mut AzThreadReceiveMsg),
-        pub az_thread_write_back_msg_delete: extern "C" fn(_:  &mut AzThreadWriteBackMsg),
-        pub az_task_bar_icon_delete: extern "C" fn(_:  &mut AzTaskBarIcon),
-        pub az_task_bar_icon_deep_copy: extern "C" fn(_:  &AzTaskBarIcon) -> AzTaskBarIcon,
-        pub az_small_window_icon_bytes_delete: extern "C" fn(_:  &mut AzSmallWindowIconBytes),
-        pub az_small_window_icon_bytes_deep_copy: extern "C" fn(_:  &AzSmallWindowIconBytes) -> AzSmallWindowIconBytes,
-        pub az_large_window_icon_bytes_delete: extern "C" fn(_:  &mut AzLargeWindowIconBytes),
-        pub az_large_window_icon_bytes_deep_copy: extern "C" fn(_:  &AzLargeWindowIconBytes) -> AzLargeWindowIconBytes,
-        pub az_window_icon_delete: extern "C" fn(_:  &mut AzWindowIcon),
-        pub az_window_icon_deep_copy: extern "C" fn(_:  &AzWindowIcon) -> AzWindowIcon,
-        pub az_debug_state_delete: extern "C" fn(_:  &mut AzDebugState),
-        pub az_debug_state_deep_copy: extern "C" fn(_:  &AzDebugState) -> AzDebugState,
-        pub az_keyboard_state_delete: extern "C" fn(_:  &mut AzKeyboardState),
-        pub az_keyboard_state_deep_copy: extern "C" fn(_:  &AzKeyboardState) -> AzKeyboardState,
-        pub az_mouse_state_delete: extern "C" fn(_:  &mut AzMouseState),
-        pub az_mouse_state_deep_copy: extern "C" fn(_:  &AzMouseState) -> AzMouseState,
-        pub az_platform_specific_options_delete: extern "C" fn(_:  &mut AzPlatformSpecificOptions),
-        pub az_platform_specific_options_deep_copy: extern "C" fn(_:  &AzPlatformSpecificOptions) -> AzPlatformSpecificOptions,
-        pub az_windows_window_options_delete: extern "C" fn(_:  &mut AzWindowsWindowOptions),
-        pub az_windows_window_options_deep_copy: extern "C" fn(_:  &AzWindowsWindowOptions) -> AzWindowsWindowOptions,
-        pub az_wayland_theme_delete: extern "C" fn(_:  &mut AzWaylandTheme),
-        pub az_wayland_theme_deep_copy: extern "C" fn(_:  &AzWaylandTheme) -> AzWaylandTheme,
-        pub az_renderer_type_delete: extern "C" fn(_:  &mut AzRendererType),
-        pub az_renderer_type_deep_copy: extern "C" fn(_:  &AzRendererType) -> AzRendererType,
-        pub az_string_pair_delete: extern "C" fn(_:  &mut AzStringPair),
-        pub az_string_pair_deep_copy: extern "C" fn(_:  &AzStringPair) -> AzStringPair,
-        pub az_linux_window_options_delete: extern "C" fn(_:  &mut AzLinuxWindowOptions),
-        pub az_linux_window_options_deep_copy: extern "C" fn(_:  &AzLinuxWindowOptions) -> AzLinuxWindowOptions,
-        pub az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowState,
-        pub az_window_state_default: extern "C" fn() -> AzWindowState,
-        pub az_window_state_delete: extern "C" fn(_:  &mut AzWindowState),
-        pub az_window_state_deep_copy: extern "C" fn(_:  &AzWindowState) -> AzWindowState,
-        pub az_window_create_options_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowCreateOptions,
-        pub az_window_create_options_default: extern "C" fn() -> AzWindowCreateOptions,
-        pub az_window_create_options_delete: extern "C" fn(_:  &mut AzWindowCreateOptions),
-        pub az_window_create_options_deep_copy: extern "C" fn(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions,
+    #[link name="azul"]
+    pub(crate) extern "C" {
+        fn az_string_from_utf8_unchecked(_:  *const u8, _:  usize) -> AzString;
+        fn az_string_from_utf8_lossy(_:  *const u8, _:  usize) -> AzString;
+        fn az_string_into_bytes(_:  AzString) -> AzU8Vec;
+        fn az_string_delete(_:  &mut AzString);
+        fn az_string_deep_copy(_:  &AzString) -> AzString;
+        fn az_style_transform_vec_new() -> AzStyleTransformVec;
+        fn az_style_transform_vec_with_capacity(_:  usize) -> AzStyleTransformVec;
+        fn az_style_transform_vec_copy_from(_:  *const AzStyleTransform, _:  usize) -> AzStyleTransformVec;
+        fn az_style_transform_vec_delete(_:  &mut AzStyleTransformVec);
+        fn az_style_transform_vec_deep_copy(_:  &AzStyleTransformVec) -> AzStyleTransformVec;
+        fn az_content_group_vec_new() -> AzContentGroupVec;
+        fn az_content_group_vec_with_capacity(_:  usize) -> AzContentGroupVec;
+        fn az_content_group_vec_copy_from(_:  *const AzContentGroup, _:  usize) -> AzContentGroupVec;
+        fn az_content_group_vec_delete(_:  &mut AzContentGroupVec);
+        fn az_content_group_vec_deep_copy(_:  &AzContentGroupVec) -> AzContentGroupVec;
+        fn az_css_property_vec_new() -> AzCssPropertyVec;
+        fn az_css_property_vec_with_capacity(_:  usize) -> AzCssPropertyVec;
+        fn az_css_property_vec_copy_from(_:  *const AzCssProperty, _:  usize) -> AzCssPropertyVec;
+        fn az_css_property_vec_delete(_:  &mut AzCssPropertyVec);
+        fn az_css_property_vec_deep_copy(_:  &AzCssPropertyVec) -> AzCssPropertyVec;
+        fn az_svg_multi_polygon_vec_new() -> AzSvgMultiPolygonVec;
+        fn az_svg_multi_polygon_vec_with_capacity(_:  usize) -> AzSvgMultiPolygonVec;
+        fn az_svg_multi_polygon_vec_copy_from(_:  *const AzSvgMultiPolygon, _:  usize) -> AzSvgMultiPolygonVec;
+        fn az_svg_multi_polygon_vec_delete(_:  &mut AzSvgMultiPolygonVec);
+        fn az_svg_multi_polygon_vec_deep_copy(_:  &AzSvgMultiPolygonVec) -> AzSvgMultiPolygonVec;
+        fn az_svg_path_vec_new() -> AzSvgPathVec;
+        fn az_svg_path_vec_with_capacity(_:  usize) -> AzSvgPathVec;
+        fn az_svg_path_vec_copy_from(_:  *const AzSvgPath, _:  usize) -> AzSvgPathVec;
+        fn az_svg_path_vec_delete(_:  &mut AzSvgPathVec);
+        fn az_svg_path_vec_deep_copy(_:  &AzSvgPathVec) -> AzSvgPathVec;
+        fn az_vertex_attribute_vec_new() -> AzVertexAttributeVec;
+        fn az_vertex_attribute_vec_with_capacity(_:  usize) -> AzVertexAttributeVec;
+        fn az_vertex_attribute_vec_copy_from(_:  *const AzVertexAttribute, _:  usize) -> AzVertexAttributeVec;
+        fn az_vertex_attribute_vec_delete(_:  &mut AzVertexAttributeVec);
+        fn az_vertex_attribute_vec_deep_copy(_:  &AzVertexAttributeVec) -> AzVertexAttributeVec;
+        fn az_svg_path_element_vec_new() -> AzSvgPathElementVec;
+        fn az_svg_path_element_vec_with_capacity(_:  usize) -> AzSvgPathElementVec;
+        fn az_svg_path_element_vec_copy_from(_:  *const AzSvgPathElement, _:  usize) -> AzSvgPathElementVec;
+        fn az_svg_path_element_vec_delete(_:  &mut AzSvgPathElementVec);
+        fn az_svg_path_element_vec_deep_copy(_:  &AzSvgPathElementVec) -> AzSvgPathElementVec;
+        fn az_svg_vertex_vec_new() -> AzSvgVertexVec;
+        fn az_svg_vertex_vec_with_capacity(_:  usize) -> AzSvgVertexVec;
+        fn az_svg_vertex_vec_copy_from(_:  *const AzSvgVertex, _:  usize) -> AzSvgVertexVec;
+        fn az_svg_vertex_vec_delete(_:  &mut AzSvgVertexVec);
+        fn az_svg_vertex_vec_deep_copy(_:  &AzSvgVertexVec) -> AzSvgVertexVec;
+        fn az_u32_vec_new() -> AzU32Vec;
+        fn az_u32_vec_with_capacity(_:  usize) -> AzU32Vec;
+        fn az_u32_vec_copy_from(_:  *const u32, _:  usize) -> AzU32Vec;
+        fn az_u32_vec_delete(_:  &mut AzU32Vec);
+        fn az_u32_vec_deep_copy(_:  &AzU32Vec) -> AzU32Vec;
+        fn az_x_window_type_vec_new() -> AzXWindowTypeVec;
+        fn az_x_window_type_vec_with_capacity(_:  usize) -> AzXWindowTypeVec;
+        fn az_x_window_type_vec_copy_from(_:  *const AzXWindowType, _:  usize) -> AzXWindowTypeVec;
+        fn az_x_window_type_vec_delete(_:  &mut AzXWindowTypeVec);
+        fn az_x_window_type_vec_deep_copy(_:  &AzXWindowTypeVec) -> AzXWindowTypeVec;
+        fn az_virtual_key_code_vec_new() -> AzVirtualKeyCodeVec;
+        fn az_virtual_key_code_vec_with_capacity(_:  usize) -> AzVirtualKeyCodeVec;
+        fn az_virtual_key_code_vec_copy_from(_:  *const AzVirtualKeyCode, _:  usize) -> AzVirtualKeyCodeVec;
+        fn az_virtual_key_code_vec_delete(_:  &mut AzVirtualKeyCodeVec);
+        fn az_virtual_key_code_vec_deep_copy(_:  &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec;
+        fn az_cascade_info_vec_new() -> AzCascadeInfoVec;
+        fn az_cascade_info_vec_with_capacity(_:  usize) -> AzCascadeInfoVec;
+        fn az_cascade_info_vec_copy_from(_:  *const AzCascadeInfo, _:  usize) -> AzCascadeInfoVec;
+        fn az_cascade_info_vec_delete(_:  &mut AzCascadeInfoVec);
+        fn az_cascade_info_vec_deep_copy(_:  &AzCascadeInfoVec) -> AzCascadeInfoVec;
+        fn az_scan_code_vec_new() -> AzScanCodeVec;
+        fn az_scan_code_vec_with_capacity(_:  usize) -> AzScanCodeVec;
+        fn az_scan_code_vec_copy_from(_:  *const u32, _:  usize) -> AzScanCodeVec;
+        fn az_scan_code_vec_delete(_:  &mut AzScanCodeVec);
+        fn az_scan_code_vec_deep_copy(_:  &AzScanCodeVec) -> AzScanCodeVec;
+        fn az_css_declaration_vec_new() -> AzCssDeclarationVec;
+        fn az_css_declaration_vec_with_capacity(_:  usize) -> AzCssDeclarationVec;
+        fn az_css_declaration_vec_copy_from(_:  *const AzCssDeclaration, _:  usize) -> AzCssDeclarationVec;
+        fn az_css_declaration_vec_delete(_:  &mut AzCssDeclarationVec);
+        fn az_css_declaration_vec_deep_copy(_:  &AzCssDeclarationVec) -> AzCssDeclarationVec;
+        fn az_css_path_selector_vec_new() -> AzCssPathSelectorVec;
+        fn az_css_path_selector_vec_with_capacity(_:  usize) -> AzCssPathSelectorVec;
+        fn az_css_path_selector_vec_copy_from(_:  *const AzCssPathSelector, _:  usize) -> AzCssPathSelectorVec;
+        fn az_css_path_selector_vec_delete(_:  &mut AzCssPathSelectorVec);
+        fn az_css_path_selector_vec_deep_copy(_:  &AzCssPathSelectorVec) -> AzCssPathSelectorVec;
+        fn az_stylesheet_vec_new() -> AzStylesheetVec;
+        fn az_stylesheet_vec_with_capacity(_:  usize) -> AzStylesheetVec;
+        fn az_stylesheet_vec_copy_from(_:  *const AzStylesheet, _:  usize) -> AzStylesheetVec;
+        fn az_stylesheet_vec_delete(_:  &mut AzStylesheetVec);
+        fn az_stylesheet_vec_deep_copy(_:  &AzStylesheetVec) -> AzStylesheetVec;
+        fn az_css_rule_block_vec_new() -> AzCssRuleBlockVec;
+        fn az_css_rule_block_vec_with_capacity(_:  usize) -> AzCssRuleBlockVec;
+        fn az_css_rule_block_vec_copy_from(_:  *const AzCssRuleBlock, _:  usize) -> AzCssRuleBlockVec;
+        fn az_css_rule_block_vec_delete(_:  &mut AzCssRuleBlockVec);
+        fn az_css_rule_block_vec_deep_copy(_:  &AzCssRuleBlockVec) -> AzCssRuleBlockVec;
+        fn az_u8_vec_new() -> AzU8Vec;
+        fn az_u8_vec_with_capacity(_:  usize) -> AzU8Vec;
+        fn az_u8_vec_copy_from(_:  *const u8, _:  usize) -> AzU8Vec;
+        fn az_u8_vec_delete(_:  &mut AzU8Vec);
+        fn az_u8_vec_deep_copy(_:  &AzU8Vec) -> AzU8Vec;
+        fn az_callback_data_vec_new() -> AzCallbackDataVec;
+        fn az_callback_data_vec_with_capacity(_:  usize) -> AzCallbackDataVec;
+        fn az_callback_data_vec_copy_from(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec;
+        fn az_callback_data_vec_delete(_:  &mut AzCallbackDataVec);
+        fn az_callback_data_vec_deep_copy(_:  &AzCallbackDataVec) -> AzCallbackDataVec;
+        fn az_debug_message_vec_new() -> AzDebugMessageVec;
+        fn az_debug_message_vec_with_capacity(_:  usize) -> AzDebugMessageVec;
+        fn az_debug_message_vec_copy_from(_:  *const AzDebugMessage, _:  usize) -> AzDebugMessageVec;
+        fn az_debug_message_vec_delete(_:  &mut AzDebugMessageVec);
+        fn az_debug_message_vec_deep_copy(_:  &AzDebugMessageVec) -> AzDebugMessageVec;
+        fn az_g_luint_vec_new() -> AzGLuintVec;
+        fn az_g_luint_vec_with_capacity(_:  usize) -> AzGLuintVec;
+        fn az_g_luint_vec_copy_from(_:  *const u32, _:  usize) -> AzGLuintVec;
+        fn az_g_luint_vec_delete(_:  &mut AzGLuintVec);
+        fn az_g_luint_vec_deep_copy(_:  &AzGLuintVec) -> AzGLuintVec;
+        fn az_g_lint_vec_new() -> AzGLintVec;
+        fn az_g_lint_vec_with_capacity(_:  usize) -> AzGLintVec;
+        fn az_g_lint_vec_copy_from(_:  *const i32, _:  usize) -> AzGLintVec;
+        fn az_g_lint_vec_delete(_:  &mut AzGLintVec);
+        fn az_g_lint_vec_deep_copy(_:  &AzGLintVec) -> AzGLintVec;
+        fn az_dom_vec_new() -> AzDomVec;
+        fn az_dom_vec_with_capacity(_:  usize) -> AzDomVec;
+        fn az_dom_vec_copy_from(_:  *const AzDom, _:  usize) -> AzDomVec;
+        fn az_dom_vec_delete(_:  &mut AzDomVec);
+        fn az_dom_vec_deep_copy(_:  &AzDomVec) -> AzDomVec;
+        fn az_string_vec_new() -> AzStringVec;
+        fn az_string_vec_with_capacity(_:  usize) -> AzStringVec;
+        fn az_string_vec_copy_from(_:  *const AzString, _:  usize) -> AzStringVec;
+        fn az_string_vec_delete(_:  &mut AzStringVec);
+        fn az_string_vec_deep_copy(_:  &AzStringVec) -> AzStringVec;
+        fn az_string_pair_vec_new() -> AzStringPairVec;
+        fn az_string_pair_vec_with_capacity(_:  usize) -> AzStringPairVec;
+        fn az_string_pair_vec_copy_from(_:  *const AzStringPair, _:  usize) -> AzStringPairVec;
+        fn az_string_pair_vec_delete(_:  &mut AzStringPairVec);
+        fn az_string_pair_vec_deep_copy(_:  &AzStringPairVec) -> AzStringPairVec;
+        fn az_gradient_stop_pre_vec_new() -> AzGradientStopPreVec;
+        fn az_gradient_stop_pre_vec_with_capacity(_:  usize) -> AzGradientStopPreVec;
+        fn az_gradient_stop_pre_vec_copy_from(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec;
+        fn az_gradient_stop_pre_vec_delete(_:  &mut AzGradientStopPreVec);
+        fn az_gradient_stop_pre_vec_deep_copy(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec;
+        fn az_cascaded_css_property_with_source_vec_new() -> AzCascadedCssPropertyWithSourceVec;
+        fn az_cascaded_css_property_with_source_vec_with_capacity(_:  usize) -> AzCascadedCssPropertyWithSourceVec;
+        fn az_cascaded_css_property_with_source_vec_copy_from(_:  *const AzCascadedCssPropertyWithSource, _:  usize) -> AzCascadedCssPropertyWithSourceVec;
+        fn az_cascaded_css_property_with_source_vec_delete(_:  &mut AzCascadedCssPropertyWithSourceVec);
+        fn az_cascaded_css_property_with_source_vec_deep_copy(_:  &AzCascadedCssPropertyWithSourceVec) -> AzCascadedCssPropertyWithSourceVec;
+        fn az_node_id_vec_new() -> AzNodeIdVec;
+        fn az_node_id_vec_with_capacity(_:  usize) -> AzNodeIdVec;
+        fn az_node_id_vec_copy_from(_:  *const AzNodeId, _:  usize) -> AzNodeIdVec;
+        fn az_node_id_vec_delete(_:  &mut AzNodeIdVec);
+        fn az_node_id_vec_deep_copy(_:  &AzNodeIdVec) -> AzNodeIdVec;
+        fn az_node_vec_new() -> AzNodeVec;
+        fn az_node_vec_with_capacity(_:  usize) -> AzNodeVec;
+        fn az_node_vec_copy_from(_:  *const AzNode, _:  usize) -> AzNodeVec;
+        fn az_node_vec_delete(_:  &mut AzNodeVec);
+        fn az_node_vec_deep_copy(_:  &AzNodeVec) -> AzNodeVec;
+        fn az_styled_node_vec_new() -> AzStyledNodeVec;
+        fn az_styled_node_vec_with_capacity(_:  usize) -> AzStyledNodeVec;
+        fn az_styled_node_vec_copy_from(_:  *const AzStyledNode, _:  usize) -> AzStyledNodeVec;
+        fn az_styled_node_vec_delete(_:  &mut AzStyledNodeVec);
+        fn az_styled_node_vec_deep_copy(_:  &AzStyledNodeVec) -> AzStyledNodeVec;
+        fn az_tag_ids_to_node_ids_mapping_vec_new() -> AzTagIdsToNodeIdsMappingVec;
+        fn az_tag_ids_to_node_ids_mapping_vec_with_capacity(_:  usize) -> AzTagIdsToNodeIdsMappingVec;
+        fn az_tag_ids_to_node_ids_mapping_vec_copy_from(_:  *const AzTagIdToNodeIdMapping, _:  usize) -> AzTagIdsToNodeIdsMappingVec;
+        fn az_tag_ids_to_node_ids_mapping_vec_delete(_:  &mut AzTagIdsToNodeIdsMappingVec);
+        fn az_tag_ids_to_node_ids_mapping_vec_deep_copy(_:  &AzTagIdsToNodeIdsMappingVec) -> AzTagIdsToNodeIdsMappingVec;
+        fn az_parent_with_node_depth_vec_new() -> AzParentWithNodeDepthVec;
+        fn az_parent_with_node_depth_vec_with_capacity(_:  usize) -> AzParentWithNodeDepthVec;
+        fn az_parent_with_node_depth_vec_copy_from(_:  *const AzParentWithNodeDepth, _:  usize) -> AzParentWithNodeDepthVec;
+        fn az_parent_with_node_depth_vec_delete(_:  &mut AzParentWithNodeDepthVec);
+        fn az_parent_with_node_depth_vec_deep_copy(_:  &AzParentWithNodeDepthVec) -> AzParentWithNodeDepthVec;
+        fn az_node_data_vec_new() -> AzNodeDataVec;
+        fn az_node_data_vec_with_capacity(_:  usize) -> AzNodeDataVec;
+        fn az_node_data_vec_copy_from(_:  *const AzNodeData, _:  usize) -> AzNodeDataVec;
+        fn az_node_data_vec_delete(_:  &mut AzNodeDataVec);
+        fn az_node_data_vec_deep_copy(_:  &AzNodeDataVec) -> AzNodeDataVec;
+        fn az_option_ref_any_delete(_:  &mut AzOptionRefAny);
+        fn az_option_ref_any_deep_copy(_:  &AzOptionRefAny) -> AzOptionRefAny;
+        fn az_option_style_transform_vec_value_delete(_:  &mut AzOptionStyleTransformVecValue);
+        fn az_option_style_transform_vec_value_deep_copy(_:  &AzOptionStyleTransformVecValue) -> AzOptionStyleTransformVecValue;
+        fn az_option_raw_image_delete(_:  &mut AzOptionRawImage);
+        fn az_option_raw_image_deep_copy(_:  &AzOptionRawImage) -> AzOptionRawImage;
+        fn az_option_wayland_theme_delete(_:  &mut AzOptionWaylandTheme);
+        fn az_option_wayland_theme_deep_copy(_:  &AzOptionWaylandTheme) -> AzOptionWaylandTheme;
+        fn az_option_task_bar_icon_delete(_:  &mut AzOptionTaskBarIcon);
+        fn az_option_task_bar_icon_deep_copy(_:  &AzOptionTaskBarIcon) -> AzOptionTaskBarIcon;
+        fn az_option_window_icon_delete(_:  &mut AzOptionWindowIcon);
+        fn az_option_window_icon_deep_copy(_:  &AzOptionWindowIcon) -> AzOptionWindowIcon;
+        fn az_option_string_delete(_:  &mut AzOptionString);
+        fn az_option_string_deep_copy(_:  &AzOptionString) -> AzOptionString;
+        fn az_option_dom_delete(_:  &mut AzOptionDom);
+        fn az_option_dom_deep_copy(_:  &AzOptionDom) -> AzOptionDom;
+        fn az_option_texture_delete(_:  &mut AzOptionTexture);
+        fn az_option_image_mask_delete(_:  &mut AzOptionImageMask);
+        fn az_option_image_mask_deep_copy(_:  &AzOptionImageMask) -> AzOptionImageMask;
+        fn az_option_style_background_content_value_delete(_:  &mut AzOptionStyleBackgroundContentValue);
+        fn az_option_style_background_content_value_deep_copy(_:  &AzOptionStyleBackgroundContentValue) -> AzOptionStyleBackgroundContentValue;
+        fn az_option_style_font_family_value_delete(_:  &mut AzOptionStyleFontFamilyValue);
+        fn az_option_style_font_family_value_deep_copy(_:  &AzOptionStyleFontFamilyValue) -> AzOptionStyleFontFamilyValue;
+        fn az_option_box_shadow_pre_display_item_value_delete(_:  &mut AzOptionBoxShadowPreDisplayItemValue);
+        fn az_option_box_shadow_pre_display_item_value_deep_copy(_:  &AzOptionBoxShadowPreDisplayItemValue) -> AzOptionBoxShadowPreDisplayItemValue;
+        fn az_option_instant_ptr_delete(_:  &mut AzOptionInstantPtr);
+        fn az_option_instant_ptr_deep_copy(_:  &AzOptionInstantPtr) -> AzOptionInstantPtr;
+        fn az_option_u8_vec_ref_delete(_:  &mut AzOptionU8VecRef);
+        fn az_result_svg_svg_parse_error_delete(_:  &mut AzResultSvgSvgParseError);
+        fn az_result_svg_svg_parse_error_deep_copy(_:  &AzResultSvgSvgParseError) -> AzResultSvgSvgParseError;
+        fn az_svg_parse_error_delete(_:  &mut AzSvgParseError);
+        fn az_svg_parse_error_deep_copy(_:  &AzSvgParseError) -> AzSvgParseError;
+        fn az_xml_error_delete(_:  &mut AzXmlError);
+        fn az_xml_error_deep_copy(_:  &AzXmlError) -> AzXmlError;
+        fn az_duplicated_namespace_error_delete(_:  &mut AzDuplicatedNamespaceError);
+        fn az_duplicated_namespace_error_deep_copy(_:  &AzDuplicatedNamespaceError) -> AzDuplicatedNamespaceError;
+        fn az_unknown_namespace_error_delete(_:  &mut AzUnknownNamespaceError);
+        fn az_unknown_namespace_error_deep_copy(_:  &AzUnknownNamespaceError) -> AzUnknownNamespaceError;
+        fn az_unexpected_close_tag_error_delete(_:  &mut AzUnexpectedCloseTagError);
+        fn az_unexpected_close_tag_error_deep_copy(_:  &AzUnexpectedCloseTagError) -> AzUnexpectedCloseTagError;
+        fn az_unknown_entity_reference_error_delete(_:  &mut AzUnknownEntityReferenceError);
+        fn az_unknown_entity_reference_error_deep_copy(_:  &AzUnknownEntityReferenceError) -> AzUnknownEntityReferenceError;
+        fn az_duplicated_attribute_error_delete(_:  &mut AzDuplicatedAttributeError);
+        fn az_duplicated_attribute_error_deep_copy(_:  &AzDuplicatedAttributeError) -> AzDuplicatedAttributeError;
+        fn az_xml_parse_error_delete(_:  &mut AzXmlParseError);
+        fn az_xml_parse_error_deep_copy(_:  &AzXmlParseError) -> AzXmlParseError;
+        fn az_xml_text_error_delete(_:  &mut AzXmlTextError);
+        fn az_xml_text_error_deep_copy(_:  &AzXmlTextError) -> AzXmlTextError;
+        fn az_xml_stream_error_delete(_:  &mut AzXmlStreamError);
+        fn az_xml_stream_error_deep_copy(_:  &AzXmlStreamError) -> AzXmlStreamError;
+        fn az_invalid_char_multiple_error_delete(_:  &mut AzInvalidCharMultipleError);
+        fn az_invalid_char_multiple_error_deep_copy(_:  &AzInvalidCharMultipleError) -> AzInvalidCharMultipleError;
+        fn az_invalid_string_error_delete(_:  &mut AzInvalidStringError);
+        fn az_invalid_string_error_deep_copy(_:  &AzInvalidStringError) -> AzInvalidStringError;
+        fn az_instant_ptr_now() -> AzInstantPtr;
+        fn az_instant_ptr_delete(_:  &mut AzInstantPtr);
+        fn az_duration_milliseconds(_:  usize) -> AzDuration;
+        fn az_duration_seconds(_:  usize) -> AzDuration;
+        fn az_app_config_default() -> AzAppConfig;
+        fn az_app_config_delete(_:  &mut AzAppConfig);
+        fn az_app_config_deep_copy(_:  &AzAppConfig) -> AzAppConfig;
+        fn az_app_ptr_new(_:  AzRefAny, _:  AzAppConfig) -> AzAppPtr;
+        fn az_app_ptr_add_window(_:  &mut AzAppPtr, _:  AzWindowCreateOptions);
+        fn az_app_ptr_run(_:  AzAppPtr, _:  AzWindowCreateOptions);
+        fn az_app_ptr_delete(_:  &mut AzAppPtr);
+        fn az_hidpi_adjusted_bounds_get_logical_size(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize;
+        fn az_hidpi_adjusted_bounds_get_physical_size(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32;
+        fn az_hidpi_adjusted_bounds_get_hidpi_factor(_:  &AzHidpiAdjustedBounds) -> f32;
+        fn az_focus_target_delete(_:  &mut AzFocusTarget);
+        fn az_focus_target_deep_copy(_:  &AzFocusTarget) -> AzFocusTarget;
+        fn az_focus_target_path_delete(_:  &mut AzFocusTargetPath);
+        fn az_focus_target_path_deep_copy(_:  &AzFocusTargetPath) -> AzFocusTargetPath;
+        fn az_callback_info_get_hit_node(_:  &AzCallbackInfo) -> AzDomNodeId;
+        fn az_callback_info_get_cursor_relative_to_viewport(_:  &AzCallbackInfo) -> AzOptionLayoutPoint;
+        fn az_callback_info_get_cursor_relative_to_node(_:  &AzCallbackInfo) -> AzOptionLayoutPoint;
+        fn az_callback_info_get_parent(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        fn az_callback_info_get_previous_sibling(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        fn az_callback_info_get_next_sibling(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        fn az_callback_info_get_first_child(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        fn az_callback_info_get_last_child(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        fn az_callback_info_get_dataset(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionRefAny;
+        fn az_callback_info_get_window_state(_:  &AzCallbackInfo) -> AzWindowState;
+        fn az_callback_info_get_keyboard_state(_:  &AzCallbackInfo) -> AzKeyboardState;
+        fn az_callback_info_get_mouse_state(_:  &AzCallbackInfo) -> AzMouseState;
+        fn az_callback_info_get_current_window_handle(_:  &AzCallbackInfo) -> AzRawWindowHandle;
+        fn az_callback_info_get_gl_context(_:  &AzCallbackInfo) -> AzGlContextPtr;
+        fn az_callback_info_set_window_state(_:  &mut AzCallbackInfo, _:  AzWindowState);
+        fn az_callback_info_set_focus(_:  &mut AzCallbackInfo, _:  AzFocusTarget);
+        fn az_callback_info_set_css_property(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzCssProperty);
+        fn az_callback_info_stop_propagation(_:  &mut AzCallbackInfo);
+        fn az_callback_info_create_window(_:  &mut AzCallbackInfo, _:  AzWindowCreateOptions);
+        fn az_callback_info_start_thread(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallbackType);
+        fn az_callback_info_start_timer(_:  &mut AzCallbackInfo, _:  AzTimerId, _:  AzTimer);
+        fn az_callback_info_delete(_:  &mut AzCallbackInfo);
+        fn az_i_frame_callback_info_get_bounds(_:  &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds;
+        fn az_i_frame_callback_info_delete(_:  &mut AzIFrameCallbackInfo);
+        fn az_i_frame_callback_return_delete(_:  &mut AzIFrameCallbackReturn);
+        fn az_i_frame_callback_return_deep_copy(_:  &AzIFrameCallbackReturn) -> AzIFrameCallbackReturn;
+        fn az_gl_callback_info_get_gl_context(_:  &AzGlCallbackInfo) -> AzGlContextPtr;
+        fn az_gl_callback_info_delete(_:  &mut AzGlCallbackInfo);
+        fn az_gl_callback_return_delete(_:  &mut AzGlCallbackReturn);
+        fn az_timer_callback_info_delete(_:  &mut AzTimerCallbackInfo);
+        fn az_timer_callback_return_delete(_:  &mut AzTimerCallbackReturn);
+        fn az_timer_callback_return_deep_copy(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn;
+        fn az_write_back_callback_delete(_:  &mut AzWriteBackCallback);
+        fn az_write_back_callback_deep_copy(_:  &AzWriteBackCallback) -> AzWriteBackCallback;
+        fn az_atomic_ref_count_can_be_shared(_:  &AzAtomicRefCount) -> bool;
+        fn az_atomic_ref_count_can_be_shared_mut(_:  &AzAtomicRefCount) -> bool;
+        fn az_atomic_ref_count_increase_ref(_:  &AzAtomicRefCount);
+        fn az_atomic_ref_count_decrease_ref(_:  &AzAtomicRefCount);
+        fn az_atomic_ref_count_increase_refmut(_:  &AzAtomicRefCount);
+        fn az_atomic_ref_count_decrease_refmut(_:  &AzAtomicRefCount);
+        fn az_atomic_ref_count_delete(_:  &mut AzAtomicRefCount);
+        fn az_atomic_ref_count_deep_copy(_:  &AzAtomicRefCount) -> AzAtomicRefCount;
+        fn az_atomic_ref_count_fmt_debug(_:  &AzAtomicRefCount) -> AzString;
+        fn az_ref_any_new_c(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny;
+        fn az_ref_any_is_type(_:  &AzRefAny, _:  u64) -> bool;
+        fn az_ref_any_get_type_name(_:  &AzRefAny) -> AzString;
+        fn az_ref_any_can_be_shared(_:  &AzRefAny) -> bool;
+        fn az_ref_any_can_be_shared_mut(_:  &AzRefAny) -> bool;
+        fn az_ref_any_increase_ref(_:  &AzRefAny);
+        fn az_ref_any_decrease_ref(_:  &AzRefAny);
+        fn az_ref_any_increase_refmut(_:  &AzRefAny);
+        fn az_ref_any_decrease_refmut(_:  &AzRefAny);
+        fn az_ref_any_delete(_:  &mut AzRefAny);
+        fn az_ref_any_deep_copy(_:  &AzRefAny) -> AzRefAny;
+        fn az_layout_info_window_width_larger_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
+        fn az_layout_info_window_width_smaller_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
+        fn az_layout_info_window_height_larger_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
+        fn az_layout_info_window_height_smaller_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
+        fn az_layout_info_delete(_:  &mut AzLayoutInfo);
+        fn az_css_rule_block_delete(_:  &mut AzCssRuleBlock);
+        fn az_css_rule_block_deep_copy(_:  &AzCssRuleBlock) -> AzCssRuleBlock;
+        fn az_css_declaration_delete(_:  &mut AzCssDeclaration);
+        fn az_css_declaration_deep_copy(_:  &AzCssDeclaration) -> AzCssDeclaration;
+        fn az_dynamic_css_property_delete(_:  &mut AzDynamicCssProperty);
+        fn az_dynamic_css_property_deep_copy(_:  &AzDynamicCssProperty) -> AzDynamicCssProperty;
+        fn az_css_path_delete(_:  &mut AzCssPath);
+        fn az_css_path_deep_copy(_:  &AzCssPath) -> AzCssPath;
+        fn az_css_path_selector_delete(_:  &mut AzCssPathSelector);
+        fn az_css_path_selector_deep_copy(_:  &AzCssPathSelector) -> AzCssPathSelector;
+        fn az_stylesheet_delete(_:  &mut AzStylesheet);
+        fn az_stylesheet_deep_copy(_:  &AzStylesheet) -> AzStylesheet;
+        fn az_css_empty() -> AzCss;
+        fn az_css_from_string(_:  AzString) -> AzCss;
+        fn az_css_delete(_:  &mut AzCss);
+        fn az_css_deep_copy(_:  &AzCss) -> AzCss;
+        fn az_color_u_from_str(_:  AzString) -> AzColorU;
+        fn az_color_u_to_hash(_:  &AzColorU) -> AzString;
+        fn az_linear_gradient_delete(_:  &mut AzLinearGradient);
+        fn az_linear_gradient_deep_copy(_:  &AzLinearGradient) -> AzLinearGradient;
+        fn az_radial_gradient_delete(_:  &mut AzRadialGradient);
+        fn az_radial_gradient_deep_copy(_:  &AzRadialGradient) -> AzRadialGradient;
+        fn az_css_image_id_delete(_:  &mut AzCssImageId);
+        fn az_css_image_id_deep_copy(_:  &AzCssImageId) -> AzCssImageId;
+        fn az_style_background_content_delete(_:  &mut AzStyleBackgroundContent);
+        fn az_style_background_content_deep_copy(_:  &AzStyleBackgroundContent) -> AzStyleBackgroundContent;
+        fn az_style_font_family_delete(_:  &mut AzStyleFontFamily);
+        fn az_style_font_family_deep_copy(_:  &AzStyleFontFamily) -> AzStyleFontFamily;
+        fn az_style_background_content_value_delete(_:  &mut AzStyleBackgroundContentValue);
+        fn az_style_background_content_value_deep_copy(_:  &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue;
+        fn az_style_font_family_value_delete(_:  &mut AzStyleFontFamilyValue);
+        fn az_style_font_family_value_deep_copy(_:  &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue;
+        fn az_style_transform_vec_value_delete(_:  &mut AzStyleTransformVecValue);
+        fn az_style_transform_vec_value_deep_copy(_:  &AzStyleTransformVecValue) -> AzStyleTransformVecValue;
+        fn az_css_property_delete(_:  &mut AzCssProperty);
+        fn az_css_property_deep_copy(_:  &AzCssProperty) -> AzCssProperty;
+        fn az_rect_style_delete(_:  &mut AzRectStyle);
+        fn az_rect_style_deep_copy(_:  &AzRectStyle) -> AzRectStyle;
+        fn az_rect_layout_delete(_:  &mut AzRectLayout);
+        fn az_rect_layout_deep_copy(_:  &AzRectLayout) -> AzRectLayout;
+        fn az_cascaded_css_property_with_source_delete(_:  &mut AzCascadedCssPropertyWithSource);
+        fn az_cascaded_css_property_with_source_deep_copy(_:  &AzCascadedCssPropertyWithSource) -> AzCascadedCssPropertyWithSource;
+        fn az_css_property_source_delete(_:  &mut AzCssPropertySource);
+        fn az_css_property_source_deep_copy(_:  &AzCssPropertySource) -> AzCssPropertySource;
+        fn az_styled_node_delete(_:  &mut AzStyledNode);
+        fn az_styled_node_deep_copy(_:  &AzStyledNode) -> AzStyledNode;
+        fn az_content_group_delete(_:  &mut AzContentGroup);
+        fn az_content_group_deep_copy(_:  &AzContentGroup) -> AzContentGroup;
+        fn az_styled_dom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
+        fn az_styled_dom_append(_:  &mut AzStyledDom, _:  AzStyledDom);
+        fn az_styled_dom_delete(_:  &mut AzStyledDom);
+        fn az_styled_dom_deep_copy(_:  &AzStyledDom) -> AzStyledDom;
+        fn az_dom_new(_:  AzNodeType) -> AzDom;
+        fn az_dom_div() -> AzDom;
+        fn az_dom_body() -> AzDom;
+        fn az_dom_label(_:  AzString) -> AzDom;
+        fn az_dom_text(_:  AzTextId) -> AzDom;
+        fn az_dom_image(_:  AzImageId) -> AzDom;
+        fn az_dom_gl_texture(_:  AzRefAny, _:  AzGlCallbackType) -> AzDom;
+        fn az_dom_iframe(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzDom;
+        fn az_dom_add_id(_:  &mut AzDom, _:  AzString);
+        fn az_dom_with_id(_:  AzDom, _:  AzString) -> AzDom;
+        fn az_dom_set_ids(_:  &mut AzDom, _:  AzStringVec);
+        fn az_dom_with_ids(_:  AzDom, _:  AzStringVec) -> AzDom;
+        fn az_dom_add_class(_:  &mut AzDom, _:  AzString);
+        fn az_dom_with_class(_:  AzDom, _:  AzString) -> AzDom;
+        fn az_dom_set_classes(_:  &mut AzDom, _:  AzStringVec);
+        fn az_dom_with_classes(_:  AzDom, _:  AzStringVec) -> AzDom;
+        fn az_dom_add_callback(_:  &mut AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType);
+        fn az_dom_with_callback(_:  AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzDom;
+        fn az_dom_set_dataset(_:  &mut AzDom, _:  AzRefAny);
+        fn az_dom_with_dataset(_:  AzDom, _:  AzRefAny) -> AzDom;
+        fn az_dom_add_inline_css(_:  &mut AzDom, _:  AzCssProperty);
+        fn az_dom_with_inline_css(_:  AzDom, _:  AzCssProperty) -> AzDom;
+        fn az_dom_add_inline_hover_css(_:  &mut AzDom, _:  AzCssProperty);
+        fn az_dom_with_inline_hover_css(_:  AzDom, _:  AzCssProperty) -> AzDom;
+        fn az_dom_add_inline_active_css(_:  &mut AzDom, _:  AzCssProperty);
+        fn az_dom_with_inline_active_css(_:  AzDom, _:  AzCssProperty) -> AzDom;
+        fn az_dom_add_inline_focus_css(_:  &mut AzDom, _:  AzCssProperty);
+        fn az_dom_with_inline_focus_css(_:  AzDom, _:  AzCssProperty) -> AzDom;
+        fn az_dom_set_is_draggable(_:  &mut AzDom, _:  bool);
+        fn az_dom_with_clip_mask(_:  AzDom, _:  AzOptionImageMask) -> AzDom;
+        fn az_dom_set_clip_mask(_:  &mut AzDom, _:  AzOptionImageMask);
+        fn az_dom_is_draggable(_:  AzDom, _:  bool) -> AzDom;
+        fn az_dom_set_tab_index(_:  &mut AzDom, _:  AzOptionTabIndex);
+        fn az_dom_with_tab_index(_:  AzDom, _:  AzOptionTabIndex) -> AzDom;
+        fn az_dom_add_child(_:  &mut AzDom, _:  AzDom);
+        fn az_dom_with_child(_:  AzDom, _:  AzDom) -> AzDom;
+        fn az_dom_get_html_string(_:  &AzDom) -> AzString;
+        fn az_dom_style(_:  AzDom, _:  AzCss) -> AzStyledDom;
+        fn az_dom_delete(_:  &mut AzDom);
+        fn az_dom_deep_copy(_:  &AzDom) -> AzDom;
+        fn az_gl_texture_node_delete(_:  &mut AzGlTextureNode);
+        fn az_gl_texture_node_deep_copy(_:  &AzGlTextureNode) -> AzGlTextureNode;
+        fn az_i_frame_node_delete(_:  &mut AzIFrameNode);
+        fn az_i_frame_node_deep_copy(_:  &AzIFrameNode) -> AzIFrameNode;
+        fn az_callback_data_delete(_:  &mut AzCallbackData);
+        fn az_callback_data_deep_copy(_:  &AzCallbackData) -> AzCallbackData;
+        fn az_image_mask_delete(_:  &mut AzImageMask);
+        fn az_image_mask_deep_copy(_:  &AzImageMask) -> AzImageMask;
+        fn az_node_data_new(_:  AzNodeType) -> AzNodeData;
+        fn az_node_data_div() -> AzNodeData;
+        fn az_node_data_body() -> AzNodeData;
+        fn az_node_data_label(_:  AzString) -> AzNodeData;
+        fn az_node_data_text(_:  AzTextId) -> AzNodeData;
+        fn az_node_data_image(_:  AzImageId) -> AzNodeData;
+        fn az_node_data_gl_texture(_:  AzRefAny, _:  AzGlCallbackType) -> AzNodeData;
+        fn az_node_data_iframe(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzNodeData;
+        fn az_node_data_default() -> AzNodeData;
+        fn az_node_data_add_id(_:  &mut AzNodeData, _:  AzString);
+        fn az_node_data_with_id(_:  AzNodeData, _:  AzString) -> AzNodeData;
+        fn az_node_data_set_ids(_:  &mut AzNodeData, _:  AzStringVec);
+        fn az_node_data_with_ids(_:  AzNodeData, _:  AzStringVec) -> AzNodeData;
+        fn az_node_data_add_class(_:  &mut AzNodeData, _:  AzString);
+        fn az_node_data_with_class(_:  AzNodeData, _:  AzString) -> AzNodeData;
+        fn az_node_data_set_classes(_:  &mut AzNodeData, _:  AzStringVec);
+        fn az_node_data_with_classes(_:  AzNodeData, _:  AzStringVec) -> AzNodeData;
+        fn az_node_data_add_dataset(_:  &mut AzNodeData, _:  AzRefAny);
+        fn az_node_data_with_dataset(_:  AzNodeData, _:  AzRefAny) -> AzNodeData;
+        fn az_node_data_add_callback(_:  &mut AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType);
+        fn az_node_data_with_callback(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData;
+        fn az_node_data_add_inline_css(_:  &mut AzNodeData, _:  AzCssProperty);
+        fn az_node_data_with_inline_css(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData;
+        fn az_node_data_add_inline_hover_css(_:  &mut AzNodeData, _:  AzCssProperty);
+        fn az_node_data_add_inline_active_css(_:  &mut AzNodeData, _:  AzCssProperty);
+        fn az_node_data_add_inline_focus_css(_:  &mut AzNodeData, _:  AzCssProperty);
+        fn az_node_data_with_clip_mask(_:  AzNodeData, _:  AzOptionImageMask) -> AzNodeData;
+        fn az_node_data_set_clip_mask(_:  &mut AzNodeData, _:  AzOptionImageMask);
+        fn az_node_data_set_is_draggable(_:  &mut AzNodeData, _:  bool);
+        fn az_node_data_is_draggable(_:  AzNodeData, _:  bool) -> AzNodeData;
+        fn az_node_data_set_tab_index(_:  &mut AzNodeData, _:  AzOptionTabIndex);
+        fn az_node_data_with_tab_index(_:  AzNodeData, _:  AzOptionTabIndex) -> AzNodeData;
+        fn az_node_data_delete(_:  &mut AzNodeData);
+        fn az_node_data_deep_copy(_:  &AzNodeData) -> AzNodeData;
+        fn az_node_type_delete(_:  &mut AzNodeType);
+        fn az_node_type_deep_copy(_:  &AzNodeType) -> AzNodeType;
+        fn az_on_into_event_filter(_:  AzOn) -> AzEventFilter;
+        fn az_vertex_attribute_delete(_:  &mut AzVertexAttribute);
+        fn az_vertex_attribute_deep_copy(_:  &AzVertexAttribute) -> AzVertexAttribute;
+        fn az_vertex_layout_delete(_:  &mut AzVertexLayout);
+        fn az_vertex_layout_deep_copy(_:  &AzVertexLayout) -> AzVertexLayout;
+        fn az_vertex_array_object_delete(_:  &mut AzVertexArrayObject);
+        fn az_vertex_buffer_delete(_:  &mut AzVertexBuffer);
+        fn az_debug_message_delete(_:  &mut AzDebugMessage);
+        fn az_debug_message_deep_copy(_:  &AzDebugMessage) -> AzDebugMessage;
+        fn az_u8_vec_ref_delete(_:  &mut AzU8VecRef);
+        fn az_u8_vec_ref_mut_delete(_:  &mut AzU8VecRefMut);
+        fn az_f32_vec_ref_delete(_:  &mut AzF32VecRef);
+        fn az_i32_vec_ref_delete(_:  &mut AzI32VecRef);
+        fn az_g_luint_vec_ref_delete(_:  &mut AzGLuintVecRef);
+        fn az_g_lenum_vec_ref_delete(_:  &mut AzGLenumVecRef);
+        fn az_g_lint_vec_ref_mut_delete(_:  &mut AzGLintVecRefMut);
+        fn az_g_lint64_vec_ref_mut_delete(_:  &mut AzGLint64VecRefMut);
+        fn az_g_lboolean_vec_ref_mut_delete(_:  &mut AzGLbooleanVecRefMut);
+        fn az_g_lfloat_vec_ref_mut_delete(_:  &mut AzGLfloatVecRefMut);
+        fn az_refstr_vec_ref_delete(_:  &mut AzRefstrVecRef);
+        fn az_refstr_delete(_:  &mut AzRefstr);
+        fn az_get_program_binary_return_delete(_:  &mut AzGetProgramBinaryReturn);
+        fn az_get_program_binary_return_deep_copy(_:  &AzGetProgramBinaryReturn) -> AzGetProgramBinaryReturn;
+        fn az_get_active_attrib_return_delete(_:  &mut AzGetActiveAttribReturn);
+        fn az_get_active_attrib_return_deep_copy(_:  &AzGetActiveAttribReturn) -> AzGetActiveAttribReturn;
+        fn az_g_lsync_ptr_delete(_:  &mut AzGLsyncPtr);
+        fn az_get_active_uniform_return_delete(_:  &mut AzGetActiveUniformReturn);
+        fn az_get_active_uniform_return_deep_copy(_:  &AzGetActiveUniformReturn) -> AzGetActiveUniformReturn;
+        fn az_gl_context_ptr_get_type(_:  &AzGlContextPtr) -> AzGlType;
+        fn az_gl_context_ptr_buffer_data_untyped(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32);
+        fn az_gl_context_ptr_buffer_sub_data_untyped(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  *const c_void);
+        fn az_gl_context_ptr_map_buffer(_:  &AzGlContextPtr, _:  u32, _:  u32) -> *mut c_void;
+        fn az_gl_context_ptr_map_buffer_range(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  u32) -> *mut c_void;
+        fn az_gl_context_ptr_unmap_buffer(_:  &AzGlContextPtr, _:  u32) -> u8;
+        fn az_gl_context_ptr_tex_buffer(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_shader_source(_:  &AzGlContextPtr, _:  u32, _:  AzStringVec);
+        fn az_gl_context_ptr_read_buffer(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_read_pixels_into_buffer(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut);
+        fn az_gl_context_ptr_read_pixels(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32) -> AzU8Vec;
+        fn az_gl_context_ptr_read_pixels_into_pbo(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_sample_coverage(_:  &AzGlContextPtr, _:  f32, _:  bool);
+        fn az_gl_context_ptr_polygon_offset(_:  &AzGlContextPtr, _:  f32, _:  f32);
+        fn az_gl_context_ptr_pixel_store_i(_:  &AzGlContextPtr, _:  u32, _:  i32);
+        fn az_gl_context_ptr_gen_buffers(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
+        fn az_gl_context_ptr_gen_renderbuffers(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
+        fn az_gl_context_ptr_gen_framebuffers(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
+        fn az_gl_context_ptr_gen_textures(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
+        fn az_gl_context_ptr_gen_vertex_arrays(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
+        fn az_gl_context_ptr_gen_queries(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
+        fn az_gl_context_ptr_begin_query(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_end_query(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_query_counter(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_get_query_object_iv(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32;
+        fn az_gl_context_ptr_get_query_object_uiv(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u32;
+        fn az_gl_context_ptr_get_query_object_i64v(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i64;
+        fn az_gl_context_ptr_get_query_object_ui64v(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u64;
+        fn az_gl_context_ptr_delete_queries(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
+        fn az_gl_context_ptr_delete_vertex_arrays(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
+        fn az_gl_context_ptr_delete_buffers(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
+        fn az_gl_context_ptr_delete_renderbuffers(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
+        fn az_gl_context_ptr_delete_framebuffers(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
+        fn az_gl_context_ptr_delete_textures(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
+        fn az_gl_context_ptr_framebuffer_renderbuffer(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_renderbuffer_storage(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_depth_func(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_active_texture(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_attach_shader(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_bind_attrib_location(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzRefstr);
+        fn az_gl_context_ptr_get_uniform_iv(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  AzGLintVecRefMut);
+        fn az_gl_context_ptr_get_uniform_fv(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  AzGLfloatVecRefMut);
+        fn az_gl_context_ptr_get_uniform_block_index(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> u32;
+        fn az_gl_context_ptr_get_uniform_indices(_:  &AzGlContextPtr, _:  u32, _:  AzRefstrVecRef) -> AzGLuintVec;
+        fn az_gl_context_ptr_bind_buffer_base(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_bind_buffer_range(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  isize, _:  isize);
+        fn az_gl_context_ptr_uniform_block_binding(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_bind_buffer(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_bind_vertex_array(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_bind_renderbuffer(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_bind_framebuffer(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_bind_texture(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_draw_buffers(_:  &AzGlContextPtr, _:  AzGLenumVecRef);
+        fn az_gl_context_ptr_tex_image_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef);
+        fn az_gl_context_ptr_compressed_tex_image_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  AzU8VecRef);
+        fn az_gl_context_ptr_compressed_tex_sub_image_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  AzU8VecRef);
+        fn az_gl_context_ptr_tex_image_3d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef);
+        fn az_gl_context_ptr_copy_tex_image_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_copy_tex_sub_image_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_copy_tex_sub_image_3d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_tex_sub_image_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef);
+        fn az_gl_context_ptr_tex_sub_image_2d_pbo(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize);
+        fn az_gl_context_ptr_tex_sub_image_3d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef);
+        fn az_gl_context_ptr_tex_sub_image_3d_pbo(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize);
+        fn az_gl_context_ptr_tex_storage_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_tex_storage_3d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_get_tex_image_into_buffer(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut);
+        fn az_gl_context_ptr_copy_image_sub_data(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_invalidate_framebuffer(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef);
+        fn az_gl_context_ptr_invalidate_sub_framebuffer(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef, _:  i32, _:  i32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_get_integer_v(_:  &AzGlContextPtr, _:  u32, _:  AzGLintVecRefMut);
+        fn az_gl_context_ptr_get_integer_64v(_:  &AzGlContextPtr, _:  u32, _:  AzGLint64VecRefMut);
+        fn az_gl_context_ptr_get_integer_iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut);
+        fn az_gl_context_ptr_get_integer_64iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLint64VecRefMut);
+        fn az_gl_context_ptr_get_boolean_v(_:  &AzGlContextPtr, _:  u32, _:  AzGLbooleanVecRefMut);
+        fn az_gl_context_ptr_get_float_v(_:  &AzGlContextPtr, _:  u32, _:  AzGLfloatVecRefMut);
+        fn az_gl_context_ptr_get_framebuffer_attachment_parameter_iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> i32;
+        fn az_gl_context_ptr_get_renderbuffer_parameter_iv(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32;
+        fn az_gl_context_ptr_get_tex_parameter_iv(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32;
+        fn az_gl_context_ptr_get_tex_parameter_fv(_:  &AzGlContextPtr, _:  u32, _:  u32) -> f32;
+        fn az_gl_context_ptr_tex_parameter_i(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32);
+        fn az_gl_context_ptr_tex_parameter_f(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  f32);
+        fn az_gl_context_ptr_framebuffer_texture_2d(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32, _:  i32);
+        fn az_gl_context_ptr_framebuffer_texture_layer(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_blit_framebuffer(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_vertex_attrib_4f(_:  &AzGlContextPtr, _:  u32, _:  f32, _:  f32, _:  f32, _:  f32);
+        fn az_gl_context_ptr_vertex_attrib_pointer_f32(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  bool, _:  i32, _:  u32);
+        fn az_gl_context_ptr_vertex_attrib_pointer(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  bool, _:  i32, _:  u32);
+        fn az_gl_context_ptr_vertex_attrib_i_pointer(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  u32);
+        fn az_gl_context_ptr_vertex_attrib_divisor(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_viewport(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_scissor(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_line_width(_:  &AzGlContextPtr, _:  f32);
+        fn az_gl_context_ptr_use_program(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_validate_program(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_draw_arrays(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_draw_arrays_instanced(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_draw_elements(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_draw_elements_instanced(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32);
+        fn az_gl_context_ptr_blend_color(_:  &AzGlContextPtr, _:  f32, _:  f32, _:  f32, _:  f32);
+        fn az_gl_context_ptr_blend_func(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_blend_func_separate(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_blend_equation(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_blend_equation_separate(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_color_mask(_:  &AzGlContextPtr, _:  bool, _:  bool, _:  bool, _:  bool);
+        fn az_gl_context_ptr_cull_face(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_front_face(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_enable(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_disable(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_hint(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_is_enabled(_:  &AzGlContextPtr, _:  u32) -> u8;
+        fn az_gl_context_ptr_is_shader(_:  &AzGlContextPtr, _:  u32) -> u8;
+        fn az_gl_context_ptr_is_texture(_:  &AzGlContextPtr, _:  u32) -> u8;
+        fn az_gl_context_ptr_is_framebuffer(_:  &AzGlContextPtr, _:  u32) -> u8;
+        fn az_gl_context_ptr_is_renderbuffer(_:  &AzGlContextPtr, _:  u32) -> u8;
+        fn az_gl_context_ptr_check_frame_buffer_status(_:  &AzGlContextPtr, _:  u32) -> u32;
+        fn az_gl_context_ptr_enable_vertex_attrib_array(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_disable_vertex_attrib_array(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_uniform_1f(_:  &AzGlContextPtr, _:  i32, _:  f32);
+        fn az_gl_context_ptr_uniform_1fv(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef);
+        fn az_gl_context_ptr_uniform_1i(_:  &AzGlContextPtr, _:  i32, _:  i32);
+        fn az_gl_context_ptr_uniform_1iv(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef);
+        fn az_gl_context_ptr_uniform_1ui(_:  &AzGlContextPtr, _:  i32, _:  u32);
+        fn az_gl_context_ptr_uniform_2f(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32);
+        fn az_gl_context_ptr_uniform_2fv(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef);
+        fn az_gl_context_ptr_uniform_2i(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_uniform_2iv(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef);
+        fn az_gl_context_ptr_uniform_2ui(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_uniform_3f(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32, _:  f32);
+        fn az_gl_context_ptr_uniform_3fv(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef);
+        fn az_gl_context_ptr_uniform_3i(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_uniform_3iv(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef);
+        fn az_gl_context_ptr_uniform_3ui(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_uniform_4f(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32, _:  f32, _:  f32);
+        fn az_gl_context_ptr_uniform_4i(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
+        fn az_gl_context_ptr_uniform_4iv(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef);
+        fn az_gl_context_ptr_uniform_4ui(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_uniform_4fv(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef);
+        fn az_gl_context_ptr_uniform_matrix_2fv(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef);
+        fn az_gl_context_ptr_uniform_matrix_3fv(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef);
+        fn az_gl_context_ptr_uniform_matrix_4fv(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef);
+        fn az_gl_context_ptr_depth_mask(_:  &AzGlContextPtr, _:  bool);
+        fn az_gl_context_ptr_depth_range(_:  &AzGlContextPtr, _:  f64, _:  f64);
+        fn az_gl_context_ptr_get_active_attrib(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGetActiveAttribReturn;
+        fn az_gl_context_ptr_get_active_uniform(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGetActiveUniformReturn;
+        fn az_gl_context_ptr_get_active_uniforms_iv(_:  &AzGlContextPtr, _:  u32, _:  AzGLuintVec, _:  u32) -> AzGLintVec;
+        fn az_gl_context_ptr_get_active_uniform_block_i(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> i32;
+        fn az_gl_context_ptr_get_active_uniform_block_iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> AzGLintVec;
+        fn az_gl_context_ptr_get_active_uniform_block_name(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString;
+        fn az_gl_context_ptr_get_attrib_location(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32;
+        fn az_gl_context_ptr_get_frag_data_location(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32;
+        fn az_gl_context_ptr_get_uniform_location(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32;
+        fn az_gl_context_ptr_get_program_info_log(_:  &AzGlContextPtr, _:  u32) -> AzString;
+        fn az_gl_context_ptr_get_program_iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut);
+        fn az_gl_context_ptr_get_program_binary(_:  &AzGlContextPtr, _:  u32) -> AzGetProgramBinaryReturn;
+        fn az_gl_context_ptr_program_binary(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzU8VecRef);
+        fn az_gl_context_ptr_program_parameter_i(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32);
+        fn az_gl_context_ptr_get_vertex_attrib_iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut);
+        fn az_gl_context_ptr_get_vertex_attrib_fv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLfloatVecRefMut);
+        fn az_gl_context_ptr_get_vertex_attrib_pointer_v(_:  &AzGlContextPtr, _:  u32, _:  u32) -> isize;
+        fn az_gl_context_ptr_get_buffer_parameter_iv(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32;
+        fn az_gl_context_ptr_get_shader_info_log(_:  &AzGlContextPtr, _:  u32) -> AzString;
+        fn az_gl_context_ptr_get_string(_:  &AzGlContextPtr, _:  u32) -> AzString;
+        fn az_gl_context_ptr_get_string_i(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString;
+        fn az_gl_context_ptr_get_shader_iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut);
+        fn az_gl_context_ptr_get_shader_precision_format(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGlShaderPrecisionFormatReturn;
+        fn az_gl_context_ptr_compile_shader(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_create_program(_:  &AzGlContextPtr) -> u32;
+        fn az_gl_context_ptr_delete_program(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_create_shader(_:  &AzGlContextPtr, _:  u32) -> u32;
+        fn az_gl_context_ptr_delete_shader(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_detach_shader(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_link_program(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_clear_color(_:  &AzGlContextPtr, _:  f32, _:  f32, _:  f32, _:  f32);
+        fn az_gl_context_ptr_clear(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_clear_depth(_:  &AzGlContextPtr, _:  f64);
+        fn az_gl_context_ptr_clear_stencil(_:  &AzGlContextPtr, _:  i32);
+        fn az_gl_context_ptr_flush(_:  &AzGlContextPtr);
+        fn az_gl_context_ptr_finish(_:  &AzGlContextPtr);
+        fn az_gl_context_ptr_get_error(_:  &AzGlContextPtr) -> u32;
+        fn az_gl_context_ptr_stencil_mask(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_stencil_mask_separate(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_stencil_func(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32);
+        fn az_gl_context_ptr_stencil_func_separate(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  u32);
+        fn az_gl_context_ptr_stencil_op(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_stencil_op_separate(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32);
+        fn az_gl_context_ptr_egl_image_target_texture2d_oes(_:  &AzGlContextPtr, _:  u32, _:  *const c_void);
+        fn az_gl_context_ptr_generate_mipmap(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_insert_event_marker_ext(_:  &AzGlContextPtr, _:  AzRefstr);
+        fn az_gl_context_ptr_push_group_marker_ext(_:  &AzGlContextPtr, _:  AzRefstr);
+        fn az_gl_context_ptr_pop_group_marker_ext(_:  &AzGlContextPtr);
+        fn az_gl_context_ptr_debug_message_insert_khr(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32, _:  AzRefstr);
+        fn az_gl_context_ptr_push_debug_group_khr(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzRefstr);
+        fn az_gl_context_ptr_pop_debug_group_khr(_:  &AzGlContextPtr);
+        fn az_gl_context_ptr_fence_sync(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGLsyncPtr;
+        fn az_gl_context_ptr_client_wait_sync(_:  &AzGlContextPtr, _:  AzGLsyncPtr, _:  u32, _:  u64) -> u32;
+        fn az_gl_context_ptr_wait_sync(_:  &AzGlContextPtr, _:  AzGLsyncPtr, _:  u32, _:  u64);
+        fn az_gl_context_ptr_delete_sync(_:  &AzGlContextPtr, _:  AzGLsyncPtr);
+        fn az_gl_context_ptr_texture_range_apple(_:  &AzGlContextPtr, _:  u32, _:  AzU8VecRef);
+        fn az_gl_context_ptr_gen_fences_apple(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
+        fn az_gl_context_ptr_delete_fences_apple(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
+        fn az_gl_context_ptr_set_fence_apple(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_finish_fence_apple(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_test_fence_apple(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_test_object_apple(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u8;
+        fn az_gl_context_ptr_finish_object_apple(_:  &AzGlContextPtr, _:  u32, _:  u32);
+        fn az_gl_context_ptr_get_frag_data_index(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32;
+        fn az_gl_context_ptr_blend_barrier_khr(_:  &AzGlContextPtr);
+        fn az_gl_context_ptr_bind_frag_data_location_indexed(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  AzRefstr);
+        fn az_gl_context_ptr_get_debug_messages(_:  &AzGlContextPtr) -> AzDebugMessageVec;
+        fn az_gl_context_ptr_provoking_vertex_angle(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_gen_vertex_arrays_apple(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
+        fn az_gl_context_ptr_bind_vertex_array_apple(_:  &AzGlContextPtr, _:  u32);
+        fn az_gl_context_ptr_delete_vertex_arrays_apple(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
+        fn az_gl_context_ptr_copy_texture_chromium(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8);
+        fn az_gl_context_ptr_copy_sub_texture_chromium(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8);
+        fn az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes(_:  &AzGlContextPtr, _:  u32, _:  *const c_void);
+        fn az_gl_context_ptr_copy_texture_3d_angle(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8);
+        fn az_gl_context_ptr_copy_sub_texture_3d_angle(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8);
+        fn az_gl_context_ptr_buffer_storage(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32);
+        fn az_gl_context_ptr_flush_mapped_buffer_range(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize);
+        fn az_gl_context_ptr_delete(_:  &mut AzGlContextPtr);
+        fn az_gl_context_ptr_deep_copy(_:  &AzGlContextPtr) -> AzGlContextPtr;
+        fn az_texture_delete(_:  &mut AzTexture);
+        fn az_texture_flags_default() -> AzTextureFlags;
+        fn az_raw_image_format_delete(_:  &mut AzRawImageFormat);
+        fn az_raw_image_format_deep_copy(_:  &AzRawImageFormat) -> AzRawImageFormat;
+        fn az_text_id_new() -> AzTextId;
+        fn az_image_id_new() -> AzImageId;
+        fn az_font_id_new() -> AzFontId;
+        fn az_image_source_delete(_:  &mut AzImageSource);
+        fn az_image_source_deep_copy(_:  &AzImageSource) -> AzImageSource;
+        fn az_font_source_delete(_:  &mut AzFontSource);
+        fn az_font_source_deep_copy(_:  &AzFontSource) -> AzFontSource;
+        fn az_raw_image_new(_:  AzU8Vec, _:  usize, _:  usize, _:  AzRawImageFormat) -> AzRawImage;
+        fn az_raw_image_delete(_:  &mut AzRawImage);
+        fn az_raw_image_deep_copy(_:  &AzRawImage) -> AzRawImage;
+        fn az_svg_multi_polygon_delete(_:  &mut AzSvgMultiPolygon);
+        fn az_svg_multi_polygon_deep_copy(_:  &AzSvgMultiPolygon) -> AzSvgMultiPolygon;
+        fn az_svg_node_delete(_:  &mut AzSvgNode);
+        fn az_svg_node_deep_copy(_:  &AzSvgNode) -> AzSvgNode;
+        fn az_svg_styled_node_delete(_:  &mut AzSvgStyledNode);
+        fn az_svg_styled_node_deep_copy(_:  &AzSvgStyledNode) -> AzSvgStyledNode;
+        fn az_svg_path_delete(_:  &mut AzSvgPath);
+        fn az_svg_path_deep_copy(_:  &AzSvgPath) -> AzSvgPath;
+        fn az_tesselated_cpu_svg_node_delete(_:  &mut AzTesselatedCPUSvgNode);
+        fn az_tesselated_cpu_svg_node_deep_copy(_:  &AzTesselatedCPUSvgNode) -> AzTesselatedCPUSvgNode;
+        fn az_svg_parse_options_default() -> AzSvgParseOptions;
+        fn az_svg_parse_options_delete(_:  &mut AzSvgParseOptions);
+        fn az_svg_parse_options_deep_copy(_:  &AzSvgParseOptions) -> AzSvgParseOptions;
+        fn az_svg_render_options_default() -> AzSvgRenderOptions;
+        fn az_svg_render_options_delete(_:  &mut AzSvgRenderOptions);
+        fn az_svg_render_options_deep_copy(_:  &AzSvgRenderOptions) -> AzSvgRenderOptions;
+        fn az_svg_parse(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
+        fn az_svg_delete(_:  &mut AzSvg);
+        fn az_svg_deep_copy(_:  &AzSvg) -> AzSvg;
+        fn az_svg_xml_node_delete(_:  &mut AzSvgXmlNode);
+        fn az_svg_xml_node_deep_copy(_:  &AzSvgXmlNode) -> AzSvgXmlNode;
+        fn az_timer_id_unique() -> AzTimerId;
+        fn az_timer_new(_:  AzRefAny, _:  AzTimerCallbackType) -> AzTimer;
+        fn az_timer_with_delay(_:  AzTimer, _:  AzDuration) -> AzTimer;
+        fn az_timer_with_interval(_:  AzTimer, _:  AzDuration) -> AzTimer;
+        fn az_timer_with_timeout(_:  AzTimer, _:  AzDuration) -> AzTimer;
+        fn az_timer_delete(_:  &mut AzTimer);
+        fn az_timer_deep_copy(_:  &AzTimer) -> AzTimer;
+        fn az_thread_sender_send(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool;
+        fn az_thread_sender_delete(_:  &mut AzThreadSender);
+        fn az_thread_receiver_receive(_:  &mut AzThreadReceiver) -> AzOptionThreadSendMsg;
+        fn az_thread_receiver_delete(_:  &mut AzThreadReceiver);
+        fn az_thread_receive_msg_delete(_:  &mut AzThreadReceiveMsg);
+        fn az_thread_write_back_msg_delete(_:  &mut AzThreadWriteBackMsg);
+        fn az_task_bar_icon_delete(_:  &mut AzTaskBarIcon);
+        fn az_task_bar_icon_deep_copy(_:  &AzTaskBarIcon) -> AzTaskBarIcon;
+        fn az_small_window_icon_bytes_delete(_:  &mut AzSmallWindowIconBytes);
+        fn az_small_window_icon_bytes_deep_copy(_:  &AzSmallWindowIconBytes) -> AzSmallWindowIconBytes;
+        fn az_large_window_icon_bytes_delete(_:  &mut AzLargeWindowIconBytes);
+        fn az_large_window_icon_bytes_deep_copy(_:  &AzLargeWindowIconBytes) -> AzLargeWindowIconBytes;
+        fn az_window_icon_delete(_:  &mut AzWindowIcon);
+        fn az_window_icon_deep_copy(_:  &AzWindowIcon) -> AzWindowIcon;
+        fn az_debug_state_delete(_:  &mut AzDebugState);
+        fn az_debug_state_deep_copy(_:  &AzDebugState) -> AzDebugState;
+        fn az_keyboard_state_delete(_:  &mut AzKeyboardState);
+        fn az_keyboard_state_deep_copy(_:  &AzKeyboardState) -> AzKeyboardState;
+        fn az_mouse_state_delete(_:  &mut AzMouseState);
+        fn az_mouse_state_deep_copy(_:  &AzMouseState) -> AzMouseState;
+        fn az_platform_specific_options_delete(_:  &mut AzPlatformSpecificOptions);
+        fn az_platform_specific_options_deep_copy(_:  &AzPlatformSpecificOptions) -> AzPlatformSpecificOptions;
+        fn az_windows_window_options_delete(_:  &mut AzWindowsWindowOptions);
+        fn az_windows_window_options_deep_copy(_:  &AzWindowsWindowOptions) -> AzWindowsWindowOptions;
+        fn az_wayland_theme_delete(_:  &mut AzWaylandTheme);
+        fn az_wayland_theme_deep_copy(_:  &AzWaylandTheme) -> AzWaylandTheme;
+        fn az_string_pair_delete(_:  &mut AzStringPair);
+        fn az_string_pair_deep_copy(_:  &AzStringPair) -> AzStringPair;
+        fn az_linux_window_options_delete(_:  &mut AzLinuxWindowOptions);
+        fn az_linux_window_options_deep_copy(_:  &AzLinuxWindowOptions) -> AzLinuxWindowOptions;
+        fn az_window_state_new(_:  AzLayoutCallbackType) -> AzWindowState;
+        fn az_window_state_default() -> AzWindowState;
+        fn az_window_state_delete(_:  &mut AzWindowState);
+        fn az_window_state_deep_copy(_:  &AzWindowState) -> AzWindowState;
+        fn az_window_create_options_new(_:  AzLayoutCallbackType) -> AzWindowCreateOptions;
+        fn az_window_create_options_default() -> AzWindowCreateOptions;
+        fn az_window_create_options_delete(_:  &mut AzWindowCreateOptions);
+        fn az_window_create_options_deep_copy(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions;
     }
 
-    pub fn initialize_library(path: &std::path::Path) -> Option<AzulDll> {
-        use std::mem::transmute;
-        let lib = Library::new(path)?;
-        unsafe {
-            let az_string_from_utf8_unchecked: extern "C" fn(_:  *const u8, _:  usize) -> AzString = transmute(lib.get(b"az_string_from_utf8_unchecked")?);
-            let az_string_from_utf8_lossy: extern "C" fn(_:  *const u8, _:  usize) -> AzString = transmute(lib.get(b"az_string_from_utf8_lossy")?);
-            let az_string_into_bytes: extern "C" fn(_:  AzString) -> AzU8Vec = transmute(lib.get(b"az_string_into_bytes")?);
-            let az_string_delete: extern "C" fn(_:  &mut AzString) = transmute(lib.get(b"az_string_delete")?);
-            let az_string_deep_copy: extern "C" fn(_:  &AzString) -> AzString = transmute(lib.get(b"az_string_deep_copy")?);
-            let az_style_transform_vec_new: extern "C" fn() -> AzStyleTransformVec = transmute(lib.get(b"az_style_transform_vec_new")?);
-            let az_style_transform_vec_with_capacity: extern "C" fn(_:  usize) -> AzStyleTransformVec = transmute(lib.get(b"az_style_transform_vec_with_capacity")?);
-            let az_style_transform_vec_copy_from: extern "C" fn(_:  *const AzStyleTransform, _:  usize) -> AzStyleTransformVec = transmute(lib.get(b"az_style_transform_vec_copy_from")?);
-            let az_style_transform_vec_delete: extern "C" fn(_:  &mut AzStyleTransformVec) = transmute(lib.get(b"az_style_transform_vec_delete")?);
-            let az_style_transform_vec_deep_copy: extern "C" fn(_:  &AzStyleTransformVec) -> AzStyleTransformVec = transmute(lib.get(b"az_style_transform_vec_deep_copy")?);
-            let az_content_group_vec_new: extern "C" fn() -> AzContentGroupVec = transmute(lib.get(b"az_content_group_vec_new")?);
-            let az_content_group_vec_with_capacity: extern "C" fn(_:  usize) -> AzContentGroupVec = transmute(lib.get(b"az_content_group_vec_with_capacity")?);
-            let az_content_group_vec_copy_from: extern "C" fn(_:  *const AzContentGroup, _:  usize) -> AzContentGroupVec = transmute(lib.get(b"az_content_group_vec_copy_from")?);
-            let az_content_group_vec_delete: extern "C" fn(_:  &mut AzContentGroupVec) = transmute(lib.get(b"az_content_group_vec_delete")?);
-            let az_content_group_vec_deep_copy: extern "C" fn(_:  &AzContentGroupVec) -> AzContentGroupVec = transmute(lib.get(b"az_content_group_vec_deep_copy")?);
-            let az_css_property_vec_new: extern "C" fn() -> AzCssPropertyVec = transmute(lib.get(b"az_css_property_vec_new")?);
-            let az_css_property_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssPropertyVec = transmute(lib.get(b"az_css_property_vec_with_capacity")?);
-            let az_css_property_vec_copy_from: extern "C" fn(_:  *const AzCssProperty, _:  usize) -> AzCssPropertyVec = transmute(lib.get(b"az_css_property_vec_copy_from")?);
-            let az_css_property_vec_delete: extern "C" fn(_:  &mut AzCssPropertyVec) = transmute(lib.get(b"az_css_property_vec_delete")?);
-            let az_css_property_vec_deep_copy: extern "C" fn(_:  &AzCssPropertyVec) -> AzCssPropertyVec = transmute(lib.get(b"az_css_property_vec_deep_copy")?);
-            let az_svg_multi_polygon_vec_new: extern "C" fn() -> AzSvgMultiPolygonVec = transmute(lib.get(b"az_svg_multi_polygon_vec_new")?);
-            let az_svg_multi_polygon_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgMultiPolygonVec = transmute(lib.get(b"az_svg_multi_polygon_vec_with_capacity")?);
-            let az_svg_multi_polygon_vec_copy_from: extern "C" fn(_:  *const AzSvgMultiPolygon, _:  usize) -> AzSvgMultiPolygonVec = transmute(lib.get(b"az_svg_multi_polygon_vec_copy_from")?);
-            let az_svg_multi_polygon_vec_delete: extern "C" fn(_:  &mut AzSvgMultiPolygonVec) = transmute(lib.get(b"az_svg_multi_polygon_vec_delete")?);
-            let az_svg_multi_polygon_vec_deep_copy: extern "C" fn(_:  &AzSvgMultiPolygonVec) -> AzSvgMultiPolygonVec = transmute(lib.get(b"az_svg_multi_polygon_vec_deep_copy")?);
-            let az_svg_path_vec_new: extern "C" fn() -> AzSvgPathVec = transmute(lib.get(b"az_svg_path_vec_new")?);
-            let az_svg_path_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgPathVec = transmute(lib.get(b"az_svg_path_vec_with_capacity")?);
-            let az_svg_path_vec_copy_from: extern "C" fn(_:  *const AzSvgPath, _:  usize) -> AzSvgPathVec = transmute(lib.get(b"az_svg_path_vec_copy_from")?);
-            let az_svg_path_vec_delete: extern "C" fn(_:  &mut AzSvgPathVec) = transmute(lib.get(b"az_svg_path_vec_delete")?);
-            let az_svg_path_vec_deep_copy: extern "C" fn(_:  &AzSvgPathVec) -> AzSvgPathVec = transmute(lib.get(b"az_svg_path_vec_deep_copy")?);
-            let az_vertex_attribute_vec_new: extern "C" fn() -> AzVertexAttributeVec = transmute(lib.get(b"az_vertex_attribute_vec_new")?);
-            let az_vertex_attribute_vec_with_capacity: extern "C" fn(_:  usize) -> AzVertexAttributeVec = transmute(lib.get(b"az_vertex_attribute_vec_with_capacity")?);
-            let az_vertex_attribute_vec_copy_from: extern "C" fn(_:  *const AzVertexAttribute, _:  usize) -> AzVertexAttributeVec = transmute(lib.get(b"az_vertex_attribute_vec_copy_from")?);
-            let az_vertex_attribute_vec_delete: extern "C" fn(_:  &mut AzVertexAttributeVec) = transmute(lib.get(b"az_vertex_attribute_vec_delete")?);
-            let az_vertex_attribute_vec_deep_copy: extern "C" fn(_:  &AzVertexAttributeVec) -> AzVertexAttributeVec = transmute(lib.get(b"az_vertex_attribute_vec_deep_copy")?);
-            let az_svg_path_element_vec_new: extern "C" fn() -> AzSvgPathElementVec = transmute(lib.get(b"az_svg_path_element_vec_new")?);
-            let az_svg_path_element_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgPathElementVec = transmute(lib.get(b"az_svg_path_element_vec_with_capacity")?);
-            let az_svg_path_element_vec_copy_from: extern "C" fn(_:  *const AzSvgPathElement, _:  usize) -> AzSvgPathElementVec = transmute(lib.get(b"az_svg_path_element_vec_copy_from")?);
-            let az_svg_path_element_vec_delete: extern "C" fn(_:  &mut AzSvgPathElementVec) = transmute(lib.get(b"az_svg_path_element_vec_delete")?);
-            let az_svg_path_element_vec_deep_copy: extern "C" fn(_:  &AzSvgPathElementVec) -> AzSvgPathElementVec = transmute(lib.get(b"az_svg_path_element_vec_deep_copy")?);
-            let az_svg_vertex_vec_new: extern "C" fn() -> AzSvgVertexVec = transmute(lib.get(b"az_svg_vertex_vec_new")?);
-            let az_svg_vertex_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgVertexVec = transmute(lib.get(b"az_svg_vertex_vec_with_capacity")?);
-            let az_svg_vertex_vec_copy_from: extern "C" fn(_:  *const AzSvgVertex, _:  usize) -> AzSvgVertexVec = transmute(lib.get(b"az_svg_vertex_vec_copy_from")?);
-            let az_svg_vertex_vec_delete: extern "C" fn(_:  &mut AzSvgVertexVec) = transmute(lib.get(b"az_svg_vertex_vec_delete")?);
-            let az_svg_vertex_vec_deep_copy: extern "C" fn(_:  &AzSvgVertexVec) -> AzSvgVertexVec = transmute(lib.get(b"az_svg_vertex_vec_deep_copy")?);
-            let az_u32_vec_new: extern "C" fn() -> AzU32Vec = transmute(lib.get(b"az_u32_vec_new")?);
-            let az_u32_vec_with_capacity: extern "C" fn(_:  usize) -> AzU32Vec = transmute(lib.get(b"az_u32_vec_with_capacity")?);
-            let az_u32_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzU32Vec = transmute(lib.get(b"az_u32_vec_copy_from")?);
-            let az_u32_vec_delete: extern "C" fn(_:  &mut AzU32Vec) = transmute(lib.get(b"az_u32_vec_delete")?);
-            let az_u32_vec_deep_copy: extern "C" fn(_:  &AzU32Vec) -> AzU32Vec = transmute(lib.get(b"az_u32_vec_deep_copy")?);
-            let az_x_window_type_vec_new: extern "C" fn() -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_new")?);
-            let az_x_window_type_vec_with_capacity: extern "C" fn(_:  usize) -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_with_capacity")?);
-            let az_x_window_type_vec_copy_from: extern "C" fn(_:  *const AzXWindowType, _:  usize) -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_copy_from")?);
-            let az_x_window_type_vec_delete: extern "C" fn(_:  &mut AzXWindowTypeVec) = transmute(lib.get(b"az_x_window_type_vec_delete")?);
-            let az_x_window_type_vec_deep_copy: extern "C" fn(_:  &AzXWindowTypeVec) -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_deep_copy")?);
-            let az_virtual_key_code_vec_new: extern "C" fn() -> AzVirtualKeyCodeVec = transmute(lib.get(b"az_virtual_key_code_vec_new")?);
-            let az_virtual_key_code_vec_with_capacity: extern "C" fn(_:  usize) -> AzVirtualKeyCodeVec = transmute(lib.get(b"az_virtual_key_code_vec_with_capacity")?);
-            let az_virtual_key_code_vec_copy_from: extern "C" fn(_:  *const AzVirtualKeyCode, _:  usize) -> AzVirtualKeyCodeVec = transmute(lib.get(b"az_virtual_key_code_vec_copy_from")?);
-            let az_virtual_key_code_vec_delete: extern "C" fn(_:  &mut AzVirtualKeyCodeVec) = transmute(lib.get(b"az_virtual_key_code_vec_delete")?);
-            let az_virtual_key_code_vec_deep_copy: extern "C" fn(_:  &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec = transmute(lib.get(b"az_virtual_key_code_vec_deep_copy")?);
-            let az_cascade_info_vec_new: extern "C" fn() -> AzCascadeInfoVec = transmute(lib.get(b"az_cascade_info_vec_new")?);
-            let az_cascade_info_vec_with_capacity: extern "C" fn(_:  usize) -> AzCascadeInfoVec = transmute(lib.get(b"az_cascade_info_vec_with_capacity")?);
-            let az_cascade_info_vec_copy_from: extern "C" fn(_:  *const AzCascadeInfo, _:  usize) -> AzCascadeInfoVec = transmute(lib.get(b"az_cascade_info_vec_copy_from")?);
-            let az_cascade_info_vec_delete: extern "C" fn(_:  &mut AzCascadeInfoVec) = transmute(lib.get(b"az_cascade_info_vec_delete")?);
-            let az_cascade_info_vec_deep_copy: extern "C" fn(_:  &AzCascadeInfoVec) -> AzCascadeInfoVec = transmute(lib.get(b"az_cascade_info_vec_deep_copy")?);
-            let az_scan_code_vec_new: extern "C" fn() -> AzScanCodeVec = transmute(lib.get(b"az_scan_code_vec_new")?);
-            let az_scan_code_vec_with_capacity: extern "C" fn(_:  usize) -> AzScanCodeVec = transmute(lib.get(b"az_scan_code_vec_with_capacity")?);
-            let az_scan_code_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzScanCodeVec = transmute(lib.get(b"az_scan_code_vec_copy_from")?);
-            let az_scan_code_vec_delete: extern "C" fn(_:  &mut AzScanCodeVec) = transmute(lib.get(b"az_scan_code_vec_delete")?);
-            let az_scan_code_vec_deep_copy: extern "C" fn(_:  &AzScanCodeVec) -> AzScanCodeVec = transmute(lib.get(b"az_scan_code_vec_deep_copy")?);
-            let az_css_declaration_vec_new: extern "C" fn() -> AzCssDeclarationVec = transmute(lib.get(b"az_css_declaration_vec_new")?);
-            let az_css_declaration_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssDeclarationVec = transmute(lib.get(b"az_css_declaration_vec_with_capacity")?);
-            let az_css_declaration_vec_copy_from: extern "C" fn(_:  *const AzCssDeclaration, _:  usize) -> AzCssDeclarationVec = transmute(lib.get(b"az_css_declaration_vec_copy_from")?);
-            let az_css_declaration_vec_delete: extern "C" fn(_:  &mut AzCssDeclarationVec) = transmute(lib.get(b"az_css_declaration_vec_delete")?);
-            let az_css_declaration_vec_deep_copy: extern "C" fn(_:  &AzCssDeclarationVec) -> AzCssDeclarationVec = transmute(lib.get(b"az_css_declaration_vec_deep_copy")?);
-            let az_css_path_selector_vec_new: extern "C" fn() -> AzCssPathSelectorVec = transmute(lib.get(b"az_css_path_selector_vec_new")?);
-            let az_css_path_selector_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssPathSelectorVec = transmute(lib.get(b"az_css_path_selector_vec_with_capacity")?);
-            let az_css_path_selector_vec_copy_from: extern "C" fn(_:  *const AzCssPathSelector, _:  usize) -> AzCssPathSelectorVec = transmute(lib.get(b"az_css_path_selector_vec_copy_from")?);
-            let az_css_path_selector_vec_delete: extern "C" fn(_:  &mut AzCssPathSelectorVec) = transmute(lib.get(b"az_css_path_selector_vec_delete")?);
-            let az_css_path_selector_vec_deep_copy: extern "C" fn(_:  &AzCssPathSelectorVec) -> AzCssPathSelectorVec = transmute(lib.get(b"az_css_path_selector_vec_deep_copy")?);
-            let az_stylesheet_vec_new: extern "C" fn() -> AzStylesheetVec = transmute(lib.get(b"az_stylesheet_vec_new")?);
-            let az_stylesheet_vec_with_capacity: extern "C" fn(_:  usize) -> AzStylesheetVec = transmute(lib.get(b"az_stylesheet_vec_with_capacity")?);
-            let az_stylesheet_vec_copy_from: extern "C" fn(_:  *const AzStylesheet, _:  usize) -> AzStylesheetVec = transmute(lib.get(b"az_stylesheet_vec_copy_from")?);
-            let az_stylesheet_vec_delete: extern "C" fn(_:  &mut AzStylesheetVec) = transmute(lib.get(b"az_stylesheet_vec_delete")?);
-            let az_stylesheet_vec_deep_copy: extern "C" fn(_:  &AzStylesheetVec) -> AzStylesheetVec = transmute(lib.get(b"az_stylesheet_vec_deep_copy")?);
-            let az_css_rule_block_vec_new: extern "C" fn() -> AzCssRuleBlockVec = transmute(lib.get(b"az_css_rule_block_vec_new")?);
-            let az_css_rule_block_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssRuleBlockVec = transmute(lib.get(b"az_css_rule_block_vec_with_capacity")?);
-            let az_css_rule_block_vec_copy_from: extern "C" fn(_:  *const AzCssRuleBlock, _:  usize) -> AzCssRuleBlockVec = transmute(lib.get(b"az_css_rule_block_vec_copy_from")?);
-            let az_css_rule_block_vec_delete: extern "C" fn(_:  &mut AzCssRuleBlockVec) = transmute(lib.get(b"az_css_rule_block_vec_delete")?);
-            let az_css_rule_block_vec_deep_copy: extern "C" fn(_:  &AzCssRuleBlockVec) -> AzCssRuleBlockVec = transmute(lib.get(b"az_css_rule_block_vec_deep_copy")?);
-            let az_u8_vec_new: extern "C" fn() -> AzU8Vec = transmute(lib.get(b"az_u8_vec_new")?);
-            let az_u8_vec_with_capacity: extern "C" fn(_:  usize) -> AzU8Vec = transmute(lib.get(b"az_u8_vec_with_capacity")?);
-            let az_u8_vec_copy_from: extern "C" fn(_:  *const u8, _:  usize) -> AzU8Vec = transmute(lib.get(b"az_u8_vec_copy_from")?);
-            let az_u8_vec_delete: extern "C" fn(_:  &mut AzU8Vec) = transmute(lib.get(b"az_u8_vec_delete")?);
-            let az_u8_vec_deep_copy: extern "C" fn(_:  &AzU8Vec) -> AzU8Vec = transmute(lib.get(b"az_u8_vec_deep_copy")?);
-            let az_callback_data_vec_new: extern "C" fn() -> AzCallbackDataVec = transmute(lib.get(b"az_callback_data_vec_new")?);
-            let az_callback_data_vec_with_capacity: extern "C" fn(_:  usize) -> AzCallbackDataVec = transmute(lib.get(b"az_callback_data_vec_with_capacity")?);
-            let az_callback_data_vec_copy_from: extern "C" fn(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec = transmute(lib.get(b"az_callback_data_vec_copy_from")?);
-            let az_callback_data_vec_delete: extern "C" fn(_:  &mut AzCallbackDataVec) = transmute(lib.get(b"az_callback_data_vec_delete")?);
-            let az_callback_data_vec_deep_copy: extern "C" fn(_:  &AzCallbackDataVec) -> AzCallbackDataVec = transmute(lib.get(b"az_callback_data_vec_deep_copy")?);
-            let az_debug_message_vec_new: extern "C" fn() -> AzDebugMessageVec = transmute(lib.get(b"az_debug_message_vec_new")?);
-            let az_debug_message_vec_with_capacity: extern "C" fn(_:  usize) -> AzDebugMessageVec = transmute(lib.get(b"az_debug_message_vec_with_capacity")?);
-            let az_debug_message_vec_copy_from: extern "C" fn(_:  *const AzDebugMessage, _:  usize) -> AzDebugMessageVec = transmute(lib.get(b"az_debug_message_vec_copy_from")?);
-            let az_debug_message_vec_delete: extern "C" fn(_:  &mut AzDebugMessageVec) = transmute(lib.get(b"az_debug_message_vec_delete")?);
-            let az_debug_message_vec_deep_copy: extern "C" fn(_:  &AzDebugMessageVec) -> AzDebugMessageVec = transmute(lib.get(b"az_debug_message_vec_deep_copy")?);
-            let az_g_luint_vec_new: extern "C" fn() -> AzGLuintVec = transmute(lib.get(b"az_g_luint_vec_new")?);
-            let az_g_luint_vec_with_capacity: extern "C" fn(_:  usize) -> AzGLuintVec = transmute(lib.get(b"az_g_luint_vec_with_capacity")?);
-            let az_g_luint_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzGLuintVec = transmute(lib.get(b"az_g_luint_vec_copy_from")?);
-            let az_g_luint_vec_delete: extern "C" fn(_:  &mut AzGLuintVec) = transmute(lib.get(b"az_g_luint_vec_delete")?);
-            let az_g_luint_vec_deep_copy: extern "C" fn(_:  &AzGLuintVec) -> AzGLuintVec = transmute(lib.get(b"az_g_luint_vec_deep_copy")?);
-            let az_g_lint_vec_new: extern "C" fn() -> AzGLintVec = transmute(lib.get(b"az_g_lint_vec_new")?);
-            let az_g_lint_vec_with_capacity: extern "C" fn(_:  usize) -> AzGLintVec = transmute(lib.get(b"az_g_lint_vec_with_capacity")?);
-            let az_g_lint_vec_copy_from: extern "C" fn(_:  *const i32, _:  usize) -> AzGLintVec = transmute(lib.get(b"az_g_lint_vec_copy_from")?);
-            let az_g_lint_vec_delete: extern "C" fn(_:  &mut AzGLintVec) = transmute(lib.get(b"az_g_lint_vec_delete")?);
-            let az_g_lint_vec_deep_copy: extern "C" fn(_:  &AzGLintVec) -> AzGLintVec = transmute(lib.get(b"az_g_lint_vec_deep_copy")?);
-            let az_dom_vec_new: extern "C" fn() -> AzDomVec = transmute(lib.get(b"az_dom_vec_new")?);
-            let az_dom_vec_with_capacity: extern "C" fn(_:  usize) -> AzDomVec = transmute(lib.get(b"az_dom_vec_with_capacity")?);
-            let az_dom_vec_copy_from: extern "C" fn(_:  *const AzDom, _:  usize) -> AzDomVec = transmute(lib.get(b"az_dom_vec_copy_from")?);
-            let az_dom_vec_delete: extern "C" fn(_:  &mut AzDomVec) = transmute(lib.get(b"az_dom_vec_delete")?);
-            let az_dom_vec_deep_copy: extern "C" fn(_:  &AzDomVec) -> AzDomVec = transmute(lib.get(b"az_dom_vec_deep_copy")?);
-            let az_string_vec_new: extern "C" fn() -> AzStringVec = transmute(lib.get(b"az_string_vec_new")?);
-            let az_string_vec_with_capacity: extern "C" fn(_:  usize) -> AzStringVec = transmute(lib.get(b"az_string_vec_with_capacity")?);
-            let az_string_vec_copy_from: extern "C" fn(_:  *const AzString, _:  usize) -> AzStringVec = transmute(lib.get(b"az_string_vec_copy_from")?);
-            let az_string_vec_delete: extern "C" fn(_:  &mut AzStringVec) = transmute(lib.get(b"az_string_vec_delete")?);
-            let az_string_vec_deep_copy: extern "C" fn(_:  &AzStringVec) -> AzStringVec = transmute(lib.get(b"az_string_vec_deep_copy")?);
-            let az_string_pair_vec_new: extern "C" fn() -> AzStringPairVec = transmute(lib.get(b"az_string_pair_vec_new")?);
-            let az_string_pair_vec_with_capacity: extern "C" fn(_:  usize) -> AzStringPairVec = transmute(lib.get(b"az_string_pair_vec_with_capacity")?);
-            let az_string_pair_vec_copy_from: extern "C" fn(_:  *const AzStringPair, _:  usize) -> AzStringPairVec = transmute(lib.get(b"az_string_pair_vec_copy_from")?);
-            let az_string_pair_vec_delete: extern "C" fn(_:  &mut AzStringPairVec) = transmute(lib.get(b"az_string_pair_vec_delete")?);
-            let az_string_pair_vec_deep_copy: extern "C" fn(_:  &AzStringPairVec) -> AzStringPairVec = transmute(lib.get(b"az_string_pair_vec_deep_copy")?);
-            let az_gradient_stop_pre_vec_new: extern "C" fn() -> AzGradientStopPreVec = transmute(lib.get(b"az_gradient_stop_pre_vec_new")?);
-            let az_gradient_stop_pre_vec_with_capacity: extern "C" fn(_:  usize) -> AzGradientStopPreVec = transmute(lib.get(b"az_gradient_stop_pre_vec_with_capacity")?);
-            let az_gradient_stop_pre_vec_copy_from: extern "C" fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec = transmute(lib.get(b"az_gradient_stop_pre_vec_copy_from")?);
-            let az_gradient_stop_pre_vec_delete: extern "C" fn(_:  &mut AzGradientStopPreVec) = transmute(lib.get(b"az_gradient_stop_pre_vec_delete")?);
-            let az_gradient_stop_pre_vec_deep_copy: extern "C" fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec = transmute(lib.get(b"az_gradient_stop_pre_vec_deep_copy")?);
-            let az_cascaded_css_property_with_source_vec_new: extern "C" fn() -> AzCascadedCssPropertyWithSourceVec = transmute(lib.get(b"az_cascaded_css_property_with_source_vec_new")?);
-            let az_cascaded_css_property_with_source_vec_with_capacity: extern "C" fn(_:  usize) -> AzCascadedCssPropertyWithSourceVec = transmute(lib.get(b"az_cascaded_css_property_with_source_vec_with_capacity")?);
-            let az_cascaded_css_property_with_source_vec_copy_from: extern "C" fn(_:  *const AzCascadedCssPropertyWithSource, _:  usize) -> AzCascadedCssPropertyWithSourceVec = transmute(lib.get(b"az_cascaded_css_property_with_source_vec_copy_from")?);
-            let az_cascaded_css_property_with_source_vec_delete: extern "C" fn(_:  &mut AzCascadedCssPropertyWithSourceVec) = transmute(lib.get(b"az_cascaded_css_property_with_source_vec_delete")?);
-            let az_cascaded_css_property_with_source_vec_deep_copy: extern "C" fn(_:  &AzCascadedCssPropertyWithSourceVec) -> AzCascadedCssPropertyWithSourceVec = transmute(lib.get(b"az_cascaded_css_property_with_source_vec_deep_copy")?);
-            let az_node_id_vec_new: extern "C" fn() -> AzNodeIdVec = transmute(lib.get(b"az_node_id_vec_new")?);
-            let az_node_id_vec_with_capacity: extern "C" fn(_:  usize) -> AzNodeIdVec = transmute(lib.get(b"az_node_id_vec_with_capacity")?);
-            let az_node_id_vec_copy_from: extern "C" fn(_:  *const AzNodeId, _:  usize) -> AzNodeIdVec = transmute(lib.get(b"az_node_id_vec_copy_from")?);
-            let az_node_id_vec_delete: extern "C" fn(_:  &mut AzNodeIdVec) = transmute(lib.get(b"az_node_id_vec_delete")?);
-            let az_node_id_vec_deep_copy: extern "C" fn(_:  &AzNodeIdVec) -> AzNodeIdVec = transmute(lib.get(b"az_node_id_vec_deep_copy")?);
-            let az_node_vec_new: extern "C" fn() -> AzNodeVec = transmute(lib.get(b"az_node_vec_new")?);
-            let az_node_vec_with_capacity: extern "C" fn(_:  usize) -> AzNodeVec = transmute(lib.get(b"az_node_vec_with_capacity")?);
-            let az_node_vec_copy_from: extern "C" fn(_:  *const AzNode, _:  usize) -> AzNodeVec = transmute(lib.get(b"az_node_vec_copy_from")?);
-            let az_node_vec_delete: extern "C" fn(_:  &mut AzNodeVec) = transmute(lib.get(b"az_node_vec_delete")?);
-            let az_node_vec_deep_copy: extern "C" fn(_:  &AzNodeVec) -> AzNodeVec = transmute(lib.get(b"az_node_vec_deep_copy")?);
-            let az_styled_node_vec_new: extern "C" fn() -> AzStyledNodeVec = transmute(lib.get(b"az_styled_node_vec_new")?);
-            let az_styled_node_vec_with_capacity: extern "C" fn(_:  usize) -> AzStyledNodeVec = transmute(lib.get(b"az_styled_node_vec_with_capacity")?);
-            let az_styled_node_vec_copy_from: extern "C" fn(_:  *const AzStyledNode, _:  usize) -> AzStyledNodeVec = transmute(lib.get(b"az_styled_node_vec_copy_from")?);
-            let az_styled_node_vec_delete: extern "C" fn(_:  &mut AzStyledNodeVec) = transmute(lib.get(b"az_styled_node_vec_delete")?);
-            let az_styled_node_vec_deep_copy: extern "C" fn(_:  &AzStyledNodeVec) -> AzStyledNodeVec = transmute(lib.get(b"az_styled_node_vec_deep_copy")?);
-            let az_tag_ids_to_node_ids_mapping_vec_new: extern "C" fn() -> AzTagIdsToNodeIdsMappingVec = transmute(lib.get(b"az_tag_ids_to_node_ids_mapping_vec_new")?);
-            let az_tag_ids_to_node_ids_mapping_vec_with_capacity: extern "C" fn(_:  usize) -> AzTagIdsToNodeIdsMappingVec = transmute(lib.get(b"az_tag_ids_to_node_ids_mapping_vec_with_capacity")?);
-            let az_tag_ids_to_node_ids_mapping_vec_copy_from: extern "C" fn(_:  *const AzTagIdToNodeIdMapping, _:  usize) -> AzTagIdsToNodeIdsMappingVec = transmute(lib.get(b"az_tag_ids_to_node_ids_mapping_vec_copy_from")?);
-            let az_tag_ids_to_node_ids_mapping_vec_delete: extern "C" fn(_:  &mut AzTagIdsToNodeIdsMappingVec) = transmute(lib.get(b"az_tag_ids_to_node_ids_mapping_vec_delete")?);
-            let az_tag_ids_to_node_ids_mapping_vec_deep_copy: extern "C" fn(_:  &AzTagIdsToNodeIdsMappingVec) -> AzTagIdsToNodeIdsMappingVec = transmute(lib.get(b"az_tag_ids_to_node_ids_mapping_vec_deep_copy")?);
-            let az_parent_with_node_depth_vec_new: extern "C" fn() -> AzParentWithNodeDepthVec = transmute(lib.get(b"az_parent_with_node_depth_vec_new")?);
-            let az_parent_with_node_depth_vec_with_capacity: extern "C" fn(_:  usize) -> AzParentWithNodeDepthVec = transmute(lib.get(b"az_parent_with_node_depth_vec_with_capacity")?);
-            let az_parent_with_node_depth_vec_copy_from: extern "C" fn(_:  *const AzParentWithNodeDepth, _:  usize) -> AzParentWithNodeDepthVec = transmute(lib.get(b"az_parent_with_node_depth_vec_copy_from")?);
-            let az_parent_with_node_depth_vec_delete: extern "C" fn(_:  &mut AzParentWithNodeDepthVec) = transmute(lib.get(b"az_parent_with_node_depth_vec_delete")?);
-            let az_parent_with_node_depth_vec_deep_copy: extern "C" fn(_:  &AzParentWithNodeDepthVec) -> AzParentWithNodeDepthVec = transmute(lib.get(b"az_parent_with_node_depth_vec_deep_copy")?);
-            let az_node_data_vec_new: extern "C" fn() -> AzNodeDataVec = transmute(lib.get(b"az_node_data_vec_new")?);
-            let az_node_data_vec_with_capacity: extern "C" fn(_:  usize) -> AzNodeDataVec = transmute(lib.get(b"az_node_data_vec_with_capacity")?);
-            let az_node_data_vec_copy_from: extern "C" fn(_:  *const AzNodeData, _:  usize) -> AzNodeDataVec = transmute(lib.get(b"az_node_data_vec_copy_from")?);
-            let az_node_data_vec_delete: extern "C" fn(_:  &mut AzNodeDataVec) = transmute(lib.get(b"az_node_data_vec_delete")?);
-            let az_node_data_vec_deep_copy: extern "C" fn(_:  &AzNodeDataVec) -> AzNodeDataVec = transmute(lib.get(b"az_node_data_vec_deep_copy")?);
-            let az_option_ref_any_delete: extern "C" fn(_:  &mut AzOptionRefAny) = transmute(lib.get(b"az_option_ref_any_delete")?);
-            let az_option_ref_any_deep_copy: extern "C" fn(_:  &AzOptionRefAny) -> AzOptionRefAny = transmute(lib.get(b"az_option_ref_any_deep_copy")?);
-            let az_option_style_transform_vec_value_delete: extern "C" fn(_:  &mut AzOptionStyleTransformVecValue) = transmute(lib.get(b"az_option_style_transform_vec_value_delete")?);
-            let az_option_style_transform_vec_value_deep_copy: extern "C" fn(_:  &AzOptionStyleTransformVecValue) -> AzOptionStyleTransformVecValue = transmute(lib.get(b"az_option_style_transform_vec_value_deep_copy")?);
-            let az_option_raw_image_delete: extern "C" fn(_:  &mut AzOptionRawImage) = transmute(lib.get(b"az_option_raw_image_delete")?);
-            let az_option_raw_image_deep_copy: extern "C" fn(_:  &AzOptionRawImage) -> AzOptionRawImage = transmute(lib.get(b"az_option_raw_image_deep_copy")?);
-            let az_option_wayland_theme_delete: extern "C" fn(_:  &mut AzOptionWaylandTheme) = transmute(lib.get(b"az_option_wayland_theme_delete")?);
-            let az_option_wayland_theme_deep_copy: extern "C" fn(_:  &AzOptionWaylandTheme) -> AzOptionWaylandTheme = transmute(lib.get(b"az_option_wayland_theme_deep_copy")?);
-            let az_option_task_bar_icon_delete: extern "C" fn(_:  &mut AzOptionTaskBarIcon) = transmute(lib.get(b"az_option_task_bar_icon_delete")?);
-            let az_option_task_bar_icon_deep_copy: extern "C" fn(_:  &AzOptionTaskBarIcon) -> AzOptionTaskBarIcon = transmute(lib.get(b"az_option_task_bar_icon_deep_copy")?);
-            let az_option_window_icon_delete: extern "C" fn(_:  &mut AzOptionWindowIcon) = transmute(lib.get(b"az_option_window_icon_delete")?);
-            let az_option_window_icon_deep_copy: extern "C" fn(_:  &AzOptionWindowIcon) -> AzOptionWindowIcon = transmute(lib.get(b"az_option_window_icon_deep_copy")?);
-            let az_option_string_delete: extern "C" fn(_:  &mut AzOptionString) = transmute(lib.get(b"az_option_string_delete")?);
-            let az_option_string_deep_copy: extern "C" fn(_:  &AzOptionString) -> AzOptionString = transmute(lib.get(b"az_option_string_deep_copy")?);
-            let az_option_dom_delete: extern "C" fn(_:  &mut AzOptionDom) = transmute(lib.get(b"az_option_dom_delete")?);
-            let az_option_dom_deep_copy: extern "C" fn(_:  &AzOptionDom) -> AzOptionDom = transmute(lib.get(b"az_option_dom_deep_copy")?);
-            let az_option_texture_delete: extern "C" fn(_:  &mut AzOptionTexture) = transmute(lib.get(b"az_option_texture_delete")?);
-            let az_option_image_mask_delete: extern "C" fn(_:  &mut AzOptionImageMask) = transmute(lib.get(b"az_option_image_mask_delete")?);
-            let az_option_image_mask_deep_copy: extern "C" fn(_:  &AzOptionImageMask) -> AzOptionImageMask = transmute(lib.get(b"az_option_image_mask_deep_copy")?);
-            let az_option_style_background_content_value_delete: extern "C" fn(_:  &mut AzOptionStyleBackgroundContentValue) = transmute(lib.get(b"az_option_style_background_content_value_delete")?);
-            let az_option_style_background_content_value_deep_copy: extern "C" fn(_:  &AzOptionStyleBackgroundContentValue) -> AzOptionStyleBackgroundContentValue = transmute(lib.get(b"az_option_style_background_content_value_deep_copy")?);
-            let az_option_style_font_family_value_delete: extern "C" fn(_:  &mut AzOptionStyleFontFamilyValue) = transmute(lib.get(b"az_option_style_font_family_value_delete")?);
-            let az_option_style_font_family_value_deep_copy: extern "C" fn(_:  &AzOptionStyleFontFamilyValue) -> AzOptionStyleFontFamilyValue = transmute(lib.get(b"az_option_style_font_family_value_deep_copy")?);
-            let az_option_box_shadow_pre_display_item_value_delete: extern "C" fn(_:  &mut AzOptionBoxShadowPreDisplayItemValue) = transmute(lib.get(b"az_option_box_shadow_pre_display_item_value_delete")?);
-            let az_option_box_shadow_pre_display_item_value_deep_copy: extern "C" fn(_:  &AzOptionBoxShadowPreDisplayItemValue) -> AzOptionBoxShadowPreDisplayItemValue = transmute(lib.get(b"az_option_box_shadow_pre_display_item_value_deep_copy")?);
-            let az_option_instant_ptr_delete: extern "C" fn(_:  &mut AzOptionInstantPtr) = transmute(lib.get(b"az_option_instant_ptr_delete")?);
-            let az_option_instant_ptr_deep_copy: extern "C" fn(_:  &AzOptionInstantPtr) -> AzOptionInstantPtr = transmute(lib.get(b"az_option_instant_ptr_deep_copy")?);
-            let az_option_u8_vec_ref_delete: extern "C" fn(_:  &mut AzOptionU8VecRef) = transmute(lib.get(b"az_option_u8_vec_ref_delete")?);
-            let az_result_svg_svg_parse_error_delete: extern "C" fn(_:  &mut AzResultSvgSvgParseError) = transmute(lib.get(b"az_result_svg_svg_parse_error_delete")?);
-            let az_result_svg_svg_parse_error_deep_copy: extern "C" fn(_:  &AzResultSvgSvgParseError) -> AzResultSvgSvgParseError = transmute(lib.get(b"az_result_svg_svg_parse_error_deep_copy")?);
-            let az_svg_parse_error_delete: extern "C" fn(_:  &mut AzSvgParseError) = transmute(lib.get(b"az_svg_parse_error_delete")?);
-            let az_svg_parse_error_deep_copy: extern "C" fn(_:  &AzSvgParseError) -> AzSvgParseError = transmute(lib.get(b"az_svg_parse_error_deep_copy")?);
-            let az_xml_error_delete: extern "C" fn(_:  &mut AzXmlError) = transmute(lib.get(b"az_xml_error_delete")?);
-            let az_xml_error_deep_copy: extern "C" fn(_:  &AzXmlError) -> AzXmlError = transmute(lib.get(b"az_xml_error_deep_copy")?);
-            let az_duplicated_namespace_error_delete: extern "C" fn(_:  &mut AzDuplicatedNamespaceError) = transmute(lib.get(b"az_duplicated_namespace_error_delete")?);
-            let az_duplicated_namespace_error_deep_copy: extern "C" fn(_:  &AzDuplicatedNamespaceError) -> AzDuplicatedNamespaceError = transmute(lib.get(b"az_duplicated_namespace_error_deep_copy")?);
-            let az_unknown_namespace_error_delete: extern "C" fn(_:  &mut AzUnknownNamespaceError) = transmute(lib.get(b"az_unknown_namespace_error_delete")?);
-            let az_unknown_namespace_error_deep_copy: extern "C" fn(_:  &AzUnknownNamespaceError) -> AzUnknownNamespaceError = transmute(lib.get(b"az_unknown_namespace_error_deep_copy")?);
-            let az_unexpected_close_tag_error_delete: extern "C" fn(_:  &mut AzUnexpectedCloseTagError) = transmute(lib.get(b"az_unexpected_close_tag_error_delete")?);
-            let az_unexpected_close_tag_error_deep_copy: extern "C" fn(_:  &AzUnexpectedCloseTagError) -> AzUnexpectedCloseTagError = transmute(lib.get(b"az_unexpected_close_tag_error_deep_copy")?);
-            let az_unknown_entity_reference_error_delete: extern "C" fn(_:  &mut AzUnknownEntityReferenceError) = transmute(lib.get(b"az_unknown_entity_reference_error_delete")?);
-            let az_unknown_entity_reference_error_deep_copy: extern "C" fn(_:  &AzUnknownEntityReferenceError) -> AzUnknownEntityReferenceError = transmute(lib.get(b"az_unknown_entity_reference_error_deep_copy")?);
-            let az_duplicated_attribute_error_delete: extern "C" fn(_:  &mut AzDuplicatedAttributeError) = transmute(lib.get(b"az_duplicated_attribute_error_delete")?);
-            let az_duplicated_attribute_error_deep_copy: extern "C" fn(_:  &AzDuplicatedAttributeError) -> AzDuplicatedAttributeError = transmute(lib.get(b"az_duplicated_attribute_error_deep_copy")?);
-            let az_xml_parse_error_delete: extern "C" fn(_:  &mut AzXmlParseError) = transmute(lib.get(b"az_xml_parse_error_delete")?);
-            let az_xml_parse_error_deep_copy: extern "C" fn(_:  &AzXmlParseError) -> AzXmlParseError = transmute(lib.get(b"az_xml_parse_error_deep_copy")?);
-            let az_xml_text_error_delete: extern "C" fn(_:  &mut AzXmlTextError) = transmute(lib.get(b"az_xml_text_error_delete")?);
-            let az_xml_text_error_deep_copy: extern "C" fn(_:  &AzXmlTextError) -> AzXmlTextError = transmute(lib.get(b"az_xml_text_error_deep_copy")?);
-            let az_xml_stream_error_delete: extern "C" fn(_:  &mut AzXmlStreamError) = transmute(lib.get(b"az_xml_stream_error_delete")?);
-            let az_xml_stream_error_deep_copy: extern "C" fn(_:  &AzXmlStreamError) -> AzXmlStreamError = transmute(lib.get(b"az_xml_stream_error_deep_copy")?);
-            let az_invalid_char_multiple_error_delete: extern "C" fn(_:  &mut AzInvalidCharMultipleError) = transmute(lib.get(b"az_invalid_char_multiple_error_delete")?);
-            let az_invalid_char_multiple_error_deep_copy: extern "C" fn(_:  &AzInvalidCharMultipleError) -> AzInvalidCharMultipleError = transmute(lib.get(b"az_invalid_char_multiple_error_deep_copy")?);
-            let az_invalid_string_error_delete: extern "C" fn(_:  &mut AzInvalidStringError) = transmute(lib.get(b"az_invalid_string_error_delete")?);
-            let az_invalid_string_error_deep_copy: extern "C" fn(_:  &AzInvalidStringError) -> AzInvalidStringError = transmute(lib.get(b"az_invalid_string_error_deep_copy")?);
-            let az_instant_ptr_now: extern "C" fn() -> AzInstantPtr = transmute(lib.get(b"az_instant_ptr_now")?);
-            let az_instant_ptr_delete: extern "C" fn(_:  &mut AzInstantPtr) = transmute(lib.get(b"az_instant_ptr_delete")?);
-            let az_duration_milliseconds: extern "C" fn(_:  usize) -> AzDuration = transmute(lib.get(b"az_duration_milliseconds")?);
-            let az_duration_seconds: extern "C" fn(_:  usize) -> AzDuration = transmute(lib.get(b"az_duration_seconds")?);
-            let az_app_config_default: extern "C" fn() -> AzAppConfig = transmute(lib.get(b"az_app_config_default")?);
-            let az_app_config_delete: extern "C" fn(_:  &mut AzAppConfig) = transmute(lib.get(b"az_app_config_delete")?);
-            let az_app_config_deep_copy: extern "C" fn(_:  &AzAppConfig) -> AzAppConfig = transmute(lib.get(b"az_app_config_deep_copy")?);
-            let az_app_ptr_new: extern "C" fn(_:  AzRefAny, _:  AzAppConfig) -> AzAppPtr = transmute(lib.get(b"az_app_ptr_new")?);
-            let az_app_ptr_add_window: extern "C" fn(_:  &mut AzAppPtr, _:  AzWindowCreateOptions) = transmute(lib.get(b"az_app_ptr_add_window")?);
-            let az_app_ptr_run: extern "C" fn(_:  AzAppPtr, _:  AzWindowCreateOptions) = transmute(lib.get(b"az_app_ptr_run")?);
-            let az_app_ptr_delete: extern "C" fn(_:  &mut AzAppPtr) = transmute(lib.get(b"az_app_ptr_delete")?);
-            let az_hidpi_adjusted_bounds_get_logical_size: extern "C" fn(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize = transmute(lib.get(b"az_hidpi_adjusted_bounds_get_logical_size")?);
-            let az_hidpi_adjusted_bounds_get_physical_size: extern "C" fn(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32 = transmute(lib.get(b"az_hidpi_adjusted_bounds_get_physical_size")?);
-            let az_hidpi_adjusted_bounds_get_hidpi_factor: extern "C" fn(_:  &AzHidpiAdjustedBounds) -> f32 = transmute(lib.get(b"az_hidpi_adjusted_bounds_get_hidpi_factor")?);
-            let az_focus_target_delete: extern "C" fn(_:  &mut AzFocusTarget) = transmute(lib.get(b"az_focus_target_delete")?);
-            let az_focus_target_deep_copy: extern "C" fn(_:  &AzFocusTarget) -> AzFocusTarget = transmute(lib.get(b"az_focus_target_deep_copy")?);
-            let az_focus_target_path_delete: extern "C" fn(_:  &mut AzFocusTargetPath) = transmute(lib.get(b"az_focus_target_path_delete")?);
-            let az_focus_target_path_deep_copy: extern "C" fn(_:  &AzFocusTargetPath) -> AzFocusTargetPath = transmute(lib.get(b"az_focus_target_path_deep_copy")?);
-            let az_callback_info_get_hit_node: extern "C" fn(_:  &AzCallbackInfo) -> AzDomNodeId = transmute(lib.get(b"az_callback_info_get_hit_node")?);
-            let az_callback_info_get_cursor_relative_to_viewport: extern "C" fn(_:  &AzCallbackInfo) -> AzOptionLayoutPoint = transmute(lib.get(b"az_callback_info_get_cursor_relative_to_viewport")?);
-            let az_callback_info_get_cursor_relative_to_node: extern "C" fn(_:  &AzCallbackInfo) -> AzOptionLayoutPoint = transmute(lib.get(b"az_callback_info_get_cursor_relative_to_node")?);
-            let az_callback_info_get_parent: extern "C" fn(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId = transmute(lib.get(b"az_callback_info_get_parent")?);
-            let az_callback_info_get_previous_sibling: extern "C" fn(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId = transmute(lib.get(b"az_callback_info_get_previous_sibling")?);
-            let az_callback_info_get_next_sibling: extern "C" fn(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId = transmute(lib.get(b"az_callback_info_get_next_sibling")?);
-            let az_callback_info_get_first_child: extern "C" fn(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId = transmute(lib.get(b"az_callback_info_get_first_child")?);
-            let az_callback_info_get_last_child: extern "C" fn(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId = transmute(lib.get(b"az_callback_info_get_last_child")?);
-            let az_callback_info_get_dataset: extern "C" fn(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionRefAny = transmute(lib.get(b"az_callback_info_get_dataset")?);
-            let az_callback_info_get_window_state: extern "C" fn(_:  &AzCallbackInfo) -> AzWindowState = transmute(lib.get(b"az_callback_info_get_window_state")?);
-            let az_callback_info_get_keyboard_state: extern "C" fn(_:  &AzCallbackInfo) -> AzKeyboardState = transmute(lib.get(b"az_callback_info_get_keyboard_state")?);
-            let az_callback_info_get_mouse_state: extern "C" fn(_:  &AzCallbackInfo) -> AzMouseState = transmute(lib.get(b"az_callback_info_get_mouse_state")?);
-            let az_callback_info_get_current_window_handle: extern "C" fn(_:  &AzCallbackInfo) -> AzRawWindowHandle = transmute(lib.get(b"az_callback_info_get_current_window_handle")?);
-            let az_callback_info_get_gl_context: extern "C" fn(_:  &AzCallbackInfo) -> AzGlContextPtr = transmute(lib.get(b"az_callback_info_get_gl_context")?);
-            let az_callback_info_set_window_state: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzWindowState) = transmute(lib.get(b"az_callback_info_set_window_state")?);
-            let az_callback_info_set_focus: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzFocusTarget) = transmute(lib.get(b"az_callback_info_set_focus")?);
-            let az_callback_info_set_css_property: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzCssProperty) = transmute(lib.get(b"az_callback_info_set_css_property")?);
-            let az_callback_info_stop_propagation: extern "C" fn(_:  &mut AzCallbackInfo) = transmute(lib.get(b"az_callback_info_stop_propagation")?);
-            let az_callback_info_create_window: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzWindowCreateOptions) = transmute(lib.get(b"az_callback_info_create_window")?);
-            let az_callback_info_start_thread: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallbackType) = transmute(lib.get(b"az_callback_info_start_thread")?);
-            let az_callback_info_start_timer: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzTimerId, _:  AzTimer) = transmute(lib.get(b"az_callback_info_start_timer")?);
-            let az_callback_info_delete: extern "C" fn(_:  &mut AzCallbackInfo) = transmute(lib.get(b"az_callback_info_delete")?);
-            let az_i_frame_callback_info_get_bounds: extern "C" fn(_:  &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds = transmute(lib.get(b"az_i_frame_callback_info_get_bounds")?);
-            let az_i_frame_callback_info_delete: extern "C" fn(_:  &mut AzIFrameCallbackInfo) = transmute(lib.get(b"az_i_frame_callback_info_delete")?);
-            let az_i_frame_callback_return_delete: extern "C" fn(_:  &mut AzIFrameCallbackReturn) = transmute(lib.get(b"az_i_frame_callback_return_delete")?);
-            let az_i_frame_callback_return_deep_copy: extern "C" fn(_:  &AzIFrameCallbackReturn) -> AzIFrameCallbackReturn = transmute(lib.get(b"az_i_frame_callback_return_deep_copy")?);
-            let az_gl_callback_info_get_gl_context: extern "C" fn(_:  &AzGlCallbackInfo) -> AzGlContextPtr = transmute(lib.get(b"az_gl_callback_info_get_gl_context")?);
-            let az_gl_callback_info_delete: extern "C" fn(_:  &mut AzGlCallbackInfo) = transmute(lib.get(b"az_gl_callback_info_delete")?);
-            let az_gl_callback_return_delete: extern "C" fn(_:  &mut AzGlCallbackReturn) = transmute(lib.get(b"az_gl_callback_return_delete")?);
-            let az_timer_callback_info_delete: extern "C" fn(_:  &mut AzTimerCallbackInfo) = transmute(lib.get(b"az_timer_callback_info_delete")?);
-            let az_timer_callback_return_delete: extern "C" fn(_:  &mut AzTimerCallbackReturn) = transmute(lib.get(b"az_timer_callback_return_delete")?);
-            let az_timer_callback_return_deep_copy: extern "C" fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn = transmute(lib.get(b"az_timer_callback_return_deep_copy")?);
-            let az_write_back_callback_delete: extern "C" fn(_:  &mut AzWriteBackCallback) = transmute(lib.get(b"az_write_back_callback_delete")?);
-            let az_write_back_callback_deep_copy: extern "C" fn(_:  &AzWriteBackCallback) -> AzWriteBackCallback = transmute(lib.get(b"az_write_back_callback_deep_copy")?);
-            let az_atomic_ref_count_can_be_shared: extern "C" fn(_:  &AzAtomicRefCount) -> bool = transmute(lib.get(b"az_atomic_ref_count_can_be_shared")?);
-            let az_atomic_ref_count_can_be_shared_mut: extern "C" fn(_:  &AzAtomicRefCount) -> bool = transmute(lib.get(b"az_atomic_ref_count_can_be_shared_mut")?);
-            let az_atomic_ref_count_increase_ref: extern "C" fn(_:  &AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_increase_ref")?);
-            let az_atomic_ref_count_decrease_ref: extern "C" fn(_:  &AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_decrease_ref")?);
-            let az_atomic_ref_count_increase_refmut: extern "C" fn(_:  &AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_increase_refmut")?);
-            let az_atomic_ref_count_decrease_refmut: extern "C" fn(_:  &AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_decrease_refmut")?);
-            let az_atomic_ref_count_delete: extern "C" fn(_:  &mut AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_delete")?);
-            let az_atomic_ref_count_deep_copy: extern "C" fn(_:  &AzAtomicRefCount) -> AzAtomicRefCount = transmute(lib.get(b"az_atomic_ref_count_deep_copy")?);
-            let az_atomic_ref_count_fmt_debug: extern "C" fn(_:  &AzAtomicRefCount) -> AzString = transmute(lib.get(b"az_atomic_ref_count_fmt_debug")?);
-            let az_ref_any_new_c: extern "C" fn(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny = transmute(lib.get(b"az_ref_any_new_c")?);
-            let az_ref_any_is_type: extern "C" fn(_:  &AzRefAny, _:  u64) -> bool = transmute(lib.get(b"az_ref_any_is_type")?);
-            let az_ref_any_get_type_name: extern "C" fn(_:  &AzRefAny) -> AzString = transmute(lib.get(b"az_ref_any_get_type_name")?);
-            let az_ref_any_can_be_shared: extern "C" fn(_:  &AzRefAny) -> bool = transmute(lib.get(b"az_ref_any_can_be_shared")?);
-            let az_ref_any_can_be_shared_mut: extern "C" fn(_:  &AzRefAny) -> bool = transmute(lib.get(b"az_ref_any_can_be_shared_mut")?);
-            let az_ref_any_increase_ref: extern "C" fn(_:  &AzRefAny) = transmute(lib.get(b"az_ref_any_increase_ref")?);
-            let az_ref_any_decrease_ref: extern "C" fn(_:  &AzRefAny) = transmute(lib.get(b"az_ref_any_decrease_ref")?);
-            let az_ref_any_increase_refmut: extern "C" fn(_:  &AzRefAny) = transmute(lib.get(b"az_ref_any_increase_refmut")?);
-            let az_ref_any_decrease_refmut: extern "C" fn(_:  &AzRefAny) = transmute(lib.get(b"az_ref_any_decrease_refmut")?);
-            let az_ref_any_delete: extern "C" fn(_:  &mut AzRefAny) = transmute(lib.get(b"az_ref_any_delete")?);
-            let az_ref_any_deep_copy: extern "C" fn(_:  &AzRefAny) -> AzRefAny = transmute(lib.get(b"az_ref_any_deep_copy")?);
-            let az_layout_info_window_width_larger_than: extern "C" fn(_:  &mut AzLayoutInfo, _:  f32) -> bool = transmute(lib.get(b"az_layout_info_window_width_larger_than")?);
-            let az_layout_info_window_width_smaller_than: extern "C" fn(_:  &mut AzLayoutInfo, _:  f32) -> bool = transmute(lib.get(b"az_layout_info_window_width_smaller_than")?);
-            let az_layout_info_window_height_larger_than: extern "C" fn(_:  &mut AzLayoutInfo, _:  f32) -> bool = transmute(lib.get(b"az_layout_info_window_height_larger_than")?);
-            let az_layout_info_window_height_smaller_than: extern "C" fn(_:  &mut AzLayoutInfo, _:  f32) -> bool = transmute(lib.get(b"az_layout_info_window_height_smaller_than")?);
-            let az_layout_info_delete: extern "C" fn(_:  &mut AzLayoutInfo) = transmute(lib.get(b"az_layout_info_delete")?);
-            let az_css_rule_block_delete: extern "C" fn(_:  &mut AzCssRuleBlock) = transmute(lib.get(b"az_css_rule_block_delete")?);
-            let az_css_rule_block_deep_copy: extern "C" fn(_:  &AzCssRuleBlock) -> AzCssRuleBlock = transmute(lib.get(b"az_css_rule_block_deep_copy")?);
-            let az_css_declaration_delete: extern "C" fn(_:  &mut AzCssDeclaration) = transmute(lib.get(b"az_css_declaration_delete")?);
-            let az_css_declaration_deep_copy: extern "C" fn(_:  &AzCssDeclaration) -> AzCssDeclaration = transmute(lib.get(b"az_css_declaration_deep_copy")?);
-            let az_dynamic_css_property_delete: extern "C" fn(_:  &mut AzDynamicCssProperty) = transmute(lib.get(b"az_dynamic_css_property_delete")?);
-            let az_dynamic_css_property_deep_copy: extern "C" fn(_:  &AzDynamicCssProperty) -> AzDynamicCssProperty = transmute(lib.get(b"az_dynamic_css_property_deep_copy")?);
-            let az_css_path_delete: extern "C" fn(_:  &mut AzCssPath) = transmute(lib.get(b"az_css_path_delete")?);
-            let az_css_path_deep_copy: extern "C" fn(_:  &AzCssPath) -> AzCssPath = transmute(lib.get(b"az_css_path_deep_copy")?);
-            let az_css_path_selector_delete: extern "C" fn(_:  &mut AzCssPathSelector) = transmute(lib.get(b"az_css_path_selector_delete")?);
-            let az_css_path_selector_deep_copy: extern "C" fn(_:  &AzCssPathSelector) -> AzCssPathSelector = transmute(lib.get(b"az_css_path_selector_deep_copy")?);
-            let az_stylesheet_delete: extern "C" fn(_:  &mut AzStylesheet) = transmute(lib.get(b"az_stylesheet_delete")?);
-            let az_stylesheet_deep_copy: extern "C" fn(_:  &AzStylesheet) -> AzStylesheet = transmute(lib.get(b"az_stylesheet_deep_copy")?);
-            let az_css_empty: extern "C" fn() -> AzCss = transmute(lib.get(b"az_css_empty")?);
-            let az_css_from_string: extern "C" fn(_:  AzString) -> AzCss = transmute(lib.get(b"az_css_from_string")?);
-            let az_css_delete: extern "C" fn(_:  &mut AzCss) = transmute(lib.get(b"az_css_delete")?);
-            let az_css_deep_copy: extern "C" fn(_:  &AzCss) -> AzCss = transmute(lib.get(b"az_css_deep_copy")?);
-            let az_color_u_from_str: extern "C" fn(_:  AzString) -> AzColorU = transmute(lib.get(b"az_color_u_from_str")?);
-            let az_color_u_to_hash: extern "C" fn(_:  &AzColorU) -> AzString = transmute(lib.get(b"az_color_u_to_hash")?);
-            let az_linear_gradient_delete: extern "C" fn(_:  &mut AzLinearGradient) = transmute(lib.get(b"az_linear_gradient_delete")?);
-            let az_linear_gradient_deep_copy: extern "C" fn(_:  &AzLinearGradient) -> AzLinearGradient = transmute(lib.get(b"az_linear_gradient_deep_copy")?);
-            let az_radial_gradient_delete: extern "C" fn(_:  &mut AzRadialGradient) = transmute(lib.get(b"az_radial_gradient_delete")?);
-            let az_radial_gradient_deep_copy: extern "C" fn(_:  &AzRadialGradient) -> AzRadialGradient = transmute(lib.get(b"az_radial_gradient_deep_copy")?);
-            let az_css_image_id_delete: extern "C" fn(_:  &mut AzCssImageId) = transmute(lib.get(b"az_css_image_id_delete")?);
-            let az_css_image_id_deep_copy: extern "C" fn(_:  &AzCssImageId) -> AzCssImageId = transmute(lib.get(b"az_css_image_id_deep_copy")?);
-            let az_style_background_content_delete: extern "C" fn(_:  &mut AzStyleBackgroundContent) = transmute(lib.get(b"az_style_background_content_delete")?);
-            let az_style_background_content_deep_copy: extern "C" fn(_:  &AzStyleBackgroundContent) -> AzStyleBackgroundContent = transmute(lib.get(b"az_style_background_content_deep_copy")?);
-            let az_style_font_family_delete: extern "C" fn(_:  &mut AzStyleFontFamily) = transmute(lib.get(b"az_style_font_family_delete")?);
-            let az_style_font_family_deep_copy: extern "C" fn(_:  &AzStyleFontFamily) -> AzStyleFontFamily = transmute(lib.get(b"az_style_font_family_deep_copy")?);
-            let az_style_background_content_value_delete: extern "C" fn(_:  &mut AzStyleBackgroundContentValue) = transmute(lib.get(b"az_style_background_content_value_delete")?);
-            let az_style_background_content_value_deep_copy: extern "C" fn(_:  &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue = transmute(lib.get(b"az_style_background_content_value_deep_copy")?);
-            let az_style_font_family_value_delete: extern "C" fn(_:  &mut AzStyleFontFamilyValue) = transmute(lib.get(b"az_style_font_family_value_delete")?);
-            let az_style_font_family_value_deep_copy: extern "C" fn(_:  &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue = transmute(lib.get(b"az_style_font_family_value_deep_copy")?);
-            let az_style_transform_vec_value_delete: extern "C" fn(_:  &mut AzStyleTransformVecValue) = transmute(lib.get(b"az_style_transform_vec_value_delete")?);
-            let az_style_transform_vec_value_deep_copy: extern "C" fn(_:  &AzStyleTransformVecValue) -> AzStyleTransformVecValue = transmute(lib.get(b"az_style_transform_vec_value_deep_copy")?);
-            let az_css_property_delete: extern "C" fn(_:  &mut AzCssProperty) = transmute(lib.get(b"az_css_property_delete")?);
-            let az_css_property_deep_copy: extern "C" fn(_:  &AzCssProperty) -> AzCssProperty = transmute(lib.get(b"az_css_property_deep_copy")?);
-            let az_rect_style_delete: extern "C" fn(_:  &mut AzRectStyle) = transmute(lib.get(b"az_rect_style_delete")?);
-            let az_rect_style_deep_copy: extern "C" fn(_:  &AzRectStyle) -> AzRectStyle = transmute(lib.get(b"az_rect_style_deep_copy")?);
-            let az_rect_layout_delete: extern "C" fn(_:  &mut AzRectLayout) = transmute(lib.get(b"az_rect_layout_delete")?);
-            let az_rect_layout_deep_copy: extern "C" fn(_:  &AzRectLayout) -> AzRectLayout = transmute(lib.get(b"az_rect_layout_deep_copy")?);
-            let az_cascaded_css_property_with_source_delete: extern "C" fn(_:  &mut AzCascadedCssPropertyWithSource) = transmute(lib.get(b"az_cascaded_css_property_with_source_delete")?);
-            let az_cascaded_css_property_with_source_deep_copy: extern "C" fn(_:  &AzCascadedCssPropertyWithSource) -> AzCascadedCssPropertyWithSource = transmute(lib.get(b"az_cascaded_css_property_with_source_deep_copy")?);
-            let az_css_property_source_delete: extern "C" fn(_:  &mut AzCssPropertySource) = transmute(lib.get(b"az_css_property_source_delete")?);
-            let az_css_property_source_deep_copy: extern "C" fn(_:  &AzCssPropertySource) -> AzCssPropertySource = transmute(lib.get(b"az_css_property_source_deep_copy")?);
-            let az_styled_node_delete: extern "C" fn(_:  &mut AzStyledNode) = transmute(lib.get(b"az_styled_node_delete")?);
-            let az_styled_node_deep_copy: extern "C" fn(_:  &AzStyledNode) -> AzStyledNode = transmute(lib.get(b"az_styled_node_deep_copy")?);
-            let az_content_group_delete: extern "C" fn(_:  &mut AzContentGroup) = transmute(lib.get(b"az_content_group_delete")?);
-            let az_content_group_deep_copy: extern "C" fn(_:  &AzContentGroup) -> AzContentGroup = transmute(lib.get(b"az_content_group_deep_copy")?);
-            let az_styled_dom_new: extern "C" fn(_:  AzDom, _:  AzCss) -> AzStyledDom = transmute(lib.get(b"az_styled_dom_new")?);
-            let az_styled_dom_append: extern "C" fn(_:  &mut AzStyledDom, _:  AzStyledDom) = transmute(lib.get(b"az_styled_dom_append")?);
-            let az_styled_dom_delete: extern "C" fn(_:  &mut AzStyledDom) = transmute(lib.get(b"az_styled_dom_delete")?);
-            let az_styled_dom_deep_copy: extern "C" fn(_:  &AzStyledDom) -> AzStyledDom = transmute(lib.get(b"az_styled_dom_deep_copy")?);
-            let az_dom_new: extern "C" fn(_:  AzNodeType) -> AzDom = transmute(lib.get(b"az_dom_new")?);
-            let az_dom_div: extern "C" fn() -> AzDom = transmute(lib.get(b"az_dom_div")?);
-            let az_dom_body: extern "C" fn() -> AzDom = transmute(lib.get(b"az_dom_body")?);
-            let az_dom_label: extern "C" fn(_:  AzString) -> AzDom = transmute(lib.get(b"az_dom_label")?);
-            let az_dom_text: extern "C" fn(_:  AzTextId) -> AzDom = transmute(lib.get(b"az_dom_text")?);
-            let az_dom_image: extern "C" fn(_:  AzImageId) -> AzDom = transmute(lib.get(b"az_dom_image")?);
-            let az_dom_gl_texture: extern "C" fn(_:  AzRefAny, _:  AzGlCallbackType) -> AzDom = transmute(lib.get(b"az_dom_gl_texture")?);
-            let az_dom_iframe: extern "C" fn(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzDom = transmute(lib.get(b"az_dom_iframe")?);
-            let az_dom_add_id: extern "C" fn(_:  &mut AzDom, _:  AzString) = transmute(lib.get(b"az_dom_add_id")?);
-            let az_dom_with_id: extern "C" fn(_:  AzDom, _:  AzString) -> AzDom = transmute(lib.get(b"az_dom_with_id")?);
-            let az_dom_set_ids: extern "C" fn(_:  &mut AzDom, _:  AzStringVec) = transmute(lib.get(b"az_dom_set_ids")?);
-            let az_dom_with_ids: extern "C" fn(_:  AzDom, _:  AzStringVec) -> AzDom = transmute(lib.get(b"az_dom_with_ids")?);
-            let az_dom_add_class: extern "C" fn(_:  &mut AzDom, _:  AzString) = transmute(lib.get(b"az_dom_add_class")?);
-            let az_dom_with_class: extern "C" fn(_:  AzDom, _:  AzString) -> AzDom = transmute(lib.get(b"az_dom_with_class")?);
-            let az_dom_set_classes: extern "C" fn(_:  &mut AzDom, _:  AzStringVec) = transmute(lib.get(b"az_dom_set_classes")?);
-            let az_dom_with_classes: extern "C" fn(_:  AzDom, _:  AzStringVec) -> AzDom = transmute(lib.get(b"az_dom_with_classes")?);
-            let az_dom_add_callback: extern "C" fn(_:  &mut AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) = transmute(lib.get(b"az_dom_add_callback")?);
-            let az_dom_with_callback: extern "C" fn(_:  AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzDom = transmute(lib.get(b"az_dom_with_callback")?);
-            let az_dom_set_dataset: extern "C" fn(_:  &mut AzDom, _:  AzRefAny) = transmute(lib.get(b"az_dom_set_dataset")?);
-            let az_dom_with_dataset: extern "C" fn(_:  AzDom, _:  AzRefAny) -> AzDom = transmute(lib.get(b"az_dom_with_dataset")?);
-            let az_dom_add_inline_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty) = transmute(lib.get(b"az_dom_add_inline_css")?);
-            let az_dom_with_inline_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom = transmute(lib.get(b"az_dom_with_inline_css")?);
-            let az_dom_add_inline_hover_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty) = transmute(lib.get(b"az_dom_add_inline_hover_css")?);
-            let az_dom_with_inline_hover_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom = transmute(lib.get(b"az_dom_with_inline_hover_css")?);
-            let az_dom_add_inline_active_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty) = transmute(lib.get(b"az_dom_add_inline_active_css")?);
-            let az_dom_with_inline_active_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom = transmute(lib.get(b"az_dom_with_inline_active_css")?);
-            let az_dom_add_inline_focus_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty) = transmute(lib.get(b"az_dom_add_inline_focus_css")?);
-            let az_dom_with_inline_focus_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom = transmute(lib.get(b"az_dom_with_inline_focus_css")?);
-            let az_dom_set_is_draggable: extern "C" fn(_:  &mut AzDom, _:  bool) = transmute(lib.get(b"az_dom_set_is_draggable")?);
-            let az_dom_with_clip_mask: extern "C" fn(_:  AzDom, _:  AzOptionImageMask) -> AzDom = transmute(lib.get(b"az_dom_with_clip_mask")?);
-            let az_dom_set_clip_mask: extern "C" fn(_:  &mut AzDom, _:  AzOptionImageMask) = transmute(lib.get(b"az_dom_set_clip_mask")?);
-            let az_dom_is_draggable: extern "C" fn(_:  AzDom, _:  bool) -> AzDom = transmute(lib.get(b"az_dom_is_draggable")?);
-            let az_dom_set_tab_index: extern "C" fn(_:  &mut AzDom, _:  AzOptionTabIndex) = transmute(lib.get(b"az_dom_set_tab_index")?);
-            let az_dom_with_tab_index: extern "C" fn(_:  AzDom, _:  AzOptionTabIndex) -> AzDom = transmute(lib.get(b"az_dom_with_tab_index")?);
-            let az_dom_add_child: extern "C" fn(_:  &mut AzDom, _:  AzDom) = transmute(lib.get(b"az_dom_add_child")?);
-            let az_dom_with_child: extern "C" fn(_:  AzDom, _:  AzDom) -> AzDom = transmute(lib.get(b"az_dom_with_child")?);
-            let az_dom_get_html_string: extern "C" fn(_:  &AzDom) -> AzString = transmute(lib.get(b"az_dom_get_html_string")?);
-            let az_dom_style: extern "C" fn(_:  AzDom, _:  AzCss) -> AzStyledDom = transmute(lib.get(b"az_dom_style")?);
-            let az_dom_delete: extern "C" fn(_:  &mut AzDom) = transmute(lib.get(b"az_dom_delete")?);
-            let az_dom_deep_copy: extern "C" fn(_:  &AzDom) -> AzDom = transmute(lib.get(b"az_dom_deep_copy")?);
-            let az_gl_texture_node_delete: extern "C" fn(_:  &mut AzGlTextureNode) = transmute(lib.get(b"az_gl_texture_node_delete")?);
-            let az_gl_texture_node_deep_copy: extern "C" fn(_:  &AzGlTextureNode) -> AzGlTextureNode = transmute(lib.get(b"az_gl_texture_node_deep_copy")?);
-            let az_i_frame_node_delete: extern "C" fn(_:  &mut AzIFrameNode) = transmute(lib.get(b"az_i_frame_node_delete")?);
-            let az_i_frame_node_deep_copy: extern "C" fn(_:  &AzIFrameNode) -> AzIFrameNode = transmute(lib.get(b"az_i_frame_node_deep_copy")?);
-            let az_callback_data_delete: extern "C" fn(_:  &mut AzCallbackData) = transmute(lib.get(b"az_callback_data_delete")?);
-            let az_callback_data_deep_copy: extern "C" fn(_:  &AzCallbackData) -> AzCallbackData = transmute(lib.get(b"az_callback_data_deep_copy")?);
-            let az_image_mask_delete: extern "C" fn(_:  &mut AzImageMask) = transmute(lib.get(b"az_image_mask_delete")?);
-            let az_image_mask_deep_copy: extern "C" fn(_:  &AzImageMask) -> AzImageMask = transmute(lib.get(b"az_image_mask_deep_copy")?);
-            let az_node_data_new: extern "C" fn(_:  AzNodeType) -> AzNodeData = transmute(lib.get(b"az_node_data_new")?);
-            let az_node_data_div: extern "C" fn() -> AzNodeData = transmute(lib.get(b"az_node_data_div")?);
-            let az_node_data_body: extern "C" fn() -> AzNodeData = transmute(lib.get(b"az_node_data_body")?);
-            let az_node_data_label: extern "C" fn(_:  AzString) -> AzNodeData = transmute(lib.get(b"az_node_data_label")?);
-            let az_node_data_text: extern "C" fn(_:  AzTextId) -> AzNodeData = transmute(lib.get(b"az_node_data_text")?);
-            let az_node_data_image: extern "C" fn(_:  AzImageId) -> AzNodeData = transmute(lib.get(b"az_node_data_image")?);
-            let az_node_data_gl_texture: extern "C" fn(_:  AzRefAny, _:  AzGlCallbackType) -> AzNodeData = transmute(lib.get(b"az_node_data_gl_texture")?);
-            let az_node_data_iframe: extern "C" fn(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzNodeData = transmute(lib.get(b"az_node_data_iframe")?);
-            let az_node_data_default: extern "C" fn() -> AzNodeData = transmute(lib.get(b"az_node_data_default")?);
-            let az_node_data_add_id: extern "C" fn(_:  &mut AzNodeData, _:  AzString) = transmute(lib.get(b"az_node_data_add_id")?);
-            let az_node_data_with_id: extern "C" fn(_:  AzNodeData, _:  AzString) -> AzNodeData = transmute(lib.get(b"az_node_data_with_id")?);
-            let az_node_data_set_ids: extern "C" fn(_:  &mut AzNodeData, _:  AzStringVec) = transmute(lib.get(b"az_node_data_set_ids")?);
-            let az_node_data_with_ids: extern "C" fn(_:  AzNodeData, _:  AzStringVec) -> AzNodeData = transmute(lib.get(b"az_node_data_with_ids")?);
-            let az_node_data_add_class: extern "C" fn(_:  &mut AzNodeData, _:  AzString) = transmute(lib.get(b"az_node_data_add_class")?);
-            let az_node_data_with_class: extern "C" fn(_:  AzNodeData, _:  AzString) -> AzNodeData = transmute(lib.get(b"az_node_data_with_class")?);
-            let az_node_data_set_classes: extern "C" fn(_:  &mut AzNodeData, _:  AzStringVec) = transmute(lib.get(b"az_node_data_set_classes")?);
-            let az_node_data_with_classes: extern "C" fn(_:  AzNodeData, _:  AzStringVec) -> AzNodeData = transmute(lib.get(b"az_node_data_with_classes")?);
-            let az_node_data_add_dataset: extern "C" fn(_:  &mut AzNodeData, _:  AzRefAny) = transmute(lib.get(b"az_node_data_add_dataset")?);
-            let az_node_data_with_dataset: extern "C" fn(_:  AzNodeData, _:  AzRefAny) -> AzNodeData = transmute(lib.get(b"az_node_data_with_dataset")?);
-            let az_node_data_add_callback: extern "C" fn(_:  &mut AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) = transmute(lib.get(b"az_node_data_add_callback")?);
-            let az_node_data_with_callback: extern "C" fn(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData = transmute(lib.get(b"az_node_data_with_callback")?);
-            let az_node_data_add_inline_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty) = transmute(lib.get(b"az_node_data_add_inline_css")?);
-            let az_node_data_with_inline_css: extern "C" fn(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData = transmute(lib.get(b"az_node_data_with_inline_css")?);
-            let az_node_data_add_inline_hover_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty) = transmute(lib.get(b"az_node_data_add_inline_hover_css")?);
-            let az_node_data_add_inline_active_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty) = transmute(lib.get(b"az_node_data_add_inline_active_css")?);
-            let az_node_data_add_inline_focus_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty) = transmute(lib.get(b"az_node_data_add_inline_focus_css")?);
-            let az_node_data_with_clip_mask: extern "C" fn(_:  AzNodeData, _:  AzOptionImageMask) -> AzNodeData = transmute(lib.get(b"az_node_data_with_clip_mask")?);
-            let az_node_data_set_clip_mask: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionImageMask) = transmute(lib.get(b"az_node_data_set_clip_mask")?);
-            let az_node_data_set_is_draggable: extern "C" fn(_:  &mut AzNodeData, _:  bool) = transmute(lib.get(b"az_node_data_set_is_draggable")?);
-            let az_node_data_is_draggable: extern "C" fn(_:  AzNodeData, _:  bool) -> AzNodeData = transmute(lib.get(b"az_node_data_is_draggable")?);
-            let az_node_data_set_tab_index: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionTabIndex) = transmute(lib.get(b"az_node_data_set_tab_index")?);
-            let az_node_data_with_tab_index: extern "C" fn(_:  AzNodeData, _:  AzOptionTabIndex) -> AzNodeData = transmute(lib.get(b"az_node_data_with_tab_index")?);
-            let az_node_data_delete: extern "C" fn(_:  &mut AzNodeData) = transmute(lib.get(b"az_node_data_delete")?);
-            let az_node_data_deep_copy: extern "C" fn(_:  &AzNodeData) -> AzNodeData = transmute(lib.get(b"az_node_data_deep_copy")?);
-            let az_node_type_delete: extern "C" fn(_:  &mut AzNodeType) = transmute(lib.get(b"az_node_type_delete")?);
-            let az_node_type_deep_copy: extern "C" fn(_:  &AzNodeType) -> AzNodeType = transmute(lib.get(b"az_node_type_deep_copy")?);
-            let az_on_into_event_filter: extern "C" fn(_:  AzOn) -> AzEventFilter = transmute(lib.get(b"az_on_into_event_filter")?);
-            let az_vertex_attribute_delete: extern "C" fn(_:  &mut AzVertexAttribute) = transmute(lib.get(b"az_vertex_attribute_delete")?);
-            let az_vertex_attribute_deep_copy: extern "C" fn(_:  &AzVertexAttribute) -> AzVertexAttribute = transmute(lib.get(b"az_vertex_attribute_deep_copy")?);
-            let az_vertex_layout_delete: extern "C" fn(_:  &mut AzVertexLayout) = transmute(lib.get(b"az_vertex_layout_delete")?);
-            let az_vertex_layout_deep_copy: extern "C" fn(_:  &AzVertexLayout) -> AzVertexLayout = transmute(lib.get(b"az_vertex_layout_deep_copy")?);
-            let az_vertex_array_object_delete: extern "C" fn(_:  &mut AzVertexArrayObject) = transmute(lib.get(b"az_vertex_array_object_delete")?);
-            let az_vertex_buffer_delete: extern "C" fn(_:  &mut AzVertexBuffer) = transmute(lib.get(b"az_vertex_buffer_delete")?);
-            let az_debug_message_delete: extern "C" fn(_:  &mut AzDebugMessage) = transmute(lib.get(b"az_debug_message_delete")?);
-            let az_debug_message_deep_copy: extern "C" fn(_:  &AzDebugMessage) -> AzDebugMessage = transmute(lib.get(b"az_debug_message_deep_copy")?);
-            let az_u8_vec_ref_delete: extern "C" fn(_:  &mut AzU8VecRef) = transmute(lib.get(b"az_u8_vec_ref_delete")?);
-            let az_u8_vec_ref_mut_delete: extern "C" fn(_:  &mut AzU8VecRefMut) = transmute(lib.get(b"az_u8_vec_ref_mut_delete")?);
-            let az_f32_vec_ref_delete: extern "C" fn(_:  &mut AzF32VecRef) = transmute(lib.get(b"az_f32_vec_ref_delete")?);
-            let az_i32_vec_ref_delete: extern "C" fn(_:  &mut AzI32VecRef) = transmute(lib.get(b"az_i32_vec_ref_delete")?);
-            let az_g_luint_vec_ref_delete: extern "C" fn(_:  &mut AzGLuintVecRef) = transmute(lib.get(b"az_g_luint_vec_ref_delete")?);
-            let az_g_lenum_vec_ref_delete: extern "C" fn(_:  &mut AzGLenumVecRef) = transmute(lib.get(b"az_g_lenum_vec_ref_delete")?);
-            let az_g_lint_vec_ref_mut_delete: extern "C" fn(_:  &mut AzGLintVecRefMut) = transmute(lib.get(b"az_g_lint_vec_ref_mut_delete")?);
-            let az_g_lint64_vec_ref_mut_delete: extern "C" fn(_:  &mut AzGLint64VecRefMut) = transmute(lib.get(b"az_g_lint64_vec_ref_mut_delete")?);
-            let az_g_lboolean_vec_ref_mut_delete: extern "C" fn(_:  &mut AzGLbooleanVecRefMut) = transmute(lib.get(b"az_g_lboolean_vec_ref_mut_delete")?);
-            let az_g_lfloat_vec_ref_mut_delete: extern "C" fn(_:  &mut AzGLfloatVecRefMut) = transmute(lib.get(b"az_g_lfloat_vec_ref_mut_delete")?);
-            let az_refstr_vec_ref_delete: extern "C" fn(_:  &mut AzRefstrVecRef) = transmute(lib.get(b"az_refstr_vec_ref_delete")?);
-            let az_refstr_delete: extern "C" fn(_:  &mut AzRefstr) = transmute(lib.get(b"az_refstr_delete")?);
-            let az_get_program_binary_return_delete: extern "C" fn(_:  &mut AzGetProgramBinaryReturn) = transmute(lib.get(b"az_get_program_binary_return_delete")?);
-            let az_get_program_binary_return_deep_copy: extern "C" fn(_:  &AzGetProgramBinaryReturn) -> AzGetProgramBinaryReturn = transmute(lib.get(b"az_get_program_binary_return_deep_copy")?);
-            let az_get_active_attrib_return_delete: extern "C" fn(_:  &mut AzGetActiveAttribReturn) = transmute(lib.get(b"az_get_active_attrib_return_delete")?);
-            let az_get_active_attrib_return_deep_copy: extern "C" fn(_:  &AzGetActiveAttribReturn) -> AzGetActiveAttribReturn = transmute(lib.get(b"az_get_active_attrib_return_deep_copy")?);
-            let az_g_lsync_ptr_delete: extern "C" fn(_:  &mut AzGLsyncPtr) = transmute(lib.get(b"az_g_lsync_ptr_delete")?);
-            let az_get_active_uniform_return_delete: extern "C" fn(_:  &mut AzGetActiveUniformReturn) = transmute(lib.get(b"az_get_active_uniform_return_delete")?);
-            let az_get_active_uniform_return_deep_copy: extern "C" fn(_:  &AzGetActiveUniformReturn) -> AzGetActiveUniformReturn = transmute(lib.get(b"az_get_active_uniform_return_deep_copy")?);
-            let az_gl_context_ptr_get_type: extern "C" fn(_:  &AzGlContextPtr) -> AzGlType = transmute(lib.get(b"az_gl_context_ptr_get_type")?);
-            let az_gl_context_ptr_buffer_data_untyped: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_buffer_data_untyped")?);
-            let az_gl_context_ptr_buffer_sub_data_untyped: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  *const c_void) = transmute(lib.get(b"az_gl_context_ptr_buffer_sub_data_untyped")?);
-            let az_gl_context_ptr_map_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> *mut c_void = transmute(lib.get(b"az_gl_context_ptr_map_buffer")?);
-            let az_gl_context_ptr_map_buffer_range: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  u32) -> *mut c_void = transmute(lib.get(b"az_gl_context_ptr_map_buffer_range")?);
-            let az_gl_context_ptr_unmap_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u8 = transmute(lib.get(b"az_gl_context_ptr_unmap_buffer")?);
-            let az_gl_context_ptr_tex_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_tex_buffer")?);
-            let az_gl_context_ptr_shader_source: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzStringVec) = transmute(lib.get(b"az_gl_context_ptr_shader_source")?);
-            let az_gl_context_ptr_read_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_read_buffer")?);
-            let az_gl_context_ptr_read_pixels_into_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut) = transmute(lib.get(b"az_gl_context_ptr_read_pixels_into_buffer")?);
-            let az_gl_context_ptr_read_pixels: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32) -> AzU8Vec = transmute(lib.get(b"az_gl_context_ptr_read_pixels")?);
-            let az_gl_context_ptr_read_pixels_into_pbo: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_read_pixels_into_pbo")?);
-            let az_gl_context_ptr_sample_coverage: extern "C" fn(_:  &AzGlContextPtr, _:  f32, _:  bool) = transmute(lib.get(b"az_gl_context_ptr_sample_coverage")?);
-            let az_gl_context_ptr_polygon_offset: extern "C" fn(_:  &AzGlContextPtr, _:  f32, _:  f32) = transmute(lib.get(b"az_gl_context_ptr_polygon_offset")?);
-            let az_gl_context_ptr_pixel_store_i: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_pixel_store_i")?);
-            let az_gl_context_ptr_gen_buffers: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec = transmute(lib.get(b"az_gl_context_ptr_gen_buffers")?);
-            let az_gl_context_ptr_gen_renderbuffers: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec = transmute(lib.get(b"az_gl_context_ptr_gen_renderbuffers")?);
-            let az_gl_context_ptr_gen_framebuffers: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec = transmute(lib.get(b"az_gl_context_ptr_gen_framebuffers")?);
-            let az_gl_context_ptr_gen_textures: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec = transmute(lib.get(b"az_gl_context_ptr_gen_textures")?);
-            let az_gl_context_ptr_gen_vertex_arrays: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec = transmute(lib.get(b"az_gl_context_ptr_gen_vertex_arrays")?);
-            let az_gl_context_ptr_gen_queries: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec = transmute(lib.get(b"az_gl_context_ptr_gen_queries")?);
-            let az_gl_context_ptr_begin_query: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_begin_query")?);
-            let az_gl_context_ptr_end_query: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_end_query")?);
-            let az_gl_context_ptr_query_counter: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_query_counter")?);
-            let az_gl_context_ptr_get_query_object_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32 = transmute(lib.get(b"az_gl_context_ptr_get_query_object_iv")?);
-            let az_gl_context_ptr_get_query_object_uiv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u32 = transmute(lib.get(b"az_gl_context_ptr_get_query_object_uiv")?);
-            let az_gl_context_ptr_get_query_object_i64v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i64 = transmute(lib.get(b"az_gl_context_ptr_get_query_object_i64v")?);
-            let az_gl_context_ptr_get_query_object_ui64v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u64 = transmute(lib.get(b"az_gl_context_ptr_get_query_object_ui64v")?);
-            let az_gl_context_ptr_delete_queries: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef) = transmute(lib.get(b"az_gl_context_ptr_delete_queries")?);
-            let az_gl_context_ptr_delete_vertex_arrays: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef) = transmute(lib.get(b"az_gl_context_ptr_delete_vertex_arrays")?);
-            let az_gl_context_ptr_delete_buffers: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef) = transmute(lib.get(b"az_gl_context_ptr_delete_buffers")?);
-            let az_gl_context_ptr_delete_renderbuffers: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef) = transmute(lib.get(b"az_gl_context_ptr_delete_renderbuffers")?);
-            let az_gl_context_ptr_delete_framebuffers: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef) = transmute(lib.get(b"az_gl_context_ptr_delete_framebuffers")?);
-            let az_gl_context_ptr_delete_textures: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef) = transmute(lib.get(b"az_gl_context_ptr_delete_textures")?);
-            let az_gl_context_ptr_framebuffer_renderbuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_framebuffer_renderbuffer")?);
-            let az_gl_context_ptr_renderbuffer_storage: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_renderbuffer_storage")?);
-            let az_gl_context_ptr_depth_func: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_depth_func")?);
-            let az_gl_context_ptr_active_texture: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_active_texture")?);
-            let az_gl_context_ptr_attach_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_attach_shader")?);
-            let az_gl_context_ptr_bind_attrib_location: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzRefstr) = transmute(lib.get(b"az_gl_context_ptr_bind_attrib_location")?);
-            let az_gl_context_ptr_get_uniform_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  AzGLintVecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_uniform_iv")?);
-            let az_gl_context_ptr_get_uniform_fv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  AzGLfloatVecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_uniform_fv")?);
-            let az_gl_context_ptr_get_uniform_block_index: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> u32 = transmute(lib.get(b"az_gl_context_ptr_get_uniform_block_index")?);
-            let az_gl_context_ptr_get_uniform_indices: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstrVecRef) -> AzGLuintVec = transmute(lib.get(b"az_gl_context_ptr_get_uniform_indices")?);
-            let az_gl_context_ptr_bind_buffer_base: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_bind_buffer_base")?);
-            let az_gl_context_ptr_bind_buffer_range: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  isize, _:  isize) = transmute(lib.get(b"az_gl_context_ptr_bind_buffer_range")?);
-            let az_gl_context_ptr_uniform_block_binding: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_uniform_block_binding")?);
-            let az_gl_context_ptr_bind_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_bind_buffer")?);
-            let az_gl_context_ptr_bind_vertex_array: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_bind_vertex_array")?);
-            let az_gl_context_ptr_bind_renderbuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_bind_renderbuffer")?);
-            let az_gl_context_ptr_bind_framebuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_bind_framebuffer")?);
-            let az_gl_context_ptr_bind_texture: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_bind_texture")?);
-            let az_gl_context_ptr_draw_buffers: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLenumVecRef) = transmute(lib.get(b"az_gl_context_ptr_draw_buffers")?);
-            let az_gl_context_ptr_tex_image_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef) = transmute(lib.get(b"az_gl_context_ptr_tex_image_2d")?);
-            let az_gl_context_ptr_compressed_tex_image_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  AzU8VecRef) = transmute(lib.get(b"az_gl_context_ptr_compressed_tex_image_2d")?);
-            let az_gl_context_ptr_compressed_tex_sub_image_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  AzU8VecRef) = transmute(lib.get(b"az_gl_context_ptr_compressed_tex_sub_image_2d")?);
-            let az_gl_context_ptr_tex_image_3d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef) = transmute(lib.get(b"az_gl_context_ptr_tex_image_3d")?);
-            let az_gl_context_ptr_copy_tex_image_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_copy_tex_image_2d")?);
-            let az_gl_context_ptr_copy_tex_sub_image_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_copy_tex_sub_image_2d")?);
-            let az_gl_context_ptr_copy_tex_sub_image_3d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_copy_tex_sub_image_3d")?);
-            let az_gl_context_ptr_tex_sub_image_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef) = transmute(lib.get(b"az_gl_context_ptr_tex_sub_image_2d")?);
-            let az_gl_context_ptr_tex_sub_image_2d_pbo: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize) = transmute(lib.get(b"az_gl_context_ptr_tex_sub_image_2d_pbo")?);
-            let az_gl_context_ptr_tex_sub_image_3d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef) = transmute(lib.get(b"az_gl_context_ptr_tex_sub_image_3d")?);
-            let az_gl_context_ptr_tex_sub_image_3d_pbo: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize) = transmute(lib.get(b"az_gl_context_ptr_tex_sub_image_3d_pbo")?);
-            let az_gl_context_ptr_tex_storage_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_tex_storage_2d")?);
-            let az_gl_context_ptr_tex_storage_3d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_tex_storage_3d")?);
-            let az_gl_context_ptr_get_tex_image_into_buffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_tex_image_into_buffer")?);
-            let az_gl_context_ptr_copy_image_sub_data: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_copy_image_sub_data")?);
-            let az_gl_context_ptr_invalidate_framebuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef) = transmute(lib.get(b"az_gl_context_ptr_invalidate_framebuffer")?);
-            let az_gl_context_ptr_invalidate_sub_framebuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef, _:  i32, _:  i32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_invalidate_sub_framebuffer")?);
-            let az_gl_context_ptr_get_integer_v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLintVecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_integer_v")?);
-            let az_gl_context_ptr_get_integer_64v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLint64VecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_integer_64v")?);
-            let az_gl_context_ptr_get_integer_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_integer_iv")?);
-            let az_gl_context_ptr_get_integer_64iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLint64VecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_integer_64iv")?);
-            let az_gl_context_ptr_get_boolean_v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLbooleanVecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_boolean_v")?);
-            let az_gl_context_ptr_get_float_v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLfloatVecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_float_v")?);
-            let az_gl_context_ptr_get_framebuffer_attachment_parameter_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> i32 = transmute(lib.get(b"az_gl_context_ptr_get_framebuffer_attachment_parameter_iv")?);
-            let az_gl_context_ptr_get_renderbuffer_parameter_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32 = transmute(lib.get(b"az_gl_context_ptr_get_renderbuffer_parameter_iv")?);
-            let az_gl_context_ptr_get_tex_parameter_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32 = transmute(lib.get(b"az_gl_context_ptr_get_tex_parameter_iv")?);
-            let az_gl_context_ptr_get_tex_parameter_fv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> f32 = transmute(lib.get(b"az_gl_context_ptr_get_tex_parameter_fv")?);
-            let az_gl_context_ptr_tex_parameter_i: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_tex_parameter_i")?);
-            let az_gl_context_ptr_tex_parameter_f: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  f32) = transmute(lib.get(b"az_gl_context_ptr_tex_parameter_f")?);
-            let az_gl_context_ptr_framebuffer_texture_2d: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_framebuffer_texture_2d")?);
-            let az_gl_context_ptr_framebuffer_texture_layer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_framebuffer_texture_layer")?);
-            let az_gl_context_ptr_blit_framebuffer: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_blit_framebuffer")?);
-            let az_gl_context_ptr_vertex_attrib_4f: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  f32, _:  f32, _:  f32, _:  f32) = transmute(lib.get(b"az_gl_context_ptr_vertex_attrib_4f")?);
-            let az_gl_context_ptr_vertex_attrib_pointer_f32: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  bool, _:  i32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_vertex_attrib_pointer_f32")?);
-            let az_gl_context_ptr_vertex_attrib_pointer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  bool, _:  i32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_vertex_attrib_pointer")?);
-            let az_gl_context_ptr_vertex_attrib_i_pointer: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_vertex_attrib_i_pointer")?);
-            let az_gl_context_ptr_vertex_attrib_divisor: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_vertex_attrib_divisor")?);
-            let az_gl_context_ptr_viewport: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_viewport")?);
-            let az_gl_context_ptr_scissor: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_scissor")?);
-            let az_gl_context_ptr_line_width: extern "C" fn(_:  &AzGlContextPtr, _:  f32) = transmute(lib.get(b"az_gl_context_ptr_line_width")?);
-            let az_gl_context_ptr_use_program: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_use_program")?);
-            let az_gl_context_ptr_validate_program: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_validate_program")?);
-            let az_gl_context_ptr_draw_arrays: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_draw_arrays")?);
-            let az_gl_context_ptr_draw_arrays_instanced: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_draw_arrays_instanced")?);
-            let az_gl_context_ptr_draw_elements: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_draw_elements")?);
-            let az_gl_context_ptr_draw_elements_instanced: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_draw_elements_instanced")?);
-            let az_gl_context_ptr_blend_color: extern "C" fn(_:  &AzGlContextPtr, _:  f32, _:  f32, _:  f32, _:  f32) = transmute(lib.get(b"az_gl_context_ptr_blend_color")?);
-            let az_gl_context_ptr_blend_func: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_blend_func")?);
-            let az_gl_context_ptr_blend_func_separate: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_blend_func_separate")?);
-            let az_gl_context_ptr_blend_equation: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_blend_equation")?);
-            let az_gl_context_ptr_blend_equation_separate: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_blend_equation_separate")?);
-            let az_gl_context_ptr_color_mask: extern "C" fn(_:  &AzGlContextPtr, _:  bool, _:  bool, _:  bool, _:  bool) = transmute(lib.get(b"az_gl_context_ptr_color_mask")?);
-            let az_gl_context_ptr_cull_face: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_cull_face")?);
-            let az_gl_context_ptr_front_face: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_front_face")?);
-            let az_gl_context_ptr_enable: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_enable")?);
-            let az_gl_context_ptr_disable: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_disable")?);
-            let az_gl_context_ptr_hint: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_hint")?);
-            let az_gl_context_ptr_is_enabled: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u8 = transmute(lib.get(b"az_gl_context_ptr_is_enabled")?);
-            let az_gl_context_ptr_is_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u8 = transmute(lib.get(b"az_gl_context_ptr_is_shader")?);
-            let az_gl_context_ptr_is_texture: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u8 = transmute(lib.get(b"az_gl_context_ptr_is_texture")?);
-            let az_gl_context_ptr_is_framebuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u8 = transmute(lib.get(b"az_gl_context_ptr_is_framebuffer")?);
-            let az_gl_context_ptr_is_renderbuffer: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u8 = transmute(lib.get(b"az_gl_context_ptr_is_renderbuffer")?);
-            let az_gl_context_ptr_check_frame_buffer_status: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u32 = transmute(lib.get(b"az_gl_context_ptr_check_frame_buffer_status")?);
-            let az_gl_context_ptr_enable_vertex_attrib_array: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_enable_vertex_attrib_array")?);
-            let az_gl_context_ptr_disable_vertex_attrib_array: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_disable_vertex_attrib_array")?);
-            let az_gl_context_ptr_uniform_1f: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  f32) = transmute(lib.get(b"az_gl_context_ptr_uniform_1f")?);
-            let az_gl_context_ptr_uniform_1fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef) = transmute(lib.get(b"az_gl_context_ptr_uniform_1fv")?);
-            let az_gl_context_ptr_uniform_1i: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_uniform_1i")?);
-            let az_gl_context_ptr_uniform_1iv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef) = transmute(lib.get(b"az_gl_context_ptr_uniform_1iv")?);
-            let az_gl_context_ptr_uniform_1ui: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_uniform_1ui")?);
-            let az_gl_context_ptr_uniform_2f: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32) = transmute(lib.get(b"az_gl_context_ptr_uniform_2f")?);
-            let az_gl_context_ptr_uniform_2fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef) = transmute(lib.get(b"az_gl_context_ptr_uniform_2fv")?);
-            let az_gl_context_ptr_uniform_2i: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_uniform_2i")?);
-            let az_gl_context_ptr_uniform_2iv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef) = transmute(lib.get(b"az_gl_context_ptr_uniform_2iv")?);
-            let az_gl_context_ptr_uniform_2ui: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_uniform_2ui")?);
-            let az_gl_context_ptr_uniform_3f: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32, _:  f32) = transmute(lib.get(b"az_gl_context_ptr_uniform_3f")?);
-            let az_gl_context_ptr_uniform_3fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef) = transmute(lib.get(b"az_gl_context_ptr_uniform_3fv")?);
-            let az_gl_context_ptr_uniform_3i: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_uniform_3i")?);
-            let az_gl_context_ptr_uniform_3iv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef) = transmute(lib.get(b"az_gl_context_ptr_uniform_3iv")?);
-            let az_gl_context_ptr_uniform_3ui: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_uniform_3ui")?);
-            let az_gl_context_ptr_uniform_4f: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32, _:  f32, _:  f32) = transmute(lib.get(b"az_gl_context_ptr_uniform_4f")?);
-            let az_gl_context_ptr_uniform_4i: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_uniform_4i")?);
-            let az_gl_context_ptr_uniform_4iv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef) = transmute(lib.get(b"az_gl_context_ptr_uniform_4iv")?);
-            let az_gl_context_ptr_uniform_4ui: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_uniform_4ui")?);
-            let az_gl_context_ptr_uniform_4fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef) = transmute(lib.get(b"az_gl_context_ptr_uniform_4fv")?);
-            let az_gl_context_ptr_uniform_matrix_2fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef) = transmute(lib.get(b"az_gl_context_ptr_uniform_matrix_2fv")?);
-            let az_gl_context_ptr_uniform_matrix_3fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef) = transmute(lib.get(b"az_gl_context_ptr_uniform_matrix_3fv")?);
-            let az_gl_context_ptr_uniform_matrix_4fv: extern "C" fn(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef) = transmute(lib.get(b"az_gl_context_ptr_uniform_matrix_4fv")?);
-            let az_gl_context_ptr_depth_mask: extern "C" fn(_:  &AzGlContextPtr, _:  bool) = transmute(lib.get(b"az_gl_context_ptr_depth_mask")?);
-            let az_gl_context_ptr_depth_range: extern "C" fn(_:  &AzGlContextPtr, _:  f64, _:  f64) = transmute(lib.get(b"az_gl_context_ptr_depth_range")?);
-            let az_gl_context_ptr_get_active_attrib: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGetActiveAttribReturn = transmute(lib.get(b"az_gl_context_ptr_get_active_attrib")?);
-            let az_gl_context_ptr_get_active_uniform: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGetActiveUniformReturn = transmute(lib.get(b"az_gl_context_ptr_get_active_uniform")?);
-            let az_gl_context_ptr_get_active_uniforms_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLuintVec, _:  u32) -> AzGLintVec = transmute(lib.get(b"az_gl_context_ptr_get_active_uniforms_iv")?);
-            let az_gl_context_ptr_get_active_uniform_block_i: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> i32 = transmute(lib.get(b"az_gl_context_ptr_get_active_uniform_block_i")?);
-            let az_gl_context_ptr_get_active_uniform_block_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> AzGLintVec = transmute(lib.get(b"az_gl_context_ptr_get_active_uniform_block_iv")?);
-            let az_gl_context_ptr_get_active_uniform_block_name: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString = transmute(lib.get(b"az_gl_context_ptr_get_active_uniform_block_name")?);
-            let az_gl_context_ptr_get_attrib_location: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32 = transmute(lib.get(b"az_gl_context_ptr_get_attrib_location")?);
-            let az_gl_context_ptr_get_frag_data_location: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32 = transmute(lib.get(b"az_gl_context_ptr_get_frag_data_location")?);
-            let az_gl_context_ptr_get_uniform_location: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32 = transmute(lib.get(b"az_gl_context_ptr_get_uniform_location")?);
-            let az_gl_context_ptr_get_program_info_log: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> AzString = transmute(lib.get(b"az_gl_context_ptr_get_program_info_log")?);
-            let az_gl_context_ptr_get_program_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_program_iv")?);
-            let az_gl_context_ptr_get_program_binary: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> AzGetProgramBinaryReturn = transmute(lib.get(b"az_gl_context_ptr_get_program_binary")?);
-            let az_gl_context_ptr_program_binary: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzU8VecRef) = transmute(lib.get(b"az_gl_context_ptr_program_binary")?);
-            let az_gl_context_ptr_program_parameter_i: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_program_parameter_i")?);
-            let az_gl_context_ptr_get_vertex_attrib_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_vertex_attrib_iv")?);
-            let az_gl_context_ptr_get_vertex_attrib_fv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLfloatVecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_vertex_attrib_fv")?);
-            let az_gl_context_ptr_get_vertex_attrib_pointer_v: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> isize = transmute(lib.get(b"az_gl_context_ptr_get_vertex_attrib_pointer_v")?);
-            let az_gl_context_ptr_get_buffer_parameter_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32 = transmute(lib.get(b"az_gl_context_ptr_get_buffer_parameter_iv")?);
-            let az_gl_context_ptr_get_shader_info_log: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> AzString = transmute(lib.get(b"az_gl_context_ptr_get_shader_info_log")?);
-            let az_gl_context_ptr_get_string: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> AzString = transmute(lib.get(b"az_gl_context_ptr_get_string")?);
-            let az_gl_context_ptr_get_string_i: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString = transmute(lib.get(b"az_gl_context_ptr_get_string_i")?);
-            let az_gl_context_ptr_get_shader_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_shader_iv")?);
-            let az_gl_context_ptr_get_shader_precision_format: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGlShaderPrecisionFormatReturn = transmute(lib.get(b"az_gl_context_ptr_get_shader_precision_format")?);
-            let az_gl_context_ptr_compile_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_compile_shader")?);
-            let az_gl_context_ptr_create_program: extern "C" fn(_:  &AzGlContextPtr) -> u32 = transmute(lib.get(b"az_gl_context_ptr_create_program")?);
-            let az_gl_context_ptr_delete_program: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_delete_program")?);
-            let az_gl_context_ptr_create_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> u32 = transmute(lib.get(b"az_gl_context_ptr_create_shader")?);
-            let az_gl_context_ptr_delete_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_delete_shader")?);
-            let az_gl_context_ptr_detach_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_detach_shader")?);
-            let az_gl_context_ptr_link_program: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_link_program")?);
-            let az_gl_context_ptr_clear_color: extern "C" fn(_:  &AzGlContextPtr, _:  f32, _:  f32, _:  f32, _:  f32) = transmute(lib.get(b"az_gl_context_ptr_clear_color")?);
-            let az_gl_context_ptr_clear: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_clear")?);
-            let az_gl_context_ptr_clear_depth: extern "C" fn(_:  &AzGlContextPtr, _:  f64) = transmute(lib.get(b"az_gl_context_ptr_clear_depth")?);
-            let az_gl_context_ptr_clear_stencil: extern "C" fn(_:  &AzGlContextPtr, _:  i32) = transmute(lib.get(b"az_gl_context_ptr_clear_stencil")?);
-            let az_gl_context_ptr_flush: extern "C" fn(_:  &AzGlContextPtr) = transmute(lib.get(b"az_gl_context_ptr_flush")?);
-            let az_gl_context_ptr_finish: extern "C" fn(_:  &AzGlContextPtr) = transmute(lib.get(b"az_gl_context_ptr_finish")?);
-            let az_gl_context_ptr_get_error: extern "C" fn(_:  &AzGlContextPtr) -> u32 = transmute(lib.get(b"az_gl_context_ptr_get_error")?);
-            let az_gl_context_ptr_stencil_mask: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_stencil_mask")?);
-            let az_gl_context_ptr_stencil_mask_separate: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_stencil_mask_separate")?);
-            let az_gl_context_ptr_stencil_func: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_stencil_func")?);
-            let az_gl_context_ptr_stencil_func_separate: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_stencil_func_separate")?);
-            let az_gl_context_ptr_stencil_op: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_stencil_op")?);
-            let az_gl_context_ptr_stencil_op_separate: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_stencil_op_separate")?);
-            let az_gl_context_ptr_egl_image_target_texture2d_oes: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  *const c_void) = transmute(lib.get(b"az_gl_context_ptr_egl_image_target_texture2d_oes")?);
-            let az_gl_context_ptr_generate_mipmap: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_generate_mipmap")?);
-            let az_gl_context_ptr_insert_event_marker_ext: extern "C" fn(_:  &AzGlContextPtr, _:  AzRefstr) = transmute(lib.get(b"az_gl_context_ptr_insert_event_marker_ext")?);
-            let az_gl_context_ptr_push_group_marker_ext: extern "C" fn(_:  &AzGlContextPtr, _:  AzRefstr) = transmute(lib.get(b"az_gl_context_ptr_push_group_marker_ext")?);
-            let az_gl_context_ptr_pop_group_marker_ext: extern "C" fn(_:  &AzGlContextPtr) = transmute(lib.get(b"az_gl_context_ptr_pop_group_marker_ext")?);
-            let az_gl_context_ptr_debug_message_insert_khr: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32, _:  AzRefstr) = transmute(lib.get(b"az_gl_context_ptr_debug_message_insert_khr")?);
-            let az_gl_context_ptr_push_debug_group_khr: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzRefstr) = transmute(lib.get(b"az_gl_context_ptr_push_debug_group_khr")?);
-            let az_gl_context_ptr_pop_debug_group_khr: extern "C" fn(_:  &AzGlContextPtr) = transmute(lib.get(b"az_gl_context_ptr_pop_debug_group_khr")?);
-            let az_gl_context_ptr_fence_sync: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGLsyncPtr = transmute(lib.get(b"az_gl_context_ptr_fence_sync")?);
-            let az_gl_context_ptr_client_wait_sync: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLsyncPtr, _:  u32, _:  u64) = transmute(lib.get(b"az_gl_context_ptr_client_wait_sync")?);
-            let az_gl_context_ptr_wait_sync: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLsyncPtr, _:  u32, _:  u64) = transmute(lib.get(b"az_gl_context_ptr_wait_sync")?);
-            let az_gl_context_ptr_delete_sync: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLsyncPtr) = transmute(lib.get(b"az_gl_context_ptr_delete_sync")?);
-            let az_gl_context_ptr_texture_range_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzU8VecRef) = transmute(lib.get(b"az_gl_context_ptr_texture_range_apple")?);
-            let az_gl_context_ptr_gen_fences_apple: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec = transmute(lib.get(b"az_gl_context_ptr_gen_fences_apple")?);
-            let az_gl_context_ptr_delete_fences_apple: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef) = transmute(lib.get(b"az_gl_context_ptr_delete_fences_apple")?);
-            let az_gl_context_ptr_set_fence_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_set_fence_apple")?);
-            let az_gl_context_ptr_finish_fence_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_finish_fence_apple")?);
-            let az_gl_context_ptr_test_fence_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_test_fence_apple")?);
-            let az_gl_context_ptr_test_object_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u8 = transmute(lib.get(b"az_gl_context_ptr_test_object_apple")?);
-            let az_gl_context_ptr_finish_object_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_finish_object_apple")?);
-            let az_gl_context_ptr_get_frag_data_index: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32 = transmute(lib.get(b"az_gl_context_ptr_get_frag_data_index")?);
-            let az_gl_context_ptr_blend_barrier_khr: extern "C" fn(_:  &AzGlContextPtr) = transmute(lib.get(b"az_gl_context_ptr_blend_barrier_khr")?);
-            let az_gl_context_ptr_bind_frag_data_location_indexed: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  AzRefstr) = transmute(lib.get(b"az_gl_context_ptr_bind_frag_data_location_indexed")?);
-            let az_gl_context_ptr_get_debug_messages: extern "C" fn(_:  &AzGlContextPtr) -> AzDebugMessageVec = transmute(lib.get(b"az_gl_context_ptr_get_debug_messages")?);
-            let az_gl_context_ptr_provoking_vertex_angle: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_provoking_vertex_angle")?);
-            let az_gl_context_ptr_gen_vertex_arrays_apple: extern "C" fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec = transmute(lib.get(b"az_gl_context_ptr_gen_vertex_arrays_apple")?);
-            let az_gl_context_ptr_bind_vertex_array_apple: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_bind_vertex_array_apple")?);
-            let az_gl_context_ptr_delete_vertex_arrays_apple: extern "C" fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef) = transmute(lib.get(b"az_gl_context_ptr_delete_vertex_arrays_apple")?);
-            let az_gl_context_ptr_copy_texture_chromium: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8) = transmute(lib.get(b"az_gl_context_ptr_copy_texture_chromium")?);
-            let az_gl_context_ptr_copy_sub_texture_chromium: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8) = transmute(lib.get(b"az_gl_context_ptr_copy_sub_texture_chromium")?);
-            let az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  *const c_void) = transmute(lib.get(b"az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes")?);
-            let az_gl_context_ptr_copy_texture_3d_angle: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8) = transmute(lib.get(b"az_gl_context_ptr_copy_texture_3d_angle")?);
-            let az_gl_context_ptr_copy_sub_texture_3d_angle: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8) = transmute(lib.get(b"az_gl_context_ptr_copy_sub_texture_3d_angle")?);
-            let az_gl_context_ptr_delete: extern "C" fn(_:  &mut AzGlContextPtr) = transmute(lib.get(b"az_gl_context_ptr_delete")?);
-            let az_gl_context_ptr_deep_copy: extern "C" fn(_:  &AzGlContextPtr) -> AzGlContextPtr = transmute(lib.get(b"az_gl_context_ptr_deep_copy")?);
-            let az_texture_delete: extern "C" fn(_:  &mut AzTexture) = transmute(lib.get(b"az_texture_delete")?);
-            let az_texture_flags_default: extern "C" fn() -> AzTextureFlags = transmute(lib.get(b"az_texture_flags_default")?);
-            let az_raw_image_format_delete: extern "C" fn(_:  &mut AzRawImageFormat) = transmute(lib.get(b"az_raw_image_format_delete")?);
-            let az_raw_image_format_deep_copy: extern "C" fn(_:  &AzRawImageFormat) -> AzRawImageFormat = transmute(lib.get(b"az_raw_image_format_deep_copy")?);
-            let az_text_id_new: extern "C" fn() -> AzTextId = transmute(lib.get(b"az_text_id_new")?);
-            let az_image_id_new: extern "C" fn() -> AzImageId = transmute(lib.get(b"az_image_id_new")?);
-            let az_font_id_new: extern "C" fn() -> AzFontId = transmute(lib.get(b"az_font_id_new")?);
-            let az_image_source_delete: extern "C" fn(_:  &mut AzImageSource) = transmute(lib.get(b"az_image_source_delete")?);
-            let az_image_source_deep_copy: extern "C" fn(_:  &AzImageSource) -> AzImageSource = transmute(lib.get(b"az_image_source_deep_copy")?);
-            let az_font_source_delete: extern "C" fn(_:  &mut AzFontSource) = transmute(lib.get(b"az_font_source_delete")?);
-            let az_font_source_deep_copy: extern "C" fn(_:  &AzFontSource) -> AzFontSource = transmute(lib.get(b"az_font_source_deep_copy")?);
-            let az_raw_image_new: extern "C" fn(_:  AzU8Vec, _:  usize, _:  usize, _:  AzRawImageFormat) -> AzRawImage = transmute(lib.get(b"az_raw_image_new")?);
-            let az_raw_image_delete: extern "C" fn(_:  &mut AzRawImage) = transmute(lib.get(b"az_raw_image_delete")?);
-            let az_raw_image_deep_copy: extern "C" fn(_:  &AzRawImage) -> AzRawImage = transmute(lib.get(b"az_raw_image_deep_copy")?);
-            let az_svg_multi_polygon_delete: extern "C" fn(_:  &mut AzSvgMultiPolygon) = transmute(lib.get(b"az_svg_multi_polygon_delete")?);
-            let az_svg_multi_polygon_deep_copy: extern "C" fn(_:  &AzSvgMultiPolygon) -> AzSvgMultiPolygon = transmute(lib.get(b"az_svg_multi_polygon_deep_copy")?);
-            let az_svg_node_delete: extern "C" fn(_:  &mut AzSvgNode) = transmute(lib.get(b"az_svg_node_delete")?);
-            let az_svg_node_deep_copy: extern "C" fn(_:  &AzSvgNode) -> AzSvgNode = transmute(lib.get(b"az_svg_node_deep_copy")?);
-            let az_svg_styled_node_delete: extern "C" fn(_:  &mut AzSvgStyledNode) = transmute(lib.get(b"az_svg_styled_node_delete")?);
-            let az_svg_styled_node_deep_copy: extern "C" fn(_:  &AzSvgStyledNode) -> AzSvgStyledNode = transmute(lib.get(b"az_svg_styled_node_deep_copy")?);
-            let az_svg_path_delete: extern "C" fn(_:  &mut AzSvgPath) = transmute(lib.get(b"az_svg_path_delete")?);
-            let az_svg_path_deep_copy: extern "C" fn(_:  &AzSvgPath) -> AzSvgPath = transmute(lib.get(b"az_svg_path_deep_copy")?);
-            let az_tesselated_cpu_svg_node_delete: extern "C" fn(_:  &mut AzTesselatedCPUSvgNode) = transmute(lib.get(b"az_tesselated_cpu_svg_node_delete")?);
-            let az_tesselated_cpu_svg_node_deep_copy: extern "C" fn(_:  &AzTesselatedCPUSvgNode) -> AzTesselatedCPUSvgNode = transmute(lib.get(b"az_tesselated_cpu_svg_node_deep_copy")?);
-            let az_svg_parse_options_default: extern "C" fn() -> AzSvgParseOptions = transmute(lib.get(b"az_svg_parse_options_default")?);
-            let az_svg_parse_options_delete: extern "C" fn(_:  &mut AzSvgParseOptions) = transmute(lib.get(b"az_svg_parse_options_delete")?);
-            let az_svg_parse_options_deep_copy: extern "C" fn(_:  &AzSvgParseOptions) -> AzSvgParseOptions = transmute(lib.get(b"az_svg_parse_options_deep_copy")?);
-            let az_svg_render_options_default: extern "C" fn() -> AzSvgRenderOptions = transmute(lib.get(b"az_svg_render_options_default")?);
-            let az_svg_render_options_delete: extern "C" fn(_:  &mut AzSvgRenderOptions) = transmute(lib.get(b"az_svg_render_options_delete")?);
-            let az_svg_render_options_deep_copy: extern "C" fn(_:  &AzSvgRenderOptions) -> AzSvgRenderOptions = transmute(lib.get(b"az_svg_render_options_deep_copy")?);
-            let az_svg_parse: extern "C" fn(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError = transmute(lib.get(b"az_svg_parse")?);
-            let az_svg_delete: extern "C" fn(_:  &mut AzSvg) = transmute(lib.get(b"az_svg_delete")?);
-            let az_svg_deep_copy: extern "C" fn(_:  &AzSvg) -> AzSvg = transmute(lib.get(b"az_svg_deep_copy")?);
-            let az_svg_xml_node_delete: extern "C" fn(_:  &mut AzSvgXmlNode) = transmute(lib.get(b"az_svg_xml_node_delete")?);
-            let az_svg_xml_node_deep_copy: extern "C" fn(_:  &AzSvgXmlNode) -> AzSvgXmlNode = transmute(lib.get(b"az_svg_xml_node_deep_copy")?);
-            let az_timer_id_unique: extern "C" fn() -> AzTimerId = transmute(lib.get(b"az_timer_id_unique")?);
-            let az_timer_new: extern "C" fn(_:  AzRefAny, _:  AzTimerCallbackType) -> AzTimer = transmute(lib.get(b"az_timer_new")?);
-            let az_timer_with_delay: extern "C" fn(_:  AzTimer, _:  AzDuration) -> AzTimer = transmute(lib.get(b"az_timer_with_delay")?);
-            let az_timer_with_interval: extern "C" fn(_:  AzTimer, _:  AzDuration) -> AzTimer = transmute(lib.get(b"az_timer_with_interval")?);
-            let az_timer_with_timeout: extern "C" fn(_:  AzTimer, _:  AzDuration) -> AzTimer = transmute(lib.get(b"az_timer_with_timeout")?);
-            let az_timer_delete: extern "C" fn(_:  &mut AzTimer) = transmute(lib.get(b"az_timer_delete")?);
-            let az_timer_deep_copy: extern "C" fn(_:  &AzTimer) -> AzTimer = transmute(lib.get(b"az_timer_deep_copy")?);
-            let az_thread_sender_send: extern "C" fn(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool = transmute(lib.get(b"az_thread_sender_send")?);
-            let az_thread_sender_delete: extern "C" fn(_:  &mut AzThreadSender) = transmute(lib.get(b"az_thread_sender_delete")?);
-            let az_thread_receiver_receive: extern "C" fn(_:  &mut AzThreadReceiver) -> AzOptionThreadSendMsg = transmute(lib.get(b"az_thread_receiver_receive")?);
-            let az_thread_receiver_delete: extern "C" fn(_:  &mut AzThreadReceiver) = transmute(lib.get(b"az_thread_receiver_delete")?);
-            let az_thread_receive_msg_delete: extern "C" fn(_:  &mut AzThreadReceiveMsg) = transmute(lib.get(b"az_thread_receive_msg_delete")?);
-            let az_thread_write_back_msg_delete: extern "C" fn(_:  &mut AzThreadWriteBackMsg) = transmute(lib.get(b"az_thread_write_back_msg_delete")?);
-            let az_task_bar_icon_delete: extern "C" fn(_:  &mut AzTaskBarIcon) = transmute(lib.get(b"az_task_bar_icon_delete")?);
-            let az_task_bar_icon_deep_copy: extern "C" fn(_:  &AzTaskBarIcon) -> AzTaskBarIcon = transmute(lib.get(b"az_task_bar_icon_deep_copy")?);
-            let az_small_window_icon_bytes_delete: extern "C" fn(_:  &mut AzSmallWindowIconBytes) = transmute(lib.get(b"az_small_window_icon_bytes_delete")?);
-            let az_small_window_icon_bytes_deep_copy: extern "C" fn(_:  &AzSmallWindowIconBytes) -> AzSmallWindowIconBytes = transmute(lib.get(b"az_small_window_icon_bytes_deep_copy")?);
-            let az_large_window_icon_bytes_delete: extern "C" fn(_:  &mut AzLargeWindowIconBytes) = transmute(lib.get(b"az_large_window_icon_bytes_delete")?);
-            let az_large_window_icon_bytes_deep_copy: extern "C" fn(_:  &AzLargeWindowIconBytes) -> AzLargeWindowIconBytes = transmute(lib.get(b"az_large_window_icon_bytes_deep_copy")?);
-            let az_window_icon_delete: extern "C" fn(_:  &mut AzWindowIcon) = transmute(lib.get(b"az_window_icon_delete")?);
-            let az_window_icon_deep_copy: extern "C" fn(_:  &AzWindowIcon) -> AzWindowIcon = transmute(lib.get(b"az_window_icon_deep_copy")?);
-            let az_debug_state_delete: extern "C" fn(_:  &mut AzDebugState) = transmute(lib.get(b"az_debug_state_delete")?);
-            let az_debug_state_deep_copy: extern "C" fn(_:  &AzDebugState) -> AzDebugState = transmute(lib.get(b"az_debug_state_deep_copy")?);
-            let az_keyboard_state_delete: extern "C" fn(_:  &mut AzKeyboardState) = transmute(lib.get(b"az_keyboard_state_delete")?);
-            let az_keyboard_state_deep_copy: extern "C" fn(_:  &AzKeyboardState) -> AzKeyboardState = transmute(lib.get(b"az_keyboard_state_deep_copy")?);
-            let az_mouse_state_delete: extern "C" fn(_:  &mut AzMouseState) = transmute(lib.get(b"az_mouse_state_delete")?);
-            let az_mouse_state_deep_copy: extern "C" fn(_:  &AzMouseState) -> AzMouseState = transmute(lib.get(b"az_mouse_state_deep_copy")?);
-            let az_platform_specific_options_delete: extern "C" fn(_:  &mut AzPlatformSpecificOptions) = transmute(lib.get(b"az_platform_specific_options_delete")?);
-            let az_platform_specific_options_deep_copy: extern "C" fn(_:  &AzPlatformSpecificOptions) -> AzPlatformSpecificOptions = transmute(lib.get(b"az_platform_specific_options_deep_copy")?);
-            let az_windows_window_options_delete: extern "C" fn(_:  &mut AzWindowsWindowOptions) = transmute(lib.get(b"az_windows_window_options_delete")?);
-            let az_windows_window_options_deep_copy: extern "C" fn(_:  &AzWindowsWindowOptions) -> AzWindowsWindowOptions = transmute(lib.get(b"az_windows_window_options_deep_copy")?);
-            let az_wayland_theme_delete: extern "C" fn(_:  &mut AzWaylandTheme) = transmute(lib.get(b"az_wayland_theme_delete")?);
-            let az_wayland_theme_deep_copy: extern "C" fn(_:  &AzWaylandTheme) -> AzWaylandTheme = transmute(lib.get(b"az_wayland_theme_deep_copy")?);
-            let az_renderer_type_delete: extern "C" fn(_:  &mut AzRendererType) = transmute(lib.get(b"az_renderer_type_delete")?);
-            let az_renderer_type_deep_copy: extern "C" fn(_:  &AzRendererType) -> AzRendererType = transmute(lib.get(b"az_renderer_type_deep_copy")?);
-            let az_string_pair_delete: extern "C" fn(_:  &mut AzStringPair) = transmute(lib.get(b"az_string_pair_delete")?);
-            let az_string_pair_deep_copy: extern "C" fn(_:  &AzStringPair) -> AzStringPair = transmute(lib.get(b"az_string_pair_deep_copy")?);
-            let az_linux_window_options_delete: extern "C" fn(_:  &mut AzLinuxWindowOptions) = transmute(lib.get(b"az_linux_window_options_delete")?);
-            let az_linux_window_options_deep_copy: extern "C" fn(_:  &AzLinuxWindowOptions) -> AzLinuxWindowOptions = transmute(lib.get(b"az_linux_window_options_deep_copy")?);
-            let az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowState = transmute(lib.get(b"az_window_state_new")?);
-            let az_window_state_default: extern "C" fn() -> AzWindowState = transmute(lib.get(b"az_window_state_default")?);
-            let az_window_state_delete: extern "C" fn(_:  &mut AzWindowState) = transmute(lib.get(b"az_window_state_delete")?);
-            let az_window_state_deep_copy: extern "C" fn(_:  &AzWindowState) -> AzWindowState = transmute(lib.get(b"az_window_state_deep_copy")?);
-            let az_window_create_options_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_new")?);
-            let az_window_create_options_default: extern "C" fn() -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_default")?);
-            let az_window_create_options_delete: extern "C" fn(_:  &mut AzWindowCreateOptions) = transmute(lib.get(b"az_window_create_options_delete")?);
-            let az_window_create_options_deep_copy: extern "C" fn(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_deep_copy")?);
-            Some(AzulDll {
-                lib: lib,
-                az_string_from_utf8_unchecked,
-                az_string_from_utf8_lossy,
-                az_string_into_bytes,
-                az_string_delete,
-                az_string_deep_copy,
-                az_style_transform_vec_new,
-                az_style_transform_vec_with_capacity,
-                az_style_transform_vec_copy_from,
-                az_style_transform_vec_delete,
-                az_style_transform_vec_deep_copy,
-                az_content_group_vec_new,
-                az_content_group_vec_with_capacity,
-                az_content_group_vec_copy_from,
-                az_content_group_vec_delete,
-                az_content_group_vec_deep_copy,
-                az_css_property_vec_new,
-                az_css_property_vec_with_capacity,
-                az_css_property_vec_copy_from,
-                az_css_property_vec_delete,
-                az_css_property_vec_deep_copy,
-                az_svg_multi_polygon_vec_new,
-                az_svg_multi_polygon_vec_with_capacity,
-                az_svg_multi_polygon_vec_copy_from,
-                az_svg_multi_polygon_vec_delete,
-                az_svg_multi_polygon_vec_deep_copy,
-                az_svg_path_vec_new,
-                az_svg_path_vec_with_capacity,
-                az_svg_path_vec_copy_from,
-                az_svg_path_vec_delete,
-                az_svg_path_vec_deep_copy,
-                az_vertex_attribute_vec_new,
-                az_vertex_attribute_vec_with_capacity,
-                az_vertex_attribute_vec_copy_from,
-                az_vertex_attribute_vec_delete,
-                az_vertex_attribute_vec_deep_copy,
-                az_svg_path_element_vec_new,
-                az_svg_path_element_vec_with_capacity,
-                az_svg_path_element_vec_copy_from,
-                az_svg_path_element_vec_delete,
-                az_svg_path_element_vec_deep_copy,
-                az_svg_vertex_vec_new,
-                az_svg_vertex_vec_with_capacity,
-                az_svg_vertex_vec_copy_from,
-                az_svg_vertex_vec_delete,
-                az_svg_vertex_vec_deep_copy,
-                az_u32_vec_new,
-                az_u32_vec_with_capacity,
-                az_u32_vec_copy_from,
-                az_u32_vec_delete,
-                az_u32_vec_deep_copy,
-                az_x_window_type_vec_new,
-                az_x_window_type_vec_with_capacity,
-                az_x_window_type_vec_copy_from,
-                az_x_window_type_vec_delete,
-                az_x_window_type_vec_deep_copy,
-                az_virtual_key_code_vec_new,
-                az_virtual_key_code_vec_with_capacity,
-                az_virtual_key_code_vec_copy_from,
-                az_virtual_key_code_vec_delete,
-                az_virtual_key_code_vec_deep_copy,
-                az_cascade_info_vec_new,
-                az_cascade_info_vec_with_capacity,
-                az_cascade_info_vec_copy_from,
-                az_cascade_info_vec_delete,
-                az_cascade_info_vec_deep_copy,
-                az_scan_code_vec_new,
-                az_scan_code_vec_with_capacity,
-                az_scan_code_vec_copy_from,
-                az_scan_code_vec_delete,
-                az_scan_code_vec_deep_copy,
-                az_css_declaration_vec_new,
-                az_css_declaration_vec_with_capacity,
-                az_css_declaration_vec_copy_from,
-                az_css_declaration_vec_delete,
-                az_css_declaration_vec_deep_copy,
-                az_css_path_selector_vec_new,
-                az_css_path_selector_vec_with_capacity,
-                az_css_path_selector_vec_copy_from,
-                az_css_path_selector_vec_delete,
-                az_css_path_selector_vec_deep_copy,
-                az_stylesheet_vec_new,
-                az_stylesheet_vec_with_capacity,
-                az_stylesheet_vec_copy_from,
-                az_stylesheet_vec_delete,
-                az_stylesheet_vec_deep_copy,
-                az_css_rule_block_vec_new,
-                az_css_rule_block_vec_with_capacity,
-                az_css_rule_block_vec_copy_from,
-                az_css_rule_block_vec_delete,
-                az_css_rule_block_vec_deep_copy,
-                az_u8_vec_new,
-                az_u8_vec_with_capacity,
-                az_u8_vec_copy_from,
-                az_u8_vec_delete,
-                az_u8_vec_deep_copy,
-                az_callback_data_vec_new,
-                az_callback_data_vec_with_capacity,
-                az_callback_data_vec_copy_from,
-                az_callback_data_vec_delete,
-                az_callback_data_vec_deep_copy,
-                az_debug_message_vec_new,
-                az_debug_message_vec_with_capacity,
-                az_debug_message_vec_copy_from,
-                az_debug_message_vec_delete,
-                az_debug_message_vec_deep_copy,
-                az_g_luint_vec_new,
-                az_g_luint_vec_with_capacity,
-                az_g_luint_vec_copy_from,
-                az_g_luint_vec_delete,
-                az_g_luint_vec_deep_copy,
-                az_g_lint_vec_new,
-                az_g_lint_vec_with_capacity,
-                az_g_lint_vec_copy_from,
-                az_g_lint_vec_delete,
-                az_g_lint_vec_deep_copy,
-                az_dom_vec_new,
-                az_dom_vec_with_capacity,
-                az_dom_vec_copy_from,
-                az_dom_vec_delete,
-                az_dom_vec_deep_copy,
-                az_string_vec_new,
-                az_string_vec_with_capacity,
-                az_string_vec_copy_from,
-                az_string_vec_delete,
-                az_string_vec_deep_copy,
-                az_string_pair_vec_new,
-                az_string_pair_vec_with_capacity,
-                az_string_pair_vec_copy_from,
-                az_string_pair_vec_delete,
-                az_string_pair_vec_deep_copy,
-                az_gradient_stop_pre_vec_new,
-                az_gradient_stop_pre_vec_with_capacity,
-                az_gradient_stop_pre_vec_copy_from,
-                az_gradient_stop_pre_vec_delete,
-                az_gradient_stop_pre_vec_deep_copy,
-                az_cascaded_css_property_with_source_vec_new,
-                az_cascaded_css_property_with_source_vec_with_capacity,
-                az_cascaded_css_property_with_source_vec_copy_from,
-                az_cascaded_css_property_with_source_vec_delete,
-                az_cascaded_css_property_with_source_vec_deep_copy,
-                az_node_id_vec_new,
-                az_node_id_vec_with_capacity,
-                az_node_id_vec_copy_from,
-                az_node_id_vec_delete,
-                az_node_id_vec_deep_copy,
-                az_node_vec_new,
-                az_node_vec_with_capacity,
-                az_node_vec_copy_from,
-                az_node_vec_delete,
-                az_node_vec_deep_copy,
-                az_styled_node_vec_new,
-                az_styled_node_vec_with_capacity,
-                az_styled_node_vec_copy_from,
-                az_styled_node_vec_delete,
-                az_styled_node_vec_deep_copy,
-                az_tag_ids_to_node_ids_mapping_vec_new,
-                az_tag_ids_to_node_ids_mapping_vec_with_capacity,
-                az_tag_ids_to_node_ids_mapping_vec_copy_from,
-                az_tag_ids_to_node_ids_mapping_vec_delete,
-                az_tag_ids_to_node_ids_mapping_vec_deep_copy,
-                az_parent_with_node_depth_vec_new,
-                az_parent_with_node_depth_vec_with_capacity,
-                az_parent_with_node_depth_vec_copy_from,
-                az_parent_with_node_depth_vec_delete,
-                az_parent_with_node_depth_vec_deep_copy,
-                az_node_data_vec_new,
-                az_node_data_vec_with_capacity,
-                az_node_data_vec_copy_from,
-                az_node_data_vec_delete,
-                az_node_data_vec_deep_copy,
-                az_option_ref_any_delete,
-                az_option_ref_any_deep_copy,
-                az_option_style_transform_vec_value_delete,
-                az_option_style_transform_vec_value_deep_copy,
-                az_option_raw_image_delete,
-                az_option_raw_image_deep_copy,
-                az_option_wayland_theme_delete,
-                az_option_wayland_theme_deep_copy,
-                az_option_task_bar_icon_delete,
-                az_option_task_bar_icon_deep_copy,
-                az_option_window_icon_delete,
-                az_option_window_icon_deep_copy,
-                az_option_string_delete,
-                az_option_string_deep_copy,
-                az_option_dom_delete,
-                az_option_dom_deep_copy,
-                az_option_texture_delete,
-                az_option_image_mask_delete,
-                az_option_image_mask_deep_copy,
-                az_option_style_background_content_value_delete,
-                az_option_style_background_content_value_deep_copy,
-                az_option_style_font_family_value_delete,
-                az_option_style_font_family_value_deep_copy,
-                az_option_box_shadow_pre_display_item_value_delete,
-                az_option_box_shadow_pre_display_item_value_deep_copy,
-                az_option_instant_ptr_delete,
-                az_option_instant_ptr_deep_copy,
-                az_option_u8_vec_ref_delete,
-                az_result_svg_svg_parse_error_delete,
-                az_result_svg_svg_parse_error_deep_copy,
-                az_svg_parse_error_delete,
-                az_svg_parse_error_deep_copy,
-                az_xml_error_delete,
-                az_xml_error_deep_copy,
-                az_duplicated_namespace_error_delete,
-                az_duplicated_namespace_error_deep_copy,
-                az_unknown_namespace_error_delete,
-                az_unknown_namespace_error_deep_copy,
-                az_unexpected_close_tag_error_delete,
-                az_unexpected_close_tag_error_deep_copy,
-                az_unknown_entity_reference_error_delete,
-                az_unknown_entity_reference_error_deep_copy,
-                az_duplicated_attribute_error_delete,
-                az_duplicated_attribute_error_deep_copy,
-                az_xml_parse_error_delete,
-                az_xml_parse_error_deep_copy,
-                az_xml_text_error_delete,
-                az_xml_text_error_deep_copy,
-                az_xml_stream_error_delete,
-                az_xml_stream_error_deep_copy,
-                az_invalid_char_multiple_error_delete,
-                az_invalid_char_multiple_error_deep_copy,
-                az_invalid_string_error_delete,
-                az_invalid_string_error_deep_copy,
-                az_instant_ptr_now,
-                az_instant_ptr_delete,
-                az_duration_milliseconds,
-                az_duration_seconds,
-                az_app_config_default,
-                az_app_config_delete,
-                az_app_config_deep_copy,
-                az_app_ptr_new,
-                az_app_ptr_add_window,
-                az_app_ptr_run,
-                az_app_ptr_delete,
-                az_hidpi_adjusted_bounds_get_logical_size,
-                az_hidpi_adjusted_bounds_get_physical_size,
-                az_hidpi_adjusted_bounds_get_hidpi_factor,
-                az_focus_target_delete,
-                az_focus_target_deep_copy,
-                az_focus_target_path_delete,
-                az_focus_target_path_deep_copy,
-                az_callback_info_get_hit_node,
-                az_callback_info_get_cursor_relative_to_viewport,
-                az_callback_info_get_cursor_relative_to_node,
-                az_callback_info_get_parent,
-                az_callback_info_get_previous_sibling,
-                az_callback_info_get_next_sibling,
-                az_callback_info_get_first_child,
-                az_callback_info_get_last_child,
-                az_callback_info_get_dataset,
-                az_callback_info_get_window_state,
-                az_callback_info_get_keyboard_state,
-                az_callback_info_get_mouse_state,
-                az_callback_info_get_current_window_handle,
-                az_callback_info_get_gl_context,
-                az_callback_info_set_window_state,
-                az_callback_info_set_focus,
-                az_callback_info_set_css_property,
-                az_callback_info_stop_propagation,
-                az_callback_info_create_window,
-                az_callback_info_start_thread,
-                az_callback_info_start_timer,
-                az_callback_info_delete,
-                az_i_frame_callback_info_get_bounds,
-                az_i_frame_callback_info_delete,
-                az_i_frame_callback_return_delete,
-                az_i_frame_callback_return_deep_copy,
-                az_gl_callback_info_get_gl_context,
-                az_gl_callback_info_delete,
-                az_gl_callback_return_delete,
-                az_timer_callback_info_delete,
-                az_timer_callback_return_delete,
-                az_timer_callback_return_deep_copy,
-                az_write_back_callback_delete,
-                az_write_back_callback_deep_copy,
-                az_atomic_ref_count_can_be_shared,
-                az_atomic_ref_count_can_be_shared_mut,
-                az_atomic_ref_count_increase_ref,
-                az_atomic_ref_count_decrease_ref,
-                az_atomic_ref_count_increase_refmut,
-                az_atomic_ref_count_decrease_refmut,
-                az_atomic_ref_count_delete,
-                az_atomic_ref_count_deep_copy,
-                az_atomic_ref_count_fmt_debug,
-                az_ref_any_new_c,
-                az_ref_any_is_type,
-                az_ref_any_get_type_name,
-                az_ref_any_can_be_shared,
-                az_ref_any_can_be_shared_mut,
-                az_ref_any_increase_ref,
-                az_ref_any_decrease_ref,
-                az_ref_any_increase_refmut,
-                az_ref_any_decrease_refmut,
-                az_ref_any_delete,
-                az_ref_any_deep_copy,
-                az_layout_info_window_width_larger_than,
-                az_layout_info_window_width_smaller_than,
-                az_layout_info_window_height_larger_than,
-                az_layout_info_window_height_smaller_than,
-                az_layout_info_delete,
-                az_css_rule_block_delete,
-                az_css_rule_block_deep_copy,
-                az_css_declaration_delete,
-                az_css_declaration_deep_copy,
-                az_dynamic_css_property_delete,
-                az_dynamic_css_property_deep_copy,
-                az_css_path_delete,
-                az_css_path_deep_copy,
-                az_css_path_selector_delete,
-                az_css_path_selector_deep_copy,
-                az_stylesheet_delete,
-                az_stylesheet_deep_copy,
-                az_css_empty,
-                az_css_from_string,
-                az_css_delete,
-                az_css_deep_copy,
-                az_color_u_from_str,
-                az_color_u_to_hash,
-                az_linear_gradient_delete,
-                az_linear_gradient_deep_copy,
-                az_radial_gradient_delete,
-                az_radial_gradient_deep_copy,
-                az_css_image_id_delete,
-                az_css_image_id_deep_copy,
-                az_style_background_content_delete,
-                az_style_background_content_deep_copy,
-                az_style_font_family_delete,
-                az_style_font_family_deep_copy,
-                az_style_background_content_value_delete,
-                az_style_background_content_value_deep_copy,
-                az_style_font_family_value_delete,
-                az_style_font_family_value_deep_copy,
-                az_style_transform_vec_value_delete,
-                az_style_transform_vec_value_deep_copy,
-                az_css_property_delete,
-                az_css_property_deep_copy,
-                az_rect_style_delete,
-                az_rect_style_deep_copy,
-                az_rect_layout_delete,
-                az_rect_layout_deep_copy,
-                az_cascaded_css_property_with_source_delete,
-                az_cascaded_css_property_with_source_deep_copy,
-                az_css_property_source_delete,
-                az_css_property_source_deep_copy,
-                az_styled_node_delete,
-                az_styled_node_deep_copy,
-                az_content_group_delete,
-                az_content_group_deep_copy,
-                az_styled_dom_new,
-                az_styled_dom_append,
-                az_styled_dom_delete,
-                az_styled_dom_deep_copy,
-                az_dom_new,
-                az_dom_div,
-                az_dom_body,
-                az_dom_label,
-                az_dom_text,
-                az_dom_image,
-                az_dom_gl_texture,
-                az_dom_iframe,
-                az_dom_add_id,
-                az_dom_with_id,
-                az_dom_set_ids,
-                az_dom_with_ids,
-                az_dom_add_class,
-                az_dom_with_class,
-                az_dom_set_classes,
-                az_dom_with_classes,
-                az_dom_add_callback,
-                az_dom_with_callback,
-                az_dom_set_dataset,
-                az_dom_with_dataset,
-                az_dom_add_inline_css,
-                az_dom_with_inline_css,
-                az_dom_add_inline_hover_css,
-                az_dom_with_inline_hover_css,
-                az_dom_add_inline_active_css,
-                az_dom_with_inline_active_css,
-                az_dom_add_inline_focus_css,
-                az_dom_with_inline_focus_css,
-                az_dom_set_is_draggable,
-                az_dom_with_clip_mask,
-                az_dom_set_clip_mask,
-                az_dom_is_draggable,
-                az_dom_set_tab_index,
-                az_dom_with_tab_index,
-                az_dom_add_child,
-                az_dom_with_child,
-                az_dom_get_html_string,
-                az_dom_style,
-                az_dom_delete,
-                az_dom_deep_copy,
-                az_gl_texture_node_delete,
-                az_gl_texture_node_deep_copy,
-                az_i_frame_node_delete,
-                az_i_frame_node_deep_copy,
-                az_callback_data_delete,
-                az_callback_data_deep_copy,
-                az_image_mask_delete,
-                az_image_mask_deep_copy,
-                az_node_data_new,
-                az_node_data_div,
-                az_node_data_body,
-                az_node_data_label,
-                az_node_data_text,
-                az_node_data_image,
-                az_node_data_gl_texture,
-                az_node_data_iframe,
-                az_node_data_default,
-                az_node_data_add_id,
-                az_node_data_with_id,
-                az_node_data_set_ids,
-                az_node_data_with_ids,
-                az_node_data_add_class,
-                az_node_data_with_class,
-                az_node_data_set_classes,
-                az_node_data_with_classes,
-                az_node_data_add_dataset,
-                az_node_data_with_dataset,
-                az_node_data_add_callback,
-                az_node_data_with_callback,
-                az_node_data_add_inline_css,
-                az_node_data_with_inline_css,
-                az_node_data_add_inline_hover_css,
-                az_node_data_add_inline_active_css,
-                az_node_data_add_inline_focus_css,
-                az_node_data_with_clip_mask,
-                az_node_data_set_clip_mask,
-                az_node_data_set_is_draggable,
-                az_node_data_is_draggable,
-                az_node_data_set_tab_index,
-                az_node_data_with_tab_index,
-                az_node_data_delete,
-                az_node_data_deep_copy,
-                az_node_type_delete,
-                az_node_type_deep_copy,
-                az_on_into_event_filter,
-                az_vertex_attribute_delete,
-                az_vertex_attribute_deep_copy,
-                az_vertex_layout_delete,
-                az_vertex_layout_deep_copy,
-                az_vertex_array_object_delete,
-                az_vertex_buffer_delete,
-                az_debug_message_delete,
-                az_debug_message_deep_copy,
-                az_u8_vec_ref_delete,
-                az_u8_vec_ref_mut_delete,
-                az_f32_vec_ref_delete,
-                az_i32_vec_ref_delete,
-                az_g_luint_vec_ref_delete,
-                az_g_lenum_vec_ref_delete,
-                az_g_lint_vec_ref_mut_delete,
-                az_g_lint64_vec_ref_mut_delete,
-                az_g_lboolean_vec_ref_mut_delete,
-                az_g_lfloat_vec_ref_mut_delete,
-                az_refstr_vec_ref_delete,
-                az_refstr_delete,
-                az_get_program_binary_return_delete,
-                az_get_program_binary_return_deep_copy,
-                az_get_active_attrib_return_delete,
-                az_get_active_attrib_return_deep_copy,
-                az_g_lsync_ptr_delete,
-                az_get_active_uniform_return_delete,
-                az_get_active_uniform_return_deep_copy,
-                az_gl_context_ptr_get_type,
-                az_gl_context_ptr_buffer_data_untyped,
-                az_gl_context_ptr_buffer_sub_data_untyped,
-                az_gl_context_ptr_map_buffer,
-                az_gl_context_ptr_map_buffer_range,
-                az_gl_context_ptr_unmap_buffer,
-                az_gl_context_ptr_tex_buffer,
-                az_gl_context_ptr_shader_source,
-                az_gl_context_ptr_read_buffer,
-                az_gl_context_ptr_read_pixels_into_buffer,
-                az_gl_context_ptr_read_pixels,
-                az_gl_context_ptr_read_pixels_into_pbo,
-                az_gl_context_ptr_sample_coverage,
-                az_gl_context_ptr_polygon_offset,
-                az_gl_context_ptr_pixel_store_i,
-                az_gl_context_ptr_gen_buffers,
-                az_gl_context_ptr_gen_renderbuffers,
-                az_gl_context_ptr_gen_framebuffers,
-                az_gl_context_ptr_gen_textures,
-                az_gl_context_ptr_gen_vertex_arrays,
-                az_gl_context_ptr_gen_queries,
-                az_gl_context_ptr_begin_query,
-                az_gl_context_ptr_end_query,
-                az_gl_context_ptr_query_counter,
-                az_gl_context_ptr_get_query_object_iv,
-                az_gl_context_ptr_get_query_object_uiv,
-                az_gl_context_ptr_get_query_object_i64v,
-                az_gl_context_ptr_get_query_object_ui64v,
-                az_gl_context_ptr_delete_queries,
-                az_gl_context_ptr_delete_vertex_arrays,
-                az_gl_context_ptr_delete_buffers,
-                az_gl_context_ptr_delete_renderbuffers,
-                az_gl_context_ptr_delete_framebuffers,
-                az_gl_context_ptr_delete_textures,
-                az_gl_context_ptr_framebuffer_renderbuffer,
-                az_gl_context_ptr_renderbuffer_storage,
-                az_gl_context_ptr_depth_func,
-                az_gl_context_ptr_active_texture,
-                az_gl_context_ptr_attach_shader,
-                az_gl_context_ptr_bind_attrib_location,
-                az_gl_context_ptr_get_uniform_iv,
-                az_gl_context_ptr_get_uniform_fv,
-                az_gl_context_ptr_get_uniform_block_index,
-                az_gl_context_ptr_get_uniform_indices,
-                az_gl_context_ptr_bind_buffer_base,
-                az_gl_context_ptr_bind_buffer_range,
-                az_gl_context_ptr_uniform_block_binding,
-                az_gl_context_ptr_bind_buffer,
-                az_gl_context_ptr_bind_vertex_array,
-                az_gl_context_ptr_bind_renderbuffer,
-                az_gl_context_ptr_bind_framebuffer,
-                az_gl_context_ptr_bind_texture,
-                az_gl_context_ptr_draw_buffers,
-                az_gl_context_ptr_tex_image_2d,
-                az_gl_context_ptr_compressed_tex_image_2d,
-                az_gl_context_ptr_compressed_tex_sub_image_2d,
-                az_gl_context_ptr_tex_image_3d,
-                az_gl_context_ptr_copy_tex_image_2d,
-                az_gl_context_ptr_copy_tex_sub_image_2d,
-                az_gl_context_ptr_copy_tex_sub_image_3d,
-                az_gl_context_ptr_tex_sub_image_2d,
-                az_gl_context_ptr_tex_sub_image_2d_pbo,
-                az_gl_context_ptr_tex_sub_image_3d,
-                az_gl_context_ptr_tex_sub_image_3d_pbo,
-                az_gl_context_ptr_tex_storage_2d,
-                az_gl_context_ptr_tex_storage_3d,
-                az_gl_context_ptr_get_tex_image_into_buffer,
-                az_gl_context_ptr_copy_image_sub_data,
-                az_gl_context_ptr_invalidate_framebuffer,
-                az_gl_context_ptr_invalidate_sub_framebuffer,
-                az_gl_context_ptr_get_integer_v,
-                az_gl_context_ptr_get_integer_64v,
-                az_gl_context_ptr_get_integer_iv,
-                az_gl_context_ptr_get_integer_64iv,
-                az_gl_context_ptr_get_boolean_v,
-                az_gl_context_ptr_get_float_v,
-                az_gl_context_ptr_get_framebuffer_attachment_parameter_iv,
-                az_gl_context_ptr_get_renderbuffer_parameter_iv,
-                az_gl_context_ptr_get_tex_parameter_iv,
-                az_gl_context_ptr_get_tex_parameter_fv,
-                az_gl_context_ptr_tex_parameter_i,
-                az_gl_context_ptr_tex_parameter_f,
-                az_gl_context_ptr_framebuffer_texture_2d,
-                az_gl_context_ptr_framebuffer_texture_layer,
-                az_gl_context_ptr_blit_framebuffer,
-                az_gl_context_ptr_vertex_attrib_4f,
-                az_gl_context_ptr_vertex_attrib_pointer_f32,
-                az_gl_context_ptr_vertex_attrib_pointer,
-                az_gl_context_ptr_vertex_attrib_i_pointer,
-                az_gl_context_ptr_vertex_attrib_divisor,
-                az_gl_context_ptr_viewport,
-                az_gl_context_ptr_scissor,
-                az_gl_context_ptr_line_width,
-                az_gl_context_ptr_use_program,
-                az_gl_context_ptr_validate_program,
-                az_gl_context_ptr_draw_arrays,
-                az_gl_context_ptr_draw_arrays_instanced,
-                az_gl_context_ptr_draw_elements,
-                az_gl_context_ptr_draw_elements_instanced,
-                az_gl_context_ptr_blend_color,
-                az_gl_context_ptr_blend_func,
-                az_gl_context_ptr_blend_func_separate,
-                az_gl_context_ptr_blend_equation,
-                az_gl_context_ptr_blend_equation_separate,
-                az_gl_context_ptr_color_mask,
-                az_gl_context_ptr_cull_face,
-                az_gl_context_ptr_front_face,
-                az_gl_context_ptr_enable,
-                az_gl_context_ptr_disable,
-                az_gl_context_ptr_hint,
-                az_gl_context_ptr_is_enabled,
-                az_gl_context_ptr_is_shader,
-                az_gl_context_ptr_is_texture,
-                az_gl_context_ptr_is_framebuffer,
-                az_gl_context_ptr_is_renderbuffer,
-                az_gl_context_ptr_check_frame_buffer_status,
-                az_gl_context_ptr_enable_vertex_attrib_array,
-                az_gl_context_ptr_disable_vertex_attrib_array,
-                az_gl_context_ptr_uniform_1f,
-                az_gl_context_ptr_uniform_1fv,
-                az_gl_context_ptr_uniform_1i,
-                az_gl_context_ptr_uniform_1iv,
-                az_gl_context_ptr_uniform_1ui,
-                az_gl_context_ptr_uniform_2f,
-                az_gl_context_ptr_uniform_2fv,
-                az_gl_context_ptr_uniform_2i,
-                az_gl_context_ptr_uniform_2iv,
-                az_gl_context_ptr_uniform_2ui,
-                az_gl_context_ptr_uniform_3f,
-                az_gl_context_ptr_uniform_3fv,
-                az_gl_context_ptr_uniform_3i,
-                az_gl_context_ptr_uniform_3iv,
-                az_gl_context_ptr_uniform_3ui,
-                az_gl_context_ptr_uniform_4f,
-                az_gl_context_ptr_uniform_4i,
-                az_gl_context_ptr_uniform_4iv,
-                az_gl_context_ptr_uniform_4ui,
-                az_gl_context_ptr_uniform_4fv,
-                az_gl_context_ptr_uniform_matrix_2fv,
-                az_gl_context_ptr_uniform_matrix_3fv,
-                az_gl_context_ptr_uniform_matrix_4fv,
-                az_gl_context_ptr_depth_mask,
-                az_gl_context_ptr_depth_range,
-                az_gl_context_ptr_get_active_attrib,
-                az_gl_context_ptr_get_active_uniform,
-                az_gl_context_ptr_get_active_uniforms_iv,
-                az_gl_context_ptr_get_active_uniform_block_i,
-                az_gl_context_ptr_get_active_uniform_block_iv,
-                az_gl_context_ptr_get_active_uniform_block_name,
-                az_gl_context_ptr_get_attrib_location,
-                az_gl_context_ptr_get_frag_data_location,
-                az_gl_context_ptr_get_uniform_location,
-                az_gl_context_ptr_get_program_info_log,
-                az_gl_context_ptr_get_program_iv,
-                az_gl_context_ptr_get_program_binary,
-                az_gl_context_ptr_program_binary,
-                az_gl_context_ptr_program_parameter_i,
-                az_gl_context_ptr_get_vertex_attrib_iv,
-                az_gl_context_ptr_get_vertex_attrib_fv,
-                az_gl_context_ptr_get_vertex_attrib_pointer_v,
-                az_gl_context_ptr_get_buffer_parameter_iv,
-                az_gl_context_ptr_get_shader_info_log,
-                az_gl_context_ptr_get_string,
-                az_gl_context_ptr_get_string_i,
-                az_gl_context_ptr_get_shader_iv,
-                az_gl_context_ptr_get_shader_precision_format,
-                az_gl_context_ptr_compile_shader,
-                az_gl_context_ptr_create_program,
-                az_gl_context_ptr_delete_program,
-                az_gl_context_ptr_create_shader,
-                az_gl_context_ptr_delete_shader,
-                az_gl_context_ptr_detach_shader,
-                az_gl_context_ptr_link_program,
-                az_gl_context_ptr_clear_color,
-                az_gl_context_ptr_clear,
-                az_gl_context_ptr_clear_depth,
-                az_gl_context_ptr_clear_stencil,
-                az_gl_context_ptr_flush,
-                az_gl_context_ptr_finish,
-                az_gl_context_ptr_get_error,
-                az_gl_context_ptr_stencil_mask,
-                az_gl_context_ptr_stencil_mask_separate,
-                az_gl_context_ptr_stencil_func,
-                az_gl_context_ptr_stencil_func_separate,
-                az_gl_context_ptr_stencil_op,
-                az_gl_context_ptr_stencil_op_separate,
-                az_gl_context_ptr_egl_image_target_texture2d_oes,
-                az_gl_context_ptr_generate_mipmap,
-                az_gl_context_ptr_insert_event_marker_ext,
-                az_gl_context_ptr_push_group_marker_ext,
-                az_gl_context_ptr_pop_group_marker_ext,
-                az_gl_context_ptr_debug_message_insert_khr,
-                az_gl_context_ptr_push_debug_group_khr,
-                az_gl_context_ptr_pop_debug_group_khr,
-                az_gl_context_ptr_fence_sync,
-                az_gl_context_ptr_client_wait_sync,
-                az_gl_context_ptr_wait_sync,
-                az_gl_context_ptr_delete_sync,
-                az_gl_context_ptr_texture_range_apple,
-                az_gl_context_ptr_gen_fences_apple,
-                az_gl_context_ptr_delete_fences_apple,
-                az_gl_context_ptr_set_fence_apple,
-                az_gl_context_ptr_finish_fence_apple,
-                az_gl_context_ptr_test_fence_apple,
-                az_gl_context_ptr_test_object_apple,
-                az_gl_context_ptr_finish_object_apple,
-                az_gl_context_ptr_get_frag_data_index,
-                az_gl_context_ptr_blend_barrier_khr,
-                az_gl_context_ptr_bind_frag_data_location_indexed,
-                az_gl_context_ptr_get_debug_messages,
-                az_gl_context_ptr_provoking_vertex_angle,
-                az_gl_context_ptr_gen_vertex_arrays_apple,
-                az_gl_context_ptr_bind_vertex_array_apple,
-                az_gl_context_ptr_delete_vertex_arrays_apple,
-                az_gl_context_ptr_copy_texture_chromium,
-                az_gl_context_ptr_copy_sub_texture_chromium,
-                az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes,
-                az_gl_context_ptr_copy_texture_3d_angle,
-                az_gl_context_ptr_copy_sub_texture_3d_angle,
-                az_gl_context_ptr_delete,
-                az_gl_context_ptr_deep_copy,
-                az_texture_delete,
-                az_texture_flags_default,
-                az_raw_image_format_delete,
-                az_raw_image_format_deep_copy,
-                az_text_id_new,
-                az_image_id_new,
-                az_font_id_new,
-                az_image_source_delete,
-                az_image_source_deep_copy,
-                az_font_source_delete,
-                az_font_source_deep_copy,
-                az_raw_image_new,
-                az_raw_image_delete,
-                az_raw_image_deep_copy,
-                az_svg_multi_polygon_delete,
-                az_svg_multi_polygon_deep_copy,
-                az_svg_node_delete,
-                az_svg_node_deep_copy,
-                az_svg_styled_node_delete,
-                az_svg_styled_node_deep_copy,
-                az_svg_path_delete,
-                az_svg_path_deep_copy,
-                az_tesselated_cpu_svg_node_delete,
-                az_tesselated_cpu_svg_node_deep_copy,
-                az_svg_parse_options_default,
-                az_svg_parse_options_delete,
-                az_svg_parse_options_deep_copy,
-                az_svg_render_options_default,
-                az_svg_render_options_delete,
-                az_svg_render_options_deep_copy,
-                az_svg_parse,
-                az_svg_delete,
-                az_svg_deep_copy,
-                az_svg_xml_node_delete,
-                az_svg_xml_node_deep_copy,
-                az_timer_id_unique,
-                az_timer_new,
-                az_timer_with_delay,
-                az_timer_with_interval,
-                az_timer_with_timeout,
-                az_timer_delete,
-                az_timer_deep_copy,
-                az_thread_sender_send,
-                az_thread_sender_delete,
-                az_thread_receiver_receive,
-                az_thread_receiver_delete,
-                az_thread_receive_msg_delete,
-                az_thread_write_back_msg_delete,
-                az_task_bar_icon_delete,
-                az_task_bar_icon_deep_copy,
-                az_small_window_icon_bytes_delete,
-                az_small_window_icon_bytes_deep_copy,
-                az_large_window_icon_bytes_delete,
-                az_large_window_icon_bytes_deep_copy,
-                az_window_icon_delete,
-                az_window_icon_deep_copy,
-                az_debug_state_delete,
-                az_debug_state_deep_copy,
-                az_keyboard_state_delete,
-                az_keyboard_state_deep_copy,
-                az_mouse_state_delete,
-                az_mouse_state_deep_copy,
-                az_platform_specific_options_delete,
-                az_platform_specific_options_deep_copy,
-                az_windows_window_options_delete,
-                az_windows_window_options_deep_copy,
-                az_wayland_theme_delete,
-                az_wayland_theme_deep_copy,
-                az_renderer_type_delete,
-                az_renderer_type_deep_copy,
-                az_string_pair_delete,
-                az_string_pair_deep_copy,
-                az_linux_window_options_delete,
-                az_linux_window_options_deep_copy,
-                az_window_state_new,
-                az_window_state_default,
-                az_window_state_delete,
-                az_window_state_deep_copy,
-                az_window_create_options_new,
-                az_window_create_options_default,
-                az_window_create_options_delete,
-                az_window_create_options_deep_copy,
-            })
-        }
-
-    }
-
-    #[cfg(target_os="linux")]
-    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_HOME"), "/lib/", "azul-dll-", env!("CARGO_PKG_VERSION"), "/target/release/libazul.so")); /* !!! IF THIS LINE SHOWS AN ERROR, IT MEANS YOU FORGOT TO RUN "cargo install --version 0.1.0 azul-dll" */
-    #[cfg(target_os="windows")]
-    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_HOME"), "/lib/", "azul-dll-", env!("CARGO_PKG_VERSION"), "/target/release/azul.dll")); /* !!! IF THIS LINE SHOWS AN ERROR, IT MEANS YOU FORGOT TO RUN "cargo install --version 0.1.0 azul-dll" */
-    #[cfg(target_os="macos")]
-    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_HOME"), "/lib/", "azul-dll-", env!("CARGO_PKG_VERSION"), "/target/release/libazul.dylib")); /* !!! IF THIS LINE SHOWS AN ERROR, IT MEANS YOU FORGOT TO RUN "cargo install --version 0.1.0 azul-dll" */
-
-    use std::{mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};
-
-    static LIBRARY_IS_INITIALIZED: AtomicBool = AtomicBool::new(false);
-    static mut AZUL_DLL: MaybeUninit<AzulDll> = MaybeUninit::<AzulDll>::uninit();
-
-    #[cfg(target_os="linux")]
-    const DLL_FILE_NAME: &str = "azul.so";
-    #[cfg(target_os="windows")]
-    const DLL_FILE_NAME: &str = "azul.dll";
-    #[cfg(target_os="macos")]
-    const DLL_FILE_NAME: &str = "libazul.dynlib";
-
-    fn load_library_inner() -> Result<AzulDll, &'static str> {
-
-        let current_exe_path = std::env::current_exe().map_err(|_| "current exe has no current dir (?!)")?;
-        let mut library_path = current_exe_path.parent().ok_or("current exe has no parent (?!)")?.to_path_buf();
-        library_path.push(DLL_FILE_NAME);
-
-        if !library_path.exists() {
-           std::fs::write(&library_path, LIB_BYTES).map_err(|_| "could not unpack DLL")?;
-        }
-
-        initialize_library(&library_path).ok_or("could not initialize library")
-    }
-
-    pub(crate) fn get_azul_dll() -> &'static AzulDll { 
-        if !LIBRARY_IS_INITIALIZED.load(Ordering::SeqCst) {
-           match load_library_inner() {
-               Ok(s) => {
-                   unsafe { AZUL_DLL = MaybeUninit::new(s) };
-                   LIBRARY_IS_INITIALIZED.store(true, Ordering::SeqCst);
-               },
-               Err(e) => { println!("failed to initialize libazul dll: missing function {}", e); std::process::exit(-1); }
-           }
-        }
-
-        unsafe { &*AZUL_DLL.as_ptr() }
-    }

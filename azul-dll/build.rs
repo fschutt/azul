@@ -11,6 +11,8 @@ use std::io::Write;
 use std::io::Read;
 use std::io::{BufReader, BufRead};
 
+const INSTALL_DIRECTORY_VAR: &str = "AZUL_INSTALL_DIR";
+
 fn main() {
 
     // 0. find the source crate "azul-dll-0.1.0.crate" in ~/.cargo/registry/cache/
@@ -25,13 +27,18 @@ fn main() {
     };
 
     // 1. re-create the output path for the DLL, i.e "~/.cargo/lib/azul-dll-0.1.0"
-    let dll_output_path = concat!(env!("CARGO_HOME"), "/lib/", env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION"));
+    let dll_output_path = match env::var(INSTALL_DIRECTORY_VAR).ok() {
+        Some(s) => s,
+        None => concat!(env!("CARGO_HOME"), "/lib/", env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION")).to_string(),
+    };
 
-    if Path::new(dll_output_path).exists() {
-        fs::remove_dir_all(dll_output_path).unwrap();
+    env::set_var(INSTALL_DIRECTORY_VAR, dll_output_path.clone());
+
+    if Path::new(&dll_output_path).exists() {
+        fs::remove_dir_all(&dll_output_path).unwrap();
     }
 
-    fs::create_dir_all(dll_output_path).unwrap();
+    fs::create_dir_all(&dll_output_path).unwrap();
 
     // 2. unzip it into ~/.cargo/lib/azul-dll-0.1.0
     unzip_file_into_dir(crate_file_path.as_path(), concat!(env!("CARGO_HOME"), "/lib/")).unwrap();
@@ -47,12 +54,11 @@ fn main() {
 
     // 4. run "cargo build --release" in the dll_output_path
     let child = Command::new(env!("CARGO"))
-        .current_dir(dll_output_path)
+        .current_dir(&dll_output_path)
         .stdout(Stdio::piped())
-        .env("RUSTFLAGS", "-C link-arg=-s")
-        .args(&["build", "--release", "--lib", "--package", env!("CARGO_PKG_NAME")])
+        .args(&["build", "--release", "--all-features", "--lib", "--package", env!("CARGO_PKG_NAME")])
         .spawn()
-        .expect("cargo build --release failed to start");
+        .expect("cargo build --release --all-features failed to start");
 
     let child_stdout = child.stdout.expect("cannot access stdout");
 
@@ -63,7 +69,8 @@ fn main() {
         .filter_map(|line| line.ok())
         .for_each(|line| println!("{}", line));
 
-    // finished, the output file is now built in "~/.cargo/lib/azul-dll-0.1.0/target/release/libazul.so"
+
+    // finished, the output file is now built in AZUL_INSTALL_DIR (= "~/.cargo/lib/azul-dll-0.1.0/target/release/libazul.so")
 }
 
 // returns the file path to the "azul-dll-0.1.0.crate"

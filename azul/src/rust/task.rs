@@ -11,7 +11,7 @@
 
     impl TimerId {
         /// Creates a new `TimerId` instance.
-        pub fn unique() -> Self { (crate::dll::get_azul_dll().az_timer_id_unique)() }
+        pub fn unique() -> Self { crate::dll::az_timer_id_unique() }
     }
 
     impl Clone for TimerId { fn clone(&self) -> Self { *self } }
@@ -23,17 +23,17 @@
 
     impl Timer {
         /// Creates a new `Timer` instance.
-        pub fn new(timer_data: RefAny, callback: TimerCallbackType) -> Self { (crate::dll::get_azul_dll().az_timer_new)(timer_data, callback) }
+        pub fn new(timer_data: RefAny, callback: TimerCallbackType) -> Self { crate::dll::az_timer_new(timer_data, callback) }
         /// Calls the `Timer::with_delay` function.
-        pub fn with_delay(self, delay: Duration)  -> crate::task::Timer { (crate::dll::get_azul_dll().az_timer_with_delay)(self, delay) }
+        pub fn with_delay(self, delay: Duration)  -> crate::task::Timer { crate::dll::az_timer_with_delay(self, delay) }
         /// Calls the `Timer::with_interval` function.
-        pub fn with_interval(self, interval: Duration)  -> crate::task::Timer { (crate::dll::get_azul_dll().az_timer_with_interval)(self, interval) }
+        pub fn with_interval(self, interval: Duration)  -> crate::task::Timer { crate::dll::az_timer_with_interval(self, interval) }
         /// Calls the `Timer::with_timeout` function.
-        pub fn with_timeout(self, timeout: Duration)  -> crate::task::Timer { (crate::dll::get_azul_dll().az_timer_with_timeout)(self, timeout) }
+        pub fn with_timeout(self, timeout: Duration)  -> crate::task::Timer { crate::dll::az_timer_with_timeout(self, timeout) }
     }
 
-    impl Clone for Timer { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_deep_copy)(self) } }
-    impl Drop for Timer { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_delete)(self); } }
+    impl Clone for Timer { fn clone(&self) -> Self { crate::dll::az_timer_deep_copy(self) } }
+    impl Drop for Timer { fn drop(&mut self) { crate::dll::az_timer_delete(self); } }
 
 
     /// Should a timer terminate or not - used to remove active timers
@@ -48,10 +48,10 @@
 
     impl ThreadSender {
         /// Calls the `ThreadSender::send` function.
-        pub fn send(&mut self, msg: ThreadReceiveMsg)  -> bool { (crate::dll::get_azul_dll().az_thread_sender_send)(self, msg) }
+        pub fn send(&mut self, msg: ThreadReceiveMsg)  -> bool { crate::dll::az_thread_sender_send(self, msg) }
     }
 
-    impl Drop for ThreadSender { fn drop(&mut self) { (crate::dll::get_azul_dll().az_thread_sender_delete)(self); } }
+    impl Drop for ThreadSender { fn drop(&mut self) { crate::dll::az_thread_sender_delete(self); } }
 
 
     /// `ThreadReceiver` struct
@@ -59,10 +59,10 @@
 
     impl ThreadReceiver {
         /// Calls the `ThreadReceiver::receive` function.
-        pub fn receive(&mut self)  -> crate::option::OptionThreadSendMsg { (crate::dll::get_azul_dll().az_thread_receiver_receive)(self) }
+        pub fn receive(&mut self)  -> crate::option::OptionThreadSendMsg { crate::dll::az_thread_receiver_receive(self) }
     }
 
-    impl Drop for ThreadReceiver { fn drop(&mut self) { (crate::dll::get_azul_dll().az_thread_receiver_delete)(self); } }
+    impl Drop for ThreadReceiver { fn drop(&mut self) { crate::dll::az_thread_receiver_delete(self); } }
 
 
     /// `ThreadSendMsg` struct
@@ -75,13 +75,13 @@
     /// `ThreadReceiveMsg` struct
     #[doc(inline)] pub use crate::dll::AzThreadReceiveMsg as ThreadReceiveMsg;
 
-    impl Drop for ThreadReceiveMsg { fn drop(&mut self) { (crate::dll::get_azul_dll().az_thread_receive_msg_delete)(self); } }
+    impl Drop for ThreadReceiveMsg { fn drop(&mut self) { crate::dll::az_thread_receive_msg_delete(self); } }
 
 
     /// `ThreadWriteBackMsg` struct
     #[doc(inline)] pub use crate::dll::AzThreadWriteBackMsg as ThreadWriteBackMsg;
 
-    impl Drop for ThreadWriteBackMsg { fn drop(&mut self) { (crate::dll::get_azul_dll().az_thread_write_back_msg_delete)(self); } }
+    impl Drop for ThreadWriteBackMsg { fn drop(&mut self) { crate::dll::az_thread_write_back_msg_delete(self); } }
 
 
     /// `ThreadId` struct

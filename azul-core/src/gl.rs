@@ -9,7 +9,7 @@ use std::{
 use gleam::gl::{self, Gl, GlType, DebugMessage};
 use crate::{
     FastHashMap,
-    window::PhysicalSizeU32,
+    window::{PhysicalSizeU32, RendererType},
     app_resources::{Epoch, RawImageFormat, ExternalImageId},
     callbacks::PipelineId,
     svg::TesselatedGPUSvgNode,
@@ -1331,7 +1331,7 @@ impl Gl for VirtualGlDriver {
         unimplemented()
     }
 
-    fn client_wait_sync(&self, sync: gleam::gl::GLsync, flags: GLbitfield, timeout: GLuint64) {
+    fn client_wait_sync(&self, sync: gleam::gl::GLsync, flags: GLbitfield, timeout: GLuint64) -> u32 {
         unimplemented()
     }
 
@@ -1430,6 +1430,14 @@ impl Gl for VirtualGlDriver {
     fn copy_sub_texture_3d_angle(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, x_offset: GLint, y_offset: GLint, z_offset: GLint, x: GLint, y: GLint, z: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) {
         unimplemented()
     }
+
+    fn buffer_storage(&self, target: GLenum, size: GLsizeiptr, data: *const GLvoid, flags: GLbitfield) {
+        unimplemented!()
+    }
+
+    fn flush_mapped_buffer_range(&self, target: GLenum, offset: GLintptr, length: GLsizeiptr) {
+        unimplemented!()
+    }
 }
 
 /// For .get_gl_precision_format(), but ABI-safe - returning an array or a tuple is not ABI-safe
@@ -1447,7 +1455,11 @@ fn unimplemented() -> ! {
 
 #[cfg(feature = "opengl")]
 #[repr(C)]
-pub struct GlContextPtr { /* *const Rc<dyn Gl> */ pub ptr: *const c_void }
+pub struct GlContextPtr {
+    pub ptr: *const c_void, // *const Rc<dyn Gl>
+    /// Whether to force a hardware or software renderer
+    pub renderer_type: RendererType,
+}
 
 #[cfg(feature = "opengl")]
 impl std::fmt::Debug for GlContextPtr {
@@ -1458,7 +1470,12 @@ impl std::fmt::Debug for GlContextPtr {
 
 #[cfg(feature = "opengl")]
 impl GlContextPtr {
-    pub fn new(context: Rc<dyn Gl>) -> Self { Self { ptr: Box::into_raw(Box::new(context)) as *const c_void } }
+    pub fn new(renderer_type: RendererType, context: Rc<dyn Gl>) -> Self {
+        Self {
+            renderer_type,
+            ptr: Box::into_raw(Box::new(context)) as *const c_void,
+        }
+    }
     pub fn get<'a>(&'a self) -> &'a Rc<dyn Gl> { unsafe { &*(self.ptr as *const Rc<dyn Gl>) } }
     fn as_usize(&self) -> usize { self.ptr as usize }
 }
@@ -1665,7 +1682,7 @@ impl GlContextPtr {
     pub fn push_debug_group_khr(&self, source: GLenum, id: GLuint, message: Refstr) { self.get().push_debug_group_khr(source, id, message.as_str()) }
     pub fn pop_debug_group_khr(&self) { self.get().pop_debug_group_khr() }
     pub fn fence_sync(&self, condition: GLenum, flags: GLbitfield) -> GLsyncPtr { GLsyncPtr::new(self.get().fence_sync(condition, flags)) }
-    pub fn client_wait_sync(&self, sync: GLsyncPtr, flags: GLbitfield, timeout: GLuint64) { self.get().client_wait_sync(sync.get(), flags, timeout) }
+    pub fn client_wait_sync(&self, sync: GLsyncPtr, flags: GLbitfield, timeout: GLuint64) -> u32 { self.get().client_wait_sync(sync.get(), flags, timeout) }
     pub fn wait_sync(&self, sync: GLsyncPtr, flags: GLbitfield, timeout: GLuint64) { self.get().wait_sync(sync.get(), flags, timeout) }
     pub fn delete_sync(&self, sync: GLsyncPtr) { self.get().delete_sync(sync.get()) }
     pub fn texture_range_apple(&self, target: GLenum, data: U8VecRef) { self.get().texture_range_apple(target, data.as_slice()) }
@@ -1689,12 +1706,14 @@ impl GlContextPtr {
     pub fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: *const c_void) { self.get().egl_image_target_renderbuffer_storage_oes(target, image) }
     pub fn copy_texture_3d_angle( &self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, internal_format: GLint, dest_type: GLenum, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) { self.get().copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
     pub fn copy_sub_texture_3d_angle(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, x_offset: GLint, y_offset: GLint, z_offset: GLint, x: GLint, y: GLint, z: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) { self.get().copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+    pub fn buffer_storage(&self, target: GLenum, size: GLsizeiptr, data: *const GLvoid, flags: GLbitfield) { self.get().buffer_storage(target, size, data, flags) }
+    pub fn flush_mapped_buffer_range(&self, target: GLenum, offset: GLintptr, length: GLsizeiptr) { self.get().flush_mapped_buffer_range(target, offset, length) }
 }
 
 #[cfg(feature = "opengl")]
 impl Clone for GlContextPtr {
     fn clone(&self) -> Self {
-        Self::new(self.get().clone())
+        Self::new(self.renderer_type, self.get().clone())
     }
 }
 

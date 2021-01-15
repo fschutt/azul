@@ -245,6 +245,13 @@
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
 
 
+    /// `OptionRendererType` struct
+    #[doc(inline)] pub use crate::dll::AzOptionRendererType as OptionRendererType;
+
+    impl Clone for OptionRendererType { fn clone(&self) -> Self { *self } }
+    impl Copy for OptionRendererType { }
+
+
     /// `OptionCallback` struct
     #[doc(inline)] pub use crate::dll::AzOptionCallback as OptionCallback;
 
@@ -269,8 +276,8 @@
     /// `OptionRefAny` struct
     #[doc(inline)] pub use crate::dll::AzOptionRefAny as OptionRefAny;
 
-    impl Clone for OptionRefAny { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_ref_any_deep_copy)(self) } }
-    impl Drop for OptionRefAny { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_ref_any_delete)(self); } }
+    impl Clone for OptionRefAny { fn clone(&self) -> Self { crate::dll::az_option_ref_any_deep_copy(self) } }
+    impl Drop for OptionRefAny { fn drop(&mut self) { crate::dll::az_option_ref_any_delete(self); } }
 
 
     /// `OptionStyleOpacityValue` struct
@@ -283,8 +290,8 @@
     /// `OptionStyleTransformVecValue` struct
     #[doc(inline)] pub use crate::dll::AzOptionStyleTransformVecValue as OptionStyleTransformVecValue;
 
-    impl Clone for OptionStyleTransformVecValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_style_transform_vec_value_deep_copy)(self) } }
-    impl Drop for OptionStyleTransformVecValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_style_transform_vec_value_delete)(self); } }
+    impl Clone for OptionStyleTransformVecValue { fn clone(&self) -> Self { crate::dll::az_option_style_transform_vec_value_deep_copy(self) } }
+    impl Drop for OptionStyleTransformVecValue { fn drop(&mut self) { crate::dll::az_option_style_transform_vec_value_delete(self); } }
 
 
     /// `OptionStyleTransformOriginValue` struct
@@ -346,8 +353,8 @@
     /// `OptionRawImage` struct
     #[doc(inline)] pub use crate::dll::AzOptionRawImage as OptionRawImage;
 
-    impl Clone for OptionRawImage { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_raw_image_deep_copy)(self) } }
-    impl Drop for OptionRawImage { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_raw_image_delete)(self); } }
+    impl Clone for OptionRawImage { fn clone(&self) -> Self { crate::dll::az_option_raw_image_deep_copy(self) } }
+    impl Drop for OptionRawImage { fn drop(&mut self) { crate::dll::az_option_raw_image_delete(self); } }
 
 
     /// `OptionSvgDashPattern` struct
@@ -360,15 +367,15 @@
     /// `OptionWaylandTheme` struct
     #[doc(inline)] pub use crate::dll::AzOptionWaylandTheme as OptionWaylandTheme;
 
-    impl Clone for OptionWaylandTheme { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_wayland_theme_deep_copy)(self) } }
-    impl Drop for OptionWaylandTheme { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_wayland_theme_delete)(self); } }
+    impl Clone for OptionWaylandTheme { fn clone(&self) -> Self { crate::dll::az_option_wayland_theme_deep_copy(self) } }
+    impl Drop for OptionWaylandTheme { fn drop(&mut self) { crate::dll::az_option_wayland_theme_delete(self); } }
 
 
     /// `OptionTaskBarIcon` struct
     #[doc(inline)] pub use crate::dll::AzOptionTaskBarIcon as OptionTaskBarIcon;
 
-    impl Clone for OptionTaskBarIcon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_task_bar_icon_deep_copy)(self) } }
-    impl Drop for OptionTaskBarIcon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_task_bar_icon_delete)(self); } }
+    impl Clone for OptionTaskBarIcon { fn clone(&self) -> Self { crate::dll::az_option_task_bar_icon_deep_copy(self) } }
+    impl Drop for OptionTaskBarIcon { fn drop(&mut self) { crate::dll::az_option_task_bar_icon_delete(self); } }
 
 
     /// `OptionHwndHandle` struct
@@ -395,15 +402,15 @@
     /// `OptionWindowIcon` struct
     #[doc(inline)] pub use crate::dll::AzOptionWindowIcon as OptionWindowIcon;
 
-    impl Clone for OptionWindowIcon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_window_icon_deep_copy)(self) } }
-    impl Drop for OptionWindowIcon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_window_icon_delete)(self); } }
+    impl Clone for OptionWindowIcon { fn clone(&self) -> Self { crate::dll::az_option_window_icon_deep_copy(self) } }
+    impl Drop for OptionWindowIcon { fn drop(&mut self) { crate::dll::az_option_window_icon_delete(self); } }
 
 
     /// `OptionString` struct
     #[doc(inline)] pub use crate::dll::AzOptionString as OptionString;
 
-    impl Clone for OptionString { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_string_deep_copy)(self) } }
-    impl Drop for OptionString { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_string_delete)(self); } }
+    impl Clone for OptionString { fn clone(&self) -> Self { crate::dll::az_option_string_deep_copy(self) } }
+    impl Drop for OptionString { fn drop(&mut self) { crate::dll::az_option_string_delete(self); } }
 
 
     /// `OptionX11Visual` struct
@@ -465,21 +472,21 @@
     /// `OptionDom` struct
     #[doc(inline)] pub use crate::dll::AzOptionDom as OptionDom;
 
-    impl Clone for OptionDom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_dom_deep_copy)(self) } }
-    impl Drop for OptionDom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_dom_delete)(self); } }
+    impl Clone for OptionDom { fn clone(&self) -> Self { crate::dll::az_option_dom_deep_copy(self) } }
+    impl Drop for OptionDom { fn drop(&mut self) { crate::dll::az_option_dom_delete(self); } }
 
 
     /// `OptionTexture` struct
     #[doc(inline)] pub use crate::dll::AzOptionTexture as OptionTexture;
 
-    impl Drop for OptionTexture { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_texture_delete)(self); } }
+    impl Drop for OptionTexture { fn drop(&mut self) { crate::dll::az_option_texture_delete(self); } }
 
 
     /// `OptionImageMask` struct
     #[doc(inline)] pub use crate::dll::AzOptionImageMask as OptionImageMask;
 
-    impl Clone for OptionImageMask { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_image_mask_deep_copy)(self) } }
-    impl Drop for OptionImageMask { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_image_mask_delete)(self); } }
+    impl Clone for OptionImageMask { fn clone(&self) -> Self { crate::dll::az_option_image_mask_deep_copy(self) } }
+    impl Drop for OptionImageMask { fn drop(&mut self) { crate::dll::az_option_image_mask_delete(self); } }
 
 
     /// `OptionTabIndex` struct
@@ -492,8 +499,8 @@
     /// `OptionStyleBackgroundContentValue` struct
     #[doc(inline)] pub use crate::dll::AzOptionStyleBackgroundContentValue as OptionStyleBackgroundContentValue;
 
-    impl Clone for OptionStyleBackgroundContentValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_style_background_content_value_deep_copy)(self) } }
-    impl Drop for OptionStyleBackgroundContentValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_style_background_content_value_delete)(self); } }
+    impl Clone for OptionStyleBackgroundContentValue { fn clone(&self) -> Self { crate::dll::az_option_style_background_content_value_deep_copy(self) } }
+    impl Drop for OptionStyleBackgroundContentValue { fn drop(&mut self) { crate::dll::az_option_style_background_content_value_delete(self); } }
 
 
     /// `OptionStyleBackgroundPositionValue` struct
@@ -527,8 +534,8 @@
     /// `OptionStyleFontFamilyValue` struct
     #[doc(inline)] pub use crate::dll::AzOptionStyleFontFamilyValue as OptionStyleFontFamilyValue;
 
-    impl Clone for OptionStyleFontFamilyValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_style_font_family_value_deep_copy)(self) } }
-    impl Drop for OptionStyleFontFamilyValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_style_font_family_value_delete)(self); } }
+    impl Clone for OptionStyleFontFamilyValue { fn clone(&self) -> Self { crate::dll::az_option_style_font_family_value_deep_copy(self) } }
+    impl Drop for OptionStyleFontFamilyValue { fn drop(&mut self) { crate::dll::az_option_style_font_family_value_delete(self); } }
 
 
     /// `OptionStyleTextColorValue` struct
@@ -583,8 +590,8 @@
     /// `OptionBoxShadowPreDisplayItemValue` struct
     #[doc(inline)] pub use crate::dll::AzOptionBoxShadowPreDisplayItemValue as OptionBoxShadowPreDisplayItemValue;
 
-    impl Clone for OptionBoxShadowPreDisplayItemValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_box_shadow_pre_display_item_value_deep_copy)(self) } }
-    impl Drop for OptionBoxShadowPreDisplayItemValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_box_shadow_pre_display_item_value_delete)(self); } }
+    impl Clone for OptionBoxShadowPreDisplayItemValue { fn clone(&self) -> Self { crate::dll::az_option_box_shadow_pre_display_item_value_deep_copy(self) } }
+    impl Drop for OptionBoxShadowPreDisplayItemValue { fn drop(&mut self) { crate::dll::az_option_box_shadow_pre_display_item_value_delete(self); } }
 
 
     /// `OptionStyleBorderTopColorValue` struct
@@ -926,8 +933,8 @@
     /// `OptionInstantPtr` struct
     #[doc(inline)] pub use crate::dll::AzOptionInstantPtr as OptionInstantPtr;
 
-    impl Clone for OptionInstantPtr { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_instant_ptr_deep_copy)(self) } }
-    impl Drop for OptionInstantPtr { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_instant_ptr_delete)(self); } }
+    impl Clone for OptionInstantPtr { fn clone(&self) -> Self { crate::dll::az_option_instant_ptr_deep_copy(self) } }
+    impl Drop for OptionInstantPtr { fn drop(&mut self) { crate::dll::az_option_instant_ptr_delete(self); } }
 
 
     /// `OptionUsize` struct
@@ -940,4 +947,4 @@
     /// `OptionU8VecRef` struct
     #[doc(inline)] pub use crate::dll::AzOptionU8VecRef as OptionU8VecRef;
 
-    impl Drop for OptionU8VecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_u8_vec_ref_delete)(self); } }
+    impl Drop for OptionU8VecRef { fn drop(&mut self) { crate::dll::az_option_u8_vec_ref_delete(self); } }

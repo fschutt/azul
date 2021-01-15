@@ -9,15 +9,16 @@
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Rust Compiler Version](https://img.shields.io/badge/rustc-1.38%20stable-blue.svg)]()
 <!-- [END badges] -->
 
-> Azul is a free, functional, immediate mode GUI framework that is built on the Mozilla WebRender rendering engine for rapid development
-of desktop applications that are written in Rust and use a CSS / DOM model for layout and styling.
+> Azul is a free, functional, reactive GUI framework for Rust and C++, built using the
+Mozilla WebRender rendering engine and a CSS / HTML-like document object model for
+rapid development of beautiful desktop applications
 
 ###### [Website](https://azul.rs/) | [Tutorial / user guide](https://github.com/maps4print/azul/wiki) | [Video demo](https://www.youtube.com/watch?v=kWL0ehf4wwI) | [Discord Chat](https://discord.gg/nxUmsCG)
 
 ## About
 
-Azul is a library for creating graphical user interfaces or GUIs in Rust. It mixes
-paradigms from functional, immediate mode GUI programming commonly found in games
+Azul is a library for creating graphical user interfaces in Rust. It mixes
+paradigms from functional / reactive GUI programming commonly found in games
 and game engines with an API suitable for developing desktop applications.
 Instead of focusing on an object-oriented approach to GUI programming ("a button
 is an object"), it focuses on combining objects by composition ("a button is a function")
@@ -25,214 +26,301 @@ and achieves complex layouts by composing widgets into a larger DOM tree.
 
 Azul separates the concerns of business logic / callbacks, data model and UI
 rendering / styling by not letting the UI / rendering logic have mutable access
-to the application data. Widgets of your user interface are seen as a "view" into
-your applications data, they are not "objects that manage their own state", like
-in so many other toolkits. Widgets are simply functions that render a certain state,
-more complex widgets combine buttons by calling a function multiple times.
+to the application data. In azul, rendering the view is a pure function that maps
+your application data to a styled DOM. "Widgets" are just functions that render
+a certain state, more complex widgets use function composition.
 
-The generated DOM itself is immutable and gets re-generated every frame. This makes testing
-and debugging very easy, since the UI is a pure function, mapping from a specific application
-state into a visual interface. For layouting, Azul features a custom CSS-like layout engine,
-which closely follows the CSS flexbox model.
+Since recreating the DOM is expensive (note: "expensive" = 3 milliseconds), azul
+caches the DOM object and does NOT recreate it on every frame - only when callbacks
+request to recreate it.
+
+Widget-local data that needs to be retained between frames is stored on the DOM
+nodes themselves, similar to how the HTML `dataset` property can be used to
+store data. The application and widget data is managed using a reference-counted
+boxed type (`RefAny`), which can be downcasted to a concrete type if necessary.
+
+## Prerequisites / system dependencies
+
+### Windows / Mac
+
+You do not need to install anything, azul uses the standard system APIs to
+render / select fonts.
+
+### Linux
+
+On Linux, you need to install the following packages:
+
+```
+libfreetype6-dev // needed to render fonts
+libfontconfig1-dev // needed to select system fonts
+```
+
+**Arch Linux**: The package for `libfontconfig1-dev` is called `fontconfig`.
+
+NOTE: If you publish an azul-based GUI application, you need to remember to
+include these dependencies in your package description, otherwise your
+users won't be able to run the application.
+
+## Installation
+
+Due to its large size (and to provide C / C++ interop), azul is built as a dynamic library.
+You can download pre-built binaries from [azul.rs/releases](https://azul.rs/releases).
+
+### Using pre-built-binaries
+
+1. Download the library from [azul.rs/releases](https://azul.rs/releases)
+2. Set your linker to link against the library
+    - Rust: Set `AZUL_INSTALL_DIR` environment variable to the path of the library
+    - C++: Copy the `azul.h` on the release page to your project headers and the `azul.dll` to your IDE project.
+
+Note: The API for Rust, C++ and other languages is exactly the same, since the
+API is auto-generated. If you want to generate language bindings for your language,
+you can generate them using the `public.api.json` file. [See the `/api` folder](https://github.com/maps4print/azul/tree/master/api).
+
+### Building from source
+
+Building the library from source requires clang as well as the prerequisites listed above.
+
+azul requires `clang/cl` as a c compiler, not msvc, since that is required by the swgl
+
+> #### Windows / MSVC
+> 1. Install [clang for Windows](https://llvm.org/builds/)
+> 2. Make sure you have the [Visual Studio Build Tools](https://visualstudio.microsoft.com/thank-you-downloading-visual-studio/?sku=BuildTools&rel=16) installed
+> 3. When starting the Visual Studio Build Tools Installer:
+>     - Select "C++ build tools for Windows" (necessary to compile winapi bindings)
+>     - additionally select "Clang build tools for Windows"
+
+The `azul-desktop` build script will automatically set `CC=clang-cl` and `CXX=clang-cl`.
+If this interferes with your build system, please file an issue.
+
+#### Building from crates.io
+
+By default, you should be able to run
+
+```sh
+cargo install --version 1.0.0 azul-dll
+```
+
+to compile the DLL from crates.io. The library will be built and installed in
+the `$AZUL_INSTALL_DIR` directory, which defaults to
+`~/.cargo/lib/azul-dll-0.1.0/target/release/libazul.so`
+(or `/azul.dll` on Windows or `/libazul.dylib` on Mac)
+
+#### Building from master
+
+```sh
+git clone https://github.com/maps4print/azul
+cd azul/azul-dll
+cargo build --release --all-features
+```
+
+The library will be built in `/azul/target/release/libazul.so`. You will need to
+manually set `AZUL_INSTALL_DIR=/azul/target/release/libazul.so`
 
 ## Hello World
 
-Here is what a Hello World application in Azul looks like:
+Note: The widgets are custom to each programming language. All callbacks
+have to use `extern "C"` in order to be compatible with the library.
+The binary layout of all API types is described in the `public.api.json` file.
 
 ![Hello World Application](https://i.imgur.com/KkqB2E5.png)
 
-This application is created by the following code:
+### Rust
 
 ```rust
-extern crate azul;
-
-use azul::{
-    prelude::*,
-    widgets::{button::Button, label::Label},
-};
+use azul::prelude::*;
+use azul_widgets::{button::Button, label::Label};
 
 struct DataModel {
     counter: usize,
 }
 
-impl Layout for DataModel {
-    // Model renders View
-    fn layout(&self, _: LayoutInfo<Self>) -> Dom<Self> {
-        let label = Label::new(format!("{}", self.counter)).dom();
-        let button = Button::with_label("Update counter")
-            .dom()
-            .with_callback(On::MouseUp, Callback(update_counter));
+// Model -> View
+extern "C" fn render_my_view(data: &RefAny, _: LayoutInfo) -> StyledDom {
 
-        Dom::new(NodeType::Div).with_child(label).with_child(button)
-    }
+    let mut result = StyledDom::default();
+
+    let data = match data.downcast_ref::<DataModel>() {
+        Some(s) => s,
+        None => return result,
+    };
+
+    let label = Label::new(format!("{}", data.counter)).dom();
+    let button = Button::with_label("Update counter")
+        .onmouseup(update_counter, data.clone())
+        .dom();
+
+    result
+    .append(label)
+    .append(button)
 }
 
-// View updates Model
-fn update_counter(
-    app_state: &mut AppState<DataModel>,
-    _event: &mut CallbackInfo<DataModel>,
-) -> UpdateScreen {
-    app_state.data.modify(|state| state.counter += 1);
-    Redraw
+// View updates model
+extern "C" fn update_counter(data: &mut RefAny, event: CallbackInfo) -> UpdateScreen {
+    let mut data = data.downcast_mut::<DataModel>().unwrap();
+    data.counter += 1;
+    UpdateScreen::RegenerateDomForCurrentWindow
 }
 
 fn main() {
-    let mut app = App::new(DataModel { counter: 0 }, AppConfig::default()).unwrap();
-    let window = app
-        .create_window(WindowCreateOptions::default(), css::native())
-        .unwrap();
-    app.run(window).unwrap();
+    let app = App::new(RefAny::new(DataModel { counter: 0 }), AppConfig::default());
+    app.run(WindowCreateOptions::new(render_my_view));
+}
+```
+
+### C++
+
+```cpp
+#include "azul.h"
+#include "azul-widgets.h"
+
+using namespace azul.prelude;
+using azul.widgets.button;
+using azul.widgets.label;
+
+struct DataModel {
+    counter: uint32_t
+}
+
+StyledDom render_my_view(const RefAny& data, LayoutInfo info) {
+
+    const DataModel* data = data.downcast_ref();
+    if !(data) {
+        return result;
+    }
+
+    auto label = Label::new(String::format("{}", &[data.counter])).dom();
+    auto button = Button::with_label("Update counter")
+       .onmouseup(update_counter, data.clone())
+       .dom();
+
+    auto result = StyledDom::default()
+        .append(label)
+        .append(button);
+
+    return result;
+}
+
+UpdateScreen update_counter(RefAny& data, CallbackInfo event) {
+    DataModel data = data.downcast_mut().unwrap();
+    data.counter += 1;
+    return UpdateScreen::RegenerateDomForCurrentWindow;
+}
+
+int main() {
+    auto app = App::new(RefAny::new(DataModel { .counter = 0 }), AppConfig::default());
+    app.run(WindowCreateOptions::new(render_my_view));
+}
+```
+
+### C
+
+```c
+#include "azul.h"
+#include "azul-widgets.h"
+
+struct DataModel {
+    counter: uint32_t
+}
+
+StyledDom render_my_view(const RefAny* data, LayoutInfo info) {
+
+    StyledDom result = az_styled_dom_default();
+
+    DataModel* data = az_refany_downcast_ref(data); // data may be nullptr
+
+    if !(data) {
+        return result;
+    }
+
+    Label label = az_widget_label_new(az_string_format("{}", &[data.counter]));
+    Button button = az_widget_button_with_label("Update counter");
+    az_widget_button_set_onmouseup(update_counter, az_refany_shallow_copy(data));
+
+    az_styled_dom_append(az_widget_label_dom(label));
+    az_styled_dom_append(az_widget_button_dom(button));
+
+    return result;
+}
+
+int main() {
+    AzApp app = az_app_new(az_refany_new(DataModel { .counter = 0 }), az_app_config_default());
+    az_app_run(app, az_window_create_options_new(render_my_view));
 }
 ```
 
 [Read more about the Hello-World application ...](https://github.com/maps4print/azul/wiki/A-simple-counter)
 
-## Programming model
-
-In order to comply with Rust's mutability rules, the application lifecycle in Azul
-consists of three states that are called over and over again. The framework determines
-exactly when a repaint is necessary, you don't need to worry about manually repainting
-your UI:
-
-![Azul callback model](https://i.imgur.com/cTTULrP.png)
-
-Azul works through composition instead of inheritance - widgets are composed of other
-widgets, instead of inheriting from them (since Rust does not support inheritance).
-The main `layout()` function of a production-ready application could look something
-like this:
-
-```rust
-impl Layout for DataModel {
-    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<DataModel> {
-        match self.state {
-            LoginScreen => {
-                Dom::new(NodeType::Div).with_id("login_screen")
-                    .with_child(render_hello_mgs())
-                    .with_child(render_login_with_button())
-                    .with_child(render_password())
-                    .with_child(render_username_field())
-            },
-            EmailList(emails) => {
-                Dom::new(NodeType::Div).with_id("email_list_container")
-                    .with_child(render_task_bar())
-                    .with_child(emails.iter().map(render_email).collect())
-                    .with_child(render_status_bar())
-            }
-        }
-    }
-}
-```
-
-One defining feature is that Azul automatically determines when a UI repaint is
-necessary and therefore you don't need to worry about manually redrawing your UI.
-
 [Read more about the programming model ...](https://github.com/maps4print/azul/wiki/Getting-Started)
 
-## Features
-
-### Easy two-way data binding
-
-When programming reusable and common UI elements, such as lists, tables or sliders
-you don't want the user having to write code to update the UI state of these widgets.
-Previously, this could only be solved by inheritance, but due to Azul's unique
-architecture, it is possible to create widgets that update themselves purely by
-composition, for example:
-
-```rust
-struct DataModel {
-    text_input: TextInputState,
-}
-
-impl Layout for DataModel {
-    fn layout(&self, info: LayoutInfo<Self>) -> Dom<Self> {
-        // Create a new text input field
-        TextInput::new()
-        // ... bind it to self.text_input - will automatically update
-        .bind(info.window, &self.text_input, &self)
-        // ... and render it in the UI
-        .dom(&self.text_input)
-        .with_callback(On::KeyUp, Callback(print_text_field))
-    }
-}
-
-fn print_text_field(app_state: &mut AppState<DataModel>, _event: &mut CallbackInfo<DataModel>) -> UpdateScreen {
-    println!("You've typed: {}", app_state.data.lock().unwrap().text_input.text);
-    DontRedraw
-}
-```
-
-[Read more about two-way data binding ...](https://github.com/maps4print/azul/wiki/Two-way-data-binding)
-
-### CSS styling & layout engine
-
-Azul features a CSS-like layout and styling engine that is modeled after the
-flexbox model - i.e. by default, every element will try to stretch to the dimensions
-of its parent. The layout itself is handled by a simple and fast flexbox layout solver.
-
-[Read more about CSS styling ...](https://github.com/maps4print/azul/wiki/Styling-your-application-with-CSS)
-
-### Asynchronous UI programming
-
-Azul features multiple ways of preventing your UI from being blocked, such as
-"Tasks" (threads that are managed by the Azul runtime) and "Daemons"
-(callback functions that can be optionally used as timers or timeouts).
-
-[Read more about async IO ...](https://github.com/maps4print/azul/wiki/Timers,-daemons,-tasks-and-async-IO)
-
-### SVG / GPU-accelerated 2D Vector drawing
-
-For drawing non-rectangular shapes, such as triangles, circles, polygons or SVG files,
-Azul provides a GPU-accelerated 2D renderer, featuring lines drawing (incl. bezier curves),
-rects, circles, arbitrary polygons, text (incl. translation / rotation and text-on-curve
-positioning), hit-testing texts, caching and an (optional) SVG parsing module.
-
-![Azul SVG Tiger drawing](https://i.imgur.com/JQvtmxA.png)
-
-[Read more about SVG drawing ...](https://github.com/maps4print/azul/wiki/SVG-drawing)
-
-### OpenGL API
-
-While Azul can't help you (yet) with 3D content, it does provide easy ways to hook
-into the OpenGL context of the running application - you can draw everything you
-want to an OpenGL texture, which will then be composited into the frame using
-WebRender.
-
-[Read more about OpenGL drawing ...](https://github.com/maps4print/azul/wiki/OpenGL-drawing)
-
-### UI Testing
-
-Due to the separation of the UI, the data model and the callbacks, Azul applications
-are very easy to test:
-
-```rust
-#[test]
-fn test_it_should_increase_the_counter() {
-    let mut initial_state = AppState::new(DataModel { counter: 0 });
-    let expected_state = AppState::new(DataModel { counter: 1 });
-    update_counter(&mut initial_state, &mut CallbackInfo::mock());
-    assert_eq!(initial_state, expected_state);
-}
-```
-
-[Read more about testing ...](https://github.com/maps4print/azul/wiki/Unit-testing)
+[See the /examples folder for example code in different languages](https://github.com/maps4print/azul/tree/master/examples)
 
 ## Performance
 
-A default window, with no fonts or images added takes up roughly 23MB of RAM and
-5MB in binary size. This usage can go up once you load more images and fonts, since
-Azul has to load and keep the images in RAM.
+A default window, with no fonts or images added takes up roughly 15 - 25MB of RAM.
+This usage can go up once you load more images and fonts, since azul has to load
+and keep the images in RAM.
 
-The frame time (i.e. the time necessary to draw a single frame, including layout)
-lies between 2 - 5 milliseconds, which equals roughly 200 - 500 frames per second.
-However, Azul limits this frame time and **only redraws the window when absolutely
-necessary**, in order to not waste the users battery life.
+The frame time depends on what the renderer needs to do (and whether it uses
+hardware acceleration). For a rough estimate, here are the timing results for
+a 2012 ThinkPad T420 using embedded Intel graphics on OpenGL 3:
 
-The startup time depends on how many fonts / images you add on startup, the
-default time is between 100 and 200 ms for an app with no images and a single font.
+```
+Startup time for creating window                                       70.5 ms
 
-While Azul can run in software rendering mode (automatically switching to the
-built-in OSMesa), it isn't intended to run on microcontrollers or devices with
-extremely low memory requirements.
+Calling the user-defined render_my_view function (50 DOM nodes)...     0.12 ms
+Calling the user-defined render_my_view function (4000 DOM nodes)...   3.24 ms
+
+Calculating the full layout once (50 DOM nodes)...                     0.43 ms
+Calculating the full layout once (4000 DOM nodes)...                   2.64 ms
+
+Hit testing cursor (50 DOM nodes)...                                   0.05 ms
+Hit testing cursor (4000 DOM nodes)...                                 0.11 ms
+
+Recalculating the layout on window resize (50 DOM nodes)...            0.01 ms
+Recalculating the layout on window resize (4000 DOM nodes)...          0.23 ms
+
+Rebuilding the display list (50 DOM nodes)...                          0.23 ms
+Rebuilding the display list (4000 DOM nodes)...                        0.67 ms
+
+Rendering new display list, 800x600 pixels (50 DOM nodes)...           1.37 ms
+Rendering new display list, 3840×2160 pixels (50 DOM nodes)...         1.62 ms
+Rendering new display list, 800x600 pixels (4000 DOM nodes)...         1.52 ms
+Rendering new display list, 3840×2160 pixels (50 DOM nodes)...         1.95 ms
+
+Animating GPU-accelerated CSS properties (transform / opacity)...      0.04 ms
+Scrolling (hit test + re-render) @ 3840×2160...                        0.72 ms
+
+Event handling, callback filtering, etc. (done on every event)         0.05 ms
+```
+
+Not every step has to be repeated every frame:
+
+- GPU accelerated animations opacity and transform properties only need a re-render
+- Animating non-GPU accelerated properties requires rebuilding the display list and re-rendering
+- Changing the window size requires relayouting (re-uses existing allocated nodes),
+  display list building and re-rendering, but do NOT require calling the render_my_view function again
+- Calling the render_my_view function is done on startup before the window is shown,
+  so it only adds to the startup time
+
+Based on these metrics, we can calculate the time needed for various actions:
+
+- GPU animation (transform / opacity) @ 4k with 4000 DOM nodes: 0.04 ms
+- Animating `width` @ 4k with 4000 DOM nodes: 0.23 + 0.67 + 1.95ms = 2.55ms
+- Animating `width` @ 4k with 50 DOM nodes: 0.23 + 0.67 + 1.95ms = 1.86ms
+- Button click requiring full DOM relayout @ 4k with 4000 DOM nodes = 8.07ms
+
+Azuls method for keeping frame time low is "don't render what you don't see".
+Usually 4000 DOM nodes are the maximum amount of nodes that a user can view on
+the screen (table with 40 columns * 100 rows). Azul can render infinite lists
+and tables by rendering only what's on the screen at any given moment.
+
+It is very useful to avoid `UpdateScreen::RegenerateDomForCurrentWindow` to avoid
+a full DOM reload. Usually the only time this is necessary is if the UI of the window
+changes in a major way.
+
+WebRender also updates GPU texture caches on a background thread, which usually halves
+the time needed for rendering.
 
 ## Thanks
 
@@ -245,8 +333,6 @@ Several projects have helped severely during the development and should be credi
 
 ## License
 
-This library is MIT-licensed. It was developed by [Maps4Print](http://maps4print.com/),
-for quickly prototyping and producing desktop GUI cross-platform applications,
-such as vector or photo editors.
-
-For licensing questions, please contact opensource@maps4print.com
+This library is MIT-licensed. It was developed by [Maps4Print](https://maps4print.com/),
+for quickly producing desktop-based cartography and geospatial mapping GUI applications,
+as well as vector or photo editors.

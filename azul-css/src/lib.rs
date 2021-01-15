@@ -10,6 +10,9 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         cap: usize,
     }
 
+    unsafe impl Send for $struct_name { }
+    unsafe impl Sync for $struct_name { }
+
     impl $struct_name {
 
         #[inline]

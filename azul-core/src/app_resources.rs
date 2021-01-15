@@ -1,6 +1,7 @@
 use std::{
     fmt,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::Arc,
+    sync::atomic::{AtomicUsize, AtomicU32, Ordering},
     num::NonZeroU16,
     any::Any,
 };
@@ -36,8 +37,6 @@ pub struct AppConfig {
     /// (STUB) Whether keyboard navigation should be enabled (default: true).
     /// Currently not implemented.
     pub enable_tab_navigation: bool,
-    /// Whether to force a hardware or software renderer
-    pub renderer_type: RendererType,
     /// Debug state for all windows
     pub debug_state: DebugState,
 }
@@ -49,7 +48,6 @@ impl Default for AppConfig {
             enable_visual_panic_hook: true,
             enable_logging_on_panic: true,
             enable_tab_navigation: true,
-            renderer_type: RendererType::default(),
             debug_state: DebugState::default(),
         }
     }
@@ -293,6 +291,14 @@ pub struct PrimitiveFlags {
     pub is_scrollbar_container: bool,
     /// If set, this primitive represents a scroll bar thumb
     pub is_scrollbar_thumb: bool,
+    /// This is used as a performance hint - this primitive may be promoted to a native
+    /// compositor surface under certain (implementation specific) conditions. This
+    /// is typically used for large videos, and canvas elements.
+    pub prefer_compositor_surface: bool,
+    /// If set, this primitive can be passed directly to the compositor via its
+    /// ExternalImageId, and the compositor will use the native image directly.
+    /// Used as a further extension on top of PREFER_COMPOSITOR_SURFACE.
+    pub supports_external_compositor_surface: bool,
 }
 
 /// Metadata (but not storage) describing an image In WebRender.
@@ -362,10 +368,32 @@ pub enum RawImageFormat {
     RGBA8,
 }
 
+static IMAGE_KEY: AtomicU32 = AtomicU32::new(0);
+static FONT_KEY: AtomicU32 = AtomicU32::new(0);
+static FONT_INSTANCE_KEY: AtomicU32 = AtomicU32::new(0);
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ImageKey {
     pub namespace: IdNamespace,
     pub key: u32,
+}
+
+impl ImageKey {
+    pub fn unique(render_api_namespace: IdNamespace) -> Self {
+        Self { namespace: render_api_namespace, key: IMAGE_KEY.fetch_add(1, Ordering::SeqCst) }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FontKey {
+    pub namespace: IdNamespace,
+    pub key: u32,
+}
+
+impl FontKey {
+    pub fn unique(render_api_namespace: IdNamespace) -> Self {
+        Self { namespace: render_api_namespace, key: FONT_KEY.fetch_add(1, Ordering::SeqCst) }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -374,10 +402,10 @@ pub struct FontInstanceKey {
     pub key: u32,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FontKey {
-    pub namespace: IdNamespace,
-    pub key: u32,
+impl FontInstanceKey {
+    pub fn unique(render_api_namespace: IdNamespace) -> Self {
+        Self { namespace: render_api_namespace, key: FONT_INSTANCE_KEY.fetch_add(1, Ordering::SeqCst) }
+    }
 }
 
 /// Stores the resources for the application, souch as fonts, images and cached
@@ -409,7 +437,6 @@ pub struct AppResources {
     ///
     /// The only thing remaining in memory permanently is the FontSource (which is only
     /// the string of the file path where the font was loaded from, so no huge memory pressure).
-    /// The reason for this agressive strategy is that the
     pub last_frame_font_keys: FastHashMap<PipelineId, FastHashMap<ImmediateFontId, FastHashSet<Au>>>,
     /// Stores long texts across frames
     pub text_cache: TextCache,
@@ -436,7 +463,7 @@ impl AppResources {
     }
 
     /// Delete and remove all fonts & font instance keys from a given pipeline
-    pub fn delete_pipeline<T: FontImageApi>(&mut self, pipeline_id: &PipelineId, render_api: &mut T) {
+    pub fn delete_pipeline(&mut self, pipeline_id: &PipelineId, all_resource_updates: &mut Vec<ResourceUpdate>) {
         let mut delete_font_resources = Vec::new();
 
         for (font_id, loaded_font) in self.currently_registered_fonts[&pipeline_id].iter() {
@@ -451,7 +478,7 @@ impl AppResources {
         .map(|(id, info)| (*id, DeleteImageMsg(info.key, *info)))
         .collect();
 
-        delete_resources(self, render_api, pipeline_id, delete_font_resources, delete_image_resources);
+        delete_resources(self, all_resource_updates, pipeline_id, delete_font_resources, delete_image_resources);
 
         self.currently_registered_fonts.remove(pipeline_id);
         self.currently_registered_images.remove(pipeline_id);
@@ -707,10 +734,6 @@ impl ShapedWords {
 
     pub fn get_ascender(&self, target_font_size: f32) -> f32 {
         (self.font_metrics_ascender / self.font_metrics_units_per_em.get() as i16) as f32 * target_font_size
-    }
-
-    fn get_line_gap(&self, target_font_size: f32) -> f32 {
-        (self.font_metrics_line_gap / self.font_metrics_units_per_em.get() as i16) as f32 * target_font_size
     }
 }
 
@@ -1053,39 +1076,12 @@ impl AppResources {
     }
 }
 
-pub trait FontImageApi {
-    fn new_image_key(&self) -> ImageKey;
-    fn new_font_key(&self) -> FontKey;
-    fn new_font_instance_key(&self) -> FontInstanceKey;
-    fn update_resources(&self, _: Vec<ResourceUpdate>);
-    fn flush_scene_builder(&self);
-}
-
-/// Used only for debugging, so that the AppResource garbage
-/// collection tests can run without a real RenderApi
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct FakeRenderApi { }
-
-impl FakeRenderApi { pub fn new() -> Self { Self { } } }
-
-static LAST_FAKE_IMAGE_KEY: AtomicUsize = AtomicUsize::new(0);
-static LAST_FAKE_FONT_KEY: AtomicUsize = AtomicUsize::new(0);
-static LAST_FAKE_FONT_INSTANCE_KEY: AtomicUsize = AtomicUsize::new(0);
-
-// Fake RenderApi for unit testing
-impl FontImageApi for FakeRenderApi {
-    fn new_image_key(&self) -> ImageKey { ImageKey { key: LAST_FAKE_IMAGE_KEY.fetch_add(1, Ordering::SeqCst) as u32, namespace: IdNamespace(0) } }
-    fn new_font_key(&self) -> FontKey { FontKey { key: LAST_FAKE_FONT_KEY.fetch_add(1, Ordering::SeqCst) as u32, namespace: IdNamespace(0) } }
-    fn new_font_instance_key(&self) -> FontInstanceKey { FontInstanceKey { key: LAST_FAKE_FONT_INSTANCE_KEY.fetch_add(1, Ordering::SeqCst) as u32, namespace: IdNamespace(0) } }
-    fn update_resources(&self, _: Vec<ResourceUpdate>) { }
-    fn flush_scene_builder(&self) { }
-}
-
 /// Scans the DisplayList for new images and fonts. After this call, the RenderApi is
 /// guaranteed to know about all FontKeys and FontInstanceKey
-pub fn add_fonts_and_images<U: FontImageApi>(
+pub fn add_fonts_and_images(
     app_resources: &mut AppResources,
-    render_api: &mut U,
+    render_api_namespace: IdNamespace,
+    all_resource_updates: &mut Vec<ResourceUpdate>,
     pipeline_id: &PipelineId,
     styled_nodes: &[StyledNode],
     node_data: &[NodeData],
@@ -1099,25 +1095,25 @@ pub fn add_fonts_and_images<U: FontImageApi>(
     app_resources.last_frame_font_keys.get_mut(pipeline_id).unwrap().extend(font_keys.clone().into_iter());
     app_resources.last_frame_image_keys.get_mut(pipeline_id).unwrap().extend(image_keys.clone().into_iter());
 
-    let add_font_resource_updates = build_add_font_resource_updates(app_resources, render_api, pipeline_id, &font_keys, load_font_fn, parse_font_fn);
-    let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api, pipeline_id, &image_keys, load_image_fn);
+    let add_font_resource_updates = build_add_font_resource_updates(app_resources, render_api_namespace, pipeline_id, &font_keys, load_font_fn, parse_font_fn);
+    let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api_namespace, pipeline_id, &image_keys, load_image_fn);
 
-    add_resources(app_resources, render_api, pipeline_id, add_font_resource_updates, add_image_resource_updates);
+    add_resources(app_resources, all_resource_updates, pipeline_id, add_font_resource_updates, add_image_resource_updates);
 }
 
 /// To be called at the end of a frame (after the UI has rendered):
 /// Deletes all FontKeys and FontImageKeys that weren't used in
 /// the last frame, to save on memory. If the font needs to be recreated, it
 /// needs to be reloaded from the `FontSource`.
-pub fn garbage_collect_fonts_and_images<U: FontImageApi>(
+pub fn garbage_collect_fonts_and_images(
     app_resources: &mut AppResources,
-    render_api: &mut U,
+    all_resource_updates: &mut Vec<ResourceUpdate>,
     pipeline_id: &PipelineId,
 ) {
     let delete_font_resource_updates = build_delete_font_resource_updates(app_resources, pipeline_id);
     let delete_image_resource_updates = build_delete_image_resource_updates(app_resources, pipeline_id);
 
-    delete_resources(app_resources, render_api, pipeline_id, delete_font_resource_updates, delete_image_resource_updates);
+    delete_resources(app_resources, all_resource_updates, pipeline_id, delete_font_resource_updates, delete_image_resource_updates);
 
     app_resources.last_frame_font_keys.get_mut(pipeline_id).unwrap().clear();
     app_resources.last_frame_image_keys.get_mut(pipeline_id).unwrap().clear();
@@ -1263,7 +1259,7 @@ pub enum ImageData {
 #[repr(C, u8)]
 pub enum ExternalImageType {
     /// The image is texture-backed.
-    TextureHandle(TextureTarget),
+    TextureHandle(ImageBufferKind),
     /// The image is heap-allocated by the embedding.
     Buffer,
 }
@@ -1287,25 +1283,25 @@ impl ExternalImageId {
 /// Specifies the type of texture target in driver terms.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 #[repr(C)]
-pub enum TextureTarget {
+pub enum ImageBufferKind {
     /// Standard texture. This maps to GL_TEXTURE_2D in OpenGL.
-    Default = 0,
-    /// Array texture. This maps to GL_TEXTURE_2D_ARRAY in OpenGL. See
-    /// https://www.khronos.org/opengl/wiki/Array_Texture for background
-    /// on Array textures.
-    Array = 1,
-    /// Rectange texture. This maps to GL_TEXTURE_RECTANGLE in OpenGL. This
+    Texture2D = 0,
+    /// Rectangle texture. This maps to GL_TEXTURE_RECTANGLE in OpenGL. This
     /// is similar to a standard texture, with a few subtle differences
     /// (no mipmaps, non-power-of-two dimensions, different coordinate space)
     /// that make it useful for representing the kinds of textures we use
     /// in WebRender. See https://www.khronos.org/opengl/wiki/Rectangle_Texture
     /// for background on Rectangle textures.
-    Rect = 2,
+    TextureRect = 1,
     /// External texture. This maps to GL_TEXTURE_EXTERNAL_OES in OpenGL, which
     /// is an extension. This is used for image formats that OpenGL doesn't
     /// understand, particularly YUV. See
     /// https://www.khronos.org/registry/OpenGL/extensions/OES/OES_EGL_image_external.txt
-    External = 3,
+    TextureExternal = 2,
+    /// Array texture. This maps to GL_TEXTURE_2D_ARRAY in OpenGL. See
+    /// https://www.khronos.org/opengl/wiki/Array_Texture for background
+    /// on Array textures.
+    Texture2DArray = 3,
 }
 
 /// Descriptor for external image resources. See `ImageData`.
@@ -1359,7 +1355,7 @@ pub struct UpdateImage {
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct AddFont {
     pub key: FontKey,
-    pub font_bytes: Vec<u8>,
+    pub font_bytes: Arc<Vec<u8>>,
     pub font_index: u32,
 }
 
@@ -1415,6 +1411,8 @@ impl Au {
         let target_app_units = (px * AU_PER_PX as f32) as i32;
         Au(target_app_units.min(MAX_AU).max(MIN_AU))
     }
+    pub fn into_px(&self) -> f32 { self.0 as f32 / AU_PER_PX as f32 }
+    pub fn into_f32(&self) -> f32 { self.0 as f32 }
 }
 
 pub fn get_font_id(rect_style: &RectStyle) -> &str {
@@ -1507,7 +1505,7 @@ pub fn scan_styled_nodes_for_image_keys(
 // Debug, PartialEq, Eq, PartialOrd, Ord
 pub enum AddFontMsg {
     // add font: font key, font bytes + font index
-    Font(FontKey, Vec<u8>, u32, LoadedFont),
+    Font(FontKey, Arc<Vec<u8>>, u32, LoadedFont),
     Instance(AddFontInstance, Au),
 }
 
@@ -1598,9 +1596,9 @@ pub type ParseFontFn = fn(&LoadedFontSource) -> Option<(Box<dyn Any>, FontMetric
 /// otherwise (if removing fonts would happen after every DOM) we'd constantly
 /// add-and-remove fonts after every IFrameCallback, which would cause a lot of
 /// I/O waiting.
-pub fn build_add_font_resource_updates<T: FontImageApi>(
+pub fn build_add_font_resource_updates(
     app_resources: &AppResources,
-    render_api: &mut T,
+    id_namespace: IdNamespace,
     pipeline_id: &PipelineId,
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastHashSet<Au>>,
     font_source_load_fn: LoadFontFn,
@@ -1620,7 +1618,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
 
             if !font_instance_key_exists {
 
-                let font_instance_key = render_api.new_font_instance_key();
+                let font_instance_key = FontInstanceKey::unique(id_namespace);
 
                 // For some reason the gamma is way to low on Windows
                 #[cfg(target_os = "windows")]
@@ -1693,14 +1691,14 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
 
                 if !font_sizes.is_empty() {
                     // loaded_font
-                    let font_key = render_api.new_font_key();
+                    let font_key = FontKey::unique(id_namespace);
                     let loaded_font = LoadedFont {
                         font_key,
                         font: parsed_font,
                         font_metrics,
                         font_instances: FastHashMap::new(),
                     };
-                    resource_updates.push((im_font_id.clone(), AddFontMsg::Font(font_key, font_bytes.into(), font_index, loaded_font)));
+                    resource_updates.push((im_font_id.clone(), AddFontMsg::Font(font_key, Arc::new(font_bytes.into()), font_index, loaded_font)));
 
                     for font_size in font_sizes {
                         insert_font_instances!(im_font_id.clone(), font_key, font_index, *font_size);
@@ -1722,9 +1720,9 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
 /// add-and-remove images after every IFrameCallback, which would cause a lot of
 /// I/O waiting.
 #[allow(unused_variables)]
-pub fn build_add_image_resource_updates<T: FontImageApi>(
+pub fn build_add_image_resource_updates(
     app_resources: &AppResources,
-    render_api: &mut T,
+    id_namespace: IdNamespace,
     pipeline_id: &PipelineId,
     images_in_dom: &FastHashSet<ImageId>,
     image_source_load_fn: LoadImageFn,
@@ -1735,7 +1733,7 @@ pub fn build_add_image_resource_updates<T: FontImageApi>(
     .filter_map(|image_id| {
         let image_source = app_resources.image_sources.get(image_id)?;
         let LoadedImageSource { image_bytes_decoded, image_descriptor } = (image_source_load_fn.cb)(image_source).into_option()?;
-        let key = render_api.new_image_key();
+        let key = ImageKey::unique(id_namespace);
         let add_image = AddImage { key, data: image_bytes_decoded, descriptor: image_descriptor, tiling: None };
         Some((*image_id, AddImageMsg(add_image, ImageInfo { key, descriptor: image_descriptor })))
     }).collect()
@@ -1745,23 +1743,15 @@ pub fn build_add_image_resource_updates<T: FontImageApi>(
 /// Extends `currently_registered_images` and `currently_registered_fonts` by the
 /// `last_frame_image_keys` and `last_frame_font_keys`, so that we don't lose track of
 /// what font and image keys are currently in the API.
-pub fn add_resources<T: FontImageApi>(
+pub fn add_resources(
     app_resources: &mut AppResources,
-    render_api: &mut T,
+    all_resource_updates: &mut Vec<ResourceUpdate>,
     pipeline_id: &PipelineId,
     add_font_resources: Vec<(ImmediateFontId, AddFontMsg)>,
     add_image_resources: Vec<(ImageId, AddImageMsg)>,
 ) {
-    let mut merged_resource_updates = Vec::new();
-
-    merged_resource_updates.extend(add_font_resources.iter().map(|(_, f)| f.into_resource_update()));
-    merged_resource_updates.extend(add_image_resources.iter().map(|(_, i)| i.into_resource_update()));
-
-    if !merged_resource_updates.is_empty() {
-        render_api.update_resources(merged_resource_updates);
-        // Assure that the AddFont / AddImage updates get processed immediately
-        render_api.flush_scene_builder();
-    }
+    all_resource_updates.extend(add_font_resources.iter().map(|(_, f)| f.into_resource_update()));
+    all_resource_updates.extend(add_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 
     for (image_id, add_image_msg) in add_image_resources.iter() {
         app_resources.currently_registered_images
@@ -1821,21 +1811,15 @@ pub fn build_delete_image_resource_updates(
     .collect()
 }
 
-pub fn delete_resources<T: FontImageApi>(
+pub fn delete_resources(
     app_resources: &mut AppResources,
-    render_api: &mut T,
+    all_resource_updates: &mut Vec<ResourceUpdate>,
     pipeline_id: &PipelineId,
     delete_font_resources: Vec<(ImmediateFontId, DeleteFontMsg)>,
     delete_image_resources: Vec<(ImageId, DeleteImageMsg)>,
 ) {
-    let mut merged_resource_updates = Vec::new();
-
-    merged_resource_updates.extend(delete_font_resources.iter().map(|(_, f)| f.into_resource_update()));
-    merged_resource_updates.extend(delete_image_resources.iter().map(|(_, i)| i.into_resource_update()));
-
-    if !merged_resource_updates.is_empty() {
-        render_api.update_resources(merged_resource_updates);
-    }
+    all_resource_updates.extend(delete_font_resources.iter().map(|(_, f)| f.into_resource_update()));
+    all_resource_updates.extend(delete_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 
     for (removed_id, _removed_info) in delete_image_resources {
         app_resources.currently_registered_images

@@ -570,6 +570,8 @@ pub struct NodeData {
     tab_index: OptionTabIndex,
 }
 
+unsafe impl Send for NodeData { }
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub enum TabIndex {

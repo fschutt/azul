@@ -865,101 +865,33 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
         class_can_be_hashed = "derive" in struct.keys() and "Hash" in struct["derive"]
 
         if class_has_partialeq:
-            code += "\r\n    impl PartialEq for " + struct_name + " { fn eq(&self, rhs: &" + struct_name + ") -> bool { (crate::dll::get_azul_dll()." + to_snake_case(struct_name) + "_partial_eq)(self, rhs) } }\r\n"
+            code += "\r\n    impl PartialEq for " + struct_name + " { fn eq(&self, rhs: &" + struct_name + ") -> bool { crate::dll::" + to_snake_case(struct_name) + "_partial_eq(self, rhs) } }\r\n"
         if class_has_eq:
             code += "\r\n    impl Eq for " + struct_name + " { }\r\n"
         if class_has_partialord:
-            code += "\r\n    impl PartialOrd for " + struct_name + " { fn partial_cmp(&self, rhs: &" + struct_name + ") -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll()." + to_snake_case(struct_name) + "_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }\r\n"
+            code += "\r\n    impl PartialOrd for " + struct_name + " { fn partial_cmp(&self, rhs: &" + struct_name + ") -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match crate::dll::" + to_snake_case(struct_name) + "_partial_cmp(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }\r\n"
         if class_has_ord:
-            code += "\r\n    impl Ord for " + struct_name + " { fn cmp(&self, rhs: &" + struct_name + ") -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll()." + to_snake_case(struct_name) + "_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }\r\n"
+            code += "\r\n    impl Ord for " + struct_name + " { fn cmp(&self, rhs: &" + struct_name + ") -> std::cmp::Ordering { use std::cmp::Ordering::*; match crate::dll::" + to_snake_case(struct_name) + "_cmp(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }\r\n"
         if class_can_be_hashed:
-            code += "\r\n    impl std::hash::Hash for " + struct_name + " { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll()." + to_snake_case(struct_name) + "_hash)(self)).hash(state) } }\r\n"
+            code += "\r\n    impl std::hash::Hash for " + struct_name + " { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { (crate::dll::" + to_snake_case(struct_name) + "_hash(self)).hash(state) } }\r\n"
 
     code += "\r\n"
     code += "\r\n"
 
-    code += "    use libloading_mini::Library;\r\n"
+    code += "    #[link name=\"azul\"]\r\n"
+    code += "    pub(crate) extern \"C\" {\r\n"
 
-    code += "    pub struct AzulDll {\r\n"
-    code += "        pub lib: Library,\r\n"
     for fn_name in functions_map.keys():
         fn_type = functions_map[fn_name]
         fn_args = fn_type[0]
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
-        code += "        pub " + fn_name + ": extern \"C\" fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ",\r\n"
-    code += "    }\r\n\r\n"
+        code += "        fn " + fn_name + "(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ";\r\n"
 
-    code += "    pub fn initialize_library(path: &std::path::Path) -> Option<AzulDll> {\r\n"
-    code += "        use std::mem::transmute;\r\n"
-    code += "        let lib = Library::new(path)?;\r\n"
-    code += "        unsafe {\r\n"
-    for fn_name in functions_map.keys():
-        fn_type = functions_map[fn_name]
-        fn_args = fn_type[0]
-        fn_return = fn_type[1]
-        return_arrow = "" if fn_return == "" else " -> "
-        code += "            let " + fn_name + ": extern \"C\" fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + " = transmute(lib.get(b\"" + fn_name + "\")?);\r\n"
-
-    code += "            Some(AzulDll {\r\n"
-    code += "                lib: lib,\r\n"
-    for fn_name in functions_map.keys():
-        code += "                " + fn_name + ",\r\n"
-
-    code += "            })\r\n"
-    code += "        }\r\n"
-    code += "\r\n"
     code += "    }\r\n\r\n"
 
     # Generate loading function
     # TODO: use proper path here!
-
-    warning = "/* !!! IF THIS LINE SHOWS AN ERROR, IT MEANS YOU FORGOT TO RUN \"cargo install --version " + str(version) + " azul-dll\" */"
-    code += "    #[cfg(target_os=\"linux\")]\r\n"
-    code += "    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!(\"CARGO_HOME\"), \"/lib/\", \"azul-dll-\", env!(\"CARGO_PKG_VERSION\"), \"/target/release/libazul.so\")); " + warning + "\r\n"
-    code += "    #[cfg(target_os=\"windows\")]\r\n"
-    code += "    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!(\"CARGO_HOME\"), \"/lib/\", \"azul-dll-\", env!(\"CARGO_PKG_VERSION\"), \"/target/release/azul.dll\")); " + warning + "\r\n"
-    code += "    #[cfg(target_os=\"macos\")]\r\n"
-    code += "    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!(\"CARGO_HOME\"), \"/lib/\", \"azul-dll-\", env!(\"CARGO_PKG_VERSION\"), \"/target/release/libazul.dylib\")); " + warning + "\r\n"
-    code += "\r\n"
-    code += "    use std::{mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};\r\n"
-    code += "\r\n"
-    code += "    static LIBRARY_IS_INITIALIZED: AtomicBool = AtomicBool::new(false);\r\n"
-    code += "    static mut AZUL_DLL: MaybeUninit<AzulDll> = MaybeUninit::<AzulDll>::uninit();\r\n"
-    code += "\r\n"
-    code += "    #[cfg(target_os=\"linux\")]\r\n"
-    code += "    const DLL_FILE_NAME: &str = \"azul.so\";\r\n"
-    code += "    #[cfg(target_os=\"windows\")]\r\n"
-    code += "    const DLL_FILE_NAME: &str = \"azul.dll\";\r\n"
-    code += "    #[cfg(target_os=\"macos\")]\r\n"
-    code += "    const DLL_FILE_NAME: &str = \"libazul.dynlib\";\r\n"
-    code += "\r\n"
-    code += "    fn load_library_inner() -> Result<AzulDll, &'static str> {\r\n"
-    code += "\r\n"
-    code += "        let current_exe_path = std::env::current_exe().map_err(|_| \"current exe has no current dir (?!)\")?;\r\n"
-    code += "        let mut library_path = current_exe_path.parent().ok_or(\"current exe has no parent (?!)\")?.to_path_buf();\r\n"
-    code += "        library_path.push(DLL_FILE_NAME);\r\n"
-    code += "\r\n"
-    code += "        if !library_path.exists() {\r\n"
-    code += "           std::fs::write(&library_path, LIB_BYTES).map_err(|_| \"could not unpack DLL\")?;\r\n"
-    code += "        }\r\n"
-    code += "\r\n"
-    code += "        initialize_library(&library_path).ok_or(\"could not initialize library\")\r\n"
-    code += "    }\r\n"
-    code += "\r\n"
-    code += "    pub(crate) fn get_azul_dll() -> &'static AzulDll { \r\n"
-    code += "        if !LIBRARY_IS_INITIALIZED.load(Ordering::SeqCst) {\r\n"
-    code += "           match load_library_inner() {\r\n"
-    code += "               Ok(s) => {\r\n"
-    code += "                   unsafe { AZUL_DLL = MaybeUninit::new(s) };\r\n"
-    code += "                   LIBRARY_IS_INITIALIZED.store(true, Ordering::SeqCst);\r\n"
-    code += "               },\r\n"
-    code += "               Err(e) => { println!(\"failed to initialize libazul dll: missing function {}\", e); std::process::exit(-1); }\r\n"
-    code += "           }\r\n"
-    code += "        }\r\n"
-    code += "\r\n"
-    code += "        unsafe { &*AZUL_DLL.as_ptr() }\r\n"
-    code += "    }\r\n"
 
     return code
 
@@ -1082,7 +1014,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                         and "rust" in const["use_patches"]:
                             fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
                         else:
-                            fn_body = "(crate::dll::get_azul_dll()." + c_fn_name + ")(" + fn_args_call + ")"
+                            fn_body = "crate::dll::" + c_fn_name + "(" + fn_args_call + ")"
 
                         if "doc" in const.keys():
                             code += "        /// " + const["doc"] + "\r\n"
@@ -1120,7 +1052,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                         and "rust" in const["use_patches"]:
                             fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
                         else:
-                            fn_body = "(crate::dll::get_azul_dll()." + c_fn_name + ")(" + fn_args_call + ")"
+                            fn_body = "crate::dll::" + c_fn_name + "(" + fn_args_call + ")"
 
                         if tuple([module_name, class_name, fn_name]) in rust_api_patches:
                             code += rust_api_patches[tuple([module_name, class_name, fn_name])]
@@ -1159,16 +1091,16 @@ def generate_rust_api(apiData, structs_map, functions_map):
                 lifetime = "<'a>"
 
             if class_can_derive_debug:
-                code += "    impl std::fmt::Debug for " + class_name + " { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, \"{}\", (crate::dll::get_azul_dll()." + to_snake_case(class_ptr_name) + "_fmt_debug)(self)) } }\r\n"
+                code += "    impl std::fmt::Debug for " + class_name + " { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, \"{}\", crate::dll::" + to_snake_case(class_ptr_name) + "_fmt_debug(self)) } }\r\n"
 
             if class_can_be_copied:
                 code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { *self } }\r\n"
                 code += "    impl Copy for " + class_name + " { }\r\n"
             elif c_is_stack_allocated and class_can_be_cloned and lifetime == "" and not(class_is_const or class_is_typedef):
-                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { (crate::dll::get_azul_dll()." + to_snake_case(class_ptr_name) + "_deep_copy)(self) } }\r\n"
+                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { crate::dll::" + to_snake_case(class_ptr_name) + "_deep_copy(self) } }\r\n"
 
             if not(class_is_const or class_is_typedef or class_can_be_copied):
-                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { (crate::dll::get_azul_dll()." + to_snake_case(class_ptr_name) + "_delete)(self); } }\r\n"
+                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { crate::dll::" + to_snake_case(class_ptr_name) + "_delete(self); } }\r\n"
 
         module_file_name = module_name + ".rs"
         module_file_map[module_file_name] = code

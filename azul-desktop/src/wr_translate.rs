@@ -4,6 +4,13 @@
 //! (since webrender is a huge dependency) just to use the types. Only if you depend on
 //! azul (not azul-core), you have to depend on webrender.
 
+use webrender::render_api::{
+    ResourceUpdate as WrResourceUpdate,
+    AddFont as WrAddFont,
+    AddImage as WrAddImage,
+    UpdateImage as WrUpdateImage,
+    AddFontInstance as WrAddFontInstance,
+};
 use webrender::api::{
     units::{
         LayoutSize as WrLayoutSize,
@@ -13,6 +20,7 @@ use webrender::api::{
         ImageDirtyRect as WrImageDirtyRect,
         LayoutVector2D as WrLayoutVector2D,
     },
+    ImageBufferKind as WrImageBufferKind,
     CommonItemProperties as WrCommonItemProperties,
     FontKey as WrFontKey,
     FontInstanceKey as WrFontInstanceKey,
@@ -43,17 +51,11 @@ use webrender::api::{
     ImageRendering as WrImageRendering,
     ExternalScrollId as WrExternalScrollId,
     SpaceAndClipInfo as WrSpaceAndClipInfo,
-    ResourceUpdate as WrResourceUpdate,
-    AddFont as WrAddFont,
-    AddImage as WrAddImage,
     ImageData as WrImageData,
     ExternalImageData as WrExternalImageData,
     ExternalImageId as WrExternalImageId,
     ExternalImageType as WrExternalImageType,
-    TextureTarget as WrTextureTarget,
-    UpdateImage as WrUpdateImage,
     Epoch as WrEpoch,
-    AddFontInstance as WrAddFontInstance,
     FontVariation as WrFontVariation,
     FontInstanceOptions as WrFontInstanceOptions,
     FontInstancePlatformOptions as WrFontInstancePlatformOptions,
@@ -73,7 +75,7 @@ use azul_core::{
         IdNamespace, RawImageFormat as ImageFormat, ImageDescriptor, ImageDescriptorFlags,
         FontInstanceFlags, FontRenderMode, GlyphOptions, ResourceUpdate,
         AddFont, AddImage, ImageData, ExternalImageData, ExternalImageId,
-        ExternalImageType, TextureTarget, UpdateImage, ImageDirtyRect,
+        ExternalImageType, ImageBufferKind, UpdateImage, ImageDirtyRect,
         Epoch, AddFontInstance, FontVariation, FontInstanceOptions,
         FontInstancePlatformOptions, SyntheticItalics, PrimitiveFlags,
     },
@@ -101,7 +103,6 @@ use azul_css::{
     BorderStyle as CssBorderStyle,
     LayoutSideOffsets as CssLayoutSideOffsets,
 };
-use app_units::Au as WrAu;
 use webrender::Renderer;
 
 pub(crate) mod winit_translate {
@@ -560,15 +561,10 @@ pub(crate) const fn wr_translate_epoch(epoch: Epoch) -> WrEpoch {
     WrEpoch(epoch.0)
 }
 
-#[inline(always)]
-const fn wr_translate_tag_id(input: TagId) -> (u64, u16) {
-    (input.0, 0)
-}
-
 // webrender -> core
 
 #[inline(always)]
-const fn translate_id_namespace_wr(ns: WrIdNamespace) -> IdNamespace {
+pub(crate) const fn translate_id_namespace_wr(ns: WrIdNamespace) -> IdNamespace {
     IdNamespace(ns.0)
 }
 
@@ -694,16 +690,11 @@ pub(crate) fn wr_translate_image_descriptor_flags(flags: ImageDescriptorFlags) -
 }
 
 #[inline(always)]
-pub(crate) const fn wr_translate_au(au: Au) -> WrAu {
-    WrAu(au.0)
-}
-
-#[inline(always)]
 pub(crate) fn wr_translate_add_font_instance(add_font_instance: AddFontInstance) -> WrAddFontInstance {
     WrAddFontInstance {
         key: wr_translate_font_instance_key(add_font_instance.key),
         font_key: wr_translate_font_key(add_font_instance.font_key),
-        glyph_size: wr_translate_au(add_font_instance.glyph_size),
+        glyph_size: add_font_instance.glyph_size.into_f32(),
         options: add_font_instance.options.map(wr_translate_font_instance_options),
         platform_options: add_font_instance.platform_options.map(wr_translate_font_instance_platform_options),
         variations: add_font_instance.variations.into_iter().map(wr_translate_font_variation).collect(),
@@ -953,6 +944,8 @@ fn wr_translate_primitive_flags(flags: PrimitiveFlags) -> WrPrimitiveFlags {
     f.set(WrPrimitiveFlags::IS_BACKFACE_VISIBLE, flags.is_backface_visible);
     f.set(WrPrimitiveFlags::IS_SCROLLBAR_CONTAINER, flags.is_scrollbar_container);
     f.set(WrPrimitiveFlags::IS_SCROLLBAR_THUMB, flags.is_scrollbar_thumb);
+    f.set(WrPrimitiveFlags::PREFER_COMPOSITOR_SURFACE, flags.prefer_compositor_surface);
+    f.set(WrPrimitiveFlags::SUPPORTS_EXTERNAL_COMPOSITOR_SURFACE, flags.supports_external_compositor_surface);
     f
 }
 
@@ -962,6 +955,8 @@ fn translate_primitive_flags_wr(flags: WrPrimitiveFlags) -> PrimitiveFlags {
         is_backface_visible: flags.contains(WrPrimitiveFlags::IS_BACKFACE_VISIBLE),
         is_scrollbar_container: flags.contains(WrPrimitiveFlags::IS_SCROLLBAR_CONTAINER),
         is_scrollbar_thumb: flags.contains(WrPrimitiveFlags::IS_SCROLLBAR_THUMB),
+        prefer_compositor_surface: flags.contains(WrPrimitiveFlags::PREFER_COMPOSITOR_SURFACE),
+        supports_external_compositor_surface: flags.contains(WrPrimitiveFlags::SUPPORTS_EXTERNAL_COMPOSITOR_SURFACE),
     }
 }
 
@@ -1004,12 +999,26 @@ pub(crate) fn set_webrender_debug_flags(r: &mut Renderer, new_flags: &DebugState
     debug_flags.set(DebugFlags::GPU_SAMPLE_QUERIES, new_flags.gpu_sample_queries);
     debug_flags.set(DebugFlags::DISABLE_BATCHING, new_flags.disable_batching);
     debug_flags.set(DebugFlags::EPOCHS, new_flags.epochs);
-    debug_flags.set(DebugFlags::COMPACT_PROFILER, new_flags.compact_profiler);
     debug_flags.set(DebugFlags::ECHO_DRIVER_MESSAGES, new_flags.echo_driver_messages);
-    debug_flags.set(DebugFlags::NEW_FRAME_INDICATOR, new_flags.new_frame_indicator);
-    debug_flags.set(DebugFlags::NEW_SCENE_INDICATOR, new_flags.new_scene_indicator);
     debug_flags.set(DebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);
     debug_flags.set(DebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
+    debug_flags.set(DebugFlags::TEXTURE_CACHE_DBG_CLEAR_EVICTED, new_flags.texture_cache_dbg_clear_evicted);
+    debug_flags.set(DebugFlags::PICTURE_CACHING_DBG, new_flags.picture_caching_dbg);
+    debug_flags.set(DebugFlags::PRIMITIVE_DBG, new_flags.primitive_dbg);
+    debug_flags.set(DebugFlags::ZOOM_DBG, new_flags.zoom_dbg);
+    debug_flags.set(DebugFlags::SMALL_SCREEN, new_flags.small_screen);
+    debug_flags.set(DebugFlags::DISABLE_OPAQUE_PASS, new_flags.disable_opaque_pass);
+    debug_flags.set(DebugFlags::DISABLE_ALPHA_PASS, new_flags.disable_alpha_pass);
+    debug_flags.set(DebugFlags::DISABLE_CLIP_MASKS, new_flags.disable_clip_masks);
+    debug_flags.set(DebugFlags::DISABLE_TEXT_PRIMS, new_flags.disable_text_prims);
+    debug_flags.set(DebugFlags::DISABLE_GRADIENT_PRIMS, new_flags.disable_gradient_prims);
+    debug_flags.set(DebugFlags::OBSCURE_IMAGES, new_flags.obscure_images);
+    debug_flags.set(DebugFlags::GLYPH_FLASHING, new_flags.glyph_flashing);
+    debug_flags.set(DebugFlags::SMART_PROFILER, new_flags.smart_profiler);
+    debug_flags.set(DebugFlags::INVALIDATION_DBG, new_flags.invalidation_dbg);
+    debug_flags.set(DebugFlags::TILE_CACHE_LOGGING_DBG, new_flags.tile_cache_logging_dbg);
+    debug_flags.set(DebugFlags::PROFILER_CAPTURE, new_flags.profiler_capture);
+    debug_flags.set(DebugFlags::FORCE_PICTURE_INVALIDATION, new_flags.force_picture_invalidation);
 
     r.set_debug_flags(debug_flags);
 }
@@ -1073,18 +1082,18 @@ pub(crate) const fn translate_external_image_id_wr(external: WrExternalImageId) 
 #[inline(always)]
 fn wr_translate_external_image_type(external: ExternalImageType) -> WrExternalImageType {
     match external {
-        ExternalImageType::TextureHandle(tt) => WrExternalImageType::TextureHandle(wr_translate_texture_target(tt)),
+        ExternalImageType::TextureHandle(tt) => WrExternalImageType::TextureHandle(wr_translate_image_buffer_kind(tt)),
         ExternalImageType::Buffer => WrExternalImageType::Buffer,
     }
 }
 
 #[inline(always)]
-fn wr_translate_texture_target(texture_target: TextureTarget) -> WrTextureTarget {
-    match texture_target {
-        TextureTarget::Default => WrTextureTarget::Default,
-        TextureTarget::Array => WrTextureTarget::Array,
-        TextureTarget::Rect => WrTextureTarget::Rect,
-        TextureTarget::External => WrTextureTarget::External,
+fn wr_translate_image_buffer_kind(buffer_kind: ImageBufferKind) -> WrImageBufferKind {
+    match buffer_kind {
+        ImageBufferKind::Texture2D => WrImageBufferKind::Texture2D,
+        ImageBufferKind::TextureRect => WrImageBufferKind::TextureRect,
+        ImageBufferKind::TextureExternal => WrImageBufferKind::TextureExternal,
+        ImageBufferKind::Texture2DArray => WrImageBufferKind::Texture2DArray,
     }
 }
 
@@ -1125,21 +1134,12 @@ pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> Wr
 }
 
 pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: PipelineId) -> WrBuiltDisplayList {
-    println!("sending dl: {:#?}", input);
     let root_space_and_clip = WrSpaceAndClipInfo::root_scroll(wr_translate_pipeline_id(pipeline_id));
     let mut positioned_items = Vec::new();
-    let mut builder = WrDisplayListBuilder::new(
-        wr_translate_pipeline_id(pipeline_id),
-        wr_translate_logical_size(input.root.get_size())
-    );
-    builder.push_simple_stacking_context(
-        WrLayoutPoint::zero(),
-        root_space_and_clip.spatial_id,
-        WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
-    );
+    let mut builder = WrDisplayListBuilder::new(wr_translate_pipeline_id(pipeline_id));
     push_display_list_msg(&mut builder, input.root, root_space_and_clip.spatial_id, root_space_and_clip.clip_id, &mut positioned_items);
-    println!("builder content_size: {:?}", builder.content_size());
-    builder.finalize().2
+    let (_pipeline_id, built_display_list) = builder.finalize();
+    built_display_list
 }
 
 #[inline]
@@ -1221,15 +1221,14 @@ fn push_frame(
             frame.flags,
             parent_clip_id,
             parent_spatial_id,
-            frame.clip_mask.map(wr_translate_image_mask)
         );
     }
 
     let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.size);
 
     // If the rect has an overflow:* property set
-    let current_rect_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, frame.clip_mask.map(wr_translate_image_mask));
-
+    let current_rect_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
+    // if let Some(image_mask) -> define_image_mask_clip()
     for child in frame.children {
         push_display_list_msg(builder, child, parent_spatial_id, current_rect_clip_id, positioned_items);
     }
@@ -1263,6 +1262,8 @@ fn push_scroll_frame(
 
     let clip_rect = get_frame_clip_rect(scroll_frame.frame.position, scroll_frame.frame.size);
 
+    // if let Some(image_mask) = scroll_frame.frame.image_mask { push_image_mask_clip() }
+
     // Only children should scroll, not the frame itself!
     for item in scroll_frame.frame.content {
         push_display_list_content(
@@ -1274,37 +1275,31 @@ fn push_scroll_frame(
             scroll_frame.frame.flags,
             parent_clip_id,
             parent_spatial_id,
-            scroll_frame.frame.clip_mask.map(wr_translate_image_mask)
         );
     }
 
     // Push hit-testing + scrolling children
 
     let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.size);
-    let hit_testing_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, scroll_frame.frame.clip_mask.map(wr_translate_image_mask));
+    let hit_testing_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
     let hit_test_info = WrCommonItemProperties {
         clip_rect: wr_translate_logical_rect(clip_rect),
         flags: wr_translate_primitive_flags(scroll_frame.frame.flags),
-        hit_info: Some(wr_translate_tag_id(scroll_frame.scroll_tag.0)),
         clip_id: hit_testing_clip_id,
         spatial_id: parent_spatial_id,
     };
 
     builder.push_rect(&hit_test_info, hit_test_info.clip_rect, wr_translate_color_u(ColorU::TRANSPARENT).into());
 
-    let scroll_frame_clip_region = WrComplexClipRegion::new(wr_translate_logical_rect(clip_rect), wr_border_radius, WrClipMode::Clip);
-
     // scroll frame has the hit-testing clip as a parent
     let scroll_frame_clip_info = builder.define_scroll_frame(
-        /* parent clip */ &WrSpaceAndClipInfo {
+        /* parent_space_and_clip */ &WrSpaceAndClipInfo {
             clip_id: hit_testing_clip_id,
             spatial_id: parent_spatial_id,
         },
-        /* external id*/ Some(wr_translate_external_scroll_id(scroll_frame.scroll_id)),
+        /* external_id */ wr_translate_external_scroll_id(scroll_frame.scroll_id),
         /* content_rect */ wr_translate_layout_rect(scroll_frame.content_rect),
         /* clip_rect */ wr_translate_logical_rect(clip_rect),
-        /* complex_clips */ vec![scroll_frame_clip_region],
-        /* image_mask */ None,
         /* sensitivity */ WrScrollSensitivity::Script,
         /* external_scroll_offset */ WrLayoutVector2D::zero(),
     );
@@ -1320,7 +1315,6 @@ fn define_border_radius_clip(
     wr_border_radius: WrBorderRadius,
     parent_spatial_id: WrSpatialId,
     parent_clip_id: WrClipId,
-    clip_mask: Option<WrImageMask>,
 ) -> WrClipId {
 
     use webrender::api::{
@@ -1329,11 +1323,9 @@ fn define_border_radius_clip(
     };
 
     let wr_layout_rect = wr_translate_logical_rect(layout_rect);
-    builder.define_clip(
+    builder.define_clip_rounded_rect( // TODO: optimize - if border radius = 0,
         &WrSpaceAndClipInfo { spatial_id: parent_spatial_id, clip_id: parent_clip_id },
-        wr_layout_rect,
-        vec![WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip)],
-        /* image_mask: */ clip_mask,
+        WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip),
     )
 }
 
@@ -1347,7 +1339,6 @@ fn push_display_list_content(
     flags: PrimitiveFlags,
     parent_clip_id: WrClipId,
     parent_spatial_id: WrSpatialId,
-    clip_mask: Option<WrImageMask>,
 ) {
     use azul_core::display_list::LayoutRectContent::*;
 
@@ -1356,7 +1347,6 @@ fn push_display_list_content(
         clip_id: parent_clip_id,
         spatial_id: parent_spatial_id,
         flags: wr_translate_primitive_flags(flags),
-        hit_info: hit_info.map(wr_translate_tag_id),
     };
 
     let wr_border_radius = wr_translate_border_radius(border_radius, clip_rect.size);
@@ -1368,24 +1358,24 @@ fn push_display_list_content(
             let (border_radius_spatial_id, border_radius_clip_id) = if overflow.0 || overflow.1 {
                 (WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id))
             } else {
-                (parent_spatial_id, define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, clip_mask))
+                (parent_spatial_id, define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id))
             };
             normal_info.spatial_id = border_radius_spatial_id;
             normal_info.clip_id = border_radius_clip_id;
             text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options);
         },
         Background { content, size, offset, repeat  } => {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, clip_mask);
+            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
             normal_info.clip_id = border_radius_clip_id;
             background::push_background(builder, &normal_info, content, size, offset, repeat);
         },
         Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, clip_mask);
+            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
             normal_info.clip_id = border_radius_clip_id;
             image::push_image(builder, &normal_info, size, offset, image_key, alpha_type, image_rendering, background_color);
         },
         BoxShadow { shadow, clip_mode: CssBoxShadowClipMode::Inset } => {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, clip_mask);
+            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
             normal_info.clip_id = border_radius_clip_id;
             box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Inset, shadow, border_radius, normal_info.spatial_id, normal_info.clip_id);
         },
@@ -2014,7 +2004,6 @@ mod box_shadow {
             spatial_id: parent_spatial_id,
             clip_id: parent_clip_id,
             flags: WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
-            hit_info: None,
         };
 
         builder.push_box_shadow(

@@ -144,6 +144,8 @@ impl_option!(RefAny, OptionRefAny, copy = false, [Debug, Clone, Hash, PartialEq,
 
 // the refcount of RefAny is atomic, therefore `RefAny` is not `Sync`, but it is `Send`
 unsafe impl Send for RefAny { }
+// necessary for rayon to work
+unsafe impl Sync for RefAny { }
 
 impl Clone for RefAny {
     fn clone(&self) -> Self {

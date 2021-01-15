@@ -8,8 +8,8 @@
     /// `RawImageFormat` struct
     #[doc(inline)] pub use crate::dll::AzRawImageFormat as RawImageFormat;
 
-    impl Clone for RawImageFormat { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_raw_image_format_deep_copy)(self) } }
-    impl Drop for RawImageFormat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_image_format_delete)(self); } }
+    impl Clone for RawImageFormat { fn clone(&self) -> Self { crate::dll::az_raw_image_format_deep_copy(self) } }
+    impl Drop for RawImageFormat { fn drop(&mut self) { crate::dll::az_raw_image_format_delete(self); } }
 
 
     /// `TextId` struct
@@ -17,7 +17,7 @@
 
     impl TextId {
         /// Creates a new, unique `TextId`
-        pub fn new() -> Self { (crate::dll::get_azul_dll().az_text_id_new)() }
+        pub fn new() -> Self { crate::dll::az_text_id_new() }
     }
 
     impl Clone for TextId { fn clone(&self) -> Self { *self } }
@@ -29,7 +29,7 @@
 
     impl ImageId {
         /// Creates a new, unique `ImageId`
-        pub fn new() -> Self { (crate::dll::get_azul_dll().az_image_id_new)() }
+        pub fn new() -> Self { crate::dll::az_image_id_new() }
     }
 
     impl Clone for ImageId { fn clone(&self) -> Self { *self } }
@@ -41,7 +41,7 @@
 
     impl FontId {
         /// Creates a new, unique `FontId`
-        pub fn new() -> Self { (crate::dll::get_azul_dll().az_font_id_new)() }
+        pub fn new() -> Self { crate::dll::az_font_id_new() }
     }
 
     impl Clone for FontId { fn clone(&self) -> Self { *self } }
@@ -51,15 +51,15 @@
     /// `ImageSource` struct
     #[doc(inline)] pub use crate::dll::AzImageSource as ImageSource;
 
-    impl Clone for ImageSource { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_image_source_deep_copy)(self) } }
-    impl Drop for ImageSource { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_source_delete)(self); } }
+    impl Clone for ImageSource { fn clone(&self) -> Self { crate::dll::az_image_source_deep_copy(self) } }
+    impl Drop for ImageSource { fn drop(&mut self) { crate::dll::az_image_source_delete(self); } }
 
 
     /// `FontSource` struct
     #[doc(inline)] pub use crate::dll::AzFontSource as FontSource;
 
-    impl Clone for FontSource { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_font_source_deep_copy)(self) } }
-    impl Drop for FontSource { fn drop(&mut self) { (crate::dll::get_azul_dll().az_font_source_delete)(self); } }
+    impl Clone for FontSource { fn clone(&self) -> Self { crate::dll::az_font_source_deep_copy(self) } }
+    impl Drop for FontSource { fn drop(&mut self) { crate::dll::az_font_source_delete(self); } }
 
 
     /// `RawImage` struct
@@ -67,8 +67,8 @@
 
     impl RawImage {
         /// Creates a new `RawImage` by loading the decoded bytes
-        pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { (crate::dll::get_azul_dll().az_raw_image_new)(decoded_pixels, width, height, data_format) }
+        pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { crate::dll::az_raw_image_new(decoded_pixels, width, height, data_format) }
     }
 
-    impl Clone for RawImage { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_raw_image_deep_copy)(self) } }
-    impl Drop for RawImage { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_image_delete)(self); } }
+    impl Clone for RawImage { fn clone(&self) -> Self { crate::dll::az_raw_image_deep_copy(self) } }
+    impl Drop for RawImage { fn drop(&mut self) { crate::dll::az_raw_image_delete(self); } }

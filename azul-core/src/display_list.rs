@@ -18,9 +18,10 @@ use crate::{
     ui_solver::{ExternalScrollId, LayoutResult, PositionInfo},
     window::{FullWindowState, LogicalRect, LogicalPosition, LogicalSize},
     app_resources::{
-        AppResources, AddImageMsg, FontImageApi, ImageDescriptor, ImageDescriptorFlags,
+        AppResources, AddImageMsg, ImageDescriptor, ImageDescriptorFlags,
         ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs, PrimitiveFlags,
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn, ParseFontFn,
+        ResourceUpdate, IdNamespace,
     },
     styled_dom::{DomId, StyledDom, ContentGroup},
     id_tree::NodeId,
@@ -253,6 +254,8 @@ impl DisplayListFrame {
                 is_backface_visible: true,
                 is_scrollbar_container: false,
                 is_scrollbar_thumb: false,
+                prefer_compositor_surface: true,
+                supports_external_compositor_surface: true,
             },
             border_radius: StyleBorderRadius::default(),
             content: vec![],
@@ -565,7 +568,7 @@ pub struct GlTextureCache {
 }
 
 // todo: very unclean
-pub type LayoutFn<U> = fn(StyledDom, &mut AppResources, &mut U, PipelineId, RenderCallbacks<U>, &FullWindowState) -> Vec<LayoutResult>;
+pub type LayoutFn = fn(StyledDom, &mut AppResources, &mut Vec<ResourceUpdate>, IdNamespace, PipelineId, RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
 #[cfg(feature = "opengl")]
 pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 
@@ -575,9 +578,9 @@ pub struct SolvedLayout {
     pub gl_texture_cache: GlTextureCache,
 }
 
-pub struct RenderCallbacks<U: FontImageApi> {
+pub struct RenderCallbacks {
     pub insert_into_active_gl_textures: GlStoreImageFn,
-    pub layout_fn: LayoutFn<U>,
+    pub layout_fn: LayoutFn,
     pub load_font_fn: LoadFontFn,
     pub load_image_fn: LoadImageFn,
     pub parse_font_fn: ParseFontFn,
@@ -587,20 +590,21 @@ impl SolvedLayout {
 
     /// Does the layout, updates the image + font resources for the RenderAPI
     #[cfg(feature = "opengl")]
-    pub fn new<U: FontImageApi>(
+    pub fn new(
         styled_dom: StyledDom,
         epoch: Epoch,
         pipeline_id: PipelineId,
         full_window_state: &FullWindowState,
         gl_context: &GlContextPtr,
-        render_api: &mut U,
+        all_resource_updates: &mut Vec<ResourceUpdate>,
+        id_namespace: IdNamespace,
         app_resources: &mut AppResources,
-        callbacks: RenderCallbacks<U>,
+        callbacks: RenderCallbacks,
     ) -> Self {
 
         use crate::{
             app_resources::{
-                AddImage, ExternalImageData, TextureTarget, ExternalImageType,
+                AddImage, ExternalImageData, ImageBufferKind, ExternalImageType,
                 ImageData, add_resources, garbage_collect_fonts_and_images,
             },
             callbacks::{GlCallbackInfo, HidpiAdjustedBounds},
@@ -611,7 +615,8 @@ impl SolvedLayout {
         let layout_results = (callbacks.layout_fn)(
             styled_dom,
             app_resources,
-            render_api,
+            all_resource_updates,
+            id_namespace,
             pipeline_id,
             callbacks,
             &full_window_state,
@@ -677,7 +682,7 @@ impl SolvedLayout {
                     },
                 };
 
-                let key = render_api.new_image_key();
+                let key = ImageKey::unique(id_namespace);
                 let external_image_id = (insert_into_active_gl_textures)(pipeline_id, epoch, texture);
 
                 let add_img_msg = AddImageMsg(
@@ -687,7 +692,7 @@ impl SolvedLayout {
                         data: ImageData::External(ExternalImageData {
                             id: external_image_id,
                             channel_index: 0,
-                            image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
+                            image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
                         }),
                         tiling: None,
                     },
@@ -703,9 +708,9 @@ impl SolvedLayout {
         }
 
         // Delete unused font and image keys (that were not used in this display list)
-        garbage_collect_fonts_and_images(app_resources, render_api, &pipeline_id);
+        // garbage_collect_fonts_and_images(app_resources, render_api, &pipeline_id);
         // Add the new GL textures to the RenderApi
-        add_resources(app_resources, render_api, &pipeline_id, Vec::new(), image_resource_updates);
+        add_resources(app_resources, all_resource_updates, &pipeline_id, Vec::new(), image_resource_updates);
 
         SolvedLayout {
             layout_results,
@@ -790,6 +795,8 @@ pub fn displaylist_handle_rect<'a>(
             is_backface_visible: true,
             is_scrollbar_container: false,
             is_scrollbar_thumb: false,
+            prefer_compositor_surface: false,
+            supports_external_compositor_surface: false,
         },
         content: Vec::new(),
         children: Vec::new(),

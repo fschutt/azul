@@ -16,6 +16,7 @@ readme = "../README.md"
 exclude = ["../assets/*", "../doc/*", "../examples/*"]
 autoexamples = false
 edition = "2018"
+build = "build.rs"
 
 [profile.dev]
 incremental = false
@@ -27,7 +28,6 @@ incremental = false
 path = "src/rust/lib.rs"
 
 [dependencies]
-libloading-mini = "0.1.2"
 
 [dev-dependencies]
 azul-widgets = { version = "0.0.2", path = "../azul-widgets" }

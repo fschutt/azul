@@ -15,7 +15,7 @@ use azul_core::{
         PositionedRectangle, OverflowInfo, WhConstraint, WidthCalculatedRect, HeightCalculatedRect,
         HorizontalSolvedPosition, VerticalSolvedPosition,
     },
-    app_resources::{AppResources, FontInstanceKey, FontImageApi, LayoutedGlyphs},
+    app_resources::{ResourceUpdate, IdNamespace, AppResources, FontInstanceKey, LayoutedGlyphs},
     callbacks::PipelineId,
     display_list::RenderCallbacks,
     window::{FullWindowState, LogicalRect, LogicalSize, LogicalPosition},
@@ -1021,24 +1021,24 @@ fn get_y_positions<'a>(
 }
 
 #[inline]
-pub fn get_layout_positions<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<LayoutPosition> {
-    display_rects.transform(|node, _| node.layout.position.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default())
+pub fn get_layout_positions<'a>(display_rects: &mut NodeDataContainerRefMut<'a, StyledNode>) -> NodeDataContainer<LayoutPosition> {
+    display_rects.transform_multithread(|node, _| node.layout.position.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default())
 }
 
 #[inline]
-pub fn get_layout_justify_contents<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<LayoutJustifyContent> {
-    display_rects.transform(|node, _| node.layout.justify_content.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default())
+pub fn get_layout_justify_contents<'a>(display_rects: &mut NodeDataContainerRefMut<'a, StyledNode>) -> NodeDataContainer<LayoutJustifyContent> {
+    display_rects.transform_multithread(|node, _| node.layout.justify_content.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default())
 }
 
 #[inline]
-pub fn get_layout_flex_directions<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<LayoutFlexDirection> {
-    display_rects.transform(|node, _| node.layout.direction.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default())
+pub fn get_layout_flex_directions<'a>(display_rects: &mut NodeDataContainerRefMut<'a, StyledNode>) -> NodeDataContainer<LayoutFlexDirection> {
+    display_rects.transform_multithread(|node, _| node.layout.direction.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default())
 }
 
 #[inline]
-pub fn get_layout_flex_grows<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<f32> {
+pub fn get_layout_flex_grows<'a>(display_rects: &mut NodeDataContainerRefMut<'a, StyledNode>) -> NodeDataContainer<f32> {
     // Prevent flex-grow and flex-shrink to be less than 0
-    display_rects.transform(|node, _| node.layout.flex_grow.as_ref()
+    display_rects.transform_multithread(|node, _| node.layout.flex_grow.as_ref()
     .and_then(|g| g.get_property().copied())
     .and_then(|grow| Some(grow.inner.get().max(0.0)))
     .unwrap_or(DEFAULT_FLEX_GROW_FACTOR))
@@ -1114,12 +1114,13 @@ get_resolved_offsets!(get_padding, padding_left, padding_top, padding_bottom, pa
 get_resolved_offsets!(get_border_widths, border_left_width, border_top_width, border_bottom_width, border_right_width);
 
 // Adds the image and font resources to the app_resources but does NOT add them to the RenderAPI
-pub fn do_the_layout<U: FontImageApi>(
+pub fn do_the_layout(
     styled_dom: StyledDom,
     app_resources: &mut AppResources,
-    render_api: &mut U,
+    all_resource_updates: &mut Vec<ResourceUpdate>,
+    id_namespace: IdNamespace,
     pipeline_id: PipelineId,
-    callbacks: RenderCallbacks<U>,
+    callbacks: RenderCallbacks,
     full_window_state: &FullWindowState,
 ) -> Vec<LayoutResult> {
 
@@ -1140,7 +1141,8 @@ pub fn do_the_layout<U: FontImageApi>(
 
             add_fonts_and_images(
                 app_resources,
-                render_api,
+                id_namespace,
+                all_resource_updates,
                 &pipeline_id,
                 &styled_dom.styled_nodes.as_ref(),
                 &styled_dom.node_data.as_ref(),
@@ -1228,7 +1230,7 @@ pub fn do_the_layout<U: FontImageApi>(
 pub fn do_the_layout_internal(
     dom_id: DomId,
     parent_dom_id: Option<DomId>,
-    styled_dom: StyledDom,
+    mut styled_dom: StyledDom,
     app_resources: &mut AppResources,
     pipeline_id: PipelineId,
     bounds: LogicalRect
@@ -1247,10 +1249,10 @@ pub fn do_the_layout_internal(
     let all_parents_btreeset = styled_dom.non_leaf_nodes.iter().filter_map(|p| Some(p.node_id.into_crate_internal()?)).collect::<BTreeSet<_>>();
     let all_nodes_btreeset = (0..styled_dom.node_data.as_container().len()).map(|n| NodeId::new(n)).collect::<BTreeSet<_>>();
 
-    let layout_position_info = get_layout_positions(&styled_dom.styled_nodes.as_container());
-    let layout_flex_grow_info = get_layout_flex_grows(&styled_dom.styled_nodes.as_container());
-    let layout_directions_info = get_layout_flex_directions(&styled_dom.styled_nodes.as_container());
-    let layout_justify_contents = get_layout_justify_contents(&styled_dom.styled_nodes.as_container());
+    let layout_position_info = get_layout_positions(&mut styled_dom.styled_nodes.as_container_mut());
+    let layout_flex_grow_info = get_layout_flex_grows(&mut styled_dom.styled_nodes.as_container_mut());
+    let layout_directions_info = get_layout_flex_directions(&mut styled_dom.styled_nodes.as_container_mut());
+    let layout_justify_contents = get_layout_justify_contents(&mut styled_dom.styled_nodes.as_container_mut());
 
     let content_widths_pre = NodeDataContainer { internal: vec![None; styled_dom.node_hierarchy.len()] };
 

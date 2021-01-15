@@ -10,7 +10,7 @@ use std::{
 use azul_css::{CssProperty, LayoutSize, U8Vec, ColorU, AzString, LayoutPoint, LayoutRect, CssPath};
 use crate::{
     FastHashMap,
-    app_resources::{AppResources, Epoch, FontImageApi},
+    app_resources::{AppResources, IdNamespace, ResourceUpdate, Epoch},
     styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
     callbacks::{OptionCallback, PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, UpdateScreen},
@@ -55,6 +55,46 @@ impl IconKey {
         Self { id: LAST_ICON_KEY.fetch_add(1, AtomicOrdering::SeqCst) }
     }
 }
+
+#[repr(C)]
+#[derive(PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash)]
+pub struct RendererOptions {
+    pub vsync: Vsync,
+    pub srgb: Srgb,
+    pub hw_accel: HwAcceleration,
+}
+
+impl_option!(RendererOptions, OptionRendererOptions, [PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash]);
+
+impl Default for RendererOptions {
+    fn default() -> Self {
+        Self {
+            vsync: Vsync::Enabled,
+            srgb: Srgb::Enabled,
+            hw_accel: HwAcceleration::Enabled,
+        }
+    }
+}
+
+impl RendererOptions {
+    pub const fn new(vsync: Vsync, srgb: Srgb, hw_accel: HwAcceleration) -> Self { Self { vsync, srgb, hw_accel } }
+}
+
+#[repr(C)]
+#[derive(PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash)]
+pub enum Vsync { Enabled, Disabled }
+impl Vsync { pub const fn is_enabled(&self) -> bool { match self { Vsync::Enabled => true, Vsync::Disabled => false } }}
+
+#[repr(C)]
+#[derive(PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash)]
+pub enum Srgb { Enabled, Disabled }
+impl Srgb { pub const fn is_enabled(&self) -> bool { match self { Srgb::Enabled => true, Srgb::Disabled => false } }}
+
+#[repr(C)]
+#[derive(PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash)]
+pub enum HwAcceleration { Enabled, Disabled }
+impl HwAcceleration { pub const fn is_enabled(&self) -> bool { match self { HwAcceleration::Enabled => true, HwAcceleration::Disabled => false } }}
+
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -361,32 +401,33 @@ impl CursorPosition {
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct DebugState {
-    /// Toggles `webrender::DebugFlags::PROFILER_DBG`
     pub profiler_dbg: bool,
-    /// Toggles `webrender::DebugFlags::RENDER_TARGET_DBG`
     pub render_target_dbg: bool,
-    /// Toggles `webrender::DebugFlags::TEXTURE_CACHE_DBG`
     pub texture_cache_dbg: bool,
-    /// Toggles `webrender::DebugFlags::GPU_TIME_QUERIES`
     pub gpu_time_queries: bool,
-    /// Toggles `webrender::DebugFlags::GPU_SAMPLE_QUERIES`
     pub gpu_sample_queries: bool,
-    /// Toggles `webrender::DebugFlags::DISABLE_BATCHING`
     pub disable_batching: bool,
-    /// Toggles `webrender::DebugFlags::EPOCHS`
     pub epochs: bool,
-    /// Toggles `webrender::DebugFlags::COMPACT_PROFILER`
-    pub compact_profiler: bool,
-    /// Toggles `webrender::DebugFlags::ECHO_DRIVER_MESSAGES`
     pub echo_driver_messages: bool,
-    /// Toggles `webrender::DebugFlags::NEW_FRAME_INDICATOR`
-    pub new_frame_indicator: bool,
-    /// Toggles `webrender::DebugFlags::NEW_SCENE_INDICATOR`
-    pub new_scene_indicator: bool,
-    /// Toggles `webrender::DebugFlags::SHOW_OVERDRAW`
     pub show_overdraw: bool,
-    /// Toggles `webrender::DebugFlagsFGPU_CACHE_DBG`
     pub gpu_cache_dbg: bool,
+    pub texture_cache_dbg_clear_evicted: bool,
+    pub picture_caching_dbg: bool,
+    pub primitive_dbg: bool,
+    pub zoom_dbg: bool,
+    pub small_screen: bool,
+    pub disable_opaque_pass: bool,
+    pub disable_alpha_pass: bool,
+    pub disable_clip_masks: bool,
+    pub disable_text_prims: bool,
+    pub disable_gradient_prims: bool,
+    pub obscure_images: bool,
+    pub glyph_flashing: bool,
+    pub smart_profiler: bool,
+    pub invalidation_dbg: bool,
+    pub tile_cache_logging_dbg: bool,
+    pub profiler_capture: bool,
+    pub force_picture_invalidation: bool,
 }
 
 
@@ -530,6 +571,8 @@ pub struct WindowInternal {
     /// the actual browser window and the inspector are seperate pipelines, but contained in one document.
     /// In Azul, one pipeline = one document (this could be improved later on).
     pub pipeline_id: PipelineId,
+    /// ID namespace under which every font / image for this window is registered
+    pub id_namespace: IdNamespace,
     /// The "epoch" is a frame counter, to remove outdated images, fonts and OpenGL textures
     /// when they're not in use anymore.
     pub epoch: Epoch,
@@ -683,13 +726,21 @@ pub struct WindowInternalInit {
     pub window_create_options: WindowCreateOptions,
     pub document_id: DocumentId,
     pub pipeline_id: PipelineId,
+    pub id_namespace: IdNamespace,
 }
 
 impl WindowInternal {
 
     /// Initializes the `WindowInternal` on window creation. Calls the layout() method once to initializes the layout
     #[cfg(feature = "opengl")]
-    pub fn new<U: FontImageApi>(init: WindowInternalInit, data: &RefAny, app_resources: &mut AppResources, gl_context: &GlContextPtr, render_api: &mut U, callbacks: RenderCallbacks<U>) -> Self {
+    pub fn new(
+        init: WindowInternalInit,
+        data: &RefAny,
+        app_resources: &mut AppResources,
+        gl_context: &GlContextPtr,
+        all_resource_updates: &mut Vec<ResourceUpdate>,
+        callbacks: RenderCallbacks
+    ) -> Self {
 
         use crate::callbacks::LayoutInfo;
         use crate::display_list::SolvedLayout;
@@ -710,7 +761,6 @@ impl WindowInternal {
             );
 
             let mut styled_dom = (layout_callback.cb)(data, layout_info);
-
 
             let hovered_nodes = current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.regular_hit_test_nodes.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
             let active_nodes = if !current_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
@@ -734,15 +784,17 @@ impl WindowInternal {
             init.pipeline_id,
             &current_window_state,
             gl_context,
-            render_api,
+            all_resource_updates,
+            init.id_namespace,
             app_resources,
             callbacks,
         );
 
         WindowInternal {
-            renderer_type: init.window_create_options.renderer_type,
+            renderer_type: gl_context.renderer_type,
             stop_sizes_width,
             stop_sizes_height,
+            id_namespace: init.id_namespace,
             previous_window_state: None,
             current_window_state,
             document_id: init.document_id,
@@ -756,7 +808,14 @@ impl WindowInternal {
 
     /// Calls the layout function again and updates the self.internal.gl_texture_cache field
     #[cfg(feature = "opengl")]
-    pub fn regenerate_styled_dom<U: FontImageApi>(&mut self, data: &RefAny, app_resources: &mut AppResources, gl_context: &GlContextPtr, render_api: &mut U, callbacks: RenderCallbacks<U>) {
+    pub fn regenerate_styled_dom(
+        &mut self,
+        data: &RefAny,
+        app_resources: &mut AppResources,
+        gl_context: &GlContextPtr,
+        all_resource_updates: &mut Vec<ResourceUpdate>,
+        callbacks: RenderCallbacks
+    ) {
 
         use crate::callbacks::LayoutInfo;
         use crate::display_list::SolvedLayout;
@@ -764,6 +823,8 @@ impl WindowInternal {
         // TODO: Use these "stop sizes" to optimize not calling layout() on redrawing!
         let mut stop_sizes_width = Vec::new();
         let mut stop_sizes_height = Vec::new();
+
+        let id_namespace = self.id_namespace;
 
         let styled_dom = {
 
@@ -797,7 +858,8 @@ impl WindowInternal {
             self.pipeline_id,
             &self.current_window_state,
             gl_context,
-            render_api,
+            all_resource_updates,
+            id_namespace,
             app_resources,
             callbacks,
         );
@@ -896,6 +958,8 @@ pub struct WindowState {
     /// Window options that can only be set on a certain platform
     /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
     pub platform_specific_options: PlatformSpecificOptions,
+    /// Whether this window has SRGB / vsync / hardware acceleration
+    pub renderer_options: RendererOptions,
     /// Color of the window background (can be transparent if necessary)
     pub background_color: ColorU,
     /// The `layout()` function for this window, stored as a callback function pointer,
@@ -969,6 +1033,8 @@ pub struct FullWindowState {
     /// Window options that can only be set on a certain platform
     /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
     pub platform_specific_options: PlatformSpecificOptions,
+    /// Information about vsync and hardware acceleration
+    pub renderer_options: RendererOptions,
     /// Background color of the window
     pub background_color: ColorU,
     /// The `layout()` function for this window, stored as a callback function pointer,
@@ -1016,6 +1082,7 @@ impl Default for FullWindowState {
             background_color: ColorU::WHITE,
             layout_callback: LayoutCallback::default(),
             close_callback: OptionCallback::None,
+            renderer_options: RendererOptions::default(),
 
             // --
 
@@ -1097,6 +1164,7 @@ impl From<FullWindowState> for WindowState {
             background_color: full_window_state.background_color,
             layout_callback: full_window_state.layout_callback,
             close_callback: full_window_state.close_callback,
+            renderer_options: full_window_state.renderer_options,
         }
     }
 }
@@ -1484,7 +1552,7 @@ pub struct WindowCreateOptions {
     // /// Which monitor should the window be created on?
     // pub monitor: Monitor,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
-    pub renderer_type: RendererType,
+    pub renderer: OptionRendererOptions,
     /// Override the default window theme (set to `None` to use the OS-provided theme)
     pub theme: OptionWindowTheme,
     /// Optional callback to run when the window has been created (runs only once on startup)
@@ -1495,7 +1563,7 @@ impl Default for WindowCreateOptions {
     fn default() -> Self {
         Self {
             state: WindowState::default(),
-            renderer_type: RendererType::default(),
+            renderer: OptionRendererOptions::None,
             theme: OptionWindowTheme::None,
             create_callback: OptionCallback::None,
         }
@@ -1512,108 +1580,28 @@ impl WindowCreateOptions {
 }
 
 /// Force a specific renderer.
+///
 /// By default, Azul will try to use the hardware renderer and fall
 /// back to the software renderer if it can't create an OpenGL 3.2 context.
 /// However, in some cases a hardware renderer might create problems
 /// or you want to force either a software or hardware renderer.
 ///
 /// If the field `renderer_type` on the `WindowCreateOptions` is not
-/// `RendererType::Default`, the `create_window` method will try to create
+/// `None`, the `create_window` method will try to create
 /// a window with the specific renderer type and **crash** if the renderer is
 /// not available for whatever reason.
 ///
 /// If you don't know what any of this means, leave it at `Default`.
-#[cfg_attr(not(feature = "opengl"), repr(C))]
-#[cfg_attr(feature = "opengl", repr(C, u8))]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum RendererType {
-    /// Use the hardware renderer first, then fall back to OSMesa
-    Default,
     /// Force hardware rendering
-    ForceHardware,
+    Hardware,
     /// Force software rendering
-    ForceSoftware,
-    /// Render using a custom OpenGL implementation
-    #[cfg(feature = "opengl")]
-    Custom(GlContextPtr),
+    Software,
 }
 
-impl RendererType {
-    #[inline(always)]
-    fn get_type(&self) -> RendererTypeNoData {
-        match self {
-            RendererType::Default => RendererTypeNoData::Default,
-            RendererType::ForceHardware => RendererTypeNoData::ForceHardware,
-            RendererType::ForceSoftware => RendererTypeNoData::ForceSoftware,
-            #[cfg(feature = "opengl")]
-            RendererType::Custom(_) => RendererTypeNoData::Custom,
-        }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum RendererTypeNoData {
-    Default,
-    ForceHardware,
-    ForceSoftware,
-    Custom,
-}
-
-impl Clone for RendererType {
-    fn clone(&self) -> Self {
-        use self::RendererType::*;
-        match self {
-            Default => Default,
-            ForceHardware => ForceHardware,
-            ForceSoftware => ForceSoftware,
-            #[cfg(feature = "opengl")]
-            Custom(gl) => Custom(gl.clone()),
-        }
-    }
-}
-
-impl PartialOrd for RendererType {
-    fn partial_cmp(&self, other: &RendererType) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for RendererType {
-    fn cmp(&self, other: &RendererType) -> Ordering {
-        self.get_type().cmp(&other.get_type())
-    }
-}
-
-impl PartialEq for RendererType {
-    fn eq(&self, other: &RendererType) -> bool {
-        self.get_type().eq(&other.get_type())
-    }
-}
-
-impl Eq for RendererType { }
-
-impl Hash for RendererType {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
-        self.get_type().hash(state);
-    }
-}
-
-impl fmt::Debug for RendererType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            RendererType::Default => write!(f, "Default"),
-            RendererType::ForceHardware => write!(f, "ForceHardware"),
-            RendererType::ForceSoftware => write!(f, "ForceSoftware"),
-            #[cfg(feature = "opengl")]
-            RendererType::Custom(_) => write!(f, "Custom"),
-        }
-    }
-}
-
-impl Default for RendererType {
-    fn default() -> Self {
-        RendererType::Default
-    }
-}
+impl_option!(RendererType, OptionRendererType, [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum UpdateFocusWarning {

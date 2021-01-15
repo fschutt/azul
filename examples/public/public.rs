@@ -17,19 +17,10 @@ struct Data {
 
 extern "C" fn layout(data: &RefAny, _info: LayoutInfo) -> StyledDom {
     let data = data.downcast_ref::<Data>().unwrap();
-
-    Dom::body()
-    .with_child(
+    Dom::body().with_child(
         Dom::label(format!("hello: {}", data.counter).into())
         .with_inline_css(CssProperty::text_color(StyleTextColor { inner: ColorU { r: 0, g: 0, b: 0, a: 255 } }))
-    )
-    .style(Css::from_string("
-        body {
-            border-radius: 10px;
-            background: linear-gradient(red, blue);
-        }
-        p { color: black; }
-    ".into()))
+    ).style(Css::empty())
 }
 
 #[derive(Debug)]
@@ -39,13 +30,10 @@ struct TimerData {
 
 extern "C" fn resize_window_timer(_app_data: &mut RefAny, timer_data: &mut RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
 
-    println!("app_data: {:#?}", _app_data);
-    println!("timer_data: {:#?}", timer_data);
     let mut data = timer_data.downcast_mut::<TimerData>().unwrap();
-    // println!("data: {:#?}", data);
-
-
     let mut new_window_state = info.callback_info.get_window_state();
+
+    println!("timer run: {:?}", info.call_count);
 
     if data.flip {
         new_window_state.size.dimensions.width += 50.0;
@@ -64,9 +52,8 @@ extern "C" fn resize_window_timer(_app_data: &mut RefAny, timer_data: &mut RefAn
 }
 
 extern "C" fn start_timer(_app_data: &mut RefAny, mut info: CallbackInfo) -> CallbackReturn {
-    let timer =
-        Timer::new(RefAny::new(TimerData { flip: false }), resize_window_timer)
-        .with_interval(Duration::milliseconds(500));
+
+    let timer = Timer::new(RefAny::new(TimerData { flip: false }), resize_window_timer);
 
     info.start_timer(TimerId::unique(), timer);
 
@@ -80,7 +67,7 @@ fn main() {
 
     let mut create_options = WindowCreateOptions::new(layout);
     create_options.create_callback = Some(Callback { cb: start_timer }).into();
-    create_options.state.background_color = ColorU { r: 255, g: 0, b: 0, a: 10 };
+    create_options.state.background_color = ColorU { r: 255, g: 0, b: 0, a: 255 };
 
     app.run(create_options);
 }

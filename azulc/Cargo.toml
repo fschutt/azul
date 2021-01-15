@@ -21,18 +21,18 @@ name = "azulc"
 path = "src/main.rs"
 
 [dependencies]
-gleam                   = { version = "0.11.0",          default-features = false }
-xmlparser               = { version = "0.13.2",          default-features = false }
-azul-core               = { path = "../azul-core",       version = "0.0.2",          default-features = false, features = ["opengl"] }
+gleam                   = { version = "0.13.1",          default-features = false }
+xmlparser               = { version = "0.13.3",          default-features = false }
+azul-core               = { path = "../azul-core",       version = "0.0.2",          default-features = false, features = ["parallel", "opengl"] }
 azul-css                = { path = "../azul-css",        version = "0.0.1",          default-features = false }
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",          default-features = false }
 azul-layout             = { path = "../azul-layout",     default-features = false }
-image                   = { version = "0.23.6",          default-features = false,       optional = true,    features = ["gif", "jpeg", "png", "tiff", "bmp"]    }
-font-loader             = { version = "0.8.0",           default-features = false,       optional = true                                                                     }
+image                   = { version = "0.23.12",         default-features = false,       optional = true,    features = ["gif", "jpeg", "png", "tiff", "bmp"]    }
+font-loader             = { version = "0.11.0",          default-features = false,       optional = true                                                                     }
 lyon                    = { version = "0.15.8",  default-features = false,  optional = true }
 rusttype                = { version = "0.9.2",   default-features = false,  features = ["std"], optional = true }
 rayon                   = { version = "1.5.0",   default-features = false,  optional = true }
-usvg                    = { version = "0.11.0",  default-features = false,  features = ["text"], optional = true }
+usvg                    = { version = "0.13.0",  default-features = false,  optional = true }
 roxmltree               = { version = "0.13.0",  default-features = false,  optional = true }
 owned_ttf_parser        = { version = "0.6.0",   default-features = false,  optional = true }
 

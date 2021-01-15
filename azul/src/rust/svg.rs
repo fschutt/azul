@@ -8,22 +8,22 @@
     /// `SvgMultiPolygon` struct
     #[doc(inline)] pub use crate::dll::AzSvgMultiPolygon as SvgMultiPolygon;
 
-    impl Clone for SvgMultiPolygon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_multi_polygon_deep_copy)(self) } }
-    impl Drop for SvgMultiPolygon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_multi_polygon_delete)(self); } }
+    impl Clone for SvgMultiPolygon { fn clone(&self) -> Self { crate::dll::az_svg_multi_polygon_deep_copy(self) } }
+    impl Drop for SvgMultiPolygon { fn drop(&mut self) { crate::dll::az_svg_multi_polygon_delete(self); } }
 
 
     /// `SvgNode` struct
     #[doc(inline)] pub use crate::dll::AzSvgNode as SvgNode;
 
-    impl Clone for SvgNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_node_deep_copy)(self) } }
-    impl Drop for SvgNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_node_delete)(self); } }
+    impl Clone for SvgNode { fn clone(&self) -> Self { crate::dll::az_svg_node_deep_copy(self) } }
+    impl Drop for SvgNode { fn drop(&mut self) { crate::dll::az_svg_node_delete(self); } }
 
 
     /// `SvgStyledNode` struct
     #[doc(inline)] pub use crate::dll::AzSvgStyledNode as SvgStyledNode;
 
-    impl Clone for SvgStyledNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_styled_node_deep_copy)(self) } }
-    impl Drop for SvgStyledNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_styled_node_delete)(self); } }
+    impl Clone for SvgStyledNode { fn clone(&self) -> Self { crate::dll::az_svg_styled_node_deep_copy(self) } }
+    impl Drop for SvgStyledNode { fn drop(&mut self) { crate::dll::az_svg_styled_node_delete(self); } }
 
 
     /// `SvgCircle` struct
@@ -36,8 +36,8 @@
     /// `SvgPath` struct
     #[doc(inline)] pub use crate::dll::AzSvgPath as SvgPath;
 
-    impl Clone for SvgPath { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_path_deep_copy)(self) } }
-    impl Drop for SvgPath { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_path_delete)(self); } }
+    impl Clone for SvgPath { fn clone(&self) -> Self { crate::dll::az_svg_path_deep_copy(self) } }
+    impl Drop for SvgPath { fn drop(&mut self) { crate::dll::az_svg_path_delete(self); } }
 
 
     /// `SvgPathElement` struct
@@ -92,8 +92,8 @@
     /// `TesselatedCPUSvgNode` struct
     #[doc(inline)] pub use crate::dll::AzTesselatedCPUSvgNode as TesselatedCPUSvgNode;
 
-    impl Clone for TesselatedCPUSvgNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_tesselated_cpu_svg_node_deep_copy)(self) } }
-    impl Drop for TesselatedCPUSvgNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_tesselated_cpu_svg_node_delete)(self); } }
+    impl Clone for TesselatedCPUSvgNode { fn clone(&self) -> Self { crate::dll::az_tesselated_cpu_svg_node_deep_copy(self) } }
+    impl Drop for TesselatedCPUSvgNode { fn drop(&mut self) { crate::dll::az_tesselated_cpu_svg_node_delete(self); } }
 
 
     /// `SvgLineCap` struct
@@ -108,11 +108,11 @@
 
     impl SvgParseOptions {
         /// Creates a new `SvgParseOptions` instance.
-        pub fn default() -> Self { (crate::dll::get_azul_dll().az_svg_parse_options_default)() }
+        pub fn default() -> Self { crate::dll::az_svg_parse_options_default() }
     }
 
-    impl Clone for SvgParseOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_parse_options_deep_copy)(self) } }
-    impl Drop for SvgParseOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_parse_options_delete)(self); } }
+    impl Clone for SvgParseOptions { fn clone(&self) -> Self { crate::dll::az_svg_parse_options_deep_copy(self) } }
+    impl Drop for SvgParseOptions { fn drop(&mut self) { crate::dll::az_svg_parse_options_delete(self); } }
 
 
     /// `ShapeRendering` struct
@@ -148,11 +148,11 @@
 
     impl SvgRenderOptions {
         /// Creates a new `SvgRenderOptions` instance.
-        pub fn default() -> Self { (crate::dll::get_azul_dll().az_svg_render_options_default)() }
+        pub fn default() -> Self { crate::dll::az_svg_render_options_default() }
     }
 
-    impl Clone for SvgRenderOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_render_options_deep_copy)(self) } }
-    impl Drop for SvgRenderOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_render_options_delete)(self); } }
+    impl Clone for SvgRenderOptions { fn clone(&self) -> Self { crate::dll::az_svg_render_options_deep_copy(self) } }
+    impl Drop for SvgRenderOptions { fn drop(&mut self) { crate::dll::az_svg_render_options_delete(self); } }
 
 
     /// `SvgFitTo` struct
@@ -167,18 +167,18 @@
 
     impl Svg {
         /// Creates a new `Svg` instance.
-        pub fn parse(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::result::ResultSvgSvgParseError { (crate::dll::get_azul_dll().az_svg_parse)(svg_bytes, parse_options) }
+        pub fn parse(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::result::ResultSvgSvgParseError { crate::dll::az_svg_parse(svg_bytes, parse_options) }
     }
 
-    impl Clone for Svg { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_deep_copy)(self) } }
-    impl Drop for Svg { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_delete)(self); } }
+    impl Clone for Svg { fn clone(&self) -> Self { crate::dll::az_svg_deep_copy(self) } }
+    impl Drop for Svg { fn drop(&mut self) { crate::dll::az_svg_delete(self); } }
 
 
     /// `SvgXmlNode` struct
     #[doc(inline)] pub use crate::dll::AzSvgXmlNode as SvgXmlNode;
 
-    impl Clone for SvgXmlNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_xml_node_deep_copy)(self) } }
-    impl Drop for SvgXmlNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_xml_node_delete)(self); } }
+    impl Clone for SvgXmlNode { fn clone(&self) -> Self { crate::dll::az_svg_xml_node_deep_copy(self) } }
+    impl Drop for SvgXmlNode { fn drop(&mut self) { crate::dll::az_svg_xml_node_delete(self); } }
 
 
     /// `SvgLineJoin` struct

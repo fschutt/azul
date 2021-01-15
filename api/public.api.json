@@ -1070,6 +1070,14 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionRendererType": {
+					"external": "azul_impl::window::OptionRendererType",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "RendererType" }}
+					]
+				},
 				"OptionCallback": {
 					"external": "azul_impl::callbacks::OptionCallback",
 					"derive": ["Copy"],
@@ -2119,7 +2127,7 @@
 								{"data": "RefAny"},
 								{"config": "AppConfig"}
 							],
-							"fn_body": "App::new(data, config).unwrap()"
+							"fn_body": "App::new(data, config)"
 						}
 					},
 					"functions": {
@@ -2872,7 +2880,7 @@
 							"fn_args": [
 								{"s": "String"}
 							],
-							"fn_body":"css::from_str(s.as_str()).unwrap()"
+							"fn_body":"css::from_str(s.as_str()).unwrap_or_default()"
 						}
 					}
 				},
@@ -7498,6 +7506,7 @@
 					            {"self": "ref"},
 					            {"sync": "GLsyncPtr"}, {"flags": "u32"}, {"timeout": "u64"}
 					        ],
+					        "returns": "u32",
 					        "fn_body": "glcontextptr.client_wait_sync(sync, flags, timeout)"
 					    },
 					    "wait_sync": {
@@ -7663,6 +7672,25 @@
 					            {"source_id": "u32"}, {"source_level": "i32"}, {"dest_target": "u32"}, {"dest_id": "u32"}, {"dest_level": "i32"}, {"x_offset": "i32"}, {"y_offset": "i32"}, {"z_offset": "i32"}, {"x": "i32"}, {"y": "i32"}, {"z": "i32"}, {"width": "i32"}, {"height": "i32"}, {"depth": "i32"}, {"unpack_flip_y": "u8"}, {"unpack_premultiply_alpha": "u8"}, {"unpack_unmultiply_alpha": "u8"}
 					        ],
 					        "fn_body": "glcontextptr.copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
+					    },
+					    "buffer_storage": {
+					        "fn_args": [
+					            {"self": "ref"},
+					            {"target": "u32"},
+					            {"size": "isize"},
+					            {"data": "*const c_void"},
+					            {"flags": "u32"}
+					        ],
+					        "fn_body": "glcontextptr.buffer_storage(target, size, data, flags)"
+					    },
+					    "flush_mapped_buffer_range": {
+					        "fn_args": [
+					            {"self": "ref"},
+					            {"target": "u32"},
+					            {"offset": "isize"},
+					            {"length": "isize"}
+					        ],
+					        "fn_body": "glcontextptr.flush_mapped_buffer_range(target, offset, length)"
 					    }
 					}
 				},
@@ -8229,6 +8257,39 @@
 		"window": {
 			"doc": "Window creation / startup configuration",
 			"classes": {
+				"RendererOptions": {
+					"external": "azul_impl::window::RendererOptions",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"vsync": {"type": "Vsync"}},
+						{"srgb": {"type": "Srgb"}},
+						{"hw_accel": {"type": "HwAcceleration"}}
+					]
+				},
+				"Vsync": {
+					"external": "azul_impl::window::Vsync",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Enabled": {}},
+						{"Disabled": {}}
+					]
+				},
+				"Srgb": {
+					"external": "azul_impl::window::Srgb",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Enabled": {}},
+						{"Disabled": {}}
+					]
+				},
+				"HwAcceleration": {
+					"external": "azul_impl::window::HwAcceleration",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Enabled": {}},
+						{"Disabled": {}}
+					]
+				},
 				"LayoutPoint": {
 					"external": "azul_impl::css::LayoutPoint",
 					"derive": ["Copy"],
@@ -8634,19 +8695,33 @@
 				"DebugState": {
 					"external": "azul_impl::window::DebugState",
 					"struct_fields": [
-						{"profiler_dbg": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::PROFILER_DBG`"}},
-						{"render_target_dbg": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::RENDER_TARGET_DBG`"}},
-						{"texture_cache_dbg": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::TEXTURE_CACHE_DBG`"}},
-						{"gpu_time_queries": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::GPU_TIME_QUERIES`"}},
-						{"gpu_sample_queries": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::GPU_SAMPLE_QUERIES`"}},
-						{"disable_batching": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::DISABLE_BATCHING`"}},
-						{"epochs": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::EPOCHS`"}},
-						{"compact_profiler": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::COMPACT_PROFILER`"}},
-						{"echo_driver_messages": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::ECHO_DRIVER_MESSAGES`"}},
-						{"new_frame_indicator": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::NEW_FRAME_INDICATOR`"}},
-						{"new_scene_indicator": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::NEW_SCENE_INDICATOR`"}},
-						{"show_overdraw": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::SHOW_OVERDRAW`"}},
-						{"gpu_cache_dbg": {"type": "bool", "doc": "Toggles `webrender::DebugFlagsFGPU_CACHE_DBG`"}}
+						{"profiler_dbg": {"type": "bool"}},
+						{"render_target_dbg": {"type": "bool"}},
+						{"texture_cache_dbg": {"type": "bool"}},
+						{"gpu_time_queries": {"type": "bool"}},
+						{"gpu_sample_queries": {"type": "bool"}},
+						{"disable_batching": {"type": "bool"}},
+						{"epochs": {"type": "bool"}},
+						{"echo_driver_messages": {"type": "bool"}},
+						{"show_overdraw": {"type": "bool"}},
+						{"gpu_cache_dbg": {"type": "bool"}},
+						{"texture_cache_dbg_clear_evicted": {"type": "bool"}},
+						{"picture_caching_dbg": {"type": "bool"}},
+						{"primitive_dbg": {"type": "bool"}},
+						{"zoom_dbg": {"type": "bool"}},
+						{"small_screen": {"type": "bool"}},
+						{"disable_opaque_pass": {"type": "bool"}},
+						{"disable_alpha_pass": {"type": "bool"}},
+						{"disable_clip_masks": {"type": "bool"}},
+						{"disable_text_prims": {"type": "bool"}},
+						{"disable_gradient_prims": {"type": "bool"}},
+						{"obscure_images": {"type": "bool"}},
+						{"glyph_flashing": {"type": "bool"}},
+						{"smart_profiler": {"type": "bool"}},
+						{"invalidation_dbg": {"type": "bool"}},
+						{"tile_cache_logging_dbg": {"type": "bool"}},
+						{"profiler_capture": {"type": "bool"}},
+						{"force_picture_invalidation": {"type": "bool"}}
 					]
 				},
 				"KeyboardState": {
@@ -8764,11 +8839,10 @@
 				},
 				"RendererType": {
 					"external": "azul_impl::window::RendererType",
+					"derive": ["Copy"],
 					"enum_fields": [
-						{"Default": {"doc": "Use the hardware renderer first, then fall back to OSMesa"}},
-						{"ForceHardware": {"doc": "Force hardware rendering (OpenGL 3.3 / OpenGL ES 3.0)"}},
-						{"ForceSoftware": {"doc": "Force software rendering (not yet implemented)"}},
-						{"Custom": {"type": "GlContextPtr", "doc": "Render using a custom OpenGL implementation"}}
+						{"Hardware": {"doc": "Force hardware rendering (OpenGL 3.3 / OpenGL ES 3.0)"}},
+						{"Software": {"doc": "Force software rendering (not yet implemented)"}}
 					]
 				},
 				"StringPair": {
@@ -8864,6 +8938,7 @@
 						{"touch_state": {"type": "TouchState", "doc": "Current touch state, stores all states of currently connected touch input devices, pencils, tablets, etc. - NOTE: readonly field - mutating this field will not get synchronized with the OS"}},
 						{"ime_position": {"type": "ImePosition", "doc": "Sets location of IME candidate box in client area coordinates (relative to the top left of the window)"}},
 						{"platform_specific_options": {"type": "PlatformSpecificOptions", "doc": "Window options that can only be set on a certain platform (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`)."}},
+						{"renderer_options": {"type": "RendererOptions", "doc": "Whether this window has SRGB / vsync / hardware acceleration"}},
 						{"background_color": {"type": "ColorU", "doc": "Color of the window background (can be transparent if necessary)"}},
 						{"layout_callback": {"type": "LayoutCallback"}},
 						{"close_callback": {"type": "OptionCallback", "doc": "Callback to run before the window closes, if `DoNothing` is returned, window won't close"}}
@@ -8893,7 +8968,7 @@
 					"external": "azul_impl::window::WindowCreateOptions",
 					"struct_fields": [
 						{"state": {"type": "WindowState"}},
-						{"renderer_type": {"type": "RendererType"}},
+						{"renderer_type": {"type": "OptionRendererType"}},
 						{"theme": {"type": "OptionWindowTheme"}},
 						{"create_callback": {"type": "OptionCallback", "doc": "Callback to run once when the window is created"}}
 					],
