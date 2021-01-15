@@ -66,7 +66,7 @@ fn main() {
     let app = App::new(RefAny::new(data), AppConfig::default());
 
     let mut create_options = WindowCreateOptions::new(layout);
-    create_options.create_callback = Some(Callback { cb: start_timer }).into();
+    // create_options.create_callback = Some(Callback { cb: start_timer }).into();
     create_options.state.background_color = ColorU { r: 255, g: 0, b: 0, a: 255 };
 
     app.run(create_options);

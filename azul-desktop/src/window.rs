@@ -1148,8 +1148,10 @@ impl Window {
             r.update();
             let _ = r.render(framebuffer_size, 0);
             clean_up_unused_opengl_textures(r.flush_pipeline_info(), &self.internal.pipeline_id);
-            self.display.window().request_redraw();
+            // self.display.window().request_redraw();
         }
+
+        self.display.windowed_context().unwrap().swap_buffers().unwrap();
 
         // self.upload_software_to_native(); // does nothing if hardware acceleration is on
         // gl.bind_framebuffer(gl::FRAMEBUFFER, 0);

@@ -484,16 +484,10 @@ fn run_inner(app: App) -> ! {
                 }
             },
             Event::RedrawRequested(window_id) => {
-
-                let mut window = match active_windows.get_mut(&window_id) {
-                    Some(s) => s,
-                    None => { return; },
-                };
-
-                // Render + swap the screen (call webrender + draw to texture)
-                println!("frame finished, swapping!");
-                window.display.make_current();
-                window.display.windowed_context().unwrap().swap_buffers().unwrap();
+                // Ignore this event
+                //
+                // If we redraw here, the screen will flicker because the
+                // screen may not be finished painting
             },
             Event::WindowEvent { event, window_id } => {
 
@@ -622,6 +616,7 @@ fn run_inner(app: App) -> ! {
                 for window in active_windows.values_mut() {
                     // transaction has finished
                     window.render_block_and_swap();
+                    println!("frame finished, swapping!");
                 }
             }
             _ => { },
