@@ -5,5 +5,8 @@ python gen-api.py
 cd ..
 
 cd %~dp0\azul-dll
-cargo test
+SET CC=clang-cl
+SET CXX=clang-cl
+SET RUSTFLAGS=-C target-feature=+crt-static -C link-arg=-s
+cargo test --all-features --release
 cd ..

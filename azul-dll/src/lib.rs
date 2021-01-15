@@ -532,9 +532,9 @@ pub use AzNodeDataVecTT as AzNodeDataVec;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_node_data_vec_deep_copy(object: &AzNodeDataVec) -> AzNodeDataVec { object.clone() }
 
-/// Re-export of rust-allocated (stack based) `OptionRendererType` struct
-pub type AzOptionRendererTypeTT = azul_impl::window::OptionRendererType;
-pub use AzOptionRendererTypeTT as AzOptionRendererType;
+/// Re-export of rust-allocated (stack based) `OptionRendererOptions` struct
+pub type AzOptionRendererOptionsTT = azul_impl::window::OptionRendererOptions;
+pub use AzOptionRendererOptionsTT as AzOptionRendererOptions;
 
 /// Re-export of rust-allocated (stack based) `OptionCallback` struct
 pub type AzOptionCallbackTT = azul_impl::callbacks::OptionCallback;
@@ -2324,18 +2324,34 @@ pub use AzDomTT as AzDom;
 #[no_mangle] pub extern "C" fn az_dom_add_inline_css(dom: &mut AzDom, prop: AzCssProperty) { dom.add_inline_css(prop); }
 /// Same as [`Dom::add_inline_css`](#method.add_inline_css), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_with_inline_css(mut dom: AzDom, prop: AzCssProperty) -> AzDom { az_dom_add_inline_css(&mut dom, prop); dom }
+/// Equivalent to the Rust `Dom::set_inline_css_props()` function.
+#[no_mangle] pub extern "C" fn az_dom_set_inline_css_props(dom: &mut AzDom, props: AzCssPropertyVec) { dom.set_inline_css_props(props); }
+/// Same as [`Dom::set_inline_css_props`](#method.set_inline_css_props), but as a builder method
+#[no_mangle] pub extern "C" fn az_dom_with_inline_css_props(mut dom: AzDom, props: AzCssPropertyVec) -> AzDom { az_dom_set_inline_css_props(&mut dom, props); dom }
 /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
 #[no_mangle] pub extern "C" fn az_dom_add_inline_hover_css(dom: &mut AzDom, prop: AzCssProperty) { dom.add_inline_hover_css(prop); }
 /// Same as [`Dom::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_with_inline_hover_css(mut dom: AzDom, prop: AzCssProperty) -> AzDom { az_dom_add_inline_hover_css(&mut dom, prop); dom }
+/// Equivalent to the Rust `Dom::set_inline_hover_css_props()` function.
+#[no_mangle] pub extern "C" fn az_dom_set_inline_hover_css_props(dom: &mut AzDom, props: AzCssPropertyVec) { dom.set_inline_hover_css_props(props); }
+/// Same as [`Dom::set_inline_hover_css_props`](#method.set_inline_hover_css_props), but as a builder method
+#[no_mangle] pub extern "C" fn az_dom_with_inline_hover_css_props(mut dom: AzDom, props: AzCssPropertyVec) -> AzDom { az_dom_set_inline_hover_css_props(&mut dom, props); dom }
 /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
 #[no_mangle] pub extern "C" fn az_dom_add_inline_active_css(dom: &mut AzDom, prop: AzCssProperty) { dom.add_inline_active_css(prop); }
 /// Same as [`Dom::add_inline_active_css`](#method.add_inline_active_css), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_with_inline_active_css(mut dom: AzDom, prop: AzCssProperty) -> AzDom { az_dom_add_inline_active_css(&mut dom, prop); dom }
+/// Equivalent to the Rust `Dom::set_inline_active_css_props()` function.
+#[no_mangle] pub extern "C" fn az_dom_set_inline_active_css_props(dom: &mut AzDom, props: AzCssPropertyVec) { dom.set_inline_active_css_props(props); }
+/// Same as [`Dom::set_inline_active_css_props`](#method.set_inline_active_css_props), but as a builder method
+#[no_mangle] pub extern "C" fn az_dom_with_inline_active_css_props(mut dom: AzDom, props: AzCssPropertyVec) -> AzDom { az_dom_set_inline_active_css_props(&mut dom, props); dom }
 /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
 #[no_mangle] pub extern "C" fn az_dom_add_inline_focus_css(dom: &mut AzDom, prop: AzCssProperty) { dom.add_inline_focus_css(prop); }
 /// Same as [`Dom::add_inline_focus_css`](#method.add_inline_active_css), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_with_inline_focus_css(mut dom: AzDom, prop: AzCssProperty) -> AzDom { az_dom_add_inline_focus_css(&mut dom, prop); dom }
+/// Equivalent to the Rust `Dom::set_inline_focus_css_props()` function.
+#[no_mangle] pub extern "C" fn az_dom_set_inline_focus_css_props(dom: &mut AzDom, props: AzCssPropertyVec) { dom.set_inline_focus_css_props(props); }
+/// Same as [`Dom::set_inline_focus_css_props`](#method.set_inline_focus_css_props), but as a builder method
+#[no_mangle] pub extern "C" fn az_dom_with_inline_focus_css_props(mut dom: AzDom, props: AzCssPropertyVec) -> AzDom { az_dom_set_inline_focus_css_props(&mut dom, props); dom }
 /// Sets the `is_draggable` attribute of this DOM node (default: false)
 #[no_mangle] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDom, is_draggable: bool) { dom.set_is_draggable(is_draggable); }
 /// Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method
@@ -2440,14 +2456,36 @@ pub use AzNodeDataTT as AzNodeData;
 #[no_mangle] pub extern "C" fn az_node_data_with_callback(mut nodedata: AzNodeData, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) -> AzNodeData { az_node_data_add_callback(&mut nodedata, event, data, callback); nodedata }
 /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
 #[no_mangle] pub extern "C" fn az_node_data_add_inline_css(nodedata: &mut AzNodeData, prop: AzCssProperty) { nodedata.add_inline_css(prop); }
-/// Same as [`NodeData::add_inline_focus_css`](#method.add_inline_focus_css), but as a builder method
-#[no_mangle] pub extern "C" fn az_node_data_with_inline_css(mut nodedata: AzNodeData, prop: AzCssProperty) -> AzNodeData { az_node_data_add_inline_focus_css(&mut nodedata, prop); nodedata }
+/// Same as [`NodeData::add_inline_css`](#method.add_inline_css), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_inline_css(mut nodedata: AzNodeData, prop: AzCssProperty) -> AzNodeData { az_node_data_add_inline_css(&mut nodedata, prop); nodedata }
+/// Equivalent to the Rust `NodeData::set_inline_css_props()` function.
+#[no_mangle] pub extern "C" fn az_node_data_set_inline_css_props(nodedata: &mut AzNodeData, props: AzCssPropertyVec) { nodedata.set_inline_css_props(props); }
+/// Same as [`NodeData::set_inline_css_props`](#method.set_inline_active_css_props), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_inline_css_props(mut nodedata: AzNodeData, props: AzCssPropertyVec) -> AzNodeData { az_node_data_set_inline_css_props(&mut nodedata, props); nodedata }
 /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
 #[no_mangle] pub extern "C" fn az_node_data_add_inline_hover_css(nodedata: &mut AzNodeData, prop: AzCssProperty) { nodedata.add_inline_hover_css(prop); }
+/// Same as [`NodeData::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_inline_hover_css(mut nodedata: AzNodeData, prop: AzCssProperty) -> AzNodeData { az_node_data_add_inline_hover_css(&mut nodedata, prop); nodedata }
+/// Equivalent to the Rust `NodeData::set_inline_hover_css_props()` function.
+#[no_mangle] pub extern "C" fn az_node_data_set_inline_hover_css_props(nodedata: &mut AzNodeData, props: AzCssPropertyVec) { nodedata.set_inline_hover_css_props(props); }
+/// Same as [`NodeData::set_inline_hover_css_props`](#method.set_inline_active_css_props), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_inline_hover_css_props(mut nodedata: AzNodeData, props: AzCssPropertyVec) -> AzNodeData { az_node_data_set_inline_hover_css_props(&mut nodedata, props); nodedata }
 /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
 #[no_mangle] pub extern "C" fn az_node_data_add_inline_active_css(nodedata: &mut AzNodeData, prop: AzCssProperty) { nodedata.add_inline_active_css(prop); }
+/// Same as [`NodeData::add_inline_active_css`](#method.add_inline_active_css), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_inline_active_css(mut nodedata: AzNodeData, prop: AzCssProperty) -> AzNodeData { az_node_data_add_inline_active_css(&mut nodedata, prop); nodedata }
+/// Equivalent to the Rust `NodeData::set_inline_active_css_props()` function.
+#[no_mangle] pub extern "C" fn az_node_data_set_inline_active_css_props(nodedata: &mut AzNodeData, props: AzCssPropertyVec) { nodedata.set_inline_active_css_props(props); }
+/// Same as [`NodeData::set_inline_active_css_props`](#method.set_inline_active_css_props), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_inline_active_css_props(mut nodedata: AzNodeData, props: AzCssPropertyVec) -> AzNodeData { az_node_data_set_inline_active_css_props(&mut nodedata, props); nodedata }
 /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
 #[no_mangle] pub extern "C" fn az_node_data_add_inline_focus_css(nodedata: &mut AzNodeData, prop: AzCssProperty) { nodedata.add_inline_focus_css(prop); }
+/// Same as [`NodeData::add_inline_focus_css`](#method.add_inline_focus_css), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_inline_focus_css(mut nodedata: AzNodeData, prop: AzCssProperty) -> AzNodeData { az_node_data_add_inline_focus_css(&mut nodedata, prop); nodedata }
+/// Equivalent to the Rust `NodeData::set_inline_focus_css_props()` function.
+#[no_mangle] pub extern "C" fn az_node_data_set_inline_focus_css_props(nodedata: &mut AzNodeData, props: AzCssPropertyVec) { nodedata.set_inline_focus_css_props(props); }
+/// Same as [`NodeData::set_inline_focus_css_props`](#method.set_inline_focus_css_props), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_inline_focus_css_props(mut nodedata: AzNodeData, props: AzCssPropertyVec) -> AzNodeData { az_node_data_set_inline_focus_css_props(&mut nodedata, props); nodedata }
 /// Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method
 #[no_mangle] pub extern "C" fn az_node_data_with_clip_mask(mut nodedata: AzNodeData, clip_mask: AzOptionImageMask) -> AzNodeData { az_node_data_set_clip_mask(&mut nodedata, clip_mask); nodedata }
 /// Sets the `clip_mask` attribute of this `NodeData` (default: None)
@@ -3939,10 +3977,10 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
     }
-    /// Re-export of rust-allocated (stack based) `OptionRendererType` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionRendererType {
+    /// Re-export of rust-allocated (stack based) `OptionRendererOptions` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionRendererOptions {
         None,
-        Some(AzRendererType),
+        Some(AzRendererOptions),
     }
     /// Re-export of rust-allocated (stack based) `OptionCallback` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionCallback {
@@ -4598,7 +4636,6 @@ mod test_sizes {
         pub enable_visual_panic_hook: bool,
         pub enable_logging_on_panic: bool,
         pub enable_tab_navigation: bool,
-        pub renderer_type: AzRendererType,
         pub debug_state: AzDebugState,
     }
     /// Pointer to rust-allocated `Box<App>` struct
@@ -6487,6 +6524,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `GlContextPtr` struct
     #[repr(C)] #[derive(Debug)] pub struct AzGlContextPtr {
         pub(crate) ptr: *const c_void,
+        pub renderer_type: AzRendererType,
     }
     /// Re-export of rust-allocated (stack based) `Texture` struct
     #[repr(C)] #[derive(Debug)] pub struct AzTexture {
@@ -7325,7 +7363,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
     #[repr(C)] #[derive(Debug)] pub struct AzWindowCreateOptions {
         pub state: AzWindowState,
-        pub renderer_type: AzOptionRendererType,
+        pub renderer_type: AzOptionRendererOptions,
         pub theme: AzOptionWindowTheme,
         pub create_callback: AzOptionCallback,
     }
@@ -7369,7 +7407,7 @@ mod test_sizes {
         assert_eq!(Layout::new::<azul_impl::styled_dom::TagIdsToNodeIdsMappingVec>(), Layout::new::<AzTagIdsToNodeIdsMappingVec>());
         assert_eq!(Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), Layout::new::<AzParentWithNodeDepthVec>());
         assert_eq!(Layout::new::<azul_impl::styled_dom::NodeDataVec>(), Layout::new::<AzNodeDataVec>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionRendererType>(), Layout::new::<AzOptionRendererType>());
+        assert_eq!(Layout::new::<azul_impl::window::OptionRendererOptions>(), Layout::new::<AzOptionRendererOptions>());
         assert_eq!(Layout::new::<azul_impl::callbacks::OptionCallback>(), Layout::new::<AzOptionCallback>());
         assert_eq!(Layout::new::<azul_impl::task::OptionThreadSendMsg>(), Layout::new::<AzOptionThreadSendMsg>());
         assert_eq!(Layout::new::<azul_impl::css::OptionLayoutRect>(), Layout::new::<AzOptionLayoutRect>());

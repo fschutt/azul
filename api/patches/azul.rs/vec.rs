@@ -181,7 +181,7 @@
     impl From<std::vec::Vec<std::string::String>> for crate::vec::StringVec {
         fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {
             let mut vec: Vec<AzString> = v.into_iter().map(Into::into).collect();
-            (crate::dll::get_azul_dll().az_string_vec_copy_from)(vec.as_mut_ptr(), vec.len())
+            unsafe { crate::dll::az_string_vec_copy_from(vec.as_mut_ptr(), vec.len()) }
         }
     }
 

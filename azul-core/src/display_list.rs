@@ -80,8 +80,6 @@ impl CachedDisplayList {
 
         const DOM_ID: DomId = DomId::ROOT_ID;
 
-        println!("CachedDisplayList::new - window size: {:?}", full_window_state.size.dimensions);
-
         let mut dl = CachedDisplayList {
             root: push_rectangles_into_displaylist(
                 &layout_results[DOM_ID.inner].styled_dom.rects_in_rendering_order,

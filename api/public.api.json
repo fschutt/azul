@@ -1070,12 +1070,12 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
-				"OptionRendererType": {
-					"external": "azul_impl::window::OptionRendererType",
+				"OptionRendererOptions": {
+					"external": "azul_impl::window::OptionRendererOptions",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
-						{"Some": { "type": "RendererType" }}
+						{"Some": { "type": "RendererOptions" }}
 					]
 				},
 				"OptionCallback": {
@@ -2109,7 +2109,6 @@
 						{"enable_visual_panic_hook": {"type": "bool", "doc": "If the app crashes / panics, a window with a message box pops up"}},
 						{"enable_logging_on_panic": {"type": "bool", "doc": "If set, a backtrace + error information gets logged to stdout (if the log_level is not `LogLevel::Off`)"}},
 						{"enable_tab_navigation": {"type": "bool", "doc": "Whether keyboard navigation should be enabled"}},
-						{"renderer_type": {"type": "RendererType", "doc": "Whether to force a hardware, software or custom renderer backend"}},
 						{"debug_state": {"type": "DebugState", "doc": "WebRender debug state for all windows (draws overdraw / frame time info on the screen)"}}
 					],
 					"constructors": {
@@ -5048,6 +5047,22 @@
 							"returns": "Dom",
 							"fn_body": "az_dom_add_inline_css(&mut dom, prop); dom"
 						},
+						"set_inline_css_props": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"props": "CssPropertyVec"}
+							],
+							"fn_body": "dom.set_inline_css_props(props);"
+						},
+						"with_inline_css_props": {
+							"doc": "Same as [`Dom::set_inline_css_props`](#method.set_inline_css_props), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"props": "CssPropertyVec"}
+							],
+							"returns": "Dom",
+							"fn_body": "az_dom_set_inline_css_props(&mut dom, props); dom"
+						},
 						"add_inline_hover_css": {
 							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
 							"fn_args": [
@@ -5064,6 +5079,22 @@
 							],
 							"returns": "Dom",
 							"fn_body": "az_dom_add_inline_hover_css(&mut dom, prop); dom"
+						},
+						"set_inline_hover_css_props": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"props": "CssPropertyVec"}
+							],
+							"fn_body": "dom.set_inline_hover_css_props(props);"
+						},
+						"with_inline_hover_css_props": {
+							"doc": "Same as [`Dom::set_inline_hover_css_props`](#method.set_inline_hover_css_props), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"props": "CssPropertyVec"}
+							],
+							"returns": "Dom",
+							"fn_body": "az_dom_set_inline_hover_css_props(&mut dom, props); dom"
 						},
 						"add_inline_active_css": {
 							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
@@ -5082,6 +5113,22 @@
 							"returns": "Dom",
 							"fn_body": "az_dom_add_inline_active_css(&mut dom, prop); dom"
 						},
+						"set_inline_active_css_props": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"props": "CssPropertyVec"}
+							],
+							"fn_body": "dom.set_inline_active_css_props(props);"
+						},
+						"with_inline_active_css_props": {
+							"doc": "Same as [`Dom::set_inline_active_css_props`](#method.set_inline_active_css_props), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"props": "CssPropertyVec"}
+							],
+							"returns": "Dom",
+							"fn_body": "az_dom_set_inline_active_css_props(&mut dom, props); dom"
+						},
 						"add_inline_focus_css": {
 							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
 							"fn_args": [
@@ -5098,6 +5145,22 @@
 							],
 							"returns": "Dom",
 							"fn_body": "az_dom_add_inline_focus_css(&mut dom, prop); dom"
+						},
+						"set_inline_focus_css_props": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"props": "CssPropertyVec"}
+							],
+							"fn_body": "dom.set_inline_focus_css_props(props);"
+						},
+						"with_inline_focus_css_props": {
+							"doc": "Same as [`Dom::set_inline_focus_css_props`](#method.set_inline_focus_css_props), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"props": "CssPropertyVec"}
+							],
+							"returns": "Dom",
+							"fn_body": "az_dom_set_inline_focus_css_props(&mut dom, props); dom"
 						},
 						"set_is_draggable": {
 							"doc": "Sets the `is_draggable` attribute of this DOM node (default: false)",
@@ -5415,6 +5478,22 @@
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_inline_css(&mut nodedata, prop); nodedata"
 						},
+						"set_inline_css_props": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"props": "CssPropertyVec"}
+							],
+							"fn_body": "nodedata.set_inline_css_props(props);"
+						},
+						"with_inline_css_props": {
+							"doc": "Same as [`NodeData::set_inline_css_props`](#method.set_inline_active_css_props), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"props": "CssPropertyVec"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_set_inline_css_props(&mut nodedata, props); nodedata"
+						},
 						"add_inline_hover_css": {
 							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
 							"fn_args": [
@@ -5423,7 +5502,7 @@
 							],
 							"fn_body": "nodedata.add_inline_hover_css(prop);"
 						},
-						"with_inline_css": {
+						"with_inline_hover_css": {
 							"doc": "Same as [`NodeData::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
@@ -5431,6 +5510,22 @@
 							],
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_inline_hover_css(&mut nodedata, prop); nodedata"
+						},
+						"set_inline_hover_css_props": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"props": "CssPropertyVec"}
+							],
+							"fn_body": "nodedata.set_inline_hover_css_props(props);"
+						},
+						"with_inline_hover_css_props": {
+							"doc": "Same as [`NodeData::set_inline_hover_css_props`](#method.set_inline_active_css_props), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"props": "CssPropertyVec"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_set_inline_hover_css_props(&mut nodedata, props); nodedata"
 						},
 						"add_inline_active_css": {
 							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
@@ -5440,7 +5535,7 @@
 							],
 							"fn_body": "nodedata.add_inline_active_css(prop);"
 						},
-						"with_inline_css": {
+						"with_inline_active_css": {
 							"doc": "Same as [`NodeData::add_inline_active_css`](#method.add_inline_active_css), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
@@ -5448,6 +5543,22 @@
 							],
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_inline_active_css(&mut nodedata, prop); nodedata"
+						},
+						"set_inline_active_css_props": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"props": "CssPropertyVec"}
+							],
+							"fn_body": "nodedata.set_inline_active_css_props(props);"
+						},
+						"with_inline_active_css_props": {
+							"doc": "Same as [`NodeData::set_inline_active_css_props`](#method.set_inline_active_css_props), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"props": "CssPropertyVec"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_set_inline_active_css_props(&mut nodedata, props); nodedata"
 						},
 						"add_inline_focus_css": {
 							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
@@ -5457,7 +5568,7 @@
 							],
 							"fn_body": "nodedata.add_inline_focus_css(prop);"
 						},
-						"with_inline_css": {
+						"with_inline_focus_css": {
 							"doc": "Same as [`NodeData::add_inline_focus_css`](#method.add_inline_focus_css), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
@@ -5465,6 +5576,22 @@
 							],
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_inline_focus_css(&mut nodedata, prop); nodedata"
+						},
+						"set_inline_focus_css_props": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"props": "CssPropertyVec"}
+							],
+							"fn_body": "nodedata.set_inline_focus_css_props(props);"
+						},
+						"with_inline_focus_css_props": {
+							"doc": "Same as [`NodeData::set_inline_focus_css_props`](#method.set_inline_focus_css_props), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"props": "CssPropertyVec"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_set_inline_focus_css_props(&mut nodedata, props); nodedata"
 						},
 						"with_clip_mask": {
 							"doc": "Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method",
@@ -5943,7 +6070,8 @@
 				"GlContextPtr": {
 					"external": "azul_impl::gl::GlContextPtr",
 					"struct_fields": [
-						{"ptr": {"type": "*const c_void"}}
+						{"ptr": {"type": "*const c_void"}},
+						{"renderer_type": {"type": "RendererType"}}
 					],
 					"functions": {
 					    "get_type": {
@@ -8968,7 +9096,7 @@
 					"external": "azul_impl::window::WindowCreateOptions",
 					"struct_fields": [
 						{"state": {"type": "WindowState"}},
-						{"renderer_type": {"type": "OptionRendererType"}},
+						{"renderer_type": {"type": "OptionRendererOptions"}},
 						{"theme": {"type": "OptionWindowTheme"}},
 						{"create_callback": {"type": "OptionCallback", "doc": "Callback to run once when the window is created"}}
 					],

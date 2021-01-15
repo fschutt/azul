@@ -1660,21 +1660,21 @@
     /// `VertexAttribute` struct
     #[doc(inline)] pub use crate::dll::AzVertexAttribute as VertexAttribute;
 
-    impl Clone for VertexAttribute { fn clone(&self) -> Self { crate::dll::az_vertex_attribute_deep_copy(self) } }
-    impl Drop for VertexAttribute { fn drop(&mut self) { crate::dll::az_vertex_attribute_delete(self); } }
+    impl Clone for VertexAttribute { fn clone(&self) -> Self { unsafe { crate::dll::az_vertex_attribute_deep_copy(self) } } }
+    impl Drop for VertexAttribute { fn drop(&mut self) { unsafe { crate::dll::az_vertex_attribute_delete(self) }; } }
 
 
     /// `VertexLayout` struct
     #[doc(inline)] pub use crate::dll::AzVertexLayout as VertexLayout;
 
-    impl Clone for VertexLayout { fn clone(&self) -> Self { crate::dll::az_vertex_layout_deep_copy(self) } }
-    impl Drop for VertexLayout { fn drop(&mut self) { crate::dll::az_vertex_layout_delete(self); } }
+    impl Clone for VertexLayout { fn clone(&self) -> Self { unsafe { crate::dll::az_vertex_layout_deep_copy(self) } } }
+    impl Drop for VertexLayout { fn drop(&mut self) { unsafe { crate::dll::az_vertex_layout_delete(self) }; } }
 
 
     /// `VertexArrayObject` struct
     #[doc(inline)] pub use crate::dll::AzVertexArrayObject as VertexArrayObject;
 
-    impl Drop for VertexArrayObject { fn drop(&mut self) { crate::dll::az_vertex_array_object_delete(self); } }
+    impl Drop for VertexArrayObject { fn drop(&mut self) { unsafe { crate::dll::az_vertex_array_object_delete(self) }; } }
 
 
     /// `IndexBufferFormat` struct
@@ -1687,7 +1687,7 @@
     /// `VertexBuffer` struct
     #[doc(inline)] pub use crate::dll::AzVertexBuffer as VertexBuffer;
 
-    impl Drop for VertexBuffer { fn drop(&mut self) { crate::dll::az_vertex_buffer_delete(self); } }
+    impl Drop for VertexBuffer { fn drop(&mut self) { unsafe { crate::dll::az_vertex_buffer_delete(self) }; } }
 
 
     /// `GlType` struct
@@ -1700,107 +1700,107 @@
     /// `DebugMessage` struct
     #[doc(inline)] pub use crate::dll::AzDebugMessage as DebugMessage;
 
-    impl Clone for DebugMessage { fn clone(&self) -> Self { crate::dll::az_debug_message_deep_copy(self) } }
-    impl Drop for DebugMessage { fn drop(&mut self) { crate::dll::az_debug_message_delete(self); } }
+    impl Clone for DebugMessage { fn clone(&self) -> Self { unsafe { crate::dll::az_debug_message_deep_copy(self) } } }
+    impl Drop for DebugMessage { fn drop(&mut self) { unsafe { crate::dll::az_debug_message_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `&[u8]`
     #[doc(inline)] pub use crate::dll::AzU8VecRef as U8VecRef;
 
-    impl Drop for U8VecRef { fn drop(&mut self) { crate::dll::az_u8_vec_ref_delete(self); } }
+    impl Drop for U8VecRef { fn drop(&mut self) { unsafe { crate::dll::az_u8_vec_ref_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `&mut [u8]`
     #[doc(inline)] pub use crate::dll::AzU8VecRefMut as U8VecRefMut;
 
-    impl Drop for U8VecRefMut { fn drop(&mut self) { crate::dll::az_u8_vec_ref_mut_delete(self); } }
+    impl Drop for U8VecRefMut { fn drop(&mut self) { unsafe { crate::dll::az_u8_vec_ref_mut_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `&[f32]`
     #[doc(inline)] pub use crate::dll::AzF32VecRef as F32VecRef;
 
-    impl Drop for F32VecRef { fn drop(&mut self) { crate::dll::az_f32_vec_ref_delete(self); } }
+    impl Drop for F32VecRef { fn drop(&mut self) { unsafe { crate::dll::az_f32_vec_ref_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `&[i32]`
     #[doc(inline)] pub use crate::dll::AzI32VecRef as I32VecRef;
 
-    impl Drop for I32VecRef { fn drop(&mut self) { crate::dll::az_i32_vec_ref_delete(self); } }
+    impl Drop for I32VecRef { fn drop(&mut self) { unsafe { crate::dll::az_i32_vec_ref_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
     #[doc(inline)] pub use crate::dll::AzGLuintVecRef as GLuintVecRef;
 
-    impl Drop for GLuintVecRef { fn drop(&mut self) { crate::dll::az_g_luint_vec_ref_delete(self); } }
+    impl Drop for GLuintVecRef { fn drop(&mut self) { unsafe { crate::dll::az_g_luint_vec_ref_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
     #[doc(inline)] pub use crate::dll::AzGLenumVecRef as GLenumVecRef;
 
-    impl Drop for GLenumVecRef { fn drop(&mut self) { crate::dll::az_g_lenum_vec_ref_delete(self); } }
+    impl Drop for GLenumVecRef { fn drop(&mut self) { unsafe { crate::dll::az_g_lenum_vec_ref_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
     #[doc(inline)] pub use crate::dll::AzGLintVecRefMut as GLintVecRefMut;
 
-    impl Drop for GLintVecRefMut { fn drop(&mut self) { crate::dll::az_g_lint_vec_ref_mut_delete(self); } }
+    impl Drop for GLintVecRefMut { fn drop(&mut self) { unsafe { crate::dll::az_g_lint_vec_ref_mut_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
     #[doc(inline)] pub use crate::dll::AzGLint64VecRefMut as GLint64VecRefMut;
 
-    impl Drop for GLint64VecRefMut { fn drop(&mut self) { crate::dll::az_g_lint64_vec_ref_mut_delete(self); } }
+    impl Drop for GLint64VecRefMut { fn drop(&mut self) { unsafe { crate::dll::az_g_lint64_vec_ref_mut_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
     #[doc(inline)] pub use crate::dll::AzGLbooleanVecRefMut as GLbooleanVecRefMut;
 
-    impl Drop for GLbooleanVecRefMut { fn drop(&mut self) { crate::dll::az_g_lboolean_vec_ref_mut_delete(self); } }
+    impl Drop for GLbooleanVecRefMut { fn drop(&mut self) { unsafe { crate::dll::az_g_lboolean_vec_ref_mut_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
     #[doc(inline)] pub use crate::dll::AzGLfloatVecRefMut as GLfloatVecRefMut;
 
-    impl Drop for GLfloatVecRefMut { fn drop(&mut self) { crate::dll::az_g_lfloat_vec_ref_mut_delete(self); } }
+    impl Drop for GLfloatVecRefMut { fn drop(&mut self) { unsafe { crate::dll::az_g_lfloat_vec_ref_mut_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
     #[doc(inline)] pub use crate::dll::AzRefstrVecRef as RefstrVecRef;
 
-    impl Drop for RefstrVecRef { fn drop(&mut self) { crate::dll::az_refstr_vec_ref_delete(self); } }
+    impl Drop for RefstrVecRef { fn drop(&mut self) { unsafe { crate::dll::az_refstr_vec_ref_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `&str`
     #[doc(inline)] pub use crate::dll::AzRefstr as Refstr;
 
-    impl Drop for Refstr { fn drop(&mut self) { crate::dll::az_refstr_delete(self); } }
+    impl Drop for Refstr { fn drop(&mut self) { unsafe { crate::dll::az_refstr_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `(U8Vec, u32)`
     #[doc(inline)] pub use crate::dll::AzGetProgramBinaryReturn as GetProgramBinaryReturn;
 
-    impl Clone for GetProgramBinaryReturn { fn clone(&self) -> Self { crate::dll::az_get_program_binary_return_deep_copy(self) } }
-    impl Drop for GetProgramBinaryReturn { fn drop(&mut self) { crate::dll::az_get_program_binary_return_delete(self); } }
+    impl Clone for GetProgramBinaryReturn { fn clone(&self) -> Self { unsafe { crate::dll::az_get_program_binary_return_deep_copy(self) } } }
+    impl Drop for GetProgramBinaryReturn { fn drop(&mut self) { unsafe { crate::dll::az_get_program_binary_return_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `(i32, u32, AzString)`
     #[doc(inline)] pub use crate::dll::AzGetActiveAttribReturn as GetActiveAttribReturn;
 
-    impl Clone for GetActiveAttribReturn { fn clone(&self) -> Self { crate::dll::az_get_active_attrib_return_deep_copy(self) } }
-    impl Drop for GetActiveAttribReturn { fn drop(&mut self) { crate::dll::az_get_active_attrib_return_delete(self); } }
+    impl Clone for GetActiveAttribReturn { fn clone(&self) -> Self { unsafe { crate::dll::az_get_active_attrib_return_deep_copy(self) } } }
+    impl Drop for GetActiveAttribReturn { fn drop(&mut self) { unsafe { crate::dll::az_get_active_attrib_return_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `*const gleam::gl::GLsync`
     #[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
 
-    impl Drop for GLsyncPtr { fn drop(&mut self) { crate::dll::az_g_lsync_ptr_delete(self); } }
+    impl Drop for GLsyncPtr { fn drop(&mut self) { unsafe { crate::dll::az_g_lsync_ptr_delete(self) }; } }
 
 
     /// C-ABI stable reexport of `(i32, u32, AzString)`
     #[doc(inline)] pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;
 
-    impl Clone for GetActiveUniformReturn { fn clone(&self) -> Self { crate::dll::az_get_active_uniform_return_deep_copy(self) } }
-    impl Drop for GetActiveUniformReturn { fn drop(&mut self) { crate::dll::az_get_active_uniform_return_delete(self); } }
+    impl Clone for GetActiveUniformReturn { fn clone(&self) -> Self { unsafe { crate::dll::az_get_active_uniform_return_deep_copy(self) } } }
+    impl Drop for GetActiveUniformReturn { fn drop(&mut self) { unsafe { crate::dll::az_get_active_uniform_return_delete(self) }; } }
 
 
     /// `GlContextPtr` struct
@@ -1808,457 +1808,457 @@
 
     impl GlContextPtr {
         /// Calls the `GlContextPtr::get_type` function.
-        pub fn get_type(&self)  -> crate::gl::GlType { crate::dll::az_gl_context_ptr_get_type(self) }
+        pub fn get_type(&self)  -> crate::gl::GlType { unsafe { crate::dll::az_gl_context_ptr_get_type(self) } }
         /// Calls the `GlContextPtr::buffer_data_untyped` function.
-        pub fn buffer_data_untyped(&self, target: u32, size: isize, data: *const c_void, usage: u32)  { crate::dll::az_gl_context_ptr_buffer_data_untyped(self, target, size, data, usage) }
+        pub fn buffer_data_untyped(&self, target: u32, size: isize, data: *const c_void, usage: u32)  { unsafe { crate::dll::az_gl_context_ptr_buffer_data_untyped(self, target, size, data, usage) } }
         /// Calls the `GlContextPtr::buffer_sub_data_untyped` function.
-        pub fn buffer_sub_data_untyped(&self, target: u32, offset: isize, size: isize, data: *const c_void)  { crate::dll::az_gl_context_ptr_buffer_sub_data_untyped(self, target, offset, size, data) }
+        pub fn buffer_sub_data_untyped(&self, target: u32, offset: isize, size: isize, data: *const c_void)  { unsafe { crate::dll::az_gl_context_ptr_buffer_sub_data_untyped(self, target, offset, size, data) } }
         /// Calls the `GlContextPtr::map_buffer` function.
-        pub fn map_buffer(&self, target: u32, access: u32)  -> *mut c_void { crate::dll::az_gl_context_ptr_map_buffer(self, target, access) }
+        pub fn map_buffer(&self, target: u32, access: u32)  -> *mut c_void { unsafe { crate::dll::az_gl_context_ptr_map_buffer(self, target, access) } }
         /// Calls the `GlContextPtr::map_buffer_range` function.
-        pub fn map_buffer_range(&self, target: u32, offset: isize, length: isize, access: u32)  -> *mut c_void { crate::dll::az_gl_context_ptr_map_buffer_range(self, target, offset, length, access) }
+        pub fn map_buffer_range(&self, target: u32, offset: isize, length: isize, access: u32)  -> *mut c_void { unsafe { crate::dll::az_gl_context_ptr_map_buffer_range(self, target, offset, length, access) } }
         /// Calls the `GlContextPtr::unmap_buffer` function.
-        pub fn unmap_buffer(&self, target: u32)  -> u8 { crate::dll::az_gl_context_ptr_unmap_buffer(self, target) }
+        pub fn unmap_buffer(&self, target: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_unmap_buffer(self, target) } }
         /// Calls the `GlContextPtr::tex_buffer` function.
-        pub fn tex_buffer(&self, target: u32, internal_format: u32, buffer: u32)  { crate::dll::az_gl_context_ptr_tex_buffer(self, target, internal_format, buffer) }
+        pub fn tex_buffer(&self, target: u32, internal_format: u32, buffer: u32)  { unsafe { crate::dll::az_gl_context_ptr_tex_buffer(self, target, internal_format, buffer) } }
         /// Calls the `GlContextPtr::shader_source` function.
-        pub fn shader_source(&self, shader: u32, strings: StringVec)  { crate::dll::az_gl_context_ptr_shader_source(self, shader, strings) }
+        pub fn shader_source(&self, shader: u32, strings: StringVec)  { unsafe { crate::dll::az_gl_context_ptr_shader_source(self, shader, strings) } }
         /// Calls the `GlContextPtr::read_buffer` function.
-        pub fn read_buffer(&self, mode: u32)  { crate::dll::az_gl_context_ptr_read_buffer(self, mode) }
+        pub fn read_buffer(&self, mode: u32)  { unsafe { crate::dll::az_gl_context_ptr_read_buffer(self, mode) } }
         /// Calls the `GlContextPtr::read_pixels_into_buffer` function.
-        pub fn read_pixels_into_buffer(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32, dst_buffer: U8VecRefMut)  { crate::dll::az_gl_context_ptr_read_pixels_into_buffer(self, x, y, width, height, format, pixel_type, dst_buffer) }
+        pub fn read_pixels_into_buffer(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32, dst_buffer: U8VecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_read_pixels_into_buffer(self, x, y, width, height, format, pixel_type, dst_buffer) } }
         /// Calls the `GlContextPtr::read_pixels` function.
-        pub fn read_pixels(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32)  -> crate::vec::U8Vec { crate::dll::az_gl_context_ptr_read_pixels(self, x, y, width, height, format, pixel_type) }
+        pub fn read_pixels(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32)  -> crate::vec::U8Vec { unsafe { crate::dll::az_gl_context_ptr_read_pixels(self, x, y, width, height, format, pixel_type) } }
         /// Calls the `GlContextPtr::read_pixels_into_pbo` function.
-        pub fn read_pixels_into_pbo(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32)  { crate::dll::az_gl_context_ptr_read_pixels_into_pbo(self, x, y, width, height, format, pixel_type) }
+        pub fn read_pixels_into_pbo(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32)  { unsafe { crate::dll::az_gl_context_ptr_read_pixels_into_pbo(self, x, y, width, height, format, pixel_type) } }
         /// Calls the `GlContextPtr::sample_coverage` function.
-        pub fn sample_coverage(&self, value: f32, invert: bool)  { crate::dll::az_gl_context_ptr_sample_coverage(self, value, invert) }
+        pub fn sample_coverage(&self, value: f32, invert: bool)  { unsafe { crate::dll::az_gl_context_ptr_sample_coverage(self, value, invert) } }
         /// Calls the `GlContextPtr::polygon_offset` function.
-        pub fn polygon_offset(&self, factor: f32, units: f32)  { crate::dll::az_gl_context_ptr_polygon_offset(self, factor, units) }
+        pub fn polygon_offset(&self, factor: f32, units: f32)  { unsafe { crate::dll::az_gl_context_ptr_polygon_offset(self, factor, units) } }
         /// Calls the `GlContextPtr::pixel_store_i` function.
-        pub fn pixel_store_i(&self, name: u32, param: i32)  { crate::dll::az_gl_context_ptr_pixel_store_i(self, name, param) }
+        pub fn pixel_store_i(&self, name: u32, param: i32)  { unsafe { crate::dll::az_gl_context_ptr_pixel_store_i(self, name, param) } }
         /// Calls the `GlContextPtr::gen_buffers` function.
-        pub fn gen_buffers(&self, n: i32)  -> crate::vec::GLuintVec { crate::dll::az_gl_context_ptr_gen_buffers(self, n) }
+        pub fn gen_buffers(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_buffers(self, n) } }
         /// Calls the `GlContextPtr::gen_renderbuffers` function.
-        pub fn gen_renderbuffers(&self, n: i32)  -> crate::vec::GLuintVec { crate::dll::az_gl_context_ptr_gen_renderbuffers(self, n) }
+        pub fn gen_renderbuffers(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_renderbuffers(self, n) } }
         /// Calls the `GlContextPtr::gen_framebuffers` function.
-        pub fn gen_framebuffers(&self, n: i32)  -> crate::vec::GLuintVec { crate::dll::az_gl_context_ptr_gen_framebuffers(self, n) }
+        pub fn gen_framebuffers(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_framebuffers(self, n) } }
         /// Calls the `GlContextPtr::gen_textures` function.
-        pub fn gen_textures(&self, n: i32)  -> crate::vec::GLuintVec { crate::dll::az_gl_context_ptr_gen_textures(self, n) }
+        pub fn gen_textures(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_textures(self, n) } }
         /// Calls the `GlContextPtr::gen_vertex_arrays` function.
-        pub fn gen_vertex_arrays(&self, n: i32)  -> crate::vec::GLuintVec { crate::dll::az_gl_context_ptr_gen_vertex_arrays(self, n) }
+        pub fn gen_vertex_arrays(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_vertex_arrays(self, n) } }
         /// Calls the `GlContextPtr::gen_queries` function.
-        pub fn gen_queries(&self, n: i32)  -> crate::vec::GLuintVec { crate::dll::az_gl_context_ptr_gen_queries(self, n) }
+        pub fn gen_queries(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_queries(self, n) } }
         /// Calls the `GlContextPtr::begin_query` function.
-        pub fn begin_query(&self, target: u32, id: u32)  { crate::dll::az_gl_context_ptr_begin_query(self, target, id) }
+        pub fn begin_query(&self, target: u32, id: u32)  { unsafe { crate::dll::az_gl_context_ptr_begin_query(self, target, id) } }
         /// Calls the `GlContextPtr::end_query` function.
-        pub fn end_query(&self, target: u32)  { crate::dll::az_gl_context_ptr_end_query(self, target) }
+        pub fn end_query(&self, target: u32)  { unsafe { crate::dll::az_gl_context_ptr_end_query(self, target) } }
         /// Calls the `GlContextPtr::query_counter` function.
-        pub fn query_counter(&self, id: u32, target: u32)  { crate::dll::az_gl_context_ptr_query_counter(self, id, target) }
+        pub fn query_counter(&self, id: u32, target: u32)  { unsafe { crate::dll::az_gl_context_ptr_query_counter(self, id, target) } }
         /// Calls the `GlContextPtr::get_query_object_iv` function.
-        pub fn get_query_object_iv(&self, id: u32, pname: u32)  -> i32 { crate::dll::az_gl_context_ptr_get_query_object_iv(self, id, pname) }
+        pub fn get_query_object_iv(&self, id: u32, pname: u32)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_query_object_iv(self, id, pname) } }
         /// Calls the `GlContextPtr::get_query_object_uiv` function.
-        pub fn get_query_object_uiv(&self, id: u32, pname: u32)  -> u32 { crate::dll::az_gl_context_ptr_get_query_object_uiv(self, id, pname) }
+        pub fn get_query_object_uiv(&self, id: u32, pname: u32)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_get_query_object_uiv(self, id, pname) } }
         /// Calls the `GlContextPtr::get_query_object_i64v` function.
-        pub fn get_query_object_i64v(&self, id: u32, pname: u32)  -> i64 { crate::dll::az_gl_context_ptr_get_query_object_i64v(self, id, pname) }
+        pub fn get_query_object_i64v(&self, id: u32, pname: u32)  -> i64 { unsafe { crate::dll::az_gl_context_ptr_get_query_object_i64v(self, id, pname) } }
         /// Calls the `GlContextPtr::get_query_object_ui64v` function.
-        pub fn get_query_object_ui64v(&self, id: u32, pname: u32)  -> u64 { crate::dll::az_gl_context_ptr_get_query_object_ui64v(self, id, pname) }
+        pub fn get_query_object_ui64v(&self, id: u32, pname: u32)  -> u64 { unsafe { crate::dll::az_gl_context_ptr_get_query_object_ui64v(self, id, pname) } }
         /// Calls the `GlContextPtr::delete_queries` function.
-        pub fn delete_queries(&self, queries: GLuintVecRef)  { crate::dll::az_gl_context_ptr_delete_queries(self, queries) }
+        pub fn delete_queries(&self, queries: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_queries(self, queries) } }
         /// Calls the `GlContextPtr::delete_vertex_arrays` function.
-        pub fn delete_vertex_arrays(&self, vertex_arrays: GLuintVecRef)  { crate::dll::az_gl_context_ptr_delete_vertex_arrays(self, vertex_arrays) }
+        pub fn delete_vertex_arrays(&self, vertex_arrays: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_vertex_arrays(self, vertex_arrays) } }
         /// Calls the `GlContextPtr::delete_buffers` function.
-        pub fn delete_buffers(&self, buffers: GLuintVecRef)  { crate::dll::az_gl_context_ptr_delete_buffers(self, buffers) }
+        pub fn delete_buffers(&self, buffers: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_buffers(self, buffers) } }
         /// Calls the `GlContextPtr::delete_renderbuffers` function.
-        pub fn delete_renderbuffers(&self, renderbuffers: GLuintVecRef)  { crate::dll::az_gl_context_ptr_delete_renderbuffers(self, renderbuffers) }
+        pub fn delete_renderbuffers(&self, renderbuffers: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_renderbuffers(self, renderbuffers) } }
         /// Calls the `GlContextPtr::delete_framebuffers` function.
-        pub fn delete_framebuffers(&self, framebuffers: GLuintVecRef)  { crate::dll::az_gl_context_ptr_delete_framebuffers(self, framebuffers) }
+        pub fn delete_framebuffers(&self, framebuffers: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_framebuffers(self, framebuffers) } }
         /// Calls the `GlContextPtr::delete_textures` function.
-        pub fn delete_textures(&self, textures: GLuintVecRef)  { crate::dll::az_gl_context_ptr_delete_textures(self, textures) }
+        pub fn delete_textures(&self, textures: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_textures(self, textures) } }
         /// Calls the `GlContextPtr::framebuffer_renderbuffer` function.
-        pub fn framebuffer_renderbuffer(&self, target: u32, attachment: u32, renderbuffertarget: u32, renderbuffer: u32)  { crate::dll::az_gl_context_ptr_framebuffer_renderbuffer(self, target, attachment, renderbuffertarget, renderbuffer) }
+        pub fn framebuffer_renderbuffer(&self, target: u32, attachment: u32, renderbuffertarget: u32, renderbuffer: u32)  { unsafe { crate::dll::az_gl_context_ptr_framebuffer_renderbuffer(self, target, attachment, renderbuffertarget, renderbuffer) } }
         /// Calls the `GlContextPtr::renderbuffer_storage` function.
-        pub fn renderbuffer_storage(&self, target: u32, internalformat: u32, width: i32, height: i32)  { crate::dll::az_gl_context_ptr_renderbuffer_storage(self, target, internalformat, width, height) }
+        pub fn renderbuffer_storage(&self, target: u32, internalformat: u32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_renderbuffer_storage(self, target, internalformat, width, height) } }
         /// Calls the `GlContextPtr::depth_func` function.
-        pub fn depth_func(&self, func: u32)  { crate::dll::az_gl_context_ptr_depth_func(self, func) }
+        pub fn depth_func(&self, func: u32)  { unsafe { crate::dll::az_gl_context_ptr_depth_func(self, func) } }
         /// Calls the `GlContextPtr::active_texture` function.
-        pub fn active_texture(&self, texture: u32)  { crate::dll::az_gl_context_ptr_active_texture(self, texture) }
+        pub fn active_texture(&self, texture: u32)  { unsafe { crate::dll::az_gl_context_ptr_active_texture(self, texture) } }
         /// Calls the `GlContextPtr::attach_shader` function.
-        pub fn attach_shader(&self, program: u32, shader: u32)  { crate::dll::az_gl_context_ptr_attach_shader(self, program, shader) }
+        pub fn attach_shader(&self, program: u32, shader: u32)  { unsafe { crate::dll::az_gl_context_ptr_attach_shader(self, program, shader) } }
         /// Calls the `GlContextPtr::bind_attrib_location` function.
-        pub fn bind_attrib_location(&self, program: u32, index: u32, name: Refstr)  { crate::dll::az_gl_context_ptr_bind_attrib_location(self, program, index, name) }
+        pub fn bind_attrib_location(&self, program: u32, index: u32, name: Refstr)  { unsafe { crate::dll::az_gl_context_ptr_bind_attrib_location(self, program, index, name) } }
         /// Calls the `GlContextPtr::get_uniform_iv` function.
-        pub fn get_uniform_iv(&self, program: u32, location: i32, result: GLintVecRefMut)  { crate::dll::az_gl_context_ptr_get_uniform_iv(self, program, location, result) }
+        pub fn get_uniform_iv(&self, program: u32, location: i32, result: GLintVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_uniform_iv(self, program, location, result) } }
         /// Calls the `GlContextPtr::get_uniform_fv` function.
-        pub fn get_uniform_fv(&self, program: u32, location: i32, result: GLfloatVecRefMut)  { crate::dll::az_gl_context_ptr_get_uniform_fv(self, program, location, result) }
+        pub fn get_uniform_fv(&self, program: u32, location: i32, result: GLfloatVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_uniform_fv(self, program, location, result) } }
         /// Calls the `GlContextPtr::get_uniform_block_index` function.
-        pub fn get_uniform_block_index(&self, program: u32, name: Refstr)  -> u32 { crate::dll::az_gl_context_ptr_get_uniform_block_index(self, program, name) }
+        pub fn get_uniform_block_index(&self, program: u32, name: Refstr)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_get_uniform_block_index(self, program, name) } }
         /// Calls the `GlContextPtr::get_uniform_indices` function.
-        pub fn get_uniform_indices(&self, program: u32, names: RefstrVecRef)  -> crate::vec::GLuintVec { crate::dll::az_gl_context_ptr_get_uniform_indices(self, program, names) }
+        pub fn get_uniform_indices(&self, program: u32, names: RefstrVecRef)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_get_uniform_indices(self, program, names) } }
         /// Calls the `GlContextPtr::bind_buffer_base` function.
-        pub fn bind_buffer_base(&self, target: u32, index: u32, buffer: u32)  { crate::dll::az_gl_context_ptr_bind_buffer_base(self, target, index, buffer) }
+        pub fn bind_buffer_base(&self, target: u32, index: u32, buffer: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_buffer_base(self, target, index, buffer) } }
         /// Calls the `GlContextPtr::bind_buffer_range` function.
-        pub fn bind_buffer_range(&self, target: u32, index: u32, buffer: u32, offset: isize, size: isize)  { crate::dll::az_gl_context_ptr_bind_buffer_range(self, target, index, buffer, offset, size) }
+        pub fn bind_buffer_range(&self, target: u32, index: u32, buffer: u32, offset: isize, size: isize)  { unsafe { crate::dll::az_gl_context_ptr_bind_buffer_range(self, target, index, buffer, offset, size) } }
         /// Calls the `GlContextPtr::uniform_block_binding` function.
-        pub fn uniform_block_binding(&self, program: u32, uniform_block_index: u32, uniform_block_binding: u32)  { crate::dll::az_gl_context_ptr_uniform_block_binding(self, program, uniform_block_index, uniform_block_binding) }
+        pub fn uniform_block_binding(&self, program: u32, uniform_block_index: u32, uniform_block_binding: u32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_block_binding(self, program, uniform_block_index, uniform_block_binding) } }
         /// Calls the `GlContextPtr::bind_buffer` function.
-        pub fn bind_buffer(&self, target: u32, buffer: u32)  { crate::dll::az_gl_context_ptr_bind_buffer(self, target, buffer) }
+        pub fn bind_buffer(&self, target: u32, buffer: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_buffer(self, target, buffer) } }
         /// Calls the `GlContextPtr::bind_vertex_array` function.
-        pub fn bind_vertex_array(&self, vao: u32)  { crate::dll::az_gl_context_ptr_bind_vertex_array(self, vao) }
+        pub fn bind_vertex_array(&self, vao: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_vertex_array(self, vao) } }
         /// Calls the `GlContextPtr::bind_renderbuffer` function.
-        pub fn bind_renderbuffer(&self, target: u32, renderbuffer: u32)  { crate::dll::az_gl_context_ptr_bind_renderbuffer(self, target, renderbuffer) }
+        pub fn bind_renderbuffer(&self, target: u32, renderbuffer: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_renderbuffer(self, target, renderbuffer) } }
         /// Calls the `GlContextPtr::bind_framebuffer` function.
-        pub fn bind_framebuffer(&self, target: u32, framebuffer: u32)  { crate::dll::az_gl_context_ptr_bind_framebuffer(self, target, framebuffer) }
+        pub fn bind_framebuffer(&self, target: u32, framebuffer: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_framebuffer(self, target, framebuffer) } }
         /// Calls the `GlContextPtr::bind_texture` function.
-        pub fn bind_texture(&self, target: u32, texture: u32)  { crate::dll::az_gl_context_ptr_bind_texture(self, target, texture) }
+        pub fn bind_texture(&self, target: u32, texture: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_texture(self, target, texture) } }
         /// Calls the `GlContextPtr::draw_buffers` function.
-        pub fn draw_buffers(&self, bufs: GLenumVecRef)  { crate::dll::az_gl_context_ptr_draw_buffers(self, bufs) }
+        pub fn draw_buffers(&self, bufs: GLenumVecRef)  { unsafe { crate::dll::az_gl_context_ptr_draw_buffers(self, bufs) } }
         /// Calls the `GlContextPtr::tex_image_2d` function.
-        pub fn tex_image_2d(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, border: i32, format: u32, ty: u32, opt_data: OptionU8VecRef)  { crate::dll::az_gl_context_ptr_tex_image_2d(self, target, level, internal_format, width, height, border, format, ty, opt_data) }
+        pub fn tex_image_2d(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, border: i32, format: u32, ty: u32, opt_data: OptionU8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_tex_image_2d(self, target, level, internal_format, width, height, border, format, ty, opt_data) } }
         /// Calls the `GlContextPtr::compressed_tex_image_2d` function.
-        pub fn compressed_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, width: i32, height: i32, border: i32, data: U8VecRef)  { crate::dll::az_gl_context_ptr_compressed_tex_image_2d(self, target, level, internal_format, width, height, border, data) }
+        pub fn compressed_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, width: i32, height: i32, border: i32, data: U8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_compressed_tex_image_2d(self, target, level, internal_format, width, height, border, data) } }
         /// Calls the `GlContextPtr::compressed_tex_sub_image_2d` function.
-        pub fn compressed_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, data: U8VecRef)  { crate::dll::az_gl_context_ptr_compressed_tex_sub_image_2d(self, target, level, xoffset, yoffset, width, height, format, data) }
+        pub fn compressed_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, data: U8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_compressed_tex_sub_image_2d(self, target, level, xoffset, yoffset, width, height, format, data) } }
         /// Calls the `GlContextPtr::tex_image_3d` function.
-        pub fn tex_image_3d(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, depth: i32, border: i32, format: u32, ty: u32, opt_data: OptionU8VecRef)  { crate::dll::az_gl_context_ptr_tex_image_3d(self, target, level, internal_format, width, height, depth, border, format, ty, opt_data) }
+        pub fn tex_image_3d(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, depth: i32, border: i32, format: u32, ty: u32, opt_data: OptionU8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_tex_image_3d(self, target, level, internal_format, width, height, depth, border, format, ty, opt_data) } }
         /// Calls the `GlContextPtr::copy_tex_image_2d` function.
-        pub fn copy_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, x: i32, y: i32, width: i32, height: i32, border: i32)  { crate::dll::az_gl_context_ptr_copy_tex_image_2d(self, target, level, internal_format, x, y, width, height, border) }
+        pub fn copy_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, x: i32, y: i32, width: i32, height: i32, border: i32)  { unsafe { crate::dll::az_gl_context_ptr_copy_tex_image_2d(self, target, level, internal_format, x, y, width, height, border) } }
         /// Calls the `GlContextPtr::copy_tex_sub_image_2d` function.
-        pub fn copy_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, x: i32, y: i32, width: i32, height: i32)  { crate::dll::az_gl_context_ptr_copy_tex_sub_image_2d(self, target, level, xoffset, yoffset, x, y, width, height) }
+        pub fn copy_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_copy_tex_sub_image_2d(self, target, level, xoffset, yoffset, x, y, width, height) } }
         /// Calls the `GlContextPtr::copy_tex_sub_image_3d` function.
-        pub fn copy_tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, x: i32, y: i32, width: i32, height: i32)  { crate::dll::az_gl_context_ptr_copy_tex_sub_image_3d(self, target, level, xoffset, yoffset, zoffset, x, y, width, height) }
+        pub fn copy_tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_copy_tex_sub_image_3d(self, target, level, xoffset, yoffset, zoffset, x, y, width, height) } }
         /// Calls the `GlContextPtr::tex_sub_image_2d` function.
-        pub fn tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, data: U8VecRef)  { crate::dll::az_gl_context_ptr_tex_sub_image_2d(self, target, level, xoffset, yoffset, width, height, format, ty, data) }
+        pub fn tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, data: U8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_tex_sub_image_2d(self, target, level, xoffset, yoffset, width, height, format, ty, data) } }
         /// Calls the `GlContextPtr::tex_sub_image_2d_pbo` function.
-        pub fn tex_sub_image_2d_pbo(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, offset: usize)  { crate::dll::az_gl_context_ptr_tex_sub_image_2d_pbo(self, target, level, xoffset, yoffset, width, height, format, ty, offset) }
+        pub fn tex_sub_image_2d_pbo(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, offset: usize)  { unsafe { crate::dll::az_gl_context_ptr_tex_sub_image_2d_pbo(self, target, level, xoffset, yoffset, width, height, format, ty, offset) } }
         /// Calls the `GlContextPtr::tex_sub_image_3d` function.
-        pub fn tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: U8VecRef)  { crate::dll::az_gl_context_ptr_tex_sub_image_3d(self, target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, data) }
+        pub fn tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: U8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_tex_sub_image_3d(self, target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, data) } }
         /// Calls the `GlContextPtr::tex_sub_image_3d_pbo` function.
-        pub fn tex_sub_image_3d_pbo(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, offset: usize)  { crate::dll::az_gl_context_ptr_tex_sub_image_3d_pbo(self, target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset) }
+        pub fn tex_sub_image_3d_pbo(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, offset: usize)  { unsafe { crate::dll::az_gl_context_ptr_tex_sub_image_3d_pbo(self, target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset) } }
         /// Calls the `GlContextPtr::tex_storage_2d` function.
-        pub fn tex_storage_2d(&self, target: u32, levels: i32, internal_format: u32, width: i32, height: i32)  { crate::dll::az_gl_context_ptr_tex_storage_2d(self, target, levels, internal_format, width, height) }
+        pub fn tex_storage_2d(&self, target: u32, levels: i32, internal_format: u32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_tex_storage_2d(self, target, levels, internal_format, width, height) } }
         /// Calls the `GlContextPtr::tex_storage_3d` function.
-        pub fn tex_storage_3d(&self, target: u32, levels: i32, internal_format: u32, width: i32, height: i32, depth: i32)  { crate::dll::az_gl_context_ptr_tex_storage_3d(self, target, levels, internal_format, width, height, depth) }
+        pub fn tex_storage_3d(&self, target: u32, levels: i32, internal_format: u32, width: i32, height: i32, depth: i32)  { unsafe { crate::dll::az_gl_context_ptr_tex_storage_3d(self, target, levels, internal_format, width, height, depth) } }
         /// Calls the `GlContextPtr::get_tex_image_into_buffer` function.
-        pub fn get_tex_image_into_buffer(&self, target: u32, level: i32, format: u32, ty: u32, output: U8VecRefMut)  { crate::dll::az_gl_context_ptr_get_tex_image_into_buffer(self, target, level, format, ty, output) }
+        pub fn get_tex_image_into_buffer(&self, target: u32, level: i32, format: u32, ty: u32, output: U8VecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_tex_image_into_buffer(self, target, level, format, ty, output) } }
         /// Calls the `GlContextPtr::copy_image_sub_data` function.
-        pub fn copy_image_sub_data(&self, src_name: u32, src_target: u32, src_level: i32, src_x: i32, src_y: i32, src_z: i32, dst_name: u32, dst_target: u32, dst_level: i32, dst_x: i32, dst_y: i32, dst_z: i32, src_width: i32, src_height: i32, src_depth: i32)  { crate::dll::az_gl_context_ptr_copy_image_sub_data(self, src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth) }
+        pub fn copy_image_sub_data(&self, src_name: u32, src_target: u32, src_level: i32, src_x: i32, src_y: i32, src_z: i32, dst_name: u32, dst_target: u32, dst_level: i32, dst_x: i32, dst_y: i32, dst_z: i32, src_width: i32, src_height: i32, src_depth: i32)  { unsafe { crate::dll::az_gl_context_ptr_copy_image_sub_data(self, src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth) } }
         /// Calls the `GlContextPtr::invalidate_framebuffer` function.
-        pub fn invalidate_framebuffer(&self, target: u32, attachments: GLenumVecRef)  { crate::dll::az_gl_context_ptr_invalidate_framebuffer(self, target, attachments) }
+        pub fn invalidate_framebuffer(&self, target: u32, attachments: GLenumVecRef)  { unsafe { crate::dll::az_gl_context_ptr_invalidate_framebuffer(self, target, attachments) } }
         /// Calls the `GlContextPtr::invalidate_sub_framebuffer` function.
-        pub fn invalidate_sub_framebuffer(&self, target: u32, attachments: GLenumVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32)  { crate::dll::az_gl_context_ptr_invalidate_sub_framebuffer(self, target, attachments, xoffset, yoffset, width, height) }
+        pub fn invalidate_sub_framebuffer(&self, target: u32, attachments: GLenumVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_invalidate_sub_framebuffer(self, target, attachments, xoffset, yoffset, width, height) } }
         /// Calls the `GlContextPtr::get_integer_v` function.
-        pub fn get_integer_v(&self, name: u32, result: GLintVecRefMut)  { crate::dll::az_gl_context_ptr_get_integer_v(self, name, result) }
+        pub fn get_integer_v(&self, name: u32, result: GLintVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_integer_v(self, name, result) } }
         /// Calls the `GlContextPtr::get_integer_64v` function.
-        pub fn get_integer_64v(&self, name: u32, result: GLint64VecRefMut)  { crate::dll::az_gl_context_ptr_get_integer_64v(self, name, result) }
+        pub fn get_integer_64v(&self, name: u32, result: GLint64VecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_integer_64v(self, name, result) } }
         /// Calls the `GlContextPtr::get_integer_iv` function.
-        pub fn get_integer_iv(&self, name: u32, index: u32, result: GLintVecRefMut)  { crate::dll::az_gl_context_ptr_get_integer_iv(self, name, index, result) }
+        pub fn get_integer_iv(&self, name: u32, index: u32, result: GLintVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_integer_iv(self, name, index, result) } }
         /// Calls the `GlContextPtr::get_integer_64iv` function.
-        pub fn get_integer_64iv(&self, name: u32, index: u32, result: GLint64VecRefMut)  { crate::dll::az_gl_context_ptr_get_integer_64iv(self, name, index, result) }
+        pub fn get_integer_64iv(&self, name: u32, index: u32, result: GLint64VecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_integer_64iv(self, name, index, result) } }
         /// Calls the `GlContextPtr::get_boolean_v` function.
-        pub fn get_boolean_v(&self, name: u32, result: GLbooleanVecRefMut)  { crate::dll::az_gl_context_ptr_get_boolean_v(self, name, result) }
+        pub fn get_boolean_v(&self, name: u32, result: GLbooleanVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_boolean_v(self, name, result) } }
         /// Calls the `GlContextPtr::get_float_v` function.
-        pub fn get_float_v(&self, name: u32, result: GLfloatVecRefMut)  { crate::dll::az_gl_context_ptr_get_float_v(self, name, result) }
+        pub fn get_float_v(&self, name: u32, result: GLfloatVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_float_v(self, name, result) } }
         /// Calls the `GlContextPtr::get_framebuffer_attachment_parameter_iv` function.
-        pub fn get_framebuffer_attachment_parameter_iv(&self, target: u32, attachment: u32, pname: u32)  -> i32 { crate::dll::az_gl_context_ptr_get_framebuffer_attachment_parameter_iv(self, target, attachment, pname) }
+        pub fn get_framebuffer_attachment_parameter_iv(&self, target: u32, attachment: u32, pname: u32)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_framebuffer_attachment_parameter_iv(self, target, attachment, pname) } }
         /// Calls the `GlContextPtr::get_renderbuffer_parameter_iv` function.
-        pub fn get_renderbuffer_parameter_iv(&self, target: u32, pname: u32)  -> i32 { crate::dll::az_gl_context_ptr_get_renderbuffer_parameter_iv(self, target, pname) }
+        pub fn get_renderbuffer_parameter_iv(&self, target: u32, pname: u32)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_renderbuffer_parameter_iv(self, target, pname) } }
         /// Calls the `GlContextPtr::get_tex_parameter_iv` function.
-        pub fn get_tex_parameter_iv(&self, target: u32, name: u32)  -> i32 { crate::dll::az_gl_context_ptr_get_tex_parameter_iv(self, target, name) }
+        pub fn get_tex_parameter_iv(&self, target: u32, name: u32)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_tex_parameter_iv(self, target, name) } }
         /// Calls the `GlContextPtr::get_tex_parameter_fv` function.
-        pub fn get_tex_parameter_fv(&self, target: u32, name: u32)  -> f32 { crate::dll::az_gl_context_ptr_get_tex_parameter_fv(self, target, name) }
+        pub fn get_tex_parameter_fv(&self, target: u32, name: u32)  -> f32 { unsafe { crate::dll::az_gl_context_ptr_get_tex_parameter_fv(self, target, name) } }
         /// Calls the `GlContextPtr::tex_parameter_i` function.
-        pub fn tex_parameter_i(&self, target: u32, pname: u32, param: i32)  { crate::dll::az_gl_context_ptr_tex_parameter_i(self, target, pname, param) }
+        pub fn tex_parameter_i(&self, target: u32, pname: u32, param: i32)  { unsafe { crate::dll::az_gl_context_ptr_tex_parameter_i(self, target, pname, param) } }
         /// Calls the `GlContextPtr::tex_parameter_f` function.
-        pub fn tex_parameter_f(&self, target: u32, pname: u32, param: f32)  { crate::dll::az_gl_context_ptr_tex_parameter_f(self, target, pname, param) }
+        pub fn tex_parameter_f(&self, target: u32, pname: u32, param: f32)  { unsafe { crate::dll::az_gl_context_ptr_tex_parameter_f(self, target, pname, param) } }
         /// Calls the `GlContextPtr::framebuffer_texture_2d` function.
-        pub fn framebuffer_texture_2d(&self, target: u32, attachment: u32, textarget: u32, texture: u32, level: i32)  { crate::dll::az_gl_context_ptr_framebuffer_texture_2d(self, target, attachment, textarget, texture, level) }
+        pub fn framebuffer_texture_2d(&self, target: u32, attachment: u32, textarget: u32, texture: u32, level: i32)  { unsafe { crate::dll::az_gl_context_ptr_framebuffer_texture_2d(self, target, attachment, textarget, texture, level) } }
         /// Calls the `GlContextPtr::framebuffer_texture_layer` function.
-        pub fn framebuffer_texture_layer(&self, target: u32, attachment: u32, texture: u32, level: i32, layer: i32)  { crate::dll::az_gl_context_ptr_framebuffer_texture_layer(self, target, attachment, texture, level, layer) }
+        pub fn framebuffer_texture_layer(&self, target: u32, attachment: u32, texture: u32, level: i32, layer: i32)  { unsafe { crate::dll::az_gl_context_ptr_framebuffer_texture_layer(self, target, attachment, texture, level, layer) } }
         /// Calls the `GlContextPtr::blit_framebuffer` function.
-        pub fn blit_framebuffer(&self, src_x0: i32, src_y0: i32, src_x1: i32, src_y1: i32, dst_x0: i32, dst_y0: i32, dst_x1: i32, dst_y1: i32, mask: u32, filter: u32)  { crate::dll::az_gl_context_ptr_blit_framebuffer(self, src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter) }
+        pub fn blit_framebuffer(&self, src_x0: i32, src_y0: i32, src_x1: i32, src_y1: i32, dst_x0: i32, dst_y0: i32, dst_x1: i32, dst_y1: i32, mask: u32, filter: u32)  { unsafe { crate::dll::az_gl_context_ptr_blit_framebuffer(self, src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter) } }
         /// Calls the `GlContextPtr::vertex_attrib_4f` function.
-        pub fn vertex_attrib_4f(&self, index: u32, x: f32, y: f32, z: f32, w: f32)  { crate::dll::az_gl_context_ptr_vertex_attrib_4f(self, index, x, y, z, w) }
+        pub fn vertex_attrib_4f(&self, index: u32, x: f32, y: f32, z: f32, w: f32)  { unsafe { crate::dll::az_gl_context_ptr_vertex_attrib_4f(self, index, x, y, z, w) } }
         /// Calls the `GlContextPtr::vertex_attrib_pointer_f32` function.
-        pub fn vertex_attrib_pointer_f32(&self, index: u32, size: i32, normalized: bool, stride: i32, offset: u32)  { crate::dll::az_gl_context_ptr_vertex_attrib_pointer_f32(self, index, size, normalized, stride, offset) }
+        pub fn vertex_attrib_pointer_f32(&self, index: u32, size: i32, normalized: bool, stride: i32, offset: u32)  { unsafe { crate::dll::az_gl_context_ptr_vertex_attrib_pointer_f32(self, index, size, normalized, stride, offset) } }
         /// Calls the `GlContextPtr::vertex_attrib_pointer` function.
-        pub fn vertex_attrib_pointer(&self, index: u32, size: i32, type_: u32, normalized: bool, stride: i32, offset: u32)  { crate::dll::az_gl_context_ptr_vertex_attrib_pointer(self, index, size, type_, normalized, stride, offset) }
+        pub fn vertex_attrib_pointer(&self, index: u32, size: i32, type_: u32, normalized: bool, stride: i32, offset: u32)  { unsafe { crate::dll::az_gl_context_ptr_vertex_attrib_pointer(self, index, size, type_, normalized, stride, offset) } }
         /// Calls the `GlContextPtr::vertex_attrib_i_pointer` function.
-        pub fn vertex_attrib_i_pointer(&self, index: u32, size: i32, type_: u32, stride: i32, offset: u32)  { crate::dll::az_gl_context_ptr_vertex_attrib_i_pointer(self, index, size, type_, stride, offset) }
+        pub fn vertex_attrib_i_pointer(&self, index: u32, size: i32, type_: u32, stride: i32, offset: u32)  { unsafe { crate::dll::az_gl_context_ptr_vertex_attrib_i_pointer(self, index, size, type_, stride, offset) } }
         /// Calls the `GlContextPtr::vertex_attrib_divisor` function.
-        pub fn vertex_attrib_divisor(&self, index: u32, divisor: u32)  { crate::dll::az_gl_context_ptr_vertex_attrib_divisor(self, index, divisor) }
+        pub fn vertex_attrib_divisor(&self, index: u32, divisor: u32)  { unsafe { crate::dll::az_gl_context_ptr_vertex_attrib_divisor(self, index, divisor) } }
         /// Calls the `GlContextPtr::viewport` function.
-        pub fn viewport(&self, x: i32, y: i32, width: i32, height: i32)  { crate::dll::az_gl_context_ptr_viewport(self, x, y, width, height) }
+        pub fn viewport(&self, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_viewport(self, x, y, width, height) } }
         /// Calls the `GlContextPtr::scissor` function.
-        pub fn scissor(&self, x: i32, y: i32, width: i32, height: i32)  { crate::dll::az_gl_context_ptr_scissor(self, x, y, width, height) }
+        pub fn scissor(&self, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_scissor(self, x, y, width, height) } }
         /// Calls the `GlContextPtr::line_width` function.
-        pub fn line_width(&self, width: f32)  { crate::dll::az_gl_context_ptr_line_width(self, width) }
+        pub fn line_width(&self, width: f32)  { unsafe { crate::dll::az_gl_context_ptr_line_width(self, width) } }
         /// Calls the `GlContextPtr::use_program` function.
-        pub fn use_program(&self, program: u32)  { crate::dll::az_gl_context_ptr_use_program(self, program) }
+        pub fn use_program(&self, program: u32)  { unsafe { crate::dll::az_gl_context_ptr_use_program(self, program) } }
         /// Calls the `GlContextPtr::validate_program` function.
-        pub fn validate_program(&self, program: u32)  { crate::dll::az_gl_context_ptr_validate_program(self, program) }
+        pub fn validate_program(&self, program: u32)  { unsafe { crate::dll::az_gl_context_ptr_validate_program(self, program) } }
         /// Calls the `GlContextPtr::draw_arrays` function.
-        pub fn draw_arrays(&self, mode: u32, first: i32, count: i32)  { crate::dll::az_gl_context_ptr_draw_arrays(self, mode, first, count) }
+        pub fn draw_arrays(&self, mode: u32, first: i32, count: i32)  { unsafe { crate::dll::az_gl_context_ptr_draw_arrays(self, mode, first, count) } }
         /// Calls the `GlContextPtr::draw_arrays_instanced` function.
-        pub fn draw_arrays_instanced(&self, mode: u32, first: i32, count: i32, primcount: i32)  { crate::dll::az_gl_context_ptr_draw_arrays_instanced(self, mode, first, count, primcount) }
+        pub fn draw_arrays_instanced(&self, mode: u32, first: i32, count: i32, primcount: i32)  { unsafe { crate::dll::az_gl_context_ptr_draw_arrays_instanced(self, mode, first, count, primcount) } }
         /// Calls the `GlContextPtr::draw_elements` function.
-        pub fn draw_elements(&self, mode: u32, count: i32, element_type: u32, indices_offset: u32)  { crate::dll::az_gl_context_ptr_draw_elements(self, mode, count, element_type, indices_offset) }
+        pub fn draw_elements(&self, mode: u32, count: i32, element_type: u32, indices_offset: u32)  { unsafe { crate::dll::az_gl_context_ptr_draw_elements(self, mode, count, element_type, indices_offset) } }
         /// Calls the `GlContextPtr::draw_elements_instanced` function.
-        pub fn draw_elements_instanced(&self, mode: u32, count: i32, element_type: u32, indices_offset: u32, primcount: i32)  { crate::dll::az_gl_context_ptr_draw_elements_instanced(self, mode, count, element_type, indices_offset, primcount) }
+        pub fn draw_elements_instanced(&self, mode: u32, count: i32, element_type: u32, indices_offset: u32, primcount: i32)  { unsafe { crate::dll::az_gl_context_ptr_draw_elements_instanced(self, mode, count, element_type, indices_offset, primcount) } }
         /// Calls the `GlContextPtr::blend_color` function.
-        pub fn blend_color(&self, r: f32, g: f32, b: f32, a: f32)  { crate::dll::az_gl_context_ptr_blend_color(self, r, g, b, a) }
+        pub fn blend_color(&self, r: f32, g: f32, b: f32, a: f32)  { unsafe { crate::dll::az_gl_context_ptr_blend_color(self, r, g, b, a) } }
         /// Calls the `GlContextPtr::blend_func` function.
-        pub fn blend_func(&self, sfactor: u32, dfactor: u32)  { crate::dll::az_gl_context_ptr_blend_func(self, sfactor, dfactor) }
+        pub fn blend_func(&self, sfactor: u32, dfactor: u32)  { unsafe { crate::dll::az_gl_context_ptr_blend_func(self, sfactor, dfactor) } }
         /// Calls the `GlContextPtr::blend_func_separate` function.
-        pub fn blend_func_separate(&self, src_rgb: u32, dest_rgb: u32, src_alpha: u32, dest_alpha: u32)  { crate::dll::az_gl_context_ptr_blend_func_separate(self, src_rgb, dest_rgb, src_alpha, dest_alpha) }
+        pub fn blend_func_separate(&self, src_rgb: u32, dest_rgb: u32, src_alpha: u32, dest_alpha: u32)  { unsafe { crate::dll::az_gl_context_ptr_blend_func_separate(self, src_rgb, dest_rgb, src_alpha, dest_alpha) } }
         /// Calls the `GlContextPtr::blend_equation` function.
-        pub fn blend_equation(&self, mode: u32)  { crate::dll::az_gl_context_ptr_blend_equation(self, mode) }
+        pub fn blend_equation(&self, mode: u32)  { unsafe { crate::dll::az_gl_context_ptr_blend_equation(self, mode) } }
         /// Calls the `GlContextPtr::blend_equation_separate` function.
-        pub fn blend_equation_separate(&self, mode_rgb: u32, mode_alpha: u32)  { crate::dll::az_gl_context_ptr_blend_equation_separate(self, mode_rgb, mode_alpha) }
+        pub fn blend_equation_separate(&self, mode_rgb: u32, mode_alpha: u32)  { unsafe { crate::dll::az_gl_context_ptr_blend_equation_separate(self, mode_rgb, mode_alpha) } }
         /// Calls the `GlContextPtr::color_mask` function.
-        pub fn color_mask(&self, r: bool, g: bool, b: bool, a: bool)  { crate::dll::az_gl_context_ptr_color_mask(self, r, g, b, a) }
+        pub fn color_mask(&self, r: bool, g: bool, b: bool, a: bool)  { unsafe { crate::dll::az_gl_context_ptr_color_mask(self, r, g, b, a) } }
         /// Calls the `GlContextPtr::cull_face` function.
-        pub fn cull_face(&self, mode: u32)  { crate::dll::az_gl_context_ptr_cull_face(self, mode) }
+        pub fn cull_face(&self, mode: u32)  { unsafe { crate::dll::az_gl_context_ptr_cull_face(self, mode) } }
         /// Calls the `GlContextPtr::front_face` function.
-        pub fn front_face(&self, mode: u32)  { crate::dll::az_gl_context_ptr_front_face(self, mode) }
+        pub fn front_face(&self, mode: u32)  { unsafe { crate::dll::az_gl_context_ptr_front_face(self, mode) } }
         /// Calls the `GlContextPtr::enable` function.
-        pub fn enable(&self, cap: u32)  { crate::dll::az_gl_context_ptr_enable(self, cap) }
+        pub fn enable(&self, cap: u32)  { unsafe { crate::dll::az_gl_context_ptr_enable(self, cap) } }
         /// Calls the `GlContextPtr::disable` function.
-        pub fn disable(&self, cap: u32)  { crate::dll::az_gl_context_ptr_disable(self, cap) }
+        pub fn disable(&self, cap: u32)  { unsafe { crate::dll::az_gl_context_ptr_disable(self, cap) } }
         /// Calls the `GlContextPtr::hint` function.
-        pub fn hint(&self, param_name: u32, param_val: u32)  { crate::dll::az_gl_context_ptr_hint(self, param_name, param_val) }
+        pub fn hint(&self, param_name: u32, param_val: u32)  { unsafe { crate::dll::az_gl_context_ptr_hint(self, param_name, param_val) } }
         /// Calls the `GlContextPtr::is_enabled` function.
-        pub fn is_enabled(&self, cap: u32)  -> u8 { crate::dll::az_gl_context_ptr_is_enabled(self, cap) }
+        pub fn is_enabled(&self, cap: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_is_enabled(self, cap) } }
         /// Calls the `GlContextPtr::is_shader` function.
-        pub fn is_shader(&self, shader: u32)  -> u8 { crate::dll::az_gl_context_ptr_is_shader(self, shader) }
+        pub fn is_shader(&self, shader: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_is_shader(self, shader) } }
         /// Calls the `GlContextPtr::is_texture` function.
-        pub fn is_texture(&self, texture: u32)  -> u8 { crate::dll::az_gl_context_ptr_is_texture(self, texture) }
+        pub fn is_texture(&self, texture: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_is_texture(self, texture) } }
         /// Calls the `GlContextPtr::is_framebuffer` function.
-        pub fn is_framebuffer(&self, framebuffer: u32)  -> u8 { crate::dll::az_gl_context_ptr_is_framebuffer(self, framebuffer) }
+        pub fn is_framebuffer(&self, framebuffer: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_is_framebuffer(self, framebuffer) } }
         /// Calls the `GlContextPtr::is_renderbuffer` function.
-        pub fn is_renderbuffer(&self, renderbuffer: u32)  -> u8 { crate::dll::az_gl_context_ptr_is_renderbuffer(self, renderbuffer) }
+        pub fn is_renderbuffer(&self, renderbuffer: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_is_renderbuffer(self, renderbuffer) } }
         /// Calls the `GlContextPtr::check_frame_buffer_status` function.
-        pub fn check_frame_buffer_status(&self, target: u32)  -> u32 { crate::dll::az_gl_context_ptr_check_frame_buffer_status(self, target) }
+        pub fn check_frame_buffer_status(&self, target: u32)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_check_frame_buffer_status(self, target) } }
         /// Calls the `GlContextPtr::enable_vertex_attrib_array` function.
-        pub fn enable_vertex_attrib_array(&self, index: u32)  { crate::dll::az_gl_context_ptr_enable_vertex_attrib_array(self, index) }
+        pub fn enable_vertex_attrib_array(&self, index: u32)  { unsafe { crate::dll::az_gl_context_ptr_enable_vertex_attrib_array(self, index) } }
         /// Calls the `GlContextPtr::disable_vertex_attrib_array` function.
-        pub fn disable_vertex_attrib_array(&self, index: u32)  { crate::dll::az_gl_context_ptr_disable_vertex_attrib_array(self, index) }
+        pub fn disable_vertex_attrib_array(&self, index: u32)  { unsafe { crate::dll::az_gl_context_ptr_disable_vertex_attrib_array(self, index) } }
         /// Calls the `GlContextPtr::uniform_1f` function.
-        pub fn uniform_1f(&self, location: i32, v0: f32)  { crate::dll::az_gl_context_ptr_uniform_1f(self, location, v0) }
+        pub fn uniform_1f(&self, location: i32, v0: f32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_1f(self, location, v0) } }
         /// Calls the `GlContextPtr::uniform_1fv` function.
-        pub fn uniform_1fv(&self, location: i32, values: F32VecRef)  { crate::dll::az_gl_context_ptr_uniform_1fv(self, location, values) }
+        pub fn uniform_1fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_1fv(self, location, values) } }
         /// Calls the `GlContextPtr::uniform_1i` function.
-        pub fn uniform_1i(&self, location: i32, v0: i32)  { crate::dll::az_gl_context_ptr_uniform_1i(self, location, v0) }
+        pub fn uniform_1i(&self, location: i32, v0: i32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_1i(self, location, v0) } }
         /// Calls the `GlContextPtr::uniform_1iv` function.
-        pub fn uniform_1iv(&self, location: i32, values: I32VecRef)  { crate::dll::az_gl_context_ptr_uniform_1iv(self, location, values) }
+        pub fn uniform_1iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_1iv(self, location, values) } }
         /// Calls the `GlContextPtr::uniform_1ui` function.
-        pub fn uniform_1ui(&self, location: i32, v0: u32)  { crate::dll::az_gl_context_ptr_uniform_1ui(self, location, v0) }
+        pub fn uniform_1ui(&self, location: i32, v0: u32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_1ui(self, location, v0) } }
         /// Calls the `GlContextPtr::uniform_2f` function.
-        pub fn uniform_2f(&self, location: i32, v0: f32, v1: f32)  { crate::dll::az_gl_context_ptr_uniform_2f(self, location, v0, v1) }
+        pub fn uniform_2f(&self, location: i32, v0: f32, v1: f32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_2f(self, location, v0, v1) } }
         /// Calls the `GlContextPtr::uniform_2fv` function.
-        pub fn uniform_2fv(&self, location: i32, values: F32VecRef)  { crate::dll::az_gl_context_ptr_uniform_2fv(self, location, values) }
+        pub fn uniform_2fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_2fv(self, location, values) } }
         /// Calls the `GlContextPtr::uniform_2i` function.
-        pub fn uniform_2i(&self, location: i32, v0: i32, v1: i32)  { crate::dll::az_gl_context_ptr_uniform_2i(self, location, v0, v1) }
+        pub fn uniform_2i(&self, location: i32, v0: i32, v1: i32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_2i(self, location, v0, v1) } }
         /// Calls the `GlContextPtr::uniform_2iv` function.
-        pub fn uniform_2iv(&self, location: i32, values: I32VecRef)  { crate::dll::az_gl_context_ptr_uniform_2iv(self, location, values) }
+        pub fn uniform_2iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_2iv(self, location, values) } }
         /// Calls the `GlContextPtr::uniform_2ui` function.
-        pub fn uniform_2ui(&self, location: i32, v0: u32, v1: u32)  { crate::dll::az_gl_context_ptr_uniform_2ui(self, location, v0, v1) }
+        pub fn uniform_2ui(&self, location: i32, v0: u32, v1: u32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_2ui(self, location, v0, v1) } }
         /// Calls the `GlContextPtr::uniform_3f` function.
-        pub fn uniform_3f(&self, location: i32, v0: f32, v1: f32, v2: f32)  { crate::dll::az_gl_context_ptr_uniform_3f(self, location, v0, v1, v2) }
+        pub fn uniform_3f(&self, location: i32, v0: f32, v1: f32, v2: f32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_3f(self, location, v0, v1, v2) } }
         /// Calls the `GlContextPtr::uniform_3fv` function.
-        pub fn uniform_3fv(&self, location: i32, values: F32VecRef)  { crate::dll::az_gl_context_ptr_uniform_3fv(self, location, values) }
+        pub fn uniform_3fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_3fv(self, location, values) } }
         /// Calls the `GlContextPtr::uniform_3i` function.
-        pub fn uniform_3i(&self, location: i32, v0: i32, v1: i32, v2: i32)  { crate::dll::az_gl_context_ptr_uniform_3i(self, location, v0, v1, v2) }
+        pub fn uniform_3i(&self, location: i32, v0: i32, v1: i32, v2: i32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_3i(self, location, v0, v1, v2) } }
         /// Calls the `GlContextPtr::uniform_3iv` function.
-        pub fn uniform_3iv(&self, location: i32, values: I32VecRef)  { crate::dll::az_gl_context_ptr_uniform_3iv(self, location, values) }
+        pub fn uniform_3iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_3iv(self, location, values) } }
         /// Calls the `GlContextPtr::uniform_3ui` function.
-        pub fn uniform_3ui(&self, location: i32, v0: u32, v1: u32, v2: u32)  { crate::dll::az_gl_context_ptr_uniform_3ui(self, location, v0, v1, v2) }
+        pub fn uniform_3ui(&self, location: i32, v0: u32, v1: u32, v2: u32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_3ui(self, location, v0, v1, v2) } }
         /// Calls the `GlContextPtr::uniform_4f` function.
-        pub fn uniform_4f(&self, location: i32, x: f32, y: f32, z: f32, w: f32)  { crate::dll::az_gl_context_ptr_uniform_4f(self, location, x, y, z, w) }
+        pub fn uniform_4f(&self, location: i32, x: f32, y: f32, z: f32, w: f32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_4f(self, location, x, y, z, w) } }
         /// Calls the `GlContextPtr::uniform_4i` function.
-        pub fn uniform_4i(&self, location: i32, x: i32, y: i32, z: i32, w: i32)  { crate::dll::az_gl_context_ptr_uniform_4i(self, location, x, y, z, w) }
+        pub fn uniform_4i(&self, location: i32, x: i32, y: i32, z: i32, w: i32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_4i(self, location, x, y, z, w) } }
         /// Calls the `GlContextPtr::uniform_4iv` function.
-        pub fn uniform_4iv(&self, location: i32, values: I32VecRef)  { crate::dll::az_gl_context_ptr_uniform_4iv(self, location, values) }
+        pub fn uniform_4iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_4iv(self, location, values) } }
         /// Calls the `GlContextPtr::uniform_4ui` function.
-        pub fn uniform_4ui(&self, location: i32, x: u32, y: u32, z: u32, w: u32)  { crate::dll::az_gl_context_ptr_uniform_4ui(self, location, x, y, z, w) }
+        pub fn uniform_4ui(&self, location: i32, x: u32, y: u32, z: u32, w: u32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_4ui(self, location, x, y, z, w) } }
         /// Calls the `GlContextPtr::uniform_4fv` function.
-        pub fn uniform_4fv(&self, location: i32, values: F32VecRef)  { crate::dll::az_gl_context_ptr_uniform_4fv(self, location, values) }
+        pub fn uniform_4fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_4fv(self, location, values) } }
         /// Calls the `GlContextPtr::uniform_matrix_2fv` function.
-        pub fn uniform_matrix_2fv(&self, location: i32, transpose: bool, value: F32VecRef)  { crate::dll::az_gl_context_ptr_uniform_matrix_2fv(self, location, transpose, value) }
+        pub fn uniform_matrix_2fv(&self, location: i32, transpose: bool, value: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_matrix_2fv(self, location, transpose, value) } }
         /// Calls the `GlContextPtr::uniform_matrix_3fv` function.
-        pub fn uniform_matrix_3fv(&self, location: i32, transpose: bool, value: F32VecRef)  { crate::dll::az_gl_context_ptr_uniform_matrix_3fv(self, location, transpose, value) }
+        pub fn uniform_matrix_3fv(&self, location: i32, transpose: bool, value: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_matrix_3fv(self, location, transpose, value) } }
         /// Calls the `GlContextPtr::uniform_matrix_4fv` function.
-        pub fn uniform_matrix_4fv(&self, location: i32, transpose: bool, value: F32VecRef)  { crate::dll::az_gl_context_ptr_uniform_matrix_4fv(self, location, transpose, value) }
+        pub fn uniform_matrix_4fv(&self, location: i32, transpose: bool, value: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_matrix_4fv(self, location, transpose, value) } }
         /// Calls the `GlContextPtr::depth_mask` function.
-        pub fn depth_mask(&self, flag: bool)  { crate::dll::az_gl_context_ptr_depth_mask(self, flag) }
+        pub fn depth_mask(&self, flag: bool)  { unsafe { crate::dll::az_gl_context_ptr_depth_mask(self, flag) } }
         /// Calls the `GlContextPtr::depth_range` function.
-        pub fn depth_range(&self, near: f64, far: f64)  { crate::dll::az_gl_context_ptr_depth_range(self, near, far) }
+        pub fn depth_range(&self, near: f64, far: f64)  { unsafe { crate::dll::az_gl_context_ptr_depth_range(self, near, far) } }
         /// Calls the `GlContextPtr::get_active_attrib` function.
-        pub fn get_active_attrib(&self, program: u32, index: u32)  -> crate::gl::GetActiveAttribReturn { crate::dll::az_gl_context_ptr_get_active_attrib(self, program, index) }
+        pub fn get_active_attrib(&self, program: u32, index: u32)  -> crate::gl::GetActiveAttribReturn { unsafe { crate::dll::az_gl_context_ptr_get_active_attrib(self, program, index) } }
         /// Calls the `GlContextPtr::get_active_uniform` function.
-        pub fn get_active_uniform(&self, program: u32, index: u32)  -> crate::gl::GetActiveUniformReturn { crate::dll::az_gl_context_ptr_get_active_uniform(self, program, index) }
+        pub fn get_active_uniform(&self, program: u32, index: u32)  -> crate::gl::GetActiveUniformReturn { unsafe { crate::dll::az_gl_context_ptr_get_active_uniform(self, program, index) } }
         /// Calls the `GlContextPtr::get_active_uniforms_iv` function.
-        pub fn get_active_uniforms_iv(&self, program: u32, indices: GLuintVec, pname: u32)  -> crate::vec::GLintVec { crate::dll::az_gl_context_ptr_get_active_uniforms_iv(self, program, indices, pname) }
+        pub fn get_active_uniforms_iv(&self, program: u32, indices: GLuintVec, pname: u32)  -> crate::vec::GLintVec { unsafe { crate::dll::az_gl_context_ptr_get_active_uniforms_iv(self, program, indices, pname) } }
         /// Calls the `GlContextPtr::get_active_uniform_block_i` function.
-        pub fn get_active_uniform_block_i(&self, program: u32, index: u32, pname: u32)  -> i32 { crate::dll::az_gl_context_ptr_get_active_uniform_block_i(self, program, index, pname) }
+        pub fn get_active_uniform_block_i(&self, program: u32, index: u32, pname: u32)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_active_uniform_block_i(self, program, index, pname) } }
         /// Calls the `GlContextPtr::get_active_uniform_block_iv` function.
-        pub fn get_active_uniform_block_iv(&self, program: u32, index: u32, pname: u32)  -> crate::vec::GLintVec { crate::dll::az_gl_context_ptr_get_active_uniform_block_iv(self, program, index, pname) }
+        pub fn get_active_uniform_block_iv(&self, program: u32, index: u32, pname: u32)  -> crate::vec::GLintVec { unsafe { crate::dll::az_gl_context_ptr_get_active_uniform_block_iv(self, program, index, pname) } }
         /// Calls the `GlContextPtr::get_active_uniform_block_name` function.
-        pub fn get_active_uniform_block_name(&self, program: u32, index: u32)  -> crate::str::String { crate::dll::az_gl_context_ptr_get_active_uniform_block_name(self, program, index) }
+        pub fn get_active_uniform_block_name(&self, program: u32, index: u32)  -> crate::str::String { unsafe { crate::dll::az_gl_context_ptr_get_active_uniform_block_name(self, program, index) } }
         /// Calls the `GlContextPtr::get_attrib_location` function.
-        pub fn get_attrib_location(&self, program: u32, name: Refstr)  -> i32 { crate::dll::az_gl_context_ptr_get_attrib_location(self, program, name) }
+        pub fn get_attrib_location(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_attrib_location(self, program, name) } }
         /// Calls the `GlContextPtr::get_frag_data_location` function.
-        pub fn get_frag_data_location(&self, program: u32, name: Refstr)  -> i32 { crate::dll::az_gl_context_ptr_get_frag_data_location(self, program, name) }
+        pub fn get_frag_data_location(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_frag_data_location(self, program, name) } }
         /// Calls the `GlContextPtr::get_uniform_location` function.
-        pub fn get_uniform_location(&self, program: u32, name: Refstr)  -> i32 { crate::dll::az_gl_context_ptr_get_uniform_location(self, program, name) }
+        pub fn get_uniform_location(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_uniform_location(self, program, name) } }
         /// Calls the `GlContextPtr::get_program_info_log` function.
-        pub fn get_program_info_log(&self, program: u32)  -> crate::str::String { crate::dll::az_gl_context_ptr_get_program_info_log(self, program) }
+        pub fn get_program_info_log(&self, program: u32)  -> crate::str::String { unsafe { crate::dll::az_gl_context_ptr_get_program_info_log(self, program) } }
         /// Calls the `GlContextPtr::get_program_iv` function.
-        pub fn get_program_iv(&self, program: u32, pname: u32, result: GLintVecRefMut)  { crate::dll::az_gl_context_ptr_get_program_iv(self, program, pname, result) }
+        pub fn get_program_iv(&self, program: u32, pname: u32, result: GLintVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_program_iv(self, program, pname, result) } }
         /// Calls the `GlContextPtr::get_program_binary` function.
-        pub fn get_program_binary(&self, program: u32)  -> crate::gl::GetProgramBinaryReturn { crate::dll::az_gl_context_ptr_get_program_binary(self, program) }
+        pub fn get_program_binary(&self, program: u32)  -> crate::gl::GetProgramBinaryReturn { unsafe { crate::dll::az_gl_context_ptr_get_program_binary(self, program) } }
         /// Calls the `GlContextPtr::program_binary` function.
-        pub fn program_binary(&self, program: u32, format: u32, binary: U8VecRef)  { crate::dll::az_gl_context_ptr_program_binary(self, program, format, binary) }
+        pub fn program_binary(&self, program: u32, format: u32, binary: U8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_program_binary(self, program, format, binary) } }
         /// Calls the `GlContextPtr::program_parameter_i` function.
-        pub fn program_parameter_i(&self, program: u32, pname: u32, value: i32)  { crate::dll::az_gl_context_ptr_program_parameter_i(self, program, pname, value) }
+        pub fn program_parameter_i(&self, program: u32, pname: u32, value: i32)  { unsafe { crate::dll::az_gl_context_ptr_program_parameter_i(self, program, pname, value) } }
         /// Calls the `GlContextPtr::get_vertex_attrib_iv` function.
-        pub fn get_vertex_attrib_iv(&self, index: u32, pname: u32, result: GLintVecRefMut)  { crate::dll::az_gl_context_ptr_get_vertex_attrib_iv(self, index, pname, result) }
+        pub fn get_vertex_attrib_iv(&self, index: u32, pname: u32, result: GLintVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_vertex_attrib_iv(self, index, pname, result) } }
         /// Calls the `GlContextPtr::get_vertex_attrib_fv` function.
-        pub fn get_vertex_attrib_fv(&self, index: u32, pname: u32, result: GLfloatVecRefMut)  { crate::dll::az_gl_context_ptr_get_vertex_attrib_fv(self, index, pname, result) }
+        pub fn get_vertex_attrib_fv(&self, index: u32, pname: u32, result: GLfloatVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_vertex_attrib_fv(self, index, pname, result) } }
         /// Calls the `GlContextPtr::get_vertex_attrib_pointer_v` function.
-        pub fn get_vertex_attrib_pointer_v(&self, index: u32, pname: u32)  -> isize { crate::dll::az_gl_context_ptr_get_vertex_attrib_pointer_v(self, index, pname) }
+        pub fn get_vertex_attrib_pointer_v(&self, index: u32, pname: u32)  -> isize { unsafe { crate::dll::az_gl_context_ptr_get_vertex_attrib_pointer_v(self, index, pname) } }
         /// Calls the `GlContextPtr::get_buffer_parameter_iv` function.
-        pub fn get_buffer_parameter_iv(&self, target: u32, pname: u32)  -> i32 { crate::dll::az_gl_context_ptr_get_buffer_parameter_iv(self, target, pname) }
+        pub fn get_buffer_parameter_iv(&self, target: u32, pname: u32)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_buffer_parameter_iv(self, target, pname) } }
         /// Calls the `GlContextPtr::get_shader_info_log` function.
-        pub fn get_shader_info_log(&self, shader: u32)  -> crate::str::String { crate::dll::az_gl_context_ptr_get_shader_info_log(self, shader) }
+        pub fn get_shader_info_log(&self, shader: u32)  -> crate::str::String { unsafe { crate::dll::az_gl_context_ptr_get_shader_info_log(self, shader) } }
         /// Calls the `GlContextPtr::get_string` function.
-        pub fn get_string(&self, which: u32)  -> crate::str::String { crate::dll::az_gl_context_ptr_get_string(self, which) }
+        pub fn get_string(&self, which: u32)  -> crate::str::String { unsafe { crate::dll::az_gl_context_ptr_get_string(self, which) } }
         /// Calls the `GlContextPtr::get_string_i` function.
-        pub fn get_string_i(&self, which: u32, index: u32)  -> crate::str::String { crate::dll::az_gl_context_ptr_get_string_i(self, which, index) }
+        pub fn get_string_i(&self, which: u32, index: u32)  -> crate::str::String { unsafe { crate::dll::az_gl_context_ptr_get_string_i(self, which, index) } }
         /// Calls the `GlContextPtr::get_shader_iv` function.
-        pub fn get_shader_iv(&self, shader: u32, pname: u32, result: GLintVecRefMut)  { crate::dll::az_gl_context_ptr_get_shader_iv(self, shader, pname, result) }
+        pub fn get_shader_iv(&self, shader: u32, pname: u32, result: GLintVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_shader_iv(self, shader, pname, result) } }
         /// Calls the `GlContextPtr::get_shader_precision_format` function.
-        pub fn get_shader_precision_format(&self, shader_type: u32, precision_type: u32)  -> crate::gl::GlShaderPrecisionFormatReturn { crate::dll::az_gl_context_ptr_get_shader_precision_format(self, shader_type, precision_type) }
+        pub fn get_shader_precision_format(&self, shader_type: u32, precision_type: u32)  -> crate::gl::GlShaderPrecisionFormatReturn { unsafe { crate::dll::az_gl_context_ptr_get_shader_precision_format(self, shader_type, precision_type) } }
         /// Calls the `GlContextPtr::compile_shader` function.
-        pub fn compile_shader(&self, shader: u32)  { crate::dll::az_gl_context_ptr_compile_shader(self, shader) }
+        pub fn compile_shader(&self, shader: u32)  { unsafe { crate::dll::az_gl_context_ptr_compile_shader(self, shader) } }
         /// Calls the `GlContextPtr::create_program` function.
-        pub fn create_program(&self)  -> u32 { crate::dll::az_gl_context_ptr_create_program(self) }
+        pub fn create_program(&self)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_create_program(self) } }
         /// Calls the `GlContextPtr::delete_program` function.
-        pub fn delete_program(&self, program: u32)  { crate::dll::az_gl_context_ptr_delete_program(self, program) }
+        pub fn delete_program(&self, program: u32)  { unsafe { crate::dll::az_gl_context_ptr_delete_program(self, program) } }
         /// Calls the `GlContextPtr::create_shader` function.
-        pub fn create_shader(&self, shader_type: u32)  -> u32 { crate::dll::az_gl_context_ptr_create_shader(self, shader_type) }
+        pub fn create_shader(&self, shader_type: u32)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_create_shader(self, shader_type) } }
         /// Calls the `GlContextPtr::delete_shader` function.
-        pub fn delete_shader(&self, shader: u32)  { crate::dll::az_gl_context_ptr_delete_shader(self, shader) }
+        pub fn delete_shader(&self, shader: u32)  { unsafe { crate::dll::az_gl_context_ptr_delete_shader(self, shader) } }
         /// Calls the `GlContextPtr::detach_shader` function.
-        pub fn detach_shader(&self, program: u32, shader: u32)  { crate::dll::az_gl_context_ptr_detach_shader(self, program, shader) }
+        pub fn detach_shader(&self, program: u32, shader: u32)  { unsafe { crate::dll::az_gl_context_ptr_detach_shader(self, program, shader) } }
         /// Calls the `GlContextPtr::link_program` function.
-        pub fn link_program(&self, program: u32)  { crate::dll::az_gl_context_ptr_link_program(self, program) }
+        pub fn link_program(&self, program: u32)  { unsafe { crate::dll::az_gl_context_ptr_link_program(self, program) } }
         /// Calls the `GlContextPtr::clear_color` function.
-        pub fn clear_color(&self, r: f32, g: f32, b: f32, a: f32)  { crate::dll::az_gl_context_ptr_clear_color(self, r, g, b, a) }
+        pub fn clear_color(&self, r: f32, g: f32, b: f32, a: f32)  { unsafe { crate::dll::az_gl_context_ptr_clear_color(self, r, g, b, a) } }
         /// Calls the `GlContextPtr::clear` function.
-        pub fn clear(&self, buffer_mask: u32)  { crate::dll::az_gl_context_ptr_clear(self, buffer_mask) }
+        pub fn clear(&self, buffer_mask: u32)  { unsafe { crate::dll::az_gl_context_ptr_clear(self, buffer_mask) } }
         /// Calls the `GlContextPtr::clear_depth` function.
-        pub fn clear_depth(&self, depth: f64)  { crate::dll::az_gl_context_ptr_clear_depth(self, depth) }
+        pub fn clear_depth(&self, depth: f64)  { unsafe { crate::dll::az_gl_context_ptr_clear_depth(self, depth) } }
         /// Calls the `GlContextPtr::clear_stencil` function.
-        pub fn clear_stencil(&self, s: i32)  { crate::dll::az_gl_context_ptr_clear_stencil(self, s) }
+        pub fn clear_stencil(&self, s: i32)  { unsafe { crate::dll::az_gl_context_ptr_clear_stencil(self, s) } }
         /// Calls the `GlContextPtr::flush` function.
-        pub fn flush(&self)  { crate::dll::az_gl_context_ptr_flush(self) }
+        pub fn flush(&self)  { unsafe { crate::dll::az_gl_context_ptr_flush(self) } }
         /// Calls the `GlContextPtr::finish` function.
-        pub fn finish(&self)  { crate::dll::az_gl_context_ptr_finish(self) }
+        pub fn finish(&self)  { unsafe { crate::dll::az_gl_context_ptr_finish(self) } }
         /// Calls the `GlContextPtr::get_error` function.
-        pub fn get_error(&self)  -> u32 { crate::dll::az_gl_context_ptr_get_error(self) }
+        pub fn get_error(&self)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_get_error(self) } }
         /// Calls the `GlContextPtr::stencil_mask` function.
-        pub fn stencil_mask(&self, mask: u32)  { crate::dll::az_gl_context_ptr_stencil_mask(self, mask) }
+        pub fn stencil_mask(&self, mask: u32)  { unsafe { crate::dll::az_gl_context_ptr_stencil_mask(self, mask) } }
         /// Calls the `GlContextPtr::stencil_mask_separate` function.
-        pub fn stencil_mask_separate(&self, face: u32, mask: u32)  { crate::dll::az_gl_context_ptr_stencil_mask_separate(self, face, mask) }
+        pub fn stencil_mask_separate(&self, face: u32, mask: u32)  { unsafe { crate::dll::az_gl_context_ptr_stencil_mask_separate(self, face, mask) } }
         /// Calls the `GlContextPtr::stencil_func` function.
-        pub fn stencil_func(&self, func: u32, ref_: i32, mask: u32)  { crate::dll::az_gl_context_ptr_stencil_func(self, func, ref_, mask) }
+        pub fn stencil_func(&self, func: u32, ref_: i32, mask: u32)  { unsafe { crate::dll::az_gl_context_ptr_stencil_func(self, func, ref_, mask) } }
         /// Calls the `GlContextPtr::stencil_func_separate` function.
-        pub fn stencil_func_separate(&self, face: u32, func: u32, ref_: i32, mask: u32)  { crate::dll::az_gl_context_ptr_stencil_func_separate(self, face, func, ref_, mask) }
+        pub fn stencil_func_separate(&self, face: u32, func: u32, ref_: i32, mask: u32)  { unsafe { crate::dll::az_gl_context_ptr_stencil_func_separate(self, face, func, ref_, mask) } }
         /// Calls the `GlContextPtr::stencil_op` function.
-        pub fn stencil_op(&self, sfail: u32, dpfail: u32, dppass: u32)  { crate::dll::az_gl_context_ptr_stencil_op(self, sfail, dpfail, dppass) }
+        pub fn stencil_op(&self, sfail: u32, dpfail: u32, dppass: u32)  { unsafe { crate::dll::az_gl_context_ptr_stencil_op(self, sfail, dpfail, dppass) } }
         /// Calls the `GlContextPtr::stencil_op_separate` function.
-        pub fn stencil_op_separate(&self, face: u32, sfail: u32, dpfail: u32, dppass: u32)  { crate::dll::az_gl_context_ptr_stencil_op_separate(self, face, sfail, dpfail, dppass) }
+        pub fn stencil_op_separate(&self, face: u32, sfail: u32, dpfail: u32, dppass: u32)  { unsafe { crate::dll::az_gl_context_ptr_stencil_op_separate(self, face, sfail, dpfail, dppass) } }
         /// Calls the `GlContextPtr::egl_image_target_texture2d_oes` function.
-        pub fn egl_image_target_texture2d_oes(&self, target: u32, image: *const c_void)  { crate::dll::az_gl_context_ptr_egl_image_target_texture2d_oes(self, target, image) }
+        pub fn egl_image_target_texture2d_oes(&self, target: u32, image: *const c_void)  { unsafe { crate::dll::az_gl_context_ptr_egl_image_target_texture2d_oes(self, target, image) } }
         /// Calls the `GlContextPtr::generate_mipmap` function.
-        pub fn generate_mipmap(&self, target: u32)  { crate::dll::az_gl_context_ptr_generate_mipmap(self, target) }
+        pub fn generate_mipmap(&self, target: u32)  { unsafe { crate::dll::az_gl_context_ptr_generate_mipmap(self, target) } }
         /// Calls the `GlContextPtr::insert_event_marker_ext` function.
-        pub fn insert_event_marker_ext(&self, message: Refstr)  { crate::dll::az_gl_context_ptr_insert_event_marker_ext(self, message) }
+        pub fn insert_event_marker_ext(&self, message: Refstr)  { unsafe { crate::dll::az_gl_context_ptr_insert_event_marker_ext(self, message) } }
         /// Calls the `GlContextPtr::push_group_marker_ext` function.
-        pub fn push_group_marker_ext(&self, message: Refstr)  { crate::dll::az_gl_context_ptr_push_group_marker_ext(self, message) }
+        pub fn push_group_marker_ext(&self, message: Refstr)  { unsafe { crate::dll::az_gl_context_ptr_push_group_marker_ext(self, message) } }
         /// Calls the `GlContextPtr::pop_group_marker_ext` function.
-        pub fn pop_group_marker_ext(&self)  { crate::dll::az_gl_context_ptr_pop_group_marker_ext(self) }
+        pub fn pop_group_marker_ext(&self)  { unsafe { crate::dll::az_gl_context_ptr_pop_group_marker_ext(self) } }
         /// Calls the `GlContextPtr::debug_message_insert_khr` function.
-        pub fn debug_message_insert_khr(&self, source: u32, type_: u32, id: u32, severity: u32, message: Refstr)  { crate::dll::az_gl_context_ptr_debug_message_insert_khr(self, source, type_, id, severity, message) }
+        pub fn debug_message_insert_khr(&self, source: u32, type_: u32, id: u32, severity: u32, message: Refstr)  { unsafe { crate::dll::az_gl_context_ptr_debug_message_insert_khr(self, source, type_, id, severity, message) } }
         /// Calls the `GlContextPtr::push_debug_group_khr` function.
-        pub fn push_debug_group_khr(&self, source: u32, id: u32, message: Refstr)  { crate::dll::az_gl_context_ptr_push_debug_group_khr(self, source, id, message) }
+        pub fn push_debug_group_khr(&self, source: u32, id: u32, message: Refstr)  { unsafe { crate::dll::az_gl_context_ptr_push_debug_group_khr(self, source, id, message) } }
         /// Calls the `GlContextPtr::pop_debug_group_khr` function.
-        pub fn pop_debug_group_khr(&self)  { crate::dll::az_gl_context_ptr_pop_debug_group_khr(self) }
+        pub fn pop_debug_group_khr(&self)  { unsafe { crate::dll::az_gl_context_ptr_pop_debug_group_khr(self) } }
         /// Calls the `GlContextPtr::fence_sync` function.
-        pub fn fence_sync(&self, condition: u32, flags: u32)  -> crate::gl::GLsyncPtr { crate::dll::az_gl_context_ptr_fence_sync(self, condition, flags) }
+        pub fn fence_sync(&self, condition: u32, flags: u32)  -> crate::gl::GLsyncPtr { unsafe { crate::dll::az_gl_context_ptr_fence_sync(self, condition, flags) } }
         /// Calls the `GlContextPtr::client_wait_sync` function.
-        pub fn client_wait_sync(&self, sync: GLsyncPtr, flags: u32, timeout: u64)  -> u32 { crate::dll::az_gl_context_ptr_client_wait_sync(self, sync, flags, timeout) }
+        pub fn client_wait_sync(&self, sync: GLsyncPtr, flags: u32, timeout: u64)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_client_wait_sync(self, sync, flags, timeout) } }
         /// Calls the `GlContextPtr::wait_sync` function.
-        pub fn wait_sync(&self, sync: GLsyncPtr, flags: u32, timeout: u64)  { crate::dll::az_gl_context_ptr_wait_sync(self, sync, flags, timeout) }
+        pub fn wait_sync(&self, sync: GLsyncPtr, flags: u32, timeout: u64)  { unsafe { crate::dll::az_gl_context_ptr_wait_sync(self, sync, flags, timeout) } }
         /// Calls the `GlContextPtr::delete_sync` function.
-        pub fn delete_sync(&self, sync: GLsyncPtr)  { crate::dll::az_gl_context_ptr_delete_sync(self, sync) }
+        pub fn delete_sync(&self, sync: GLsyncPtr)  { unsafe { crate::dll::az_gl_context_ptr_delete_sync(self, sync) } }
         /// Calls the `GlContextPtr::texture_range_apple` function.
-        pub fn texture_range_apple(&self, target: u32, data: U8VecRef)  { crate::dll::az_gl_context_ptr_texture_range_apple(self, target, data) }
+        pub fn texture_range_apple(&self, target: u32, data: U8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_texture_range_apple(self, target, data) } }
         /// Calls the `GlContextPtr::gen_fences_apple` function.
-        pub fn gen_fences_apple(&self, n: i32)  -> crate::vec::GLuintVec { crate::dll::az_gl_context_ptr_gen_fences_apple(self, n) }
+        pub fn gen_fences_apple(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_fences_apple(self, n) } }
         /// Calls the `GlContextPtr::delete_fences_apple` function.
-        pub fn delete_fences_apple(&self, fences: GLuintVecRef)  { crate::dll::az_gl_context_ptr_delete_fences_apple(self, fences) }
+        pub fn delete_fences_apple(&self, fences: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_fences_apple(self, fences) } }
         /// Calls the `GlContextPtr::set_fence_apple` function.
-        pub fn set_fence_apple(&self, fence: u32)  { crate::dll::az_gl_context_ptr_set_fence_apple(self, fence) }
+        pub fn set_fence_apple(&self, fence: u32)  { unsafe { crate::dll::az_gl_context_ptr_set_fence_apple(self, fence) } }
         /// Calls the `GlContextPtr::finish_fence_apple` function.
-        pub fn finish_fence_apple(&self, fence: u32)  { crate::dll::az_gl_context_ptr_finish_fence_apple(self, fence) }
+        pub fn finish_fence_apple(&self, fence: u32)  { unsafe { crate::dll::az_gl_context_ptr_finish_fence_apple(self, fence) } }
         /// Calls the `GlContextPtr::test_fence_apple` function.
-        pub fn test_fence_apple(&self, fence: u32)  { crate::dll::az_gl_context_ptr_test_fence_apple(self, fence) }
+        pub fn test_fence_apple(&self, fence: u32)  { unsafe { crate::dll::az_gl_context_ptr_test_fence_apple(self, fence) } }
         /// Calls the `GlContextPtr::test_object_apple` function.
-        pub fn test_object_apple(&self, object: u32, name: u32)  -> u8 { crate::dll::az_gl_context_ptr_test_object_apple(self, object, name) }
+        pub fn test_object_apple(&self, object: u32, name: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_test_object_apple(self, object, name) } }
         /// Calls the `GlContextPtr::finish_object_apple` function.
-        pub fn finish_object_apple(&self, object: u32, name: u32)  { crate::dll::az_gl_context_ptr_finish_object_apple(self, object, name) }
+        pub fn finish_object_apple(&self, object: u32, name: u32)  { unsafe { crate::dll::az_gl_context_ptr_finish_object_apple(self, object, name) } }
         /// Calls the `GlContextPtr::get_frag_data_index` function.
-        pub fn get_frag_data_index(&self, program: u32, name: Refstr)  -> i32 { crate::dll::az_gl_context_ptr_get_frag_data_index(self, program, name) }
+        pub fn get_frag_data_index(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_frag_data_index(self, program, name) } }
         /// Calls the `GlContextPtr::blend_barrier_khr` function.
-        pub fn blend_barrier_khr(&self)  { crate::dll::az_gl_context_ptr_blend_barrier_khr(self) }
+        pub fn blend_barrier_khr(&self)  { unsafe { crate::dll::az_gl_context_ptr_blend_barrier_khr(self) } }
         /// Calls the `GlContextPtr::bind_frag_data_location_indexed` function.
-        pub fn bind_frag_data_location_indexed(&self, program: u32, color_number: u32, index: u32, name: Refstr)  { crate::dll::az_gl_context_ptr_bind_frag_data_location_indexed(self, program, color_number, index, name) }
+        pub fn bind_frag_data_location_indexed(&self, program: u32, color_number: u32, index: u32, name: Refstr)  { unsafe { crate::dll::az_gl_context_ptr_bind_frag_data_location_indexed(self, program, color_number, index, name) } }
         /// Calls the `GlContextPtr::get_debug_messages` function.
-        pub fn get_debug_messages(&self)  -> crate::vec::DebugMessageVec { crate::dll::az_gl_context_ptr_get_debug_messages(self) }
+        pub fn get_debug_messages(&self)  -> crate::vec::DebugMessageVec { unsafe { crate::dll::az_gl_context_ptr_get_debug_messages(self) } }
         /// Calls the `GlContextPtr::provoking_vertex_angle` function.
-        pub fn provoking_vertex_angle(&self, mode: u32)  { crate::dll::az_gl_context_ptr_provoking_vertex_angle(self, mode) }
+        pub fn provoking_vertex_angle(&self, mode: u32)  { unsafe { crate::dll::az_gl_context_ptr_provoking_vertex_angle(self, mode) } }
         /// Calls the `GlContextPtr::gen_vertex_arrays_apple` function.
-        pub fn gen_vertex_arrays_apple(&self, n: i32)  -> crate::vec::GLuintVec { crate::dll::az_gl_context_ptr_gen_vertex_arrays_apple(self, n) }
+        pub fn gen_vertex_arrays_apple(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_vertex_arrays_apple(self, n) } }
         /// Calls the `GlContextPtr::bind_vertex_array_apple` function.
-        pub fn bind_vertex_array_apple(&self, vao: u32)  { crate::dll::az_gl_context_ptr_bind_vertex_array_apple(self, vao) }
+        pub fn bind_vertex_array_apple(&self, vao: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_vertex_array_apple(self, vao) } }
         /// Calls the `GlContextPtr::delete_vertex_arrays_apple` function.
-        pub fn delete_vertex_arrays_apple(&self, vertex_arrays: GLuintVecRef)  { crate::dll::az_gl_context_ptr_delete_vertex_arrays_apple(self, vertex_arrays) }
+        pub fn delete_vertex_arrays_apple(&self, vertex_arrays: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_vertex_arrays_apple(self, vertex_arrays) } }
         /// Calls the `GlContextPtr::copy_texture_chromium` function.
-        pub fn copy_texture_chromium(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { crate::dll::az_gl_context_ptr_copy_texture_chromium(self, source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+        pub fn copy_texture_chromium(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::az_gl_context_ptr_copy_texture_chromium(self, source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
         /// Calls the `GlContextPtr::copy_sub_texture_chromium` function.
-        pub fn copy_sub_texture_chromium(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, x: i32, y: i32, width: i32, height: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { crate::dll::az_gl_context_ptr_copy_sub_texture_chromium(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+        pub fn copy_sub_texture_chromium(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, x: i32, y: i32, width: i32, height: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::az_gl_context_ptr_copy_sub_texture_chromium(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
         /// Calls the `GlContextPtr::egl_image_target_renderbuffer_storage_oes` function.
-        pub fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: *const c_void)  { crate::dll::az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes(self, target, image) }
+        pub fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: *const c_void)  { unsafe { crate::dll::az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes(self, target, image) } }
         /// Calls the `GlContextPtr::copy_texture_3d_angle` function.
-        pub fn copy_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { crate::dll::az_gl_context_ptr_copy_texture_3d_angle(self, source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+        pub fn copy_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::az_gl_context_ptr_copy_texture_3d_angle(self, source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
         /// Calls the `GlContextPtr::copy_sub_texture_3d_angle` function.
-        pub fn copy_sub_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { crate::dll::az_gl_context_ptr_copy_sub_texture_3d_angle(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+        pub fn copy_sub_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::az_gl_context_ptr_copy_sub_texture_3d_angle(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
         /// Calls the `GlContextPtr::buffer_storage` function.
-        pub fn buffer_storage(&self, target: u32, size: isize, data: *const c_void, flags: u32)  { crate::dll::az_gl_context_ptr_buffer_storage(self, target, size, data, flags) }
+        pub fn buffer_storage(&self, target: u32, size: isize, data: *const c_void, flags: u32)  { unsafe { crate::dll::az_gl_context_ptr_buffer_storage(self, target, size, data, flags) } }
         /// Calls the `GlContextPtr::flush_mapped_buffer_range` function.
-        pub fn flush_mapped_buffer_range(&self, target: u32, offset: isize, length: isize)  { crate::dll::az_gl_context_ptr_flush_mapped_buffer_range(self, target, offset, length) }
+        pub fn flush_mapped_buffer_range(&self, target: u32, offset: isize, length: isize)  { unsafe { crate::dll::az_gl_context_ptr_flush_mapped_buffer_range(self, target, offset, length) } }
     }
 
-    impl Clone for GlContextPtr { fn clone(&self) -> Self { crate::dll::az_gl_context_ptr_deep_copy(self) } }
-    impl Drop for GlContextPtr { fn drop(&mut self) { crate::dll::az_gl_context_ptr_delete(self); } }
+    impl Clone for GlContextPtr { fn clone(&self) -> Self { unsafe { crate::dll::az_gl_context_ptr_deep_copy(self) } } }
+    impl Drop for GlContextPtr { fn drop(&mut self) { unsafe { crate::dll::az_gl_context_ptr_delete(self) }; } }
 
 
     /// `Texture` struct
     #[doc(inline)] pub use crate::dll::AzTexture as Texture;
 
-    impl Drop for Texture { fn drop(&mut self) { crate::dll::az_texture_delete(self); } }
+    impl Drop for Texture { fn drop(&mut self) { unsafe { crate::dll::az_texture_delete(self) }; } }
 
 
     /// `TextureFlags` struct
@@ -2266,7 +2266,7 @@
 
     impl TextureFlags {
         /// Default texture flags (not opaque, not a video texture)
-        pub fn default() -> Self { crate::dll::az_texture_flags_default() }
+        pub fn default() -> Self { unsafe { crate::dll::az_texture_flags_default() } }
     }
 
     impl Clone for TextureFlags { fn clone(&self) -> Self { *self } }

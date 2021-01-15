@@ -527,7 +527,6 @@ fn run_inner(app: App) -> ! {
                                 if changes.need_regenerate_display_list() || events.contains_resize_event() {
                                     // this can be false in case that only opacity: / transform: properties changed!
                                     need_regenerate_display_list = true;
-                                    println!("current window size: {:?}", window.internal.current_window_state.size.dimensions);
                                 }
 
                                 if changes.need_redraw() {

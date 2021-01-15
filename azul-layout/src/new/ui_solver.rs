@@ -65,7 +65,7 @@ pub fn create_word_cache(
 ) -> BTreeMap<NodeId, Words> {
     use azul_text_layout::text_layout::split_text_into_words;
     node_data
-    .linear_iter()
+    .par_linear_iter()
     .filter_map(|node_id| {
         match &node_data[node_id].get_node_type() {
             NodeType::Label(string) => Some((node_id, split_text_into_words(string.as_str()))),
@@ -148,9 +148,13 @@ fn create_word_positions<'a>(
 ) -> BTreeMap<NodeId, (WordPositions, FontInstanceKey)> {
     use azul_text_layout::text_layout;
     words.iter().filter_map(|(node_id, words)| {
+        let now = Instant::now();
         let (scaled_words, font_instance_key) = scaled_words.get(&node_id)?;
+        println!("get scaled words: {:?}", Instant::now() - now);
         let (text_layout_options, _, _) = layouted_rects[*node_id].resolved_text_layout_options.as_ref()?;
+        println!("get resolved_text_layout_options: {:?}", Instant::now() - now);
         let positioned_words = text_layout::position_words(words, scaled_words, text_layout_options);
+        println!("words positioned: {:?}", Instant::now() - now);
         Some((*node_id, (positioned_words, *font_instance_key)))
     }).collect()
 }

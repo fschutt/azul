@@ -4,8 +4,8 @@ use azul_core::app_resources::{
     Info, Advance,
 };
 use tinyvec::tiny_vec;
+use std::collections::BTreeMap;
 use std::rc::Rc;
-
 use allsorts::{
     binary::read::ReadScope,
     font_data::FontData,
@@ -212,7 +212,8 @@ pub struct ParsedFont {
     pub gsub_cache: LayoutCache<GSUB>,
     pub gpos_cache: LayoutCache<GPOS>,
     pub gdef_table: Rc<GDEFTable>,
-    pub glyph_records: Vec<OwnedGlyphRecord>,
+    pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
+    pub space_width: Option<usize>,
     pub cmap_subtable: OwnedCmapSubtable,
 }
 
@@ -238,43 +239,17 @@ impl OwnedGlyphData {
 pub struct OwnedGlyph {
     pub number_of_contours: i16,
     pub bounding_box: BoundingBox,
+    pub horz_advance: u16,
     pub data: OwnedGlyphData,
 }
 
 impl OwnedGlyph {
-    fn from_glyph_data<'a>(glyph: Glyph<'a>) -> Self {
+    fn from_glyph_data<'a>(glyph: Glyph<'a>, horz_advance: u16) -> Self {
         Self {
             number_of_contours: glyph.number_of_contours,
             bounding_box: glyph.bounding_box,
+            horz_advance,
             data: OwnedGlyphData::from(glyph.data),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum OwnedGlyphRecord {
-    Empty,
-    Present(Vec<u8>),
-    Parsed(OwnedGlyph),
-}
-
-impl OwnedGlyphRecord {
-    fn from_glyph_record<'a>(g: GlyfRecord<'a>) -> Self {
-        match g {
-            GlyfRecord::Empty => OwnedGlyphRecord::Empty,
-            GlyfRecord::Present(s) => OwnedGlyphRecord::Present(s.data().to_vec()),
-            GlyfRecord::Parsed(g) => OwnedGlyphRecord::Parsed(OwnedGlyph::from_glyph_data(g)),
-        }
-    }
-
-    // parse the data as a glyph, set state to Parsed
-    fn parse(&mut self) {
-        let new = if let OwnedGlyphRecord::Present(data) = self {
-            ReadScope::new(data).read::<Glyph<'_>>().ok()
-            .map(|g| OwnedGlyphRecord::Parsed(OwnedGlyph::from_glyph_data(g)))
-        } else { None };
-        if let Some(new_record) = new {
-            *self = new_record;
         }
     }
 }
@@ -284,6 +259,12 @@ impl ParsedFont {
     pub fn from_bytes(font_bytes: &[u8], font_index: usize) -> Option<Self> {
 
         use allsorts::tag;
+        use rayon::iter::IntoParallelIterator;
+        use rayon::iter::IndexedParallelIterator;
+        use rayon::iter::ParallelIterator;
+        use std::time::Instant;
+
+        let now = Instant::now();
 
         let scope = ReadScope::new(font_bytes);
         let font_file = scope.read::<FontData<'_>>().ok()?;
@@ -299,9 +280,7 @@ impl ParsedFont {
         let loca_table = ReadScope::new(&loca_data).read_dep::<LocaTable<'_>>((maxp_table.num_glyphs as usize, head_table.index_to_loc_format)).ok()?;
 
         let glyf_data = provider.table_data(tag::GLYF).ok()??.into_owned();
-        let glyf_table = ReadScope::new(&glyf_data).read_dep::<GlyfTable<'_>>(&loca_table).ok()?;
-
-        let glyph_records = glyf_table.records.into_iter().map(|g| OwnedGlyphRecord::from_glyph_record(g)).collect::<Vec<_>>();
+        let mut glyf_table = ReadScope::new(&glyf_data).read_dep::<GlyfTable<'_>>(&loca_table).ok()?;
 
         let hmtx_data = provider.table_data(tag::HMTX).ok()??.into_owned().into_boxed_slice();
 
@@ -312,6 +291,25 @@ impl ParsedFont {
 
         let mut font_data_impl = allsorts::font::Font::new(provider).ok()??;
 
+        // parse the glyphs on startup, since otherwise it will slow down the layout
+        let glyph_records_decoded = glyf_table.records
+        .into_par_iter()
+        .enumerate()
+        .filter_map(|(glyph_index, mut glyph_record)| {
+            glyph_record.parse().ok()?;
+            if glyph_index > (u16::MAX as usize) {
+                return None;
+            }
+            let glyph_index = glyph_index as u16;
+            let horz_advance = allsorts::glyph_info::advance(&maxp_table, &hhea_table, &hmtx_data, glyph_index).unwrap_or_default();
+            match glyph_record {
+                GlyfRecord::Empty | GlyfRecord::Present(_) => None,
+                GlyfRecord::Parsed(g) => {
+                    Some((glyph_index, OwnedGlyph::from_glyph_data(g, horz_advance)))
+                }
+            }
+        }).collect::<Vec<_>>();
+
         // required for font layout: gsub_cache, gpos_cache and gdef_table
         let gsub_cache = font_data_impl.gsub_cache().ok()??;
         let gpos_cache = font_data_impl.gpos_cache().ok()??;
@@ -320,7 +318,7 @@ impl ParsedFont {
 
         let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data()).read::<CmapSubtable<'_>>().ok()?.to_owned()?;
 
-        Some(ParsedFont {
+        let mut font = ParsedFont {
             font_metrics,
             num_glyphs,
             hhea_table,
@@ -329,36 +327,41 @@ impl ParsedFont {
             gsub_cache,
             gpos_cache,
             gdef_table,
-            glyph_records,
             cmap_subtable,
-        })
+            glyph_records_decoded: glyph_records_decoded.into_iter().collect(),
+            space_width: None,
+        };
+
+        let space_width = font.get_space_width_internal();
+        font.space_width = space_width;
+
+        Some(font)
     }
 
-    /// Returns the width of the space " " character
-    pub fn get_space_width(&mut self) -> Option<usize> {
+    fn get_space_width_internal(&mut self) -> Option<usize> {
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
         allsorts::glyph_info::advance(&self.maxp_table, &self.hhea_table, &self.hmtx_data, glyph_index).ok().map(|s| s as usize)
     }
 
-    pub fn get_horizontal_advance(&mut self, glyph_index: u16) -> u16 {
-        allsorts::glyph_info::advance(&self.maxp_table, &self.hhea_table, &self.hmtx_data, glyph_index).unwrap()
+    /// Returns the width of the space " " character
+    #[inline]
+    pub const fn get_space_width(&self) -> Option<usize> {
+        self.space_width
+    }
+
+    pub fn get_horizontal_advance(&self, glyph_index: u16) -> u16 {
+        self.glyph_records_decoded.get(&glyph_index).map(|gi| gi.horz_advance).unwrap_or_default()
     }
 
     // get the x and y size of a glyph in unscaled units
-    pub fn get_glyph_size(&mut self, glyph_index: u16) -> Option<(i32, i32)> {
-        let glyph_record = self.glyph_records.get_mut(glyph_index as usize)?;
-        glyph_record.parse();
-        match glyph_record {
-            OwnedGlyphRecord::Empty | OwnedGlyphRecord::Present(_) => None,
-            OwnedGlyphRecord::Parsed(g) => {
-                let glyph_width = g.bounding_box.x_max as i32 - g.bounding_box.x_min as i32; // width
-                let glyph_height = g.bounding_box.y_max as i32 - g.bounding_box.y_min as i32; // height
-                Some((glyph_width, glyph_height))
-            }
-        }
+    pub fn get_glyph_size(&self, glyph_index: u16) -> Option<(i32, i32)> {
+        let g = self.glyph_records_decoded.get(&glyph_index)?;
+        let glyph_width = g.bounding_box.x_max as i32 - g.bounding_box.x_min as i32; // width
+        let glyph_height = g.bounding_box.y_max as i32 - g.bounding_box.y_min as i32; // height
+        Some((glyph_width, glyph_height))
     }
 
-    pub fn shape(&mut self, text: &[char], script: u32, lang: u32) -> ShapedTextBufferUnsized {
+    pub fn shape(&self, text: &[char], script: u32, lang: u32) -> ShapedTextBufferUnsized {
         shape(self, text, script, lang).unwrap_or_default()
     }
 
@@ -622,7 +625,7 @@ pub fn estimate_script_and_language(text: &str) -> (u32, u32) {
 // get_word_visual_width(word: &TextBuffer) ->
 // get_glyph_instances(infos: &GlyphInfos, positions: &GlyphPositions) -> PositionedGlyphBuffer
 
-fn shape<'a>(font: &mut ParsedFont, text: &[char], script: u32, lang: u32) -> Option<ShapedTextBufferUnsized> {
+fn shape<'a>(font: &ParsedFont, text: &[char], script: u32, lang: u32) -> Option<ShapedTextBufferUnsized> {
 
     use std::convert::TryFrom;
     use allsorts::gpos::apply as gpos_apply;
@@ -692,6 +695,16 @@ fn shape<'a>(font: &mut ParsedFont, text: &[char], script: u32, lang: u32) -> Op
     Some(ShapedTextBufferUnsized { infos })
 }
 
+#[inline]
+fn translate_info(i: &allsorts::gpos::Info, size: Advance) -> Info {
+    Info {
+        glyph: translate_raw_glyph(&i.glyph),
+        size,
+        placement: translate_placement(&i.placement),
+        mark_placement: translate_mark_placement(&i.mark_placement),
+    }
+}
+
 fn make_raw_glyph(ch: char, glyph_index: u16, variation: Option<allsorts::unicode::VariationSelector>) -> allsorts::gsub::RawGlyph<()> {
     allsorts::gsub::RawGlyph {
         unicodes: tiny_vec![[char; 1] => ch],
@@ -705,16 +718,6 @@ fn make_raw_glyph(ch: char, glyph_index: u16, variation: Option<allsorts::unicod
         fake_italic: false,
         extra_data: (),
         variation,
-    }
-}
-
-#[inline]
-fn translate_info(i: &allsorts::gpos::Info, size: Advance) -> Info {
-    Info {
-        glyph: translate_raw_glyph(&i.glyph),
-        size,
-        placement: translate_placement(&i.placement),
-        mark_placement: translate_mark_placement(&i.mark_placement),
     }
 }
 
@@ -736,7 +739,7 @@ fn translate_raw_glyph(rg: &allsorts::gsub::RawGlyph<()>) -> RawGlyph {
 }
 
 #[inline]
-fn translate_glyph_origin(g: &allsorts::gsub::GlyphOrigin) -> GlyphOrigin {
+const fn translate_glyph_origin(g: &allsorts::gsub::GlyphOrigin) -> GlyphOrigin {
     use allsorts::gsub::GlyphOrigin::*;
     match g {
         Char(c) => GlyphOrigin::Char(*c),
@@ -745,7 +748,7 @@ fn translate_glyph_origin(g: &allsorts::gsub::GlyphOrigin) -> GlyphOrigin {
 }
 
 #[inline]
-fn translate_placement(p: &allsorts::gpos::Placement) -> Placement {
+const fn translate_placement(p: &allsorts::gpos::Placement) -> Placement {
     use allsorts::gpos::Placement::*;
     match p {
         None => Placement::None,
@@ -755,7 +758,7 @@ fn translate_placement(p: &allsorts::gpos::Placement) -> Placement {
 }
 
 #[inline]
-fn translate_mark_placement(mp: &allsorts::gpos::MarkPlacement) -> MarkPlacement {
+const fn translate_mark_placement(mp: &allsorts::gpos::MarkPlacement) -> MarkPlacement {
     use allsorts::gpos::MarkPlacement::*;
     match mp {
         None => MarkPlacement::None,
@@ -764,7 +767,7 @@ fn translate_mark_placement(mp: &allsorts::gpos::MarkPlacement) -> MarkPlacement
     }
 }
 
-fn translate_variation_selector(v: &allsorts::unicode::VariationSelector) -> VariationSelector {
+const fn translate_variation_selector(v: &allsorts::unicode::VariationSelector) -> VariationSelector {
     use allsorts::unicode::VariationSelector::*;
     match v {
         VS01 => VariationSelector::VS01,
@@ -776,4 +779,4 @@ fn translate_variation_selector(v: &allsorts::unicode::VariationSelector) -> Var
 }
 
 #[inline]
-fn translate_anchor(anchor: &allsorts::layout::Anchor) -> Anchor { Anchor { x: anchor.x, y: anchor.y } }
+const fn translate_anchor(anchor: &allsorts::layout::Anchor) -> Anchor { Anchor { x: anchor.x, y: anchor.y } }

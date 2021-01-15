@@ -4,6 +4,7 @@ use std::{ops::Range, collections::BTreeMap};
 use azul::{
     style::StyledDom,
     dom::{Dom, NodeData, NodeType},
+    vec::CssPropertyVec,
     callbacks::{RefAny, IFrameCallbackInfo, IFrameCallbackReturn},
 };
 
@@ -134,103 +135,115 @@ impl TableViewState {
 
         // Empty rectangle at the top left of the table
         let top_left_empty_rect = Dom::div()
-        .with_inline_css(CssProperty::height(LayoutHeight::const_px(20)))
-        .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(COLOR_E6E6E6)))
-        .with_inline_css(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 }))
-        .with_inline_css(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 }));
+        .with_inline_css_props(CssPropertyVec::from(&[
+            CssProperty::height(LayoutHeight::const_px(20)),
+            CssProperty::background_content(StyleBackgroundContent::Color(COLOR_E6E6E6)),
+            CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 }),
+            CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 }),
+        ][..]));
 
         // Row numbers (first column - laid out vertical) - "1", "2", "3"
         let row_numbers = (rows.start..rows.end.saturating_sub(1)).map(|row_idx| {
             NodeData::label(format!("{}", row_idx + 1).into())
-            .with_inline_css(CssProperty::font_size(StyleFontSize::const_px(14)))
-            .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
-            .with_inline_css(CssProperty::justify_content(LayoutJustifyContent::Center))
-            .with_inline_css(CssProperty::align_items(LayoutAlignItems::Center))
-            .with_inline_css(CssProperty::min_height(LayoutMinHeight::const_px(20)))
-            .with_inline_css(CssProperty::border_bottom_width(StyleBorderBottomWidth::const_px(1)))
-            .with_inline_css(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid }))
-            .with_inline_css(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 }))
+            .with_inline_css_props(CssPropertyVec::from(&[
+                CssProperty::font_size(StyleFontSize::const_px(14)),
+                CssProperty::flex_direction(LayoutFlexDirection::Row),
+                CssProperty::justify_content(LayoutJustifyContent::Center),
+                CssProperty::align_items(LayoutAlignItems::Center),
+                CssProperty::min_height(LayoutMinHeight::const_px(20)),
+                CssProperty::border_bottom_width(StyleBorderBottomWidth::const_px(1)),
+                CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid }),
+                CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 }),
+            ][..]))
         })
         .collect::<Dom>()
-        .with_inline_css(CssProperty::font_family(sans_serif_font_family.clone()))
-        .with_inline_css(CssProperty::text_color(StyleTextColor { inner: COLOR_2D2D2D }))
-        .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(COLOR_E6E6E6)))
-        .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Column))
-        .with_inline_css(CssProperty::box_shadow_right(shadow));
+        .with_inline_css_props(CssPropertyVec::from(&[
+            CssProperty::font_family(sans_serif_font_family.clone()),
+            CssProperty::text_color(StyleTextColor { inner: COLOR_2D2D2D }),
+            CssProperty::background_content(StyleBackgroundContent::Color(COLOR_E6E6E6)),
+            CssProperty::flex_direction(LayoutFlexDirection::Column),
+            CssProperty::box_shadow_right(shadow),
+        ][..]));
 
         // first column: contains the "top left rect" + the column
         let row_number_wrapper = Dom::div()
-        .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Column))
-        .with_inline_css(CssProperty::max_width(LayoutMaxWidth::px(30.0)))
+        .with_inline_css_props(CssPropertyVec::from(&[
+            CssProperty::flex_direction(LayoutFlexDirection::Column),
+            CssProperty::max_width(LayoutMaxWidth::px(30.0)),
+        ][..]))
         .with_child(top_left_empty_rect)
         .with_child(row_numbers);
 
         // currently active cell handle
+        // TODO: add callbacks to modify selection
         let current_active_selection_handle = Dom::div()
-        .with_inline_css(CssProperty::position(LayoutPosition::Absolute))
-        .with_inline_css(CssProperty::width(LayoutWidth::px(10.0)))
-        .with_inline_css(CssProperty::height(LayoutHeight::px(10.0)))
-        .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(COLOR_407C40)))
-        .with_inline_css(CssProperty::bottom(LayoutBottom::px(-5.0)))
-        .with_inline_css(CssProperty::right(LayoutRight::px(-5.0))); // TODO: add callbacks to modify selection
+        .with_inline_css_props(CssPropertyVec::from(&[
+            CssProperty::position(LayoutPosition::Absolute),
+            CssProperty::width(LayoutWidth::px(10.0)),
+            CssProperty::height(LayoutHeight::px(10.0)),
+            CssProperty::background_content(StyleBackgroundContent::Color(COLOR_407C40)),
+            CssProperty::bottom(LayoutBottom::px(-5.0)),
+            CssProperty::right(LayoutRight::px(-5.0)),
+        ][..]));
 
         // currently selected cell(s)
         let current_active_selection = Dom::div()
-        .with_inline_css(CssProperty::position(LayoutPosition::Absolute))
-        .with_inline_css(CssProperty::width({
-            self.selection.as_ref()
-            .map(|selection| LayoutWidth::px(selection.number_of_columns_selected() as f32 * self.column_width))
-            .unwrap_or(LayoutWidth::zero()) // TODO: replace with transform: scale-x
-        }))
-        .with_inline_css(CssProperty::height({
-            self.selection.as_ref()
-            .map(|selection| LayoutHeight::px(selection.number_of_rows_selected() as f32 * self.row_height))
-            .unwrap_or(LayoutHeight::zero())  // TODO: replace with transform: scale-y
-        }))
-        .with_inline_css(CssProperty::margin_left({
-            self.selection.as_ref()
-            .map(|selection| LayoutMarginLeft::px(selection.from_top_left.column as f32 * self.column_width))
-            .unwrap_or(LayoutMarginLeft::zero()) // TODO: replace with transform-y
-        }))
-        .with_inline_css(CssProperty::margin_top({
-            self.selection.as_ref()
-            .map(|selection| LayoutMarginTop::px(selection.from_top_left.row as f32 * self.row_height))
-            .unwrap_or(LayoutMarginTop::zero()) // TODO: replace with transform-y
-        }))
-
-        .with_inline_css(CssProperty::border_bottom_width(StyleBorderBottomWidth::const_px(SELECTED_CELL_BORDER_WIDTH)))
-        .with_inline_css(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: SELECTED_CELL_BORDER_STYLE }))
-        .with_inline_css(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: SELECTED_CELL_BORDER_COLOR }))
-        .with_inline_css(CssProperty::border_top_width(StyleBorderTopWidth::const_px(SELECTED_CELL_BORDER_WIDTH)))
-        .with_inline_css(CssProperty::border_top_style(StyleBorderTopStyle { inner: SELECTED_CELL_BORDER_STYLE }))
-        .with_inline_css(CssProperty::border_top_color(StyleBorderTopColor { inner: SELECTED_CELL_BORDER_COLOR }))
-        .with_inline_css(CssProperty::border_left_width(StyleBorderLeftWidth::const_px(SELECTED_CELL_BORDER_WIDTH)))
-        .with_inline_css(CssProperty::border_left_style(StyleBorderLeftStyle { inner: SELECTED_CELL_BORDER_STYLE }))
-        .with_inline_css(CssProperty::border_left_color(StyleBorderLeftColor { inner: SELECTED_CELL_BORDER_COLOR }))
-        .with_inline_css(CssProperty::border_right_width(StyleBorderRightWidth::const_px(SELECTED_CELL_BORDER_WIDTH)))
-        .with_inline_css(CssProperty::border_right_style(StyleBorderRightStyle { inner: SELECTED_CELL_BORDER_STYLE }))
-        .with_inline_css(CssProperty::border_right_color(StyleBorderRightColor { inner: SELECTED_CELL_BORDER_COLOR }))
-
-        // don't show the selection when the table doesn't have one
-        // TODO: animate / fade in / fade out
-        .with_inline_css(CssProperty::opacity(if self.selection.is_some() { StyleOpacity::const_new(1) } else { StyleOpacity::const_new(0) }))
-
+        .with_inline_css_props(CssPropertyVec::from(&[
+            CssProperty::position(LayoutPosition::Absolute),
+            CssProperty::width({
+                self.selection.as_ref()
+                .map(|selection| LayoutWidth::px(selection.number_of_columns_selected() as f32 * self.column_width))
+                .unwrap_or(LayoutWidth::zero()) // TODO: replace with transform: scale-x
+            }),
+            CssProperty::height({
+                self.selection.as_ref()
+                .map(|selection| LayoutHeight::px(selection.number_of_rows_selected() as f32 * self.row_height))
+                .unwrap_or(LayoutHeight::zero())  // TODO: replace with transform: scale-y
+            }),
+            CssProperty::margin_left({
+                self.selection.as_ref()
+                .map(|selection| LayoutMarginLeft::px(selection.from_top_left.column as f32 * self.column_width))
+                .unwrap_or(LayoutMarginLeft::zero()) // TODO: replace with transform-y
+            }),
+            CssProperty::margin_top({
+                self.selection.as_ref()
+                .map(|selection| LayoutMarginTop::px(selection.from_top_left.row as f32 * self.row_height))
+                .unwrap_or(LayoutMarginTop::zero()) // TODO: replace with transform-y
+            }),
+            CssProperty::border_bottom_width(StyleBorderBottomWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
+            CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: SELECTED_CELL_BORDER_STYLE }),
+            CssProperty::border_bottom_color(StyleBorderBottomColor { inner: SELECTED_CELL_BORDER_COLOR }),
+            CssProperty::border_top_width(StyleBorderTopWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
+            CssProperty::border_top_style(StyleBorderTopStyle { inner: SELECTED_CELL_BORDER_STYLE }),
+            CssProperty::border_top_color(StyleBorderTopColor { inner: SELECTED_CELL_BORDER_COLOR }),
+            CssProperty::border_left_width(StyleBorderLeftWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
+            CssProperty::border_left_style(StyleBorderLeftStyle { inner: SELECTED_CELL_BORDER_STYLE }),
+            CssProperty::border_left_color(StyleBorderLeftColor { inner: SELECTED_CELL_BORDER_COLOR }),
+            CssProperty::border_right_width(StyleBorderRightWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
+            CssProperty::border_right_style(StyleBorderRightStyle { inner: SELECTED_CELL_BORDER_STYLE }),
+            CssProperty::border_right_color(StyleBorderRightColor { inner: SELECTED_CELL_BORDER_COLOR }),
+            // don't show the selection when the table doesn't have one
+            // TODO: animate / fade in / fade out
+            CssProperty::opacity(if self.selection.is_some() { StyleOpacity::const_new(1) } else { StyleOpacity::const_new(0) }),
+        ][..]))
         .with_child(current_active_selection_handle);
 
         let columns_table_container = columns.map(|col_idx| {
 
             let column_names = Dom::label(column_name_from_number(col_idx).into())
-            .with_inline_css(CssProperty::height(LayoutHeight::px(20.0)))
-            .with_inline_css(CssProperty::font_family(sans_serif_font_family.clone()))
-            .with_inline_css(CssProperty::text_color(StyleTextColor { inner: COLOR_2D2D2D }))
-            .with_inline_css(CssProperty::font_size(StyleFontSize::px(14.0)))
-            .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(COLOR_E6E6E6)))
-            .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
-            .with_inline_css(CssProperty::align_items(LayoutAlignItems::Center))
-            .with_inline_css(CssProperty::border_right_width(StyleBorderRightWidth::const_px(1)))
-            .with_inline_css(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid }))
-            .with_inline_css(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 }))
-            .with_inline_css(CssProperty::box_shadow_bottom(shadow));
+            .with_inline_css_props(CssPropertyVec::from(&[
+                CssProperty::height(LayoutHeight::px(20.0)),
+                CssProperty::font_family(sans_serif_font_family.clone()),
+                CssProperty::text_color(StyleTextColor { inner: COLOR_2D2D2D }),
+                CssProperty::font_size(StyleFontSize::px(14.0)),
+                CssProperty::background_content(StyleBackgroundContent::Color(COLOR_E6E6E6)),
+                CssProperty::flex_direction(LayoutFlexDirection::Row),
+                CssProperty::align_items(LayoutAlignItems::Center),
+                CssProperty::border_right_width(StyleBorderRightWidth::const_px(1)),
+                CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid }),
+                CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 }),
+                CssProperty::box_shadow_bottom(shadow),
+            ][..]));
 
 
             // rows in this column, laid out vertically
@@ -243,41 +256,49 @@ impl TableViewState {
                     };
 
                     NodeData::new(node_type)
-                    .with_inline_css(CssProperty::align_items(LayoutAlignItems::FlexStart))
-                    .with_inline_css(CssProperty::height(LayoutHeight::px(20.0)))
-                    .with_inline_css(CssProperty::font_size(StyleFontSize::px(14.0)))
-                    .with_inline_css(CssProperty::text_align(StyleTextAlignmentHorz::Left))
-                    .with_inline_css(CssProperty::text_color(StyleTextColor { inner: COLOR_BLACK }))
-                    .with_inline_css(CssProperty::font_family(sans_serif_font_family.clone()))
-                    .with_inline_css(CssProperty::border_bottom_width(StyleBorderBottomWidth::px(1.0)))
-                    .with_inline_css(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid }))
-                    .with_inline_css(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_D1D1D1 }))
+                    .with_inline_css_props(CssPropertyVec::from(&[
+                       CssProperty::align_items(LayoutAlignItems::FlexStart),
+                       CssProperty::height(LayoutHeight::px(20.0)),
+                       CssProperty::font_size(StyleFontSize::px(14.0)),
+                       CssProperty::text_align(StyleTextAlignmentHorz::Left),
+                       CssProperty::text_color(StyleTextColor { inner: COLOR_BLACK }),
+                       CssProperty::font_family(sans_serif_font_family.clone()),
+                       CssProperty::border_bottom_width(StyleBorderBottomWidth::px(1.0)),
+                       CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid }),
+                       CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_D1D1D1 }),
+                    ][..]))
                 })
                 .collect::<Dom>();
 
             // Column name
             Dom::div()
-                .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Column))
-                .with_inline_css(CssProperty::min_width(LayoutMinWidth::px(100.0)))
-                .with_inline_css(CssProperty::border_right_width(StyleBorderRightWidth::px(1.0)))
-                .with_inline_css(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid }))
-                .with_inline_css(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_D1D1D1 }))
-                .with_child(column_names)
-                .with_child(rows_in_this_column)
+            .with_inline_css_props(CssPropertyVec::from(&[
+                CssProperty::flex_direction(LayoutFlexDirection::Column),
+                CssProperty::min_width(LayoutMinWidth::px(100.0)),
+                CssProperty::border_right_width(StyleBorderRightWidth::px(1.0)),
+                CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid }),
+                CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_D1D1D1 }),
+            ][..]))
+            .with_child(column_names)
+            .with_child(rows_in_this_column)
         })
         .collect::<Dom>()
-        .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
-        .with_inline_css(CssProperty::position(LayoutPosition::Relative));
+        .with_inline_css_props(CssPropertyVec::from(&[
+            CssProperty::flex_direction(LayoutFlexDirection::Row),
+            CssProperty::position(LayoutPosition::Relative),
+        ][..]));
 
         let columns_table_container =  columns_table_container
         .with_child(current_active_selection);
 
         let dom = Dom::div()
-        .with_inline_css(CssProperty::display(LayoutDisplay::Flex))
-        .with_inline_css(CssProperty::box_sizing(LayoutBoxSizing::BorderBox))
-        .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
-            .with_child(row_number_wrapper)
-            .with_child(columns_table_container);
+        .with_inline_css_props(CssPropertyVec::from(&[
+            CssProperty::display(LayoutDisplay::Flex),
+            CssProperty::box_sizing(LayoutBoxSizing::BorderBox),
+            CssProperty::flex_direction(LayoutFlexDirection::Row),
+        ][..]))
+        .with_child(row_number_wrapper)
+        .with_child(columns_table_container);
 
         let styled = dom.style(Css::empty());
 

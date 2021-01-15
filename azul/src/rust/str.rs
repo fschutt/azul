@@ -48,12 +48,12 @@
 
     impl String {
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-        pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self { crate::dll::az_string_from_utf8_unchecked(ptr, len) }
+        pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self { unsafe { crate::dll::az_string_from_utf8_unchecked(ptr, len) } }
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-        pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { crate::dll::az_string_from_utf8_lossy(ptr, len) }
+        pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { unsafe { crate::dll::az_string_from_utf8_lossy(ptr, len) } }
         /// Returns the internal bytes of the String as a `U8Vec`
-        pub fn into_bytes(self)  -> crate::vec::U8Vec { crate::dll::az_string_into_bytes(self) }
+        pub fn into_bytes(self)  -> crate::vec::U8Vec { unsafe { crate::dll::az_string_into_bytes(self) } }
     }
 
-    impl Clone for String { fn clone(&self) -> Self { crate::dll::az_string_deep_copy(self) } }
-    impl Drop for String { fn drop(&mut self) { crate::dll::az_string_delete(self); } }
+    impl Clone for String { fn clone(&self) -> Self { unsafe { crate::dll::az_string_deep_copy(self) } } }
+    impl Drop for String { fn drop(&mut self) { unsafe { crate::dll::az_string_delete(self) }; } }

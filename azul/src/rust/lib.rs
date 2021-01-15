@@ -29,7 +29,6 @@
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-extern crate libloading_mini;
 mod dll;
 pub mod str;
 pub mod vec;

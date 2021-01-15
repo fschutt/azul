@@ -131,9 +131,14 @@ pub fn split_text_into_words(text: &str) -> Words {
 
 /// Takes a text broken into semantic items and shape all the words
 /// (does NOT scale the words, only shapes them)
-pub fn shape_words(words: &Words, font: &mut ParsedFont) -> ShapedWords {
+pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
 
     use crate::text_shaping;
+    use std::time::Instant;
+    use rayon::iter::IntoParallelRefIterator;
+    use rayon::iter::ParallelIterator;
+
+    let now = Instant::now();
 
     let (script, lang) = text_shaping::estimate_script_and_language(&words.internal_str);
 
@@ -142,6 +147,7 @@ pub fn shape_words(words: &Words, font: &mut ParsedFont) -> ShapedWords {
 
     let mut longest_word_width = 0_usize;
 
+    // NOTE: This takes the longest part of the entire layout process -- NEED TO PARALLELIZE
     let shaped_words = words.items
     .iter()
     .filter(|w| w.word_type == WordType::Word)

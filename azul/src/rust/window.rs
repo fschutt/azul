@@ -200,8 +200,8 @@
     /// `TaskBarIcon` struct
     #[doc(inline)] pub use crate::dll::AzTaskBarIcon as TaskBarIcon;
 
-    impl Clone for TaskBarIcon { fn clone(&self) -> Self { crate::dll::az_task_bar_icon_deep_copy(self) } }
-    impl Drop for TaskBarIcon { fn drop(&mut self) { crate::dll::az_task_bar_icon_delete(self); } }
+    impl Clone for TaskBarIcon { fn clone(&self) -> Self { unsafe { crate::dll::az_task_bar_icon_deep_copy(self) } } }
+    impl Drop for TaskBarIcon { fn drop(&mut self) { unsafe { crate::dll::az_task_bar_icon_delete(self) }; } }
 
 
     /// `XWindowType` struct
@@ -249,22 +249,22 @@
     /// `SmallWindowIconBytes` struct
     #[doc(inline)] pub use crate::dll::AzSmallWindowIconBytes as SmallWindowIconBytes;
 
-    impl Clone for SmallWindowIconBytes { fn clone(&self) -> Self { crate::dll::az_small_window_icon_bytes_deep_copy(self) } }
-    impl Drop for SmallWindowIconBytes { fn drop(&mut self) { crate::dll::az_small_window_icon_bytes_delete(self); } }
+    impl Clone for SmallWindowIconBytes { fn clone(&self) -> Self { unsafe { crate::dll::az_small_window_icon_bytes_deep_copy(self) } } }
+    impl Drop for SmallWindowIconBytes { fn drop(&mut self) { unsafe { crate::dll::az_small_window_icon_bytes_delete(self) }; } }
 
 
     /// `LargeWindowIconBytes` struct
     #[doc(inline)] pub use crate::dll::AzLargeWindowIconBytes as LargeWindowIconBytes;
 
-    impl Clone for LargeWindowIconBytes { fn clone(&self) -> Self { crate::dll::az_large_window_icon_bytes_deep_copy(self) } }
-    impl Drop for LargeWindowIconBytes { fn drop(&mut self) { crate::dll::az_large_window_icon_bytes_delete(self); } }
+    impl Clone for LargeWindowIconBytes { fn clone(&self) -> Self { unsafe { crate::dll::az_large_window_icon_bytes_deep_copy(self) } } }
+    impl Drop for LargeWindowIconBytes { fn drop(&mut self) { unsafe { crate::dll::az_large_window_icon_bytes_delete(self) }; } }
 
 
     /// `WindowIcon` struct
     #[doc(inline)] pub use crate::dll::AzWindowIcon as WindowIcon;
 
-    impl Clone for WindowIcon { fn clone(&self) -> Self { crate::dll::az_window_icon_deep_copy(self) } }
-    impl Drop for WindowIcon { fn drop(&mut self) { crate::dll::az_window_icon_delete(self); } }
+    impl Clone for WindowIcon { fn clone(&self) -> Self { unsafe { crate::dll::az_window_icon_deep_copy(self) } } }
+    impl Drop for WindowIcon { fn drop(&mut self) { unsafe { crate::dll::az_window_icon_delete(self) }; } }
 
 
     /// `VirtualKeyCode` struct
@@ -298,15 +298,15 @@
     /// `DebugState` struct
     #[doc(inline)] pub use crate::dll::AzDebugState as DebugState;
 
-    impl Clone for DebugState { fn clone(&self) -> Self { crate::dll::az_debug_state_deep_copy(self) } }
-    impl Drop for DebugState { fn drop(&mut self) { crate::dll::az_debug_state_delete(self); } }
+    impl Clone for DebugState { fn clone(&self) -> Self { unsafe { crate::dll::az_debug_state_deep_copy(self) } } }
+    impl Drop for DebugState { fn drop(&mut self) { unsafe { crate::dll::az_debug_state_delete(self) }; } }
 
 
     /// `KeyboardState` struct
     #[doc(inline)] pub use crate::dll::AzKeyboardState as KeyboardState;
 
-    impl Clone for KeyboardState { fn clone(&self) -> Self { crate::dll::az_keyboard_state_deep_copy(self) } }
-    impl Drop for KeyboardState { fn drop(&mut self) { crate::dll::az_keyboard_state_delete(self); } }
+    impl Clone for KeyboardState { fn clone(&self) -> Self { unsafe { crate::dll::az_keyboard_state_deep_copy(self) } } }
+    impl Drop for KeyboardState { fn drop(&mut self) { unsafe { crate::dll::az_keyboard_state_delete(self) }; } }
 
 
     /// `MouseCursorType` struct
@@ -326,29 +326,29 @@
     /// `MouseState` struct
     #[doc(inline)] pub use crate::dll::AzMouseState as MouseState;
 
-    impl Clone for MouseState { fn clone(&self) -> Self { crate::dll::az_mouse_state_deep_copy(self) } }
-    impl Drop for MouseState { fn drop(&mut self) { crate::dll::az_mouse_state_delete(self); } }
+    impl Clone for MouseState { fn clone(&self) -> Self { unsafe { crate::dll::az_mouse_state_deep_copy(self) } } }
+    impl Drop for MouseState { fn drop(&mut self) { unsafe { crate::dll::az_mouse_state_delete(self) }; } }
 
 
     /// `PlatformSpecificOptions` struct
     #[doc(inline)] pub use crate::dll::AzPlatformSpecificOptions as PlatformSpecificOptions;
 
-    impl Clone for PlatformSpecificOptions { fn clone(&self) -> Self { crate::dll::az_platform_specific_options_deep_copy(self) } }
-    impl Drop for PlatformSpecificOptions { fn drop(&mut self) { crate::dll::az_platform_specific_options_delete(self); } }
+    impl Clone for PlatformSpecificOptions { fn clone(&self) -> Self { unsafe { crate::dll::az_platform_specific_options_deep_copy(self) } } }
+    impl Drop for PlatformSpecificOptions { fn drop(&mut self) { unsafe { crate::dll::az_platform_specific_options_delete(self) }; } }
 
 
     /// `WindowsWindowOptions` struct
     #[doc(inline)] pub use crate::dll::AzWindowsWindowOptions as WindowsWindowOptions;
 
-    impl Clone for WindowsWindowOptions { fn clone(&self) -> Self { crate::dll::az_windows_window_options_deep_copy(self) } }
-    impl Drop for WindowsWindowOptions { fn drop(&mut self) { crate::dll::az_windows_window_options_delete(self); } }
+    impl Clone for WindowsWindowOptions { fn clone(&self) -> Self { unsafe { crate::dll::az_windows_window_options_deep_copy(self) } } }
+    impl Drop for WindowsWindowOptions { fn drop(&mut self) { unsafe { crate::dll::az_windows_window_options_delete(self) }; } }
 
 
     /// `WaylandTheme` struct
     #[doc(inline)] pub use crate::dll::AzWaylandTheme as WaylandTheme;
 
-    impl Clone for WaylandTheme { fn clone(&self) -> Self { crate::dll::az_wayland_theme_deep_copy(self) } }
-    impl Drop for WaylandTheme { fn drop(&mut self) { crate::dll::az_wayland_theme_delete(self); } }
+    impl Clone for WaylandTheme { fn clone(&self) -> Self { unsafe { crate::dll::az_wayland_theme_deep_copy(self) } } }
+    impl Drop for WaylandTheme { fn drop(&mut self) { unsafe { crate::dll::az_wayland_theme_delete(self) }; } }
 
 
     /// `RendererType` struct
@@ -361,15 +361,15 @@
     /// `StringPair` struct
     #[doc(inline)] pub use crate::dll::AzStringPair as StringPair;
 
-    impl Clone for StringPair { fn clone(&self) -> Self { crate::dll::az_string_pair_deep_copy(self) } }
-    impl Drop for StringPair { fn drop(&mut self) { crate::dll::az_string_pair_delete(self); } }
+    impl Clone for StringPair { fn clone(&self) -> Self { unsafe { crate::dll::az_string_pair_deep_copy(self) } } }
+    impl Drop for StringPair { fn drop(&mut self) { unsafe { crate::dll::az_string_pair_delete(self) }; } }
 
 
     /// `LinuxWindowOptions` struct
     #[doc(inline)] pub use crate::dll::AzLinuxWindowOptions as LinuxWindowOptions;
 
-    impl Clone for LinuxWindowOptions { fn clone(&self) -> Self { crate::dll::az_linux_window_options_deep_copy(self) } }
-    impl Drop for LinuxWindowOptions { fn drop(&mut self) { crate::dll::az_linux_window_options_delete(self); } }
+    impl Clone for LinuxWindowOptions { fn clone(&self) -> Self { unsafe { crate::dll::az_linux_window_options_deep_copy(self) } } }
+    impl Drop for LinuxWindowOptions { fn drop(&mut self) { unsafe { crate::dll::az_linux_window_options_delete(self) }; } }
 
 
     /// `MacWindowOptions` struct
@@ -426,13 +426,13 @@
 
     impl WindowState {
         /// Creates a new `WindowState` instance.
-        pub fn new(layout_callback: LayoutCallbackType) -> Self { crate::dll::az_window_state_new(layout_callback) }
+        pub fn new(layout_callback: LayoutCallbackType) -> Self { unsafe { crate::dll::az_window_state_new(layout_callback) } }
         /// Creates a new `WindowState` instance.
-        pub fn default() -> Self { crate::dll::az_window_state_default() }
+        pub fn default() -> Self { unsafe { crate::dll::az_window_state_default() } }
     }
 
-    impl Clone for WindowState { fn clone(&self) -> Self { crate::dll::az_window_state_deep_copy(self) } }
-    impl Drop for WindowState { fn drop(&mut self) { crate::dll::az_window_state_delete(self); } }
+    impl Clone for WindowState { fn clone(&self) -> Self { unsafe { crate::dll::az_window_state_deep_copy(self) } } }
+    impl Drop for WindowState { fn drop(&mut self) { unsafe { crate::dll::az_window_state_delete(self) }; } }
 
 
     /// `LogicalSize` struct
@@ -447,10 +447,10 @@
 
     impl WindowCreateOptions {
         /// Creates a new `WindowCreateOptions` instance.
-        pub fn new(layout_callback: LayoutCallbackType) -> Self { crate::dll::az_window_create_options_new(layout_callback) }
+        pub fn new(layout_callback: LayoutCallbackType) -> Self { unsafe { crate::dll::az_window_create_options_new(layout_callback) } }
         /// Creates a new `WindowCreateOptions` instance.
-        pub fn default() -> Self { crate::dll::az_window_create_options_default() }
+        pub fn default() -> Self { unsafe { crate::dll::az_window_create_options_default() } }
     }
 
-    impl Clone for WindowCreateOptions { fn clone(&self) -> Self { crate::dll::az_window_create_options_deep_copy(self) } }
-    impl Drop for WindowCreateOptions { fn drop(&mut self) { crate::dll::az_window_create_options_delete(self); } }
+    impl Clone for WindowCreateOptions { fn clone(&self) -> Self { unsafe { crate::dll::az_window_create_options_deep_copy(self) } } }
+    impl Drop for WindowCreateOptions { fn drop(&mut self) { unsafe { crate::dll::az_window_create_options_delete(self) }; } }

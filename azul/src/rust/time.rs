@@ -9,10 +9,10 @@
 
     impl Instant {
         /// Creates a new `Instant` instance.
-        pub fn now() -> Self { crate::dll::az_instant_ptr_now() }
+        pub fn now() -> Self { unsafe { crate::dll::az_instant_ptr_now() } }
     }
 
-    impl Drop for Instant { fn drop(&mut self) { crate::dll::az_instant_ptr_delete(self); } }
+    impl Drop for Instant { fn drop(&mut self) { unsafe { crate::dll::az_instant_ptr_delete(self) }; } }
 
 
     /// `Duration` struct
@@ -20,9 +20,9 @@
 
     impl Duration {
         /// Creates a new `Duration` instance.
-        pub fn milliseconds(milliseconds: usize) -> Self { crate::dll::az_duration_milliseconds(milliseconds) }
+        pub fn milliseconds(milliseconds: usize) -> Self { unsafe { crate::dll::az_duration_milliseconds(milliseconds) } }
         /// Creates a new `Duration` instance.
-        pub fn seconds(seconds: usize) -> Self { crate::dll::az_duration_seconds(seconds) }
+        pub fn seconds(seconds: usize) -> Self { unsafe { crate::dll::az_duration_seconds(seconds) } }
     }
 
     impl Clone for Duration { fn clone(&self) -> Self { *self } }

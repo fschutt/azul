@@ -665,36 +665,36 @@
     /// `CssRuleBlock` struct
     #[doc(inline)] pub use crate::dll::AzCssRuleBlock as CssRuleBlock;
 
-    impl Clone for CssRuleBlock { fn clone(&self) -> Self { crate::dll::az_css_rule_block_deep_copy(self) } }
-    impl Drop for CssRuleBlock { fn drop(&mut self) { crate::dll::az_css_rule_block_delete(self); } }
+    impl Clone for CssRuleBlock { fn clone(&self) -> Self { unsafe { crate::dll::az_css_rule_block_deep_copy(self) } } }
+    impl Drop for CssRuleBlock { fn drop(&mut self) { unsafe { crate::dll::az_css_rule_block_delete(self) }; } }
 
 
     /// `CssDeclaration` struct
     #[doc(inline)] pub use crate::dll::AzCssDeclaration as CssDeclaration;
 
-    impl Clone for CssDeclaration { fn clone(&self) -> Self { crate::dll::az_css_declaration_deep_copy(self) } }
-    impl Drop for CssDeclaration { fn drop(&mut self) { crate::dll::az_css_declaration_delete(self); } }
+    impl Clone for CssDeclaration { fn clone(&self) -> Self { unsafe { crate::dll::az_css_declaration_deep_copy(self) } } }
+    impl Drop for CssDeclaration { fn drop(&mut self) { unsafe { crate::dll::az_css_declaration_delete(self) }; } }
 
 
     /// `DynamicCssProperty` struct
     #[doc(inline)] pub use crate::dll::AzDynamicCssProperty as DynamicCssProperty;
 
-    impl Clone for DynamicCssProperty { fn clone(&self) -> Self { crate::dll::az_dynamic_css_property_deep_copy(self) } }
-    impl Drop for DynamicCssProperty { fn drop(&mut self) { crate::dll::az_dynamic_css_property_delete(self); } }
+    impl Clone for DynamicCssProperty { fn clone(&self) -> Self { unsafe { crate::dll::az_dynamic_css_property_deep_copy(self) } } }
+    impl Drop for DynamicCssProperty { fn drop(&mut self) { unsafe { crate::dll::az_dynamic_css_property_delete(self) }; } }
 
 
     /// `CssPath` struct
     #[doc(inline)] pub use crate::dll::AzCssPath as CssPath;
 
-    impl Clone for CssPath { fn clone(&self) -> Self { crate::dll::az_css_path_deep_copy(self) } }
-    impl Drop for CssPath { fn drop(&mut self) { crate::dll::az_css_path_delete(self); } }
+    impl Clone for CssPath { fn clone(&self) -> Self { unsafe { crate::dll::az_css_path_deep_copy(self) } } }
+    impl Drop for CssPath { fn drop(&mut self) { unsafe { crate::dll::az_css_path_delete(self) }; } }
 
 
     /// `CssPathSelector` struct
     #[doc(inline)] pub use crate::dll::AzCssPathSelector as CssPathSelector;
 
-    impl Clone for CssPathSelector { fn clone(&self) -> Self { crate::dll::az_css_path_selector_deep_copy(self) } }
-    impl Drop for CssPathSelector { fn drop(&mut self) { crate::dll::az_css_path_selector_delete(self); } }
+    impl Clone for CssPathSelector { fn clone(&self) -> Self { unsafe { crate::dll::az_css_path_selector_deep_copy(self) } } }
+    impl Drop for CssPathSelector { fn drop(&mut self) { unsafe { crate::dll::az_css_path_selector_delete(self) }; } }
 
 
     /// `NodeTypePath` struct
@@ -728,8 +728,8 @@
     /// `Stylesheet` struct
     #[doc(inline)] pub use crate::dll::AzStylesheet as Stylesheet;
 
-    impl Clone for Stylesheet { fn clone(&self) -> Self { crate::dll::az_stylesheet_deep_copy(self) } }
-    impl Drop for Stylesheet { fn drop(&mut self) { crate::dll::az_stylesheet_delete(self); } }
+    impl Clone for Stylesheet { fn clone(&self) -> Self { unsafe { crate::dll::az_stylesheet_deep_copy(self) } } }
+    impl Drop for Stylesheet { fn drop(&mut self) { unsafe { crate::dll::az_stylesheet_delete(self) }; } }
 
 
     /// `Css` struct
@@ -737,13 +737,13 @@
 
     impl Css {
         /// Returns an empty CSS style
-        pub fn empty() -> Self { crate::dll::az_css_empty() }
+        pub fn empty() -> Self { unsafe { crate::dll::az_css_empty() } }
         /// Returns a CSS style parsed from a `String`
-        pub fn from_string(s: String) -> Self { crate::dll::az_css_from_string(s) }
+        pub fn from_string(s: String) -> Self { unsafe { crate::dll::az_css_from_string(s) } }
     }
 
-    impl Clone for Css { fn clone(&self) -> Self { crate::dll::az_css_deep_copy(self) } }
-    impl Drop for Css { fn drop(&mut self) { crate::dll::az_css_delete(self); } }
+    impl Clone for Css { fn clone(&self) -> Self { unsafe { crate::dll::az_css_deep_copy(self) } } }
+    impl Drop for Css { fn drop(&mut self) { unsafe { crate::dll::az_css_delete(self) }; } }
 
 
     /// `CssPropertyType` struct
@@ -758,9 +758,9 @@
 
     impl ColorU {
         /// Creates a new `ColorU` instance.
-        pub fn from_str(string: String) -> Self { crate::dll::az_color_u_from_str(string) }
+        pub fn from_str(string: String) -> Self { unsafe { crate::dll::az_color_u_from_str(string) } }
         /// Calls the `ColorU::to_hash` function.
-        pub fn to_hash(&self)  -> crate::str::String { crate::dll::az_color_u_to_hash(self) }
+        pub fn to_hash(&self)  -> crate::str::String { unsafe { crate::dll::az_color_u_to_hash(self) } }
     }
 
     impl Clone for ColorU { fn clone(&self) -> Self { *self } }
@@ -1064,8 +1064,8 @@
     /// `LinearGradient` struct
     #[doc(inline)] pub use crate::dll::AzLinearGradient as LinearGradient;
 
-    impl Clone for LinearGradient { fn clone(&self) -> Self { crate::dll::az_linear_gradient_deep_copy(self) } }
-    impl Drop for LinearGradient { fn drop(&mut self) { crate::dll::az_linear_gradient_delete(self); } }
+    impl Clone for LinearGradient { fn clone(&self) -> Self { unsafe { crate::dll::az_linear_gradient_deep_copy(self) } } }
+    impl Drop for LinearGradient { fn drop(&mut self) { unsafe { crate::dll::az_linear_gradient_delete(self) }; } }
 
 
     /// `Shape` struct
@@ -1078,22 +1078,22 @@
     /// `RadialGradient` struct
     #[doc(inline)] pub use crate::dll::AzRadialGradient as RadialGradient;
 
-    impl Clone for RadialGradient { fn clone(&self) -> Self { crate::dll::az_radial_gradient_deep_copy(self) } }
-    impl Drop for RadialGradient { fn drop(&mut self) { crate::dll::az_radial_gradient_delete(self); } }
+    impl Clone for RadialGradient { fn clone(&self) -> Self { unsafe { crate::dll::az_radial_gradient_deep_copy(self) } } }
+    impl Drop for RadialGradient { fn drop(&mut self) { unsafe { crate::dll::az_radial_gradient_delete(self) }; } }
 
 
     /// `CssImageId` struct
     #[doc(inline)] pub use crate::dll::AzCssImageId as CssImageId;
 
-    impl Clone for CssImageId { fn clone(&self) -> Self { crate::dll::az_css_image_id_deep_copy(self) } }
-    impl Drop for CssImageId { fn drop(&mut self) { crate::dll::az_css_image_id_delete(self); } }
+    impl Clone for CssImageId { fn clone(&self) -> Self { unsafe { crate::dll::az_css_image_id_deep_copy(self) } } }
+    impl Drop for CssImageId { fn drop(&mut self) { unsafe { crate::dll::az_css_image_id_delete(self) }; } }
 
 
     /// `StyleBackgroundContent` struct
     #[doc(inline)] pub use crate::dll::AzStyleBackgroundContent as StyleBackgroundContent;
 
-    impl Clone for StyleBackgroundContent { fn clone(&self) -> Self { crate::dll::az_style_background_content_deep_copy(self) } }
-    impl Drop for StyleBackgroundContent { fn drop(&mut self) { crate::dll::az_style_background_content_delete(self); } }
+    impl Clone for StyleBackgroundContent { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_content_deep_copy(self) } } }
+    impl Drop for StyleBackgroundContent { fn drop(&mut self) { unsafe { crate::dll::az_style_background_content_delete(self) }; } }
 
 
     /// `BackgroundPositionHorizontal` struct
@@ -1260,8 +1260,8 @@
     /// `StyleFontFamily` struct
     #[doc(inline)] pub use crate::dll::AzStyleFontFamily as StyleFontFamily;
 
-    impl Clone for StyleFontFamily { fn clone(&self) -> Self { crate::dll::az_style_font_family_deep_copy(self) } }
-    impl Drop for StyleFontFamily { fn drop(&mut self) { crate::dll::az_style_font_family_delete(self); } }
+    impl Clone for StyleFontFamily { fn clone(&self) -> Self { unsafe { crate::dll::az_style_font_family_deep_copy(self) } } }
+    impl Drop for StyleFontFamily { fn drop(&mut self) { unsafe { crate::dll::az_style_font_family_delete(self) }; } }
 
 
     /// `StyleFontSize` struct
@@ -1624,8 +1624,8 @@
     /// `StyleBackgroundContentValue` struct
     #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentValue as StyleBackgroundContentValue;
 
-    impl Clone for StyleBackgroundContentValue { fn clone(&self) -> Self { crate::dll::az_style_background_content_value_deep_copy(self) } }
-    impl Drop for StyleBackgroundContentValue { fn drop(&mut self) { crate::dll::az_style_background_content_value_delete(self); } }
+    impl Clone for StyleBackgroundContentValue { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_content_value_deep_copy(self) } } }
+    impl Drop for StyleBackgroundContentValue { fn drop(&mut self) { unsafe { crate::dll::az_style_background_content_value_delete(self) }; } }
 
 
     /// `StyleBackgroundPositionValue` struct
@@ -1771,8 +1771,8 @@
     /// `StyleFontFamilyValue` struct
     #[doc(inline)] pub use crate::dll::AzStyleFontFamilyValue as StyleFontFamilyValue;
 
-    impl Clone for StyleFontFamilyValue { fn clone(&self) -> Self { crate::dll::az_style_font_family_value_deep_copy(self) } }
-    impl Drop for StyleFontFamilyValue { fn drop(&mut self) { crate::dll::az_style_font_family_value_delete(self); } }
+    impl Clone for StyleFontFamilyValue { fn clone(&self) -> Self { unsafe { crate::dll::az_style_font_family_value_deep_copy(self) } } }
+    impl Drop for StyleFontFamilyValue { fn drop(&mut self) { unsafe { crate::dll::az_style_font_family_value_delete(self) }; } }
 
 
     /// `StyleFontSizeValue` struct
@@ -1834,8 +1834,8 @@
     /// `StyleTransformVecValue` struct
     #[doc(inline)] pub use crate::dll::AzStyleTransformVecValue as StyleTransformVecValue;
 
-    impl Clone for StyleTransformVecValue { fn clone(&self) -> Self { crate::dll::az_style_transform_vec_value_deep_copy(self) } }
-    impl Drop for StyleTransformVecValue { fn drop(&mut self) { crate::dll::az_style_transform_vec_value_delete(self); } }
+    impl Clone for StyleTransformVecValue { fn clone(&self) -> Self { unsafe { crate::dll::az_style_transform_vec_value_deep_copy(self) } } }
+    impl Drop for StyleTransformVecValue { fn drop(&mut self) { unsafe { crate::dll::az_style_transform_vec_value_delete(self) }; } }
 
 
     /// `StyleTransformOriginValue` struct
@@ -1862,5 +1862,5 @@
     /// Parsed CSS key-value pair
     #[doc(inline)] pub use crate::dll::AzCssProperty as CssProperty;
 
-    impl Clone for CssProperty { fn clone(&self) -> Self { crate::dll::az_css_property_deep_copy(self) } }
-    impl Drop for CssProperty { fn drop(&mut self) { crate::dll::az_css_property_delete(self); } }
+    impl Clone for CssProperty { fn clone(&self) -> Self { unsafe { crate::dll::az_css_property_deep_copy(self) } } }
+    impl Drop for CssProperty { fn drop(&mut self) { unsafe { crate::dll::az_css_property_delete(self) }; } }

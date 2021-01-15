@@ -865,28 +865,28 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
         class_can_be_hashed = "derive" in struct.keys() and "Hash" in struct["derive"]
 
         if class_has_partialeq:
-            code += "\r\n    impl PartialEq for " + struct_name + " { fn eq(&self, rhs: &" + struct_name + ") -> bool { crate::dll::" + to_snake_case(struct_name) + "_partial_eq(self, rhs) } }\r\n"
+            code += "\r\n    impl PartialEq for " + struct_name + " { fn eq(&self, rhs: &" + struct_name + ") -> bool { unsafe { crate::dll::" + to_snake_case(struct_name) + "_partial_eq(self, rhs) } } }\r\n"
         if class_has_eq:
             code += "\r\n    impl Eq for " + struct_name + " { }\r\n"
         if class_has_partialord:
-            code += "\r\n    impl PartialOrd for " + struct_name + " { fn partial_cmp(&self, rhs: &" + struct_name + ") -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match crate::dll::" + to_snake_case(struct_name) + "_partial_cmp(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }\r\n"
+            code += "\r\n    impl PartialOrd for " + struct_name + " { fn partial_cmp(&self, rhs: &" + struct_name + ") -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match unsafe { crate::dll::" + to_snake_case(struct_name) + "_partial_cmp(self, rhs) } { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }\r\n"
         if class_has_ord:
-            code += "\r\n    impl Ord for " + struct_name + " { fn cmp(&self, rhs: &" + struct_name + ") -> std::cmp::Ordering { use std::cmp::Ordering::*; match crate::dll::" + to_snake_case(struct_name) + "_cmp(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }\r\n"
+            code += "\r\n    impl Ord for " + struct_name + " { fn cmp(&self, rhs: &" + struct_name + ") -> std::cmp::Ordering { use std::cmp::Ordering::*; match unsafe { crate::dll::" + to_snake_case(struct_name) + "_cmp(self, rhs) } { 0 => Less, 1 => Equal, _ => Greater } } }\r\n"
         if class_can_be_hashed:
-            code += "\r\n    impl std::hash::Hash for " + struct_name + " { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { (crate::dll::" + to_snake_case(struct_name) + "_hash(self)).hash(state) } }\r\n"
+            code += "\r\n    impl std::hash::Hash for " + struct_name + " { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { (unsafe { crate::dll::" + to_snake_case(struct_name) + "_hash(self) }).hash(state) } }\r\n"
 
     code += "\r\n"
     code += "\r\n"
 
-    code += "    #[link name=\"azul\"]\r\n"
-    code += "    pub(crate) extern \"C\" {\r\n"
+    code += "    #[link(name=\"azul\")]\r\n"
+    code += "    extern \"C\" {\r\n"
 
     for fn_name in functions_map.keys():
         fn_type = functions_map[fn_name]
         fn_args = fn_type[0]
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
-        code += "        fn " + fn_name + "(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ";\r\n"
+        code += "        pub(crate) fn " + fn_name + "(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ";\r\n"
 
     code += "    }\r\n\r\n"
 
@@ -928,7 +928,6 @@ def generate_rust_api(apiData, structs_map, functions_map):
         code += "// " + line + "\r\n"
 
     code += "\r\n\r\n"
-    code += "extern crate libloading_mini;\r\n"
     code += "mod dll;\r\n"
 
     for module_name in apiData.keys():
@@ -1014,7 +1013,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                         and "rust" in const["use_patches"]:
                             fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
                         else:
-                            fn_body = "crate::dll::" + c_fn_name + "(" + fn_args_call + ")"
+                            fn_body = "unsafe { crate::dll::" + c_fn_name + "(" + fn_args_call + ") }"
 
                         if "doc" in const.keys():
                             code += "        /// " + const["doc"] + "\r\n"
@@ -1052,7 +1051,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                         and "rust" in const["use_patches"]:
                             fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
                         else:
-                            fn_body = "crate::dll::" + c_fn_name + "(" + fn_args_call + ")"
+                            fn_body = "unsafe { crate::dll::" + c_fn_name + "(" + fn_args_call + ") }"
 
                         if tuple([module_name, class_name, fn_name]) in rust_api_patches:
                             code += rust_api_patches[tuple([module_name, class_name, fn_name])]
@@ -1091,16 +1090,16 @@ def generate_rust_api(apiData, structs_map, functions_map):
                 lifetime = "<'a>"
 
             if class_can_derive_debug:
-                code += "    impl std::fmt::Debug for " + class_name + " { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, \"{}\", crate::dll::" + to_snake_case(class_ptr_name) + "_fmt_debug(self)) } }\r\n"
+                code += "    impl std::fmt::Debug for " + class_name + " { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, \"{}\", unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_fmt_debug(self) }) } }\r\n"
 
             if class_can_be_copied:
                 code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { *self } }\r\n"
                 code += "    impl Copy for " + class_name + " { }\r\n"
             elif c_is_stack_allocated and class_can_be_cloned and lifetime == "" and not(class_is_const or class_is_typedef):
-                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { crate::dll::" + to_snake_case(class_ptr_name) + "_deep_copy(self) } }\r\n"
+                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_deep_copy(self) } } }\r\n"
 
             if not(class_is_const or class_is_typedef or class_can_be_copied):
-                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { crate::dll::" + to_snake_case(class_ptr_name) + "_delete(self); } }\r\n"
+                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_delete(self) }; } }\r\n"
 
         module_file_name = module_name + ".rs"
         module_file_map[module_file_name] = code

@@ -68,13 +68,13 @@
 
             let type_name_str = ::std::any::type_name::<T>();
             let st = crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len());
-            let s = (crate::dll::get_azul_dll().az_ref_any_new_c)(
+            let s = unsafe { crate::dll::az_ref_any_new_c(
                 (&value as *const T) as *const c_void,
                 ::std::mem::size_of::<T>(),
                 Self::get_type_id::<T>(),
                 st,
                 default_custom_destructor::<T>,
-            );
+            ) };
             ::std::mem::forget(value); // do not run the destructor of T here!
             s
         }
@@ -82,10 +82,10 @@
         /// Downcasts the type-erased pointer to a type `&U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_ref<'a, U: 'static>(&'a self) -> Option<Ref<'a, U>> {
-            let is_same_type = (crate::dll::get_azul_dll().az_ref_any_is_type)(self, Self::get_type_id::<U>());
+            let is_same_type = unsafe { crate::dll::az_ref_any_is_type(self, Self::get_type_id::<U>()) };
             if !is_same_type { return None; }
 
-            let can_be_shared = (crate::dll::get_azul_dll().az_ref_any_can_be_shared)(self);
+            let can_be_shared = unsafe { crate::dll::az_ref_any_can_be_shared(self) };
             if !can_be_shared { return None; }
 
             self.sharing_info.increase_ref();
@@ -98,10 +98,10 @@
         /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<RefMut<'a, U>> {
-            let is_same_type = (crate::dll::get_azul_dll().az_ref_any_is_type)(self, Self::get_type_id::<U>());
+            let is_same_type = unsafe { crate::dll::az_ref_any_is_type(self, Self::get_type_id::<U>()) };
             if !is_same_type { return None; }
 
-            let can_be_shared_mut = (crate::dll::get_azul_dll().az_ref_any_can_be_shared_mut)(self);
+            let can_be_shared_mut = unsafe { crate::dll::az_ref_any_can_be_shared_mut(self) };
             if !can_be_shared_mut { return None; }
 
             self.sharing_info.increase_refmut();

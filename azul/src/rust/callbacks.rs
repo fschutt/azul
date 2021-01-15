@@ -72,13 +72,13 @@
 
             let type_name_str = ::std::any::type_name::<T>();
             let st = crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len());
-            let s = (crate::dll::get_azul_dll().az_ref_any_new_c)(
+            let s = unsafe { crate::dll::az_ref_any_new_c(
                 (&value as *const T) as *const c_void,
                 ::std::mem::size_of::<T>(),
                 Self::get_type_id::<T>(),
                 st,
                 default_custom_destructor::<T>,
-            );
+            ) };
             ::std::mem::forget(value); // do not run the destructor of T here!
             s
         }
@@ -86,10 +86,10 @@
         /// Downcasts the type-erased pointer to a type `&U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_ref<'a, U: 'static>(&'a self) -> Option<Ref<'a, U>> {
-            let is_same_type = (crate::dll::get_azul_dll().az_ref_any_is_type)(self, Self::get_type_id::<U>());
+            let is_same_type = unsafe { crate::dll::az_ref_any_is_type(self, Self::get_type_id::<U>()) };
             if !is_same_type { return None; }
 
-            let can_be_shared = (crate::dll::get_azul_dll().az_ref_any_can_be_shared)(self);
+            let can_be_shared = unsafe { crate::dll::az_ref_any_can_be_shared(self) };
             if !can_be_shared { return None; }
 
             self.sharing_info.increase_ref();
@@ -102,10 +102,10 @@
         /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<RefMut<'a, U>> {
-            let is_same_type = (crate::dll::get_azul_dll().az_ref_any_is_type)(self, Self::get_type_id::<U>());
+            let is_same_type = unsafe { crate::dll::az_ref_any_is_type(self, Self::get_type_id::<U>()) };
             if !is_same_type { return None; }
 
-            let can_be_shared_mut = (crate::dll::get_azul_dll().az_ref_any_can_be_shared_mut)(self);
+            let can_be_shared_mut = unsafe { crate::dll::az_ref_any_can_be_shared_mut(self) };
             if !can_be_shared_mut { return None; }
 
             self.sharing_info.increase_refmut();
@@ -159,11 +159,11 @@
 
     impl HidpiAdjustedBounds {
         /// Returns the size of the bounds in logical units
-        pub fn get_logical_size(&self)  -> crate::window::LogicalSize { crate::dll::az_hidpi_adjusted_bounds_get_logical_size(self) }
+        pub fn get_logical_size(&self)  -> crate::window::LogicalSize { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_logical_size(self) } }
         /// Returns the size of the bounds in physical units
-        pub fn get_physical_size(&self)  -> crate::window::PhysicalSizeU32 { crate::dll::az_hidpi_adjusted_bounds_get_physical_size(self) }
+        pub fn get_physical_size(&self)  -> crate::window::PhysicalSizeU32 { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_physical_size(self) } }
         /// Returns the hidpi factor of the bounds
-        pub fn get_hidpi_factor(&self)  -> f32 { crate::dll::az_hidpi_adjusted_bounds_get_hidpi_factor(self) }
+        pub fn get_hidpi_factor(&self)  -> f32 { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_hidpi_factor(self) } }
     }
 
     impl Clone for HidpiAdjustedBounds { fn clone(&self) -> Self { *self } }
@@ -189,15 +189,15 @@
     /// Defines the focus target for the next frame
     #[doc(inline)] pub use crate::dll::AzFocusTarget as FocusTarget;
 
-    impl Clone for FocusTarget { fn clone(&self) -> Self { crate::dll::az_focus_target_deep_copy(self) } }
-    impl Drop for FocusTarget { fn drop(&mut self) { crate::dll::az_focus_target_delete(self); } }
+    impl Clone for FocusTarget { fn clone(&self) -> Self { unsafe { crate::dll::az_focus_target_deep_copy(self) } } }
+    impl Drop for FocusTarget { fn drop(&mut self) { unsafe { crate::dll::az_focus_target_delete(self) }; } }
 
 
     /// `FocusTargetPath` struct
     #[doc(inline)] pub use crate::dll::AzFocusTargetPath as FocusTargetPath;
 
-    impl Clone for FocusTargetPath { fn clone(&self) -> Self { crate::dll::az_focus_target_path_deep_copy(self) } }
-    impl Drop for FocusTargetPath { fn drop(&mut self) { crate::dll::az_focus_target_path_delete(self); } }
+    impl Clone for FocusTargetPath { fn clone(&self) -> Self { unsafe { crate::dll::az_focus_target_path_deep_copy(self) } } }
+    impl Drop for FocusTargetPath { fn drop(&mut self) { unsafe { crate::dll::az_focus_target_path_delete(self) }; } }
 
 
     pub use crate::dll::AzCallbackReturn as CallbackReturn;
@@ -208,50 +208,50 @@
 
     impl CallbackInfo {
         /// Returns the `DomNodeId` of the element that the callback was attached to.
-        pub fn get_hit_node(&self)  -> crate::callbacks::DomNodeId { crate::dll::az_callback_info_get_hit_node(self) }
+        pub fn get_hit_node(&self)  -> crate::callbacks::DomNodeId { unsafe { crate::dll::az_callback_info_get_hit_node(self) } }
         /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not in the current window.
-        pub fn get_cursor_relative_to_viewport(&self)  -> crate::option::OptionLayoutPoint { crate::dll::az_callback_info_get_cursor_relative_to_viewport(self) }
+        pub fn get_cursor_relative_to_viewport(&self)  -> crate::option::OptionLayoutPoint { unsafe { crate::dll::az_callback_info_get_cursor_relative_to_viewport(self) } }
         /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.
-        pub fn get_cursor_relative_to_node(&self)  -> crate::option::OptionLayoutPoint { crate::dll::az_callback_info_get_cursor_relative_to_node(self) }
+        pub fn get_cursor_relative_to_node(&self)  -> crate::option::OptionLayoutPoint { unsafe { crate::dll::az_callback_info_get_cursor_relative_to_node(self) } }
         /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_parent(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { crate::dll::az_callback_info_get_parent(self, node_id) }
+        pub fn get_parent(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::az_callback_info_get_parent(self, node_id) } }
         /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_previous_sibling(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { crate::dll::az_callback_info_get_previous_sibling(self, node_id) }
+        pub fn get_previous_sibling(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::az_callback_info_get_previous_sibling(self, node_id) } }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_next_sibling(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { crate::dll::az_callback_info_get_next_sibling(self, node_id) }
+        pub fn get_next_sibling(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::az_callback_info_get_next_sibling(self, node_id) } }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_first_child(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { crate::dll::az_callback_info_get_first_child(self, node_id) }
+        pub fn get_first_child(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::az_callback_info_get_first_child(self, node_id) } }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_last_child(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { crate::dll::az_callback_info_get_last_child(self, node_id) }
+        pub fn get_last_child(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::az_callback_info_get_last_child(self, node_id) } }
         /// Returns the `Dataset` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_dataset(&self, node_id: DomNodeId)  -> crate::option::OptionRefAny { crate::dll::az_callback_info_get_dataset(self, node_id) }
+        pub fn get_dataset(&self, node_id: DomNodeId)  -> crate::option::OptionRefAny { unsafe { crate::dll::az_callback_info_get_dataset(self, node_id) } }
         /// Returns a copy of the current windows `WindowState`.
-        pub fn get_window_state(&self)  -> crate::window::WindowState { crate::dll::az_callback_info_get_window_state(self) }
+        pub fn get_window_state(&self)  -> crate::window::WindowState { unsafe { crate::dll::az_callback_info_get_window_state(self) } }
         /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
-        pub fn get_keyboard_state(&self)  -> crate::window::KeyboardState { crate::dll::az_callback_info_get_keyboard_state(self) }
+        pub fn get_keyboard_state(&self)  -> crate::window::KeyboardState { unsafe { crate::dll::az_callback_info_get_keyboard_state(self) } }
         /// Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`
-        pub fn get_mouse_state(&self)  -> crate::window::MouseState { crate::dll::az_callback_info_get_mouse_state(self) }
+        pub fn get_mouse_state(&self)  -> crate::window::MouseState { unsafe { crate::dll::az_callback_info_get_mouse_state(self) } }
         /// Returns a copy of the current windows `RawWindowHandle`.
-        pub fn get_current_window_handle(&self)  -> crate::window::RawWindowHandle { crate::dll::az_callback_info_get_current_window_handle(self) }
+        pub fn get_current_window_handle(&self)  -> crate::window::RawWindowHandle { unsafe { crate::dll::az_callback_info_get_current_window_handle(self) } }
         /// Returns a **reference-counted copy** of the current windows `GlContextPtr`. You can use this to render OpenGL textures.
-        pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { crate::dll::az_callback_info_get_gl_context(self) }
+        pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { unsafe { crate::dll::az_callback_info_get_gl_context(self) } }
         /// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
-        pub fn set_window_state(&mut self, new_state: WindowState)  { crate::dll::az_callback_info_set_window_state(self, new_state) }
+        pub fn set_window_state(&mut self, new_state: WindowState)  { unsafe { crate::dll::az_callback_info_set_window_state(self, new_state) } }
         /// Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.
-        pub fn set_focus(&mut self, target: FocusTarget)  { crate::dll::az_callback_info_set_focus(self, target) }
+        pub fn set_focus(&mut self, target: FocusTarget)  { unsafe { crate::dll::az_callback_info_set_focus(self, target) } }
         /// Sets a `CssProperty` on a given ndoe to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
-        pub fn set_css_property(&mut self, node_id: DomNodeId, new_property: CssProperty)  { crate::dll::az_callback_info_set_css_property(self, node_id, new_property) }
+        pub fn set_css_property(&mut self, node_id: DomNodeId, new_property: CssProperty)  { unsafe { crate::dll::az_callback_info_set_css_property(self, node_id, new_property) } }
         /// Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.
-        pub fn stop_propagation(&mut self)  { crate::dll::az_callback_info_stop_propagation(self) }
+        pub fn stop_propagation(&mut self)  { unsafe { crate::dll::az_callback_info_stop_propagation(self) } }
         /// Spawns a new window with the given `WindowCreateOptions`.
-        pub fn create_window(&mut self, new_window: WindowCreateOptions)  { crate::dll::az_callback_info_create_window(self, new_window) }
+        pub fn create_window(&mut self, new_window: WindowCreateOptions)  { unsafe { crate::dll::az_callback_info_create_window(self, new_window) } }
         /// Starts a new `Thread` to the runtime. See the documentation for `Thread` for more information.
-        pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType)  { crate::dll::az_callback_info_start_thread(self, id, thread_initialize_data, writeback_data, callback) }
+        pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType)  { unsafe { crate::dll::az_callback_info_start_thread(self, id, thread_initialize_data, writeback_data, callback) } }
         /// Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.
-        pub fn start_timer(&mut self, id: TimerId, timer: Timer)  { crate::dll::az_callback_info_start_timer(self, id, timer) }
+        pub fn start_timer(&mut self, id: TimerId, timer: Timer)  { unsafe { crate::dll::az_callback_info_start_timer(self, id, timer) } }
     }
 
-    impl Drop for CallbackInfo { fn drop(&mut self) { crate::dll::az_callback_info_delete(self); } }
+    impl Drop for CallbackInfo { fn drop(&mut self) { unsafe { crate::dll::az_callback_info_delete(self) }; } }
 
 
     /// `UpdateScreen` struct
@@ -274,17 +274,17 @@
 
     impl IFrameCallbackInfo {
         /// Returns a copy of the IFrame bounds
-        pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { crate::dll::az_i_frame_callback_info_get_bounds(self) }
+        pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { unsafe { crate::dll::az_i_frame_callback_info_get_bounds(self) } }
     }
 
-    impl Drop for IFrameCallbackInfo { fn drop(&mut self) { crate::dll::az_i_frame_callback_info_delete(self); } }
+    impl Drop for IFrameCallbackInfo { fn drop(&mut self) { unsafe { crate::dll::az_i_frame_callback_info_delete(self) }; } }
 
 
     /// `IFrameCallbackReturn` struct
     #[doc(inline)] pub use crate::dll::AzIFrameCallbackReturn as IFrameCallbackReturn;
 
-    impl Clone for IFrameCallbackReturn { fn clone(&self) -> Self { crate::dll::az_i_frame_callback_return_deep_copy(self) } }
-    impl Drop for IFrameCallbackReturn { fn drop(&mut self) { crate::dll::az_i_frame_callback_return_delete(self); } }
+    impl Clone for IFrameCallbackReturn { fn clone(&self) -> Self { unsafe { crate::dll::az_i_frame_callback_return_deep_copy(self) } } }
+    impl Drop for IFrameCallbackReturn { fn drop(&mut self) { unsafe { crate::dll::az_i_frame_callback_return_delete(self) }; } }
 
 
     /// `GlCallback` struct
@@ -301,16 +301,16 @@
 
     impl GlCallbackInfo {
         /// Returns a copy of the internal `GlContextPtr`
-        pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { crate::dll::az_gl_callback_info_get_gl_context(self) }
+        pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { unsafe { crate::dll::az_gl_callback_info_get_gl_context(self) } }
     }
 
-    impl Drop for GlCallbackInfo { fn drop(&mut self) { crate::dll::az_gl_callback_info_delete(self); } }
+    impl Drop for GlCallbackInfo { fn drop(&mut self) { unsafe { crate::dll::az_gl_callback_info_delete(self) }; } }
 
 
     /// `GlCallbackReturn` struct
     #[doc(inline)] pub use crate::dll::AzGlCallbackReturn as GlCallbackReturn;
 
-    impl Drop for GlCallbackReturn { fn drop(&mut self) { crate::dll::az_gl_callback_return_delete(self); } }
+    impl Drop for GlCallbackReturn { fn drop(&mut self) { unsafe { crate::dll::az_gl_callback_return_delete(self) }; } }
 
 
     /// `TimerCallback` struct
@@ -325,14 +325,14 @@
     /// `TimerCallbackInfo` struct
     #[doc(inline)] pub use crate::dll::AzTimerCallbackInfo as TimerCallbackInfo;
 
-    impl Drop for TimerCallbackInfo { fn drop(&mut self) { crate::dll::az_timer_callback_info_delete(self); } }
+    impl Drop for TimerCallbackInfo { fn drop(&mut self) { unsafe { crate::dll::az_timer_callback_info_delete(self) }; } }
 
 
     /// `TimerCallbackReturn` struct
     #[doc(inline)] pub use crate::dll::AzTimerCallbackReturn as TimerCallbackReturn;
 
-    impl Clone for TimerCallbackReturn { fn clone(&self) -> Self { crate::dll::az_timer_callback_return_deep_copy(self) } }
-    impl Drop for TimerCallbackReturn { fn drop(&mut self) { crate::dll::az_timer_callback_return_delete(self); } }
+    impl Clone for TimerCallbackReturn { fn clone(&self) -> Self { unsafe { crate::dll::az_timer_callback_return_deep_copy(self) } } }
+    impl Drop for TimerCallbackReturn { fn drop(&mut self) { unsafe { crate::dll::az_timer_callback_return_delete(self) }; } }
 
 
     pub use crate::dll::AzWriteBackCallbackType as WriteBackCallbackType;
@@ -340,8 +340,8 @@
     /// `WriteBackCallback` struct
     #[doc(inline)] pub use crate::dll::AzWriteBackCallback as WriteBackCallback;
 
-    impl Clone for WriteBackCallback { fn clone(&self) -> Self { crate::dll::az_write_back_callback_deep_copy(self) } }
-    impl Drop for WriteBackCallback { fn drop(&mut self) { crate::dll::az_write_back_callback_delete(self); } }
+    impl Clone for WriteBackCallback { fn clone(&self) -> Self { unsafe { crate::dll::az_write_back_callback_deep_copy(self) } } }
+    impl Drop for WriteBackCallback { fn drop(&mut self) { unsafe { crate::dll::az_write_back_callback_delete(self) }; } }
 
 
     pub use crate::dll::AzThreadCallbackType as ThreadCallbackType;
@@ -353,22 +353,22 @@
 
     impl AtomicRefCount {
         /// Calls the `AtomicRefCount::can_be_shared` function.
-        pub fn can_be_shared(&self)  -> bool { crate::dll::az_atomic_ref_count_can_be_shared(self) }
+        pub fn can_be_shared(&self)  -> bool { unsafe { crate::dll::az_atomic_ref_count_can_be_shared(self) } }
         /// Calls the `AtomicRefCount::can_be_shared_mut` function.
-        pub fn can_be_shared_mut(&self)  -> bool { crate::dll::az_atomic_ref_count_can_be_shared_mut(self) }
+        pub fn can_be_shared_mut(&self)  -> bool { unsafe { crate::dll::az_atomic_ref_count_can_be_shared_mut(self) } }
         /// Calls the `AtomicRefCount::increase_ref` function.
-        pub fn increase_ref(&self)  { crate::dll::az_atomic_ref_count_increase_ref(self) }
+        pub fn increase_ref(&self)  { unsafe { crate::dll::az_atomic_ref_count_increase_ref(self) } }
         /// Calls the `AtomicRefCount::decrease_ref` function.
-        pub fn decrease_ref(&self)  { crate::dll::az_atomic_ref_count_decrease_ref(self) }
+        pub fn decrease_ref(&self)  { unsafe { crate::dll::az_atomic_ref_count_decrease_ref(self) } }
         /// Calls the `AtomicRefCount::increase_refmut` function.
-        pub fn increase_refmut(&self)  { crate::dll::az_atomic_ref_count_increase_refmut(self) }
+        pub fn increase_refmut(&self)  { unsafe { crate::dll::az_atomic_ref_count_increase_refmut(self) } }
         /// Calls the `AtomicRefCount::decrease_refmut` function.
-        pub fn decrease_refmut(&self)  { crate::dll::az_atomic_ref_count_decrease_refmut(self) }
+        pub fn decrease_refmut(&self)  { unsafe { crate::dll::az_atomic_ref_count_decrease_refmut(self) } }
     }
 
-    impl std::fmt::Debug for AtomicRefCount { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", crate::dll::az_atomic_ref_count_fmt_debug(self)) } }
-    impl Clone for AtomicRefCount { fn clone(&self) -> Self { crate::dll::az_atomic_ref_count_deep_copy(self) } }
-    impl Drop for AtomicRefCount { fn drop(&mut self) { crate::dll::az_atomic_ref_count_delete(self); } }
+    impl std::fmt::Debug for AtomicRefCount { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", unsafe { crate::dll::az_atomic_ref_count_fmt_debug(self) }) } }
+    impl Clone for AtomicRefCount { fn clone(&self) -> Self { unsafe { crate::dll::az_atomic_ref_count_deep_copy(self) } } }
+    impl Drop for AtomicRefCount { fn drop(&mut self) { unsafe { crate::dll::az_atomic_ref_count_delete(self) }; } }
 
 
     /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
@@ -376,27 +376,27 @@
 
     impl RefAny {
         /// Creates a new `RefAny` instance.
-        pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: String, destructor: RefAnyDestructorType) -> Self { crate::dll::az_ref_any_new_c(ptr, len, type_id, type_name, destructor) }
+        pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: String, destructor: RefAnyDestructorType) -> Self { unsafe { crate::dll::az_ref_any_new_c(ptr, len, type_id, type_name, destructor) } }
         /// Calls the `RefAny::is_type` function.
-        pub fn is_type(&self, type_id: u64)  -> bool { crate::dll::az_ref_any_is_type(self, type_id) }
+        pub fn is_type(&self, type_id: u64)  -> bool { unsafe { crate::dll::az_ref_any_is_type(self, type_id) } }
         /// Calls the `RefAny::get_type_name` function.
-        pub fn get_type_name(&self)  -> crate::str::String { crate::dll::az_ref_any_get_type_name(self) }
+        pub fn get_type_name(&self)  -> crate::str::String { unsafe { crate::dll::az_ref_any_get_type_name(self) } }
         /// Calls the `RefAny::can_be_shared` function.
-        pub fn can_be_shared(&self)  -> bool { crate::dll::az_ref_any_can_be_shared(self) }
+        pub fn can_be_shared(&self)  -> bool { unsafe { crate::dll::az_ref_any_can_be_shared(self) } }
         /// Calls the `RefAny::can_be_shared_mut` function.
-        pub fn can_be_shared_mut(&self)  -> bool { crate::dll::az_ref_any_can_be_shared_mut(self) }
+        pub fn can_be_shared_mut(&self)  -> bool { unsafe { crate::dll::az_ref_any_can_be_shared_mut(self) } }
         /// Calls the `RefAny::increase_ref` function.
-        pub fn increase_ref(&self)  { crate::dll::az_ref_any_increase_ref(self) }
+        pub fn increase_ref(&self)  { unsafe { crate::dll::az_ref_any_increase_ref(self) } }
         /// Calls the `RefAny::decrease_ref` function.
-        pub fn decrease_ref(&self)  { crate::dll::az_ref_any_decrease_ref(self) }
+        pub fn decrease_ref(&self)  { unsafe { crate::dll::az_ref_any_decrease_ref(self) } }
         /// Calls the `RefAny::increase_refmut` function.
-        pub fn increase_refmut(&self)  { crate::dll::az_ref_any_increase_refmut(self) }
+        pub fn increase_refmut(&self)  { unsafe { crate::dll::az_ref_any_increase_refmut(self) } }
         /// Calls the `RefAny::decrease_refmut` function.
-        pub fn decrease_refmut(&self)  { crate::dll::az_ref_any_decrease_refmut(self) }
+        pub fn decrease_refmut(&self)  { unsafe { crate::dll::az_ref_any_decrease_refmut(self) } }
     }
 
-    impl Clone for RefAny { fn clone(&self) -> Self { crate::dll::az_ref_any_deep_copy(self) } }
-    impl Drop for RefAny { fn drop(&mut self) { crate::dll::az_ref_any_delete(self); } }
+    impl Clone for RefAny { fn clone(&self) -> Self { unsafe { crate::dll::az_ref_any_deep_copy(self) } } }
+    impl Drop for RefAny { fn drop(&mut self) { unsafe { crate::dll::az_ref_any_delete(self) }; } }
 
 
     /// `LayoutInfo` struct
@@ -404,13 +404,13 @@
 
     impl LayoutInfo {
         /// Calls the `LayoutInfo::window_width_larger_than` function.
-        pub fn window_width_larger_than(&mut self, width: f32)  -> bool { crate::dll::az_layout_info_window_width_larger_than(self, width) }
+        pub fn window_width_larger_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::az_layout_info_window_width_larger_than(self, width) } }
         /// Calls the `LayoutInfo::window_width_smaller_than` function.
-        pub fn window_width_smaller_than(&mut self, width: f32)  -> bool { crate::dll::az_layout_info_window_width_smaller_than(self, width) }
+        pub fn window_width_smaller_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::az_layout_info_window_width_smaller_than(self, width) } }
         /// Calls the `LayoutInfo::window_height_larger_than` function.
-        pub fn window_height_larger_than(&mut self, width: f32)  -> bool { crate::dll::az_layout_info_window_height_larger_than(self, width) }
+        pub fn window_height_larger_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::az_layout_info_window_height_larger_than(self, width) } }
         /// Calls the `LayoutInfo::window_height_smaller_than` function.
-        pub fn window_height_smaller_than(&mut self, width: f32)  -> bool { crate::dll::az_layout_info_window_height_smaller_than(self, width) }
+        pub fn window_height_smaller_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::az_layout_info_window_height_smaller_than(self, width) } }
     }
 
-    impl Drop for LayoutInfo { fn drop(&mut self) { crate::dll::az_layout_info_delete(self); } }
+    impl Drop for LayoutInfo { fn drop(&mut self) { unsafe { crate::dll::az_layout_info_delete(self) }; } }

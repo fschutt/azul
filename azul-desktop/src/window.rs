@@ -68,7 +68,9 @@ impl WrRenderNotifier for Notifier {
     // synchronization problems (when handling Event::Awakened).
 
     fn wake_up(&self, _composite_needed: bool) { }
-    fn new_frame_ready(&self, _id: WrDocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) { }
+    fn new_frame_ready(&self, _id: WrDocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) {
+        println!("window {} rerendered (scrolled = {:?}, composite = {:?}0) in {:?}", _id.id, _scrolled, _composite_needed, _render_time);
+    }
 }
 
 /// Select on which monitor the window should pop up.
@@ -389,24 +391,34 @@ impl Window {
                 enable_aa: true,
                 cached_programs: Some(WrProgramCache::new(None)),
                 clear_color: Some(WrColorF { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }), // transparent
-                enable_multithreading: false, // reduces memory
+                enable_multithreading: true,
                 .. WrRendererOptions::default()
             }
         };
 
         for rt in renderer_types.into_iter() {
+
             match rt {
                 RendererType::Software => {
                     let s = Self::initialize_software_gl_context();
-            // (because black is the default color) - so instead, white should be the default
                     if let Ok(r) = WrRenderer::new(s.clone(), Box::new(Notifier { }), gen_opts(), WR_SHADER_CACHE) {
                         renderer_sender = Some(r);
                     }
                     software_gl = Some(s);
+                    break;
                 },
                 RendererType::Hardware => {
-                    if let Ok(r) = WrRenderer::new(hardware_gl.clone(), Box::new(Notifier { }), gen_opts(), WR_SHADER_CACHE) {
-                        renderer_sender = Some(r);
+                    let renderer = WrRenderer::new(hardware_gl.clone(), Box::new(Notifier { }), gen_opts(), WR_SHADER_CACHE);
+                    match renderer {
+                        Ok(r) => {
+                            renderer_sender = Some(r);
+                            break;
+                        },
+                        Err(e) => {
+                            #[cfg(feature = "logging")] {
+                                warn!("error initializing hardware webrender: {:?}", e);
+                            }
+                        }
                     }
                 }
             }

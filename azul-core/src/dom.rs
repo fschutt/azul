@@ -1031,8 +1031,20 @@ impl Dom {
     }
 
     #[inline]
+    pub fn with_inline_css_props(mut self, properties: CssPropertyVec) -> Self {
+        self.set_inline_css_props(properties);
+        self
+    }
+
+    #[inline]
     pub fn with_inline_hover_css<P: Into<CssProperty>>(mut self, property: P) -> Self {
         self.add_inline_hover_css(property);
+        self
+    }
+
+    #[inline]
+    pub fn with_inline_hover_css_props(mut self, properties: CssPropertyVec) -> Self {
+        self.set_inline_hover_css_props(properties);
         self
     }
 
@@ -1043,8 +1055,20 @@ impl Dom {
     }
 
     #[inline]
+    pub fn with_inline_active_css_props(mut self, properties: CssPropertyVec) -> Self {
+        self.set_inline_active_css_props(properties);
+        self
+    }
+
+    #[inline]
     pub fn with_inline_focus_css<P: Into<CssProperty>>(mut self, property: P) -> Self {
         self.add_inline_focus_css(property);
+        self
+    }
+
+    #[inline]
+    pub fn with_inline_focus_css_props(mut self, properties: CssPropertyVec) -> Self {
+        self.set_inline_focus_css_props(properties);
         self
     }
 
@@ -1099,8 +1123,18 @@ impl Dom {
     }
 
     #[inline]
+    pub fn set_inline_css_props(&mut self, properties: CssPropertyVec) {
+        self.root.set_inline_css_props(properties);
+    }
+
+    #[inline]
     pub fn add_inline_hover_css<P: Into<CssProperty>>(&mut self, property: P) {
         self.root.add_inline_hover_css(property);
+    }
+
+    #[inline]
+    pub fn set_inline_hover_css_props(&mut self, properties: CssPropertyVec) {
+        self.root.set_inline_hover_css_props(properties);
     }
 
     #[inline]
@@ -1109,8 +1143,18 @@ impl Dom {
     }
 
     #[inline]
+    pub fn set_inline_active_css_props(&mut self, properties: CssPropertyVec) {
+        self.root.set_inline_active_css_props(properties);
+    }
+
+    #[inline]
     pub fn add_inline_focus_css<P: Into<CssProperty>>(&mut self, property: P) {
         self.root.add_inline_focus_css(property);
+    }
+
+    #[inline]
+    pub fn set_inline_focus_css_props(&mut self, properties: CssPropertyVec) {
+        self.root.set_inline_focus_css_props(properties);
     }
 
     #[inline(always)]
