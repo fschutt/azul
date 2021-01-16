@@ -1236,9 +1236,6 @@ pub fn do_the_layout_internal(
     bounds: LogicalRect
 ) -> LayoutResult {
 
-
-    let do_the_layout_start = Instant::now();
-
     let rect_size = bounds.size;
     let rect_offset = bounds.origin;
 
@@ -1511,6 +1508,7 @@ fn position_nodes<'a>(
         // set text, if any
         let parent_text = if let (Some(words), Some(shaped_words), Some((word_positions, _))) = (word_cache.get(&parent_node_id), shaped_words.get(&parent_node_id), word_positions.get(&parent_node_id)) {
             if nodes_that_need_to_redraw_text.contains(&parent_node_id) {
+                println!("text needs to be redrawn (parent)!");
                 let mut inline_text_layout = InlineText { words, shaped_words }.get_text_layout(pipeline_id, parent_node_id, &word_positions.text_layout_options);
                 let (horz_alignment, vert_alignment) = determine_text_alignment(&styled_dom.styled_nodes.as_container()[parent_node_id]);
                 inline_text_layout.align_children_horizontal(horz_alignment);
@@ -1665,8 +1663,6 @@ pub fn create_shaped_words<'a>(
     words
     .iter()
     .filter_map(|(node_id, words)| {
-
-        let now = Instant::now();
 
         let style = &display_rects[*node_id].style;
         let css_font_id = get_font_id(&style);

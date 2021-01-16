@@ -839,35 +839,35 @@ pub struct Advance {
 impl Advance {
 
     #[inline]
-    pub fn get_x_advance_total_unscaled(&self) -> i32 { self.advance_x as i32 + self.kerning as i32 }
+    pub const fn get_x_advance_total_unscaled(&self) -> i32 { self.advance_x as i32 + self.kerning as i32 }
     #[inline]
-    pub fn get_x_advance_unscaled(&self) -> u16 { self.advance_x }
+    pub const fn get_x_advance_unscaled(&self) -> u16 { self.advance_x }
     #[inline]
-    pub fn get_x_size_unscaled(&self) -> i32 { self.size_x }
+    pub const fn get_x_size_unscaled(&self) -> i32 { self.size_x }
     #[inline]
-    pub fn get_y_size_unscaled(&self) -> i32 { self.size_y }
+    pub const fn get_y_size_unscaled(&self) -> i32 { self.size_y }
     #[inline]
-    pub fn get_kerning_unscaled(&self) -> i16 { self.kerning }
+    pub const fn get_kerning_unscaled(&self) -> i16 { self.kerning }
 
     #[inline]
     pub fn get_x_advance_total_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
-        (self.get_x_advance_total_unscaled() / units_per_em.get() as i32) as f32 * target_font_size
+        self.get_x_advance_total_unscaled() as f32 / units_per_em.get() as f32 * target_font_size
     }
     #[inline]
     pub fn get_x_advance_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
-        (self.get_x_advance_unscaled() / units_per_em.get()) as f32 * target_font_size
+        self.get_x_advance_unscaled() as f32 / units_per_em.get() as f32 * target_font_size
     }
     #[inline]
     pub fn get_x_size_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
-        (self.get_x_size_unscaled() / units_per_em.get() as i32) as f32 * target_font_size
+        self.get_x_size_unscaled() as f32 / units_per_em.get() as f32 * target_font_size
     }
     #[inline]
     pub fn get_y_size_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
-        (self.get_y_size_unscaled() / units_per_em.get() as i32) as f32 * target_font_size
+        self.get_y_size_unscaled() as f32 / units_per_em.get() as f32 * target_font_size
     }
     #[inline]
     pub fn get_kerning_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
-        (self.get_kerning_unscaled() / units_per_em.get() as i16) as f32 * target_font_size
+        self.get_kerning_unscaled() as f32 / units_per_em.get() as f32 * target_font_size
     }
 }
 
