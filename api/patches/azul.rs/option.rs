@@ -18,7 +18,7 @@
                 self.into()
             }
             pub fn replace(&mut self, value: $struct_type) -> $struct_name {
-                ::std::mem::replace(self, $struct_name::Some(value))
+                ::core::mem::replace(self, $struct_name::Some(value))
             }
             pub const fn is_some(&self) -> bool {
                 match self {
@@ -62,13 +62,13 @@
                     let res = match &mut o {
                         $struct_name::None => { None },
                         $struct_name::Some(t) => {
-                            let uninitialized = unsafe{ std::mem::zeroed::<$struct_type>() };
-                            let t = std::mem::replace(t, uninitialized);
+                            let uninitialized = unsafe{ core::mem::zeroed::<$struct_type>() };
+                            let t = core::mem::replace(t, uninitialized);
                             Some(t)
                         },
                     };
 
-                    std::mem::forget(o); // do not run the destructor
+                    core::mem::forget(o); // do not run the destructor
 
                     res
                 }
@@ -81,13 +81,13 @@
                     let res = match &mut o {
                         None => { $struct_name::None },
                         Some(t) => {
-                            let uninitialized = unsafe{ std::mem::zeroed::<$struct_type>() };
-                            let t = std::mem::replace(t, uninitialized);
+                            let uninitialized = unsafe{ core::mem::zeroed::<$struct_type>() };
+                            let t = core::mem::replace(t, uninitialized);
                             $struct_name::Some(t)
                         },
                     };
 
-                    std::mem::forget(o); // do not run the destructor
+                    core::mem::forget(o); // do not run the destructor
 
                     res
                 }

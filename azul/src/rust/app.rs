@@ -1,7 +1,7 @@
     #![allow(dead_code, unused_imports)]
     //! `App` construction and configuration
     use crate::dll::*;
-    use std::ffi::c_void;
+    use core::ffi::c_void;
     use crate::callbacks::RefAny;
     use crate::window::WindowCreateOptions;
 

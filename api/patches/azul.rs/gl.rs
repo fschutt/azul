@@ -1,5 +1,5 @@
     impl Refstr {
-        fn as_str(&self) -> &str { unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.ptr, self.len)) } }
+        fn as_str(&self) -> &str { unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.ptr, self.len)) } }
     }
 
     impl From<&str> for Refstr {
@@ -9,7 +9,7 @@
     }
 
     impl RefstrVecRef {
-        fn as_slice(&self) -> &[Refstr] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+        fn as_slice(&self) -> &[Refstr] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
     impl From<&[Refstr]> for RefstrVecRef {
@@ -25,7 +25,7 @@
     }
 
     impl GLint64VecRefMut {
-        fn as_mut_slice(&mut self) -> &mut [GLint64] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+        fn as_mut_slice(&mut self) -> &mut [GLint64] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
     impl From<&mut [GLfloat]> for GLfloatVecRefMut {
@@ -35,7 +35,7 @@
     }
 
     impl GLfloatVecRefMut {
-        fn as_mut_slice(&mut self) -> &mut [GLfloat] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+        fn as_mut_slice(&mut self) -> &mut [GLfloat] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
     impl From<&mut [GLint]> for GLintVecRefMut {
@@ -45,7 +45,7 @@
     }
 
     impl GLintVecRefMut {
-        fn as_mut_slice(&mut self) -> &mut [GLint] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+        fn as_mut_slice(&mut self) -> &mut [GLint] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
     impl From<&[GLuint]> for GLuintVecRef {
@@ -55,7 +55,7 @@
     }
 
     impl GLuintVecRef {
-        fn as_slice(&self) -> &[GLuint] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+        fn as_slice(&self) -> &[GLuint] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
     impl From<&[GLenum]> for GLenumVecRef {
@@ -65,7 +65,7 @@
     }
 
     impl GLenumVecRef {
-        fn as_slice(&self) -> &[GLenum] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+        fn as_slice(&self) -> &[GLenum] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
     impl From<&[u8]> for U8VecRef {
@@ -75,17 +75,17 @@
     }
 
     impl U8VecRef {
-        fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+        fn as_slice(&self) -> &[u8] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
     impl PartialOrd for U8VecRef {
-        fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+        fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
             self.as_slice().partial_cmp(rhs.as_slice())
         }
     }
 
     impl Ord for U8VecRef {
-        fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+        fn cmp(&self, rhs: &Self) -> core::cmp::Ordering {
             self.as_slice().cmp(rhs.as_slice())
         }
     }
@@ -98,8 +98,8 @@
 
     impl Eq for U8VecRef { }
 
-    impl std::hash::Hash for U8VecRef {
-        fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+    impl core::hash::Hash for U8VecRef {
+        fn hash<H>(&self, state: &mut H) where H: core::hash::Hasher {
             self.as_slice().hash(state)
         }
     }
@@ -111,7 +111,7 @@
     }
 
     impl F32VecRef {
-        fn as_slice(&self) -> &[f32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+        fn as_slice(&self) -> &[f32] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
     impl From<&[i32]> for I32VecRef {
@@ -121,7 +121,7 @@
     }
 
     impl I32VecRef {
-        fn as_slice(&self) -> &[i32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+        fn as_slice(&self) -> &[i32] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
     impl From<&mut [GLboolean]> for GLbooleanVecRefMut {
@@ -131,7 +131,7 @@
     }
 
     impl GLbooleanVecRefMut {
-        fn as_mut_slice(&mut self) -> &mut [GLboolean] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+        fn as_mut_slice(&mut self) -> &mut [GLboolean] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
     impl From<&mut [u8]> for U8VecRefMut {
@@ -141,36 +141,66 @@
     }
 
     impl U8VecRefMut {
-        fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+        fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
-    pub type GLenum = std::os::raw::c_uint;
-    pub type GLboolean = std::os::raw::c_uchar;
-    pub type GLbitfield = std::os::raw::c_uint;
-    pub type GLvoid = std::os::raw::c_void;
-    pub type GLbyte = std::os::raw::c_char;
-    pub type GLshort = std::os::raw::c_short;
-    pub type GLint = std::os::raw::c_int;
-    pub type GLclampx = std::os::raw::c_int;
-    pub type GLubyte = std::os::raw::c_uchar;
-    pub type GLushort = std::os::raw::c_ushort;
-    pub type GLuint = std::os::raw::c_uint;
-    pub type GLsizei = std::os::raw::c_int;
-    pub type GLfloat = std::os::raw::c_float;
-    pub type GLclampf = std::os::raw::c_float;
-    pub type GLdouble = std::os::raw::c_double;
-    pub type GLclampd = std::os::raw::c_double;
-    pub type GLeglImageOES = *const std::os::raw::c_void;
-    pub type GLchar = std::os::raw::c_char;
-    pub type GLcharARB = std::os::raw::c_char;
+    /// Built in primitive types provided by the C language
+    #[allow(non_camel_case_types)]
+    pub mod ctypes {
+        pub enum c_void {}
+        pub type c_char = i8;
+        pub type c_schar = i8;
+        pub type c_uchar = u8;
+        pub type c_short = i16;
+        pub type c_ushort = u16;
+        pub type c_int = i32;
+        pub type c_uint = u32;
+        pub type c_long = i32;
+        pub type c_ulong = u32;
+        pub type c_longlong = i64;
+        pub type c_ulonglong = u64;
+        pub type c_float = f32;
+        pub type c_double = f64;
+        pub type __int8 = i8;
+        pub type __uint8 = u8;
+        pub type __int16 = i16;
+        pub type __uint16 = u16;
+        pub type __int32 = i32;
+        pub type __uint32 = u32;
+        pub type __int64 = i64;
+        pub type __uint64 = u64;
+        pub type wchar_t = u16;
+    }
+
+    pub use self::ctypes::*;
+
+    pub type GLenum = c_uint;
+    pub type GLboolean = c_uchar;
+    pub type GLbitfield = c_uint;
+    pub type GLvoid = c_void;
+    pub type GLbyte = c_char;
+    pub type GLshort = c_short;
+    pub type GLint = c_int;
+    pub type GLclampx = c_int;
+    pub type GLubyte = c_uchar;
+    pub type GLushort = c_ushort;
+    pub type GLuint = c_uint;
+    pub type GLsizei = c_int;
+    pub type GLfloat = c_float;
+    pub type GLclampf = c_float;
+    pub type GLdouble = c_double;
+    pub type GLclampd = c_double;
+    pub type GLeglImageOES = *const c_void;
+    pub type GLchar = c_char;
+    pub type GLcharARB = c_char;
 
     #[cfg(target_os = "macos")]
-    pub type GLhandleARB = *const std::os::raw::c_void;
+    pub type GLhandleARB = *const c_void;
     #[cfg(not(target_os = "macos"))]
-    pub type GLhandleARB = std::os::raw::c_uint;
+    pub type GLhandleARB = c_uint;
 
-    pub type GLhalfARB = std::os::raw::c_ushort;
-    pub type GLhalf = std::os::raw::c_ushort;
+    pub type GLhalfARB = c_ushort;
+    pub type GLhalf = c_ushort;
 
     // Must be 32 bits
     pub type GLfixed = GLint;
@@ -183,13 +213,13 @@
     pub type GLint64EXT = i64;
     pub type GLuint64EXT = u64;
 
-    pub type GLDEBUGPROC = Option<extern "system" fn(source: GLenum, gltype: GLenum, id: GLuint, severity: GLenum, length: GLsizei, message: *const GLchar, userParam: *mut std::os::raw::c_void)>;
-    pub type GLDEBUGPROCARB = Option<extern "system" fn(source: GLenum, gltype: GLenum, id: GLuint, severity: GLenum, length: GLsizei, message: *const GLchar, userParam: *mut std::os::raw::c_void)>;
-    pub type GLDEBUGPROCKHR = Option<extern "system" fn(source: GLenum, gltype: GLenum, id: GLuint, severity: GLenum, length: GLsizei, message: *const GLchar, userParam: *mut std::os::raw::c_void)>;
+    pub type GLDEBUGPROC = Option<extern "system" fn(source: GLenum, gltype: GLenum, id: GLuint, severity: GLenum, length: GLsizei, message: *const GLchar, userParam: *mut c_void)>;
+    pub type GLDEBUGPROCARB = Option<extern "system" fn(source: GLenum, gltype: GLenum, id: GLuint, severity: GLenum, length: GLsizei, message: *const GLchar, userParam: *mut c_void)>;
+    pub type GLDEBUGPROCKHR = Option<extern "system" fn(source: GLenum, gltype: GLenum, id: GLuint, severity: GLenum, length: GLsizei, message: *const GLchar, userParam: *mut c_void)>;
 
     // Vendor extension types
-    pub type GLDEBUGPROCAMD = Option<extern "system" fn(id: GLuint, category: GLenum, severity: GLenum, length: GLsizei, message: *const GLchar, userParam: *mut std::os::raw::c_void)>;
-    pub type GLhalfNV = std::os::raw::c_ushort;
+    pub type GLDEBUGPROCAMD = Option<extern "system" fn(id: GLuint, category: GLenum, severity: GLenum, length: GLsizei, message: *const GLchar, userParam: *mut c_void)>;
+    pub type GLhalfNV = c_ushort;
     pub type GLvdpauSurfaceNV = GLintptr;
 
     pub const ACCUM: GLenum = 0x0100;

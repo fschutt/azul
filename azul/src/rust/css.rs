@@ -1,7 +1,7 @@
     #![allow(dead_code, unused_imports)]
     //! `Css` parsing module
     use crate::dll::*;
-    use std::ffi::c_void;
+    use core::ffi::c_void;
     macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => ({
         match $prop_type {
             CssPropertyType::TextColor => CssProperty::TextColor(StyleTextColorValue::$content_type),

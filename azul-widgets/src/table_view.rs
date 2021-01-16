@@ -1,6 +1,8 @@
 //! Table view
 
-use std::{ops::Range, collections::BTreeMap};
+use core::ops::Range;
+use alloc::collections::BTreeMap;
+use alloc::string::String;
 use azul::{
     style::StyledDom,
     dom::{Dom, NodeData, NodeType},
@@ -107,12 +109,11 @@ impl TableViewState {
 
         use azul::css::*;
         use azul::str::String as AzString;
-        use std::time::Instant;
-
-        let i_start = Instant::now();
+        use azul::vec::StringVec as AzStringVec;
 
         let font: AzString = "sans-serif".into();
-        let sans_serif_font_family = StyleFontFamily { fonts: vec![font].into() };
+        let font_vec: AzStringVec = [font][..].into();
+        let sans_serif_font_family = StyleFontFamily { fonts: font_vec };
 
         const COLOR_407C40: ColorU = ColorU { r: 64, g: 124, b: 64, a: 0 }; // green
         const COLOR_2D2D2D: ColorU = ColorU { r: 45, g: 45, b: 45, a: 0 };
@@ -144,7 +145,12 @@ impl TableViewState {
 
         // Row numbers (first column - laid out vertical) - "1", "2", "3"
         let row_numbers = (rows.start..rows.end.saturating_sub(1)).map(|row_idx| {
-            NodeData::label(format!("{}", row_idx + 1).into())
+
+            use crate::alloc::string::ToString;
+
+            // NOTE: to_string() heap allocation is unavoidable
+
+            NodeData::label((row_idx + 1).to_string().into())
             .with_inline_css_props(CssPropertyVec::from(&[
                 CssProperty::font_size(StyleFontSize::const_px(14)),
                 CssProperty::flex_direction(LayoutFlexDirection::Row),
@@ -230,7 +236,13 @@ impl TableViewState {
 
         let columns_table_container = columns.map(|col_idx| {
 
-            let column_names = Dom::label(column_name_from_number(col_idx).into())
+            // avoid heap allocation
+            let mut column_name_arr = [0;16];
+            let zeroed_characters = column_name_from_number(col_idx, &mut column_name_arr);
+            let slice = &column_name_arr[zeroed_characters..];
+            let s = unsafe { ::core::str::from_utf8_unchecked(slice) };
+
+            let column_names = Dom::label(s.into())
             .with_inline_css_props(CssPropertyVec::from(&[
                 CssProperty::height(LayoutHeight::px(20.0)),
                 CssProperty::font_family(sans_serif_font_family.clone()),
@@ -338,14 +350,18 @@ impl TableView {
 
         use azul::window::{LayoutRect, LayoutSize, LayoutPoint};
 
-        let table_view_state = state.downcast_ref::<TableViewState>().unwrap();        let logical_size = info.get_bounds().get_logical_size();
+        let table_view_state = state.downcast_ref::<TableViewState>().unwrap();
+        let logical_size = info.get_bounds().get_logical_size();
         let padding_rows = 0;
         let padding_columns = 0;
         let row_start = 0; // bounds.top / table_view_state.row_height
         let column_start = 0; // bounds.left / table_view_state.column_width
 
-        let necessary_rows = (logical_size.height as f32 / table_view_state.row_height).ceil() as usize;
-        let necessary_columns = (logical_size.width as f32 / table_view_state.column_width).ceil() as usize;
+        // workaround for necessary_rows.ceil() not being available on no_std
+        let necessary_rows_f32 = logical_size.height as f32 / table_view_state.row_height;
+        let necessary_rows = if (necessary_rows_f32 * 10.0) as isize % 10_isize != 0 { necessary_rows_f32 as usize + 1 } else { necessary_rows_f32 as usize };
+        let necessary_columns_f32 = logical_size.width as f32 / table_view_state.column_width;
+        let necessary_columns = if (necessary_columns_f32 * 10.0) as isize % 10_isize != 0 { necessary_columns_f32 as usize + 1 } else { necessary_columns_f32 as usize };
 
         let table_height = (necessary_rows + padding_rows) as f32 * table_view_state.row_height;
         let table_width = (necessary_columns + padding_columns) as f32 * table_view_state.column_width;
@@ -358,7 +374,7 @@ impl TableView {
             dom: styled_dom,
             size: LayoutRect {
                 origin: LayoutPoint::zero(), // TODO: info.get_bounds().origin,
-                size: LayoutSize::new(table_width.floor() as isize, table_height.floor() as isize),
+                size: LayoutSize::new(table_width as isize, table_height as isize),
             },
             virtual_size: None.into(),
         }
@@ -370,6 +386,10 @@ impl From<TableView> for StyledDom  {
         t.dom()
     }
 }
+
+const ALPHABET_LEN: usize = 26;
+// usize::MAX is "GKGWBYLWRXTLPP" with a length of 15 characters
+const MAX_LEN: usize = 15;
 
 /// Maps an index number to a value, necessary for creating the column name:
 ///
@@ -384,17 +404,13 @@ impl From<TableView> for StyledDom  {
 /// nanoseconds for 1 iteration due to almost pure-stack allocated data.
 /// For an explanation of the algorithm with comments, see:
 /// https://github.com/fschutt/street_index/blob/78b935a1303070947c0854b6d01f540ec298c9d5/src/gridconfig.rs#L155-L209
-pub fn column_name_from_number(num: usize) -> String {
-    const ALPHABET_LEN: usize = 26;
-    // usize::MAX is "GKGWBYLWRXTLPP" with a length of 15 characters
-    const MAX_LEN: usize = 15;
+pub fn column_name_from_number(num: usize, result: &mut [u8; 16]) -> usize {
 
     #[inline(always)]
     fn u8_to_char(input: u8) -> u8 {
         'A' as u8 + input
     }
 
-    let mut result = [0;MAX_LEN + 1];
     let mut multiple_of_alphabet = num / ALPHABET_LEN;
     let mut character_count = 0;
 
@@ -407,8 +423,21 @@ pub fn column_name_from_number(num: usize) -> String {
 
     result[MAX_LEN] = u8_to_char((num % ALPHABET_LEN) as u8);
     let zeroed_characters = MAX_LEN.saturating_sub(character_count);
-    let slice = &result[zeroed_characters..];
-    unsafe { ::std::str::from_utf8_unchecked(slice) }.to_string()
+    zeroed_characters
+}
+
+pub fn char_less_than_10_from_digit(num: u32) -> Option<char> {
+    let radix = 10_u32;
+    if num < radix {
+        let num = num as u8;
+        if num < 10 {
+            Some((b'0' + num) as char)
+        } else {
+            Some((b'a' + num - 10) as char)
+        }
+    } else {
+        None
+    }
 }
 
 #[test]

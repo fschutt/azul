@@ -7367,12 +7367,12 @@ mod test_sizes {
         pub theme: AzOptionWindowTheme,
         pub create_callback: AzOptionCallback,
     }
-    use std::os::raw::c_void;
+    use core::os::raw::c_void;
     use azul_impl::css::*;
 
     #[test]
     fn test_size() {
-         use std::alloc::Layout;
+         use core::alloc::Layout;
         assert_eq!(Layout::new::<azul_impl::css::AzString>(), Layout::new::<AzString>());
         assert_eq!(Layout::new::<azul_impl::css::StyleTransformVec>(), Layout::new::<AzStyleTransformVec>());
         assert_eq!(Layout::new::<azul_impl::styled_dom::ContentGroupVec>(), Layout::new::<AzContentGroupVec>());

@@ -1,4 +1,4 @@
-    impl std::iter::FromIterator<Dom> for Dom {
+    impl core::iter::FromIterator<Dom> for Dom {
         fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
             use crate::vec::DomVec;
             let mut estimated_total_children = 0;
@@ -15,7 +15,7 @@
         }
     }
 
-    impl std::iter::FromIterator<NodeData> for Dom {
+    impl core::iter::FromIterator<NodeData> for Dom {
         fn from_iter<I: IntoIterator<Item=NodeData>>(iter: I) -> Self {
             use crate::vec::DomVec;
             let children = iter.into_iter().map(|c| Dom { root: c, children: DomVec::new(), estimated_total_children: 0 }).collect::<DomVec>();
@@ -29,8 +29,8 @@
         }
     }
 
-    impl std::iter::FromIterator<NodeType> for Dom {
-        fn from_iter<I: std::iter::IntoIterator<Item=NodeType>>(iter: I) -> Self {
+    impl core::iter::FromIterator<NodeType> for Dom {
+        fn from_iter<I: core::iter::IntoIterator<Item=NodeType>>(iter: I) -> Self {
             iter.into_iter().map(|i| {
                 let mut nd = NodeData::default();
                 nd.node_type = i;

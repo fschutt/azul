@@ -1,6 +1,6 @@
 //! Text input (demonstrates two-way data binding)
 
-use std::ops::Range;
+use core::ops::Range;
 use azul::{
     dom::{Dom, EventFilter, FocusEventFilter, TabIndex},
     window::{KeyboardState, VirtualKeyCode},
@@ -211,7 +211,7 @@ impl TextInput {
             let text_input = text_input.downcast_mut::<TextInputState>()?;
             let keyboard_state = info.get_keyboard_state();
             let c = keyboard_state.current_char.into_option()?;
-            let c = std::char::from_u32(c)?;
+            let c = core::char::from_u32(c)?;
 
             if text_input_state.update_text_input_before_calling_vk_down_fn {
                 text_input.handle_on_text_input(c);

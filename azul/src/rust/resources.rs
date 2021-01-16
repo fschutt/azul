@@ -1,7 +1,7 @@
     #![allow(dead_code, unused_imports)]
     //! Struct definition for image / font / text IDs
     use crate::dll::*;
-    use std::ffi::c_void;
+    use core::ffi::c_void;
     use crate::vec::U8Vec;
 
 

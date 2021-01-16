@@ -1,7 +1,7 @@
     #![allow(dead_code, unused_imports)]
     //! Asyncronous timers / task / thread handlers for easy async loading
     use crate::dll::*;
-    use std::ffi::c_void;
+    use core::ffi::c_void;
     use crate::callbacks::{RefAny, TimerCallbackType};
     use crate::time::Duration;
 

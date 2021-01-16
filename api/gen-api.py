@@ -848,7 +848,7 @@ def generate_structs(apiData, structs_map, version):
 def generate_dll_loader(apiData, structs_map, functions_map, version):
 
     code = ""
-    code += "    use std::ffi::c_void;\r\n\r\n"
+    code += "    use core::ffi::c_void;\r\n\r\n"
 
     if tuple(['dll']) in rust_api_patches.keys():
         code += rust_api_patches[tuple(['dll'])]
@@ -869,11 +869,11 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
         if class_has_eq:
             code += "\r\n    impl Eq for " + struct_name + " { }\r\n"
         if class_has_partialord:
-            code += "\r\n    impl PartialOrd for " + struct_name + " { fn partial_cmp(&self, rhs: &" + struct_name + ") -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match unsafe { crate::dll::" + to_snake_case(struct_name) + "_partial_cmp(self, rhs) } { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }\r\n"
+            code += "\r\n    impl PartialOrd for " + struct_name + " { fn partial_cmp(&self, rhs: &" + struct_name + ") -> Option<core::cmp::Ordering> { use core::cmp::Ordering::*; match unsafe { crate::dll::" + to_snake_case(struct_name) + "_partial_cmp(self, rhs) } { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }\r\n"
         if class_has_ord:
-            code += "\r\n    impl Ord for " + struct_name + " { fn cmp(&self, rhs: &" + struct_name + ") -> std::cmp::Ordering { use std::cmp::Ordering::*; match unsafe { crate::dll::" + to_snake_case(struct_name) + "_cmp(self, rhs) } { 0 => Less, 1 => Equal, _ => Greater } } }\r\n"
+            code += "\r\n    impl Ord for " + struct_name + " { fn cmp(&self, rhs: &" + struct_name + ") -> core::cmp::Ordering { use core::cmp::Ordering::*; match unsafe { crate::dll::" + to_snake_case(struct_name) + "_cmp(self, rhs) } { 0 => Less, 1 => Equal, _ => Greater } } }\r\n"
         if class_can_be_hashed:
-            code += "\r\n    impl std::hash::Hash for " + struct_name + " { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { (unsafe { crate::dll::" + to_snake_case(struct_name) + "_hash(self) }).hash(state) } }\r\n"
+            code += "\r\n    impl core::hash::Hash for " + struct_name + " { fn hash<H: core::hash::Hasher>(&self, state: &mut H) { (unsafe { crate::dll::" + to_snake_case(struct_name) + "_hash(self) }).hash(state) } }\r\n"
 
     code += "\r\n"
     code += "\r\n"
@@ -902,6 +902,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
 
     version = list(apiData.keys())[-1]
     code = ""
+    code += "#![no_std]\r\n"
     code += "#![doc(\r\n"
     code += "    html_logo_url = \"https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png\",\r\n"
     code += "    html_favicon_url = \"https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico\",\r\n"
@@ -910,6 +911,9 @@ def generate_rust_api(apiData, structs_map, functions_map):
     code += "\r\n"
     code += "//! Auto-generated public Rust API for the Azul GUI toolkit version " + version + "\r\n"
     code += "//!\r\n"
+    code += "\r\n"
+    code += "\r\n"
+    code += "extern crate alloc;\r\n"
     code += "\r\n"
 
     # readme = read_file(azul_readme_path)
@@ -950,7 +954,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
         if module_doc != None:
             code += "    //! " + module_doc + "\r\n"
         code += "    use crate::dll::*;\r\n"
-        code += "    use std::ffi::c_void;\r\n"
+        code += "    use core::ffi::c_void;\r\n"
 
         if tuple([module_name]) in rust_api_patches:
             code += rust_api_patches[tuple([module_name])]
@@ -1090,7 +1094,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                 lifetime = "<'a>"
 
             if class_can_derive_debug:
-                code += "    impl std::fmt::Debug for " + class_name + " { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, \"{}\", unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_fmt_debug(self) }) } }\r\n"
+                code += "    impl core::fmt::Debug for " + class_name + " { fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result { write!(f, \"{}\", unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_fmt_debug(self) }) } }\r\n"
 
             if class_can_be_copied:
                 code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { *self } }\r\n"
@@ -1138,13 +1142,13 @@ def generate_size_test(apiData, structs_map):
         test_str += test_sizes_patches[tuple(['dll'])]
 
     test_str += generated_structs
-    test_str += "    use std::os::raw::c_void;\r\n"
+    test_str += "    use core::os::raw::c_void;\r\n"
     test_str += "    use azul_impl::css::*;\r\n"
     test_str += "\r\n"
 
     test_str += "    #[test]\r\n"
     test_str += "    fn test_size() {\r\n"
-    test_str += "         use std::alloc::Layout;\r\n"
+    test_str += "         use core::alloc::Layout;\r\n"
 
     for struct_name in structs_map.keys():
         struct = structs_map[struct_name]

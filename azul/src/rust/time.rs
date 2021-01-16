@@ -1,7 +1,7 @@
     #![allow(dead_code, unused_imports)]
     //! Rust wrappers for `Instant` / `Duration` classes
     use crate::dll::*;
-    use std::ffi::c_void;
+    use core::ffi::c_void;
 
 
     /// `Instant` struct

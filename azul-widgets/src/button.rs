@@ -77,7 +77,7 @@ impl Button {
 
             .__azul-native-button:focus {
                 border: 1px solid rgb(51, 153, 255);
-            }".to_string().into()
+            }".into()
         )
     }
 
@@ -105,7 +105,7 @@ impl Button {
 
            .__azul-native-button:active {
                background: linear-gradient(blue, green);
-           }".to_string().into()
+           }".into()
         )
     }
 
@@ -123,7 +123,7 @@ impl Button {
                 text-align: center;
                 flex-direction: column;
                 justify-content: center;
-            }".to_string().into()
+            }".into()
         )
     }
 

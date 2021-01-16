@@ -1,7 +1,7 @@
     #![allow(dead_code, unused_imports)]
     //! Window creation / startup configuration
     use crate::dll::*;
-    use std::ffi::c_void;
+    use core::ffi::c_void;
 
     impl LayoutSize {
         #[inline(always)]

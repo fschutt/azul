@@ -1,7 +1,7 @@
     #![allow(dead_code, unused_imports)]
     //! SVG parsing and rendering functions
     use crate::dll::*;
-    use std::ffi::c_void;
+    use core::ffi::c_void;
     use crate::gl::U8VecRef;
 
 

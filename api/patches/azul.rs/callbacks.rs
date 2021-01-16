@@ -12,7 +12,7 @@
         }
     }
 
-    impl<'a, T> std::ops::Deref for Ref<'a, T> {
+    impl<'a, T> core::ops::Deref for Ref<'a, T> {
         type Target = T;
 
         fn deref(&self) -> &Self::Target {
@@ -33,7 +33,7 @@
         }
     }
 
-    impl<'a, T> std::ops::Deref for RefMut<'a, T> {
+    impl<'a, T> core::ops::Deref for RefMut<'a, T> {
         type Target = T;
 
         fn deref(&self) -> &Self::Target {
@@ -41,7 +41,7 @@
         }
     }
 
-    impl<'a, T> std::ops::DerefMut for RefMut<'a, T> {
+    impl<'a, T> core::ops::DerefMut for RefMut<'a, T> {
         fn deref_mut(&mut self) -> &mut Self::Target {
             self.ptr
         }
@@ -54,7 +54,7 @@
             use crate::dll::*;
 
             extern "C" fn default_custom_destructor<U: 'static>(ptr: *const c_void) {
-                use std::{mem, ptr};
+                use core::{mem, ptr};
 
                 // note: in the default constructor, we do not need to check whether U == T
 
@@ -66,16 +66,16 @@
                 }
             }
 
-            let type_name_str = ::std::any::type_name::<T>();
+            let type_name_str = ::core::any::type_name::<T>();
             let st = crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len());
             let s = unsafe { crate::dll::az_ref_any_new_c(
                 (&value as *const T) as *const c_void,
-                ::std::mem::size_of::<T>(),
+                ::core::mem::size_of::<T>(),
                 Self::get_type_id::<T>(),
                 st,
                 default_custom_destructor::<T>,
             ) };
-            ::std::mem::forget(value); // do not run the destructor of T here!
+            ::core::mem::forget(value); // do not run the destructor of T here!
             s
         }
 
@@ -112,15 +112,15 @@
             })
         }
 
-        // Returns the typeid of `T` as a u64 (necessary because `std::any::TypeId` is not C-ABI compatible)
+        // Returns the typeid of `T` as a u64 (necessary because `core::any::TypeId` is not C-ABI compatible)
         #[inline]
         pub fn get_type_id<T: 'static>() -> u64 {
-            use std::any::TypeId;
-            use std::mem;
+            use core::any::TypeId;
+            use core::mem;
 
             // fast method to serialize the type id into a u64
             let t_id = TypeId::of::<T>();
-            let struct_as_bytes = unsafe { ::std::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
+            let struct_as_bytes = unsafe { ::core::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
             struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
         }
     }

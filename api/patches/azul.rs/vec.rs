@@ -1,4 +1,10 @@
-    use std::fmt;
+    use core::iter;
+    use core::fmt;
+
+    use alloc::vec::{self, Vec};
+    use alloc::slice;
+    use alloc::string;
+
     use crate::gl::{
         GLint as AzGLint,
         GLuint as AzGLuint,
@@ -9,18 +15,18 @@
         impl $struct_name {
 
             #[inline]
-            pub fn iter(&self) -> std::slice::Iter<$struct_type> {
+            pub fn iter(&self) -> slice::Iter<$struct_type> {
                 self.as_ref().iter()
             }
 
             #[inline]
-            pub fn into_iter(self) -> std::vec::IntoIter<$struct_type> {
+            pub fn into_iter(self) -> vec::IntoIter<$struct_type> {
                 let v1: Vec<$struct_type> = self.into();
                 v1.into_iter()
             }
 
             #[inline]
-            pub fn iter_mut(&mut self) -> std::slice::IterMut<$struct_type> {
+            pub fn iter_mut(&mut self) -> slice::IterMut<$struct_type> {
                 self.as_mut().iter_mut()
             }
 
@@ -67,17 +73,17 @@
 
         impl AsRef<[$struct_type]> for $struct_name {
             fn as_ref(&self) -> &[$struct_type] {
-                unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+                unsafe { slice::from_raw_parts(self.ptr, self.len) }
             }
         }
 
         impl AsMut<[$struct_type]> for $struct_name {
             fn as_mut(&mut self) -> &mut [$struct_type] {
-                unsafe { std::slice::from_raw_parts_mut (self.ptr, self.len) }
+                unsafe { slice::from_raw_parts_mut (self.ptr, self.len) }
             }
         }
 
-        impl std::iter::FromIterator<$struct_type> for $struct_name {
+        impl iter::FromIterator<$struct_type> for $struct_name {
             fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = $struct_type> {
                 let v: Vec<$struct_type> = Vec::from_iter(iter);
                 v.into()
@@ -99,50 +105,12 @@
 
         impl From<$struct_name> for Vec<$struct_type> {
             fn from(mut input: $struct_name) -> Vec<$struct_type> {
-                unsafe { std::slice::from_raw_parts(input.as_mut_ptr(), input.len()) }.to_vec()
+                unsafe { slice::from_raw_parts(input.as_mut_ptr(), input.len()) }.to_vec()
             }
         }
 
         // Drop, Debug + Clone already implemented by default
     )}
-
-/*
-    macro_rules! impl_vec_partialord {($struct_type:ident, $struct_name:ident) => (
-        impl PartialOrd for $struct_name {
-            fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
-                self.as_ref().partial_cmp(rhs.as_ref())
-            }
-        }
-    )}
-
-    macro_rules! impl_vec_ord {($struct_type:ident, $struct_name:ident) => (
-        impl Ord for $struct_name {
-            fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
-                self.as_ref().cmp(rhs.as_ref())
-            }
-        }
-    )}
-
-    macro_rules! impl_vec_partialeq {($struct_type:ident, $struct_name:ident) => (
-        impl PartialEq for $struct_name {
-            fn eq(&self, rhs: &Self) -> bool {
-                self.as_ref().eq(rhs.as_ref())
-            }
-        }
-    )}
-
-    macro_rules! impl_vec_eq {($struct_type:ident, $struct_name:ident) => (
-        impl Eq for $struct_name { }
-    )}
-
-    macro_rules! impl_vec_hash {($struct_type:ident, $struct_name:ident) => (
-        impl std::hash::Hash for $struct_name {
-            fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
-                self.as_ref().hash(state);
-            }
-        }
-    )}
-*/
 
     impl_vec!(u8,  AzU8Vec);
     impl_vec!(u32, AzU32Vec);
@@ -178,15 +146,15 @@
     impl_vec!(AzParentWithNodeDepth, AzParentWithNodeDepthVec);
     impl_vec!(AzNodeData, AzNodeDataVec);
 
-    impl From<std::vec::Vec<std::string::String>> for crate::vec::StringVec {
-        fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {
+    impl From<vec::Vec<string::String>> for crate::vec::StringVec {
+        fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {
             let mut vec: Vec<AzString> = v.into_iter().map(Into::into).collect();
             unsafe { crate::dll::az_string_vec_copy_from(vec.as_mut_ptr(), vec.len()) }
         }
     }
 
-    impl From<crate::vec::StringVec> for std::vec::Vec<std::string::String> {
-        fn from(v: crate::vec::StringVec) -> std::vec::Vec<std::string::String> {
+    impl From<crate::vec::StringVec> for vec::Vec<string::String> {
+        fn from(v: crate::vec::StringVec) -> vec::Vec<string::String> {
             v
             .as_ref()
             .iter()

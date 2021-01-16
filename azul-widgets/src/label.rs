@@ -44,7 +44,7 @@ impl Label {
                 justify-content: center;
                 flex-grow: 1;
                 font-family: sans-serif;
-            }".to_string().into()
+            }".into()
         )
     }
 
@@ -59,7 +59,7 @@ impl Label {
                text-align: center;
                flex-direction: column;
                justify-content: center;
-           }".to_string().into()
+           }".into()
         )
     }
 
@@ -72,7 +72,7 @@ impl Label {
                 text-align: center;
                 flex-direction: column;
                 justify-content: center;
-            }".to_string().into()
+            }".into()
         )
     }
 

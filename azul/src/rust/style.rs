@@ -1,7 +1,7 @@
     #![allow(dead_code, unused_imports)]
     //! DOM to CSS cascading and styling module
     use crate::dll::*;
-    use std::ffi::c_void;
+    use core::ffi::c_void;
     use crate::dom::Dom;
     use crate::css::Css;
 
