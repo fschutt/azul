@@ -7,12 +7,20 @@ use azul::{
     style::StyledDom,
     dom::{Dom, NodeData, NodeType},
     vec::CssPropertyVec,
+    callbacks::UpdateScreen,
     callbacks::{RefAny, IFrameCallbackInfo, IFrameCallbackReturn},
 };
 
+pub type RowIndex = usize;
+pub type ColumnIndex = usize;
+
 #[derive(Debug, Clone)]
 pub struct TableView {
-    state: TableViewState,
+    pub state: TableViewState,
+    // pub disable_selection: bool,
+    // pub on_cell_focus_received: Option<(OnCellEditFinishCallback, RefAny)>
+    // pub on_cell_focus_lost: Option<(OnCellEditFinishCallback, RefAny)>
+    // pub on_cell_edit_finish: Option<(OnCellEditFinishCallback, RefAny)>
 }
 
 impl Default for TableView {
@@ -23,54 +31,72 @@ impl Default for TableView {
     }
 }
 
+pub type OnCellFocusReceivedCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> UpdateScreen;
+pub type OnCellFocusLostCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> UpdateScreen;
+pub type OnCellEditFinishCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> UpdateScreen;
+pub type OnCellInputCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> UpdateScreen;
+
+#[derive(Debug, Default, Clone)]
+pub struct TableStyle {
+    // TODO: styling args (background / border, etc.)
+}
+
 #[derive(Debug, Clone)]
 pub struct TableViewState {
+    pub style: TableStyle,
     /// Width of the column in pixels
-    pub column_width: f32,
+    pub default_column_width: f32,
     /// Height of the column in pixels
-    pub row_height: f32,
+    pub default_row_height: f32,
+    /// Overrides the `default_column_width` for column X
+    pub column_width_overrides: BTreeMap<ColumnIndex, f32>,
+    /// Overrides the `default_row_height` for row X
+    pub row_height_overrides: BTreeMap<RowIndex, f32>,
     /// Optional selection
     pub selection: Option<TableCellSelection>,
-    /// Currently edited cells
-    pub edited_cells: BTreeMap<TableCell, String>,
+    /// Current cell contents
+    pub cell_contents: BTreeMap<TableCellIndex, String>,
 }
 
 impl Default for TableViewState {
     fn default() -> Self {
         Self {
-            column_width: 100.0,
-            row_height: 20.0,
+            style: TableStyle::default(),
+            default_column_width: 100.0,
+            default_row_height: 20.0,
+            column_width_overrides: BTreeMap::default(),
+            row_height_overrides: BTreeMap::default(),
             selection: None,
-            edited_cells: BTreeMap::default(),
+            cell_contents: BTreeMap::default(),
         }
     }
 }
 
 /// Represents the index of a single cell (row + column)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TableCell {
-    pub row: usize,
-    pub column: usize,
+pub struct TableCellIndex {
+    pub row: RowIndex,
+    pub column: ColumnIndex,
 }
 
 /// Represents a selection of table cells from the top left to the bottom right cell
 #[derive(Debug, Clone)]
 pub struct TableCellSelection {
-    pub from_top_left: TableCell,
-    pub to_bottom_right: TableCell,
+    pub from_top_left: TableCellIndex,
+    pub to_bottom_right: TableCellIndex,
 }
 
 impl TableCellSelection {
 
     pub fn from(row: usize, column: usize) -> Self {
         Self {
-            from_top_left: TableCell { row, column },
-            to_bottom_right: TableCell { row, column },
+            from_top_left: TableCellIndex { row, column },
+            to_bottom_right: TableCellIndex { row, column },
         }
     }
 
     pub fn to(self, row: usize, column: usize) -> Self {
-        Self { to_bottom_right: TableCell { row, column }, .. self }
+        Self { to_bottom_right: TableCellIndex { row, column }, .. self }
     }
 
     pub fn number_of_rows_selected(&self) -> usize {
@@ -91,12 +117,12 @@ impl TableViewState {
         TableViewState::default()
     }
 
-    pub fn set_cell<I: Into<String>>(&mut self, cell: TableCell, value: I) {
-        self.edited_cells.insert(cell, value.into());
+    pub fn set_cell_content<I: Into<String>>(&mut self, cell: TableCellIndex, value: I) {
+        self.cell_contents.insert(cell, value.into());
     }
 
-    pub fn get_cell_contents(&self, cell: &TableCell) -> Option<&String> {
-        self.edited_cells.get(cell)
+    pub fn get_cell_content(&self, cell: &TableCellIndex) -> Option<&String> {
+        self.cell_contents.get(cell)
     }
 
     pub fn set_selection(&mut self, selection: Option<TableCellSelection>) {
@@ -115,12 +141,12 @@ impl TableViewState {
         let font_vec: AzStringVec = [font][..].into();
         let sans_serif_font_family = StyleFontFamily { fonts: font_vec };
 
-        const COLOR_407C40: ColorU = ColorU { r: 64, g: 124, b: 64, a: 0 }; // green
-        const COLOR_2D2D2D: ColorU = ColorU { r: 45, g: 45, b: 45, a: 0 };
-        const COLOR_E6E6E6: ColorU = ColorU { r: 230, g: 230, b: 230, a: 0 };
-        const COLOR_B5B5B5: ColorU = ColorU { r: 181, g: 181, b: 181, a: 0 };
-        const COLOR_D1D1D1: ColorU = ColorU { r: 209, g: 209, b: 209, a: 0 };
-        const COLOR_BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+        const COLOR_407C40: ColorU = ColorU { r: 64, g: 124, b: 64, a: 255 }; // green
+        const COLOR_2D2D2D: ColorU = ColorU { r: 45, g: 45, b: 45, a: 255 };
+        const COLOR_E6E6E6: ColorU = ColorU { r: 230, g: 230, b: 230, a: 255 };
+        const COLOR_B5B5B5: ColorU = ColorU { r: 181, g: 181, b: 181, a: 255 };
+        const COLOR_D1D1D1: ColorU = ColorU { r: 209, g: 209, b: 209, a: 255 };
+        const COLOR_BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
 
         const SELECTED_CELL_BORDER_WIDTH: isize = 2;
         const SELECTED_CELL_BORDER_STYLE: BorderStyle = BorderStyle::Solid;
@@ -128,7 +154,7 @@ impl TableViewState {
 
         let shadow = BoxShadowPreDisplayItem {
             offset: [PixelValueNoPercent::zero(), PixelValueNoPercent::zero()],
-            color: COLOR_BLACK,
+            color: COLOR_2D2D2D,
             blur_radius: PixelValueNoPercent::const_px(3),
             spread_radius: PixelValueNoPercent::const_px(3),
             clip_mode: BoxShadowClipMode::Outset,
@@ -198,22 +224,22 @@ impl TableViewState {
             CssProperty::position(LayoutPosition::Absolute),
             CssProperty::width({
                 self.selection.as_ref()
-                .map(|selection| LayoutWidth::px(selection.number_of_columns_selected() as f32 * self.column_width))
+                .map(|selection| LayoutWidth::px(selection.number_of_columns_selected() as f32 * self.default_column_width))
                 .unwrap_or(LayoutWidth::zero()) // TODO: replace with transform: scale-x
             }),
             CssProperty::height({
                 self.selection.as_ref()
-                .map(|selection| LayoutHeight::px(selection.number_of_rows_selected() as f32 * self.row_height))
+                .map(|selection| LayoutHeight::px(selection.number_of_rows_selected() as f32 * self.default_row_height))
                 .unwrap_or(LayoutHeight::zero())  // TODO: replace with transform: scale-y
             }),
             CssProperty::margin_left({
                 self.selection.as_ref()
-                .map(|selection| LayoutMarginLeft::px(selection.from_top_left.column as f32 * self.column_width))
+                .map(|selection| LayoutMarginLeft::px(selection.from_top_left.column as f32 * self.default_column_width))
                 .unwrap_or(LayoutMarginLeft::zero()) // TODO: replace with transform-y
             }),
             CssProperty::margin_top({
                 self.selection.as_ref()
-                .map(|selection| LayoutMarginTop::px(selection.from_top_left.row as f32 * self.row_height))
+                .map(|selection| LayoutMarginTop::px(selection.from_top_left.row as f32 * self.default_row_height))
                 .unwrap_or(LayoutMarginTop::zero()) // TODO: replace with transform-y
             }),
             CssProperty::border_bottom_width(StyleBorderBottomWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
@@ -262,7 +288,7 @@ impl TableViewState {
             let rows_in_this_column = (rows.start..rows.end)
                 .map(|row_idx| {
 
-                    let node_type = match self.get_cell_contents(&TableCell { row: row_idx, column: col_idx }) {
+                    let node_type = match self.get_cell_content(&TableCellIndex { row: row_idx, column: col_idx }) {
                         Some(string) => NodeType::Label(string.as_str().into()),
                         None => NodeType::Label("".into()),
                     };
@@ -321,13 +347,8 @@ impl TableViewState {
 impl TableView {
 
     #[inline]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    #[inline]
-    pub fn with_state(self, state: TableViewState) -> Self {
-        Self { state, .. self }
+    pub const fn new(state: TableViewState) -> Self {
+        Self { state }
     }
 
     #[inline]
@@ -335,15 +356,15 @@ impl TableView {
 
         use azul::css::*;
 
-        let state_ref = RefAny::new(self.state);
-
-        Dom::iframe(state_ref, Self::render_table_iframe_contents)
-            .with_inline_css(CssProperty::display(LayoutDisplay::Flex))
-            .with_inline_css(CssProperty::flex_grow(LayoutFlexGrow::const_new(1)))
-            .with_inline_css(CssProperty::width(LayoutWidth::const_percent(100)))
-            .with_inline_css(CssProperty::height(LayoutHeight::const_percent(100)))
-            .with_inline_css(CssProperty::box_sizing(LayoutBoxSizing::BorderBox))
-            .style(Css::empty())
+        Dom::iframe(RefAny::new(self.state), Self::render_table_iframe_contents)
+        .with_inline_css_props(CssPropertyVec::from(&[
+           CssProperty::display(LayoutDisplay::Flex),
+           CssProperty::flex_grow(LayoutFlexGrow::const_new(1)),
+           CssProperty::width(LayoutWidth::const_percent(100)),
+           CssProperty::height(LayoutHeight::const_percent(100)),
+           CssProperty::box_sizing(LayoutBoxSizing::BorderBox),
+        ][..]))
+        .style(Css::empty())
     }
 
     extern "C" fn render_table_iframe_contents(state: &RefAny, info: IFrameCallbackInfo) -> IFrameCallbackReturn {
@@ -358,13 +379,14 @@ impl TableView {
         let column_start = 0; // bounds.left / table_view_state.column_width
 
         // workaround for necessary_rows.ceil() not being available on no_std
-        let necessary_rows_f32 = logical_size.height as f32 / table_view_state.row_height;
+        let necessary_rows_f32 = logical_size.height as f32 / table_view_state.default_row_height;
         let necessary_rows = if (necessary_rows_f32 * 10.0) as isize % 10_isize != 0 { necessary_rows_f32 as usize + 1 } else { necessary_rows_f32 as usize };
-        let necessary_columns_f32 = logical_size.width as f32 / table_view_state.column_width;
+        let necessary_columns_f32 = logical_size.width as f32 / table_view_state.default_column_width;
         let necessary_columns = if (necessary_columns_f32 * 10.0) as isize % 10_isize != 0 { necessary_columns_f32 as usize + 1 } else { necessary_columns_f32 as usize };
 
-        let table_height = (necessary_rows + padding_rows) as f32 * table_view_state.row_height;
-        let table_width = (necessary_columns + padding_columns) as f32 * table_view_state.column_width;
+        let table_height = (necessary_rows + padding_rows) as f32 * table_view_state.default_row_height;
+        let table_width = (necessary_columns + padding_columns) as f32 * table_view_state.default_column_width;
+
         let styled_dom = table_view_state.render(
             row_start..(row_start + necessary_rows + padding_rows),
             column_start..(column_start + necessary_columns + padding_columns)

@@ -325,7 +325,6 @@ fn run_inner(app: App) -> ! {
                             let changes_need_regenerate_dl = changes.need_regenerate_display_list();
 
                             let mut transaction = WrTransaction::new();
-                            println!("WrTransaction::new() - (app.rs:{})", line!());
 
                             if changes_need_regenerate_dl {
                                 let resource_updates = Vec::new(); // when re-generating the display list, no resource updates necessary
@@ -341,7 +340,6 @@ fn run_inner(app: App) -> ! {
                         UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                             let mut resource_updates = Vec::new();
                             let mut transaction = WrTransaction::new();
-                            println!("WrTransaction::new() - (app.rs:{})", line!());
                             window.regenerate_styled_dom(&data, &mut resources, &mut resource_updates);
                             window.rebuild_display_list(&mut transaction, &resources, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
@@ -425,7 +423,6 @@ fn run_inner(app: App) -> ! {
 
                                 let changes_need_regenerate_dl = changes.need_regenerate_display_list();
                                 let mut transaction = WrTransaction::new();
-                                println!("WrTransaction::new() - (app.rs:{})", line!());
 
                                 if changes_need_regenerate_dl {
                                     let resource_updates = Vec::new(); // when re-generating the display list, no resource updates necessary
@@ -441,7 +438,6 @@ fn run_inner(app: App) -> ! {
                             UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                                 let mut resource_updates = Vec::new();
                                 let mut transaction = WrTransaction::new();
-                                println!("WrTransaction::new() - (app.rs:{})", line!());
                                 window.regenerate_styled_dom(&data, &mut resources, &mut resource_updates);
                                 window.rebuild_display_list(&mut transaction, &resources, resource_updates);
                                 window.render_async(transaction, /* display list was rebuilt */ true);
@@ -473,7 +469,6 @@ fn run_inner(app: App) -> ! {
                     for (window_id, window) in active_windows.iter_mut() {
                         let mut resource_updates = Vec::new();
                         let mut transaction = WrTransaction::new();
-                        println!("WrTransaction::new() - (app.rs:{})", line!());
 
                         window.regenerate_styled_dom(&data, &mut resources, &mut resource_updates);
                         window.rebuild_display_list(&mut transaction, &resources, resource_updates);
@@ -609,13 +604,11 @@ fn run_inner(app: App) -> ! {
 
                 if need_regenerate_display_list {
                     let mut transaction = WrTransaction::new();
-                    println!("WrTransaction::new() - (app.rs:{})", line!());
                     window.rebuild_display_list(&mut transaction, &resources, updated_resources);
                     window.render_async(transaction, need_regenerate_display_list);
                     windows_that_need_to_redraw.insert(window_id);
                 } else if should_scroll_render || should_callback_render {
                     let mut transaction = WrTransaction::new();
-                    println!("WrTransaction::new() - (app.rs:{})", line!());
                     window.render_async(transaction, need_regenerate_display_list);
                     windows_that_need_to_redraw.insert(window_id);
                 }
@@ -629,7 +622,6 @@ fn run_inner(app: App) -> ! {
 
                 // transaction has finished, now render
                 window.render_block_and_swap();
-                println!("frame finished, swapping!");
             }
             _ => { },
         }
@@ -1015,7 +1007,6 @@ fn close_window(mut window: Window, app_resources: &mut AppResources) {
     let mut resources_to_delete = Vec::new();
     app_resources.delete_pipeline(&window.internal.pipeline_id, &mut resources_to_delete);
     let mut txn = WrTransaction::new();
-    println!("WrTransaction::new() - (app.rs:{})", line!());
     txn.skip_scene_builder();
     txn.update_resources(resources_to_delete.into_iter().map(wr_translate_resource_update).collect());
     window.render_api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);

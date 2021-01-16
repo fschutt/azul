@@ -1508,7 +1508,6 @@ fn position_nodes<'a>(
         // set text, if any
         let parent_text = if let (Some(words), Some(shaped_words), Some((word_positions, _))) = (word_cache.get(&parent_node_id), shaped_words.get(&parent_node_id), word_positions.get(&parent_node_id)) {
             if nodes_that_need_to_redraw_text.contains(&parent_node_id) {
-                println!("text needs to be redrawn (parent)!");
                 let mut inline_text_layout = InlineText { words, shaped_words }.get_text_layout(pipeline_id, parent_node_id, &word_positions.text_layout_options);
                 let (horz_alignment, vert_alignment) = determine_text_alignment(&styled_dom.styled_nodes.as_container()[parent_node_id]);
                 inline_text_layout.align_children_horizontal(horz_alignment);
@@ -2340,8 +2339,6 @@ pub fn do_the_relayout(
         &layout_result.styled_dom.non_leaf_nodes.as_ref(),
         pipeline_id,
     );
-
-    println!("relayout done in {:?}", Instant::now() - root_changed_start);
 
     nodes_that_changed_size.into_iter().collect()
 }

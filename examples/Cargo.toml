@@ -30,6 +30,10 @@ incremental = false
 name = "public"
 path = "public.rs"
 
+[[bin]]
+name = "table"
+path = "table.rs"
+
 [dependencies]
 azul = { version = "0.0.1", path = "../azul" }
 azul-widgets = { version = "0.0.2", path = "../azul-widgets" }

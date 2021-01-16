@@ -524,7 +524,6 @@ impl Window {
         };
 
         let mut txn = WrTransaction::new();
-        println!("WrTransaction::new() (window.rs:510)");
 
         window.rebuild_display_list(&mut txn, &app_resources, initial_resource_updates);
         window.render_async(txn, /* display list was rebuilt */ true);
@@ -645,7 +644,6 @@ impl Window {
             &self.internal.gl_texture_cache,
             app_resources
         );
-        println!("display list: {:#?}", cached_display_list);
         let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id);
 
         let logical_size = WrLayoutSize::new(self.internal.current_window_state.size.dimensions.width, self.internal.current_window_state.size.dimensions.height);
@@ -1079,7 +1077,6 @@ impl Window {
             }
         }
 
-        println!("render async: - rebuilt DL: {:?}", display_list_was_rebuilt);
 
         use azul_css::ColorF;
         use crate::wr_translate;
@@ -1107,7 +1104,6 @@ impl Window {
 
         txn.generate_frame(0);
 
-        println!("sending transaction!");
 
         // Update WR texture cache
         self.render_api.send_transaction(wr_translate::wr_translate_document_id(self.internal.document_id), txn);
@@ -1159,7 +1155,6 @@ impl Window {
         // unsafe { gl.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into()); }
 
         if let Some(r) = self.renderer.as_mut() {
-            println!("rendering: {:?}", framebuffer_size);
             r.update();
             let _ = r.render(framebuffer_size, 0);
             clean_up_unused_opengl_textures(r.flush_pipeline_info(), &self.internal.pipeline_id);

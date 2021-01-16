@@ -11,12 +11,10 @@ struct TableDemo {
 extern "C" fn layout(data: &RefAny, _: LayoutInfo) -> StyledDom {
 
     let mut table_view_state = TableViewState::default();
-    table_view_state.set_cell(TableCell { row: 3, column: 4 }, "Hello World");
+    table_view_state.set_cell_content(TableCellIndex { row: 2, column: 2 }, "Hello World");
     table_view_state.set_selection(Some(TableCellSelection::from(3, 4).to(6, 7)));
 
-    TableView::new()
-        .with_state(table_view_state)
-        .dom()
+    TableView::new(table_view_state).dom()
 }
 
 fn main() {

@@ -1,4 +1,6 @@
 * {
+    font-size: 27px;
+    font-family: "KoHo-Light";
     flex-direction: column;
     box-sizing: border-box;
     flex-grow: 1;
@@ -53,9 +55,4 @@
 #zero {
     flex-grow: 2;
     border-bottom: none;
-}
-
-* {
-    font-size: 27px;
-    font-family: "KoHo-Light";
 }

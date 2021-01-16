@@ -19,7 +19,7 @@ cd "%~dp0\examples\"
 taskkill /im "cargo.exe"
 SET CC=clang-cl
 SET CXX=clang-cl
-cargo build --release --bin public
+cargo build --release --bin table
 cd ..
 
 copy "%~dp0\target\release\azul.dll" "%CARGO_HOME%\lib\azul-dll-0.0.1\target\release"
@@ -31,5 +31,5 @@ if exist "%~dp0\target\release\examples\" del "%~dp0\target\release\examples\azu
 copy "%~dp0\target\release\azul.dll" "%~dp0\target\release\examples\"
 
 cd "%~dp0\target\release\"
-public.exe
+table.exe
 cd "../../../.."
