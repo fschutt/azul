@@ -264,8 +264,6 @@ impl ParsedFont {
         use rayon::iter::ParallelIterator;
         use std::time::Instant;
 
-        let now = Instant::now();
-
         let scope = ReadScope::new(font_bytes);
         let font_file = scope.read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(font_index).ok()?;
@@ -280,7 +278,7 @@ impl ParsedFont {
         let loca_table = ReadScope::new(&loca_data).read_dep::<LocaTable<'_>>((maxp_table.num_glyphs as usize, head_table.index_to_loc_format)).ok()?;
 
         let glyf_data = provider.table_data(tag::GLYF).ok()??.into_owned();
-        let mut glyf_table = ReadScope::new(&glyf_data).read_dep::<GlyfTable<'_>>(&loca_table).ok()?;
+        let glyf_table = ReadScope::new(&glyf_data).read_dep::<GlyfTable<'_>>(&loca_table).ok()?;
 
         let hmtx_data = provider.table_data(tag::HMTX).ok()??.into_owned().into_boxed_slice();
 

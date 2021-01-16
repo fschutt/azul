@@ -134,11 +134,6 @@ pub fn split_text_into_words(text: &str) -> Words {
 pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
 
     use crate::text_shaping;
-    use std::time::Instant;
-    use rayon::iter::IntoParallelRefIterator;
-    use rayon::iter::ParallelIterator;
-
-    let now = Instant::now();
 
     let (script, lang) = text_shaping::estimate_script_and_language(&words.internal_str);
 

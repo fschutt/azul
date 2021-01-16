@@ -694,7 +694,7 @@ pub(crate) fn wr_translate_add_font_instance(add_font_instance: AddFontInstance)
     WrAddFontInstance {
         key: wr_translate_font_instance_key(add_font_instance.key),
         font_key: wr_translate_font_key(add_font_instance.font_key),
-        glyph_size: add_font_instance.glyph_size.into_f32(),
+        glyph_size: add_font_instance.glyph_size.into_px(), // note: Au is now in pixels (f32)
         options: add_font_instance.options.map(wr_translate_font_instance_options),
         platform_options: add_font_instance.platform_options.map(wr_translate_font_instance_platform_options),
         variations: add_font_instance.variations.into_iter().map(wr_translate_font_variation).collect(),

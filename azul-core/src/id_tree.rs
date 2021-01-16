@@ -341,9 +341,7 @@ impl<'a, T: Send + 'a> NodeDataContainerRefMut<'a, T> {
 #[cfg(feature = "parallel")]
 impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
     pub fn transform_nodeid<U: Send, F: Send + Sync>(&self, closure: F) -> NodeDataContainer<U> where F: Fn(NodeId) -> U {
-        use rayon::iter::ParallelIterator;
         use rayon::iter::IntoParallelIterator;
-        use rayon::iter::IndexedParallelIterator;
         let len = self.len();
         NodeDataContainer {
             internal: (0..len).map(|node_id| closure(NodeId::new(node_id))).collect::<Vec<U>>(),

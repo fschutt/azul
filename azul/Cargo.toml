@@ -18,23 +18,10 @@ autoexamples = false
 edition = "2018"
 build = "build.rs"
 
-[profile.dev]
-incremental = false
-
-[profile.release]
-incremental = false
-
 [lib]
 path = "src/rust/lib.rs"
 
 [dependencies]
-
-[dev-dependencies]
-azul-widgets = { version = "0.0.2", path = "../azul-widgets" }
-
-[[example]]
-name = "public"
-path = "../examples/public/public.rs"
 
 [[example]]
 name = "async"

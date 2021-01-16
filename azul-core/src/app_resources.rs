@@ -722,18 +722,18 @@ impl ShapedWords {
 
     /// NOTE: descender is NEGATIVE
     pub fn get_descender(&self, target_font_size: f32) -> f32 {
-        (self.font_metrics_descender / self.font_metrics_units_per_em.get() as i16) as f32 * target_font_size
+        self.font_metrics_descender as f32 / self.font_metrics_units_per_em.get() as f32 * target_font_size
     }
 
     /// `height = sTypoAscender - sTypoDescender + sTypoLineGap`
     pub fn get_line_height(&self, target_font_size: f32) -> f32 {
-        ((self.font_metrics_ascender / self.font_metrics_units_per_em.get() as i16) -
-        (self.font_metrics_descender / self.font_metrics_units_per_em.get() as i16) +
-        (self.font_metrics_line_gap / self.font_metrics_units_per_em.get() as i16)) as f32 * target_font_size
+        self.font_metrics_ascender as f32 / self.font_metrics_units_per_em.get() as f32 -
+        self.font_metrics_descender as f32 / self.font_metrics_units_per_em.get() as f32 +
+        self.font_metrics_line_gap as f32 / self.font_metrics_units_per_em.get() as f32 * target_font_size
     }
 
     pub fn get_ascender(&self, target_font_size: f32) -> f32 {
-        (self.font_metrics_ascender / self.font_metrics_units_per_em.get() as i16) as f32 * target_font_size
+        self.font_metrics_ascender as f32 / self.font_metrics_units_per_em.get() as f32 * target_font_size
     }
 }
 
@@ -1412,7 +1412,6 @@ impl Au {
         Au(target_app_units.min(MAX_AU).max(MIN_AU))
     }
     pub fn into_px(&self) -> f32 { self.0 as f32 / AU_PER_PX as f32 }
-    pub fn into_f32(&self) -> f32 { self.0 as f32 }
 }
 
 pub fn get_font_id(rect_style: &RectStyle) -> &str {
