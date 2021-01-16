@@ -310,6 +310,8 @@ impl ParsedFont {
             }
         }).collect::<Vec<_>>();
 
+        let glyph_records_decoded = glyph_records_decoded.into_iter().collect();
+
         // required for font layout: gsub_cache, gpos_cache and gdef_table
         let gsub_cache = font_data_impl.gsub_cache().ok()??;
         let gpos_cache = font_data_impl.gpos_cache().ok()??;
@@ -328,7 +330,7 @@ impl ParsedFont {
             gpos_cache,
             gdef_table,
             cmap_subtable,
-            glyph_records_decoded: glyph_records_decoded.into_iter().collect(),
+            glyph_records_decoded,
             space_width: None,
         };
 

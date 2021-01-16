@@ -27,7 +27,11 @@ use webrender::{
 };
 use glutin::{
     event_loop::{EventLoopProxy as GlutinEventLoopProxy, EventLoopWindowTarget, EventLoop},
-    window::{Window as GlutinWindow, WindowBuilder as GlutinWindowBuilder},
+    window::{
+        Window as GlutinWindow,
+        WindowBuilder as GlutinWindowBuilder,
+        WindowId as GlutinWindowId,
+    },
     CreationError as GlutinCreationError,
     ContextError as GlutinContextError,
     ContextBuilder, Context, WindowedContext,
@@ -54,13 +58,21 @@ pub use azul_core::window::*;
 // renderers - notify webrender about this.
 const WR_SHADER_CACHE: Option<&Rc<RefCell<WrShaders>>> = None;
 
+#[derive(Copy, Clone)]
+pub struct UserEvent {
+    pub window_id: GlutinWindowId,
+    pub composite_needed: bool,
+}
+
 struct Notifier {
-    events_proxy: GlutinEventLoopProxy<()>,
+    // ID of the window that this notifier is attached to
+    window_id: GlutinWindowId,
+    events_proxy: GlutinEventLoopProxy<UserEvent>,
 }
 
 impl Notifier {
-    fn new(events_proxy: GlutinEventLoopProxy<()>) -> Notifier {
-        Notifier { events_proxy }
+    fn new(window_id: GlutinWindowId, events_proxy: GlutinEventLoopProxy<UserEvent>) -> Notifier {
+        Notifier { events_proxy, window_id }
     }
 }
 
@@ -68,12 +80,16 @@ impl WrRenderNotifier for Notifier {
     fn clone(&self) -> Box<dyn WrRenderNotifier> {
         Box::new(Notifier {
             events_proxy: self.events_proxy.clone(),
+            window_id: self.window_id,
         })
     }
 
-    fn wake_up(&self, _composite_needed: bool) {
+    fn wake_up(&self, composite_needed: bool) {
         #[cfg(not(target_os = "android"))]
-        let _ = self.events_proxy.send_event(());
+        let _ = self.events_proxy.send_event(UserEvent {
+            window_id: self.window_id,
+            composite_needed
+        });
     }
 
     fn new_frame_ready(&self,
@@ -328,8 +344,8 @@ impl Window {
     pub(crate) fn new(
         data: &RefAny,
         mut options: WindowCreateOptions,
-        events_loop: &EventLoopWindowTarget<()>,
-        proxy: &GlutinEventLoopProxy<()>,
+        events_loop: &EventLoopWindowTarget<UserEvent>,
+        proxy: &GlutinEventLoopProxy<UserEvent>,
         app_resources: &mut AppResources
     ) -> Result<Self, WindowCreateError> {
 
@@ -357,10 +373,11 @@ impl Window {
             &options.state.platform_specific_options
         );
 
-        // let window_builder = window_builder.with_visible(false);
+        let window_builder = window_builder.with_visible(false);
 
         // Only create a context with VSync and SRGB if the context creation works
         let (glutin_window, window_renderer_info) = Self::create_glutin_window(window_builder, options.renderer.into_option().unwrap_or_default(), &events_loop)?;
+        let window_id = glutin_window.window().id();
         let mut window_context = ContextState::NotCurrent(glutin_window);
 
         let (hidpi_factor, system_hidpi_factor) = get_hidpi_factor(&window_context.window(), &events_loop);
@@ -416,7 +433,7 @@ impl Window {
             match rt {
                 RendererType::Software => {
                     let s = Self::initialize_software_gl_context();
-                    let notifier = Box::new(Notifier::new(proxy.clone()));
+                    let notifier = Box::new(Notifier::new(window_id, proxy.clone()));
                     if let Ok(r) = WrRenderer::new(s.clone(), notifier, gen_opts(), WR_SHADER_CACHE) {
                         renderer_sender = Some(r);
                     }
@@ -424,7 +441,7 @@ impl Window {
                     break;
                 },
                 RendererType::Hardware => {
-                    let notifier = Box::new(Notifier::new(proxy.clone()));
+                    let notifier = Box::new(Notifier::new(window_id, proxy.clone()));
                     let renderer = WrRenderer::new(hardware_gl.clone(), notifier, gen_opts(), WR_SHADER_CACHE);
                     match renderer {
                         Ok(r) => {
@@ -511,9 +528,6 @@ impl Window {
 
         window.rebuild_display_list(&mut txn, &app_resources, initial_resource_updates);
         window.render_async(txn, /* display list was rebuilt */ true);
-        // window.render_block_and_swap();
-
-        // window.display.window().set_visible(is_initially_visible);
 
         Ok(window)
     }
@@ -554,7 +568,7 @@ impl Window {
             .with_hardware_acceleration(Some(hardware_acceleration.is_enabled()))
     }
 
-    fn create_glutin_window(window_builder: GlutinWindowBuilder, options: RendererOptions, event_loop: &EventLoopWindowTarget<()>)
+    fn create_glutin_window(window_builder: GlutinWindowBuilder, options: RendererOptions, event_loop: &EventLoopWindowTarget<UserEvent>)
     -> Result<(WindowedContext<NotCurrent>, RendererOptions), GlutinCreationError>
     {
         let opts = &[
@@ -631,6 +645,7 @@ impl Window {
             &self.internal.gl_texture_cache,
             app_resources
         );
+        println!("display list: {:#?}", cached_display_list);
         let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id);
 
         let logical_size = WrLayoutSize::new(self.internal.current_window_state.size.dimensions.width, self.internal.current_window_state.size.dimensions.height);
@@ -1421,7 +1436,7 @@ fn initialize_os_window_mac_extensions(
 
 /// Returns the actual hidpi factor and the winit DPI factor for the current window
 #[allow(unused_variables)]
-pub(crate) fn get_hidpi_factor(window: &GlutinWindow, event_loop: &EventLoopWindowTarget<()>) -> (f32, f32) {
+pub(crate) fn get_hidpi_factor(window: &GlutinWindow, event_loop: &EventLoopWindowTarget<UserEvent>) -> (f32, f32) {
 
     let system_hidpi_factor = window.scale_factor() as f32;
 

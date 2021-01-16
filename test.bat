@@ -27,5 +27,5 @@ if exist "%~dp0\target\release\examples\" del "%~dp0\target\release\examples\azu
 copy "%~dp0\target\release\azul.dll" "%~dp0\target\release\examples\"
 
 cd "%~dp0\target\release\examples\"
-table.exe > out.txt
+public.exe
 cd "../../../.."

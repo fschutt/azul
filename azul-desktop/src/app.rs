@@ -21,7 +21,7 @@ use webrender::render_api::RenderApi as WrRenderApi;
 use webrender::Transaction as WrTransaction;
 use crate::{
     display_shader::DisplayShader,
-    window::Window
+    window::{Window, UserEvent}
 };
 use azul_core::{
     FastHashMap,
@@ -45,7 +45,7 @@ pub struct App {
     /// No window is actually shown until the `.run_inner()` method is called.
     pub windows: Vec<WindowCreateOptions>,
     /// Glutin / winit event loop
-    pub event_loop: GlutinEventLoop<()>,
+    pub event_loop: GlutinEventLoop<UserEvent>,
 }
 
 impl App {
@@ -90,7 +90,7 @@ impl App {
 
             #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))] {
                 use  glutin::platform::unix::EventLoopExtUnix;
-                GlutinEventLoop::new_any_thread()
+                GlutinEventLoop::<UserEvent>::new_any_thread()
             }
 
             #[cfg(target_os = "windows")] {
@@ -101,14 +101,14 @@ impl App {
                 // Attempting to use a Window after its parent
                 // thread terminates has unspecified, although explicitly
                 // not undefined, behavior.
-                GlutinEventLoop::new_any_thread()
+                GlutinEventLoop::<UserEvent>::new_any_thread()
             }
 
             #[cfg(not(any(
               target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd",
               target_os = "windows",
             )))] {
-                GlutinEventLoop::new()
+                GlutinEventLoop::<UserEvent>::new()
             }
         };
 
@@ -484,10 +484,18 @@ fn run_inner(app: App) -> ! {
                 }
             },
             Event::RedrawRequested(window_id) => {
+
                 // Ignore this event
                 //
                 // If we redraw here, the screen will flicker because the
                 // screen may not be finished painting
+
+                let mut window = match active_windows.get_mut(&window_id) {
+                    Some(s) => s,
+                    None => {return; },
+                };
+
+                window.display.window().set_visible(window.internal.current_window_state.flags.is_visible);
             },
             Event::WindowEvent { event, window_id } => {
 
@@ -612,12 +620,16 @@ fn run_inner(app: App) -> ! {
                     windows_that_need_to_redraw.insert(window_id);
                 }
             },
-            Event::UserEvent(()) => {
-                for window in active_windows.values_mut() {
-                    // transaction has finished
-                    window.render_block_and_swap();
-                    println!("frame finished, swapping!");
-                }
+            Event::UserEvent(UserEvent { window_id, composite_needed: _ }) => {
+
+                let window = match active_windows.get_mut(&window_id) {
+                    Some(s) => s,
+                    None => {return; },
+                };
+
+                // transaction has finished, now render
+                window.render_block_and_swap();
+                println!("frame finished, swapping!");
             }
             _ => { },
         }
@@ -811,7 +823,7 @@ fn run_inner(app: App) -> ! {
 }
 
 /// Updates the `FullWindowState` with the new event
-fn process_window_event(window: &mut Window, event_loop: &GlutinEventLoopWindowTarget<()>, event: &GlutinWindowEvent) {
+fn process_window_event(window: &mut Window, event_loop: &GlutinEventLoopWindowTarget<UserEvent>, event: &GlutinWindowEvent) {
 
     use glutin::event::{KeyboardInput, Touch};
     use azul_core::window::{CursorPosition, WindowPosition, LogicalPosition};
@@ -965,8 +977,8 @@ fn process_window_event(window: &mut Window, event_loop: &GlutinEventLoopWindowT
 fn create_window(
     data: &RefAny,
     window_create_options: WindowCreateOptions,
-    events_loop: &GlutinEventLoopWindowTarget<()>,
-    proxy: &GlutinEventLoopProxy<()>,
+    events_loop: &GlutinEventLoopWindowTarget<UserEvent>,
+    proxy: &GlutinEventLoopProxy<UserEvent>,
     active_windows: &mut BTreeMap<GlutinWindowId, Window>,
     app_resources: &mut AppResources,
 ) -> Option<GlutinWindowId> {
