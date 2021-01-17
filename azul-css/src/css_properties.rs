@@ -3,11 +3,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use crate::css::CssPropertyValue;
-use crate::{AzString, StringVec, GradientStopPreVec};
-
-pub trait FormatAsCssValue {
-    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result;
-}
+use crate::{AzString, StringVec};
 
 /// Currently hard-coded: Height of one em in pixels
 pub const EM_HEIGHT: f32 = 16.0;
@@ -27,7 +23,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
 ];
 
 /// Map between CSS keys and a statically typed enum
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);71] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);72] = [
 
     (CssPropertyType::Display,              "display"),
     (CssPropertyType::Float,                "float"),
@@ -109,6 +105,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);71] = [
     (CssPropertyType::BoxShadowRight, "box-shadow-right"),
     (CssPropertyType::BoxShadowLeft, "box-shadow-left"),
     (CssPropertyType::BoxShadowBottom, "box-shadow-bottom"),
+
+    (CssPropertyType::ScrollbarStyle, "scrollbar-style"), // TODO: non-standard
 
     (CssPropertyType::Opacity, "opacity"),
     (CssPropertyType::Transform, "transform"),
@@ -566,12 +564,6 @@ macro_rules! impl_pixel_value {($struct:ident) => (
             $struct { inner: PixelValue::pt(value) }
         }
     }
-
-    impl FormatAsCssValue for $struct {
-        fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            self.inner.format_as_css_value(f)
-        }
-    }
 )}
 
 macro_rules! impl_percentage_value{($struct:ident) => (
@@ -586,12 +578,6 @@ macro_rules! impl_percentage_value{($struct:ident) => (
             write!(f, "{}%", self.inner.get())
         }
     }
-
-    impl FormatAsCssValue for $struct {
-        fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{}%", self.inner.get())
-        }
-    }
 )}
 
 macro_rules! impl_float_value{($struct:ident) => (
@@ -603,12 +589,6 @@ macro_rules! impl_float_value{($struct:ident) => (
 
     impl ::std::fmt::Debug for $struct {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            write!(f, "{}", self.inner.get())
-        }
-    }
-
-    impl FormatAsCssValue for $struct {
-        fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "{}", self.inner.get())
         }
     }
@@ -759,6 +739,8 @@ pub enum CssPropertyType {
     BoxShadowTop,
     BoxShadowBottom,
 
+    ScrollbarStyle,
+
     // GPU properties:
     Opacity,
     Transform,
@@ -902,10 +884,10 @@ pub enum CssProperty {
     AlignItems(CssPropertyValue<LayoutAlignItems>),
     AlignContent(CssPropertyValue<LayoutAlignContent>),
 
-    BackgroundContent(CssPropertyValue<StyleBackgroundContent>),
-    BackgroundPosition(CssPropertyValue<StyleBackgroundPosition>),
-    BackgroundSize(CssPropertyValue<StyleBackgroundSize>),
-    BackgroundRepeat(CssPropertyValue<StyleBackgroundRepeat>),
+    BackgroundContent(CssPropertyValue<StyleBackgroundContentVec>),
+    BackgroundPosition(CssPropertyValue<StyleBackgroundPositionVec>),
+    BackgroundSize(CssPropertyValue<StyleBackgroundSizeVec>),
+    BackgroundRepeat(CssPropertyValue<StyleBackgroundRepeatVec>),
 
     OverflowX(CssPropertyValue<Overflow>),
     OverflowY(CssPropertyValue<Overflow>),
@@ -940,10 +922,12 @@ pub enum CssProperty {
     BorderLeftWidth(CssPropertyValue<StyleBorderLeftWidth>),
     BorderBottomWidth(CssPropertyValue<StyleBorderBottomWidth>),
 
-    BoxShadowLeft(CssPropertyValue<BoxShadowPreDisplayItem>),
-    BoxShadowRight(CssPropertyValue<BoxShadowPreDisplayItem>),
-    BoxShadowTop(CssPropertyValue<BoxShadowPreDisplayItem>),
-    BoxShadowBottom(CssPropertyValue<BoxShadowPreDisplayItem>),
+    BoxShadowLeft(CssPropertyValue<StyleBoxShadow>),
+    BoxShadowRight(CssPropertyValue<StyleBoxShadow>),
+    BoxShadowTop(CssPropertyValue<StyleBoxShadow>),
+    BoxShadowBottom(CssPropertyValue<StyleBoxShadow>),
+
+    ScrollbarStyle(CssPropertyValue<ScrollbarStyle>),
 
     Opacity(CssPropertyValue<StyleOpacity>),
     Transform(CssPropertyValue<StyleTransformVec>),
@@ -1029,6 +1013,7 @@ macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => (
         CssPropertyType::BoxShadowRight => CssProperty::BoxShadowRight(CssPropertyValue::$content_type),
         CssPropertyType::BoxShadowTop => CssProperty::BoxShadowTop(CssPropertyValue::$content_type),
         CssPropertyType::BoxShadowBottom => CssProperty::BoxShadowBottom(CssPropertyValue::$content_type),
+        CssPropertyType::ScrollbarStyle => CssProperty::ScrollbarStyle(CssPropertyValue::$content_type),
         CssPropertyType::Opacity => CssProperty::Opacity(CssPropertyValue::$content_type),
         CssPropertyType::Transform => CssProperty::Transform(CssPropertyValue::$content_type),
         CssPropertyType::PerspectiveOrigin => CssProperty::PerspectiveOrigin(CssPropertyValue::$content_type),
@@ -1038,6 +1023,7 @@ macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => (
 })}
 
 impl CssProperty {
+
     /// Return the type (key) of this property as a statically typed enum
     pub const fn get_type(&self) -> CssPropertyType {
         match &self {
@@ -1105,6 +1091,7 @@ impl CssProperty {
             CssProperty::BoxShadowRight(_) => CssPropertyType::BoxShadowRight,
             CssProperty::BoxShadowTop(_) => CssPropertyType::BoxShadowTop,
             CssProperty::BoxShadowBottom(_) => CssPropertyType::BoxShadowBottom,
+            CssProperty::ScrollbarStyle(_) => CssPropertyType::ScrollbarStyle,
             CssProperty::Opacity(_) => CssPropertyType::Opacity,
             CssProperty::Transform(_) => CssPropertyType::Transform,
             CssProperty::PerspectiveOrigin(_) => CssPropertyType::PerspectiveOrigin,
@@ -1222,16 +1209,16 @@ impl CssProperty {
     pub const fn align_content(input: LayoutAlignContent) -> Self { CssProperty::AlignContent(CssPropertyValue::Exact(input)) }
 
     /// Creates a `background_content` CSS attribute
-    pub const fn background_content(input: StyleBackgroundContent) -> Self { CssProperty::BackgroundContent(CssPropertyValue::Exact(input)) }
+    pub const fn background_content(input: StyleBackgroundContentVec) -> Self { CssProperty::BackgroundContent(CssPropertyValue::Exact(input)) }
 
     /// Creates a `background_position` CSS attribute
-    pub const fn background_position(input: StyleBackgroundPosition) -> Self { CssProperty::BackgroundPosition(CssPropertyValue::Exact(input)) }
+    pub const fn background_position(input: StyleBackgroundPositionVec) -> Self { CssProperty::BackgroundPosition(CssPropertyValue::Exact(input)) }
 
     /// Creates a `background_size` CSS attribute
-    pub const fn background_size(input: StyleBackgroundSize) -> Self { CssProperty::BackgroundSize(CssPropertyValue::Exact(input)) }
+    pub const fn background_size(input: StyleBackgroundSizeVec) -> Self { CssProperty::BackgroundSize(CssPropertyValue::Exact(input)) }
 
     /// Creates a `background_repeat` CSS attribute
-    pub const fn background_repeat(input: StyleBackgroundRepeat) -> Self { CssProperty::BackgroundRepeat(CssPropertyValue::Exact(input)) }
+    pub const fn background_repeat(input: StyleBackgroundRepeatVec) -> Self { CssProperty::BackgroundRepeat(CssPropertyValue::Exact(input)) }
 
     /// Creates a `overflow_x` CSS attribute
     pub const fn overflow_x(input: Overflow) -> Self { CssProperty::OverflowX(CssPropertyValue::Exact(input)) }
@@ -1312,16 +1299,16 @@ impl CssProperty {
     pub const fn border_bottom_width(input: StyleBorderBottomWidth) -> Self { CssProperty::BorderBottomWidth(CssPropertyValue::Exact(input)) }
 
     /// Creates a `box_shadow_left` CSS attribute
-    pub const fn box_shadow_left(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowLeft(CssPropertyValue::Exact(input)) }
+    pub const fn box_shadow_left(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowLeft(CssPropertyValue::Exact(input)) }
 
     /// Creates a `box_shadow_right` CSS attribute
-    pub const fn box_shadow_right(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowRight(CssPropertyValue::Exact(input)) }
+    pub const fn box_shadow_right(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowRight(CssPropertyValue::Exact(input)) }
 
     /// Creates a `box_shadow_top` CSS attribute
-    pub const fn box_shadow_top(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowTop(CssPropertyValue::Exact(input)) }
+    pub const fn box_shadow_top(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowTop(CssPropertyValue::Exact(input)) }
 
     /// Creates a `box_shadow_bottom` CSS attribute
-    pub const fn box_shadow_bottom(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowBottom(CssPropertyValue::Exact(input)) }
+    pub const fn box_shadow_bottom(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowBottom(CssPropertyValue::Exact(input)) }
 
     /// Creates a `opacity` CSS attribute
     pub const fn opacity(input: StyleOpacity) -> Self { CssProperty::Opacity(CssPropertyValue::Exact(input)) }
@@ -1379,10 +1366,10 @@ impl_from_css_prop!(LayoutFlexShrink, CssProperty::FlexShrink);
 impl_from_css_prop!(LayoutJustifyContent, CssProperty::JustifyContent);
 impl_from_css_prop!(LayoutAlignItems, CssProperty::AlignItems);
 impl_from_css_prop!(LayoutAlignContent, CssProperty::AlignContent);
-impl_from_css_prop!(StyleBackgroundContent, CssProperty::BackgroundContent);
-impl_from_css_prop!(StyleBackgroundPosition, CssProperty::BackgroundPosition);
-impl_from_css_prop!(StyleBackgroundSize, CssProperty::BackgroundSize);
-impl_from_css_prop!(StyleBackgroundRepeat, CssProperty::BackgroundRepeat);
+impl_from_css_prop!(StyleBackgroundContentVec, CssProperty::BackgroundContent);
+impl_from_css_prop!(StyleBackgroundPositionVec, CssProperty::BackgroundPosition);
+impl_from_css_prop!(StyleBackgroundSizeVec, CssProperty::BackgroundSize);
+impl_from_css_prop!(StyleBackgroundRepeatVec, CssProperty::BackgroundRepeat);
 impl_from_css_prop!(LayoutPaddingTop, CssProperty::PaddingTop);
 impl_from_css_prop!(LayoutPaddingLeft, CssProperty::PaddingLeft);
 impl_from_css_prop!(LayoutPaddingRight, CssProperty::PaddingRight);
@@ -1441,6 +1428,150 @@ impl PixelValueNoPercent {
 /// FloatValue, but associated with a certain metric (i.e. px, em, etc.)
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+pub struct AngleValue {
+    pub metric: AngleMetric,
+    pub number: FloatValue,
+}
+
+impl_option!(AngleValue, OptionAngleValue, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
+impl fmt::Debug for AngleValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}{}", self.number, self.metric)
+    }
+}
+
+// Manual Debug implementation, because the auto-generated one is nearly unreadable
+impl fmt::Display for AngleValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}{}", self.number, self.metric)
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum AngleMetric {
+    Degree,
+    Radians,
+    Grad,
+    Turn,
+    Percent,
+}
+
+impl Default for AngleMetric {
+    fn default() -> AngleMetric { AngleMetric::Degree }
+}
+
+impl fmt::Display for AngleMetric {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::AngleMetric::*;
+        match self {
+            Degree => write!(f, "deg"),
+            Radians => write!(f, "rad"),
+            Grad => write!(f, "grad"),
+            Turn => write!(f, "turn"),
+            Percent => write!(f, "%"),
+        }
+    }
+}
+
+impl AngleValue {
+
+    #[inline]
+    pub const fn zero() -> Self {
+        const ZERO_DEG: AngleValue = AngleValue::const_deg(0);
+        ZERO_DEG
+    }
+
+    /// Same as `PixelValue::px()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_deg(value: isize) -> Self {
+        Self::const_from_metric(AngleMetric::Degree, value)
+    }
+
+    /// Same as `PixelValue::em()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_rad(value: isize) -> Self {
+        Self::const_from_metric(AngleMetric::Radians, value)
+    }
+
+    /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_grad(value: isize) -> Self {
+        Self::const_from_metric(AngleMetric::Grad, value)
+    }
+
+    /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_turn(value: isize) -> Self {
+        Self::const_from_metric(AngleMetric::Turn, value)
+    }
+
+    #[inline]
+    pub fn const_percent(value: isize) -> Self {
+        Self::const_from_metric(AngleMetric::Percent, value)
+    }
+
+    #[inline]
+    pub const fn const_from_metric(metric: AngleMetric, value: isize) -> Self {
+        Self {
+            metric: metric,
+            number: FloatValue::const_new(value),
+        }
+    }
+
+    #[inline]
+    pub fn deg(value: f32) -> Self {
+        Self::from_metric(AngleMetric::Degree, value)
+    }
+
+    #[inline]
+    pub fn rad(value: f32) -> Self {
+        Self::from_metric(AngleMetric::Radians, value)
+    }
+
+    #[inline]
+    pub fn grad(value: f32) -> Self {
+        Self::from_metric(AngleMetric::Grad, value)
+    }
+
+    #[inline]
+    pub fn turn(value: f32) -> Self {
+        Self::from_metric(AngleMetric::Turn, value)
+    }
+
+    #[inline]
+    pub fn percent(value: f32) -> Self {
+        Self::from_metric(AngleMetric::Percent, value)
+    }
+
+    #[inline]
+    pub fn from_metric(metric: AngleMetric, value: f32) -> Self {
+        Self {
+            metric: metric,
+            number: FloatValue::new(value),
+        }
+    }
+
+    /// Returns the value of the AngleMetric in degrees
+    #[inline]
+    pub fn to_degrees(&self) -> f32 {
+        match self.metric {
+            AngleMetric::Degree => self.number.get(),
+            AngleMetric::Radians => self.number.get() / 400.0 * 360.0,
+            AngleMetric::Grad => self.number.get() / (2.0 * std::f32::consts::PI) * 360.0,
+            AngleMetric::Turn => self.number.get() * 360.0,
+            AngleMetric::Percent => self.number.get() / 100.0 * 360.0,
+        }
+    }
+}
+
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct PixelValue {
     pub metric: SizeMetric,
     pub number: FloatValue,
@@ -1455,12 +1586,6 @@ impl fmt::Debug for PixelValue {
 // Manual Debug implementation, because the auto-generated one is nearly unreadable
 impl fmt::Display for PixelValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}{}", self.number, self.metric)
-    }
-}
-
-impl FormatAsCssValue for PixelValue {
-    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}{}", self.number, self.metric)
     }
 }
@@ -1569,6 +1694,8 @@ pub struct PercentageValue {
     number: FloatValue,
 }
 
+impl_option!(PercentageValue, OptionPercentageValue, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
 impl fmt::Display for PercentageValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}%", self.get())
@@ -1659,6 +1786,15 @@ pub enum StyleBackgroundSize {
     Cover,
 }
 
+impl_vec!(StyleBackgroundSize, StyleBackgroundSizeVec);
+impl_vec_debug!(StyleBackgroundSize, StyleBackgroundSizeVec);
+impl_vec_partialord!(StyleBackgroundSize, StyleBackgroundSizeVec);
+impl_vec_ord!(StyleBackgroundSize, StyleBackgroundSizeVec);
+impl_vec_clone!(StyleBackgroundSize, StyleBackgroundSizeVec);
+impl_vec_partialeq!(StyleBackgroundSize, StyleBackgroundSizeVec);
+impl_vec_eq!(StyleBackgroundSize, StyleBackgroundSizeVec);
+impl_vec_hash!(StyleBackgroundSize, StyleBackgroundSizeVec);
+
 /// Represents a `background-position` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -1666,6 +1802,15 @@ pub struct StyleBackgroundPosition {
     pub horizontal: BackgroundPositionHorizontal,
     pub vertical: BackgroundPositionVertical,
 }
+
+impl_vec!(StyleBackgroundPosition, StyleBackgroundPositionVec);
+impl_vec_debug!(StyleBackgroundPosition, StyleBackgroundPositionVec);
+impl_vec_partialord!(StyleBackgroundPosition, StyleBackgroundPositionVec);
+impl_vec_ord!(StyleBackgroundPosition, StyleBackgroundPositionVec);
+impl_vec_clone!(StyleBackgroundPosition, StyleBackgroundPositionVec);
+impl_vec_partialeq!(StyleBackgroundPosition, StyleBackgroundPositionVec);
+impl_vec_eq!(StyleBackgroundPosition, StyleBackgroundPositionVec);
+impl_vec_hash!(StyleBackgroundPosition, StyleBackgroundPositionVec);
 
 impl Default for StyleBackgroundPosition {
     fn default() -> Self {
@@ -1703,6 +1848,15 @@ pub enum StyleBackgroundRepeat {
     RepeatX,
     RepeatY,
 }
+
+impl_vec!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
+impl_vec_debug!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
+impl_vec_partialord!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
+impl_vec_ord!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
+impl_vec_clone!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
+impl_vec_partialeq!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
+impl_vec_eq!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
+impl_vec_hash!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
 
 impl Default for StyleBackgroundRepeat {
     fn default() -> Self {
@@ -1828,7 +1982,7 @@ pub struct StyleBorderSide {
 // missing StyleBorderRadius & LayoutRect
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct BoxShadowPreDisplayItem {
+pub struct StyleBoxShadow {
     pub offset: [PixelValueNoPercent;2],
     pub color: ColorU,
     pub blur_radius: PixelValueNoPercent,
@@ -1836,41 +1990,27 @@ pub struct BoxShadowPreDisplayItem {
     pub clip_mode: BoxShadowClipMode,
 }
 
-impl fmt::Display for BoxShadowPreDisplayItem {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.clip_mode == BoxShadowClipMode::Inset {
-            write!(f, "{} ", self.clip_mode)?;
-        }
-        write!(f, "{} {} {} {} {}",
-            self.offset[0], self.offset[1],
-            self.blur_radius, self.spread_radius, self.color,
-        )
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum StyleBackgroundContent {
     LinearGradient(LinearGradient),
     RadialGradient(RadialGradient),
+    ConicGradient(ConicGradient),
     Image(CssImageId),
     Color(ColorU),
 }
 
+impl_vec!(StyleBackgroundContent, StyleBackgroundContentVec);
+impl_vec_debug!(StyleBackgroundContent, StyleBackgroundContentVec);
+impl_vec_partialord!(StyleBackgroundContent, StyleBackgroundContentVec);
+impl_vec_ord!(StyleBackgroundContent, StyleBackgroundContentVec);
+impl_vec_clone!(StyleBackgroundContent, StyleBackgroundContentVec);
+impl_vec_partialeq!(StyleBackgroundContent, StyleBackgroundContentVec);
+impl_vec_eq!(StyleBackgroundContent, StyleBackgroundContentVec);
+impl_vec_hash!(StyleBackgroundContent, StyleBackgroundContentVec);
+
 impl Default for StyleBackgroundContent {
     fn default() -> StyleBackgroundContent { StyleBackgroundContent::Color(ColorU::TRANSPARENT) }
-}
-
-impl fmt::Debug for StyleBackgroundContent {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::StyleBackgroundContent::*;
-        match self {
-            LinearGradient(l) => write!(f, "{}", l),
-            RadialGradient(r) => write!(f, "{}", r),
-            Image(id) => write!(f, "image({})", id),
-            Color(c) => write!(f, "{}", c),
-        }
-    }
 }
 
 impl StyleBackgroundContent {
@@ -1893,22 +2033,17 @@ impl<'a> From<CssImageId> for StyleBackgroundContent {
 pub struct LinearGradient {
     pub direction: Direction,
     pub extend_mode: ExtendMode,
-    pub stops: GradientStopPreVec,
+    pub stops: LinearColorStopVec,
 }
 
-impl fmt::Display for LinearGradient {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let prefix = match self.extend_mode {
-            ExtendMode::Clamp => "linear-gradient",
-            ExtendMode::Repeat => "repeating-linear-gradient",
-        };
-
-        write!(f, "{}({}", prefix, self.direction)?;
-        for s in self.stops.as_ref().iter() {
-            write!(f, ", {}", s)?;
-        }
-        write!(f, ")")
-    }
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ConicGradient {
+    pub extend_mode: ExtendMode, // default = clamp (no-repeat)
+    pub center_x: PixelValue, // default = 50% 50%
+    pub center_y: PixelValue, // default = 50% 50%
+    pub angle: AngleValue, // default = 0deg
+    pub stops: RadialColorStopVec, // default = []
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1916,22 +2051,7 @@ impl fmt::Display for LinearGradient {
 pub struct RadialGradient {
     pub shape: Shape,
     pub extend_mode: ExtendMode,
-    pub stops: GradientStopPreVec,
-}
-
-impl fmt::Display for RadialGradient {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let prefix = match self.extend_mode {
-            ExtendMode::Clamp => "radial-gradient",
-            ExtendMode::Repeat => "repeating-radial-gradient",
-        };
-
-        write!(f, "{}({}", prefix, self.shape)?;
-        for s in self.stops.as_ref().iter() {
-            write!(f, ", {}", s)?;
-        }
-        write!(f, ")")
-    }
+    pub stops: LinearColorStopVec,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1941,44 +2061,26 @@ pub struct DirectionCorners {
     pub to: DirectionCorner,
 }
 
-impl fmt::Display for DirectionCorners {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "to {}", self.to)
-    }
-}
-
 /// CSS direction (necessary for gradients). Can either be a fixed angle or
 /// a direction ("to right" / "to left", etc.).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum Direction {
-    Angle(FloatValue),
+    Angle(AngleValue),
     FromTo(DirectionCorners),
-}
-
-impl fmt::Display for Direction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Direction::*;
-        match self {
-            Angle(d) => write!(f, "{}deg", d.get()),
-            FromTo(ft) => write!(f, "{}", ft),
-        }
-    }
 }
 
 impl Direction {
 
     /// Calculates the points of the gradient stops for angled linear gradients
-    pub fn to_points(&self, rect: &LayoutRect)
-    -> (LayoutPoint, LayoutPoint)
-    {
+    pub fn to_points(&self, rect: &LayoutRect) -> (LayoutPoint, LayoutPoint) {
         match self {
-            Direction::Angle(deg) => {
+            Direction::Angle(angle_value) => {
                 // note: assumes that the LayoutRect has positive sides
 
                 // see: https://hugogiraudel.com/2013/02/04/css-gradients/
 
-                let deg = deg.get(); // FloatValue -> f32
+                let deg = angle_value.to_degrees(); // FloatValue -> f32
 
                 let deg = -deg; // negate winding direction
 
@@ -2040,16 +2142,6 @@ impl Direction {
 pub enum Shape {
     Ellipse,
     Circle,
-}
-
-impl fmt::Display for Shape {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Shape::*;
-        match self {
-            Ellipse => write!(f, "ellipse"),
-            Circle => write!(f, "circle"),
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -2136,22 +2228,6 @@ pub enum DirectionCorner {
     BottomLeft,
 }
 
-impl fmt::Display for DirectionCorner {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::DirectionCorner::*;
-        match self {
-            Right =>  write!(f, "right"),
-            Left =>  write!(f, "left"),
-            Top =>  write!(f, "top"),
-            Bottom =>  write!(f, "bottom"),
-            TopRight =>  write!(f, "top right"),
-            TopLeft =>  write!(f, "top left"),
-            BottomRight =>  write!(f, "bottom right"),
-            BottomLeft =>  write!(f, "bottom left"),
-        }
-    }
-}
-
 impl DirectionCorner {
 
     pub const fn opposite(&self) -> Self {
@@ -2194,14 +2270,6 @@ impl DirectionCorner {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum GradientType {
-    LinearGradient,
-    RepeatingLinearGradient,
-    RadialGradient,
-    RepeatingRadialGradient,
-}
-
 /// Note: In theory, we could take a reference here,
 /// but this leads to horrible lifetime issues.
 ///
@@ -2212,31 +2280,39 @@ pub enum GradientType {
 #[repr(C)]
 pub struct CssImageId { pub inner: AzString }
 
-impl fmt::Display for CssImageId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.inner)
-    }
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct RadialColorStop {
+    // this is set to None if there was no offset that could be parsed
+    pub offset: OptionAngleValue,
+    pub color: ColorU,
 }
 
-impl_option!(PercentageValue, OptionPercentageValue, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_vec!(RadialColorStop, RadialColorStopVec);
+impl_vec_debug!(RadialColorStop, RadialColorStopVec);
+impl_vec_partialord!(RadialColorStop, RadialColorStopVec);
+impl_vec_ord!(RadialColorStop, RadialColorStopVec);
+impl_vec_clone!(RadialColorStop, RadialColorStopVec);
+impl_vec_partialeq!(RadialColorStop, RadialColorStopVec);
+impl_vec_eq!(RadialColorStop, RadialColorStopVec);
+impl_vec_hash!(RadialColorStop, RadialColorStopVec);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct GradientStopPre {
+pub struct LinearColorStop {
     // this is set to None if there was no offset that could be parsed
     pub offset: OptionPercentageValue,
     pub color: ColorU,
 }
 
-impl fmt::Display for GradientStopPre {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.color.write_hash(f)?;
-        if let OptionPercentageValue::Some(offset) = self.offset {
-            write!(f, " {}", offset)?;
-        }
-        Ok(())
-    }
-}
+impl_vec!(LinearColorStop, LinearColorStopVec);
+impl_vec_debug!(LinearColorStop, LinearColorStopVec);
+impl_vec_partialord!(LinearColorStop, LinearColorStopVec);
+impl_vec_ord!(LinearColorStop, LinearColorStopVec);
+impl_vec_clone!(LinearColorStop, LinearColorStopVec);
+impl_vec_partialeq!(LinearColorStop, LinearColorStopVec);
+impl_vec_eq!(LinearColorStop, LinearColorStopVec);
+impl_vec_hash!(LinearColorStop, LinearColorStopVec);
 
 /// Represents a `width` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -2659,29 +2735,11 @@ impl Default for StyleOpacity {
 impl_float_value!(StyleOpacity);
 
 /// Represents a `perspective-origin` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StylePerspectiveOrigin {
     pub x: PixelValue,
     pub y: PixelValue,
-}
-
-impl ::std::fmt::Display for StylePerspectiveOrigin {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        self.format_as_css_value(f)
-    }
-}
-
-impl ::std::fmt::Debug for StylePerspectiveOrigin {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        self.format_as_css_value(f)
-    }
-}
-
-impl FormatAsCssValue for StylePerspectiveOrigin {
-    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.x, self.y)
-    }
 }
 
 impl Default for StylePerspectiveOrigin {
@@ -2691,29 +2749,11 @@ impl Default for StylePerspectiveOrigin {
 }
 
 /// Represents a `transform-origin` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTransformOrigin {
     pub x: PixelValue,
     pub y: PixelValue,
-}
-
-impl ::std::fmt::Display for StyleTransformOrigin {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        self.format_as_css_value(f)
-    }
-}
-
-impl ::std::fmt::Debug for StyleTransformOrigin {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        self.format_as_css_value(f)
-    }
-}
-
-impl FormatAsCssValue for StyleTransformOrigin {
-    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.x, self.y)
-    }
 }
 
 impl Default for StyleTransformOrigin {
@@ -2723,7 +2763,7 @@ impl Default for StyleTransformOrigin {
 }
 
 /// Represents a `backface-visibility` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleBackfaceVisibility {
     Hidden,
@@ -2734,29 +2774,8 @@ impl Default for StyleBackfaceVisibility {
     fn default() -> Self { StyleBackfaceVisibility::Visible }
 }
 
-impl ::std::fmt::Display for StyleBackfaceVisibility {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        self.format_as_css_value(f)
-    }
-}
-
-impl ::std::fmt::Debug for StyleBackfaceVisibility {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        self.format_as_css_value(f)
-    }
-}
-
-impl FormatAsCssValue for StyleBackfaceVisibility {
-    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            StyleBackfaceVisibility::Hidden => write!(f, "hidden"),
-            StyleBackfaceVisibility::Visible => write!(f, "visible"),
-        }
-    }
-}
-
 /// Represents an `opacity` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum StyleTransform {
     Matrix(StyleTransformMatrix2D),
@@ -2766,11 +2785,11 @@ pub enum StyleTransform {
     TranslateX(PixelValue),
     TranslateY(PixelValue),
     TranslateZ(PixelValue),
-    Rotate(PercentageValue),
+    Rotate(AngleValue),
     Rotate3D(StyleTransformRotate3D),
-    RotateX(PercentageValue),
-    RotateY(PercentageValue),
-    RotateZ(PercentageValue),
+    RotateX(AngleValue),
+    RotateY(AngleValue),
+    RotateZ(AngleValue),
     Scale(StyleTransformScale2D),
     Scale3D(StyleTransformScale3D),
     ScaleX(PercentageValue),
@@ -2844,7 +2863,7 @@ pub struct StyleTransformRotate3D {
     pub x: PercentageValue,
     pub y: PercentageValue,
     pub z: PercentageValue,
-    pub angle: PercentageValue,
+    pub angle: AngleValue,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -2868,46 +2887,6 @@ pub struct StyleTransformScale3D {
 pub struct StyleTransformSkew2D {
     pub x: PercentageValue,
     pub y: PercentageValue,
-}
-
-impl ::std::fmt::Display for StyleTransform {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        self.format_as_css_value(f)
-    }
-}
-
-impl ::std::fmt::Debug for StyleTransform {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        self.format_as_css_value(f)
-    }
-}
-
-impl FormatAsCssValue for StyleTransform {
-    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            StyleTransform::Matrix(m) => write!(f, "matrix({}, {}, {}, {}, {}, {})", m.a, m.b, m.c, m.d, m.tx, m.ty),
-            StyleTransform::Matrix3D(m) => write!(f, "matrix3d({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})", m.m11, m.m12, m.m13, m.m14, m.m21, m.m22, m.m23, m.m24, m.m31, m.m32, m.m33, m.m34, m.m41, m.m42, m.m43, m.m44),
-            StyleTransform::Translate(t) => write!(f, "translate({}, {})", t.x, t.y),
-            StyleTransform::Translate3D(t) => write!(f, "translate3d({}, {}, {})", t.x, t.y, t.z),
-            StyleTransform::TranslateX(x) => write!(f, "translateX({})", x),
-            StyleTransform::TranslateY(y) => write!(f, "translateY({})", y),
-            StyleTransform::TranslateZ(z) => write!(f, "translateZ({})", z),
-            StyleTransform::Rotate(r) => write!(f, "rotate({})", r),
-            StyleTransform::Rotate3D(r) => write!(f, "rotate3d({}, {}, {}, {})", r.x, r.y, r.z, r.angle),
-            StyleTransform::RotateX(x) => write!(f, "rotateX({})", x),
-            StyleTransform::RotateY(y) => write!(f, "rotateY({})", y),
-            StyleTransform::RotateZ(z) => write!(f, "rotateZ({})", z),
-            StyleTransform::Scale(s) => write!(f, "scale({}, {})", s.x, s.y),
-            StyleTransform::Scale3D(s) => write!(f, "scale3d({}, {}, {})", s.x, s.y, s.z),
-            StyleTransform::ScaleX(x) => write!(f, "scaleX({})", x),
-            StyleTransform::ScaleY(y) => write!(f, "scaleY({})", y),
-            StyleTransform::ScaleZ(z) => write!(f, "scaleZ({})", z),
-            StyleTransform::Skew(sk) => write!(f, "skew({}, {})", sk.x, sk.y),
-            StyleTransform::SkewX(x) => write!(f, "skewX({})", x),
-            StyleTransform::SkewY(y) => write!(f, "skewY({})", y),
-            StyleTransform::Perspective(dist) => write!(f, "perspective({})", dist),
-        }
-    }
 }
 
 pub type StyleBackgroundContentValue = CssPropertyValue<StyleBackgroundContent>;
@@ -2936,8 +2915,8 @@ pub type StyleTabWidthValue = CssPropertyValue<StyleTabWidth>;
 impl_option!(StyleTabWidthValue, OptionStyleTabWidthValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 pub type StyleCursorValue = CssPropertyValue<StyleCursor>;
 impl_option!(StyleCursorValue, OptionStyleCursorValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-pub type BoxShadowPreDisplayItemValue = CssPropertyValue<BoxShadowPreDisplayItem>;
-impl_option!(BoxShadowPreDisplayItemValue, OptionBoxShadowPreDisplayItemValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBoxShadowValue = CssPropertyValue<StyleBoxShadow>;
+impl_option!(StyleBoxShadowValue, OptionStyleBoxShadowValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 pub type StyleBorderTopColorValue = CssPropertyValue<StyleBorderTopColor>;
 impl_option!(StyleBorderTopColorValue, OptionStyleBorderTopColorValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 pub type StyleBorderLeftColorValue = CssPropertyValue<StyleBorderLeftColor>;
@@ -3041,109 +3020,32 @@ impl_option!(LayoutAlignItemsValue, OptionLayoutAlignItemsValue, copy = false, [
 pub type LayoutAlignContentValue = CssPropertyValue<LayoutAlignContent>;
 impl_option!(LayoutAlignContentValue, OptionLayoutAlignContentValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
-/// Stylistic options of the rectangle that don't influence the layout
-#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct RectStyle {
-    pub background: OptionStyleBackgroundContentValue,
-    pub background_position: OptionStyleBackgroundPositionValue,
-    pub background_size: OptionStyleBackgroundSizeValue,
-    pub background_repeat: OptionStyleBackgroundRepeatValue,
-    pub font_size: OptionStyleFontSizeValue,
-    pub font_family: OptionStyleFontFamilyValue,
-    pub text_color: OptionStyleTextColorValue,
-    pub text_align: OptionStyleTextAlignmentHorzValue,
-    pub line_height: OptionStyleLineHeightValue,
-    pub letter_spacing: OptionStyleLetterSpacingValue,
-    pub word_spacing: OptionStyleWordSpacingValue,
-    pub tab_width: OptionStyleTabWidthValue,
-    pub cursor: OptionStyleCursorValue,
-    pub box_shadow_left: OptionBoxShadowPreDisplayItemValue,
-    pub box_shadow_right: OptionBoxShadowPreDisplayItemValue,
-    pub box_shadow_top: OptionBoxShadowPreDisplayItemValue,
-    pub box_shadow_bottom: OptionBoxShadowPreDisplayItemValue,
-    pub border_top_color: OptionStyleBorderTopColorValue,
-    pub border_left_color: OptionStyleBorderLeftColorValue,
-    pub border_right_color: OptionStyleBorderRightColorValue,
-    pub border_bottom_color: OptionStyleBorderBottomColorValue,
-    pub border_top_style: OptionStyleBorderTopStyleValue,
-    pub border_left_style: OptionStyleBorderLeftStyleValue,
-    pub border_right_style: OptionStyleBorderRightStyleValue,
-    pub border_bottom_style: OptionStyleBorderBottomStyleValue,
-    pub border_top_left_radius: OptionStyleBorderTopLeftRadiusValue,
-    pub border_top_right_radius: OptionStyleBorderTopRightRadiusValue,
-    pub border_bottom_left_radius: OptionStyleBorderBottomLeftRadiusValue,
-    pub border_bottom_right_radius: OptionStyleBorderBottomRightRadiusValue,
-    pub opacity: OptionStyleOpacityValue,
-    pub transform: OptionStyleTransformVecValue,
-    pub transform_origin: OptionStyleTransformOriginValue,
-    pub perspective_origin: OptionStylePerspectiveOriginValue,
-    pub backface_visibility: OptionStyleBackfaceVisibilityValue,
-}
-
-// Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
-#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct RectLayout {
-    pub display: OptionLayoutDisplayValue,
-    pub float: OptionLayoutFloatValue,
-    pub box_sizing: OptionLayoutBoxSizingValue,
-    pub width: OptionLayoutWidthValue,
-    pub height: OptionLayoutHeightValue,
-    pub min_width: OptionLayoutMinWidthValue,
-    pub min_height: OptionLayoutMinHeightValue,
-    pub max_width: OptionLayoutMaxWidthValue,
-    pub max_height: OptionLayoutMaxHeightValue,
-    pub position: OptionLayoutPositionValue,
-    pub top: OptionLayoutTopValue,
-    pub bottom: OptionLayoutBottomValue,
-    pub right: OptionLayoutRightValue,
-    pub left: OptionLayoutLeftValue,
-    pub padding_top: OptionLayoutPaddingTopValue,
-    pub padding_bottom: OptionLayoutPaddingBottomValue,
-    pub padding_left: OptionLayoutPaddingLeftValue,
-    pub padding_right: OptionLayoutPaddingRightValue,
-    pub margin_top: OptionLayoutMarginTopValue,
-    pub margin_bottom: OptionLayoutMarginBottomValue,
-    pub margin_left: OptionLayoutMarginLeftValue,
-    pub margin_right: OptionLayoutMarginRightValue,
-    pub border_top_width: OptionStyleBorderTopWidthValue,
-    pub border_left_width: OptionStyleBorderLeftWidthValue,
-    pub border_right_width: OptionStyleBorderRightWidthValue,
-    pub border_bottom_width: OptionStyleBorderBottomWidthValue,
-    pub overflow_x: OptionOverflowValue,
-    pub overflow_y: OptionOverflowValue,
-    pub direction: OptionLayoutFlexDirectionValue,
-    pub wrap: OptionLayoutWrapValue,
-    pub flex_grow: OptionLayoutFlexGrowValue,
-    pub flex_shrink: OptionLayoutFlexShrinkValue,
-    pub justify_content: OptionLayoutJustifyContentValue,
-    pub align_items: OptionLayoutAlignItemsValue,
-    pub align_content: OptionLayoutAlignContentValue,
-}
-
 /// Holds info necessary for layouting / styling scrollbars (-webkit-scrollbar)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct ScrollbarInfo {
     /// Total width (or height for vertical scrollbars) of the scrollbar in pixels
     pub width: LayoutWidth,
     /// Padding of the scrollbar tracker, in pixels. The inner bar is `width - padding` pixels wide.
     pub padding_left: LayoutPaddingLeft,
+    /// Padding of the scrollbar (right)
     pub padding_right: LayoutPaddingRight,
     /// Style of the scrollbar background
     /// (`-webkit-scrollbar` / `-webkit-scrollbar-track` / `-webkit-scrollbar-track-piece` combined)
-    pub track: RectStyle,
+    pub track: StyleBackgroundContent,
     /// Style of the scrollbar thumbs (the "up" / "down" arrows), (`-webkit-scrollbar-thumb`)
-    pub thumb: RectStyle,
+    pub thumb: StyleBackgroundContent,
     /// Styles the directional buttons on the scrollbar (`-webkit-scrollbar-button`)
-    pub button: RectStyle,
+    pub button: StyleBackgroundContent,
     /// If two scrollbars are present, addresses the (usually) bottom corner
     /// of the scrollable element, where two scrollbars might meet (`-webkit-scrollbar-corner`)
-    pub corner: RectStyle,
+    pub corner: StyleBackgroundContent,
     /// Addresses the draggable resizing handle that appears above the
     /// `corner` at the bottom corner of some elements (`-webkit-resizer`)
-    pub resizer: RectStyle,
+    pub resizer: StyleBackgroundContent,
 }
+
+impl_option!(ScrollbarInfo, OptionScrollbarInfo, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl Default for ScrollbarInfo {
     fn default() -> Self {
@@ -3151,53 +3053,27 @@ impl Default for ScrollbarInfo {
             width: LayoutWidth::px(17.0),
             padding_left: LayoutPaddingLeft::px(2.0),
             padding_right: LayoutPaddingRight::px(2.0),
-            track: RectStyle {
-                background: OptionStyleBackgroundContentValue::Some(CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
-                    r: 241, g: 241, b: 241, a: 255
-                }))),
-                .. Default::default()
-            },
-            thumb: RectStyle {
-                background: OptionStyleBackgroundContentValue::Some(CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
-                    r: 193, g: 193, b: 193, a: 255
-                }))),
-                .. Default::default()
-            },
-            button: RectStyle {
-                background: OptionStyleBackgroundContentValue::Some(CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
-                    r: 163, g: 163, b: 163, a: 255
-                }))),
-                .. Default::default()
-            },
-            corner: RectStyle::default(),
-            resizer: RectStyle::default(),
+            track: StyleBackgroundContent::Color(ColorU { r: 241, g: 241, b: 241, a: 255 }),
+            thumb: StyleBackgroundContent::Color(ColorU { r: 193, g: 193, b: 193, a: 255 }),
+            button: StyleBackgroundContent::Color(ColorU { r: 163, g: 163, b: 163, a: 255 }),
+            corner: StyleBackgroundContent::default(),
+            resizer: StyleBackgroundContent::default(),
         }
     }
 }
 
-/// Width and height of the scrollbars at the side of the text field.
-///
-/// This information is necessary in order to reserve space at
-/// the side of the text field so that the text doesn't overlap the scrollbar.
-/// In some cases (when the scrollbar is set to "auto"), the scrollbar space
-/// is only taken up when the text overflows the rectangle itself.
+/// Scrollbar style
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct ScrollbarStyle {
     /// Vertical scrollbar style, if any
-    pub horizontal: Option<ScrollbarInfo>,
+    pub horizontal: OptionScrollbarInfo,
     /// Horizontal scrollbar style, if any
-    pub vertical: Option<ScrollbarInfo>,
+    pub vertical: OptionScrollbarInfo,
 }
 
+/*
 impl RectStyle {
-
-    pub fn get_horizontal_scrollbar_style(&self) -> ScrollbarInfo {
-        ScrollbarInfo::default()
-    }
-
-    pub fn get_vertical_scrollbar_style(&self) -> ScrollbarInfo {
-        ScrollbarInfo::default()
-    }
 
     pub fn has_box_shadow(&self) -> bool {
         self.box_shadow_left.as_ref().and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
@@ -3224,6 +3100,7 @@ impl RectLayout {
         self.overflow_y.as_ref().map(|css_prop| css_prop.get_property().map(|overflow| overflow.is_overflow_visible()).unwrap_or_default()) == Some(true)
     }
 }
+*/
 
 /// Represents a `font-size` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

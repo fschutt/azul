@@ -757,15 +757,6 @@ impl_vec_partialeq!(AzString, StringVec);
 impl_vec_eq!(AzString, StringVec);
 impl_vec_hash!(AzString, StringVec);
 
-impl_vec!(GradientStopPre, GradientStopPreVec);
-impl_vec_debug!(GradientStopPre, GradientStopPreVec);
-impl_vec_partialord!(GradientStopPre, GradientStopPreVec);
-impl_vec_ord!(GradientStopPre, GradientStopPreVec);
-impl_vec_clone!(GradientStopPre, GradientStopPreVec);
-impl_vec_partialeq!(GradientStopPre, GradientStopPreVec);
-impl_vec_eq!(GradientStopPre, GradientStopPreVec);
-impl_vec_hash!(GradientStopPre, GradientStopPreVec);
-
 impl From<Vec<String>> for StringVec {
     fn from(v: Vec<String>) -> StringVec {
         let new_v: Vec<AzString> = v.into_iter().map(|s| s.into()).collect();
