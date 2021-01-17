@@ -1,13 +1,16 @@
 //! Contains utilities to convert strings (CSS strings) to servo types
 
-use std::num::{ParseIntError, ParseFloatError};
+use core::num::{ParseIntError, ParseFloatError};
+use core::fmt;
 use azul_css::{
     CssPropertyType, CssProperty, CombinedCssPropertyType, CssPropertyValue,
-    Overflow, Shape, PixelValue, PixelValueNoPercent, PercentageValue, FloatValue, ColorU,
-    GradientStopPre, RadialGradient, DirectionCorner, DirectionCorners, Direction, CssImageId,
-    LinearGradient, BoxShadowPreDisplayItem, StyleBorderSide, BorderStyle,
-    SizeMetric, BoxShadowClipMode, ExtendMode, GradientType, OptionPercentageValue,
-    BackgroundPositionHorizontal, BackgroundPositionVertical,
+    Overflow, Shape, PixelValue, AngleValue, AngleMetric, PixelValueNoPercent,
+    PercentageValue, FloatValue, ColorU, LinearColorStop, LinearGradient,
+    RadialColorStop, RadialGradient, ConicGradient,
+    DirectionCorner, DirectionCorners, Direction, CssImageId,
+    StyleBoxShadow, StyleBorderSide, BorderStyle,
+    SizeMetric, BoxShadowClipMode, ExtendMode, OptionPercentageValue,
+    BackgroundPositionHorizontal, BackgroundPositionVertical, ScrollbarStyle,
 
     StyleTextColor, StyleFontSize, StyleFontFamily, StyleTextAlignmentHorz,
     StyleLetterSpacing, StyleLineHeight, StyleWordSpacing, StyleTabWidth,
@@ -19,6 +22,8 @@ use azul_css::{
     StyleBorderBottomStyle, StyleBorderTopWidth, StyleBorderRightWidth,
     StyleBorderLeftWidth, StyleBorderBottomWidth, StyleTransform, StyleTransformOrigin,
     StylePerspectiveOrigin, StyleBackfaceVisibility, StyleOpacity, StyleTransformVec,
+    StyleBackgroundContentVec, StyleBackgroundPositionVec, StyleBackgroundSizeVec,
+    StyleBackgroundRepeatVec,
 
     LayoutDisplay, LayoutFloat, LayoutWidth, LayoutHeight, LayoutBoxSizing,
     LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, LayoutMaxHeight,
@@ -28,6 +33,63 @@ use azul_css::{
     LayoutMarginTop, LayoutMarginLeft, LayoutMarginRight, LayoutMarginBottom,
     LayoutPaddingTop, LayoutPaddingLeft,
 };
+
+
+pub trait FormatAsCssValue {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result;
+}
+
+impl FormatAsCssValue for StylePerspectiveOrigin {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}", self.x, self.y)
+    }
+}
+
+impl FormatAsCssValue for StyleTransformOrigin {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}", self.x, self.y)
+    }
+}
+
+impl FormatAsCssValue for AngleValue {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}{}", self.number, self.metric)
+    }
+}
+
+impl FormatAsCssValue for PixelValue {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}{}", self.number, self.metric)
+    }
+}
+
+impl FormatAsCssValue for StyleTransform {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            StyleTransform::Matrix(m) => write!(f, "matrix({}, {}, {}, {}, {}, {})", m.a, m.b, m.c, m.d, m.tx, m.ty),
+            StyleTransform::Matrix3D(m) => write!(f, "matrix3d({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})", m.m11, m.m12, m.m13, m.m14, m.m21, m.m22, m.m23, m.m24, m.m31, m.m32, m.m33, m.m34, m.m41, m.m42, m.m43, m.m44),
+            StyleTransform::Translate(t) => write!(f, "translate({}, {})", t.x, t.y),
+            StyleTransform::Translate3D(t) => write!(f, "translate3d({}, {}, {})", t.x, t.y, t.z),
+            StyleTransform::TranslateX(x) => write!(f, "translateX({})", x),
+            StyleTransform::TranslateY(y) => write!(f, "translateY({})", y),
+            StyleTransform::TranslateZ(z) => write!(f, "translateZ({})", z),
+            StyleTransform::Rotate(r) => write!(f, "rotate({})", r),
+            StyleTransform::Rotate3D(r) => write!(f, "rotate3d({}, {}, {}, {})", r.x, r.y, r.z, r.angle),
+            StyleTransform::RotateX(x) => write!(f, "rotateX({})", x),
+            StyleTransform::RotateY(y) => write!(f, "rotateY({})", y),
+            StyleTransform::RotateZ(z) => write!(f, "rotateZ({})", z),
+            StyleTransform::Scale(s) => write!(f, "scale({}, {})", s.x, s.y),
+            StyleTransform::Scale3D(s) => write!(f, "scale3d({}, {}, {})", s.x, s.y, s.z),
+            StyleTransform::ScaleX(x) => write!(f, "scaleX({})", x),
+            StyleTransform::ScaleY(y) => write!(f, "scaleY({})", y),
+            StyleTransform::ScaleZ(z) => write!(f, "scaleZ({})", z),
+            StyleTransform::Skew(sk) => write!(f, "skew({}, {})", sk.x, sk.y),
+            StyleTransform::SkewX(x) => write!(f, "skewX({})", x),
+            StyleTransform::SkewY(y) => write!(f, "skewY({})", y),
+            StyleTransform::Perspective(dist) => write!(f, "perspective({})", dist),
+        }
+    }
+}
 
 /// A parser that can accept a list of items and mappings
 macro_rules! multi_type_parser {
@@ -53,6 +115,16 @@ macro_rules! multi_type_parser {
                     $identifier_string => Ok($return::$enum_type),
                 )+
                 _ => Err(InvalidValueErr(input)),
+            }
+        }
+
+        impl FormatAsCssValue for $return {
+            fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                match self {
+                    $(
+                        $return::$enum_type => write!(f, $identifier_string),
+                    )+
+                }
             }
         }
     };
@@ -84,8 +156,14 @@ macro_rules! typed_pixel_value_parser {
         #[doc = $import_str]
         #[doc = $test_str]
         #[doc = "```"]
-        pub fn $fn<'a>(input: &'a str) -> Result<$return, PixelParseError<'a>> {
+        pub fn $fn<'a>(input: &'a str) -> Result<$return, CssPixelValueParseError<'a>> {
             parse_pixel_value(input).and_then(|e| Ok($return { inner: e }))
+        }
+
+        impl FormatAsCssValue for $return {
+            fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                self.inner.format_as_css_value(f)
+            }
         }
     };
     ($fn:ident, $return:ident) => {
@@ -156,12 +234,12 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
             AlignItems                  => parse_layout_align_items(value)?.into(),
             AlignContent                => parse_layout_align_content(value)?.into(),
 
-            Background                  => parse_style_background_content(value)?.into(),
-            BackgroundImage             => StyleBackgroundContent::Image(parse_image(value)?).into(),
-            BackgroundColor             => StyleBackgroundContent::Color(parse_css_color(value)?).into(),
-            BackgroundPosition          => parse_style_background_position(value)?.into(),
-            BackgroundSize              => parse_style_background_size(value)?.into(),
-            BackgroundRepeat            => parse_style_background_repeat(value)?.into(),
+            Background                  => parse_style_background_content_multiple(value)?.into(),
+            BackgroundImage             => StyleBackgroundContentVec::from(&[StyleBackgroundContent::Image(parse_image(value)?)][..]).into(),
+            BackgroundColor             => StyleBackgroundContentVec::from(&[StyleBackgroundContent::Color(parse_css_color(value)?)][..]).into(),
+            BackgroundPosition          => parse_style_background_position_multiple(value)?.into(),
+            BackgroundSize              => parse_style_background_size_multiple(value)?.into(),
+            BackgroundRepeat            => parse_style_background_repeat_multiple(value)?.into(),
 
             OverflowX                   => CssProperty::OverflowX(CssPropertyValue::Exact(parse_layout_overflow(value)?)).into(),
             OverflowY                   => CssProperty::OverflowY(CssPropertyValue::Exact(parse_layout_overflow(value)?)).into(),
@@ -200,6 +278,8 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
             BoxShadowRight              => CssProperty::BoxShadowRight(CssPropertyValue::Exact(parse_style_box_shadow(value)?)).into(),
             BoxShadowTop                => CssProperty::BoxShadowTop(CssPropertyValue::Exact(parse_style_box_shadow(value)?)).into(),
             BoxShadowBottom             => CssProperty::BoxShadowBottom(CssPropertyValue::Exact(parse_style_box_shadow(value)?)).into(),
+
+            ScrollbarStyle              => parse_scrollbar_style(value)?.into(), // TODO: stub - always returns default style
 
             Opacity                     => parse_style_opacity(value)?.into(),
             Transform                   => parse_style_transform_vec(value)?.into(),
@@ -441,7 +521,7 @@ pub enum CssParsingError<'a> {
     CssBorderParseError(CssBorderParseError<'a>),
     CssShadowParseError(CssShadowParseError<'a>),
     InvalidValueErr(InvalidValueErr<'a>),
-    PixelParseError(PixelParseError<'a>),
+    PixelParseError(CssPixelValueParseError<'a>),
     PercentageParseError(PercentageParseError),
     CssImageParseError(CssImageParseError<'a>),
     CssStyleFontFamilyParseError(CssStyleFontFamilyParseError<'a>),
@@ -457,6 +537,7 @@ pub enum CssParsingError<'a> {
     TransformOriginParseError(CssStyleTransformOriginParseError<'a>),
     PerspectiveOriginParseError(CssStylePerspectiveOriginParseError<'a>),
     Opacity(OpacityParseError<'a>),
+    Scrollbar(CssScrollbarStyleParseError<'a>),
 }
 
 impl_debug_as_display!(CssParsingError<'a>);
@@ -480,13 +561,14 @@ impl_display!{ CssParsingError<'a>, {
     TransformOriginParseError(e) => format!("{}", e),
     PerspectiveOriginParseError(e) => format!("{}", e),
     Opacity(e) => format!("{}", e),
+    Scrollbar(e) => format!("{}", e),
 }}
 
 impl_from!(CssBorderParseError<'a>, CssParsingError::CssBorderParseError);
 impl_from!(CssShadowParseError<'a>, CssParsingError::CssShadowParseError);
 impl_from!(CssColorParseError<'a>, CssParsingError::CssColorParseError);
 impl_from!(InvalidValueErr<'a>, CssParsingError::InvalidValueErr);
-impl_from!(PixelParseError<'a>, CssParsingError::PixelParseError);
+impl_from!(CssPixelValueParseError<'a>, CssParsingError::PixelParseError);
 impl_from!(CssImageParseError<'a>, CssParsingError::CssImageParseError);
 impl_from!(CssStyleFontFamilyParseError<'a>, CssParsingError::CssStyleFontFamilyParseError);
 impl_from!(CssBackgroundParseError<'a>, CssParsingError::CssBackgroundParseError);
@@ -500,6 +582,7 @@ impl_from!(CssStyleTransformParseError<'a>, CssParsingError::TransformParseError
 impl_from!(CssStyleTransformOriginParseError<'a>, CssParsingError::TransformOriginParseError);
 impl_from!(CssStylePerspectiveOriginParseError<'a>, CssParsingError::PerspectiveOriginParseError);
 impl_from!(OpacityParseError<'a>, CssParsingError::Opacity);
+impl_from!(CssScrollbarStyleParseError<'a>, CssParsingError::Scrollbar);
 
 impl<'a> From<PercentageParseError> for CssParsingError<'a> {
     fn from(e: PercentageParseError) -> Self {
@@ -514,16 +597,16 @@ pub struct InvalidValueErr<'a>(pub &'a str);
 #[derive(Clone, PartialEq)]
 pub enum CssStyleBorderRadiusParseError<'a> {
     TooManyValues(&'a str),
-    PixelParseError(PixelParseError<'a>),
+    CssPixelValueParseError(CssPixelValueParseError<'a>),
 }
 
 impl_debug_as_display!(CssStyleBorderRadiusParseError<'a>);
 impl_display!{ CssStyleBorderRadiusParseError<'a>, {
     TooManyValues(val) => format!("Too many values: \"{}\"", val),
-    PixelParseError(e) => format!("{}", e),
+    CssPixelValueParseError(e) => format!("{}", e),
 }}
 
-impl_from!(PixelParseError<'a>, CssStyleBorderRadiusParseError::PixelParseError);
+impl_from!(CssPixelValueParseError<'a>, CssStyleBorderRadiusParseError::CssPixelValueParseError);
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum CssColorComponent {
@@ -609,7 +692,7 @@ pub enum CssBorderParseError<'a> {
     MissingThickness(&'a str),
     InvalidBorderStyle(InvalidValueErr<'a>),
     InvalidBorderDeclaration(&'a str),
-    ThicknessParseError(PixelParseError<'a>),
+    ThicknessParseError(CssPixelValueParseError<'a>),
     ColorParseError(CssColorParseError<'a>),
 }
 impl_debug_as_display!(CssBorderParseError<'a>);
@@ -625,7 +708,7 @@ impl_display!{ CssBorderParseError<'a>, {
 pub enum CssShadowParseError<'a> {
     InvalidSingleStatement(&'a str),
     TooManyComponents(&'a str),
-    ValueParseErr(PixelParseError<'a>),
+    ValueParseErr(CssPixelValueParseError<'a>),
     ColorParseError(CssColorParseError<'a>),
 }
 impl_debug_as_display!(CssShadowParseError<'a>);
@@ -636,7 +719,7 @@ impl_display!{ CssShadowParseError<'a>, {
     ColorParseError(e) => format!("Invalid color-value: {}", e),
 }}
 
-impl_from!(PixelParseError<'a>, CssShadowParseError::ValueParseErr);
+impl_from!(CssPixelValueParseError<'a>, CssShadowParseError::ValueParseErr);
 impl_from!(CssColorParseError<'a>, CssShadowParseError::ColorParseError);
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
@@ -746,25 +829,51 @@ pub fn parse_style_border_radius<'a>(input: &'a str)
     }
 }
 
+
 #[derive(Clone, PartialEq)]
-pub enum PixelParseError<'a> {
+pub enum CssPixelValueParseError<'a> {
     EmptyString,
-    NoValueGiven(&'a str),
-    UnsupportedMetric(f32, String, &'a str),
-    ValueParseErr(ParseFloatError, String),
+    NoValueGiven(&'a str, SizeMetric),
+    ValueParseErr(ParseFloatError, &'a str),
+    InvalidPixelValue(&'a str),
 }
 
-impl_debug_as_display!(PixelParseError<'a>);
+impl_debug_as_display!(CssPixelValueParseError<'a>);
 
-impl_display!{ PixelParseError<'a>, {
+impl_display!{ CssPixelValueParseError<'a>, {
     EmptyString => format!("Missing [px / pt / em / %] value"),
-    NoValueGiven(input) => format!("Expected floating-point pixel value, got: \"{}\"", input),
-    UnsupportedMetric(_, metric, input) => format!("Could not parse \"{}\": Metric \"{}\" is not (yet) implemented.", input, metric),
+    NoValueGiven(input, metric) => format!("Expected floating-point pixel value, got: \"{}{}\"", input, metric),
     ValueParseErr(err, number_str) => format!("Could not parse \"{}\" as floating-point value: \"{}\"", number_str, err),
+    InvalidPixelValue(s) => format!("Invalid pixel value: \"{}\"", s),
 }}
 
+/// parses an angle value like `30deg`, `1.64rad`, `100%`, etc.
+fn parse_pixel_value_inner<'a>(input: &'a str, match_values: &[(&'static str, SizeMetric)])
+-> Result<PixelValue, CssPixelValueParseError<'a>>
+{
+    let input = input.trim();
+
+    if input.is_empty() {
+        return Err(CssPixelValueParseError::EmptyString);
+    }
+
+    for (match_val, metric) in match_values {
+        if input.ends_with(match_val) {
+            let value = &input[..input.len() - match_val.len()];
+            let value = value.trim();
+            if value.is_empty() { return Err(CssPixelValueParseError::NoValueGiven(input, *metric)); }
+            match value.parse::<f32>() {
+                Ok(o) => { return Ok(PixelValue::from_metric(*metric, o)); },
+                Err(e) => { return Err(CssPixelValueParseError::ValueParseErr(e, value)); },
+            }
+        }
+    }
+
+    Err(CssPixelValueParseError::InvalidPixelValue(input))
+}
+
 pub fn parse_pixel_value<'a>(input: &'a str)
--> Result<PixelValue, PixelParseError<'a>> {
+-> Result<PixelValue, CssPixelValueParseError<'a>> {
     parse_pixel_value_inner(input, &[
         ("px", SizeMetric::Px),
         ("em", SizeMetric::Em),
@@ -774,7 +883,7 @@ pub fn parse_pixel_value<'a>(input: &'a str)
 }
 
 pub fn parse_pixel_value_no_percent<'a>(input: &'a str)
--> Result<PixelValueNoPercent, PixelParseError<'a>> {
+-> Result<PixelValueNoPercent, CssPixelValueParseError<'a>> {
     Ok(PixelValueNoPercent {
         inner:
         parse_pixel_value_inner(input, &[
@@ -783,42 +892,6 @@ pub fn parse_pixel_value_no_percent<'a>(input: &'a str)
             ("pt", SizeMetric::Pt),
         ])?
     })
-}
-
-/// parse a single value such as "15px"
-fn parse_pixel_value_inner<'a>(input: &'a str, match_values: &[(&'static str, SizeMetric)])
--> Result<PixelValue, PixelParseError<'a>>
-{
-    let input = input.trim();
-
-    if input.is_empty() {
-        return Err(PixelParseError::EmptyString);
-    }
-
-    let is_part_of_number = |ch: &char| ch.is_numeric() || *ch == '.' || *ch == '-';
-
-    // You can't sub-string pixel values, have to call collect() here!
-    let number_str = input.chars().take_while(is_part_of_number).collect::<String>();
-    let unit_str = input.chars().filter(|ch| !is_part_of_number(ch)).collect::<String>();
-    let unit_str = unit_str.trim();
-    let unit_str = unit_str.to_string();
-
-    if number_str.is_empty() {
-        return Err(PixelParseError::NoValueGiven(input));
-    }
-
-    let number = number_str.parse::<f32>().map_err(|e| PixelParseError::ValueParseErr(e, number_str))?;
-
-    let unit =
-        if unit_str.is_empty() {
-            SizeMetric::Px
-        } else {
-            match_values.iter().find_map(|(target_str, target_size_metric)|
-                if unit_str.as_str() == *target_str { Some(*target_size_metric) } else { None }
-            ).ok_or(PixelParseError::UnsupportedMetric(number, unit_str, input))?
-        };
-
-    Ok(PixelValue::from_metric(unit, number))
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -1145,7 +1218,7 @@ pub fn parse_color_hsl_components<'a>(components: &mut dyn Iterator<Item = &'a s
         }
         let dir = parse_direction(c)?;
         match dir {
-            Direction::Angle(deg) => Ok(deg.get()),
+            Direction::Angle(deg) => Ok(deg.to_degrees()),
             Direction::FromTo(_) => return Err(CssColorParseError::UnsupportedDirection(c)),
         }
     }
@@ -1295,18 +1368,18 @@ pub fn parse_color_no_hash<'a>(input: &'a str)
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LayoutPaddingParseError<'a> {
-    PixelParseError(PixelParseError<'a>),
+    CssPixelValueParseError(CssPixelValueParseError<'a>),
     TooManyValues,
     TooFewValues,
 }
 
 impl_display!{ LayoutPaddingParseError<'a>, {
-    PixelParseError(e) => format!("Could not parse pixel value: {}", e),
+    CssPixelValueParseError(e) => format!("Could not parse pixel value: {}", e),
     TooManyValues => format!("Too many values - padding property has a maximum of 4 values."),
     TooFewValues => format!("Too few values - padding property has a minimum of 1 value."),
 }}
 
-impl_from!(PixelParseError<'a>, LayoutPaddingParseError::PixelParseError);
+impl_from!(CssPixelValueParseError<'a>, LayoutPaddingParseError::CssPixelValueParseError);
 
 /// Represents a parsed `padding` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1367,18 +1440,18 @@ pub fn parse_layout_padding<'a>(input: &'a str)
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LayoutMarginParseError<'a> {
-    PixelParseError(PixelParseError<'a>),
+    CssPixelValueParseError(CssPixelValueParseError<'a>),
     TooManyValues,
     TooFewValues,
 }
 
 impl_display!{ LayoutMarginParseError<'a>, {
-    PixelParseError(e) => format!("Could not parse pixel value: {}", e),
+    CssPixelValueParseError(e) => format!("Could not parse pixel value: {}", e),
     TooManyValues => format!("Too many values - margin property has a maximum of 4 values."),
     TooFewValues => format!("Too few values - margin property has a minimum of 1 value."),
 }}
 
-impl_from!(PixelParseError<'a>, LayoutMarginParseError::PixelParseError);
+impl_from!(CssPixelValueParseError<'a>, LayoutMarginParseError::CssPixelValueParseError);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PixelValueWithAuto {
@@ -1390,7 +1463,7 @@ pub enum PixelValueWithAuto {
 }
 
 /// Parses a pixel value, but also tries values like "auto", "initial", "inherit" and "none"
-pub fn parse_pixel_value_with_auto<'a>(input: &'a str) -> Result<PixelValueWithAuto, PixelParseError<'a>> {
+pub fn parse_pixel_value_with_auto<'a>(input: &'a str) -> Result<PixelValueWithAuto, CssPixelValueParseError<'a>> {
     let input = input.trim();
     match input {
         "none" => Ok(PixelValueWithAuto::None),
@@ -1422,7 +1495,7 @@ pub fn parse_layout_margin<'a>(input: &'a str)
                 bottom: padding.bottom,
             })
         },
-        Err(LayoutPaddingParseError::PixelParseError(e)) => Err(e.into()),
+        Err(LayoutPaddingParseError::CssPixelValueParseError(e)) => Err(e.into()),
         Err(LayoutPaddingParseError::TooManyValues) => Err(LayoutMarginParseError::TooManyValues),
         Err(LayoutPaddingParseError::TooFewValues) => Err(LayoutMarginParseError::TooFewValues),
     }
@@ -1511,12 +1584,12 @@ pub fn parse_style_border<'a>(input: &'a str)
 
 /// Parses a CSS box-shadow, such as "5px 10px inset"
 pub fn parse_style_box_shadow<'a>(input: &'a str)
--> Result<BoxShadowPreDisplayItem, CssShadowParseError<'a>>
+-> Result<StyleBoxShadow, CssShadowParseError<'a>>
 {
     let mut input_iter = input.split_whitespace();
     let count = input_iter.clone().count();
 
-    let mut box_shadow = BoxShadowPreDisplayItem {
+    let mut box_shadow = StyleBoxShadow {
         offset: [
             PixelValueNoPercent { inner: PixelValue::const_px(0) },
             PixelValueNoPercent { inner: PixelValue::const_px(0) }
@@ -1626,6 +1699,7 @@ pub enum CssBackgroundParseError<'a> {
     TooFewGradientStops(&'a str),
     DirectionParseError(CssDirectionParseError<'a>),
     GradientParseError(CssGradientStopParseError<'a>),
+    ConicGradient(CssConicGradientParseError<'a>),
     ShapeParseError(CssShapeParseError<'a>),
     ImageParseError(CssImageParseError<'a>),
     ColorParseError(CssColorParseError<'a>),
@@ -1640,6 +1714,7 @@ impl_display!{ CssBackgroundParseError<'a>, {
     TooFewGradientStops(val) => format!("Failed to parse gradient due to too few gradient steps: \"{}\"", val),
     DirectionParseError(e) => format!("Failed to parse gradient direction: \"{}\"", e),
     GradientParseError(e) => format!("Failed to parse gradient: {}", e),
+    ConicGradient(e) => format!("Failed to parse conic gradient: {}", e),
     ShapeParseError(e) => format!("Failed to parse shape of radial gradient: {}", e),
     ImageParseError(e) => format!("Failed to parse image() value: {}", e),
     ColorParseError(e) => format!("Failed to parse color value: {}", e),
@@ -1651,15 +1726,58 @@ impl_from!(CssGradientStopParseError<'a>, CssBackgroundParseError::GradientParse
 impl_from!(CssShapeParseError<'a>, CssBackgroundParseError::ShapeParseError);
 impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 impl_from!(CssColorParseError<'a>, CssBackgroundParseError::ColorParseError);
+impl_from!(CssConicGradientParseError<'a>, CssBackgroundParseError::ConicGradient);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum GradientType {
+    LinearGradient,
+    RepeatingLinearGradient,
+    RadialGradient,
+    RepeatingRadialGradient,
+    ConicGradient,
+    RepeatingConicGradient,
+}
+
+impl GradientType {
+    pub const fn get_extend_mode(&self) -> ExtendMode {
+        match self {
+            GradientType::LinearGradient => ExtendMode::Clamp,
+            GradientType::RadialGradient => ExtendMode::Clamp,
+            GradientType::ConicGradient => ExtendMode::Clamp,
+            GradientType::RepeatingRadialGradient => ExtendMode::Repeat,
+            GradientType::RepeatingLinearGradient => ExtendMode::Repeat,
+            GradientType::RepeatingConicGradient => ExtendMode::Repeat,
+        }
+    }
+}
+
+// parses multiple backgrounds, such as "linear-gradient(red, green), radial-gradient(blue, yellow)"
+pub fn parse_style_background_content_multiple<'a>(input: &'a str) -> Result<StyleBackgroundContentVec, CssBackgroundParseError<'a>> {
+     Ok(split_string_respect_comma(input).iter().map(|i| parse_style_background_content(i)).collect::<Result<Vec<_>, _>>()?.into())
+}
+
+// parses multiple background-positions
+pub fn parse_style_background_position_multiple<'a>(input: &'a str) -> Result<StyleBackgroundPositionVec, CssBackgroundPositionParseError<'a>> {
+     Ok(split_string_respect_comma(input).iter().map(|i| parse_style_background_position(i)).collect::<Result<Vec<_>, _>>()?.into())
+}
+
+// parses multiple background-size
+pub fn parse_style_background_size_multiple<'a>(input: &'a str) -> Result<StyleBackgroundSizeVec, InvalidValueErr<'a>> {
+     Ok(split_string_respect_comma(input).iter().map(|i| parse_style_background_size(i)).collect::<Result<Vec<_>, _>>()?.into())
+}
+
+// parses multiple background-repeat
+pub fn parse_style_background_repeat_multiple<'a>(input: &'a str) -> Result<StyleBackgroundRepeatVec, InvalidValueErr<'a>> {
+     Ok(split_string_respect_comma(input).iter().map(|i| parse_style_background_repeat(i)).collect::<Result<Vec<_>, _>>()?.into())
+}
 
 // parses a background, such as "linear-gradient(red, green)"
-pub fn parse_style_background_content<'a>(input: &'a str)
--> Result<StyleBackgroundContent, CssBackgroundParseError<'a>>
-{
-    // TODO: multiple backgrounds
+pub fn parse_style_background_content<'a>(input: &'a str) -> Result<StyleBackgroundContent, CssBackgroundParseError<'a>> {
+
     match parse_parentheses(input, &[
         "linear-gradient", "repeating-linear-gradient",
         "radial-gradient", "repeating-radial-gradient",
+        "conic-gradient", "repeating-conic-gradient",
         "image",
     ]) {
         Ok((background_type, brace_contents)) => {
@@ -1668,6 +1786,8 @@ pub fn parse_style_background_content<'a>(input: &'a str)
                 "repeating-linear-gradient" => GradientType::RepeatingLinearGradient,
                 "radial-gradient" => GradientType::RadialGradient,
                 "repeating-radial-gradient" => GradientType::RepeatingRadialGradient,
+                "conic-gradient" => GradientType::ConicGradient,
+                "repeating-conic-gradient" => GradientType::RepeatingConicGradient,
                 "image" => { return Ok(StyleBackgroundContent::Image(parse_image(brace_contents)?)); },
                 other => { return Err(CssBackgroundParseError::Error(other)); /* unreachable */ },
             };
@@ -1681,11 +1801,74 @@ pub fn parse_style_background_content<'a>(input: &'a str)
 }
 
 #[derive(Clone, PartialEq)]
+pub enum CssConicGradientParseError<'a> {
+    Pixel(CssPixelValueParseError<'a>),
+    Angle(CssAngleValueParseError<'a>),
+    NoAngle(&'a str),
+}
+
+
+impl_debug_as_display!(CssConicGradientParseError<'a>);
+impl_display!{ CssConicGradientParseError<'a>, {
+    Pixel(val) => format!("Invalid pixel value: \"{}\"", val),
+    Angle(val) => format!("Invalid angle value: \"{}\"", val),
+    NoAngle(val) => format!("Expected angle: \"{}\"", val),
+}}
+
+impl_from!(CssPixelValueParseError<'a>, CssConicGradientParseError::Pixel);
+impl_from!(CssAngleValueParseError<'a>, CssConicGradientParseError::Angle);
+
+// parse a conic gradient first item such as "from 0.25turn at 50% 30%"
+pub fn parse_conic_first_item<'a>(input: &'a str)
+-> Result<Option<(AngleValue, PixelValue, PixelValue)>, CssConicGradientParseError<'a>>
+{
+    const HALF: PixelValue = PixelValue::const_percent(50);
+
+    let input = input.trim();
+    if !input.starts_with("from") { return Ok(None); }
+    let input = &input["from".len()..];
+    let mut iter = input.split_whitespace();
+
+    let angle = parse_angle_value(iter.next().ok_or(CssConicGradientParseError::NoAngle(input))?)?;
+
+    if !(iter.next() == Some("at")) {
+        return Ok(Some((angle, HALF, HALF)));
+    }
+
+    let x_pos = match iter.next() {
+        Some(s) => parse_pixel_value(s)?,
+        None => { return Ok(Some((angle, HALF, HALF))); },
+    };
+
+    let y_pos = match iter.next() {
+        Some(s) => parse_pixel_value(s)?,
+        None => { return Ok(Some((angle, x_pos, HALF))); },
+    };
+
+    Ok(Some((angle, x_pos, y_pos)))
+}
+
+#[derive(Clone, PartialEq)]
+pub enum CssScrollbarStyleParseError<'a> {
+    Invalid(&'a str),
+}
+
+impl_debug_as_display!(CssScrollbarStyleParseError<'a>);
+impl_display!{ CssScrollbarStyleParseError<'a>, {
+    Invalid(e) => format!("Invalid scrollbar style: \"{}\"", e),
+}}
+
+pub fn parse_scrollbar_style<'a>(input: &'a str) -> Result<ScrollbarStyle, CssScrollbarStyleParseError<'a>> {
+    Ok(ScrollbarStyle::default()) // TODO!
+}
+
+#[derive(Clone, PartialEq)]
 pub enum CssStyleTransformParseError<'a> {
     InvalidTransform(&'a str),
     InvalidParenthesis(ParenthesisParseError<'a>),
     WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
-    PixelValueParseError(PixelParseError<'a>),
+    PixelValueParseError(CssPixelValueParseError<'a>),
+    AngleValueParseError(CssAngleValueParseError<'a>),
     PercentageValueParseError(PercentageParseError),
 }
 
@@ -1694,12 +1877,14 @@ impl_display!{ CssStyleTransformParseError<'a>, {
     InvalidTransform(e) => format!("Invalid transform property: \"{}\"", e),
     InvalidParenthesis(e) => format!("Invalid transform property - parenthesis error: {}", e),
     WrongNumberOfComponents { expected, got, input } => format!("Invalid number of components on transform property: expected {} components, got {}: \"{}\"", expected, got, input),
-    PixelValueParseError(e) => format!("Invalid transform property: {}", e),
+    PixelValueParseError(e) => format!("Invalid pixel value: {}", e),
+    AngleValueParseError(e) => format!("Invalid angle value: {}", e),
     PercentageValueParseError(e) => format!("Invalid transform property - error parsing percentage: {}", e),
 }}
 
 impl_from!(ParenthesisParseError<'a>, CssStyleTransformParseError::InvalidParenthesis);
-impl_from!(PixelParseError<'a>, CssStyleTransformParseError::PixelValueParseError);
+impl_from!(CssPixelValueParseError<'a>, CssStyleTransformParseError::PixelValueParseError);
+impl_from!(CssAngleValueParseError<'a>, CssStyleTransformParseError::AngleValueParseError);
 
 impl<'a> From<PercentageParseError> for CssStyleTransformParseError<'a> {
     fn from(p: PercentageParseError) -> CssStyleTransformParseError<'a> {
@@ -1707,35 +1892,12 @@ impl<'a> From<PercentageParseError> for CssStyleTransformParseError<'a> {
     }
 }
 
-// parses a background, such as "linear-gradient(red, green)"
+// parses multiple transform values
 pub fn parse_style_transform_vec<'a>(input: &'a str)
 -> Result<StyleTransformVec, CssStyleTransformParseError<'a>>
 {
-    // Splitting the input by "," doesn't work since rgba() might contain commas
-    let mut comma_separated_items = Vec::<&str>::new();
-    let mut current_input = &input[..];
-
-    'outer: loop {
-        let (skip_next_braces_result, character_was_found) =
-        match skip_next_braces(&current_input, ',') {
-            Some(s) => s,
-            None => break 'outer,
-        };
-        let new_push_item = if character_was_found {
-            &current_input[..skip_next_braces_result]
-        } else {
-            &current_input[..]
-        };
-        let new_current_input = &current_input[(skip_next_braces_result + 1)..];
-        comma_separated_items.push(new_push_item);
-        current_input = new_current_input;
-        if !character_was_found {
-            break 'outer;
-        }
-    }
-
-    let vec = comma_separated_items.iter().map(|i| parse_style_transform(i)).collect::<Result<Vec<_>, _>>()?;
-
+    let comma_separated_items = split_string_respect_comma(input);
+    let vec = split_string_respect_comma(input).iter().map(|i| parse_style_transform(i)).collect::<Result<Vec<_>, _>>()?;
     Ok(vec.into())
 }
 
@@ -1840,7 +2002,7 @@ pub fn parse_style_transform<'a>(input: &'a str)
         let x     = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 4, got: 0, input })?)?;
         let y     = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 4, got: 1, input })?)?;
         let z     = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 4, got: 2, input })?)?;
-        let angle = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 4, got: 3, input })?)?;
+        let angle = parse_angle_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 4, got: 3, input })?)?;
 
         Ok(StyleTransformRotate3D { x, y, z, angle })
     }
@@ -1884,11 +2046,11 @@ pub fn parse_style_transform<'a>(input: &'a str)
         "translateX" => Ok(StyleTransform::TranslateX(parse_pixel_value(input)?)),
         "translateY" => Ok(StyleTransform::TranslateY(parse_pixel_value(input)?)),
         "translateZ" => Ok(StyleTransform::TranslateZ(parse_pixel_value(input)?)),
-        "rotate" => Ok(StyleTransform::Rotate(parse_percentage_value(input)?)),
+        "rotate" => Ok(StyleTransform::Rotate(parse_angle_value(input)?)),
         "rotate3d" => Ok(StyleTransform::Rotate3D(parse_rotate_3d(input)?)),
-        "rotateX" => Ok(StyleTransform::RotateX(parse_percentage_value(input)?)),
-        "rotateY" => Ok(StyleTransform::RotateY(parse_percentage_value(input)?)),
-        "rotateZ" => Ok(StyleTransform::RotateZ(parse_percentage_value(input)?)),
+        "rotateX" => Ok(StyleTransform::RotateX(parse_angle_value(input)?)),
+        "rotateY" => Ok(StyleTransform::RotateY(parse_angle_value(input)?)),
+        "rotateZ" => Ok(StyleTransform::RotateZ(parse_angle_value(input)?)),
         "scale" => Ok(StyleTransform::Scale(parse_scale(input)?)),
         "scale3d" => Ok(StyleTransform::Scale3D(parse_scale_3d(input)?)),
         "scaleX" => Ok(StyleTransform::ScaleX(parse_percentage_value(input)?)),
@@ -1905,7 +2067,7 @@ pub fn parse_style_transform<'a>(input: &'a str)
 #[derive(Clone, PartialEq)]
 pub enum CssStyleTransformOriginParseError<'a> {
     WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
-    PixelValueParseError(PixelParseError<'a>),
+    PixelValueParseError(CssPixelValueParseError<'a>),
 }
 
 impl_debug_as_display!(CssStyleTransformOriginParseError<'a>);
@@ -1913,7 +2075,7 @@ impl_display!{ CssStyleTransformOriginParseError<'a>, {
     WrongNumberOfComponents { expected, got, input } => format!("Invalid number of components on transform property: expected {} components, got {}: \"{}\"", expected, got, input),
     PixelValueParseError(e) => format!("Invalid transform property: {}", e),
 }}
-impl_from!(PixelParseError<'a>, CssStyleTransformOriginParseError::PixelValueParseError);
+impl_from!(CssPixelValueParseError<'a>, CssStyleTransformOriginParseError::PixelValueParseError);
 
 pub fn parse_style_transform_origin<'a>(input: &'a str)
 -> Result<StyleTransformOrigin, CssStyleTransformOriginParseError<'a>>
@@ -1930,7 +2092,7 @@ pub fn parse_style_transform_origin<'a>(input: &'a str)
 #[derive(Clone, PartialEq)]
 pub enum CssStylePerspectiveOriginParseError<'a> {
     WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
-    PixelValueParseError(PixelParseError<'a>),
+    PixelValueParseError(CssPixelValueParseError<'a>),
 }
 
 impl_debug_as_display!(CssStylePerspectiveOriginParseError<'a>);
@@ -1938,7 +2100,7 @@ impl_display!{ CssStylePerspectiveOriginParseError<'a>, {
     WrongNumberOfComponents { expected, got, input } => format!("Invalid number of components on transform property: expected {} components, got {}: \"{}\"", expected, got, input),
     PixelValueParseError(e) => format!("Invalid transform property: {}", e),
 }}
-impl_from!(PixelParseError<'a>, CssStylePerspectiveOriginParseError::PixelValueParseError);
+impl_from!(CssPixelValueParseError<'a>, CssStylePerspectiveOriginParseError::PixelValueParseError);
 
 pub fn parse_style_perspective_origin<'a>(input: &'a str)
 -> Result<StylePerspectiveOrigin, CssStylePerspectiveOriginParseError<'a>>
@@ -1956,8 +2118,8 @@ pub fn parse_style_perspective_origin<'a>(input: &'a str)
 pub enum CssBackgroundPositionParseError<'a> {
     NoPosition(&'a str),
     TooManyComponents(&'a str),
-    FirstComponentWrong(PixelParseError<'a>),
-    SecondComponentWrong(PixelParseError<'a>),
+    FirstComponentWrong(CssPixelValueParseError<'a>),
+    SecondComponentWrong(CssPixelValueParseError<'a>),
 }
 
 impl_display!{CssBackgroundPositionParseError<'a>, {
@@ -1967,7 +2129,7 @@ impl_display!{CssBackgroundPositionParseError<'a>, {
     SecondComponentWrong(e) => format!("Failed to parse second component: \"{}\"", e),
 }}
 
-pub fn parse_background_position_horizontal<'a>(input: &'a str) -> Result<BackgroundPositionHorizontal, PixelParseError<'a>> {
+pub fn parse_background_position_horizontal<'a>(input: &'a str) -> Result<BackgroundPositionHorizontal, CssPixelValueParseError<'a>> {
     Ok(match input {
         "left" => BackgroundPositionHorizontal::Left,
         "center" => BackgroundPositionHorizontal::Center,
@@ -1976,7 +2138,7 @@ pub fn parse_background_position_horizontal<'a>(input: &'a str) -> Result<Backgr
     })
 }
 
-pub fn parse_background_position_vertical<'a>(input: &'a str) -> Result<BackgroundPositionVertical, PixelParseError<'a>> {
+pub fn parse_background_position_vertical<'a>(input: &'a str) -> Result<BackgroundPositionVertical, CssPixelValueParseError<'a>> {
     Ok(match input {
         "top" => BackgroundPositionVertical::Top,
         "center" => BackgroundPositionVertical::Center,
@@ -2010,46 +2172,42 @@ pub fn parse_style_background_position<'a>(input: &'a str)
     Ok(StyleBackgroundPosition { horizontal, vertical })
 }
 
-/// Given a string, returns how many characters need to be skipped
-fn skip_next_braces(input: &str, target_char: char) -> Option<(usize, bool)> {
+fn split_string_respect_comma<'a>(input: &'a str) -> Vec<&'a str> {
 
-    let mut depth = 0;
-    let mut last_character = 0;
-    let mut character_was_found = false;
 
-    if input.is_empty() {
-        return None;
-    }
+    /// Given a string, returns how many characters need to be skipped
+    fn skip_next_braces(input: &str, target_char: char) -> Option<(usize, bool)> {
 
-    for (idx, ch) in input.char_indices() {
-        last_character = idx;
-        match ch {
-            '(' => { depth += 1; },
-            ')' => { depth -= 1; },
-            c => {
-                if c == target_char && depth == 0 {
-                    character_was_found = true;
-                    break;
-                }
-            },
+        let mut depth = 0;
+        let mut last_character = 0;
+        let mut character_was_found = false;
+
+        if input.is_empty() {
+            return None;
+        }
+
+        for (idx, ch) in input.char_indices() {
+            last_character = idx;
+            match ch {
+                '(' => { depth += 1; },
+                ')' => { depth -= 1; },
+                c => {
+                    if c == target_char && depth == 0 {
+                        character_was_found = true;
+                        break;
+                    }
+                },
+            }
+        }
+
+        if last_character == 0 {
+            // No more split by `,`
+            None
+        } else {
+            Some((last_character, character_was_found))
         }
     }
 
-    if last_character == 0 {
-        // No more split by `,`
-        None
-    } else {
-        Some((last_character, character_was_found))
-    }
-}
-
-// parses a single gradient such as "to right, 50px"
-pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
--> Result<StyleBackgroundContent, CssBackgroundParseError<'a>>
-{
-    let input = input.trim();
-
-    // Splitting the input by "," doesn't work since rgba() might contain commas
     let mut comma_separated_items = Vec::<&str>::new();
     let mut current_input = &input[..];
 
@@ -2072,8 +2230,19 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
         }
     }
 
+    comma_separated_items
+}
+
+// parses a single gradient such as "to right, 50px"
+pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
+-> Result<StyleBackgroundContent, CssBackgroundParseError<'a>>
+{
+    let input = input.trim();
+
+    // Splitting the input by "," doesn't work since rgba() might contain commas
+    let comma_separated_items = split_string_respect_comma(input);
+
     let mut brace_iterator = comma_separated_items.iter();
-    let mut gradient_stop_count = brace_iterator.clone().count();
 
     // "50deg", "to right bottom", etc.
     let first_brace_item = match brace_iterator.next() {
@@ -2081,142 +2250,44 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
         None => return Err(CssBackgroundParseError::NoDirection(input)),
     };
 
-    // default shape: ellipse
-    let mut shape = Shape::Ellipse;
-    // default gradient: from top to bottom
-    let mut direction = Direction::FromTo(DirectionCorners { from: DirectionCorner::Top, to: DirectionCorner::Bottom });
-
-    let mut first_is_direction = false;
-    let mut first_is_shape = false;
-
     let is_linear_gradient = background_type == GradientType::LinearGradient ||
                              background_type == GradientType::RepeatingLinearGradient;
 
     let is_radial_gradient = background_type == GradientType::RadialGradient ||
                              background_type == GradientType::RepeatingRadialGradient;
 
+    let is_conic_gradient = background_type == GradientType::ConicGradient ||
+                            background_type == GradientType::RepeatingConicGradient;
+
     if is_linear_gradient {
+        let mut linear_gradient = LinearGradient::default();
         if let Ok(dir) = parse_direction(first_brace_item) {
-            direction = dir;
-            first_is_direction = true;
+            linear_gradient.direction = dir;
+        } else {
+            linear_gradient.stops.push(parse_linear_color_stop(first_brace_item)?);
         }
-    }
-
-    if is_radial_gradient {
+        linear_gradient.extend_mode = background_type.get_extend_mode();
+        Ok(StyleBackgroundContent::LinearGradient(linear_gradient))
+    } else if is_radial_gradient {
+        let mut radial_gradient = RadialGradient::default();
         if let Ok(sh) = parse_shape(first_brace_item) {
-            shape = sh;
-            first_is_shape = true;
+            radial_gradient.shape = sh;
+        } else {
+            radial_gradient.stops.push(parse_linear_color_stop(first_brace_item)?);
         }
-    }
-
-    let mut first_item_doesnt_count = false;
-    if (is_linear_gradient && first_is_direction) || (is_radial_gradient && first_is_shape) {
-        gradient_stop_count -= 1; // first item is not a gradient stop
-        first_item_doesnt_count = true;
-    }
-
-    if gradient_stop_count < 2 {
-        return Err(CssBackgroundParseError::TooFewGradientStops(input));
-    }
-
-    let mut color_stops = Vec::<GradientStopPre>::with_capacity(gradient_stop_count);
-    if !first_item_doesnt_count {
-        color_stops.push(parse_gradient_stop(first_brace_item)?);
-    }
-
-    for stop in brace_iterator {
-        color_stops.push(parse_gradient_stop(stop)?);
-    }
-
-    normalize_color_stops(&mut color_stops);
-
-    match background_type {
-        GradientType::LinearGradient => {
-            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
-                direction: direction,
-                extend_mode: ExtendMode::Clamp,
-                stops: color_stops.into(),
-            }))
-        },
-        GradientType::RepeatingLinearGradient => {
-            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
-                direction: direction,
-                extend_mode: ExtendMode::Repeat,
-                stops: color_stops.into(),
-            }))
-        },
-        GradientType::RadialGradient => {
-            Ok(StyleBackgroundContent::RadialGradient(RadialGradient {
-                shape: shape,
-                extend_mode: ExtendMode::Clamp,
-                stops: color_stops.into(),
-            }))
-        },
-        GradientType::RepeatingRadialGradient => {
-            Ok(StyleBackgroundContent::RadialGradient(RadialGradient {
-                shape: shape,
-                extend_mode: ExtendMode::Repeat,
-                stops: color_stops.into(),
-            }))
-        },
-    }
-}
-
-// Normalize the percentages of the parsed color stops
-pub fn normalize_color_stops(color_stops: &mut Vec<GradientStopPre>) {
-
-    let mut last_stop = PercentageValue::new(0.0);
-    let mut increase_stop_cnt: Option<f32> = None;
-
-    let color_stop_len = color_stops.len();
-    'outer: for i in 0..color_stop_len {
-        let offset = color_stops[i].offset;
-        match offset {
-            OptionPercentageValue::Some(s) => {
-                last_stop = s;
-                increase_stop_cnt = None;
-            },
-            OptionPercentageValue::None => {
-                let (_, next) = color_stops.split_at_mut(i);
-
-                if let Some(increase_stop_cnt) = increase_stop_cnt {
-                    last_stop = PercentageValue::new(last_stop.get() + increase_stop_cnt);
-                    next[0].offset = OptionPercentageValue::Some(last_stop);
-                    continue 'outer;
-                }
-
-                let mut next_count: u32 = 0;
-                let mut next_value = None;
-
-                // iterate until we find a value where the offset isn't none
-                {
-                    let mut next_iter = next.iter();
-                    next_iter.next();
-                    'inner: for next_stop in next_iter {
-                        if let OptionPercentageValue::Some(off) = next_stop.offset {
-                            next_value = Some(off);
-                            break 'inner;
-                        } else {
-                            next_count += 1;
-                        }
-                    }
-                }
-
-                let next_value = next_value.unwrap_or(PercentageValue::new(100.0));
-                let increase = (next_value.get() / (next_count as f32)) - (last_stop.get() / (next_count as f32)) ;
-                increase_stop_cnt = Some(increase);
-                if next_count == 1 && (color_stop_len - i) == 1 {
-                    next[0].offset = OptionPercentageValue::Some(last_stop);
-                } else {
-                    if i == 0 {
-                        next[0].offset = OptionPercentageValue::Some(PercentageValue::new(0.0));
-                    } else {
-                        next[0].offset = OptionPercentageValue::Some(last_stop);
-                        // last_stop += increase;
-                    }
-                }
-            }
+        radial_gradient.extend_mode = background_type.get_extend_mode();
+        Ok(StyleBackgroundContent::RadialGradient(radial_gradient))
+    } else /* if is_conic_gradient */ {
+        let mut conic_gradient = ConicGradient::default();
+        if let Some((angle, center_x, center_y)) = parse_conic_first_item(first_brace_item)? {
+            conic_gradient.center_x = center_x;
+            conic_gradient.center_y = center_y;
+            conic_gradient.angle = angle;
+        } else {
+            conic_gradient.stops.push(parse_radial_color_stop(first_brace_item)?);
         }
+        conic_gradient.extend_mode = background_type.get_extend_mode();
+        Ok(StyleBackgroundContent::ConicGradient(conic_gradient))
     }
 }
 
@@ -2277,6 +2348,7 @@ pub fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuo
 pub enum CssGradientStopParseError<'a> {
     Error(&'a str),
     Percentage(PercentageParseError),
+    Angle(CssAngleValueParseError<'a>),
     ColorParseError(CssColorParseError<'a>),
 }
 
@@ -2284,6 +2356,7 @@ impl_debug_as_display!(CssGradientStopParseError<'a>);
 impl_display!{ CssGradientStopParseError<'a>, {
     Error(e) => e,
     Percentage(e) => format!("Failed to parse offset percentage: {}", e),
+    Angle(e) => format!("Failed to parse angle: {}", e),
     ColorParseError(e) => format!("{}", e),
 }}
 
@@ -2291,8 +2364,8 @@ impl_from!(CssColorParseError<'a>, CssGradientStopParseError::ColorParseError);
 
 
 // parses "red" , "red 5%"
-pub fn parse_gradient_stop<'a>(input: &'a str)
--> Result<GradientStopPre, CssGradientStopParseError<'a>>
+pub fn parse_linear_color_stop<'a>(input: &'a str)
+-> Result<LinearColorStop, CssGradientStopParseError<'a>>
 {
     use self::CssGradientStopParseError::*;
 
@@ -2321,10 +2394,48 @@ pub fn parse_gradient_stop<'a>(input: &'a str)
     let color = parse_css_color(color_str)?;
     let offset = match percentage_str {
         None => OptionPercentageValue::None,
-        Some(s) => OptionPercentageValue::Some(parse_percentage(s).map_err(|e| Percentage(e))?)
+        Some(s) => OptionPercentageValue::Some(parse_percentage_value(s).map_err(|e| Percentage(e))?)
     };
 
-    Ok(GradientStopPre { offset, color: color })
+    Ok(LinearColorStop { offset, color: color })
+}
+
+// parses "red" , "red 5%"
+pub fn parse_radial_color_stop<'a>(input: &'a str)
+-> Result<RadialColorStop, CssGradientStopParseError<'a>>
+{
+    use self::CssGradientStopParseError::*;
+    use azul_css::OptionAngleValue;
+
+    let input = input.trim();
+
+    // Color functions such as "rgba(...)" can contain spaces, so we parse right-to-left.
+    let (color_str, percentage_str) = match (input.rfind(')'), input.rfind(char::is_whitespace)) {
+        (Some(closing_brace), None) if closing_brace < input.len() - 1 => {
+            // percentage after closing brace, eg. "rgb(...)50%"
+            (&input[..=closing_brace], Some(&input[(closing_brace + 1)..]))
+        },
+        (None, Some(last_ws)) => {
+            // percentage after last whitespace, eg. "... 50%"
+            (&input[..=last_ws], Some(&input[(last_ws + 1)..]))
+        }
+        (Some(closing_brace), Some(last_ws)) if closing_brace < last_ws => {
+            // percentage after last whitespace, eg. "... 50%"
+            (&input[..=last_ws], Some(&input[(last_ws + 1)..]))
+        },
+        _ => {
+            // no percentage
+            (input, None)
+        },
+    };
+
+    let color = parse_css_color(color_str)?;
+    let offset = match percentage_str {
+        None => OptionAngleValue::None,
+        Some(s) => OptionAngleValue::Some(parse_angle_value(s).map_err(|e| Angle(e))?)
+    };
+
+    Ok(RadialColorStop { offset, color: color })
 }
 
 // parses "5%" -> 5
@@ -2381,65 +2492,98 @@ impl<'a> From<CssDirectionCornerParseError<'a>> for CssDirectionParseError<'a> {
 pub fn parse_direction<'a>(input: &'a str)
 -> Result<Direction, CssDirectionParseError<'a>>
 {
-    use std::f32::consts::PI;
-
     let input_iter = input.split_whitespace();
     let count = input_iter.clone().count();
     let mut first_input_iter = input_iter.clone();
+
     // "50deg" | "to" | "right"
     let first_input = first_input_iter.next().ok_or(CssDirectionParseError::Error(input))?;
 
-    let deg = {
-        if first_input.ends_with("grad") {
-            first_input.split("grad").next().unwrap().parse::<f32>()? / 400.0 * 360.0
-        } else if first_input.ends_with("rad") {
-            first_input.split("rad").next().unwrap().parse::<f32>()? * 180.0 / PI
-        } else if first_input.ends_with("deg") || first_input.parse::<f32>().is_ok() {
-            first_input.split("deg").next().unwrap().parse::<f32>()?
-        } else if let Ok(angle) = first_input.parse::<f32>() {
-            angle
+    if let Some(angle) = parse_angle_value(first_input).ok() {
+        Ok(Direction::Angle(angle))
+    } else {
+        // the input is not an angle
+
+        if first_input != "to" {
+            return Err(CssDirectionParseError::InvalidArguments(input));
         }
-        else {
-            // if we get here, the input is definitely not an angle
 
-            if first_input != "to" {
-                return Err(CssDirectionParseError::InvalidArguments(input));
-            }
+        let second_input = first_input_iter.next().ok_or(CssDirectionParseError::Error(input))?;
+        let end = parse_direction_corner(second_input)?;
 
-            let second_input = first_input_iter.next().ok_or(CssDirectionParseError::Error(input))?;
-            let end = parse_direction_corner(second_input)?;
+        return match count {
+            2 => {
+                // "to right"
+                let start = end.opposite();
+                Ok(Direction::FromTo(DirectionCorners { from: start, to: end }))
+            },
+            3 => {
+                // "to bottom right"
+                let beginning = end;
+                let third_input = first_input_iter.next().ok_or(CssDirectionParseError::Error(input))?;
+                let new_end = parse_direction_corner(third_input)?;
+                // "Bottom, Right" -> "BottomRight"
+                let new_end = beginning.combine(&new_end).ok_or(CssDirectionParseError::Error(input))?;
+                let start = new_end.opposite();
+                Ok(Direction::FromTo(DirectionCorners { from: start, to: new_end }))
+            },
+            _ => { Err(CssDirectionParseError::InvalidArguments(input)) }
+        };
+    }
+}
 
-            return match count {
-                2 => {
-                    // "to right"
-                    let start = end.opposite();
-                    Ok(Direction::FromTo(DirectionCorners { from: start, to: end }))
-                },
-                3 => {
-                    // "to bottom right"
-                    let beginning = end;
-                    let third_input = first_input_iter.next().ok_or(CssDirectionParseError::Error(input))?;
-                    let new_end = parse_direction_corner(third_input)?;
-                    // "Bottom, Right" -> "BottomRight"
-                    let new_end = beginning.combine(&new_end).ok_or(CssDirectionParseError::Error(input))?;
-                    let start = new_end.opposite();
-                    Ok(Direction::FromTo(DirectionCorners { from: start, to: new_end }))
-                },
-                _ => { Err(CssDirectionParseError::InvalidArguments(input)) }
-            };
-        }
-    };
 
-    // clamp the degree to 360 (so 410deg = 50deg)
-    let mut deg = deg % 360.0;
-    if deg < 0.0 {
-        deg = 360.0 + deg;
+#[derive(Clone, PartialEq)]
+pub enum CssAngleValueParseError<'a> {
+    EmptyString,
+    NoValueGiven(&'a str, AngleMetric),
+    ValueParseErr(ParseFloatError, &'a str),
+    InvalidAngle(&'a str),
+}
+
+impl_debug_as_display!(CssAngleValueParseError<'a>);
+
+impl_display!{ CssAngleValueParseError<'a>, {
+    EmptyString => format!("Missing [rad / deg / turn / %] value"),
+    NoValueGiven(input, metric) => format!("Expected floating-point angle value, got: \"{}{}\"", input, metric),
+    ValueParseErr(err, number_str) => format!("Could not parse \"{}\" as floating-point value: \"{}\"", number_str, err),
+    InvalidAngle(s) => format!("Invalid angle value: \"{}\"", s),
+}}
+
+/// parses an angle value like `30deg`, `1.64rad`, `100%`, etc.
+pub fn parse_angle_value<'a>(input: &'a str)
+-> Result<AngleValue, CssAngleValueParseError<'a>>
+{
+    let input = input.trim();
+
+    if input.is_empty() {
+        return Err(CssAngleValueParseError::EmptyString);
     }
 
-    // now deg is in the range of +0..+360
-    debug_assert!(deg >= 0.0 && deg <= 360.0);
+    let match_values = &[
+        ("deg", AngleMetric::Degree),
+        ("turn", AngleMetric::Turn),
+        ("rad", AngleMetric::Radians),
+        ("grad", AngleMetric::Grad),
+        ("%", AngleMetric::Percent),
+    ];
 
-    return Ok(Direction::Angle(FloatValue::new(deg)));
+    for (match_val, metric) in match_values {
+        if input.ends_with(match_val) {
+            let value = &input[..input.len() - match_val.len()];
+            let value = value.trim();
+            if value.is_empty() { return Err(CssAngleValueParseError::NoValueGiven(input, *metric)); }
+            match value.parse::<f32>() {
+                Ok(o) => { return Ok(AngleValue::from_metric(*metric, o)); },
+                Err(e) => { return Err(CssAngleValueParseError::ValueParseErr(e, value)); },
+            }
+        }
+    }
+
+    match input.parse::<f32>() {
+        Ok(o) => Ok(AngleValue::from_metric(AngleMetric::Percent, o * 100.0)),
+        Err(e) => Err(CssAngleValueParseError::InvalidAngle(input)),
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -2731,9 +2875,34 @@ multi_type_parser!(parse_style_backface_visibility, StyleBackfaceVisibility,
                     ["hidden", Hidden],
                     ["visible", Visible]);
 
-multi_type_parser!(parse_style_background_size, StyleBackgroundSize,
-                    ["contain", Contain],
-                    ["cover", Cover]);
+pub fn parse_style_background_size<'a>(input: &'a str)
+-> Result<StyleBackgroundSize, InvalidValueErr<'a>>
+{
+    let input = input.trim();
+    match input {
+        "contain" => Ok(StyleBackgroundSize::Contain),
+        "cover" => Ok(StyleBackgroundSize::Cover),
+        other => {
+            let other = other.trim();
+            let mut iter = other.split_whitespace();
+            let x_pos = iter.next().ok_or(InvalidValueErr(input))?;
+            let x_pos = parse_pixel_value(x_pos).map_err(|_| InvalidValueErr(input))?;
+            let y_pos = iter.next().ok_or(InvalidValueErr(input))?;
+            let y_pos = parse_pixel_value(y_pos).map_err(|_| InvalidValueErr(input))?;
+            Ok(StyleBackgroundSize::ExactSize([x_pos, y_pos]))
+        }
+    }
+}
+
+impl FormatAsCssValue for StyleBackgroundSize {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            StyleBackgroundSize::Contain => write!(f, "contain"),
+            StyleBackgroundSize::Cover => write!(f, "cover"),
+            StyleBackgroundSize::ExactSize([x, y]) => write!(f, "{} {}", x, y),
+        }
+    }
+}
 
 multi_type_parser!(parse_style_background_repeat, StyleBackgroundRepeat,
                     ["no-repeat", NoRepeat],
@@ -2824,7 +2993,7 @@ mod css_tests {
     fn test_parse_box_shadow_2() {
         assert_eq!(
             parse_style_box_shadow("5px 10px"),
-            Ok(BoxShadowPreDisplayItem {
+            Ok(StyleBoxShadow {
                 offset: [
                     PixelValueNoPercent { inner: PixelValue::px(5.0) },
                     PixelValueNoPercent { inner: PixelValue::px(10.0) },
@@ -2846,7 +3015,7 @@ mod css_tests {
     fn test_parse_box_shadow_3() {
         assert_eq!(
             parse_style_box_shadow("5px 10px #888888"),
-            Ok(BoxShadowPreDisplayItem {
+            Ok(StyleBoxShadow {
                 offset: [
                     PixelValueNoPercent { inner: PixelValue::px(5.0) },
                     PixelValueNoPercent { inner: PixelValue::px(10.0) },
@@ -2868,7 +3037,7 @@ mod css_tests {
     fn test_parse_box_shadow_4() {
         assert_eq!(
             parse_style_box_shadow("5px 10px inset"),
-            Ok(BoxShadowPreDisplayItem {
+            Ok(StyleBoxShadow {
                 offset: [
                     PixelValueNoPercent { inner: PixelValue::px(5.0) },
                     PixelValueNoPercent { inner: PixelValue::px(10.0) },
@@ -2890,7 +3059,7 @@ mod css_tests {
     fn test_parse_box_shadow_5() {
         assert_eq!(
             parse_style_box_shadow("5px 10px outset"),
-            Ok(BoxShadowPreDisplayItem {
+            Ok(StyleBoxShadow {
                 offset: [
                     PixelValueNoPercent { inner: PixelValue::px(5.0) },
                     PixelValueNoPercent { inner: PixelValue::px(10.0) },
@@ -2912,7 +3081,7 @@ mod css_tests {
     fn test_parse_box_shadow_6() {
         assert_eq!(
             parse_style_box_shadow("5px 10px 5px #888888"),
-            Ok(BoxShadowPreDisplayItem {
+            Ok(StyleBoxShadow {
                 offset: [
                     PixelValueNoPercent { inner: PixelValue::px(5.0) },
                     PixelValueNoPercent { inner: PixelValue::px(10.0) },
@@ -2934,7 +3103,7 @@ mod css_tests {
     fn test_parse_box_shadow_7() {
         assert_eq!(
             parse_style_box_shadow("5px 10px #888888 inset"),
-            Ok(BoxShadowPreDisplayItem {
+            Ok(StyleBoxShadow {
                 offset: [
                     PixelValueNoPercent { inner: PixelValue::px(5.0) },
                     PixelValueNoPercent { inner: PixelValue::px(10.0) },
@@ -2956,7 +3125,7 @@ mod css_tests {
     fn test_parse_box_shadow_8() {
         assert_eq!(
             parse_style_box_shadow("5px 10px 5px #888888 inset"),
-            Ok(BoxShadowPreDisplayItem {
+            Ok(StyleBoxShadow {
                 offset: [
                     PixelValueNoPercent { inner: PixelValue::px(5.0) },
                     PixelValueNoPercent { inner: PixelValue::px(10.0) },
@@ -2978,7 +3147,7 @@ mod css_tests {
     fn test_parse_box_shadow_9() {
         assert_eq!(
             parse_style_box_shadow("5px 10px 5px 10px #888888"),
-            Ok(BoxShadowPreDisplayItem {
+            Ok(StyleBoxShadow {
                 offset: [
                     PixelValueNoPercent { inner: PixelValue::px(5.0) },
                     PixelValueNoPercent { inner: PixelValue::px(10.0) },
@@ -3000,7 +3169,7 @@ mod css_tests {
     fn test_parse_box_shadow_10() {
         assert_eq!(
             parse_style_box_shadow("5px 10px 5px 10px #888888 inset"),
-            Ok(BoxShadowPreDisplayItem {
+            Ok(StyleBoxShadow {
                 offset: [
                     PixelValueNoPercent { inner: PixelValue::px(5.0) },
                     PixelValueNoPercent { inner: PixelValue::px(10.0) },
@@ -3565,7 +3734,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_pixel_value_4() {
-        assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(PixelParseError::NoValueGiven("aslkfdjasdflk")));
+        assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(CssPixelValueParseError::NoValueGiven("aslkfdjasdflk")));
     }
 
     #[test]

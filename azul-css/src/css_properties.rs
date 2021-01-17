@@ -449,6 +449,12 @@ pub enum ExtendMode {
     Repeat,
 }
 
+impl Default for ExtendMode {
+    fn default() -> Self {
+        ExtendMode::Clamp
+    }
+}
+
 /// Style of a `border`: solid, double, dash, ridge, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 #[repr(C)]
@@ -1394,6 +1400,7 @@ impl_from_css_prop!(StyleBorderTopWidth, CssProperty::BorderTopWidth);
 impl_from_css_prop!(StyleBorderRightWidth, CssProperty::BorderRightWidth);
 impl_from_css_prop!(StyleBorderLeftWidth, CssProperty::BorderLeftWidth);
 impl_from_css_prop!(StyleBorderBottomWidth, CssProperty::BorderBottomWidth);
+impl_from_css_prop!(ScrollbarStyle, CssProperty::ScrollbarStyle);
 impl_from_css_prop!(StyleOpacity, CssProperty::Opacity);
 impl_from_css_prop!(StyleTransformVec, CssProperty::Transform);
 impl_from_css_prop!(StyleTransformOrigin, CssProperty::TransformOrigin);
@@ -1448,7 +1455,7 @@ impl fmt::Display for AngleValue {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum AngleMetric {
     Degree,
@@ -1560,13 +1567,19 @@ impl AngleValue {
     /// Returns the value of the AngleMetric in degrees
     #[inline]
     pub fn to_degrees(&self) -> f32 {
-        match self.metric {
+        let val = match self.metric {
             AngleMetric::Degree => self.number.get(),
             AngleMetric::Radians => self.number.get() / 400.0 * 360.0,
             AngleMetric::Grad => self.number.get() / (2.0 * std::f32::consts::PI) * 360.0,
             AngleMetric::Turn => self.number.get() * 360.0,
             AngleMetric::Percent => self.number.get() / 100.0 * 360.0,
-        }
+        };
+
+
+        // clamp the degree to a positive value from 0 to 360 (so 410deg = 50deg)
+        let mut val = val % 360.0;
+        if val < 0.0 { val = 360.0 + val; }
+        val
     }
 }
 
@@ -2028,7 +2041,7 @@ impl<'a> From<CssImageId> for StyleBackgroundContent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LinearGradient {
     pub direction: Direction,
@@ -2036,7 +2049,7 @@ pub struct LinearGradient {
     pub stops: LinearColorStopVec,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ConicGradient {
     pub extend_mode: ExtendMode, // default = clamp (no-repeat)
@@ -2046,7 +2059,161 @@ pub struct ConicGradient {
     pub stops: RadialColorStopVec, // default = []
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// normalized linear color stop
+#[derive(Debug, Clone, PartialEq)]
+pub struct NormalizedLinearColorStop {
+    pub offset: PercentageValue, // 0 to 100% // -- todo: theoretically this should be PixelValue
+    pub color: ColorU,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NormalizedRadialColorStop {
+    pub angle: AngleValue, // 0 to 360 degrees
+    pub color: ColorU,
+}
+
+impl LinearColorStopVec {
+    pub fn get_normalized_linear_stops(&self) -> Vec<NormalizedLinearColorStop> {
+
+
+        let mut last_stop = MIN_STOP_DEGREE;
+        let mut stops = Vec::new();
+        let mut i = 0;
+
+        const MIN_STOP_DEGREE: PercentageValue = PercentageValue::const_new(0);
+        const MAX_STOP_DEGREE: PercentageValue = PercentageValue::const_new(360);
+
+        let self_stops = self.as_ref();
+
+        'outer: loop {
+            if i >= self_stops.len() { break; }
+            let stop = &self_stops[i];
+            if let Some(s) = stop.offset.into_option() {
+                let cs = s.get().max(last_stop.get()).min(MAX_STOP_DEGREE.get());
+                last_stop = PercentageValue::new(cs);
+                stops.push(NormalizedLinearColorStop { offset: last_stop, color: stop.color });
+                i += 1;
+            } else {
+                let (_, remaining_color_stops) = self_stops.split_at(i);
+
+                let mut next_percentage = None;
+                let mut values_until_next_percentage = 0;
+
+                // iterate until we find the next value where the offset isn't None
+                // or the array is finished
+                'inner: for next_stop in remaining_color_stops.iter() {
+                    values_until_next_percentage += 1;
+                    if let Some(next_offset) = next_stop.offset.as_ref() {
+                        next_percentage = Some(*next_offset);
+                        break 'inner;
+                    }
+                }
+
+                if values_until_next_percentage == 0 {
+                    // this stop is the last stop
+                    stops.push(NormalizedLinearColorStop {
+                        offset: MAX_STOP_DEGREE,
+                        color: stop.color
+                    });
+                    break 'outer;
+                }
+
+                let next = next_percentage.unwrap_or(MAX_STOP_DEGREE).get().max(MIN_STOP_DEGREE.get()).min(MAX_STOP_DEGREE.get());
+                let max_stop = last_stop.get().max(next);
+                let min_stop = last_stop.get().min(next);
+                let increase_per_stop = (max_stop - min_stop) / values_until_next_percentage as f32;
+
+                for j in 0..values_until_next_percentage {
+                    stops.push(NormalizedLinearColorStop {
+                        offset: PercentageValue::new(min_stop + increase_per_stop * j as f32),
+                        color: self_stops[i + j].color
+                    });
+                }
+
+                if next_percentage.is_none() {
+                    break 'outer; // all stops until end were processed
+                }
+
+                last_stop = PercentageValue::new(max_stop);
+                i += values_until_next_percentage;
+            }
+        }
+
+        stops
+    }
+}
+
+impl RadialColorStopVec {
+    pub fn get_normalized_linear_stops(&self) -> Vec<NormalizedRadialColorStop> {
+
+        let mut last_stop = MIN_STOP_DEGREE;
+        let mut stops = Vec::new();
+        let mut i = 0;
+
+        const MIN_STOP_DEGREE: AngleValue = AngleValue::const_deg(0);
+        const MAX_STOP_DEGREE: AngleValue = AngleValue::const_deg(360);
+
+        let self_stops = self.as_ref();
+
+        'outer: loop {
+            if i >= self_stops.len() { break; }
+            let stop = &self_stops[i];
+            if let Some(s) = stop.offset.into_option() {
+                let cs = s.to_degrees().max(last_stop.to_degrees()).min(MAX_STOP_DEGREE.to_degrees());
+                last_stop = AngleValue::deg(cs);
+                stops.push(NormalizedRadialColorStop { angle: last_stop, color: stop.color });
+                i += 1;
+            } else {
+                let (_, remaining_color_stops) = self_stops.split_at(i);
+
+                let mut next_percentage = None;
+                let mut values_until_next_percentage = 0;
+
+                // iterate until we find the next value where the offset isn't None
+                // or the array is finished
+                'inner: for next_stop in remaining_color_stops.iter() {
+                    values_until_next_percentage += 1;
+                    if let Some(next_offset) = next_stop.offset.as_ref() {
+                        next_percentage = Some(*next_offset);
+                        break 'inner;
+                    }
+                }
+
+                if values_until_next_percentage == 0 {
+                    // this stop is the last stop
+                    stops.push(NormalizedRadialColorStop {
+                        angle: MAX_STOP_DEGREE,
+                        color: stop.color
+                    });
+                    break 'outer;
+                }
+
+                let next = next_percentage.unwrap_or(MAX_STOP_DEGREE).to_degrees().max(MIN_STOP_DEGREE.to_degrees()).min(MAX_STOP_DEGREE.to_degrees());
+                let max_stop = last_stop.to_degrees().max(next);
+                let min_stop = last_stop.to_degrees().min(next);
+                let increase_per_stop = (max_stop - min_stop) / values_until_next_percentage as f32;
+
+                for j in 0..values_until_next_percentage {
+                    stops.push(NormalizedRadialColorStop {
+                        angle: AngleValue::deg(min_stop + increase_per_stop * j as f32),
+                        color: self_stops[i + j].color
+                    });
+                }
+
+                if next_percentage.is_none() {
+                    break 'outer; // all stops until end were processed
+                }
+
+                last_stop = AngleValue::deg(max_stop);
+                i += values_until_next_percentage;
+            }
+        }
+
+        stops
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct RadialGradient {
     pub shape: Shape,
@@ -2068,6 +2235,15 @@ pub struct DirectionCorners {
 pub enum Direction {
     Angle(AngleValue),
     FromTo(DirectionCorners),
+}
+
+impl Default for Direction {
+    fn default() -> Self {
+        Direction::FromTo(DirectionCorners {
+            from: DirectionCorner::Top,
+            to: DirectionCorner::Bottom
+        })
+    }
 }
 
 impl Direction {
@@ -2142,6 +2318,12 @@ impl Direction {
 pub enum Shape {
     Ellipse,
     Circle,
+}
+
+impl Default for Shape {
+    fn default() -> Self {
+        Shape::Ellipse
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -3045,8 +3227,6 @@ pub struct ScrollbarInfo {
     pub resizer: StyleBackgroundContent,
 }
 
-impl_option!(ScrollbarInfo, OptionScrollbarInfo, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-
 impl Default for ScrollbarInfo {
     fn default() -> Self {
         ScrollbarInfo {
@@ -3063,13 +3243,13 @@ impl Default for ScrollbarInfo {
 }
 
 /// Scrollbar style
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ScrollbarStyle {
     /// Vertical scrollbar style, if any
-    pub horizontal: OptionScrollbarInfo,
+    pub horizontal: ScrollbarInfo,
     /// Horizontal scrollbar style, if any
-    pub vertical: OptionScrollbarInfo,
+    pub vertical: ScrollbarInfo,
 }
 
 /*

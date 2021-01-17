@@ -283,6 +283,12 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         }
     }
 
+    impl From<&[$struct_type]> for $struct_name {
+        fn from(input: &[$struct_type]) -> $struct_name {
+            input.to_vec().into()
+        }
+    }
+
     impl std::iter::Extend<$struct_type> for $struct_name {
         fn extend<T: std::iter::IntoIterator<Item=$struct_type>>(&mut self, iter: T) {
             for elem in iter {
