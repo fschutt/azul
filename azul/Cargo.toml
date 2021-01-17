@@ -17,6 +17,7 @@ exclude = ["../assets/*", "../doc/*", "../examples/*"]
 autoexamples = false
 edition = "2018"
 build = "build.rs"
+links = "azul"
 
 [lib]
 path = "src/rust/lib.rs"
@@ -61,7 +62,7 @@ path = "../examples/svg/svg.rs"
 
 [[example]]
 name = "table"
-path = "../examples/table/table.rs"
+path = "../examples/table.rs"
 
 [[example]]
 name = "text_input"
