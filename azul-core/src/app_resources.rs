@@ -5,7 +5,7 @@ use std::{
     num::NonZeroU16,
     any::Any,
 };
-use azul_css::{LayoutRect, RectStyle, StyleFontSize, ColorU, U8Vec, AzString};
+use azul_css::{LayoutRect, StyleFontSize, ColorU, U8Vec, AzString};
 use crate::{
     FastHashMap, FastHashSet,
     ui_solver::ResolvedTextLayoutOptions,
@@ -1413,18 +1413,6 @@ impl Au {
     }
     pub fn into_px(&self) -> f32 { self.0 as f32 / AU_PER_PX as f32 }
 }
-
-pub fn get_font_id(rect_style: &RectStyle) -> &str {
-    use crate::ui_solver::DEFAULT_FONT_ID;
-    let font_id = rect_style.font_family.as_ref().and_then(|family| family.get_property()?.fonts.get(0));
-    font_id.map(|f| f.as_str()).unwrap_or(DEFAULT_FONT_ID)
-}
-
-pub fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
-    use crate::ui_solver::DEFAULT_FONT_SIZE;
-    rect_style.font_size.as_ref().and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_FONT_SIZE)
-}
-
 
 /// Scans the display list for all font IDs + their font size
 pub fn scan_styled_nodes_for_font_keys(

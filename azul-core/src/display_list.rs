@@ -5,7 +5,7 @@ use std::{
 use azul_css::{
     LayoutPoint, LayoutSize, LayoutRect,
     StyleBackgroundRepeat, StyleBackgroundPosition, ColorU, BoxShadowClipMode,
-    LinearGradient, RadialGradient, BoxShadowPreDisplayItem, StyleBackgroundSize,
+    LinearGradient, RadialGradient, StyleBoxShadow, StyleBackgroundSize,
     CssPropertyValue, RectLayout,
 
     StyleBorderTopWidth, StyleBorderRightWidth, StyleBorderBottomWidth, StyleBorderLeftWidth,
@@ -394,14 +394,14 @@ pub struct StyleBorderStyles {
 tlbr_debug!(StyleBorderStyles);
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBoxShadow {
-    pub top: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
-    pub right: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
-    pub bottom: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
-    pub left: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
+pub struct BoxShadow {
+    pub top: Option<CssPropertyValue<StyleBoxShadow>>,
+    pub right: Option<CssPropertyValue<StyleBoxShadow>>,
+    pub bottom: Option<CssPropertyValue<StyleBoxShadow>>,
+    pub left: Option<CssPropertyValue<StyleBoxShadow>>,
 }
 
-tlbr_debug!(StyleBoxShadow);
+tlbr_debug!(BoxShadow);
 
 #[derive(Clone, PartialEq, PartialOrd)]
 pub enum LayoutRectContent {
@@ -432,7 +432,7 @@ pub enum LayoutRectContent {
         styles: StyleBorderStyles,
     },
     BoxShadow {
-        shadow: StyleBoxShadow,
+        shadow: BoxShadow,
         clip_mode: BoxShadowClipMode,
     },
 }
@@ -801,7 +801,7 @@ pub fn displaylist_handle_rect<'a>(
 
     if styled_node.style.has_box_shadow() {
         frame.content.push(LayoutRectContent::BoxShadow {
-            shadow: StyleBoxShadow {
+            shadow: BoxShadow {
                 left: styled_node.style.box_shadow_left.as_ref().cloned(),
                 right: styled_node.style.box_shadow_right.as_ref().cloned(),
                 top: styled_node.style.box_shadow_top.as_ref().cloned(),
@@ -926,7 +926,7 @@ pub fn displaylist_handle_rect<'a>(
 
     if styled_node.style.has_box_shadow() {
         frame.content.push(LayoutRectContent::BoxShadow {
-            shadow: StyleBoxShadow {
+            shadow: BoxShadow {
                 left: styled_node.style.box_shadow_left.as_ref().copied(),
                 right: styled_node.style.box_shadow_right.as_ref().copied(),
                 top: styled_node.style.box_shadow_top.as_ref().copied(),

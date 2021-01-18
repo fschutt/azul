@@ -529,6 +529,33 @@ pub struct CallbackData {
     pub data: RefAny,
 }
 
+#[repr(C)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum IdOrClass {
+    Id(AzString),
+    Class(AzString),
+}
+
+#[repr(C)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum NodeDataInlinePropertyKey {
+    Normal,
+    Active,
+    Focus,
+    Hover,
+}
+
+// memory optimization: store all inline-normal / inline-hover / inline-* attributes
+// as one Vec instad of 4 separate Vecs
+#[repr(C)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NodeDataInlineCssProperty {
+    pub key: NodeDataInlinePropertyKey,
+    pub value: CssProperty,
+}
+
+impl_vec!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
+
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 #[repr(C)]
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -537,27 +564,13 @@ pub struct NodeData {
     node_type: NodeType,
     /// data-* attributes for this node, useful to store UI-related data on the node itself
     dataset: OptionRefAny,
-    /// `#main #something`
-    ids: StringVec,
-    /// `.myclass .otherclass`
-    classes: StringVec,
+    /// stores all ids and classes as one vec - size optimization since
+    /// most nodes don't have any classes or IDs
+    ids_and_classes: IdOrClassVec,
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
     callbacks: CallbackDataVec,
     /// Stores the inline CSS properties, same as in HTML
-    ///
-    /// ```rust,ignore
-    /// let node = NodeData {
-    ///     id: Some("my_item".into()),
-    ///     inline_css_props: vec![CssProperty::Width(LayoutWidth::px(500.0))]
-    /// }
-    /// ```
-    inline_css_props: CssPropertyVec,
-    /// Inline CSS properties that are activated on `:hover`
-    inline_hover_css_props: CssPropertyVec,
-    /// Inline CSS properties that are activated on `:active`
-    inline_active_css_props: CssPropertyVec,
-    /// Inline CSS properties that are activated on `:focus`
-    inline_focus_css_props: CssPropertyVec,
+    inline_css_props: NodeDataInlineCssPropertyVec,
     /// Optional clip mask for this DOM node
     clip_mask: OptionImageMask,
     /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .

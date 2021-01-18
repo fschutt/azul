@@ -54,6 +54,18 @@ extern "C" fn layout(data: &RefAny, _info: LayoutInfo) -> StyledDom {
 }
 
 fn main() {
+    use azul::dom::NodeData;
+    use azul::style::RectStyle;
+    use azul::style::RectLayout;
+    use azul::vec::CssPropertyVec;
+    use azul::vec::StringVec;
+
+    // rectstyle: 1192 bytes
+    // rectlayout: 896 bytes
+
+    // total optimization = 8.3 MB saved @ 4000 nodes (2184 bytes per node)
+    // 24000 nodes -> ~50MB (currently: 250MB)
+
     let data = Data { counter: 5 };
     let app = App::new(RefAny::new(data), AppConfig::default());
     app.run(WindowCreateOptions::new(layout));
