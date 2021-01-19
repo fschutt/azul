@@ -193,14 +193,9 @@ pub(crate) fn construct_html_cascade_tree(node_hierarchy: &NodeHierarchyRef, nod
 }
 
 /// TODO: This is wrong, but it's fast
-pub fn classify_css_path(path: &CssPath) -> StyledNodeState {
-    use azul_css::{CssPathSelector::*, CssPathPseudoSelector::*};
-    match path.selectors.as_ref().last() {
-        Some(PseudoSelector(Hover)) => StyledNodeState::Hover,
-        Some(PseudoSelector(Active)) => StyledNodeState::Active,
-        Some(PseudoSelector(Focus)) => StyledNodeState::Focused,
-        _ => StyledNodeState::Normal
-    }
+#[inline]
+pub fn rule_ends_with(path: &CssPath, target: Option<CssPathSelector>) -> bool {
+    path.selectors.as_ref().last() == target.as_ref()
 }
 
 /// Matches a single group of items, panics on Children or DirectChildren selectors
@@ -224,12 +219,12 @@ pub(crate) fn selector_group_matches(
                 }
             },
             Class(c) => {
-                if !node_data.get_classes().iter().any(|class| class == c) {
+                if !node_data.get_ids_and_classes().iter().filter_map(|i| i.as_class()).any(|class| class == c.as_str()) {
                     return false;
                 }
             },
             Id(id) => {
-                if !node_data.get_ids().iter().any(|html_id| html_id == id) {
+                if !node_data.get_ids_and_classes().iter().filter_map(|i| i.as_id()).any(|html_id| html_id == id.as_str()) {
                     return false;
                 }
             },

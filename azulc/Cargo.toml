@@ -23,7 +23,7 @@ path = "src/main.rs"
 [dependencies]
 gleam                   = { version = "0.13.1",          default-features = false }
 xmlparser               = { version = "0.13.3",          default-features = false }
-azul-core               = { path = "../azul-core",       version = "0.0.2",          default-features = false, features = ["parallel", "opengl"] }
+azul-core               = { path = "../azul-core",       version = "0.0.2",          default-features = false, features = ["opengl"] }
 azul-css                = { path = "../azul-css",        version = "0.0.1",          default-features = false }
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",          default-features = false }
 azul-layout             = { path = "../azul-layout",     default-features = false }

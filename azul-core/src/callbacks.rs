@@ -798,7 +798,7 @@ impl IFrameCallbackInfo {
     fn internal_get_bounds<'a>(&'a self) -> HidpiAdjustedBounds { self.bounds }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq)]
 #[repr(C)]
 pub struct IFrameCallbackReturn {
     pub styled_dom: StyledDom,

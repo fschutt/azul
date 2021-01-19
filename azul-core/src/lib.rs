@@ -1,5 +1,6 @@
 //! Shared datatypes for azul-* crates
 
+extern crate rayon;
 #[macro_use]
 extern crate azul_css;
 #[cfg(feature = "opengl")]

@@ -4,7 +4,7 @@ use core::num::{ParseIntError, ParseFloatError};
 use core::fmt;
 use azul_css::{
     CssPropertyType, CssProperty, CombinedCssPropertyType, CssPropertyValue,
-    Overflow, Shape, PixelValue, AngleValue, AngleMetric, PixelValueNoPercent,
+    LayoutOverflow, Shape, PixelValue, AngleValue, AngleMetric, PixelValueNoPercent,
     PercentageValue, FloatValue, ColorU, LinearColorStop, LinearGradient,
     RadialColorStop, RadialGradient, ConicGradient,
     DirectionCorner, DirectionCorners, Direction, CssImageId,
@@ -19,15 +19,15 @@ use azul_css::{
     StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleBorderTopColor,
     StyleBorderRightColor, StyleBorderLeftColor, StyleBorderBottomColor,
     StyleBorderTopStyle, StyleBorderRightStyle, StyleBorderLeftStyle,
-    StyleBorderBottomStyle, StyleBorderTopWidth, StyleBorderRightWidth,
-    StyleBorderLeftWidth, StyleBorderBottomWidth, StyleTransform, StyleTransformOrigin,
+    StyleBorderBottomStyle, LayoutBorderTopWidth, LayoutBorderRightWidth,
+    LayoutBorderLeftWidth, LayoutBorderBottomWidth, StyleTransform, StyleTransformOrigin,
     StylePerspectiveOrigin, StyleBackfaceVisibility, StyleOpacity, StyleTransformVec,
     StyleBackgroundContentVec, StyleBackgroundPositionVec, StyleBackgroundSizeVec,
     StyleBackgroundRepeatVec,
 
     LayoutDisplay, LayoutFloat, LayoutWidth, LayoutHeight, LayoutBoxSizing,
     LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, LayoutMaxHeight,
-    LayoutPosition, LayoutTop, LayoutRight, LayoutLeft, LayoutBottom, LayoutWrap,
+    LayoutPosition, LayoutTop, LayoutRight, LayoutLeft, LayoutBottom, LayoutFlexWrap,
     LayoutFlexDirection, LayoutFlexGrow, LayoutFlexShrink, LayoutJustifyContent,
     LayoutAlignItems, LayoutAlignContent, LayoutPaddingRight, LayoutPaddingBottom,
     LayoutMarginTop, LayoutMarginLeft, LayoutMarginRight, LayoutMarginBottom,
@@ -463,10 +463,10 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
                CssProperty::BorderRightStyle(StyleBorderRightStyle { inner: border.border_style }.into()),
                CssProperty::BorderLeftStyle(StyleBorderLeftStyle { inner: border.border_style }.into()),
                CssProperty::BorderBottomStyle(StyleBorderBottomStyle { inner: border.border_style }.into()),
-               CssProperty::BorderTopWidth(StyleBorderTopWidth { inner: border.border_width }.into()),
-               CssProperty::BorderRightWidth(StyleBorderRightWidth { inner: border.border_width }.into()),
-               CssProperty::BorderLeftWidth(StyleBorderLeftWidth { inner: border.border_width }.into()),
-               CssProperty::BorderBottomWidth(StyleBorderBottomWidth { inner: border.border_width }.into()),
+               CssProperty::BorderTopWidth(LayoutBorderTopWidth { inner: border.border_width }.into()),
+               CssProperty::BorderRightWidth(LayoutBorderRightWidth { inner: border.border_width }.into()),
+               CssProperty::BorderLeftWidth(LayoutBorderLeftWidth { inner: border.border_width }.into()),
+               CssProperty::BorderBottomWidth(LayoutBorderBottomWidth { inner: border.border_width }.into()),
             ])
         },
         BorderLeft => {
@@ -474,7 +474,7 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
             Ok(vec![
                CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: border.border_color }.into()),
                CssProperty::BorderLeftStyle(StyleBorderLeftStyle { inner: border.border_style }.into()),
-               CssProperty::BorderLeftWidth(StyleBorderLeftWidth { inner: border.border_width }.into()),
+               CssProperty::BorderLeftWidth(LayoutBorderLeftWidth { inner: border.border_width }.into()),
             ])
         },
         BorderRight => {
@@ -482,7 +482,7 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
             Ok(vec![
                CssProperty::BorderRightColor(StyleBorderRightColor { inner: border.border_color }.into()),
                CssProperty::BorderRightStyle(StyleBorderRightStyle { inner: border.border_style }.into()),
-               CssProperty::BorderRightWidth(StyleBorderRightWidth { inner: border.border_width }.into()),
+               CssProperty::BorderRightWidth(LayoutBorderRightWidth { inner: border.border_width }.into()),
             ])
         },
         BorderTop => {
@@ -490,7 +490,7 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
             Ok(vec![
                CssProperty::BorderTopColor(StyleBorderTopColor { inner: border.border_color }.into()),
                CssProperty::BorderTopStyle(StyleBorderTopStyle { inner: border.border_style }.into()),
-               CssProperty::BorderTopWidth(StyleBorderTopWidth { inner: border.border_width }.into()),
+               CssProperty::BorderTopWidth(LayoutBorderTopWidth { inner: border.border_width }.into()),
             ])
         },
         BorderBottom => {
@@ -498,7 +498,7 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
             Ok(vec![
                CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: border.border_color }.into()),
                CssProperty::BorderBottomStyle(StyleBorderBottomStyle { inner: border.border_style }.into()),
-               CssProperty::BorderBottomWidth(StyleBorderBottomWidth { inner: border.border_width }.into()),
+               CssProperty::BorderBottomWidth(LayoutBorderBottomWidth { inner: border.border_width }.into()),
             ])
         },
         BoxShadow => {
@@ -2647,10 +2647,10 @@ typed_pixel_value_parser!(parse_style_border_bottom_left_radius, StyleBorderBott
 typed_pixel_value_parser!(parse_style_border_top_right_radius, StyleBorderTopRightRadius);
 typed_pixel_value_parser!(parse_style_border_bottom_right_radius, StyleBorderBottomRightRadius);
 
-typed_pixel_value_parser!(parse_style_border_top_width, StyleBorderTopWidth);
-typed_pixel_value_parser!(parse_style_border_bottom_width, StyleBorderBottomWidth);
-typed_pixel_value_parser!(parse_style_border_right_width, StyleBorderRightWidth);
-typed_pixel_value_parser!(parse_style_border_left_width, StyleBorderLeftWidth);
+typed_pixel_value_parser!(parse_style_border_top_width, LayoutBorderTopWidth);
+typed_pixel_value_parser!(parse_style_border_bottom_width, LayoutBorderBottomWidth);
+typed_pixel_value_parser!(parse_style_border_right_width, LayoutBorderRightWidth);
+typed_pixel_value_parser!(parse_style_border_left_width, LayoutBorderLeftWidth);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FlexGrowParseError<'a> {
@@ -2929,7 +2929,7 @@ multi_type_parser!(parse_layout_direction, LayoutFlexDirection,
                     ["column", Column],
                     ["column-reverse", ColumnReverse]);
 
-multi_type_parser!(parse_layout_wrap, LayoutWrap,
+multi_type_parser!(parse_layout_wrap, LayoutFlexWrap,
                     ["wrap", Wrap],
                     ["nowrap", NoWrap]);
 
@@ -2965,7 +2965,7 @@ multi_type_parser!(parse_layout_position, LayoutPosition,
                     ["absolute", Absolute],
                     ["relative", Relative]);
 
-multi_type_parser!(parse_layout_overflow, Overflow,
+multi_type_parser!(parse_layout_overflow, LayoutOverflow,
                     ["auto", Auto],
                     ["scroll", Scroll],
                     ["visible", Visible],

@@ -19,7 +19,7 @@ use crate::{
 pub const DEFAULT_FONT_SIZE_PX: isize = 16;
 pub const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize { inner: PixelValue::const_px(DEFAULT_FONT_SIZE_PX) };
 pub const DEFAULT_FONT_ID: &str = "serif";
-pub const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor { inner: StyleColorU { r: 0, b: 0, g: 0, a: 255 } };
+pub const DEFAULT_TEXT_COLOR: StyleTextColor = StyleTextColor { inner: StyleColorU { r: 0, b: 0, g: 0, a: 255 } };
 pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
 pub const DEFAULT_WORD_SPACING: f32 = 1.0;
 pub const DEFAULT_LETTER_SPACING: f32 = 0.0;
@@ -326,7 +326,7 @@ pub struct HorizontalSolvedPosition(pub f32);
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct VerticalSolvedPosition(pub f32);
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct LayoutResult {
     pub dom_id: DomId,
     pub parent_dom_id: Option<DomId>,
@@ -347,7 +347,6 @@ pub struct LayoutResult {
     pub words_cache: BTreeMap<NodeId, Words>,
     pub shaped_words_cache: BTreeMap<NodeId, ShapedWords>,
     pub positioned_words_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-    pub layouted_glyphs_cache: BTreeMap<NodeId, LayoutedGlyphs>,
     pub scrollable_nodes: ScrolledNodes,
     pub iframe_mapping: BTreeMap<NodeId, DomId>,
 }

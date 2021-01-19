@@ -1726,6 +1726,12 @@ pub enum StyleBackgroundSize {
     Cover,
 }
 
+impl Default for StyleBackgroundSize {
+    fn default() -> Self {
+        StyleBackgroundSize::Contain
+    }
+}
+
 impl_vec!(StyleBackgroundSize, StyleBackgroundSizeVec);
 impl_vec_debug!(StyleBackgroundSize, StyleBackgroundSizeVec);
 impl_vec_partialord!(StyleBackgroundSize, StyleBackgroundSizeVec);

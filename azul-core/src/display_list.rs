@@ -5,23 +5,23 @@ use std::{
 use azul_css::{
     LayoutPoint, LayoutSize, LayoutRect,
     StyleBackgroundRepeat, StyleBackgroundPosition, ColorU, BoxShadowClipMode,
-    LinearGradient, RadialGradient, StyleBoxShadow, StyleBackgroundSize,
-    CssPropertyValue, RectLayout,
+    LinearGradient, RadialGradient, ConicGradient, StyleBoxShadow, StyleBackgroundSize,
+    CssPropertyValue,
 
-    StyleBorderTopWidth, StyleBorderRightWidth, StyleBorderBottomWidth, StyleBorderLeftWidth,
+    LayoutBorderTopWidth, LayoutBorderRightWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
     StyleBorderTopColor, StyleBorderRightColor, StyleBorderBottomColor, StyleBorderLeftColor,
     StyleBorderTopStyle, StyleBorderRightStyle, StyleBorderBottomStyle, StyleBorderLeftStyle,
     StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
 };
 use crate::{
     callbacks::PipelineId,
-    ui_solver::{ExternalScrollId, LayoutResult, PositionInfo},
+    ui_solver::{ExternalScrollId, LayoutResult, InlineTextLayout, PositionInfo},
     window::{FullWindowState, LogicalRect, LogicalPosition, LogicalSize},
     app_resources::{
         AppResources, AddImageMsg, ImageDescriptor, ImageDescriptorFlags,
         ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs, PrimitiveFlags,
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn, ParseFontFn,
-        ResourceUpdate, IdNamespace,
+        ResourceUpdate, IdNamespace, ShapedWords, WordPositions,
     },
     styled_dom::{DomId, StyledDom, ContentGroup},
     id_tree::NodeId,
@@ -31,19 +31,8 @@ use crate::{
 use crate::gl::{Texture, GlContextPtr};
 
 pub type GlyphIndex = u32;
-
-/// Parse a string in the format of "600x100" -> (600, 100)
-pub fn parse_display_list_size(output_size: &str) -> Option<(f32, f32)> {
-    let output_size = output_size.trim();
-    let mut iter = output_size.split("x");
-    let w = iter.next()?;
-    let h = iter.next()?;
-    let w = w.trim();
-    let h = h.trim();
-    let w = w.parse::<f32>().ok()?;
-    let h = h.parse::<f32>().ok()?;
-    Some((w, h))
-}
+pub type GetGlyphsFunc = fn(&WordPositions, &ShapedWords, &InlineTextLayout) -> LayoutedGlyphs;
+pub type GetInlineTextLayoutFn = fn(&WordPositions, &ShapedWords) -> InlineTextLayout;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 pub struct GlyphInstance {
@@ -76,13 +65,15 @@ impl CachedDisplayList {
         layout_results: &[LayoutResult],
         gl_texture_cache: &GlTextureCache,
         app_resources: &AppResources,
+        get_glyphs_func: GetGlyphsFunc,
+        inline_text_layout_func: GetInlineTextLayoutFn,
     ) -> Self {
 
         const DOM_ID: DomId = DomId::ROOT_ID;
 
         let mut dl = CachedDisplayList {
             root: push_rectangles_into_displaylist(
-                &layout_results[DOM_ID.inner].styled_dom.rects_in_rendering_order,
+                &layout_results[DOM_ID.inner].styled_dom.get_rects_in_rendering_order(),
                 &DisplayListParametersRef {
                     dom_id: DOM_ID,
                     epoch,
@@ -92,6 +83,8 @@ impl CachedDisplayList {
                     gl_texture_cache: &gl_texture_cache,
                     app_resources,
                 },
+                get_glyphs_func,
+                inline_text_layout_func,
             )
         };
 
@@ -100,9 +93,9 @@ impl CachedDisplayList {
         if dl.root.is_content_empty() {
             dl.root.push_content(LayoutRectContent::Background {
                 content: RectBackground::Color(full_window_state.background_color),
-                size: None,
-                offset: None,
-                repeat: None,
+                size: StyleBackgroundSize::default(),
+                offset: StyleBackgroundPosition::default(),
+                repeat: StyleBackgroundRepeat::default(),
             });
         }
 
@@ -204,6 +197,8 @@ pub struct DisplayListFrame {
     /// Border radius, set to none only if overflow: visible is set!
     pub border_radius: StyleBorderRadius,
     pub tag: Option<TagId>,
+    // box shadow has to be pushed twice: once as inset and once as outset
+    pub box_shadow: Option<BoxShadow>,
     pub content: Vec<LayoutRectContent>,
     pub children: Vec<DisplayListMsg>,
 }
@@ -254,6 +249,7 @@ impl DisplayListFrame {
                 supports_external_compositor_surface: true,
             },
             border_radius: StyleBorderRadius::default(),
+            box_shadow: None,
             content: vec![],
             children: vec![],
             clip_mask: None,
@@ -294,16 +290,16 @@ impl fmt::Debug for StyleBorderRadius {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "StyleBorderRadius {{")?;
         if let Some(tl) = &self.top_left {
-            write!(f, "\r\n\ttop-left: {},", tl)?;
+            write!(f, "\r\n\ttop-left: {:?},", tl)?;
         }
         if let Some(tr) = &self.top_right {
-            write!(f, "\r\n\ttop-right: {},", tr)?;
+            write!(f, "\r\n\ttop-right: {:?},", tr)?;
         }
         if let Some(bl) = &self.bottom_left {
-            write!(f, "\r\n\tbottom-left: {},", bl)?;
+            write!(f, "\r\n\tbottom-left: {:?},", bl)?;
         }
         if let Some(br) = &self.bottom_right {
-            write!(f, "\r\n\tbottom-right: {},", br)?;
+            write!(f, "\r\n\tbottom-right: {:?},", br)?;
         }
         write!(f, "\r\n}}")
     }
@@ -314,16 +310,16 @@ macro_rules! tlbr_debug {($struct_name:ident) => (
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "{} {{", stringify!($struct_name))?;
             if let Some(t) = &self.top {
-                write!(f, "\r\n\ttop: {},", t)?;
+                write!(f, "\r\n\ttop: {:?},", t)?;
             }
             if let Some(r) = &self.right {
-                write!(f, "\r\n\tright: {},", r)?;
+                write!(f, "\r\n\tright: {:?},", r)?;
             }
             if let Some(b) = &self.bottom {
-                write!(f, "\r\n\tbottom: {},", b)?;
+                write!(f, "\r\n\tbottom: {:?},", b)?;
             }
             if let Some(l) = &self.left {
-                write!(f, "\r\n\tleft: {},", l)?;
+                write!(f, "\r\n\tleft: {:?},", l)?;
             }
             write!(f, "\r\n}}")
         }
@@ -332,10 +328,10 @@ macro_rules! tlbr_debug {($struct_name:ident) => (
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderWidths {
-    pub top: Option<CssPropertyValue<StyleBorderTopWidth>>,
-    pub right: Option<CssPropertyValue<StyleBorderRightWidth>>,
-    pub bottom: Option<CssPropertyValue<StyleBorderBottomWidth>>,
-    pub left: Option<CssPropertyValue<StyleBorderLeftWidth>>,
+    pub top: Option<CssPropertyValue<LayoutBorderTopWidth>>,
+    pub right: Option<CssPropertyValue<LayoutBorderRightWidth>>,
+    pub bottom: Option<CssPropertyValue<LayoutBorderBottomWidth>>,
+    pub left: Option<CssPropertyValue<LayoutBorderLeftWidth>>,
 }
 
 impl StyleBorderWidths {
@@ -414,9 +410,9 @@ pub enum LayoutRectContent {
     },
     Background {
         content: RectBackground,
-        size: Option<StyleBackgroundSize>,
-        offset: Option<StyleBackgroundPosition>,
-        repeat: Option<StyleBackgroundRepeat>,
+        size: StyleBackgroundSize,
+        offset: StyleBackgroundPosition,
+        repeat: StyleBackgroundRepeat,
     },
     Image {
         size: LogicalSize,
@@ -430,10 +426,6 @@ pub enum LayoutRectContent {
         widths: StyleBorderWidths,
         colors: StyleBorderColors,
         styles: StyleBorderStyles,
-    },
-    BoxShadow {
-        shadow: BoxShadow,
-        clip_mode: BoxShadowClipMode,
     },
 }
 
@@ -456,15 +448,9 @@ impl fmt::Debug for LayoutRectContent {
             Background { content, size, offset, repeat } => {
                 write!(f, "Background {{\r\n")?;
                 write!(f, "    content: {:?},\r\n", content)?;
-                if let Some(size) = size {
-                    write!(f, "    size: {:?},\r\n", size)?;
-                }
-                if let Some(offset) = offset {
-                    write!(f, "    offset: {:?},\r\n", offset)?;
-                }
-                if let Some(repeat) = repeat {
-                    write!(f, "    repeat: {:?},\r\n", repeat)?;
-                }
+                write!(f, "    size: {:?},\r\n", size)?;
+                write!(f, "    offset: {:?},\r\n", offset)?;
+                write!(f, "    repeat: {:?},\r\n", repeat)?;
                 write!(f, "}}")
             },
             Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
@@ -489,16 +475,7 @@ impl fmt::Debug for LayoutRectContent {
                     }}",
                     widths, colors, styles,
                 )
-            },
-            BoxShadow { shadow, clip_mode } => {
-                write!(f,
-                    "BoxShadow {{\r\n\
-                        shadow: {:?},\r\n\
-                        clip_mode: {:?}\r\n\
-                    }}",
-                    shadow, clip_mode,
-                )
-            },
+            }
         }
     }
 }
@@ -507,6 +484,7 @@ impl fmt::Debug for LayoutRectContent {
 pub enum RectBackground {
     LinearGradient(LinearGradient),
     RadialGradient(RadialGradient),
+    ConicGradient(ConicGradient),
     Image(ImageInfo),
     Color(ColorU),
 }
@@ -515,8 +493,9 @@ impl fmt::Debug for RectBackground {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::RectBackground::*;
         match self {
-            LinearGradient(l) => write!(f, "{}", l),
-            RadialGradient(r) => write!(f, "{}", r),
+            LinearGradient(l) => write!(f, "{:?}", l),
+            RadialGradient(r) => write!(f, "{:?}", r),
+            ConicGradient(c) => write!(f, "{:?}", c),
             Image(id) => write!(f, "image({:#?})", id),
             Color(c) => write!(f, "{}", c),
         }
@@ -562,6 +541,8 @@ pub struct DisplayListParametersRef<'a> {
 pub struct GlTextureCache {
     pub solved_textures: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor)>>,
 }
+
+unsafe impl Send for GlTextureCache { } // necessary so the display list can be built in parallel
 
 // todo: very unclean
 pub type LayoutFn = fn(StyledDom, &mut AppResources, &mut Vec<ResourceUpdate>, IdNamespace, PipelineId, RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
@@ -718,19 +699,31 @@ impl SolvedLayout {
 pub fn push_rectangles_into_displaylist<'a>(
     root_content_group: &ContentGroup,
     referenced_content: &DisplayListParametersRef<'a>,
+    get_glyphs_func: GetGlyphsFunc,
+    inline_text_layout_func: GetInlineTextLayoutFn,
 ) -> DisplayListMsg {
+
+    use rayon::prelude::*;
 
     let mut content = displaylist_handle_rect(
         root_content_group.root.into_crate_internal().unwrap(),
         referenced_content,
+        get_glyphs_func,
+        inline_text_layout_func,
     );
 
-    let children = root_content_group.children.iter().map(|child_content_group| {
-        push_rectangles_into_displaylist(
-            child_content_group,
-            referenced_content,
-        )
-    }).collect();
+    let children = root_content_group.children
+        .as_ref()
+        .par_iter()
+        .map(|child_content_group| {
+            push_rectangles_into_displaylist(
+                child_content_group,
+                referenced_content,
+                get_glyphs_func,
+                inline_text_layout_func,
+            )
+        })
+        .collect();
 
     content.append_children(children);
 
@@ -741,6 +734,8 @@ pub fn push_rectangles_into_displaylist<'a>(
 pub fn displaylist_handle_rect<'a>(
     rect_idx: NodeId,
     referenced_content: &DisplayListParametersRef<'a>,
+    get_glyphs_func: GetGlyphsFunc,
+    inline_text_layout_func: GetInlineTextLayoutFn,
 ) -> DisplayListMsg {
 
     use crate::dom::NodeType::*;
@@ -782,10 +777,10 @@ pub fn displaylist_handle_rect<'a>(
         size,
         position,
         border_radius: StyleBorderRadius {
-            top_left: styled_node.style.border_top_left_radius.as_ref().cloned(),
-            top_right: styled_node.style.border_top_right_radius.as_ref().cloned(),
-            bottom_left: styled_node.style.border_bottom_left_radius.as_ref().cloned(),
-            bottom_right: styled_node.style.border_bottom_right_radius.as_ref().cloned(),
+            top_left: layout_result.styled_dom.get_css_property_cache().get_border_top_left_radius(&rect_idx, &styled_node.state).cloned(),
+            top_right: layout_result.styled_dom.get_css_property_cache().get_border_top_right_radius(&rect_idx, &styled_node.state).cloned(),
+            bottom_left: layout_result.styled_dom.get_css_property_cache().get_border_bottom_left_radius(&rect_idx, &styled_node.state).cloned(),
+            bottom_right: layout_result.styled_dom.get_css_property_cache().get_border_bottom_right_radius(&rect_idx, &styled_node.state).cloned(),
         },
         flags: PrimitiveFlags {
             is_backface_visible: true,
@@ -796,67 +791,99 @@ pub fn displaylist_handle_rect<'a>(
         },
         content: Vec::new(),
         children: Vec::new(),
+        box_shadow: None,
         clip_mask,
     };
 
-    if styled_node.style.has_box_shadow() {
-        frame.content.push(LayoutRectContent::BoxShadow {
-            shadow: BoxShadow {
-                left: styled_node.style.box_shadow_left.as_ref().cloned(),
-                right: styled_node.style.box_shadow_right.as_ref().cloned(),
-                top: styled_node.style.box_shadow_top.as_ref().cloned(),
-                bottom: styled_node.style.box_shadow_bottom.as_ref().cloned(),
-            },
-            clip_mode: BoxShadowClipMode::Outset,
-        });
-    }
+    // push box shadow
+    let box_shadow = if layout_result.styled_dom.get_css_property_cache().has_box_shadow(&rect_idx, &styled_node.state) {
+        Some(BoxShadow {
+            left: layout_result.styled_dom.get_css_property_cache().get_box_shadow_left(&rect_idx, &styled_node.state).cloned(),
+            right: layout_result.styled_dom.get_css_property_cache().get_box_shadow_right(&rect_idx, &styled_node.state).cloned(),
+            top: layout_result.styled_dom.get_css_property_cache().get_box_shadow_top(&rect_idx, &styled_node.state).cloned(),
+            bottom: layout_result.styled_dom.get_css_property_cache().get_box_shadow_bottom(&rect_idx, &styled_node.state).cloned(),
+        })
+    } else { None };
 
-    // If the rect is hit-testing relevant, we need to push a rect anyway.
-    // Otherwise the hit-testing gets confused
-    if let Some(bg) = styled_node.style.background.as_ref().and_then(|br| br.get_property()) {
+    frame.box_shadow = box_shadow;
 
-        use azul_css::{CssImageId, StyleBackgroundContent::*};
+    // push background
+    if let Some(bg) = layout_result.styled_dom.get_css_property_cache().get_background(&rect_idx, &styled_node.state).and_then(|br| br.get_property()) {
 
-        fn get_image_info(app_resources: &AppResources, pipeline_id: &PipelineId, style_image_id: &CssImageId) -> Option<RectBackground> {
-            let image_id = app_resources.get_css_image_id(style_image_id.inner.as_str())?;
-            let image_info = app_resources.get_image_info(pipeline_id, image_id)?;
-            Some(RectBackground::Image(*image_info))
-        }
+        use azul_css::{StyleBackgroundSizeVec, StyleBackgroundPositionVec, StyleBackgroundRepeatVec};
 
-        let background_content = match bg {
-            LinearGradient(lg) => Some(RectBackground::LinearGradient(lg.clone())),
-            RadialGradient(rg) => Some(RectBackground::RadialGradient(rg.clone())),
-            Image(style_image_id) => get_image_info(&app_resources, &pipeline_id, &style_image_id),
-            Color(c) => Some(RectBackground::Color(*c)),
-        };
+        let default_size = StyleBackgroundSize::default();
+        let default_position = StyleBackgroundPosition::default();
+        let default_repeat = StyleBackgroundRepeat::default();
 
-        if let Some(background_content) = background_content {
-            frame.content.push(LayoutRectContent::Background {
-                content: background_content,
-                size: styled_node.style.background_size.as_ref().and_then(|bs| bs.get_property().copied()),
-                offset: styled_node.style.background_position.as_ref().and_then(|bs| bs.get_property().copied()),
-                repeat: styled_node.style.background_repeat.as_ref().and_then(|bs| bs.get_property().copied()),
-            });
+        let default_bg_size_vec: StyleBackgroundSizeVec = Vec::new().into();
+        let default_bg_position_vec: StyleBackgroundPositionVec = Vec::new().into();
+        let default_bg_repeat_vec: StyleBackgroundRepeatVec = Vec::new().into();
+
+        let bg_sizes = layout_result.styled_dom.get_css_property_cache().get_background_size(&rect_idx, &styled_node.state).and_then(|p| p.get_property()).unwrap_or(&default_bg_size_vec);
+        let bg_positions = layout_result.styled_dom.get_css_property_cache().get_background_position(&rect_idx, &styled_node.state).and_then(|p| p.get_property()).unwrap_or(&default_bg_position_vec);
+        let bg_repeats = layout_result.styled_dom.get_css_property_cache().get_background_repeat(&rect_idx, &styled_node.state).and_then(|p| p.get_property()).unwrap_or(&default_bg_repeat_vec);
+
+        for (bg_index, bg) in bg.iter().enumerate() {
+
+            use azul_css::{CssImageId, StyleBackgroundContent::*};
+
+            fn get_image_info(app_resources: &AppResources, pipeline_id: &PipelineId, style_image_id: &CssImageId) -> Option<RectBackground> {
+                let image_id = app_resources.get_css_image_id(style_image_id.inner.as_str())?;
+                let image_info = app_resources.get_image_info(pipeline_id, image_id)?;
+                Some(RectBackground::Image(*image_info))
+            }
+
+            let background_content = match bg {
+                LinearGradient(lg) => Some(RectBackground::LinearGradient(lg.clone())),
+                RadialGradient(rg) => Some(RectBackground::RadialGradient(rg.clone())),
+                ConicGradient(cg) => Some(RectBackground::ConicGradient(cg.clone())),
+                Image(style_image_id) => get_image_info(&app_resources, &pipeline_id, &style_image_id),
+                Color(c) => Some(RectBackground::Color(*c)),
+            };
+
+            let bg_size = bg_sizes.get(bg_index).or(bg_sizes.get(0)).unwrap_or(&default_size);
+            let bg_position = bg_positions.get(bg_index).or(bg_positions.get(0)).unwrap_or(&default_position);
+            let bg_repeat = bg_repeats.get(bg_index).or(bg_repeats.get(0)).unwrap_or(&default_repeat);
+
+            if let Some(background_content) = background_content {
+                frame.content.push(LayoutRectContent::Background {
+                    content: background_content,
+                    size: bg_size.clone(),
+                    offset: bg_position.clone(),
+                    repeat: bg_repeat.clone(),
+                });
+            }
         }
     }
 
     match html_node.get_node_type() {
         Div | Body => { },
         Text(_) | Label(_) => {
-            if let Some(layouted_glyphs) = layout_result.layouted_glyphs_cache.get(&rect_idx).cloned() {
 
-                use crate::ui_solver::DEFAULT_FONT_COLOR;
+            // compute the layouted glyphs here, this way it's easier
+            // to reflow text since there is no cache that needs to be updated
+            //
+            // if the text is reflowed, the display list needs to update anyway
+            if let (Some(shaped_words), Some(word_positions)) = (
+                layout_result.shaped_words_cache.get(&rect_idx),
+                layout_result.positioned_words_cache.get(&rect_idx)
+            ) {
+                let inline_text_layout = (inline_text_layout_func)(&word_positions.0, shaped_words);
+                let layouted_glyphs = (get_glyphs_func)(&word_positions.0, shaped_words, &inline_text_layout);
+                let text_color = layout_result.styled_dom.get_css_property_cache().get_text_color_or_default(&rect_idx, &styled_node.state);
+                let font_instance_key = word_positions.1;
 
-                let text_color = styled_node.style.text_color.as_ref().and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).inner;
-                let positioned_words = &layout_result.positioned_words_cache[&rect_idx];
-                let font_instance_key = positioned_words.1;
+                let overflow_horizontal_visible = layout_result.styled_dom.get_css_property_cache().is_horizontal_overflow_visible(&rect_idx, &styled_node.state);
+                let overflow_vertical_visible = layout_result.styled_dom.get_css_property_cache().is_vertical_overflow_visible(&rect_idx, &styled_node.state);
 
-                frame.content.push(get_text(
-                    layouted_glyphs,
-                    font_instance_key,
-                    text_color,
-                    &styled_node.layout,
-                ));
+                frame.content.push(LayoutRectContent::Text {
+                   glyphs: layouted_glyphs.glyphs,
+                   font_instance_key,
+                   color: text_color.inner,
+                   glyph_options: None,
+                   overflow: (overflow_horizontal_visible, overflow_vertical_visible),
+                });
             }
         },
         Image(image_id) => {
@@ -888,51 +915,41 @@ pub fn displaylist_handle_rect<'a>(
             if let Some(iframe_dom_id) = layout_result.iframe_mapping.iter()
             .find_map(|(node_id, dom_id)| if *node_id == rect_idx { Some(*dom_id) } else { None }) {
                 frame.children.push(push_rectangles_into_displaylist(
-                    &layout_results[iframe_dom_id.inner].styled_dom.rects_in_rendering_order,
+                    &layout_results[iframe_dom_id.inner].styled_dom.get_rects_in_rendering_order(),
                     // layout_result.rects_in_rendering_order.root,
                     &DisplayListParametersRef {
                         // Important: Need to update the DOM ID,
                         // otherwise this function would be endlessly recurse
                         dom_id: iframe_dom_id.clone(),
                         .. *referenced_content
-                    }
+                    },
+                    get_glyphs_func,
+                    inline_text_layout_func,
                 ));
             }
         },
     };
 
-    if styled_node.style.has_border() {
+    if layout_result.styled_dom.get_css_property_cache().has_border(&rect_idx, &styled_node.state) {
         frame.content.push(LayoutRectContent::Border {
             widths: StyleBorderWidths {
-                top: styled_node.layout.border_top_width.as_ref().copied(),
-                left: styled_node.layout.border_left_width.as_ref().copied(),
-                bottom: styled_node.layout.border_bottom_width.as_ref().copied(),
-                right: styled_node.layout.border_right_width.as_ref().copied(),
+                top: layout_result.styled_dom.get_css_property_cache().get_border_top_width(&rect_idx, &styled_node.state).copied(),
+                left: layout_result.styled_dom.get_css_property_cache().get_border_left_width(&rect_idx, &styled_node.state).copied(),
+                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_width(&rect_idx, &styled_node.state).copied(),
+                right: layout_result.styled_dom.get_css_property_cache().get_border_right_width(&rect_idx, &styled_node.state).copied(),
             },
             colors: StyleBorderColors {
-                top: styled_node.style.border_top_color.as_ref().copied(),
-                left: styled_node.style.border_left_color.as_ref().copied(),
-                bottom: styled_node.style.border_bottom_color.as_ref().copied(),
-                right: styled_node.style.border_right_color.as_ref().copied(),
+                top: layout_result.styled_dom.get_css_property_cache().get_border_top_color(&rect_idx, &styled_node.state).copied(),
+                left: layout_result.styled_dom.get_css_property_cache().get_border_left_color(&rect_idx, &styled_node.state).copied(),
+                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_color(&rect_idx, &styled_node.state).copied(),
+                right: layout_result.styled_dom.get_css_property_cache().get_border_right_color(&rect_idx, &styled_node.state).copied(),
             },
             styles: StyleBorderStyles {
-                top: styled_node.style.border_top_style.as_ref().copied(),
-                left: styled_node.style.border_left_style.as_ref().copied(),
-                bottom: styled_node.style.border_bottom_style.as_ref().copied(),
-                right: styled_node.style.border_right_style.as_ref().copied(),
+                top: layout_result.styled_dom.get_css_property_cache().get_border_top_style(&rect_idx, &styled_node.state).copied(),
+                left: layout_result.styled_dom.get_css_property_cache().get_border_left_style(&rect_idx, &styled_node.state).copied(),
+                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_style(&rect_idx, &styled_node.state).copied(),
+                right: layout_result.styled_dom.get_css_property_cache().get_border_right_style(&rect_idx, &styled_node.state).copied(),
             },
-        });
-    }
-
-    if styled_node.style.has_box_shadow() {
-        frame.content.push(LayoutRectContent::BoxShadow {
-            shadow: BoxShadow {
-                left: styled_node.style.box_shadow_left.as_ref().copied(),
-                right: styled_node.style.box_shadow_right.as_ref().copied(),
-                top: styled_node.style.box_shadow_top.as_ref().copied(),
-                bottom: styled_node.style.box_shadow_bottom.as_ref().copied(),
-            },
-            clip_mode: BoxShadowClipMode::Inset,
         });
     }
 
@@ -944,25 +961,6 @@ pub fn displaylist_handle_rect<'a>(
             frame,
         }),
         None => DisplayListMsg::Frame(frame),
-    }
-}
-
-pub fn get_text(
-    layouted_glyphs: LayoutedGlyphs,
-    font_instance_key: FontInstanceKey,
-    font_color: ColorU,
-    rect_layout: &RectLayout,
-) -> LayoutRectContent {
-
-    let overflow_horizontal_visible = rect_layout.is_horizontal_overflow_visible();
-    let overflow_vertical_visible = rect_layout.is_horizontal_overflow_visible();
-
-    LayoutRectContent::Text {
-        glyphs: layouted_glyphs.glyphs,
-        font_instance_key,
-        color: font_color,
-        glyph_options: None,
-        overflow: (overflow_horizontal_visible, overflow_vertical_visible),
     }
 }
 

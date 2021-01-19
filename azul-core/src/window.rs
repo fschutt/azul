@@ -110,6 +110,9 @@ pub enum RawWindowHandle {
     Unsupported,
 }
 
+unsafe impl Sync for RawWindowHandle { }
+unsafe impl Send for RawWindowHandle { }
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct IOSHandle {
@@ -678,7 +681,8 @@ impl CursorTypeHitTest {
             for (node_id, _) in hit_nodes.regular_hit_test_nodes. iter() {
 
                 // if the node has a non-default cursor: property, insert it
-                if let Some(cursor_prop) = layout_results[dom_id.inner].styled_dom.styled_nodes.as_container()[*node_id].style.cursor.as_ref() {
+                let styled_dom = & layout_results[dom_id.inner].styled_dom;
+                if let Some(cursor_prop) = styled_dom.get_css_property_cache().get_cursor(node_id, &styled_dom.styled_nodes.as_container()[*node_id].state) {
                     cursor_node = Some((*dom_id, *node_id));
                     cursor_icon = match cursor_prop.get_property().copied().unwrap_or_default() {
                         StyleCursor::Alias => MouseCursorType::Alias,
@@ -1251,6 +1255,9 @@ pub struct PlatformSpecificOptions {
     pub mac_options: MacWindowOptions,
     pub wasm_options: WasmWindowOptions,
 }
+
+unsafe impl Sync for PlatformSpecificOptions { }
+unsafe impl Send for PlatformSpecificOptions { }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]

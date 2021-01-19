@@ -193,3 +193,16 @@ pub mod image_loading {
         }
     }
 }
+
+/// Parse a string in the format of "600x100" -> (600, 100)
+pub(crate) fn parse_display_list_size(output_size: &str) -> Option<(f32, f32)> {
+    let output_size = output_size.trim();
+    let mut iter = output_size.split("x");
+    let w = iter.next()?;
+    let h = iter.next()?;
+    let w = w.trim();
+    let h = h.trim();
+    let w = w.parse::<f32>().ok()?;
+    let h = h.parse::<f32>().ok()?;
+    Some((w, h))
+}

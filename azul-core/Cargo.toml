@@ -18,8 +18,8 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 azul-css                = { path = "../azul-css",        version = "0.0.1"                  }
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1", optional = true }
+rayon                   = { version = "1.5.0",   default-features = false }
 gleam                   = { version = "0.13.1",                             optional = true }
-rayon                   = { version = "1.5.0",   default-features = false,  optional = true }
 
 [features]
 default = ["opengl"]
@@ -27,5 +27,3 @@ default = ["opengl"]
 css_parser = ["azul-css-parser"]
 # Enables the OpenGL module (uses gleam)
 opengl = ["gleam"]
-# Enables parallel transform function
-parallel = ["rayon"]

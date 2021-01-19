@@ -11,7 +11,10 @@ use crate::{
         RefAny, OptionRefAny,
     },
     app_resources::{ImageId, TextId},
-    id_tree::{NodeDataContainer, NodeHierarchyRefMut, NodeDataContainerRefMut},
+    id_tree::{
+        NodeDataContainer, NodeDataContainerRef,
+        NodeHierarchyRefMut, NodeDataContainerRefMut
+    },
     window::LogicalRect,
     styled_dom::StyledDom,
 };
@@ -529,32 +532,64 @@ pub struct CallbackData {
     pub data: RefAny,
 }
 
+impl_vec!(CallbackData, CallbackDataVec);
+impl_vec_debug!(CallbackData, CallbackDataVec);
+impl_vec_partialord!(CallbackData, CallbackDataVec);
+impl_vec_ord!(CallbackData, CallbackDataVec);
+impl_vec_clone!(CallbackData, CallbackDataVec);
+impl_vec_partialeq!(CallbackData, CallbackDataVec);
+impl_vec_eq!(CallbackData, CallbackDataVec);
+impl_vec_hash!(CallbackData, CallbackDataVec);
+
 #[repr(C)]
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum IdOrClass {
     Id(AzString),
     Class(AzString),
 }
 
-#[repr(C)]
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum NodeDataInlinePropertyKey {
-    Normal,
-    Active,
-    Focus,
-    Hover,
-}
+impl_vec!(IdOrClass, IdOrClassVec);
+impl_vec_debug!(IdOrClass, IdOrClassVec);
+impl_vec_partialord!(IdOrClass, IdOrClassVec);
+impl_vec_ord!(IdOrClass, IdOrClassVec);
+impl_vec_clone!(IdOrClass, IdOrClassVec);
+impl_vec_partialeq!(IdOrClass, IdOrClassVec);
+impl_vec_eq!(IdOrClass, IdOrClassVec);
+impl_vec_hash!(IdOrClass, IdOrClassVec);
 
+impl IdOrClass {
+    pub fn as_id(&self) -> Option<&str> {
+        match self {
+            IdOrClass::Id(s) => Some(s.as_str()),
+            IdOrClass::Class(_) => None,
+        }
+    }
+    pub fn as_class(&self) -> Option<&str> {
+        match self {
+            IdOrClass::Class(s) => Some(s.as_str()),
+            IdOrClass::Id(_) => None,
+        }
+    }
+}
 // memory optimization: store all inline-normal / inline-hover / inline-* attributes
 // as one Vec instad of 4 separate Vecs
-#[repr(C)]
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct NodeDataInlineCssProperty {
-    pub key: NodeDataInlinePropertyKey,
-    pub value: CssProperty,
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C, u8)]
+pub enum NodeDataInlineCssProperty {
+    Normal(CssProperty),
+    Active(CssProperty),
+    Focus(CssProperty),
+    Hover(CssProperty),
 }
 
 impl_vec!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
+impl_vec_debug!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
+impl_vec_partialord!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
+impl_vec_ord!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
+impl_vec_clone!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
+impl_vec_partialeq!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
+impl_vec_eq!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
+impl_vec_hash!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 #[repr(C)]
@@ -564,13 +599,13 @@ pub struct NodeData {
     node_type: NodeType,
     /// data-* attributes for this node, useful to store UI-related data on the node itself
     dataset: OptionRefAny,
-    /// stores all ids and classes as one vec - size optimization since
+    /// Stores all ids and classes as one vec - size optimization since
     /// most nodes don't have any classes or IDs
     ids_and_classes: IdOrClassVec,
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
     callbacks: CallbackDataVec,
     /// Stores the inline CSS properties, same as in HTML
-    inline_css_props: NodeDataInlineCssPropertyVec,
+    pub(crate) inline_css_props: NodeDataInlineCssPropertyVec,
     /// Optional clip mask for this DOM node
     clip_mask: OptionImageMask,
     /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .
@@ -581,6 +616,21 @@ pub struct NodeData {
     /// Note that without this, there can be no `On::FocusReceived` (equivalent to onfocus),
     /// `On::FocusLost` (equivalent to onblur), etc. events.
     tab_index: OptionTabIndex,
+}
+
+impl_vec!(NodeData, NodeDataVec);
+impl_vec_debug!(NodeData, NodeDataVec);
+impl_vec_partialord!(NodeData, NodeDataVec);
+impl_vec_clone!(NodeData, NodeDataVec);
+impl_vec_partialeq!(NodeData, NodeDataVec);
+
+impl NodeDataVec {
+    pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, NodeData> {
+        NodeDataContainerRef { internal: self.as_ref() }
+    }
+    pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, NodeData> {
+        NodeDataContainerRefMut { internal: self.as_mut() }
+    }
 }
 
 unsafe impl Send for NodeData { }
@@ -615,6 +665,8 @@ pub enum TabIndex {
     /// keyboard / tab navigation (-1)
     NoKeyboardFocus,
 }
+
+impl_option!(TabIndex, OptionTabIndex, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl TabIndex {
     /// Returns the HTML-compatible number of the `tabindex` element
@@ -653,32 +705,25 @@ impl fmt::Display for NodeData {
     }
 }
 
-impl NodeData {
-    pub fn debug_print_start(&self, close_self: bool) -> String {
-        let html_type = self.node_type.get_path();
-        let attributes_string = node_data_to_string(&self);
-        format!("<{}{}{}>", html_type, attributes_string, if close_self { " /" } else { "" })
-    }
-
-    pub fn debug_print_end(&self) -> String {
-        let html_type = self.node_type.get_path();
-        format!("</{}>", html_type)
-    }
-}
-
 fn node_data_to_string(node_data: &NodeData) -> String {
 
-    let id_string = if node_data.ids.is_empty() {
-        String::new()
-    } else {
-        format!(" id=\"{}\"", node_data.ids.iter().map(|s| s.as_str().to_string()).collect::<Vec<String>>().join(" "))
-    };
+    let mut id_string = String::new();
+    if !node_data.ids_and_classes.is_empty() {
+        id_string += " id = \"";
+        for id in node_data.ids_and_classes.iter().filter_map(|s| s.as_id()) {
+            id_string += id;
+        }
+        id_string += "\"";
+    }
 
-    let class_string = if node_data.classes.is_empty() {
-        String::new()
-    } else {
-        format!(" class=\"{}\"", node_data.classes.iter().map(|s| s.as_str().to_string()).collect::<Vec<String>>().join(" "))
-    };
+    let mut class_string = String::new();
+    if !node_data.ids_and_classes.is_empty() {
+        id_string += " class = \"";
+        for id in node_data.ids_and_classes.iter().filter_map(|s| s.as_class()) {
+            id_string += id;
+        }
+        id_string += "\"";
+    }
 
     let draggable = if node_data.is_draggable {
         format!(" draggable=\"true\"")
@@ -699,9 +744,7 @@ impl fmt::Debug for NodeData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "NodeData {{")?;
         write!(f, "\tnode_type: {:?}", self.node_type)?;
-
-        if !self.ids.is_empty() { write!(f, "\tids: {:?}", self.ids)?; }
-        if !self.classes.is_empty() { write!(f, "\tclasses: {:?}", self.classes)?; }
+        if !self.ids_and_classes.is_empty() { write!(f, "\tids_and_classes: {:?}", self.ids_and_classes)?; }
         if !self.callbacks.is_empty() { write!(f, "\tcallbacks: {:?}", self.callbacks)?; }
         if !self.inline_css_props.is_empty() { write!(f, "\tinline_css_props: {:?}", self.inline_css_props)?; }
         if self.is_draggable { write!(f, "\tis_draggable: {:?}", self.is_draggable)?; }
@@ -719,13 +762,9 @@ impl NodeData {
         Self {
             node_type,
             dataset: OptionRefAny::None,
-            ids: StringVec::new(),
-            classes: StringVec::new(),
+            ids_and_classes: IdOrClassVec::new(),
             callbacks: CallbackDataVec::new(),
-            inline_css_props: CssPropertyVec::new(),
-            inline_hover_css_props: CssPropertyVec::new(),
-            inline_active_css_props: CssPropertyVec::new(),
-            inline_focus_css_props: CssPropertyVec::new(),
+            inline_css_props: NodeDataInlineCssPropertyVec::new(),
             clip_mask: OptionImageMask::None,
             is_draggable: false,
             tab_index: OptionTabIndex::None,
@@ -744,32 +783,32 @@ impl NodeData {
 
     #[inline]
     pub fn add_inline_css<P: Into<CssProperty>>(&mut self, property: P) {
-        self.inline_css_props.push(property.into());
+        self.inline_css_props.push(NodeDataInlineCssProperty::Normal(property.into()));
     }
 
     #[inline]
     pub fn add_inline_hover_css<P: Into<CssProperty>>(&mut self, property: P) {
-        self.inline_hover_css_props.push(property.into());
+        self.inline_css_props.push(NodeDataInlineCssProperty::Hover(property.into()));
     }
 
     #[inline]
     pub fn add_inline_active_css<P: Into<CssProperty>>(&mut self, property: P) {
-        self.inline_active_css_props.push(property.into());
+        self.inline_css_props.push(NodeDataInlineCssProperty::Active(property.into()));
     }
 
     #[inline]
     pub fn add_inline_focus_css<P: Into<CssProperty>>(&mut self, property: P) {
-        self.inline_focus_css_props.push(property.into());
+        self.inline_css_props.push(NodeDataInlineCssProperty::Focus(property.into()));
     }
 
     #[inline]
     pub fn add_id<S: Into<AzString>>(&mut self, id: S) {
-        self.ids.push(id.into());
+        self.ids_and_classes.push(IdOrClass::Id(id.into()));
     }
 
     #[inline]
     pub fn add_class<S: Into<AzString>>(&mut self, class: S) {
-        self.classes.push(class.into());
+        self.ids_and_classes.push(IdOrClass::Class(class.into()));
     }
 
     /// Checks whether this node is of the given node type (div, image, text)
@@ -780,12 +819,12 @@ impl NodeData {
 
     /// Checks whether this node has the searched ID attached
     pub fn has_id(&self, id: &str) -> bool {
-        self.ids.iter().any(|self_id| self_id.as_str() == id)
+        self.ids_and_classes.iter().any(|id_or_class| id_or_class.as_id() == Some(id))
     }
 
     /// Checks whether this node has the searched class attached
     pub fn has_class(&self, class: &str) -> bool {
-        self.classes.iter().any(|self_class| self_class.as_str() == class)
+        self.ids_and_classes.iter().any(|id_or_class| id_or_class.as_class() == Some(class))
     }
 
     pub fn calculate_node_data_hash(&self) -> DomHash {
@@ -847,19 +886,11 @@ impl NodeData {
     #[inline(always)]
     pub const fn get_dataset(&self) -> &OptionRefAny { &self.dataset }
     #[inline(always)]
-    pub const fn get_ids(&self) -> &StringVec { &self.ids }
-    #[inline(always)]
-    pub const fn get_classes(&self) -> &StringVec { &self.classes }
+    pub const fn get_ids_and_classes(&self) -> &IdOrClassVec { &self.ids_and_classes }
     #[inline(always)]
     pub const fn get_callbacks(&self) -> &CallbackDataVec { &self.callbacks }
     #[inline(always)]
-    pub const fn get_inline_css_props(&self) -> &CssPropertyVec { &self.inline_css_props }
-    #[inline(always)]
-    pub const fn get_inline_hover_css_props(&self) -> &CssPropertyVec { &self.inline_hover_css_props }
-    #[inline(always)]
-    pub const fn get_inline_active_css_props(&self) -> &CssPropertyVec { &self.inline_active_css_props }
-    #[inline(always)]
-    pub const fn get_inline_focus_css_props(&self) -> &CssPropertyVec { &self.inline_focus_css_props }
+    pub const fn get_inline_css_props(&self) -> &NodeDataInlineCssPropertyVec { &self.inline_css_props }
     #[inline(always)]
     pub const fn get_clip_mask(&self) -> &OptionImageMask { &self.clip_mask }
     #[inline(always)]
@@ -872,19 +903,11 @@ impl NodeData {
     #[inline(always)]
     pub fn set_dataset(&mut self, data: OptionRefAny) { self.dataset = data; }
     #[inline(always)]
-    pub fn set_ids(&mut self, ids: StringVec) { self.ids = ids; }
-    #[inline(always)]
-    pub fn set_classes(&mut self, classes: StringVec) { self.classes = classes; }
+    pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec) { self.ids_and_classes = ids_and_classes; }
     #[inline(always)]
     pub fn set_callbacks(&mut self, callbacks: CallbackDataVec) { self.callbacks = callbacks; }
     #[inline(always)]
-    pub fn set_inline_css_props(&mut self, inline_css_props: CssPropertyVec) { self.inline_css_props = inline_css_props; }
-    #[inline(always)]
-    pub fn set_inline_hover_css_props(&mut self, inline_hover_css_props: CssPropertyVec) { self.inline_hover_css_props = inline_hover_css_props; }
-    #[inline(always)]
-    pub fn set_inline_active_css_props(&mut self, inline_active_css_props: CssPropertyVec) { self.inline_active_css_props = inline_active_css_props; }
-    #[inline(always)]
-    pub fn set_inline_focus_css_props(&mut self, inline_focus_css_props: CssPropertyVec) { self.inline_focus_css_props = inline_focus_css_props; }
+    pub fn set_inline_css_props(&mut self, inline_css_props: NodeDataInlineCssPropertyVec) { self.inline_css_props = inline_css_props; }
     #[inline(always)]
     pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.clip_mask = clip_mask; }
     #[inline(always)]
@@ -897,25 +920,28 @@ impl NodeData {
     #[inline(always)]
     pub fn with_dataset(self, data: OptionRefAny) -> Self { Self { dataset: data, .. self } }
     #[inline(always)]
-    pub fn with_ids(self, ids: StringVec) -> Self { Self { ids, .. self } }
-    #[inline(always)]
-    pub fn with_classes(self, classes: StringVec) -> Self { Self { classes, .. self } }
+    pub fn with_ids_and_classes(self, ids_and_classes: IdOrClassVec) -> Self { Self { ids_and_classes, .. self } }
     #[inline(always)]
     pub fn with_callbacks(self, callbacks: CallbackDataVec) -> Self { Self { callbacks, .. self } }
     #[inline(always)]
-    pub fn with_inline_css_props(self, inline_css_props: CssPropertyVec) -> Self { Self { inline_css_props, .. self } }
-    #[inline(always)]
-    pub fn with_inline_hover_css_props(self, inline_hover_css_props: CssPropertyVec) -> Self { Self { inline_hover_css_props, .. self } }
-    #[inline(always)]
-    pub fn with_inline_active_css_props(self, inline_active_css_props: CssPropertyVec) -> Self { Self { inline_active_css_props, .. self } }
-    #[inline(always)]
-    pub fn with_inline_focus_css_props(self, inline_focus_css_props: CssPropertyVec) -> Self { Self { inline_focus_css_props, .. self } }
+    pub fn with_inline_css_props(self, inline_css_props: NodeDataInlineCssPropertyVec) -> Self { Self { inline_css_props, .. self } }
     #[inline(always)]
     pub fn with_clip_mask(self, clip_mask: OptionImageMask) -> Self { Self { clip_mask, .. self } }
     #[inline(always)]
     pub fn is_draggable(self, is_draggable: bool) -> Self { Self { is_draggable, .. self } }
     #[inline(always)]
     pub fn with_tab_index(self, tab_index: OptionTabIndex) -> Self { Self { tab_index, .. self } }
+
+    pub fn debug_print_start(&self, close_self: bool) -> String {
+        let html_type = self.node_type.get_path();
+        let attributes_string = node_data_to_string(&self);
+        format!("<{}{}{}>", html_type, attributes_string, if close_self { " /" } else { "" })
+    }
+
+    pub fn debug_print_end(&self) -> String {
+        let html_type = self.node_type.get_path();
+        format!("</{}>", html_type)
+    }
 }
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
@@ -928,6 +954,17 @@ pub struct Dom {
     // the `Dom` can be converted into a `CompactDom`
     estimated_total_children: usize,
 }
+
+impl_option!(Dom, OptionDom, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
+impl_vec!(Dom, DomVec);
+impl_vec_debug!(Dom, DomVec);
+impl_vec_partialord!(Dom, DomVec);
+impl_vec_ord!(Dom, DomVec);
+impl_vec_clone!(Dom, DomVec);
+impl_vec_partialeq!(Dom, DomVec);
+impl_vec_eq!(Dom, DomVec);
+impl_vec_hash!(Dom, DomVec);
 
 impl Dom {
 
@@ -952,49 +989,6 @@ impl Dom {
         }
     }
 
-    /// Shorthand for `Dom::new(NodeType::Div)`.
-    #[inline(always)]
-    pub fn div() -> Self {
-        Self::new(NodeType::Div)
-    }
-
-    /// Shorthand for `Dom::new(NodeType::Body)`.
-    #[inline(always)]
-    pub fn body() -> Self {
-        Self::new(NodeType::Body)
-    }
-
-    /// Shorthand for `Dom::new(NodeType::Label(value.into()))`
-    #[inline(always)]
-    pub fn label<S: Into<AzString>>(value: S) -> Self {
-        Self::new(NodeType::Label(value.into()))
-    }
-
-    /// Shorthand for `Dom::new(NodeType::Text(text_id))`
-    #[inline(always)]
-    pub fn text(text_id: TextId) -> Self {
-        Self::new(NodeType::Text(text_id))
-    }
-
-    /// Shorthand for `Dom::new(NodeType::Image(image_id))`
-    #[inline(always)]
-    pub fn image(image: ImageId) -> Self {
-        Self::new(NodeType::Image(image))
-    }
-
-    /// Shorthand for `Dom::new(NodeType::GlTexture((callback, ptr)))`
-    #[inline(always)]
-    #[cfg(feature = "opengl")]
-    pub fn gl_texture(data: RefAny, callback: GlCallbackType) -> Self {
-        Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data }))
-    }
-
-    /// Shorthand for `Dom::new(NodeType::IFrame((callback, ptr)))`
-    #[inline(always)]
-    pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self {
-        Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data }))
-    }
-
     /// Adds a child DOM to the current DOM
     #[inline]
     pub fn add_child(&mut self, child: Self) {
@@ -1003,185 +997,75 @@ impl Dom {
         self.children.push(child);
     }
 
-    /// Same as `id`, but easier to use for method chaining in a builder-style pattern
-    #[inline]
-    pub fn with_dataset(mut self, data: RefAny) -> Self {
-        self.set_dataset(data);
-        self
-    }
-
-    /// Same as `id`, but easier to use for method chaining in a builder-style pattern
-    #[inline]
-    pub fn with_id<S: Into<AzString>>(mut self, id: S) -> Self {
-        self.add_id(id);
-        self
-    }
-
-    /// Same as `class`, but easier to use for method chaining in a builder-style pattern
-    #[inline]
-    pub fn with_class<S: Into<AzString>>(mut self, class: S) -> Self {
-        self.add_class(class);
-        self
-    }
-
-    /// Same as `event`, but easier to use for method chaining in a builder-style pattern
-    #[inline]
-    pub fn with_callback<O: Into<EventFilter>>(mut self, on: O, callback: CallbackType, ptr: RefAny) -> Self {
-        self.add_callback(on, callback, ptr);
-        self
-    }
-
-    #[inline]
-    pub fn with_child(mut self, child: Self) -> Self {
-        self.add_child(child);
-        self
-    }
-
-    #[inline]
-    pub fn with_inline_css<P: Into<CssProperty>>(mut self, property: P) -> Self {
-        self.add_inline_css(property);
-        self
-    }
-
-    #[inline]
-    pub fn with_inline_css_props(mut self, properties: CssPropertyVec) -> Self {
-        self.set_inline_css_props(properties);
-        self
-    }
-
-    #[inline]
-    pub fn with_inline_hover_css<P: Into<CssProperty>>(mut self, property: P) -> Self {
-        self.add_inline_hover_css(property);
-        self
-    }
-
-    #[inline]
-    pub fn with_inline_hover_css_props(mut self, properties: CssPropertyVec) -> Self {
-        self.set_inline_hover_css_props(properties);
-        self
-    }
-
-    #[inline]
-    pub fn with_inline_active_css<P: Into<CssProperty>>(mut self, property: P) -> Self {
-        self.add_inline_active_css(property);
-        self
-    }
-
-    #[inline]
-    pub fn with_inline_active_css_props(mut self, properties: CssPropertyVec) -> Self {
-        self.set_inline_active_css_props(properties);
-        self
-    }
-
-    #[inline]
-    pub fn with_inline_focus_css<P: Into<CssProperty>>(mut self, property: P) -> Self {
-        self.add_inline_focus_css(property);
-        self
-    }
-
-    #[inline]
-    pub fn with_inline_focus_css_props(mut self, properties: CssPropertyVec) -> Self {
-        self.set_inline_focus_css_props(properties);
-        self
-    }
-
-    #[inline]
-    pub fn with_clip_mask(mut self, clip_mask: OptionImageMask) -> Self {
-        self.set_clip_mask(clip_mask);
-        self
-    }
-
-    #[inline]
-    pub fn with_tab_index(mut self, tab_index: OptionTabIndex) -> Self {
-        self.set_tab_index(tab_index);
-        self
-    }
-
-    #[inline]
-    pub fn is_draggable(mut self, draggable: bool) -> Self {
-        self.set_is_draggable(draggable);
-        self
-    }
-
-    /// Same as `id`, but easier to use for method chaining in a builder-style pattern
-    #[inline]
-    pub fn set_dataset(&mut self, data: RefAny){
-        self.root.set_dataset(Some(data).into());
-    }
-
-    #[inline]
-    pub fn add_id<S: Into<AzString>>(&mut self, id: S) {
-        self.root.add_id(id);
-    }
-
     #[inline(always)]
-    pub fn set_ids(&mut self, ids: StringVec) { self.root.set_ids(ids); }
-
-    #[inline]
-    pub fn add_class<S: Into<AzString>>(&mut self, class: S) {
-        self.root.add_class(class);
-    }
-
+    pub fn div() -> Self { Self::new(NodeType::Div) }
     #[inline(always)]
-    pub fn set_classes(&mut self, classes: StringVec) { self.root.set_classes(classes); }
+    pub fn body() -> Self { Self::new(NodeType::Body) }
+    #[inline(always)]
+    pub fn label<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Label(value.into())) }
+    #[inline(always)]
+    pub fn text(text_id: TextId) -> Self { Self::new(NodeType::Text(text_id)) }
+    #[inline(always)]
+    pub fn image(image: ImageId) -> Self { Self::new(NodeType::Image(image)) }
+    #[inline(always)]
+    #[cfg(feature = "opengl")]
+    pub fn gl_texture(data: RefAny, callback: GlCallbackType) -> Self { Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data })) }
+    #[inline(always)]
+    pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data })) }
 
     #[inline]
-    pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType, data: RefAny) {
-        self.root.add_callback(on, callback, data);
-    }
+    pub fn with_dataset(mut self, data: RefAny) -> Self { self.set_dataset(data); self }
+    #[inline]
+    pub fn with_id<S: Into<AzString>>(mut self, id: S) -> Self { self.add_id(id); self }
+    #[inline]
+    pub fn with_class<S: Into<AzString>>(mut self, class: S) -> Self { self.add_class(class); self }
+    #[inline]
+    pub fn with_callback<O: Into<EventFilter>>(mut self, on: O, callback: CallbackType, ptr: RefAny) -> Self { self.add_callback(on, callback, ptr); self }
+    #[inline]
+    pub fn with_child(mut self, child: Self) -> Self { self.add_child(child); self }
+    #[inline]
+    pub fn with_inline_css_props(mut self, properties: NodeDataInlineCssPropertyVec) -> Self { self.set_inline_css_props(properties); self }
+    #[inline]
+    pub fn with_inline_css<P: Into<CssProperty>>(mut self, property: P) -> Self { self.add_inline_css(property); self }
+    #[inline]
+    pub fn with_inline_hover_css<P: Into<CssProperty>>(mut self, property: P) -> Self { self.add_inline_hover_css(property); self }
+    #[inline]
+    pub fn with_inline_active_css<P: Into<CssProperty>>(mut self, property: P) -> Self { self.add_inline_active_css(property); self }
+    #[inline]
+    pub fn with_inline_focus_css<P: Into<CssProperty>>(mut self, property: P) -> Self { self.add_inline_focus_css(property); self }
+    #[inline]
+    pub fn with_clip_mask(mut self, clip_mask: OptionImageMask) -> Self { self.set_clip_mask(clip_mask); self }
+    #[inline]
+    pub fn with_tab_index(mut self, tab_index: OptionTabIndex) -> Self { self.set_tab_index(tab_index); self }
+    #[inline]
+    pub fn is_draggable(mut self, draggable: bool) -> Self { self.set_is_draggable(draggable); self }
 
     #[inline]
-    pub fn add_inline_css<P: Into<CssProperty>>(&mut self, property: P) {
-        self.root.add_inline_css(property);
-    }
-
+    pub fn set_dataset(&mut self, data: RefAny){ self.root.set_dataset(Some(data).into()); }
     #[inline]
-    pub fn set_inline_css_props(&mut self, properties: CssPropertyVec) {
-        self.root.set_inline_css_props(properties);
-    }
-
+    pub fn add_id<S: Into<AzString>>(&mut self, id: S) { self.root.add_id(id); }
     #[inline]
-    pub fn add_inline_hover_css<P: Into<CssProperty>>(&mut self, property: P) {
-        self.root.add_inline_hover_css(property);
-    }
-
+    pub fn add_class<S: Into<AzString>>(&mut self, class: S) { self.root.add_class(class); }
+    #[inline(always)]
+    pub fn set_ids_and_classes(&mut self, ids: IdOrClassVec) { self.root.set_ids_and_classes(ids); }
     #[inline]
-    pub fn set_inline_hover_css_props(&mut self, properties: CssPropertyVec) {
-        self.root.set_inline_hover_css_props(properties);
-    }
-
+    pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType, data: RefAny) { self.root.add_callback(on, callback, data); }
     #[inline]
-    pub fn add_inline_active_css<P: Into<CssProperty>>(&mut self, property: P) {
-        self.root.add_inline_active_css(property);
-    }
-
+    pub fn set_inline_css_props(&mut self, properties: NodeDataInlineCssPropertyVec) { self.root.set_inline_css_props(properties); }
     #[inline]
-    pub fn set_inline_active_css_props(&mut self, properties: CssPropertyVec) {
-        self.root.set_inline_active_css_props(properties);
-    }
-
+    pub fn add_inline_css<P: Into<CssProperty>>(&mut self, property: P) { self.root.add_inline_css(property); }
     #[inline]
-    pub fn add_inline_focus_css<P: Into<CssProperty>>(&mut self, property: P) {
-        self.root.add_inline_focus_css(property);
-    }
-
+    pub fn add_inline_hover_css<P: Into<CssProperty>>(&mut self, property: P) { self.root.add_inline_hover_css(property); }
     #[inline]
-    pub fn set_inline_focus_css_props(&mut self, properties: CssPropertyVec) {
-        self.root.set_inline_focus_css_props(properties);
-    }
-
+    pub fn add_inline_active_css<P: Into<CssProperty>>(&mut self, property: P) { self.root.add_inline_active_css(property); }
+    #[inline]
+    pub fn add_inline_focus_css<P: Into<CssProperty>>(&mut self, property: P) { self.root.add_inline_focus_css(property); }
     #[inline(always)]
     pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.root.set_clip_mask(clip_mask); }
-
     #[inline]
-    pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) {
-        self.root.set_tab_index(tab_index);
-    }
-
+    pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.root.set_tab_index(tab_index); }
     #[inline]
-    pub fn set_is_draggable(&mut self, draggable: bool) {
-        self.root.set_is_draggable(draggable);
-    }
+    pub fn set_is_draggable(&mut self, draggable: bool) { self.root.set_is_draggable(draggable); }
 
     pub fn get_html_string(&self) -> String {
 
@@ -1221,42 +1105,22 @@ impl Dom {
     }
 }
 
-impl_vec!(Dom, DomVec);
-impl_vec_debug!(Dom, DomVec);
-impl_vec_partialord!(Dom, DomVec);
-impl_vec_ord!(Dom, DomVec);
-impl_vec_clone!(Dom, DomVec);
-impl_vec_partialeq!(Dom, DomVec);
-impl_vec_eq!(Dom, DomVec);
-impl_vec_hash!(Dom, DomVec);
-
-impl_vec!(CallbackData, CallbackDataVec);
-impl_vec_debug!(CallbackData, CallbackDataVec);
-impl_vec_partialord!(CallbackData, CallbackDataVec);
-impl_vec_ord!(CallbackData, CallbackDataVec);
-impl_vec_clone!(CallbackData, CallbackDataVec);
-impl_vec_partialeq!(CallbackData, CallbackDataVec);
-impl_vec_eq!(CallbackData, CallbackDataVec);
-impl_vec_hash!(CallbackData, CallbackDataVec);
-
-impl_option!(TabIndex, OptionTabIndex, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-impl_option!(Dom, OptionDom, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-
-fn print_dom(d: &Dom, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "Dom {{\r\n")?;
-    write!(f, "\troot: {:#?}", d.root)?;
-    write!(f, "\testimated_total_children: {:#?}", d.estimated_total_children)?;
-    write!(f, "\tchildren: [")?;
-    for c in d.children.iter() {
-        print_dom(c, f)?;
-    }
-    write!(f, "\t]")?;
-    write!(f, "}}")?;
-    Ok(())
-}
-
 impl fmt::Debug for Dom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+
+        fn print_dom(d: &Dom, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "Dom {{\r\n")?;
+            write!(f, "\troot: {:#?}", d.root)?;
+            write!(f, "\testimated_total_children: {:#?}", d.estimated_total_children)?;
+            write!(f, "\tchildren: [")?;
+            for c in d.children.iter() {
+                print_dom(c, f)?;
+            }
+            write!(f, "\t]")?;
+            write!(f, "}}")?;
+            Ok(())
+        }
+
         print_dom(self, f)
     }
 }
@@ -1298,18 +1162,13 @@ impl FromIterator<NodeType> for Dom {
     }
 }
 
+
 /// Same as `Dom`, but arena-based for more efficient memory layout
 #[derive(Debug, PartialEq, PartialOrd, Clone, Eq)]
-pub struct CompactDom {
+pub(crate) struct CompactDom {
     pub node_hierarchy: NodeHierarchy,
     pub node_data: NodeDataContainer<NodeData>,
     pub root: NodeId,
-}
-
-impl From<Dom> for CompactDom {
-    fn from(dom: Dom) -> Self {
-        convert_dom_into_compact_dom(dom)
-    }
 }
 
 impl CompactDom {
@@ -1320,73 +1179,79 @@ impl CompactDom {
     }
 }
 
-pub(crate) fn convert_dom_into_compact_dom(dom: Dom) -> CompactDom {
+impl From<Dom> for CompactDom {
+    fn from(dom: Dom) -> Self {
+        fn convert_dom_into_compact_dom(dom: Dom) -> CompactDom {
 
-    // Pre-allocate all nodes (+ 1 root node)
-    let default_node_data = NodeData::div();
+            // note: somehow convert this into a non-recursive form later on!
+            fn convert_dom_into_compact_dom_internal(
+                dom: Dom,
+                node_hierarchy: &mut NodeHierarchyRefMut,
+                node_data: &mut NodeDataContainerRefMut<NodeData>,
+                parent_node_id: NodeId,
+                node: Node,
+                cur_node_id: &mut usize
+            ) {
 
-    let mut node_hierarchy = NodeHierarchy { internal: vec![Node::ROOT; dom.estimated_total_children + 1] };
-    let mut node_data = NodeDataContainer { internal: vec![default_node_data; dom.estimated_total_children + 1] };
-    let mut cur_node_id = 0;
+                // - parent [0]
+                //    - child [1]
+                //    - child [2]
+                //        - child of child 2 [2]
+                //        - child of child 2 [4]
+                //    - child [5]
+                //    - child [6]
+                //        - child of child 4 [7]
 
-    let root_node_id = NodeId::ZERO;
-    let root_node = Node {
-        parent: None,
-        previous_sibling: None,
-        next_sibling: None,
-        first_child: if dom.children.is_empty() { None } else { Some(root_node_id + 1) },
-        last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
-    };
+                // Write node into the arena here!
+                node_hierarchy[parent_node_id] = node;
+                node_data[parent_node_id] = dom.root;
+                *cur_node_id += 1;
 
-    convert_dom_into_compact_dom_internal(dom, &mut node_hierarchy.as_ref_mut(), &mut node_data.as_ref_mut(), root_node_id, root_node, &mut cur_node_id);
+                let mut previous_sibling_id = None;
+                let children_len = dom.children.len();
+                for (child_index, child_dom) in dom.children.into_iter().enumerate() {
+                    let child_node_id = NodeId::new(*cur_node_id);
+                    let is_last_child = (child_index + 1) == children_len;
+                    let child_dom_is_empty = child_dom.children.is_empty();
+                    let child_node = Node {
+                        parent: Some(parent_node_id),
+                        previous_sibling: previous_sibling_id,
+                        next_sibling: if is_last_child { None } else { Some(child_node_id + child_dom.estimated_total_children + 1) },
+                        first_child: if child_dom_is_empty { None } else { Some(child_node_id + 1) },
+                        last_child: if child_dom_is_empty { None } else { Some(child_node_id + child_dom.estimated_total_children) },
+                    };
+                    previous_sibling_id = Some(child_node_id);
+                    // recurse BEFORE adding the next child
+                    convert_dom_into_compact_dom_internal(child_dom, node_hierarchy, node_data, child_node_id, child_node, cur_node_id);
+                }
+            }
 
-    CompactDom {
-        node_hierarchy,
-        node_data,
-        root: root_node_id,
-    }
-}
+            // Pre-allocate all nodes (+ 1 root node)
+            let default_node_data = NodeData::div();
 
-// note: somehow convert this into a non-recursive form later on!
-fn convert_dom_into_compact_dom_internal(
-    dom: Dom,
-    node_hierarchy: &mut NodeHierarchyRefMut,
-    node_data: &mut NodeDataContainerRefMut<NodeData>,
-    parent_node_id: NodeId,
-    node: Node,
-    cur_node_id: &mut usize
-) {
+            let mut node_hierarchy = NodeHierarchy { internal: vec![Node::ROOT; dom.estimated_total_children + 1] };
+            let mut node_data = NodeDataContainer { internal: vec![default_node_data; dom.estimated_total_children + 1] };
+            let mut cur_node_id = 0;
 
-    // - parent [0]
-    //    - child [1]
-    //    - child [2]
-    //        - child of child 2 [2]
-    //        - child of child 2 [4]
-    //    - child [5]
-    //    - child [6]
-    //        - child of child 4 [7]
+            let root_node_id = NodeId::ZERO;
+            let root_node = Node {
+                parent: None,
+                previous_sibling: None,
+                next_sibling: None,
+                first_child: if dom.children.is_empty() { None } else { Some(root_node_id + 1) },
+                last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
+            };
 
-    // Write node into the arena here!
-    node_hierarchy[parent_node_id] = node;
-    node_data[parent_node_id] = dom.root;
-    *cur_node_id += 1;
+            convert_dom_into_compact_dom_internal(dom, &mut node_hierarchy.as_ref_mut(), &mut node_data.as_ref_mut(), root_node_id, root_node, &mut cur_node_id);
 
-    let mut previous_sibling_id = None;
-    let children_len = dom.children.len();
-    for (child_index, child_dom) in dom.children.into_iter().enumerate() {
-        let child_node_id = NodeId::new(*cur_node_id);
-        let is_last_child = (child_index + 1) == children_len;
-        let child_dom_is_empty = child_dom.children.is_empty();
-        let child_node = Node {
-            parent: Some(parent_node_id),
-            previous_sibling: previous_sibling_id,
-            next_sibling: if is_last_child { None } else { Some(child_node_id + child_dom.estimated_total_children + 1) },
-            first_child: if child_dom_is_empty { None } else { Some(child_node_id + 1) },
-            last_child: if child_dom_is_empty { None } else { Some(child_node_id + child_dom.estimated_total_children) },
-        };
-        previous_sibling_id = Some(child_node_id);
-        // recurse BEFORE adding the next child
-        convert_dom_into_compact_dom_internal(child_dom, node_hierarchy, node_data, child_node_id, child_node, cur_node_id);
+            CompactDom {
+                node_hierarchy,
+                node_data,
+                root: root_node_id,
+            }
+        }
+
+        convert_dom_into_compact_dom(dom)
     }
 }
 

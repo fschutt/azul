@@ -10,7 +10,7 @@ use crate::{
     FastHashMap, FastHashSet,
     ui_solver::ResolvedTextLayoutOptions,
     display_list::GlyphInstance,
-    styled_dom::StyledNode,
+    styled_dom::StyledDom,
     callbacks::PipelineId,
     dom::{NodeData, OptionImageMask},
     svg::{SvgStyledNode, TesselatedCPUSvgNode},
@@ -440,16 +440,6 @@ pub struct AppResources {
     pub last_frame_font_keys: FastHashMap<PipelineId, FastHashMap<ImmediateFontId, FastHashSet<Au>>>,
     /// Stores long texts across frames
     pub text_cache: TextCache,
-    /// Cache from SVG node ID -> Geometry for that node
-    pub svg_cpu_path_cache: FastHashMap<SvgNodeId, SvgStyledNode>,
-    /// Cache from SVG node -> CPU tesselated triangles
-    pub svg_cpu_tess_cache: FastHashMap<SvgNodeId, TesselatedCPUSvgNode>,
-    /// Cache from SVG node -> GPU vertex buffer ID + GPU index buffer ID
-    #[cfg(feature = "opengl")]
-    pub svg_gpu_tess_cache: FastHashMap<SvgNodeId, TesselatedGPUSvgNode>,
-    /// Cache from SVG node -> Texture
-    #[cfg(feature = "opengl")]
-    pub svg_gpu_texture_cache: FastHashMap<SvgNodeId, Texture>,
 }
 
 impl AppResources {
@@ -505,7 +495,6 @@ macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
     }
 }}
 
-unique_id!(SvgNodeId, SVG_NODE_ID_COUNTER);
 unique_id!(TextId, TEXT_ID_COUNTER);
 unique_id!(ImageId, IMAGE_ID_COUNTER);
 unique_id!(FontId, FONT_ID_COUNTER);
@@ -586,6 +575,16 @@ pub struct LoadedFont {
     pub font_instances: FastHashMap<Au, FontInstanceKey>,
     pub font_metrics: FontMetrics,
 }
+
+// TODO: Theoretically, azul_text_layout::ParsedFont is NOT thread-safe
+// because it uses Rc internally. However, the context in which this Send + Sync
+// is necessary (to build the display list in parallel), no font-decoding
+// functions get called, therefore no data races can happen. When the font is
+// used, it needs to be downcasted to a ParsedFont - at which point this
+// impl doesn't apply anymore and the compiler will warn again that
+// ParsedFont isn't threadsafe.
+unsafe impl Send for LoadedFont { }
+unsafe impl Sync for LoadedFont { }
 
 impl fmt::Debug for LoadedFont {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1083,14 +1082,13 @@ pub fn add_fonts_and_images(
     render_api_namespace: IdNamespace,
     all_resource_updates: &mut Vec<ResourceUpdate>,
     pipeline_id: &PipelineId,
-    styled_nodes: &[StyledNode],
-    node_data: &[NodeData],
+    styled_dom: &StyledDom,
     load_font_fn: LoadFontFn,
     load_image_fn: LoadImageFn,
     parse_font_fn: ParseFontFn,
 ) {
-    let font_keys = scan_styled_nodes_for_font_keys(&app_resources, styled_nodes, node_data);
-    let image_keys = scan_styled_nodes_for_image_keys(&app_resources, styled_nodes, node_data);
+    let font_keys = styled_dom.scan_for_font_keys(&app_resources);
+    let image_keys = styled_dom.scan_for_image_keys(&app_resources);
 
     app_resources.last_frame_font_keys.get_mut(pipeline_id).unwrap().extend(font_keys.clone().into_iter());
     app_resources.last_frame_image_keys.get_mut(pipeline_id).unwrap().extend(image_keys.clone().into_iter());
@@ -1412,81 +1410,6 @@ impl Au {
         Au(target_app_units.min(MAX_AU).max(MIN_AU))
     }
     pub fn into_px(&self) -> f32 { self.0 as f32 / AU_PER_PX as f32 }
-}
-
-/// Scans the display list for all font IDs + their font size
-pub fn scan_styled_nodes_for_font_keys(
-    app_resources: &AppResources,
-    styled_nodes: &[StyledNode],
-    node_data: &[NodeData],
-) -> FastHashMap<ImmediateFontId, FastHashSet<Au>> {
-
-    use crate::dom::NodeType::*;
-
-    assert!(styled_nodes.len() == node_data.len());
-
-    let mut font_keys = FastHashMap::default();
-
-    for (styled_node, node_data) in styled_nodes.iter().zip(node_data.iter()) {
-
-        match node_data.get_node_type() {
-            Text(_) | Label(_) => {
-                let css_font_id = get_font_id(&styled_node.style);
-                let font_id = match app_resources.css_ids_to_font_ids.get(css_font_id) {
-                    Some(s) => ImmediateFontId::Resolved(*s),
-                    None => ImmediateFontId::Unresolved(css_font_id.to_string()),
-                };
-                let font_size = get_font_size(&styled_node.style);
-                font_keys
-                    .entry(font_id)
-                    .or_insert_with(|| FastHashSet::default())
-                    .insert(font_size_to_au(font_size));
-            },
-            _ => { }
-        }
-    }
-
-    font_keys
-}
-
-/// Scans the display list for all image keys
-pub fn scan_styled_nodes_for_image_keys(
-    app_resources: &AppResources,
-    styled_nodes: &[StyledNode],
-    node_data: &[NodeData],
-) -> FastHashSet<ImageId> {
-
-    use crate::dom::NodeType::*;
-
-    assert!(styled_nodes.len() == node_data.len());
-
-    let mut images_in_dl = Vec::new();
-
-    for (styled_node, node_data) in styled_nodes.iter().zip(node_data.iter()) {
-        // If the node has an image content, it needs to be uploaded
-        if let Image(id) = node_data.get_node_type(){
-            images_in_dl.push(*id);
-        }
-
-        // If the node has a CSS background image, it needs to be uploaded
-        let node_has_css_background = || -> Option<ImageId> {
-            let background = styled_node.style.background.as_ref().and_then(|bg| bg.get_property())?;
-            let css_image_id = background.get_css_image_id()?;
-            let image_id = app_resources.get_css_image_id(css_image_id.inner.as_str())?;
-            Some(*image_id)
-        };
-
-        if let Some(background_id) = node_has_css_background() {
-            images_in_dl.push(background_id);
-        }
-
-        // If the node has a clip mask, it needs to be uploaded
-        if let OptionImageMask::Some(clip_mask) = node_data.get_clip_mask() {
-            images_in_dl.push(clip_mask.image);
-        }
-    }
-
-    images_in_dl.into_iter().collect()
 }
 
 // Debug, PartialEq, Eq, PartialOrd, Ord
