@@ -35,8 +35,8 @@ use azul_css::{
 };
 use crate::{
     FastHashSet, FastHashMap,
-    id_tree::{NodeDataContainerRef, Node, NodeId, NodeHierarchyRef, NodeDataContainerRefMut},
-    dom::{Dom, NodeDataVec, IFrameNode, GlTextureNode, CompactDom, NodeData, TagId, OptionTabIndex},
+    id_tree::{NodeDataContainerRef, Node, NodeId, NodeDataContainerRefMut},
+    dom::{Dom, NodeDataVec, IFrameNode, GlTextureNode, CompactDom, TagId, OptionTabIndex},
     style::{
         CascadeInfoVec, construct_html_cascade_tree,
         matches_html_element, rule_ends_with,
@@ -766,7 +766,6 @@ impl StyledDom {
 
         use azul_css::CssDeclaration;
         use crate::dom::{TabIndex, NodeDataInlineCssProperty};
-        use std::collections::BTreeSet;
         use std::iter::FromIterator;
         use rayon::prelude::*;
 
@@ -875,7 +874,7 @@ impl StyledDom {
                     .filter_map(move |declaration| {
                         match declaration {
                             CssDeclaration::Static(s) => Some(s),
-                            CssDeclaration::Dynamic(d) => None, // TODO: No variable support yet!
+                            CssDeclaration::Dynamic(_d) => None, // TODO: No variable support yet!
                         }
                     })
                 })
@@ -1124,6 +1123,9 @@ impl StyledDom {
         self.non_leaf_nodes.sort_by(|a, b| a.depth.cmp(&b.depth));
     }
 
+    pub fn get_styled_node_state(&self, node_id: &NodeId) -> StyledNodeState {
+        self.styled_nodes.as_container()[*node_id].state.clone()
+    }
 
     /// Scans the display list for all font IDs + their font size
     pub(crate) fn scan_for_font_keys(&self, app_resources: &AppResources) -> FastHashMap<ImmediateFontId, FastHashSet<Au>> {

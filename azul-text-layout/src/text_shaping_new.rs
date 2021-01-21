@@ -262,7 +262,6 @@ impl ParsedFont {
         use rayon::iter::IntoParallelIterator;
         use rayon::iter::IndexedParallelIterator;
         use rayon::iter::ParallelIterator;
-        use std::time::Instant;
 
         let scope = ReadScope::new(font_bytes);
         let font_file = scope.read::<FontData<'_>>().ok()?;

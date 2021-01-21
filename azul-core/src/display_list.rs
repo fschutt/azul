@@ -4,7 +4,7 @@ use std::{
 };
 use azul_css::{
     LayoutPoint, LayoutSize, LayoutRect,
-    StyleBackgroundRepeat, StyleBackgroundPosition, ColorU, BoxShadowClipMode,
+    StyleBackgroundRepeat, StyleBackgroundPosition, ColorU,
     LinearGradient, RadialGradient, ConicGradient, StyleBoxShadow, StyleBackgroundSize,
     CssPropertyValue,
 

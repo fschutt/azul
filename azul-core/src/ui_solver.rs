@@ -9,7 +9,7 @@ use azul_css::{
 };
 use crate::{
     styled_dom::{StyledDom, AzNodeId, DomId},
-    app_resources::{Words, ShapedWords, FontInstanceKey, WordPositions, LayoutedGlyphs},
+    app_resources::{Words, ShapedWords, FontInstanceKey, WordPositions},
     id_tree::{NodeId, NodeDataContainer},
     dom::{DomHash, ScrollTagId},
     callbacks::{PipelineId, HitTestItem, ScrollHitTestItem},

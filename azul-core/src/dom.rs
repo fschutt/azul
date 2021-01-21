@@ -20,7 +20,7 @@ use crate::{
 };
 #[cfg(feature = "opengl")]
 use crate::callbacks::{GlCallback, GlCallbackType};
-use azul_css::{Css, AzString, StringVec, NodeTypePath, CssProperty, CssPropertyVec};
+use azul_css::{Css, AzString, NodeTypePath, CssProperty};
 
 pub use crate::id_tree::{NodeHierarchy, Node, NodeId};
 

@@ -1,12 +1,12 @@
 //! DOM tree to CSS style tree cascading
 
 use azul_css::{
-    CssContentGroup, CssPath, CssProperty,
-    CssPathSelector, CssPathPseudoSelector, CssNthChildSelector::*,
+    CssContentGroup, CssPath, CssPathSelector,
+    CssPathPseudoSelector, CssNthChildSelector::*,
 };
 use crate::{
     dom::NodeData,
-    styled_dom::{AzNode, StyledNodeState},
+    styled_dom::AzNode,
     id_tree::{NodeId, NodeHierarchyRef, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
 };
 
