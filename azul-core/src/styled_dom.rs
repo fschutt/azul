@@ -201,6 +201,27 @@ macro_rules! get_property {
 
 impl CssPropertyCache {
 
+    pub fn append(&mut self, other: Self, node_id_shift: usize) {
+
+        macro_rules! append_btreemap {($field_name:ident) => {{
+            for (node_id, tree) in other.$field_name.into_iter() {
+                self.$field_name
+                .entry(node_id + node_id_shift)
+                .or_insert_with(|| BTreeMap::default())
+                .extend(tree.into_iter());
+            }
+        }};}
+
+        append_btreemap!(non_default_inline_normal_props);
+        append_btreemap!(non_default_inline_hover_props);
+        append_btreemap!(non_default_inline_active_props);
+        append_btreemap!(non_default_inline_focus_props);
+        append_btreemap!(non_default_css_normal_props);
+        append_btreemap!(non_default_css_hover_props);
+        append_btreemap!(non_default_css_active_props);
+        append_btreemap!(non_default_css_focus_props);
+    }
+
     pub fn is_horizontal_overflow_visible(&self, node_id: &NodeId, node_state: &StyledNodeState) -> bool {
         self.get_overflow_x(node_id, node_state).and_then(|p| p.get_property_or_default()).unwrap_or_default().is_overflow_visible()
     }
@@ -620,7 +641,7 @@ pub struct StyledDom {
     pub cascade_info: CascadeInfoVec,
     pub tag_ids_to_node_ids: TagIdsToNodeIdsMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
-    pub css_property_cache: *const CssPropertyCache,
+    pub css_property_cache: *mut CssPropertyCache,
 }
 
 unsafe impl Send for StyledDom { } // necessary to build display list in parallel
@@ -632,6 +653,113 @@ impl Default for StyledDom {
     }
 }
 
+macro_rules! diff_properties {($self_val:expr, $old_properties:expr, $new_properties:expr, $node_id:expr, $current_node_state:expr, $new_node_state:expr) => {{
+    if $new_properties.is_empty() && $old_properties.is_empty() {
+        None
+    } else if $new_properties.is_empty() {
+        // all old_properties removed
+        Some((*$node_id, $old_properties.into_iter().map(|(key, value)| {
+            ChangedCssProperty {
+                previous_state: $current_node_state.clone(),
+                current_state: $new_node_state.clone(),
+                previous_prop: value,
+                current_prop: CssProperty::none(key),
+            }
+        }).collect()))
+    } else if $old_properties.is_empty() {
+        // all new_properties added
+        Some((*$node_id, $new_properties.into_iter().map(|(key, value)| {
+            ChangedCssProperty {
+                previous_state: $current_node_state.clone(),
+                current_state: $new_node_state.clone(),
+                previous_prop: CssProperty::none(key),
+                current_prop: value,
+            }
+        }).collect()))
+    } else {
+        // mix between the two
+        let mut changed_properties = Vec::new();
+
+        for (old_key, old_value) in $old_properties.iter() {
+            let new_prop = $new_properties.get(&old_key).cloned().unwrap_or(CssProperty::none(*old_key));
+            if *old_value != new_prop {
+                changed_properties.push(ChangedCssProperty {
+                    previous_state: $current_node_state.clone(),
+                    current_state: $new_node_state.clone(),
+                    previous_prop: old_value.clone(),
+                    current_prop: new_prop,
+                });
+            }
+        }
+
+        for (new_key, new_value) in $new_properties.iter() {
+            let old_prop = $old_properties.get(&new_key).cloned().unwrap_or(CssProperty::none(*new_key));
+            if *new_value != old_prop {
+                changed_properties.push(ChangedCssProperty {
+                    previous_state: $current_node_state.clone(),
+                    current_state: $new_node_state.clone(),
+                    previous_prop: old_prop,
+                    current_prop: new_value.clone(),
+                });
+            }
+        }
+
+        if !changed_properties.is_empty() {
+            Some((*$node_id, changed_properties))
+        } else {
+            None
+        }
+    }
+}};}
+
+macro_rules! restyle_nodes {($self_val:expr, $field:ident, $new_field_state:expr, $inline_props_field:ident, $css_props_field:ident, $nodes:expr) => {{
+    use rayon::prelude::*;
+
+    let ret = $nodes
+    .par_iter()
+    .filter_map(|node_id| {
+
+        let current_node_state = $self_val.styled_nodes.as_container()[*node_id].state.clone();
+        let mut new_node_state = current_node_state.clone();
+        new_node_state.$field = $new_field_state;
+
+        if current_node_state == new_node_state {
+            return None; // state is the same, no changes
+        }
+
+        let mut old_properties = BTreeMap::new();
+        let default_map = BTreeMap::new();
+
+        if current_node_state.$field {
+            for (prop_key, prop_value) in $self_val.get_css_property_cache().$css_props_field.get(node_id).unwrap_or(&default_map).iter() {
+                old_properties.insert(*prop_key, prop_value.clone());
+            }
+            for (prop_key, prop_value) in $self_val.get_css_property_cache().$inline_props_field.get(node_id).unwrap_or(&default_map).iter() {
+                old_properties.insert(*prop_key, prop_value.clone());
+            }
+        }
+
+        let mut new_properties = BTreeMap::new();
+
+        if new_node_state.$field {
+            for (prop_key, prop_value) in $self_val.get_css_property_cache().$css_props_field.get(node_id).unwrap_or(&default_map).iter() {
+                new_properties.insert(*prop_key, prop_value.clone());
+            }
+            for (prop_key, prop_value) in $self_val.get_css_property_cache().$inline_props_field.get(node_id).unwrap_or(&default_map).iter() {
+                new_properties.insert(*prop_key, prop_value.clone());
+            }
+        }
+
+        diff_properties!($self_val, old_properties, new_properties, node_id, current_node_state, new_node_state)
+    }).collect::<Vec<_>>();
+
+    for node_id in $nodes {
+        $self_val.styled_nodes.as_container_mut()[*node_id].state.$field = $new_field_state;
+    }
+
+    ret.into_iter().collect()
+}};}
+
 impl StyledDom {
 
     pub fn new(dom: Dom, mut css: Css) -> Self {
@@ -642,10 +770,10 @@ impl StyledDom {
         use std::iter::FromIterator;
         use rayon::prelude::*;
 
-        let compact_dom: CompactDom = dom.into();
+        let mut compact_dom: CompactDom = dom.into();
         let non_leaf_nodes = compact_dom.node_hierarchy.as_ref().get_parents_sorted_by_depth();
         let node_hierarchy: AzNodeVec = compact_dom.node_hierarchy.internal.clone().iter().map(|i| (*i).into()).collect::<Vec<AzNode>>().into();
-        let mut styled_nodes = vec![StyledNode { tag_id: OptionTagId::None, state: StyledNodeState::new() }; compact_dom.node_data.len()];
+        let mut styled_nodes = vec![StyledNode { tag_id: OptionTagId::None, state: StyledNodeState::new() }; compact_dom.len()];
 
         // fill out the css property cache: compute the inline properties first so that
         // we can early-return in case the css is empty
@@ -909,6 +1037,12 @@ impl StyledDom {
             }
         }).collect::<Vec<_>>();
 
+        for tag_id_node_id_mapping in tag_ids.iter() {
+            if let Some(nid) = tag_id_node_id_mapping.node_id.into_crate_internal() {
+                styled_nodes[nid.index()].tag_id = OptionTagId::Some(tag_id_node_id_mapping.tag_id);
+            }
+        }
+
         let non_leaf_nodes = non_leaf_nodes
         .par_iter()
         .map(|(depth, node_id)| ParentWithNodeDepth { depth: *depth, node_id: AzNodeId::from_crate_internal(Some(*node_id)) })
@@ -922,13 +1056,26 @@ impl StyledDom {
             styled_nodes: styled_nodes.into(),
             tag_ids_to_node_ids: tag_ids.into(),
             non_leaf_nodes: non_leaf_nodes.into(),
-            css_property_cache: Box::into_raw(Box::new(css_property_cache)),
+            css_property_cache: Box::into_raw(Box::new(css_property_cache)) as *mut CssPropertyCache,
         }
     }
 
     #[inline]
-    pub fn get_css_property_cache(&self) -> &CssPropertyCache {
+    pub fn get_css_property_cache<'a>(&'a self) -> &'a CssPropertyCache {
         unsafe { &*self.css_property_cache }
+    }
+
+    #[inline]
+    pub fn get_css_property_cache_mut<'a>(&'a mut self) -> &'a mut CssPropertyCache {
+        unsafe { &mut *self.css_property_cache }
+    }
+
+    // swap the internal css property cache with a default cache, moving the self.cache out
+    #[inline]
+    pub fn get_css_property_cache_move(&mut self) -> CssPropertyCache {
+        let mut default_cache = CssPropertyCache::default();
+        std::mem::swap(self.get_css_property_cache_mut(), &mut default_cache);
+        default_cache
     }
 
     /// Appends another `StyledDom` to the `self.root` without re-styling the DOM itself
@@ -959,6 +1106,7 @@ impl StyledDom {
         self.node_hierarchy.append(&mut other.node_hierarchy);
         self.node_data.append(&mut other.node_data);
         self.styled_nodes.append(&mut other.styled_nodes);
+        self.get_css_property_cache_mut().append(other.get_css_property_cache_move(), self_len);
 
         for tag_id_node_id in other.tag_ids_to_node_ids.iter_mut() {
             tag_id_node_id.tag_id.inner += self_tag_len as u64;
@@ -1026,10 +1174,16 @@ impl StyledDom {
             clip_mask: Option<ImageId>,
         }
 
+        use rayon::prelude::*;
+
         let default_backgrounds: StyleBackgroundContentVec = Vec::new().into();
 
-        let images = self.node_data.as_container_mut().transform_multithread(|node_data, node_id| {
+        let images = self.node_data.as_container().internal
+        .par_iter()
+        .enumerate()
+        .map(|(node_id, node_data)| {
 
+            let node_id = NodeId::new(node_id);
             let mut v = ScanImageVec::default();
 
             // If the node has an image content, it needs to be uploaded
@@ -1052,17 +1206,77 @@ impl StyledDom {
             }
 
             v
-        });
+        }).collect::<Vec<_>>();
 
         let mut set = FastHashSet::new();
 
-        for scan_image in images.internal.into_iter() {
+        for scan_image in images.into_iter() {
             if let Some(n) = scan_image.node_type_image { set.insert(n); }
             if let Some(n) = scan_image.clip_mask { set.insert(n); }
             for bg in scan_image.background_image { set.insert(bg); }
         }
 
         set
+    }
+
+    pub fn restyle_nodes_hover_noreturn(&mut self, nodes: &[NodeId], new_hover_state: bool) {
+        for node_id in nodes {
+            self.styled_nodes.as_container_mut()[*node_id].state.hover = new_hover_state;
+        }
+    }
+
+    pub fn restyle_nodes_active_noreturn(&mut self, nodes: &[NodeId], new_active_state: bool) {
+        for node_id in nodes {
+            self.styled_nodes.as_container_mut()[*node_id].state.active = new_active_state;
+        }
+    }
+
+    pub fn restyle_nodes_focus_noreturn(&mut self, nodes: &[NodeId], new_focus_state: bool) {
+        for node_id in nodes {
+            self.styled_nodes.as_container_mut()[*node_id].state.focused = new_focus_state;
+        }
+    }
+
+    #[must_use]
+    pub fn restyle_nodes_hover(&mut self, nodes: &[NodeId], new_hover_state: bool) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+        restyle_nodes!(self, hover, new_hover_state, non_default_inline_hover_props, non_default_css_hover_props, nodes)
+    }
+
+    #[must_use]
+    pub fn restyle_nodes_active(&mut self, nodes: &[NodeId], new_active_state: bool) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+        restyle_nodes!(self, active, new_active_state, non_default_inline_active_props, non_default_css_active_props, nodes)
+    }
+
+    #[must_use]
+    pub fn restyle_nodes_focus(&mut self, nodes: &[NodeId], new_focus_state: bool) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+        restyle_nodes!(self, focused, new_focus_state, non_default_inline_focus_props, non_default_css_focus_props, nodes)
+    }
+
+    #[must_use]
+    pub fn restyle_inline_normal_props(&mut self, node_id: &NodeId, new_properties: &[CssProperty]) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+        // exchange the inline properties for the node n with the new properties
+        let mut old_properties = BTreeMap::new();
+        let default_map = BTreeMap::new();
+
+        for (prop_key, prop_value) in self.get_css_property_cache().non_default_css_normal_props.get(node_id).unwrap_or(&default_map).iter() {
+            old_properties.insert(*prop_key, prop_value.clone());
+        }
+        for (prop_key, prop_value) in self.get_css_property_cache().non_default_inline_normal_props.get(node_id).unwrap_or(&default_map).iter() {
+            old_properties.insert(*prop_key, prop_value.clone());
+        }
+
+        let new_properties: BTreeMap<_, _> = new_properties.iter().map(|c| (c.get_type(), c.clone())).collect();
+
+        let current_node_state = self.styled_nodes.as_container()[*node_id].state.clone();
+        let new_node_state = current_node_state.clone();
+        match diff_properties!(self, new_properties, old_properties, node_id, current_node_state, new_node_state) {
+            Some((node_id, prop_vec)) => {
+                let mut map = BTreeMap::default();
+                map.insert(node_id, prop_vec);
+                map
+            },
+            None => BTreeMap::default(),
+        }
     }
 
     /// Scans the `StyledDom` for iframe callbacks

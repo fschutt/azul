@@ -312,7 +312,7 @@ impl<T> NodeDataContainer<T> {
         NodeDataContainerRefMut { internal: &mut self.internal[..] }
     }
 
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.internal.len()
     }
 }
@@ -332,7 +332,6 @@ impl<'a, T: 'a> NodeDataContainerRefMut<'a, T> {
 impl<'a, T: Send + 'a> NodeDataContainerRefMut<'a, T> {
     pub fn transform_multithread<U: Send, F: Send + Sync>(&mut self, closure: F) -> NodeDataContainer<U> where F: Fn(&mut T, NodeId) -> U {
         use rayon::iter::ParallelIterator;
-        use rayon::iter::IntoParallelIterator;
         use rayon::iter::IndexedParallelIterator;
         use rayon::iter::IntoParallelRefMutIterator;
         NodeDataContainer {
@@ -341,7 +340,6 @@ impl<'a, T: Send + 'a> NodeDataContainerRefMut<'a, T> {
     }
     pub fn transform_multithread_optional<U: Send, F: Send + Sync>(&mut self, closure: F) -> Vec<U> where F: Fn(&mut T, NodeId) -> Option<U> {
         use rayon::iter::ParallelIterator;
-        use rayon::iter::IntoParallelIterator;
         use rayon::iter::IndexedParallelIterator;
         use rayon::iter::IntoParallelRefMutIterator;
         self.internal.par_iter_mut().enumerate().filter_map(|(node_id, node)| closure(node, NodeId::new(node_id))).collect::<Vec<U>>()
@@ -351,17 +349,19 @@ impl<'a, T: Send + 'a> NodeDataContainerRefMut<'a, T> {
 impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
     pub fn transform_nodeid<U: Send, F: Send + Sync>(&self, closure: F) -> NodeDataContainer<U> where F: Fn(NodeId) -> U {
         use rayon::iter::IntoParallelIterator;
+        use crate::rayon::iter::ParallelIterator;
         let len = self.len();
         NodeDataContainer {
-            internal: (0..len).map(|node_id| closure(NodeId::new(node_id))).collect::<Vec<U>>(),
+            internal: (0..len).into_par_iter().map(|node_id| closure(NodeId::new(node_id))).collect::<Vec<U>>(),
         }
     }
 
     pub fn transform_nodeid_multithreaded_optional<U: Send, F: Send + Sync>(&self, closure: F) -> NodeDataContainer<U> where F: Fn(NodeId) -> Option<U> {
         use rayon::iter::IntoParallelIterator;
+        use crate::rayon::iter::ParallelIterator;
         let len = self.len();
         NodeDataContainer {
-            internal: (0..len).filter_map(|node_id| closure(NodeId::new(node_id))).collect::<Vec<U>>(),
+            internal: (0..len).into_par_iter().filter_map(|node_id| closure(NodeId::new(node_id))).collect::<Vec<U>>(),
         }
     }
 }

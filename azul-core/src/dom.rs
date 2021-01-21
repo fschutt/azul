@@ -718,11 +718,11 @@ fn node_data_to_string(node_data: &NodeData) -> String {
 
     let mut class_string = String::new();
     if !node_data.ids_and_classes.is_empty() {
-        id_string += " class = \"";
-        for id in node_data.ids_and_classes.iter().filter_map(|s| s.as_class()) {
-            id_string += id;
+        class_string += " class = \"";
+        for class in node_data.ids_and_classes.iter().filter_map(|s| s.as_class()) {
+            class_string += class;
         }
-        id_string += "\"";
+        class_string += "\"";
     }
 
     let draggable = if node_data.is_draggable {

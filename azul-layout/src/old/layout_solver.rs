@@ -1919,9 +1919,11 @@ pub fn do_the_relayout(
     .filter_map(|(node_id, changed_properties)| {
         let mut properties = BTreeMap::new();
 
-        for prop in changed_properties.iter() {
+        for prop in changed_properties.iter().filter(|prop| ) {
             let prop_type = prop.previous_prop.get_type();
-            properties.insert(prop_type, prop.clone());
+            if prop_type.can_trigger_relayout() {
+                properties.insert(prop_type, prop.clone());
+            }
         }
 
         if properties.is_empty() {

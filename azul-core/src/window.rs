@@ -769,11 +769,11 @@ impl WindowInternal {
             let hovered_nodes = current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.regular_hit_test_nodes.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
             let active_nodes = if !current_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
 
-            if !hovered_nodes.is_empty() { let _ = styled_dom.styled_nodes.restyle_nodes_hover(&hovered_nodes); }
-            if !active_nodes.is_empty() { let _ = styled_dom.styled_nodes.restyle_nodes_hover(&active_nodes); }
+            if !hovered_nodes.is_empty() { styled_dom.restyle_nodes_hover_noreturn(&hovered_nodes, true); }
+            if !active_nodes.is_empty() { styled_dom.restyle_nodes_active_noreturn(&active_nodes, true); }
             if let Some(focus) = current_window_state.focused_node.as_ref() {
                 if focus.dom == DomId::ROOT_ID {
-                    let _ = styled_dom.styled_nodes.restyle_nodes_hover(&[focus.node.into_crate_internal().unwrap()]);
+                    styled_dom.restyle_nodes_focus_noreturn(&[focus.node.into_crate_internal().unwrap()], true);
                 }
             }
 
@@ -845,11 +845,11 @@ impl WindowInternal {
             let hovered_nodes = self.current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.regular_hit_test_nodes.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
             let active_nodes = if !self.current_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
 
-            if !hovered_nodes.is_empty() { let _ = styled_dom.styled_nodes.restyle_nodes_hover(&hovered_nodes); }
-            if !active_nodes.is_empty() { let _ = styled_dom.styled_nodes.restyle_nodes_hover(&active_nodes); }
+            if !hovered_nodes.is_empty() { styled_dom.restyle_nodes_hover_noreturn(&hovered_nodes, true); }
+            if !active_nodes.is_empty() { styled_dom.restyle_nodes_active_noreturn(&active_nodes, true); }
             if let Some(focus) = self.current_window_state.focused_node {
                 if focus.dom == DomId::ROOT_ID {
-                    let _ = styled_dom.styled_nodes.restyle_nodes_hover(&[focus.node.into_crate_internal().unwrap()]);
+                    let _ = styled_dom.restyle_nodes_focus_noreturn(&[focus.node.into_crate_internal().unwrap()], true);
                 }
             }
 

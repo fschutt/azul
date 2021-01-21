@@ -12,13 +12,8 @@ use crate::{
     display_list::GlyphInstance,
     styled_dom::StyledDom,
     callbacks::PipelineId,
-    dom::{NodeData, OptionImageMask},
-    svg::{SvgStyledNode, TesselatedCPUSvgNode},
-    window::{RendererType, DebugState, LogicalPosition, LogicalSize, OptionI32},
+    window::{DebugState, LogicalPosition, LogicalSize, OptionI32},
 };
-
-#[cfg(feature = "opengl")]
-use crate::{gl::Texture, svg::TesselatedGPUSvgNode};
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

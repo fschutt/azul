@@ -277,136 +277,80 @@ impl StyleAndLayoutChanges {
         // and determine if the DOM needs a redraw or a relayout
         let mut style_changes = BTreeMap::new();
         let mut layout_changes = BTreeMap::new();
+
         let is_mouse_down = nodes.current_window_state_mouse_is_down;
+
+        macro_rules! insert_props {($dom_id:expr, $prop_map:expr) => {{
+            let dom_id: DomId = $dom_id;
+            for (node_id, prop_map) in $prop_map.into_iter() {
+                for changed_prop in prop_map.into_iter() {
+                    let prop_key = changed_prop.previous_prop.get_type();
+                    if prop_key.can_trigger_relayout() {
+                        layout_changes
+                        .entry(dom_id).or_insert_with(|| BTreeMap::new())
+                        .entry(node_id).or_insert_with(|| Vec::new())
+                        .push(changed_prop);
+                    } else {
+                        style_changes
+                        .entry(dom_id).or_insert_with(|| BTreeMap::new())
+                        .entry(node_id).or_insert_with(|| Vec::new())
+                        .push(changed_prop);
+                    }
+                }
+            }
+        }};}
 
         for (dom_id, onmouseenter_nodes) in nodes.onmouseenter_nodes.iter() {
             let layout_result = &mut layout_results[dom_id.inner];
-            for onmouseenter_node_id in onmouseenter_nodes.keys() {
-                // style :hover nodes
 
-                let hover_node = &mut layout_result.styled_dom.styled_nodes.as_container_mut()[*onmouseenter_node_id];
-                if hover_node.needs_hover_restyle() {
-                    let style_props_changed = hover_node.restyle_hover();
-                    let mut style_style_props = style_props_changed.iter().filter(|prop| !prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
-                    let mut style_layout_props = style_props_changed.iter().filter(|prop| prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+            let keys = onmouseenter_nodes.keys().copied().collect::<Vec<_>>();
+            let onmouseenter_nodes_hover_restyle_props = layout_result.styled_dom.restyle_nodes_hover(&keys, /* currently_hovered = */true);
+            let onmouseleave_nodes_active_restyle_props = layout_result.styled_dom.restyle_nodes_active(&keys, /* currently_active = */ is_mouse_down);
 
-                    if !style_style_props.is_empty() {
-                        style_changes.entry(*dom_id).or_insert_with(|| BTreeMap::new()).entry(*onmouseenter_node_id).or_insert_with(|| Vec::new()).append(&mut style_style_props);
-                    }
-                    if !style_layout_props.is_empty() {
-                        layout_changes.entry(*dom_id).or_insert_with(|| BTreeMap::new()).entry(*onmouseenter_node_id).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
-                    }
-                }
-
-                if is_mouse_down {
-                    // style :active nodes
-                    if hover_node.needs_active_restyle() {
-                        let style_props_changed = hover_node.restyle_active();
-                        let mut style_style_props = style_props_changed.iter().filter(|prop| !prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
-                        let mut style_layout_props = style_props_changed.iter().filter(|prop| prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
-
-                        if !style_style_props.is_empty() {
-                            style_changes.entry(*dom_id).or_insert_with(|| BTreeMap::new()).entry(*onmouseenter_node_id).or_insert_with(|| Vec::new()).append(&mut style_style_props);
-                        }
-                        if !style_layout_props.is_empty() {
-                            layout_changes.entry(*dom_id).or_insert_with(|| BTreeMap::new()).entry(*onmouseenter_node_id).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
-                        }
-                    }
-                }
-            }
+            insert_props!(*dom_id, onmouseenter_nodes_hover_restyle_props);
+            insert_props!(*dom_id,onmouseleave_nodes_active_restyle_props);
         }
 
         for (dom_id, onmouseleave_nodes) in nodes.onmouseleave_nodes.iter() {
+
             let layout_result = &mut layout_results[dom_id.inner];
-            for onmouseleave_node_id in onmouseleave_nodes.keys() {
-                // style :hover nodes
+            let keys = onmouseleave_nodes.keys().copied().collect::<Vec<_>>();
+            let onmouseleave_nodes_hover_restyle_props = layout_result.styled_dom.restyle_nodes_hover(&keys, /* currently_hovered = */ false);
+            let onmouseleave_nodes_active_restyle_props = layout_result.styled_dom.restyle_nodes_active(&keys, /* currently_active = */ false);
 
-                let hover_node = &mut layout_result.styled_dom.styled_nodes.as_container_mut()[*onmouseleave_node_id];
-                if hover_node.needs_hover_restyle() {
-                    let style_props_changed = hover_node.restyle_hover();
-                    let mut style_style_props = style_props_changed.iter().filter(|prop| !prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
-                    let mut style_layout_props = style_props_changed.iter().filter(|prop| prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
-
-                    if !style_style_props.is_empty() {
-                        style_changes.entry(*dom_id).or_insert_with(|| BTreeMap::new()).entry(*onmouseleave_node_id).or_insert_with(|| Vec::new()).append(&mut style_style_props);
-                    }
-                    if !style_layout_props.is_empty() {
-                        layout_changes.entry(*dom_id).or_insert_with(|| BTreeMap::new()).entry(*onmouseleave_node_id).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
-                    }
-                }
-
-                if is_mouse_down {
-                    // style :active nodes
-                    if hover_node.needs_active_restyle() {
-                        let style_props_changed = hover_node.restyle_active();
-                        let mut style_style_props = style_props_changed.iter().filter(|prop| !prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
-                        let mut style_layout_props = style_props_changed.iter().filter(|prop| prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
-
-                        if !style_style_props.is_empty() {
-                            style_changes.entry(*dom_id).or_insert_with(|| BTreeMap::new()).entry(*onmouseleave_node_id).or_insert_with(|| Vec::new()).append(&mut style_style_props);
-                        }
-                        if !style_layout_props.is_empty() {
-                            layout_changes.entry(*dom_id).or_insert_with(|| BTreeMap::new()).entry(*onmouseleave_node_id).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
-                        }
-                    }
-                }
-            }
+            insert_props!(*dom_id,onmouseleave_nodes_hover_restyle_props);
+            insert_props!(*dom_id,onmouseleave_nodes_active_restyle_props);
         }
 
         let new_focus_node = if let Some(new) = callbacks_new_focus.as_ref() { new } else { &nodes.new_focus_node };
 
         if nodes.old_focus_node != *new_focus_node {
-
-            if let Some(DomNodeId { dom, node }) = nodes.old_focus_node {
-                let layout_result = &mut layout_results[dom.inner];
-                let node = node.into_crate_internal().unwrap();
-                let old_focus_node = &mut layout_result.styled_dom.styled_nodes.as_container_mut()[node];
-                if old_focus_node.needs_focus_restyle() {
-                    let style_props_changed = old_focus_node.restyle_focus();
-                    let mut style_style_props = style_props_changed.iter().filter(|prop| !prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
-                    let mut style_layout_props = style_props_changed.iter().filter(|prop| prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
-
-                    if !style_style_props.is_empty() {
-                        style_changes.entry(dom).or_insert_with(|| BTreeMap::new()).entry(node).or_insert_with(|| Vec::new()).append(&mut style_style_props);
-                    }
-                    if !style_layout_props.is_empty() {
-                        layout_changes.entry(dom).or_insert_with(|| BTreeMap::new()).entry(node).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
-                    }
+            if let Some(DomNodeId { dom, node }) = nodes.old_focus_node.as_ref() {
+                if let Some(node_id) = node.into_crate_internal() {
+                    let layout_result = &mut layout_results[dom.inner];
+                    let onfocus_leave_restyle_props = layout_result.styled_dom.restyle_nodes_focus(&[node_id], /* currently_focused = */ false);
+                    let dom_id: DomId = *dom;
+                    insert_props!(dom_id, onfocus_leave_restyle_props);
                 }
             }
 
-            if let Some(DomNodeId { dom, node }) = *new_focus_node {
-                let layout_result = &mut layout_results[dom.inner];
-                let node = node.into_crate_internal().unwrap();
-                let new_focus_node = &mut layout_result.styled_dom.styled_nodes.as_container_mut()[node];
-                if new_focus_node.needs_focus_restyle() {
-                    let style_props_changed = new_focus_node.restyle_focus();
-                    let mut style_style_props = style_props_changed.iter().filter(|prop| !prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
-                    let mut style_layout_props = style_props_changed.iter().filter(|prop| prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
-
-                    if !style_style_props.is_empty() {
-                        style_changes.entry(dom).or_insert_with(|| BTreeMap::new()).entry(node).or_insert_with(|| Vec::new()).append(&mut style_style_props);
-                    }
-                    if !style_layout_props.is_empty() {
-                        layout_changes.entry(dom).or_insert_with(|| BTreeMap::new()).entry(node).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
-                    }
+            if let Some(DomNodeId { dom, node }) = new_focus_node.as_ref() {
+                if let Some(node_id) = node.into_crate_internal() {
+                    let layout_result = &mut layout_results[dom.inner];
+                    let onfocus_enter_restyle_props = layout_result.styled_dom.restyle_nodes_focus(&[node_id], /* currently_focused = */ true);
+                    let dom_id: DomId = *dom;
+                    insert_props!(dom_id, onfocus_enter_restyle_props);
                 }
             }
         }
 
         // restyle all the nodes according to the existing_changed_styles
         for (dom_id, existing_changes_map) in css_changes.iter() {
+            let layout_result = &mut layout_results[dom_id.inner];
+            let dom_id: DomId = *dom_id;
             for (node_id, changed_css_property_vec) in existing_changes_map.iter() {
-                for changed_css_property in changed_css_property_vec.iter() {
-                    if let Some(changed_prop) = layout_results[dom_id.inner].styled_dom.styled_nodes.as_container_mut()[*node_id].restyle_single_property(changed_css_property) {
-                        // css property changed, now figure out if it was a style or a layout prop
-                        if changed_prop.previous_prop.get_type().can_trigger_relayout() {
-                            layout_changes.entry(*dom_id).or_insert_with(|| BTreeMap::default()).entry(*node_id).or_insert_with(|| Vec::new()).push(changed_prop);
-                        } else {
-                            style_changes.entry(*dom_id).or_insert_with(|| BTreeMap::default()).entry(*node_id).or_insert_with(|| Vec::new()).push(changed_prop);
-                        }
-                    }
-                }
+                let current_prop_changes = layout_result.styled_dom.restyle_inline_normal_props(node_id, &changed_css_property_vec);
+                insert_props!(dom_id, current_prop_changes);
             }
         }
 
