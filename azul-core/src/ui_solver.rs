@@ -504,7 +504,7 @@ pub struct PositionedRectangle {
     pub border_widths: ResolvedOffsets,
     /// If this is an inline rectangle, resolve the %-based font sizes
     /// and store them here.
-    pub resolved_text_layout_options: Option<(ResolvedTextLayoutOptions, InlineTextLayout, LayoutRect)>,
+    pub resolved_text_layout_options: Option<(ResolvedTextLayoutOptions, InlineTextLayout)>,
     /// Determines if the rect should be clipped or not (TODO: x / y as separate fields!)
     pub overflow: OverflowInfo,
 }

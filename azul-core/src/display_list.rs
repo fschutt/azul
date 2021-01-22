@@ -32,7 +32,6 @@ use crate::gl::{Texture, GlContextPtr};
 
 pub type GlyphIndex = u32;
 pub type GetGlyphsFunc = fn(&WordPositions, &ShapedWords, &InlineTextLayout) -> LayoutedGlyphs;
-pub type GetInlineTextLayoutFn = fn(&WordPositions, &ShapedWords) -> InlineTextLayout;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 pub struct GlyphInstance {
@@ -66,7 +65,6 @@ impl CachedDisplayList {
         gl_texture_cache: &GlTextureCache,
         app_resources: &AppResources,
         get_glyphs_func: GetGlyphsFunc,
-        inline_text_layout_func: GetInlineTextLayoutFn,
     ) -> Self {
 
         const DOM_ID: DomId = DomId::ROOT_ID;
@@ -84,7 +82,6 @@ impl CachedDisplayList {
                     app_resources,
                 },
                 get_glyphs_func,
-                inline_text_layout_func,
             )
         };
 
@@ -700,7 +697,6 @@ pub fn push_rectangles_into_displaylist<'a>(
     root_content_group: &ContentGroup,
     referenced_content: &DisplayListParametersRef<'a>,
     get_glyphs_func: GetGlyphsFunc,
-    inline_text_layout_func: GetInlineTextLayoutFn,
 ) -> DisplayListMsg {
 
     use rayon::prelude::*;
@@ -709,7 +705,6 @@ pub fn push_rectangles_into_displaylist<'a>(
         root_content_group.root.into_crate_internal().unwrap(),
         referenced_content,
         get_glyphs_func,
-        inline_text_layout_func,
     );
 
     let children = root_content_group.children
@@ -720,7 +715,6 @@ pub fn push_rectangles_into_displaylist<'a>(
                 child_content_group,
                 referenced_content,
                 get_glyphs_func,
-                inline_text_layout_func,
             )
         })
         .collect();
@@ -735,7 +729,6 @@ pub fn displaylist_handle_rect<'a>(
     rect_idx: NodeId,
     referenced_content: &DisplayListParametersRef<'a>,
     get_glyphs_func: GetGlyphsFunc,
-    inline_text_layout_func: GetInlineTextLayoutFn,
 ) -> DisplayListMsg {
 
     use crate::dom::NodeType::*;
@@ -752,7 +745,7 @@ pub fn displaylist_handle_rect<'a>(
 
     let layout_result = &layout_results[dom_id.inner];
     let styled_node = &layout_result.styled_dom.styled_nodes.as_container()[rect_idx];
-    let bounds = &layout_result.rects.as_ref()[rect_idx];
+    let positioned_rect = &layout_result.rects.as_ref()[rect_idx];
     let html_node = &layout_result.styled_dom.node_data.as_container()[rect_idx];
 
     let tag_id = styled_node.tag_id.into_option().or({
@@ -761,7 +754,7 @@ pub fn displaylist_handle_rect<'a>(
         .map(|scrolled| AzTagId::from_crate_internal(scrolled.scroll_tag_id.0))
     });
 
-    let (size, position) = bounds.get_background_bounds();
+    let (size, position) = positioned_rect.get_background_bounds();
 
     let clip_mask = html_node.get_clip_mask().as_option().and_then(|m| {
         let image_info = app_resources.currently_registered_images.get(pipeline_id)?.get(&m.image)?;
@@ -865,11 +858,11 @@ pub fn displaylist_handle_rect<'a>(
             // to reflow text since there is no cache that needs to be updated
             //
             // if the text is reflowed, the display list needs to update anyway
-            if let (Some(shaped_words), Some(word_positions)) = (
+            if let (Some(shaped_words), Some(word_positions), Some((_, inline_text_layout))) = (
                 layout_result.shaped_words_cache.get(&rect_idx),
-                layout_result.positioned_words_cache.get(&rect_idx)
+                layout_result.positioned_words_cache.get(&rect_idx),
+                positioned_rect.resolved_text_layout_options.as_ref(),
             ) {
-                let inline_text_layout = (inline_text_layout_func)(&word_positions.0, shaped_words);
                 let layouted_glyphs = (get_glyphs_func)(&word_positions.0, shaped_words, &inline_text_layout);
                 let text_color = layout_result.styled_dom.get_css_property_cache().get_text_color_or_default(&rect_idx, &styled_node.state);
                 let font_instance_key = word_positions.1;
@@ -889,7 +882,7 @@ pub fn displaylist_handle_rect<'a>(
         Image(image_id) => {
             if let Some(image_info) = app_resources.get_image_info(pipeline_id, image_id) {
                 frame.content.push(LayoutRectContent::Image {
-                    size: LogicalSize::new(bounds.size.width, bounds.size.height),
+                    size: LogicalSize::new(positioned_rect.size.width, positioned_rect.size.height),
                     offset: LogicalPosition::zero(),
                     image_rendering: ImageRendering::Auto,
                     alpha_type: AlphaType::PremultipliedAlpha,
@@ -924,7 +917,6 @@ pub fn displaylist_handle_rect<'a>(
                         .. *referenced_content
                     },
                     get_glyphs_func,
-                    inline_text_layout_func,
                 ));
             }
         },

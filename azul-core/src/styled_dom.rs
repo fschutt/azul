@@ -446,7 +446,7 @@ impl CssPropertyCache {
     pub fn get_overflow_y(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutOverflowValue> {
         get_property!(self, node_id, node_state, CssPropertyType::OverflowY, as_overflow_y)
     }
-    pub fn get_direction(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutFlexDirectionValue> {
+    pub fn get_flex_direction(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutFlexDirectionValue> {
         get_property!(self, node_id, node_state, CssPropertyType::FlexDirection, as_direction)
     }
     pub fn get_flex_wrap(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutFlexWrapValue> {
