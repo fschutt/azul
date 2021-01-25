@@ -58,7 +58,7 @@ fn format_selectors(selectors: &[CssPathSelector], tabs: usize) -> String {
     .collect::<Vec<String>>()
     .join("\r\n");
 
-    format!("vec![\r\n{}\r\n{}]", selectors_formatted, t)
+    format!("vec![\r\n{}\r\n{}].into()", selectors_formatted, t)
 }
 
 fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
@@ -192,6 +192,7 @@ fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::BoxShadowRight(p) => format!("CssProperty::BoxShadowRight({})", print_css_property_value(p, tabs)),
         CssProperty::BoxShadowTop(p) => format!("CssProperty::BoxShadowTop({})", print_css_property_value(p, tabs)),
         CssProperty::BoxShadowBottom(p) => format!("CssProperty::BoxShadowBottom({})", print_css_property_value(p, tabs)),
+        CssProperty::ScrollbarStyle(p) => format!("CssProperty::ScrollbarStyle({})", print_css_property_value(p, tabs)),
         CssProperty::Opacity(p) => format!("CssProperty::Opacity({})", print_css_property_value(p, tabs)),
         CssProperty::Transform(p) => format!("CssProperty::Transform({})", print_css_property_value(p, tabs)),
         CssProperty::TransformOrigin(p) => format!("CssProperty::TransformOrigin({})", print_css_property_value(p, tabs)),
@@ -227,6 +228,9 @@ fn format_percentage_value(f: &PercentageValue) -> String {
     format!("PercentageValue::from({:?})", f.get())
 }
 
+fn format_angle_value(f: &AngleValue) -> String {
+    format!("AngleValue::degrees({:?})", f.to_degrees())
+}
 
 fn format_color_value(c: &ColorU) -> String {
     format!("ColorU {{ r: {}, g: {}, b: {}, a: {} }}", c.r, c.g, c.b, c.a)
@@ -268,10 +272,10 @@ impl_pixel_value_fmt!(StyleBorderBottomLeftRadius);
 impl_pixel_value_fmt!(StyleBorderTopRightRadius);
 impl_pixel_value_fmt!(StyleBorderBottomRightRadius);
 
-impl_pixel_value_fmt!(StyleBorderTopWidth);
-impl_pixel_value_fmt!(StyleBorderLeftWidth);
-impl_pixel_value_fmt!(StyleBorderRightWidth);
-impl_pixel_value_fmt!(StyleBorderBottomWidth);
+impl_pixel_value_fmt!(LayoutBorderTopWidth);
+impl_pixel_value_fmt!(LayoutBorderLeftWidth);
+impl_pixel_value_fmt!(LayoutBorderRightWidth);
+impl_pixel_value_fmt!(LayoutBorderBottomWidth);
 impl_pixel_value_fmt!(StyleLetterSpacing);
 impl_pixel_value_fmt!(StyleWordSpacing);
 impl_pixel_value_fmt!(StyleFontSize);
@@ -369,14 +373,52 @@ impl_enum_fmt!(BorderStyle,
     Outset
 );
 
-impl FormatAsRustCode for StyleBackgroundSize {
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        match self {
-            StyleBackgroundSize::Contain => String::from("StyleBackgroundSize::Contain"),
-            StyleBackgroundSize::Cover => String::from("StyleBackgroundSize::Cover"),
-            StyleBackgroundSize::ExactSize([w, h]) => format!("StyleBackgroundSize::ExactSize([{}, {}])", format_pixel_value(w), format_pixel_value(h)),
-        }
+impl FormatAsRustCode for StyleBackgroundSizeVec {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        let t = String::from("    ").repeat(tabs);
+        self.iter()
+            .map(|bgs| format_style_background_size(bgs))
+            .collect::<Vec<_>>()
+            .join(&format!(",\r\n{}", t))
     }
+}
+
+fn format_style_background_size(c: &StyleBackgroundSize) -> String {
+    match c {
+        StyleBackgroundSize::Contain => String::from("StyleBackgroundSize::Contain"),
+        StyleBackgroundSize::Cover => String::from("StyleBackgroundSize::Cover"),
+        StyleBackgroundSize::ExactSize([w, h]) => format!("StyleBackgroundSize::ExactSize([{}, {}])", format_pixel_value(w), format_pixel_value(h)),
+    }
+}
+
+impl FormatAsRustCode for ScrollbarStyle {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        let t = String::from("    ").repeat(tabs);
+        let t1 = String::from("    ").repeat(tabs + 1);
+        format!("ScrollbarStyle {{\r\n{}horizontal: {},\r\n{}vertical: {},\r\n{}}}",
+            t1,
+            format_scrollbar_info(&self.horizontal, tabs + 1), t1,
+            format_scrollbar_info(&self.vertical, tabs + 1),
+            t,
+        )
+    }
+}
+
+fn format_scrollbar_info(s: &ScrollbarInfo, tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    let t1 = String::from("    ").repeat(tabs + 1);
+    format!("ScrollbarInfo {{\r\n{}width: {},\r\n{}padding_left: {},\r\n{}padding_right: {},\r\n{}track: {},\r\n{}thumb: {},\r\n{}button: {},\r\n{}button: {},\r\n{}resizer: {},\r\n{}}}",
+        t1,
+        s.width.format_as_rust_code(tabs + 1), t1,
+        s.padding_left.format_as_rust_code(tabs + 1), t1,
+        s.padding_right.format_as_rust_code(tabs + 1), t1,
+        format_style_background_content(&s.track, tabs + 1), t1,
+        format_style_background_content(&s.thumb, tabs + 1), t1,
+        format_style_background_content(&s.button, tabs + 1), t1,
+        format_style_background_content(&s.corner, tabs + 1), t1,
+        format_style_background_content(&s.resizer, tabs + 1),
+        t
+    )
 }
 
 impl_enum_fmt!(StyleBackgroundRepeat,
@@ -385,6 +427,16 @@ impl_enum_fmt!(StyleBackgroundRepeat,
     RepeatX,
     RepeatY
 );
+
+impl FormatAsRustCode for StyleBackgroundRepeatVec {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        let t = String::from("    ").repeat(tabs);
+        self.iter()
+            .map(|bgr| bgr.format_as_rust_code(tabs + 1))
+            .collect::<Vec<_>>()
+            .join(&format!(",\r\n{}", t))
+    }
+}
 
 impl_enum_fmt!(LayoutDisplay,
     Flex,
@@ -409,7 +461,7 @@ impl_enum_fmt!(LayoutFlexDirection,
     ColumnReverse
 );
 
-impl_enum_fmt!(LayoutWrap,
+impl_enum_fmt!(LayoutFlexWrap,
     Wrap,
     NoWrap
 );
@@ -451,7 +503,7 @@ impl_enum_fmt!(LayoutPosition,
     Relative
 );
 
-impl_enum_fmt!(Overflow,
+impl_enum_fmt!(LayoutOverflow,
     Auto,
     Scroll,
     Visible,
@@ -485,20 +537,29 @@ impl_enum_fmt!(StyleBackfaceVisibility,
     Hidden
 );
 
-impl FormatAsRustCode for StyleBackgroundContent {
+impl FormatAsRustCode for StyleBackgroundContentVec {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        match self {
-            StyleBackgroundContent::LinearGradient(l) => format!("StyleBackgroundContent::LinearGradient({})", format_linear_gradient(l, tabs)),
-            StyleBackgroundContent::RadialGradient(r) => format!("StyleBackgroundContent::RadialGradient({})", format_radial_gradient(r, tabs)),
-            StyleBackgroundContent::Image(id) => format!("StyleBackgroundContent::Image({:?})", id),
-            StyleBackgroundContent::Color(c) => format!("StyleBackgroundContent::Color({})", format_color_value(c)),
-        }
+        let t = String::from("    ").repeat(tabs);
+        self.iter()
+            .map(|bgc| format_style_background_content(bgc, tabs + 1))
+            .collect::<Vec<_>>()
+            .join(&format!(",\r\n{}", t))
+    }
+}
+
+fn format_style_background_content(content: &StyleBackgroundContent, tabs: usize) -> String {
+    match content {
+        StyleBackgroundContent::LinearGradient(l) => format!("StyleBackgroundContent::LinearGradient({})", format_linear_gradient(l, tabs)),
+        StyleBackgroundContent::RadialGradient(r) => format!("StyleBackgroundContent::RadialGradient({})", format_radial_gradient(r, tabs)),
+        StyleBackgroundContent::ConicGradient(r) => format!("StyleBackgroundContent::ConicGradient({})", format_conic_gradient(r, tabs)),
+        StyleBackgroundContent::Image(id) => format!("StyleBackgroundContent::Image({:?})", id),
+        StyleBackgroundContent::Color(c) => format!("StyleBackgroundContent::Color({})", format_color_value(c)),
     }
 }
 
 fn format_direction(d: &Direction, tabs: usize) -> String {
     match d {
-        Direction::Angle(fv) => format!("Direction::Angle({})", format_float_value(fv)),
+        Direction::Angle(fv) => format!("Direction::Angle({})", format_angle_value(fv)),
         Direction::FromTo(DirectionCorners { from, to }) => format!("Direction::FromTo(DirectionCorners {{ from: {}, to: {} }})",
             from.format_as_rust_code(tabs + 1), to.format_as_rust_code(tabs + 1)
         ),
@@ -508,36 +569,69 @@ fn format_direction(d: &Direction, tabs: usize) -> String {
 fn format_linear_gradient(l: &LinearGradient, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
-    format!("LinearGradient {{\r\n{}direction: {},\r\n{}extend_mode: {},\r\n{}stops: vec![\r\n{}{}\r\n{}],\r\n{}}}",
+    format!("LinearGradient {{\r\n{}direction: {},\r\n{}extend_mode: {},\r\n{}stops: vec![\r\n{}{}\r\n{}].into(),\r\n{}}}",
         t1, format_direction(&l.direction, tabs + 1), t1,
         l.extend_mode.format_as_rust_code(tabs + 1), t1,
-        t1, format_gradient_stops(l.stops.as_ref(), tabs), t1, t,
+        t1, format_linear_color_stops(l.stops.as_ref(), tabs), t1, t,
     )
 }
 
-fn format_gradient_stops(stops: &[GradientStopPre], tabs: usize) -> String {
+fn format_conic_gradient(r: &ConicGradient, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
-    stops.iter()
-        .map(|s| format_gradient_stop(s))
-        .collect::<Vec<_>>()
-        .join(&format!(",\r\n{}", t))
+    let t1 = String::from("    ").repeat(tabs + 1);
+
+    format!("ConicGradient {{\r\n{}extend_mode: {},\r\n{}center_x: {},\r\n{}center_y: {},\r\n{}angle: {},\r\n{}stops: vec![\r\n{}{}\r\n{}].into(),\r\n{}}}",
+        t1,
+        r.extend_mode.format_as_rust_code(tabs + 1), t1,
+        format_pixel_value(&r.center_x), t1,
+        format_pixel_value(&r.center_y), t1,
+        format_angle_value(&r.angle), t1,
+        t1, format_radial_color_stops(r.stops.as_ref(), tabs + 1), t1,
+        t,
+    )
 }
 
 fn format_radial_gradient(r: &RadialGradient, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
-    format!("RadialGradient {{\r\n{}shape: {},\r\n{}extend_mode: {},\r\n{}stops: vec![\r\n{}{}\r\n{}],\r\n{}}}",
+    format!("RadialGradient {{\r\n{}shape: {},\r\n{}extend_mode: {},\r\n{}stops: vec![\r\n{}{}\r\n{}].into(),\r\n{}}}",
         t1, r.shape.format_as_rust_code(tabs + 1), t1,
         r.extend_mode.format_as_rust_code(tabs + 1), t1,
-        t1, format_gradient_stops(r.stops.as_ref(), tabs + 1), t1, t,
+        t1, format_linear_color_stops(r.stops.as_ref(), tabs + 1), t1, t,
     )
 }
 
-fn format_gradient_stop(g: &GradientStopPre) -> String {
-    format!("GradientStopPre {{ offset: {}, color: {} }}",
+fn format_linear_color_stops(stops: &[LinearColorStop], tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    stops.iter()
+        .map(|s| format_linear_color_stop(s))
+        .collect::<Vec<_>>()
+        .join(&format!(",\r\n{}", t))
+}
+
+fn format_linear_color_stop(g: &LinearColorStop) -> String {
+    format!("LinearColorStop {{ offset: {}, color: {} }}",
         {
             let offset: Option<PercentageValue> = g.offset.into();
             offset.as_ref().map(|s| format_percentage_value(s)).unwrap_or(format!("None"))
+        },
+        format_color_value(&g.color),
+    )
+}
+
+fn format_radial_color_stops(stops: &[RadialColorStop], tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    stops.iter()
+        .map(|s| format_radial_color_stop(s))
+        .collect::<Vec<_>>()
+        .join(&format!(",\r\n{}", t))
+}
+
+fn format_radial_color_stop(g: &RadialColorStop) -> String {
+    format!("RadialColorStop {{ offset: {}, color: {} }}",
+        {
+            let offset: Option<AngleValue> = g.offset.into();
+            offset.as_ref().map(|s| format_angle_value(s)).unwrap_or(format!("None"))
         },
         format_color_value(&g.color),
     )
@@ -590,11 +684,11 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
         StyleTransform::TranslateX(x) => format!("StyleTransform::TranslateX({})", format_pixel_value(&x)),
         StyleTransform::TranslateY(y) => format!("StyleTransform::TranslateY({})", format_pixel_value(&y)),
         StyleTransform::TranslateZ(z) => format!("StyleTransform::TranslateZ({})", format_pixel_value(&z)),
-        StyleTransform::Rotate(r) => format!("StyleTransform::Rotate({})", format_percentage_value(&r)),
-        StyleTransform::Rotate3D(r) => format!("StyleTransform::Rotate3D(StyleTransformRotate3D {{ {}, {}, {}, {} }})", format_percentage_value(&r.x), format_percentage_value(&r.y), format_percentage_value(&r.z), format_percentage_value(&r.angle)),
-        StyleTransform::RotateX(x) => format!("StyleTransform::RotateX({})", format_percentage_value(&x)),
-        StyleTransform::RotateY(y) => format!("StyleTransform::RotateY({})", format_percentage_value(&y)),
-        StyleTransform::RotateZ(z) => format!("StyleTransform::RotateZ({})", format_percentage_value(&z)),
+        StyleTransform::Rotate(r) => format!("StyleTransform::Rotate({})", format_angle_value(&r)),
+        StyleTransform::Rotate3D(r) => format!("StyleTransform::Rotate3D(StyleTransformRotate3D {{ {}, {}, {}, {} }})", format_percentage_value(&r.x), format_percentage_value(&r.y), format_percentage_value(&r.z), format_angle_value(&r.angle)),
+        StyleTransform::RotateX(x) => format!("StyleTransform::RotateX({})", format_angle_value(&x)),
+        StyleTransform::RotateY(y) => format!("StyleTransform::RotateY({})", format_angle_value(&y)),
+        StyleTransform::RotateZ(z) => format!("StyleTransform::RotateZ({})", format_angle_value(&z)),
         StyleTransform::Scale(s) => format!("StyleTransform::Scale(StyleTransformScale2D {{ x: {}, y: {} }})", format_percentage_value(&s.x), format_percentage_value(&s.y)),
         StyleTransform::Scale3D(s) => format!("StyleTransform::Scale3D(StyleTransformScale3D {{ x; {}, y: {}, z: {} }})", format_percentage_value(&s.x), format_percentage_value(&s.y), format_percentage_value(&s.z)),
         StyleTransform::ScaleX(x) => format!("StyleTransform::ScaleX({})", format_percentage_value(&x)),
@@ -619,22 +713,30 @@ impl FormatAsRustCode for StyleFontFamily {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
         let t1 = String::from("    ").repeat(tabs + 1);
-        format!("StyleFontFamily {{ fonts: vec![\r\n{}{}\r\n{}]\r\n{}}}",
+        format!("StyleFontFamily {{ fonts: vec![\r\n{}{}\r\n{}].into()\r\n{}}}",
             t1, format_font_ids(self.fonts.as_ref(), tabs + 1), t1, t
         )
     }
 }
 
-impl FormatAsRustCode for StyleBackgroundPosition {
+impl FormatAsRustCode for StyleBackgroundPositionVec {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
-        let t1 = String::from("    ").repeat(tabs + 1);
-        format!("StyleBackgroundPosition {{\r\n{}horizontal: {},\r\n{}vertical: {},\r\n{}}}",
-            t1,
-            format_background_position_horizontal(&self.horizontal), t1,
-            format_background_position_vertical(&self.vertical), t
-        )
+        self.iter()
+            .map(|bgp| format_style_background_position(bgp, tabs))
+            .collect::<Vec<_>>()
+            .join(&format!(",\r\n{}", t))
     }
+}
+
+fn format_style_background_position(b: &StyleBackgroundPosition, tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    let t1 = String::from("    ").repeat(tabs + 1);
+    format!("StyleBackgroundPosition {{\r\n{}horizontal: {},\r\n{}vertical: {},\r\n{}}}",
+        t1,
+        format_background_position_horizontal(&b.horizontal), t1,
+        format_background_position_vertical(&b.vertical), t
+    )
 }
 
 fn format_background_position_horizontal(b: &BackgroundPositionHorizontal) -> String {
@@ -679,10 +781,10 @@ impl FormatAsRustCode for StyleBorderBottomStyle {
     }
 }
 
-impl FormatAsRustCode for BoxShadowPreDisplayItem {
+impl FormatAsRustCode for StyleBoxShadow {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
-        format!("BoxShadowPreDisplayItem {{\r\n{}    offset: [{}, {}],\r\n{}    color: {},\r\n{}    blur_radius: {},\r\n{}    spread_radius: {},\r\n{}    clip_mode: ClipMode::{:?},\r\n{}}}",
+        format!("StyleBoxShadow {{\r\n{}    offset: [{}, {}],\r\n{}    color: {},\r\n{}    blur_radius: {},\r\n{}    spread_radius: {},\r\n{}    clip_mode: ClipMode::{:?},\r\n{}}}",
             t, format_pixel_value_no_percent(&self.offset[0]), format_pixel_value_no_percent(&self.offset[1]),
             t, format_color_value(&self.color),
             t, format_pixel_value_no_percent(&self.blur_radius),

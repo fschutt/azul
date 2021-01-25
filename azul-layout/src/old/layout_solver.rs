@@ -1,12 +1,14 @@
 use rayon::prelude::*;
 use std::{f32, collections::{BTreeMap, BTreeSet}};
-use std::time::Instant;
 use azul_css::*;
 use azul_core::{
     traits::GetTextLayout,
     id_tree::{NodeId, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
     dom::{NodeData, NodeType},
-    styled_dom::{StyledDom, DomId, StyledNode, AzNode, ParentWithNodeDepth, ChangedCssProperty},
+    styled_dom::{
+        StyledDom, DomId, StyledNode, AzNode, StyledNodeState,
+        ParentWithNodeDepth, ChangedCssProperty, CssPropertyCache,
+    },
     ui_solver::{
         DEFAULT_FONT_SIZE_PX, ScrolledNodes, ResolvedOffsets, LayoutResult,
         PositionedRectangle, OverflowInfo, WhConstraint, WidthCalculatedRect, HeightCalculatedRect,
@@ -21,47 +23,19 @@ use azul_text_layout::{InlineText, text_layout::{Words, ShapedWords, WordPositio
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
 
-
-macro_rules! precalculate_vec {($fn_name:ident, $get_fn:ident, $result:ty) => {
-    fn $fn_name(styled_dom: &StyledDom) -> NodeDataContainer<Option<$result>> {
-
-        use rayon::prelude::*;
-
-        let css_property_cache = styled_dom.get_css_property_cache();
-
-        NodeDataContainer {
-            internal: styled_dom.styled_nodes
-            .as_container().internal
-            .par_iter()
-            .enumerate()
-            .map(|(node_id, styled_node)| {
-                let node_id = NodeId::new(node_id);
-                css_property_cache.$get_fn(&node_id, &styled_node.state).and_then(|p| p.get_property()).copied()
-            })
-            .collect(),
-        }
-    }
-};}
-
-precalculate_vec!(precalculate_widths, get_width, LayoutWidth);
-precalculate_vec!(precalculate_min_widths, get_min_width, LayoutMinWidth);
-precalculate_vec!(precalculate_max_widths, get_max_width, LayoutMaxWidth);
-
-precalculate_vec!(precalculate_heights, get_height, LayoutHeight);
-precalculate_vec!(precalculate_min_heights, get_min_height, LayoutMinHeight);
-precalculate_vec!(precalculate_max_heights, get_max_height, LayoutMaxHeight);
-
 struct WhConfig {
     width: WidthConfig,
     height: HeightConfig,
 }
 
+#[derive(Default)]
 struct WidthConfig {
     exact: Option<LayoutWidth>,
     max: Option<LayoutMaxWidth>,
     min: Option<LayoutMinWidth>,
 }
 
+#[derive(Default)]
 struct HeightConfig {
     exact: Option<LayoutHeight>,
     max: Option<LayoutMaxHeight>,
@@ -106,7 +80,7 @@ macro_rules! determine_preferred {
     ///
     /// For example, if you have an image, the `preferred_inner_width` is the images width,
     /// if the node type is an text, the `preferred_inner_width` is the text height.
-    pub(crate) fn $fn_name(config: &WhConfig, preferred_inner_width: Option<f32>, parent_width: f32) -> WhConstraint {
+    fn $fn_name(config: &WhConfig, preferred_inner_width: Option<f32>, parent_width: f32) -> WhConstraint {
 
         let mut width = config.$width.exact.as_ref().map(|x| { x.inner.to_pixels(parent_width) });
         let min_width = config.$width.min.as_ref().map(|x| x.inner.to_pixels(parent_width));
@@ -237,7 +211,7 @@ macro_rules! typed_arena {(
     ///
     /// NOTE: Later on, this could maybe be a NodeDataContainer<&'a RectLayout>.
     #[must_use]
-    pub(crate) fn $from_rect_layout_arena_fn_name<'a>(
+    fn $from_rect_layout_arena_fn_name<'a>(
         wh_configs: &NodeDataContainerRef<'a, WhConfig>,
         offsets: &NodeDataContainerRef<'a, AllOffsets>,
         widths: &NodeDataContainerRef<'a, Option<f32>>,
@@ -310,7 +284,7 @@ macro_rules! typed_arena {(
     /// Bubble the inner sizes to their parents -  on any parent nodes, fill out
     /// the width so that the `preferred_width` can contain the child nodes (if
     /// that doesn't violate the constraints of the parent)
-    pub(crate) fn $bubble_fn_name<'a, 'b>(
+    fn $bubble_fn_name<'a, 'b>(
         node_data: &mut NodeDataContainerRefMut<'b, $struct_name>,
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
         layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
@@ -361,7 +335,7 @@ macro_rules! typed_arena {(
 
     /// Go from the root down and flex_grow the children if needed - respects the `width`, `min_width` and `max_width` properties
     /// The layout step doesn't account for the min_width and max_width constraints, so we have to adjust them manually
-    pub(crate) fn $apply_flex_grow_fn_name<'a, 'b>(
+    fn $apply_flex_grow_fn_name<'a, 'b>(
         node_data: &mut NodeDataContainerRefMut<'b, $struct_name>,
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
         layout_flex_grows: &NodeDataContainerRef<'a, f32>,
@@ -674,7 +648,7 @@ macro_rules! typed_arena {(
 
     /// Returns the sum of the flex-basis of the current nodes' children
     #[must_use]
-    pub(crate) fn $sum_children_flex_basis_fn_name<'a, 'b>(
+    fn $sum_children_flex_basis_fn_name<'a, 'b>(
         node_data: &mut NodeDataContainerRefMut<'b, $struct_name>,
         node_id: NodeId,
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
@@ -1207,64 +1181,50 @@ fn precalculate_all_offsets(styled_dom: &StyledDom) -> NodeDataContainer<AllOffs
         .map(|(node_id, styled_node)| {
             let node_id = NodeId::new(node_id);
             let state = &styled_node.state;
-            AllOffsets {
-                border_widths: LayoutBorderOffsets {
-                    left: css_property_cache.get_border_left_width(&node_id, state).copied(),
-                    right: css_property_cache.get_border_right_width(&node_id, state).copied(),
-                    top: css_property_cache.get_border_top_width(&node_id, state).copied(),
-                    bottom: css_property_cache.get_border_bottom_width(&node_id, state).copied(),
-                },
-                padding: LayoutPaddingOffsets {
-                    left: css_property_cache.get_padding_left(&node_id, state).copied(),
-                    right: css_property_cache.get_padding_right(&node_id, state).copied(),
-                    top: css_property_cache.get_padding_top(&node_id, state).copied(),
-                    bottom: css_property_cache.get_padding_bottom(&node_id, state).copied(),
-                },
-                margin: LayoutMarginOffsets {
-                    left: css_property_cache.get_margin_left(&node_id, state).copied(),
-                    right: css_property_cache.get_margin_right(&node_id, state).copied(),
-                    top: css_property_cache.get_margin_top(&node_id, state).copied(),
-                    bottom: css_property_cache.get_margin_bottom(&node_id, state).copied(),
-                },
-                position: LayoutAbsolutePositions {
-                    left: css_property_cache.get_left(&node_id, state).copied(),
-                    right: css_property_cache.get_right(&node_id, state).copied(),
-                    top: css_property_cache.get_top(&node_id, state).copied(),
-                    bottom: css_property_cache.get_bottom(&node_id, state).copied(),
-                },
-                overflow_x: css_property_cache.get_overflow_x(&node_id, state).copied(),
-                overflow_y: css_property_cache.get_overflow_y(&node_id, state).copied(),
-            }
+            precalculate_offset(&css_property_cache, &node_id, state)
         })
         .collect(),
     }
 }
 
-pub struct AllOffsets {
-    pub border_widths: LayoutBorderOffsets,
-    pub padding: LayoutPaddingOffsets,
-    pub margin: LayoutMarginOffsets,
-    pub position: LayoutAbsolutePositions,
-    pub overflow_x: Option<CssPropertyValue<LayoutOverflow>>,
-    pub overflow_y: Option<CssPropertyValue<LayoutOverflow>>,
-}
-
-pub struct AllOffsetsResolved {
-    pub border_widths: ResolvedOffsets,
-    pub padding: ResolvedOffsets,
-    pub margin: ResolvedOffsets,
-    pub position: ResolvedOffsets,
-}
-
-impl AllOffsets {
-    pub fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> AllOffsetsResolved {
-        AllOffsetsResolved {
-            border_widths: self.border_widths.resolve(parent_scale_x, parent_scale_y),
-            padding: self.padding.resolve(parent_scale_x, parent_scale_y),
-            margin: self.margin.resolve(parent_scale_x, parent_scale_y),
-            position: self.position.resolve(parent_scale_x, parent_scale_y),
-        }
+fn precalculate_offset(css_property_cache: &CssPropertyCache, node_id: &NodeId, state: &StyledNodeState) -> AllOffsets {
+    AllOffsets {
+        border_widths: LayoutBorderOffsets {
+            left: css_property_cache.get_border_left_width(node_id, state).copied(),
+            right: css_property_cache.get_border_right_width(node_id, state).copied(),
+            top: css_property_cache.get_border_top_width(node_id, state).copied(),
+            bottom: css_property_cache.get_border_bottom_width(node_id, state).copied(),
+        },
+        padding: LayoutPaddingOffsets {
+            left: css_property_cache.get_padding_left(node_id, state).copied(),
+            right: css_property_cache.get_padding_right(node_id, state).copied(),
+            top: css_property_cache.get_padding_top(node_id, state).copied(),
+            bottom: css_property_cache.get_padding_bottom(node_id, state).copied(),
+        },
+        margin: LayoutMarginOffsets {
+            left: css_property_cache.get_margin_left(node_id, state).copied(),
+            right: css_property_cache.get_margin_right(node_id, state).copied(),
+            top: css_property_cache.get_margin_top(node_id, state).copied(),
+            bottom: css_property_cache.get_margin_bottom(node_id, state).copied(),
+        },
+        position: LayoutAbsolutePositions {
+            left: css_property_cache.get_left(node_id, state).copied(),
+            right: css_property_cache.get_right(node_id, state).copied(),
+            top: css_property_cache.get_top(node_id, state).copied(),
+            bottom: css_property_cache.get_bottom(node_id, state).copied(),
+        },
+        overflow_x: css_property_cache.get_overflow_x(node_id, state).copied(),
+        overflow_y: css_property_cache.get_overflow_y(node_id, state).copied(),
     }
+}
+
+struct AllOffsets {
+    border_widths: LayoutBorderOffsets,
+    padding: LayoutPaddingOffsets,
+    margin: LayoutMarginOffsets,
+    position: LayoutAbsolutePositions,
+    overflow_x: Option<CssPropertyValue<LayoutOverflow>>,
+    overflow_y: Option<CssPropertyValue<LayoutOverflow>>,
 }
 
 pub struct LayoutAbsolutePositions {
@@ -1278,8 +1238,8 @@ impl LayoutAbsolutePositions {
     pub fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
         ResolvedOffsets {
             left: self.left.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
-            top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
-            bottom: self.bottom.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
+            top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
+            bottom: self.bottom.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
             right: self.right.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
         }
     }
@@ -1296,8 +1256,8 @@ impl LayoutBorderOffsets {
     pub fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
         ResolvedOffsets {
             left: self.left.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
-            top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
-            bottom: self.bottom.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
+            top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
+            bottom: self.bottom.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
             right: self.right.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
         }
     }
@@ -1314,8 +1274,8 @@ impl LayoutPaddingOffsets {
     pub fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
         ResolvedOffsets {
             left: self.left.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
-            top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
-            bottom: self.bottom.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
+            top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
+            bottom: self.bottom.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
             right: self.right.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
         }
     }
@@ -1332,8 +1292,8 @@ impl LayoutMarginOffsets {
     pub fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
         ResolvedOffsets {
             left: self.left.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
-            top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
-            bottom: self.bottom.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
+            top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
+            bottom: self.bottom.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
             right: self.right.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
         }
     }
@@ -1422,11 +1382,11 @@ pub fn do_the_layout(
                 let hovered_nodes = full_window_state.hovered_nodes.get(&iframe_dom_id).map(|i| i.regular_hit_test_nodes.clone()).unwrap_or_default().keys().cloned().collect::<Vec<_>>();
                 let active_nodes = if !full_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
 
-                iframe_dom.restyle_nodes_hover(hovered_nodes.as_slice(), true);
-                iframe_dom.restyle_nodes_active(active_nodes.as_slice(), true);
+                let _ = iframe_dom.restyle_nodes_hover(hovered_nodes.as_slice(), true);
+                let _ = iframe_dom.restyle_nodes_active(active_nodes.as_slice(), true);
                 if let Some(focused_node) = full_window_state.focused_node {
                     if focused_node.dom == iframe_dom_id {
-                        iframe_dom.restyle_nodes_focus(&[focused_node.node.into_crate_internal().unwrap()], true);
+                        let _ = iframe_dom.restyle_nodes_focus(&[focused_node.node.into_crate_internal().unwrap()], true);
                     }
                 }
 
@@ -1454,7 +1414,7 @@ pub fn do_the_layout(
 pub fn do_the_layout_internal(
     dom_id: DomId,
     parent_dom_id: Option<DomId>,
-    mut styled_dom: StyledDom,
+    styled_dom: StyledDom,
     app_resources: &mut AppResources,
     pipeline_id: PipelineId,
     bounds: LogicalRect
@@ -1587,22 +1547,26 @@ pub fn do_the_layout_internal(
     let mut positioned_rects = NodeDataContainer { internal: vec![PositionedRectangle::default(); styled_dom.node_data.len()].into() };
     let nodes_that_updated_positions = all_nodes_btreeset.clone();
     let nodes_that_need_to_redraw_text = all_nodes_btreeset.clone();
-    position_nodes(
-        &mut positioned_rects.as_ref_mut(),
-        &styled_dom,
-        &layout_offsets.as_ref(),
-        &width_calculated_arena.as_ref(),
-        &height_calculated_arena.as_ref(),
-        &x_positions.as_ref(),
-        &y_positions.as_ref(),
-        &nodes_that_updated_positions,
-        &nodes_that_need_to_redraw_text,
-        &layout_position_info.as_ref(),
-        &word_cache,
-        &shaped_words,
-        &word_positions_no_max_width,
-        pipeline_id
-    );
+
+    {
+        let layout_offsets_ref = layout_offsets.as_ref();
+        position_nodes(
+            &mut positioned_rects.as_ref_mut(),
+            &styled_dom,
+            AllOffsetsProvider::All(&layout_offsets_ref),
+            &width_calculated_arena.as_ref(),
+            &height_calculated_arena.as_ref(),
+            &x_positions.as_ref(),
+            &y_positions.as_ref(),
+            &nodes_that_updated_positions,
+            &nodes_that_need_to_redraw_text,
+            &layout_position_info.as_ref(),
+            &word_cache,
+            &shaped_words,
+            &word_positions_no_max_width,
+            pipeline_id
+        );
+    }
 
     let mut overflowing_rects = ScrolledNodes::default();
     get_nodes_that_need_scroll_clip(
@@ -1639,10 +1603,33 @@ pub fn do_the_layout_internal(
     }
 }
 
+/// Note: because this function is called both on layout() and relayout(),
+/// the offsets are calculated during the layout() run. However,
+/// we don't want to store all offsets because that would waste memory
+///
+/// So you can EITHER specify all offsets (useful during layout()) or specify
+/// only the offsets of nodes that need to be recalculated (useful during relayout())
+///
+/// If an offset isn't found (usually shouldn't happen), the final positioned
+/// rectangle is not positioned.
+enum AllOffsetsProvider<'a> {
+    All(&'a NodeDataContainerRef<'a, AllOffsets>),
+    OnlyRecalculatedNodes(&'a BTreeMap<NodeId, AllOffsets>),
+}
+
+impl<'a> AllOffsetsProvider<'a> {
+    fn get_offsets_for_node(&self, node_id: &NodeId) -> Option<&AllOffsets> {
+        match self {
+            AllOffsetsProvider::All(a) => Some(&a[*node_id]),
+            AllOffsetsProvider::OnlyRecalculatedNodes(b) => b.get(node_id)
+        }
+    }
+}
+
 fn position_nodes<'a>(
     positioned_rects: &mut NodeDataContainerRefMut<'a, PositionedRectangle>,
     styled_dom: &StyledDom,
-    offsets: &NodeDataContainerRef<'a, AllOffsets>,
+    offsets: AllOffsetsProvider<'a>,
     solved_widths: &NodeDataContainerRef<'a, WidthCalculatedRect>,
     solved_heights: &NodeDataContainerRef<'a, HeightCalculatedRect>,
     x_positions: &NodeDataContainerRef<'a, HorizontalSolvedPosition>,
@@ -1717,7 +1704,10 @@ fn position_nodes<'a>(
         };
         let parent_size = LogicalSize::new(width.total(), height.total());
 
-        let parent_offsets = &offsets[parent_node_id];
+        let parent_offsets = match offsets.get_offsets_for_node(&parent_node_id) {
+            Some(s) => s,
+            None => continue,
+        };
 
         let parent_padding = parent_offsets.padding.resolve(parent_parent_width.total(), parent_parent_height.total());
         let parent_margin = parent_offsets.margin.resolve(parent_parent_width.total(), parent_parent_height.total());
@@ -1746,7 +1736,7 @@ fn position_nodes<'a>(
             word_positions.get(&parent_node_id)
         ) {
             if nodes_that_need_to_redraw_text.contains(&parent_node_id) {
-                let inline_text = InlineText { words, shaped_words };
+                let mut inline_text = InlineText { words, shaped_words };
                 let mut inline_text_layout = inline_text.get_text_layout(pipeline_id, parent_node_id, &word_positions.text_layout_options);
                 let (horz_alignment, vert_alignment) = determine_text_alignment(
                     css_property_cache.get_align_items(&parent_node_id, parent_styled_node_state),
@@ -1815,7 +1805,10 @@ fn position_nodes<'a>(
 
             children_sum_rects.push(child_rect);
 
-            let child_offsets = &offsets[child_node_id];
+            let child_offsets = match offsets.get_offsets_for_node(&child_node_id) {
+                Some(s) => s,
+                None => continue,
+            };
 
             let child_padding = child_offsets.padding.resolve(parent_width.total(), parent_height.total());
             let child_margin = child_offsets.margin.resolve(parent_width.total(), parent_height.total());
@@ -2174,12 +2167,9 @@ pub fn do_the_relayout(
         return Vec::new();
     }
 
-    let root_changed_start = Instant::now();
-    if root_size_changed {
-    }
-
     // merge the nodes to relayout by type so that we don't relayout twice
-    let nodes_to_relayout = nodes_to_relayout.iter()
+    let nodes_to_relayout = nodes_to_relayout
+    .iter()
     .filter_map(|(node_id, changed_properties)| {
         let mut properties = BTreeMap::new();
 
@@ -2215,20 +2205,22 @@ pub fn do_the_relayout(
 
     // update the precalculated properties (position, flex-grow, flex-direction, justify-content)
     nodes_to_relayout.keys().for_each(|node_id| {
-        let new_layout_position = layout_result.styled_dom.styled_nodes.as_container()[*node_id].layout.position.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default();
+        let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[*node_id].state;
+        let css_property_cache = layout_result.styled_dom.get_css_property_cache();
+
+        let new_layout_position = css_property_cache.get_position(node_id, styled_node_state).and_then(|p| p.get_property().copied()).unwrap_or_default();
         layout_result.layout_positions.as_ref_mut()[*node_id] = new_layout_position;
 
-        let new_flex_grow = layout_result.styled_dom.styled_nodes.as_container()[*node_id].layout.flex_grow
-            .as_ref()
+        let new_flex_grow = css_property_cache.get_flex_grow(node_id, styled_node_state)
             .and_then(|g| g.get_property().copied())
             .and_then(|grow| Some(grow.inner.get().max(0.0)))
             .unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
         layout_result.layout_flex_grows.as_ref_mut()[*node_id] = new_flex_grow;
 
-        let new_flex_direction = layout_result.styled_dom.styled_nodes.as_container()[*node_id].layout.direction.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default();
+        let new_flex_direction = css_property_cache.get_flex_direction(node_id, styled_node_state).and_then(|p| p.get_property().copied()).unwrap_or_default();
         layout_result.layout_flex_directions.as_ref_mut()[*node_id] = new_flex_direction;
 
-        let new_justify_content = layout_result.styled_dom.styled_nodes.as_container()[*node_id].layout.justify_content.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default();
+        let new_justify_content = css_property_cache.get_justify_content(node_id, styled_node_state).and_then(|p| p.get_property().copied()).unwrap_or_default();
         layout_result.layout_justify_contents.as_ref_mut()[*node_id] = new_justify_content;
     });
 
@@ -2268,12 +2260,23 @@ pub fn do_the_relayout(
 
         let solved_width_layout = &mut layout_result.width_calculated_rects.as_ref_mut()[node_id];
         let solved_height_layout = &mut layout_result.height_calculated_rects.as_ref_mut()[node_id];
+        let css_property_cache = layout_result.styled_dom.get_css_property_cache();
 
         if changes_for_this_node.contains_key(&CssPropertyType::MinWidth) ||
            changes_for_this_node.contains_key(&CssPropertyType::MaxWidth) ||
            changes_for_this_node.contains_key(&CssPropertyType::Width) {
+            let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[node_id].state;
+            let wh_config = WhConfig {
+                width: WidthConfig {
+                    exact: css_property_cache.get_width(&node_id, styled_node_state).and_then(|p| p.get_property()).copied(),
+                    max: css_property_cache.get_max_width(&node_id, styled_node_state).and_then(|p| p.get_property()).copied(),
+                    min: css_property_cache.get_min_width(&node_id, styled_node_state).and_then(|p| p.get_property()).copied(),
+                },
+                height: HeightConfig::default(),
+            };
+
             let parent_width = layout_result.preferred_widths.as_ref()[parent_id].clone().unwrap_or(root_size.width as f32);
-            let new_preferred_width = determine_preferred_width(&layout_result.styled_dom.styled_nodes.as_container()[node_id], layout_result.preferred_widths.as_ref()[node_id], parent_width);
+            let new_preferred_width = determine_preferred_width(&wh_config, layout_result.preferred_widths.as_ref()[node_id], parent_width);
             if new_preferred_width != solved_width_layout.preferred_width {
                 preferred_width_changed = (true, solved_width_layout.preferred_width.min_needed_space().unwrap_or(0.0));
                 solved_width_layout.preferred_width = new_preferred_width;
@@ -2283,8 +2286,17 @@ pub fn do_the_relayout(
         if changes_for_this_node.contains_key(&CssPropertyType::MinHeight) ||
            changes_for_this_node.contains_key(&CssPropertyType::MaxHeight) ||
            changes_for_this_node.contains_key(&CssPropertyType::Height) {
+            let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[node_id].state;
+            let wh_config = WhConfig {
+                width: WidthConfig::default(),
+                height: HeightConfig {
+                    exact: css_property_cache.get_height(&node_id, &styled_node_state).and_then(|p| p.get_property()).copied(),
+                    max: css_property_cache.get_max_height(&node_id, &styled_node_state).and_then(|p| p.get_property()).copied(),
+                    min: css_property_cache.get_min_height(&node_id, &styled_node_state).and_then(|p| p.get_property()).copied(),
+                },
+            };
             let parent_height = layout_result.preferred_heights.as_ref()[parent_id].clone().unwrap_or(root_size.height as f32);
-            let new_preferred_height = determine_preferred_height(&layout_result.styled_dom.styled_nodes.as_container()[node_id], layout_result.preferred_heights.as_ref()[node_id], parent_height);
+            let new_preferred_height = determine_preferred_height(&wh_config, layout_result.preferred_heights.as_ref()[node_id], parent_height);
             if new_preferred_height != solved_height_layout.preferred_height {
                 preferred_height_changed = (true, solved_height_layout.preferred_height.min_needed_space().unwrap_or(0.0));
                 solved_height_layout.preferred_height = new_preferred_height;
@@ -2574,11 +2586,29 @@ pub fn do_the_relayout(
         }
     }
 
+    let css_property_cache = layout_result.styled_dom.get_css_property_cache();
+    let mut all_offsets_to_recalc = BTreeMap::new();
+    for node_id in nodes_that_changed_size.iter() {
+
+        all_offsets_to_recalc.entry(*node_id).or_insert_with(|| {
+            let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[*node_id].state;
+            precalculate_offset(&css_property_cache, node_id, styled_node_state)
+        });
+
+        for child_id in node_id.az_children(&layout_result.styled_dom.node_hierarchy.as_container()) {
+            all_offsets_to_recalc.entry(child_id).or_insert_with(|| {
+                let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[child_id].state;
+                precalculate_offset(&css_property_cache, &child_id, styled_node_state)
+            });
+        }
+    }
+
     // update layout_result.rects and layout_result.glyph_cache
     // if positioned_word_cache changed, regenerate layouted_glyph_cache
     position_nodes(
         &mut layout_result.rects.as_ref_mut(),
         &layout_result.styled_dom,
+        AllOffsetsProvider::OnlyRecalculatedNodes(&all_offsets_to_recalc),
         &layout_result.width_calculated_rects.as_ref(),
         &layout_result.height_calculated_rects.as_ref(),
         &layout_result.solved_pos_x.as_ref(),
