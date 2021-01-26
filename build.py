@@ -34,8 +34,8 @@ def read_api_file(path):
 root_folder = os.path.abspath(os.path.join(__file__, os.pardir))
 prefix = "Az"
 fn_prefix = "az_"
-basic_types = [
-    "bool", "char", "f32", "f64", "fn", "i128", "i16",
+basic_types = [ # note: "char" is not a primitive type! - use u32 instead
+    "bool", "f32", "f64", "fn", "i128", "i16",
     "i32", "i64", "i8", "isize", "slice", "u128", "u16",
     "u32", "u64", "u8", "()", "usize", "c_void"
 ]
@@ -1293,17 +1293,17 @@ def build_docs():
 
 def main():
     print("removing old azul.dll...")
-    cleanup_start()
+    # cleanup_start()
     print("verifying that LLVM / clang-cl is installed...\r\n")
     assure_clang_is_installed()
     print("generating API...")
     generate_api()
     print("building azul-dll (release mode)...")
-    build_dll()
+    # build_dll()
     print("checking azul-dll for struct size integrity...")
-    run_size_test()
+    # run_size_test()
     print("building examples...")
-    # build_examples()
+    build_examples()
     print("building docs (output_dir = /target/doc)...")
     # build_docs()
     # release_on_cargo()

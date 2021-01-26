@@ -2410,7 +2410,7 @@ mod dll {
     }
     /// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzNonXmlCharError {
-        pub ch: char,
+        pub ch: u32,
         pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `InvalidCharError` struct
@@ -3719,12 +3719,22 @@ mod dll {
         pub(crate) fn az_css_image_id_deep_copy(_:  &AzCssImageId) -> AzCssImageId;
         pub(crate) fn az_style_background_content_delete(_:  &mut AzStyleBackgroundContent);
         pub(crate) fn az_style_background_content_deep_copy(_:  &AzStyleBackgroundContent) -> AzStyleBackgroundContent;
+        pub(crate) fn az_scrollbar_info_delete(_:  &mut AzScrollbarInfo);
+        pub(crate) fn az_scrollbar_info_deep_copy(_:  &AzScrollbarInfo) -> AzScrollbarInfo;
+        pub(crate) fn az_scrollbar_style_delete(_:  &mut AzScrollbarStyle);
+        pub(crate) fn az_scrollbar_style_deep_copy(_:  &AzScrollbarStyle) -> AzScrollbarStyle;
         pub(crate) fn az_style_font_family_delete(_:  &mut AzStyleFontFamily);
         pub(crate) fn az_style_font_family_deep_copy(_:  &AzStyleFontFamily) -> AzStyleFontFamily;
         pub(crate) fn az_scrollbar_style_value_delete(_:  &mut AzScrollbarStyleValue);
         pub(crate) fn az_scrollbar_style_value_deep_copy(_:  &AzScrollbarStyleValue) -> AzScrollbarStyleValue;
         pub(crate) fn az_style_background_content_vec_value_delete(_:  &mut AzStyleBackgroundContentVecValue);
         pub(crate) fn az_style_background_content_vec_value_deep_copy(_:  &AzStyleBackgroundContentVecValue) -> AzStyleBackgroundContentVecValue;
+        pub(crate) fn az_style_background_position_vec_value_delete(_:  &mut AzStyleBackgroundPositionVecValue);
+        pub(crate) fn az_style_background_position_vec_value_deep_copy(_:  &AzStyleBackgroundPositionVecValue) -> AzStyleBackgroundPositionVecValue;
+        pub(crate) fn az_style_background_repeat_vec_value_delete(_:  &mut AzStyleBackgroundRepeatVecValue);
+        pub(crate) fn az_style_background_repeat_vec_value_deep_copy(_:  &AzStyleBackgroundRepeatVecValue) -> AzStyleBackgroundRepeatVecValue;
+        pub(crate) fn az_style_background_size_vec_value_delete(_:  &mut AzStyleBackgroundSizeVecValue);
+        pub(crate) fn az_style_background_size_vec_value_deep_copy(_:  &AzStyleBackgroundSizeVecValue) -> AzStyleBackgroundSizeVecValue;
         pub(crate) fn az_style_font_family_value_delete(_:  &mut AzStyleFontFamilyValue);
         pub(crate) fn az_style_font_family_value_deep_copy(_:  &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue;
         pub(crate) fn az_style_transform_vec_value_delete(_:  &mut AzStyleTransformVecValue);
@@ -4349,7 +4359,6 @@ pub mod vec {
     impl_vec!(u32, AzGLuintVec);
     impl_vec!(i32, AzGLintVec);
     impl_vec!(AzStyleTransform, AzStyleTransformVec);
-    impl_vec!(AzContentGroup, AzContentGroupVec);
     impl_vec!(AzCssProperty, AzCssPropertyVec);
     impl_vec!(AzSvgMultiPolygon, AzSvgMultiPolygonVec);
     impl_vec!(AzSvgPath, AzSvgPathVec);
@@ -4370,7 +4379,6 @@ pub mod vec {
     impl_vec!(AzStringPair, AzStringPairVec);
     impl_vec!(AzLinearColorStop, AzLinearColorStopVec);
     impl_vec!(AzRadialColorStop, AzRadialColorStopVec);
-    impl_vec!(AzCascadedCssPropertyWithSource, AzCascadedCssPropertyWithSourceVec);
     impl_vec!(AzNodeId, AzNodeIdVec);
     impl_vec!(AzNode, AzNodeVec);
     impl_vec!(AzStyledNode, AzStyledNodeVec);
@@ -5193,7 +5201,7 @@ pub mod option {
     impl_option!(AzCallback, AzOptionCallback, [Debug, Copy, Clone]);
     impl_option!(AzTagId, AzOptionTagId, [Debug, Copy, Clone]);
     impl_option!(AzDuration, AzOptionDuration, [Debug, Copy, Clone]);
-    impl_option!(AzInstantPtr, AzOptionInstantPtr, copy = false, clone = false, [Debug]); // TODO: impl clone!
+    impl_option!(AzInstant, AzOptionInstant, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
 
 
@@ -5730,7 +5738,7 @@ pub mod callbacks {
         pub fn new<T: 'static>(value: T) -> Self {
             use crate::dll::*;
 
-            extern "C" fn default_custom_destructor<U: 'static>(ptr: *const c_void) {
+            extern "C" fn default_custom_destructor<U: 'static>(ptr: &mut c_void) {
                 use core::{mem, ptr};
 
                 // note: in the default constructor, we do not need to check whether U == T
@@ -5738,7 +5746,7 @@ pub mod callbacks {
                 unsafe {
                     // copy the struct from the heap to the stack and call mem::drop on U to run the destructor
                     let mut stack_mem = mem::zeroed::<U>();
-                    ptr::copy_nonoverlapping(ptr as *const U, &mut stack_mem as *mut U, mem::size_of::<U>());
+                    ptr::copy_nonoverlapping((ptr as *mut c_void) as *const U, &mut stack_mem as *mut U, mem::size_of::<U>());
                     mem::drop(stack_mem);
                 }
             }
@@ -6117,6 +6125,8 @@ pub mod css {
     //! `Css` parsing module
     use crate::dll::*;
     use core::ffi::c_void;
+    use crate::vec::{StyleBackgroundPositionVec, StyleBackgroundContentVec, StyleBackgroundSizeVec, StyleBackgroundRepeatVec, StyleTransformVec};
+
     macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => ({
         match $prop_type {
             CssPropertyType::TextColor => CssProperty::TextColor(StyleTextColorValue::$content_type),
@@ -6142,21 +6152,21 @@ pub mod css {
             CssPropertyType::Right => CssProperty::Right(LayoutRightValue::$content_type),
             CssPropertyType::Left => CssProperty::Left(LayoutLeftValue::$content_type),
             CssPropertyType::Bottom => CssProperty::Bottom(LayoutBottomValue::$content_type),
-            CssPropertyType::FlexWrap => CssProperty::FlexWrap(LayoutWrapValue::$content_type),
+            CssPropertyType::FlexWrap => CssProperty::FlexWrap(LayoutFlexWrapValue::$content_type),
             CssPropertyType::FlexDirection => CssProperty::FlexDirection(LayoutFlexDirectionValue::$content_type),
             CssPropertyType::FlexGrow => CssProperty::FlexGrow(LayoutFlexGrowValue::$content_type),
             CssPropertyType::FlexShrink => CssProperty::FlexShrink(LayoutFlexShrinkValue::$content_type),
             CssPropertyType::JustifyContent => CssProperty::JustifyContent(LayoutJustifyContentValue::$content_type),
             CssPropertyType::AlignItems => CssProperty::AlignItems(LayoutAlignItemsValue::$content_type),
             CssPropertyType::AlignContent => CssProperty::AlignContent(LayoutAlignContentValue::$content_type),
-            CssPropertyType::Background => CssProperty::BackgroundContent(StyleBackgroundContentValue::$content_type),
-            CssPropertyType::BackgroundImage => CssProperty::BackgroundContent(StyleBackgroundContentValue::$content_type),
-            CssPropertyType::BackgroundColor => CssProperty::BackgroundContent(StyleBackgroundContentValue::$content_type),
-            CssPropertyType::BackgroundPosition => CssProperty::BackgroundPosition(StyleBackgroundPositionValue::$content_type),
-            CssPropertyType::BackgroundSize => CssProperty::BackgroundSize(StyleBackgroundSizeValue::$content_type),
-            CssPropertyType::BackgroundRepeat => CssProperty::BackgroundRepeat(StyleBackgroundRepeatValue::$content_type),
-            CssPropertyType::OverflowX => CssProperty::OverflowX(OverflowValue::$content_type),
-            CssPropertyType::OverflowY => CssProperty::OverflowY(OverflowValue::$content_type),
+            CssPropertyType::Background => CssProperty::BackgroundContent(StyleBackgroundContentVecValue::$content_type),
+            CssPropertyType::BackgroundImage => CssProperty::BackgroundContent(StyleBackgroundContentVecValue::$content_type),
+            CssPropertyType::BackgroundColor => CssProperty::BackgroundContent(StyleBackgroundContentVecValue::$content_type),
+            CssPropertyType::BackgroundPosition => CssProperty::BackgroundPosition(StyleBackgroundPositionVecValue::$content_type),
+            CssPropertyType::BackgroundSize => CssProperty::BackgroundSize(StyleBackgroundSizeVecValue::$content_type),
+            CssPropertyType::BackgroundRepeat => CssProperty::BackgroundRepeat(StyleBackgroundRepeatVecValue::$content_type),
+            CssPropertyType::OverflowX => CssProperty::OverflowX(LayoutOverflowValue::$content_type),
+            CssPropertyType::OverflowY => CssProperty::OverflowY(LayoutOverflowValue::$content_type),
             CssPropertyType::PaddingTop => CssProperty::PaddingTop(LayoutPaddingTopValue::$content_type),
             CssPropertyType::PaddingLeft => CssProperty::PaddingLeft(LayoutPaddingLeftValue::$content_type),
             CssPropertyType::PaddingRight => CssProperty::PaddingRight(LayoutPaddingRightValue::$content_type),
@@ -6177,14 +6187,15 @@ pub mod css {
             CssPropertyType::BorderRightStyle => CssProperty::BorderRightStyle(StyleBorderRightStyleValue::$content_type),
             CssPropertyType::BorderLeftStyle => CssProperty::BorderLeftStyle(StyleBorderLeftStyleValue::$content_type),
             CssPropertyType::BorderBottomStyle => CssProperty::BorderBottomStyle(StyleBorderBottomStyleValue::$content_type),
-            CssPropertyType::BorderTopWidth => CssProperty::BorderTopWidth(StyleBorderTopWidthValue::$content_type),
-            CssPropertyType::BorderRightWidth => CssProperty::BorderRightWidth(StyleBorderRightWidthValue::$content_type),
-            CssPropertyType::BorderLeftWidth => CssProperty::BorderLeftWidth(StyleBorderLeftWidthValue::$content_type),
-            CssPropertyType::BorderBottomWidth => CssProperty::BorderBottomWidth(StyleBorderBottomWidthValue::$content_type),
+            CssPropertyType::BorderTopWidth => CssProperty::BorderTopWidth(LayoutBorderTopWidthValue::$content_type),
+            CssPropertyType::BorderRightWidth => CssProperty::BorderRightWidth(LayoutBorderRightWidthValue::$content_type),
+            CssPropertyType::BorderLeftWidth => CssProperty::BorderLeftWidth(LayoutBorderLeftWidthValue::$content_type),
+            CssPropertyType::BorderBottomWidth => CssProperty::BorderBottomWidth(LayoutBorderBottomWidthValue::$content_type),
             CssPropertyType::BoxShadowLeft => CssProperty::BoxShadowLeft(StyleBoxShadowValue::$content_type),
             CssPropertyType::BoxShadowRight => CssProperty::BoxShadowRight(StyleBoxShadowValue::$content_type),
             CssPropertyType::BoxShadowTop => CssProperty::BoxShadowTop(StyleBoxShadowValue::$content_type),
             CssPropertyType::BoxShadowBottom => CssProperty::BoxShadowBottom(StyleBoxShadowValue::$content_type),
+            CssPropertyType::ScrollbarStyle => CssProperty::ScrollbarStyle(ScrollbarStyleValue::$content_type),
             CssPropertyType::Opacity => CssProperty::Opacity(StyleOpacityValue::$content_type),
             CssPropertyType::Transform => CssProperty::Transform(StyleTransformVecValue::$content_type),
             CssPropertyType::PerspectiveOrigin => CssProperty::PerspectiveOrigin(StylePerspectiveOriginValue::$content_type),
@@ -6262,6 +6273,7 @@ pub mod css {
                 CssProperty::BoxShadowRight(_) => CssPropertyType::BoxShadowRight,
                 CssProperty::BoxShadowTop(_) => CssPropertyType::BoxShadowTop,
                 CssProperty::BoxShadowBottom(_) => CssPropertyType::BoxShadowBottom,
+                CssProperty::ScrollbarStyle(_) => CssPropertyType::ScrollbarStyle,
                 CssProperty::Opacity(_) => CssPropertyType::Opacity,
                 CssProperty::Transform(_) => CssPropertyType::Transform,
                 CssProperty::PerspectiveOrigin(_) => CssPropertyType::PerspectiveOrigin,
@@ -6270,228 +6282,152 @@ pub mod css {
             }
         }
 
-        pub const fn none(prop_type: CssPropertyType) -> Self {
-            css_property_from_type!(prop_type, None)
-        }
+        // const constructors for easier API access
 
-        pub const fn auto(prop_type: CssPropertyType) -> Self {
-            css_property_from_type!(prop_type, Auto)
-        }
+        pub const fn none(prop_type: CssPropertyType) -> Self { css_property_from_type!(prop_type, None) }
+        pub const fn auto(prop_type: CssPropertyType) -> Self { css_property_from_type!(prop_type, Auto) }
+        pub const fn initial(prop_type: CssPropertyType) -> Self { css_property_from_type!(prop_type, Initial) }
+        pub const fn inherit(prop_type: CssPropertyType) -> Self { css_property_from_type!(prop_type, Inherit) }
 
-        pub const fn initial(prop_type: CssPropertyType) -> Self {
-            css_property_from_type!(prop_type, Initial)
-        }
-
-        pub const fn inherit(prop_type: CssPropertyType) -> Self {
-            css_property_from_type!(prop_type, Inherit)
-        }
-
-        /// Creates a `text_color` CSS attribute
         pub const fn text_color(input: StyleTextColor) -> Self { CssProperty::TextColor(StyleTextColorValue::Exact(input)) }
-
-        /// Creates a `font_size` CSS attribute
         pub const fn font_size(input: StyleFontSize) -> Self { CssProperty::FontSize(StyleFontSizeValue::Exact(input)) }
-
-        /// Creates a `font_family` CSS attribute
         pub const fn font_family(input: StyleFontFamily) -> Self { CssProperty::FontFamily(StyleFontFamilyValue::Exact(input)) }
-
-        /// Creates a `text_align` CSS attribute
         pub const fn text_align(input: StyleTextAlignmentHorz) -> Self { CssProperty::TextAlign(StyleTextAlignmentHorzValue::Exact(input)) }
-
-        /// Creates a `letter_spacing` CSS attribute
         pub const fn letter_spacing(input: StyleLetterSpacing) -> Self { CssProperty::LetterSpacing(StyleLetterSpacingValue::Exact(input)) }
-
-        /// Creates a `line_height` CSS attribute
         pub const fn line_height(input: StyleLineHeight) -> Self { CssProperty::LineHeight(StyleLineHeightValue::Exact(input)) }
-
-        /// Creates a `word_spacing` CSS attribute
         pub const fn word_spacing(input: StyleWordSpacing) -> Self { CssProperty::WordSpacing(StyleWordSpacingValue::Exact(input)) }
-
-        /// Creates a `tab_width` CSS attribute
         pub const fn tab_width(input: StyleTabWidth) -> Self { CssProperty::TabWidth(StyleTabWidthValue::Exact(input)) }
-
-        /// Creates a `cursor` CSS attribute
         pub const fn cursor(input: StyleCursor) -> Self { CssProperty::Cursor(StyleCursorValue::Exact(input)) }
-
-        /// Creates a `display` CSS attribute
         pub const fn display(input: LayoutDisplay) -> Self { CssProperty::Display(LayoutDisplayValue::Exact(input)) }
-
-        /// Creates a `float` CSS attribute
         pub const fn float(input: LayoutFloat) -> Self { CssProperty::Float(LayoutFloatValue::Exact(input)) }
-
-        /// Creates a `box_sizing` CSS attribute
         pub const fn box_sizing(input: LayoutBoxSizing) -> Self { CssProperty::BoxSizing(LayoutBoxSizingValue::Exact(input)) }
-
-        /// Creates a `width` CSS attribute
         pub const fn width(input: LayoutWidth) -> Self { CssProperty::Width(LayoutWidthValue::Exact(input)) }
-
-        /// Creates a `height` CSS attribute
         pub const fn height(input: LayoutHeight) -> Self { CssProperty::Height(LayoutHeightValue::Exact(input)) }
-
-        /// Creates a `min_width` CSS attribute
         pub const fn min_width(input: LayoutMinWidth) -> Self { CssProperty::MinWidth(LayoutMinWidthValue::Exact(input)) }
-
-        /// Creates a `min_height` CSS attribute
         pub const fn min_height(input: LayoutMinHeight) -> Self { CssProperty::MinHeight(LayoutMinHeightValue::Exact(input)) }
-
-        /// Creates a `max_width` CSS attribute
         pub const fn max_width(input: LayoutMaxWidth) -> Self { CssProperty::MaxWidth(LayoutMaxWidthValue::Exact(input)) }
-
-        /// Creates a `max_height` CSS attribute
         pub const fn max_height(input: LayoutMaxHeight) -> Self { CssProperty::MaxHeight(LayoutMaxHeightValue::Exact(input)) }
-
-        /// Creates a `position` CSS attribute
         pub const fn position(input: LayoutPosition) -> Self { CssProperty::Position(LayoutPositionValue::Exact(input)) }
-
-        /// Creates a `top` CSS attribute
         pub const fn top(input: LayoutTop) -> Self { CssProperty::Top(LayoutTopValue::Exact(input)) }
-
-        /// Creates a `right` CSS attribute
         pub const fn right(input: LayoutRight) -> Self { CssProperty::Right(LayoutRightValue::Exact(input)) }
-
-        /// Creates a `left` CSS attribute
         pub const fn left(input: LayoutLeft) -> Self { CssProperty::Left(LayoutLeftValue::Exact(input)) }
-
-        /// Creates a `bottom` CSS attribute
         pub const fn bottom(input: LayoutBottom) -> Self { CssProperty::Bottom(LayoutBottomValue::Exact(input)) }
-
-        /// Creates a `flex_wrap` CSS attribute
-        pub const fn flex_wrap(input: LayoutWrap) -> Self { CssProperty::FlexWrap(LayoutWrapValue::Exact(input)) }
-
-        /// Creates a `flex_direction` CSS attribute
+        pub const fn flex_wrap(input: LayoutFlexWrap) -> Self { CssProperty::FlexWrap(LayoutFlexWrapValue::Exact(input)) }
         pub const fn flex_direction(input: LayoutFlexDirection) -> Self { CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(input)) }
-
-        /// Creates a `flex_grow` CSS attribute
         pub const fn flex_grow(input: LayoutFlexGrow) -> Self { CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(input)) }
-
-        /// Creates a `flex_shrink` CSS attribute
         pub const fn flex_shrink(input: LayoutFlexShrink) -> Self { CssProperty::FlexShrink(LayoutFlexShrinkValue::Exact(input)) }
-
-        /// Creates a `justify_content` CSS attribute
         pub const fn justify_content(input: LayoutJustifyContent) -> Self { CssProperty::JustifyContent(LayoutJustifyContentValue::Exact(input)) }
-
-        /// Creates a `align_items` CSS attribute
         pub const fn align_items(input: LayoutAlignItems) -> Self { CssProperty::AlignItems(LayoutAlignItemsValue::Exact(input)) }
-
-        /// Creates a `align_content` CSS attribute
         pub const fn align_content(input: LayoutAlignContent) -> Self { CssProperty::AlignContent(LayoutAlignContentValue::Exact(input)) }
-
-        /// Creates a `background_content` CSS attribute
-        pub const fn background_content(input: StyleBackgroundContent) -> Self { CssProperty::BackgroundContent(StyleBackgroundContentValue::Exact(input)) }
-
-        /// Creates a `background_position` CSS attribute
-        pub const fn background_position(input: StyleBackgroundPosition) -> Self { CssProperty::BackgroundPosition(StyleBackgroundPositionValue::Exact(input)) }
-
-        /// Creates a `background_size` CSS attribute
-        pub const fn background_size(input: StyleBackgroundSize) -> Self { CssProperty::BackgroundSize(StyleBackgroundSizeValue::Exact(input)) }
-
-        /// Creates a `background_repeat` CSS attribute
-        pub const fn background_repeat(input: StyleBackgroundRepeat) -> Self { CssProperty::BackgroundRepeat(StyleBackgroundRepeatValue::Exact(input)) }
-
-        /// Creates a `overflow_x` CSS attribute
-        pub const fn overflow_x(input: Overflow) -> Self { CssProperty::OverflowX(OverflowValue::Exact(input)) }
-
-        /// Creates a `overflow_y` CSS attribute
-        pub const fn overflow_y(input: Overflow) -> Self { CssProperty::OverflowY(OverflowValue::Exact(input)) }
-
-        /// Creates a `padding_top` CSS attribute
+        pub const fn background_content(input: StyleBackgroundContentVec) -> Self { CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(input)) }
+        pub const fn background_position(input: StyleBackgroundPositionVec) -> Self { CssProperty::BackgroundPosition(StyleBackgroundPositionVecValue::Exact(input)) }
+        pub const fn background_size(input: StyleBackgroundSizeVec) -> Self { CssProperty::BackgroundSize(StyleBackgroundSizeVecValue::Exact(input)) }
+        pub const fn background_repeat(input: StyleBackgroundRepeatVec) -> Self { CssProperty::BackgroundRepeat(StyleBackgroundRepeatVecValue::Exact(input)) }
+        pub const fn overflow_x(input: LayoutOverflow) -> Self { CssProperty::OverflowX(LayoutOverflowValue::Exact(input)) }
+        pub const fn overflow_y(input: LayoutOverflow) -> Self { CssProperty::OverflowY(LayoutOverflowValue::Exact(input)) }
         pub const fn padding_top(input: LayoutPaddingTop) -> Self { CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(input)) }
-
-        /// Creates a `padding_left` CSS attribute
         pub const fn padding_left(input: LayoutPaddingLeft) -> Self { CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(input)) }
-
-        /// Creates a `padding_right` CSS attribute
         pub const fn padding_right(input: LayoutPaddingRight) -> Self { CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(input)) }
-
-        /// Creates a `padding_bottom` CSS attribute
         pub const fn padding_bottom(input: LayoutPaddingBottom) -> Self { CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(input)) }
-
-        /// Creates a `margin_top` CSS attribute
         pub const fn margin_top(input: LayoutMarginTop) -> Self { CssProperty::MarginTop(LayoutMarginTopValue::Exact(input)) }
-
-        /// Creates a `margin_left` CSS attribute
         pub const fn margin_left(input: LayoutMarginLeft) -> Self { CssProperty::MarginLeft(LayoutMarginLeftValue::Exact(input)) }
-
-        /// Creates a `margin_right` CSS attribute
         pub const fn margin_right(input: LayoutMarginRight) -> Self { CssProperty::MarginRight(LayoutMarginRightValue::Exact(input)) }
-
-        /// Creates a `margin_bottom` CSS attribute
         pub const fn margin_bottom(input: LayoutMarginBottom) -> Self { CssProperty::MarginBottom(LayoutMarginBottomValue::Exact(input)) }
-
-        /// Creates a `border_top_left_radius` CSS attribute
         pub const fn border_top_left_radius(input: StyleBorderTopLeftRadius) -> Self { CssProperty::BorderTopLeftRadius(StyleBorderTopLeftRadiusValue::Exact(input)) }
-
-        /// Creates a `border_top_right_radius` CSS attribute
         pub const fn border_top_right_radius(input: StyleBorderTopRightRadius) -> Self { CssProperty::BorderTopRightRadius(StyleBorderTopRightRadiusValue::Exact(input)) }
-
-        /// Creates a `border_bottom_left_radius` CSS attribute
         pub const fn border_bottom_left_radius(input: StyleBorderBottomLeftRadius) -> Self { CssProperty::BorderBottomLeftRadius(StyleBorderBottomLeftRadiusValue::Exact(input)) }
-
-        /// Creates a `border_bottom_right_radius` CSS attribute
         pub const fn border_bottom_right_radius(input: StyleBorderBottomRightRadius) -> Self { CssProperty::BorderBottomRightRadius(StyleBorderBottomRightRadiusValue::Exact(input)) }
-
-        /// Creates a `border_top_color` CSS attribute
         pub const fn border_top_color(input: StyleBorderTopColor) -> Self { CssProperty::BorderTopColor(StyleBorderTopColorValue::Exact(input)) }
-
-        /// Creates a `border_right_color` CSS attribute
         pub const fn border_right_color(input: StyleBorderRightColor) -> Self { CssProperty::BorderRightColor(StyleBorderRightColorValue::Exact(input)) }
-
-        /// Creates a `border_left_color` CSS attribute
         pub const fn border_left_color(input: StyleBorderLeftColor) -> Self { CssProperty::BorderLeftColor(StyleBorderLeftColorValue::Exact(input)) }
-
-        /// Creates a `border_bottom_color` CSS attribute
         pub const fn border_bottom_color(input: StyleBorderBottomColor) -> Self { CssProperty::BorderBottomColor(StyleBorderBottomColorValue::Exact(input)) }
-
-        /// Creates a `border_top_style` CSS attribute
         pub const fn border_top_style(input: StyleBorderTopStyle) -> Self { CssProperty::BorderTopStyle(StyleBorderTopStyleValue::Exact(input)) }
-
-        /// Creates a `border_right_style` CSS attribute
         pub const fn border_right_style(input: StyleBorderRightStyle) -> Self { CssProperty::BorderRightStyle(StyleBorderRightStyleValue::Exact(input)) }
-
-        /// Creates a `border_left_style` CSS attribute
         pub const fn border_left_style(input: StyleBorderLeftStyle) -> Self { CssProperty::BorderLeftStyle(StyleBorderLeftStyleValue::Exact(input)) }
-
-        /// Creates a `border_bottom_style` CSS attribute
         pub const fn border_bottom_style(input: StyleBorderBottomStyle) -> Self { CssProperty::BorderBottomStyle(StyleBorderBottomStyleValue::Exact(input)) }
-
-        /// Creates a `border_top_width` CSS attribute
-        pub const fn border_top_width(input: StyleBorderTopWidth) -> Self { CssProperty::BorderTopWidth(StyleBorderTopWidthValue::Exact(input)) }
-
-        /// Creates a `border_right_width` CSS attribute
-        pub const fn border_right_width(input: StyleBorderRightWidth) -> Self { CssProperty::BorderRightWidth(StyleBorderRightWidthValue::Exact(input)) }
-
-        /// Creates a `border_left_width` CSS attribute
-        pub const fn border_left_width(input: StyleBorderLeftWidth) -> Self { CssProperty::BorderLeftWidth(StyleBorderLeftWidthValue::Exact(input)) }
-
-        /// Creates a `border_bottom_width` CSS attribute
-        pub const fn border_bottom_width(input: StyleBorderBottomWidth) -> Self { CssProperty::BorderBottomWidth(StyleBorderBottomWidthValue::Exact(input)) }
-
-        /// Creates a `box_shadow_left` CSS attribute
+        pub const fn border_top_width(input: LayoutBorderTopWidth) -> Self { CssProperty::BorderTopWidth(LayoutBorderTopWidthValue::Exact(input)) }
+        pub const fn border_right_width(input: LayoutBorderRightWidth) -> Self { CssProperty::BorderRightWidth(LayoutBorderRightWidthValue::Exact(input)) }
+        pub const fn border_left_width(input: LayoutBorderLeftWidth) -> Self { CssProperty::BorderLeftWidth(LayoutBorderLeftWidthValue::Exact(input)) }
+        pub const fn border_bottom_width(input: LayoutBorderBottomWidth) -> Self { CssProperty::BorderBottomWidth(LayoutBorderBottomWidthValue::Exact(input)) }
         pub const fn box_shadow_left(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(input)) }
-
-        /// Creates a `box_shadow_right` CSS attribute
         pub const fn box_shadow_right(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(input)) }
-
-        /// Creates a `box_shadow_top` CSS attribute
         pub const fn box_shadow_top(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(input)) }
-
-        /// Creates a `box_shadow_bottom` CSS attribute
         pub const fn box_shadow_bottom(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(input)) }
-
-        /// Creates a `opacity` CSS attribute
         pub const fn opacity(input: StyleOpacity) -> Self { CssProperty::Opacity(StyleOpacityValue::Exact(input)) }
-
-        /// Creates a `transform` CSS attribute
-        pub const fn transform(input: crate::vec::StyleTransformVec) -> Self { CssProperty::Transform(StyleTransformVecValue::Exact(input)) }
-
-        /// Creates a `transform-origin` CSS attribute
+        pub const fn transform(input: StyleTransformVec) -> Self { CssProperty::Transform(StyleTransformVecValue::Exact(input)) }
         pub const fn transform_origin(input: StyleTransformOrigin) -> Self { CssProperty::TransformOrigin(StyleTransformOriginValue::Exact(input)) }
-
-        /// Creates a `perspective-origin` CSS attribute
         pub const fn perspective_origin(input: StylePerspectiveOrigin) -> Self { CssProperty::PerspectiveOrigin(StylePerspectiveOriginValue::Exact(input)) }
-
-        /// Creates a `backface-visibility` CSS attribute
         pub const fn backface_visiblity(input: StyleBackfaceVisibility) -> Self { CssProperty::BackfaceVisibility(StyleBackfaceVisibilityValue::Exact(input)) }
+
+        pub const fn as_background(&self) -> Option<&StyleBackgroundContentVecValue> { match self { CssProperty::BackgroundContent(f) => Some(f), _ => None, } }
+        pub const fn as_background_position(&self) -> Option<&StyleBackgroundPositionVecValue> { match self { CssProperty::BackgroundPosition(f) => Some(f), _ => None, } }
+        pub const fn as_background_size(&self) -> Option<&StyleBackgroundSizeVecValue> { match self { CssProperty::BackgroundSize(f) => Some(f), _ => None, } }
+        pub const fn as_background_repeat(&self) -> Option<&StyleBackgroundRepeatVecValue> { match self { CssProperty::BackgroundRepeat(f) => Some(f), _ => None, } }
+        pub const fn as_font_size(&self) -> Option<&StyleFontSizeValue> { match self { CssProperty::FontSize(f) => Some(f), _ => None, } }
+        pub const fn as_font_family(&self) -> Option<&StyleFontFamilyValue> { match self { CssProperty::FontFamily(f) => Some(f), _ => None, } }
+        pub const fn as_text_color(&self) -> Option<&StyleTextColorValue> { match self { CssProperty::TextColor(f) => Some(f), _ => None, } }
+        pub const fn as_text_align(&self) -> Option<&StyleTextAlignmentHorzValue> { match self { CssProperty::TextAlign(f) => Some(f), _ => None, } }
+        pub const fn as_line_height(&self) -> Option<&StyleLineHeightValue> { match self { CssProperty::LineHeight(f) => Some(f), _ => None, } }
+        pub const fn as_letter_spacing(&self) -> Option<&StyleLetterSpacingValue> { match self { CssProperty::LetterSpacing(f) => Some(f), _ => None, } }
+        pub const fn as_word_spacing(&self) -> Option<&StyleWordSpacingValue> { match self { CssProperty::WordSpacing(f) => Some(f), _ => None, } }
+        pub const fn as_tab_width(&self) -> Option<&StyleTabWidthValue> { match self { CssProperty::TabWidth(f) => Some(f), _ => None, } }
+        pub const fn as_cursor(&self) -> Option<&StyleCursorValue> { match self { CssProperty::Cursor(f) => Some(f), _ => None, } }
+        pub const fn as_box_shadow_left(&self) -> Option<&StyleBoxShadowValue> { match self { CssProperty::BoxShadowLeft(f) => Some(f), _ => None, } }
+        pub const fn as_box_shadow_right(&self) -> Option<&StyleBoxShadowValue> { match self { CssProperty::BoxShadowRight(f) => Some(f), _ => None, } }
+        pub const fn as_box_shadow_top(&self) -> Option<&StyleBoxShadowValue> { match self { CssProperty::BoxShadowTop(f) => Some(f), _ => None, } }
+        pub const fn as_box_shadow_bottom(&self) -> Option<&StyleBoxShadowValue> { match self { CssProperty::BoxShadowBottom(f) => Some(f), _ => None, } }
+        pub const fn as_border_top_color(&self) -> Option<&StyleBorderTopColorValue> { match self { CssProperty::BorderTopColor(f) => Some(f), _ => None, } }
+        pub const fn as_border_left_color(&self) -> Option<&StyleBorderLeftColorValue> { match self { CssProperty::BorderLeftColor(f) => Some(f), _ => None, } }
+        pub const fn as_border_right_color(&self) -> Option<&StyleBorderRightColorValue> { match self { CssProperty::BorderRightColor(f) => Some(f), _ => None, } }
+        pub const fn as_border_bottom_color(&self) -> Option<&StyleBorderBottomColorValue> { match self { CssProperty::BorderBottomColor(f) => Some(f), _ => None, } }
+        pub const fn as_border_top_style(&self) -> Option<&StyleBorderTopStyleValue> { match self { CssProperty::BorderTopStyle(f) => Some(f), _ => None, } }
+        pub const fn as_border_left_style(&self) -> Option<&StyleBorderLeftStyleValue> { match self { CssProperty::BorderLeftStyle(f) => Some(f), _ => None, } }
+        pub const fn as_border_right_style(&self) -> Option<&StyleBorderRightStyleValue> { match self { CssProperty::BorderRightStyle(f) => Some(f), _ => None, } }
+        pub const fn as_border_bottom_style(&self) -> Option<&StyleBorderBottomStyleValue> { match self { CssProperty::BorderBottomStyle(f) => Some(f), _ => None, } }
+        pub const fn as_border_top_left_radius(&self) -> Option<&StyleBorderTopLeftRadiusValue> { match self { CssProperty::BorderTopLeftRadius(f) => Some(f), _ => None, } }
+        pub const fn as_border_top_right_radius(&self) -> Option<&StyleBorderTopRightRadiusValue> { match self { CssProperty::BorderTopRightRadius(f) => Some(f), _ => None, } }
+        pub const fn as_border_bottom_left_radius(&self) -> Option<&StyleBorderBottomLeftRadiusValue> { match self { CssProperty::BorderBottomLeftRadius(f) => Some(f), _ => None, } }
+        pub const fn as_border_bottom_right_radius(&self) -> Option<&StyleBorderBottomRightRadiusValue> { match self { CssProperty::BorderBottomRightRadius(f) => Some(f), _ => None, } }
+        pub const fn as_opacity(&self) -> Option<&StyleOpacityValue> { match self { CssProperty::Opacity(f) => Some(f), _ => None, } }
+        pub const fn as_transform(&self) -> Option<&StyleTransformVecValue> { match self { CssProperty::Transform(f) => Some(f), _ => None, } }
+        pub const fn as_transform_origin(&self) -> Option<&StyleTransformOriginValue> { match self { CssProperty::TransformOrigin(f) => Some(f), _ => None, } }
+        pub const fn as_perspective_origin(&self) -> Option<&StylePerspectiveOriginValue> { match self { CssProperty::PerspectiveOrigin(f) => Some(f), _ => None, } }
+        pub const fn as_backface_visibility(&self) -> Option<&StyleBackfaceVisibilityValue> { match self { CssProperty::BackfaceVisibility(f) => Some(f), _ => None, } }
+        pub const fn as_display(&self) -> Option<&LayoutDisplayValue> { match self { CssProperty::Display(f) => Some(f), _ => None, } }
+        pub const fn as_float(&self) -> Option<&LayoutFloatValue> { match self { CssProperty::Float(f) => Some(f), _ => None, } }
+        pub const fn as_box_sizing(&self) -> Option<&LayoutBoxSizingValue> { match self { CssProperty::BoxSizing(f) => Some(f), _ => None, } }
+        pub const fn as_width(&self) -> Option<&LayoutWidthValue> { match self { CssProperty::Width(f) => Some(f), _ => None, } }
+        pub const fn as_height(&self) -> Option<&LayoutHeightValue> { match self { CssProperty::Height(f) => Some(f), _ => None, } }
+        pub const fn as_min_width(&self) -> Option<&LayoutMinWidthValue> { match self { CssProperty::MinWidth(f) => Some(f), _ => None, } }
+        pub const fn as_min_height(&self) -> Option<&LayoutMinHeightValue> { match self { CssProperty::MinHeight(f) => Some(f), _ => None, } }
+        pub const fn as_max_width(&self) -> Option<&LayoutMaxWidthValue> { match self { CssProperty::MaxWidth(f) => Some(f), _ => None, } }
+        pub const fn as_max_height(&self) -> Option<&LayoutMaxHeightValue> { match self { CssProperty::MaxHeight(f) => Some(f), _ => None, } }
+        pub const fn as_position(&self) -> Option<&LayoutPositionValue> { match self { CssProperty::Position(f) => Some(f), _ => None, } }
+        pub const fn as_top(&self) -> Option<&LayoutTopValue> { match self { CssProperty::Top(f) => Some(f), _ => None, } }
+        pub const fn as_bottom(&self) -> Option<&LayoutBottomValue> { match self { CssProperty::Bottom(f) => Some(f), _ => None, } }
+        pub const fn as_right(&self) -> Option<&LayoutRightValue> { match self { CssProperty::Right(f) => Some(f), _ => None, } }
+        pub const fn as_left(&self) -> Option<&LayoutLeftValue> { match self { CssProperty::Left(f) => Some(f), _ => None, } }
+        pub const fn as_padding_top(&self) -> Option<&LayoutPaddingTopValue> { match self { CssProperty::PaddingTop(f) => Some(f), _ => None, } }
+        pub const fn as_padding_bottom(&self) -> Option<&LayoutPaddingBottomValue> { match self { CssProperty::PaddingBottom(f) => Some(f), _ => None, } }
+        pub const fn as_padding_left(&self) -> Option<&LayoutPaddingLeftValue> { match self { CssProperty::PaddingLeft(f) => Some(f), _ => None, } }
+        pub const fn as_padding_right(&self) -> Option<&LayoutPaddingRightValue> { match self { CssProperty::PaddingRight(f) => Some(f), _ => None, } }
+        pub const fn as_margin_top(&self) -> Option<&LayoutMarginTopValue> { match self { CssProperty::MarginTop(f) => Some(f), _ => None, } }
+        pub const fn as_margin_bottom(&self) -> Option<&LayoutMarginBottomValue> { match self { CssProperty::MarginBottom(f) => Some(f), _ => None, } }
+        pub const fn as_margin_left(&self) -> Option<&LayoutMarginLeftValue> { match self { CssProperty::MarginLeft(f) => Some(f), _ => None, } }
+        pub const fn as_margin_right(&self) -> Option<&LayoutMarginRightValue> { match self { CssProperty::MarginRight(f) => Some(f), _ => None, } }
+        pub const fn as_border_top_width(&self) -> Option<&LayoutBorderTopWidthValue> { match self { CssProperty::BorderTopWidth(f) => Some(f), _ => None, } }
+        pub const fn as_border_left_width(&self) -> Option<&LayoutBorderLeftWidthValue> { match self { CssProperty::BorderLeftWidth(f) => Some(f), _ => None, } }
+        pub const fn as_border_right_width(&self) -> Option<&LayoutBorderRightWidthValue> { match self { CssProperty::BorderRightWidth(f) => Some(f), _ => None, } }
+        pub const fn as_border_bottom_width(&self) -> Option<&LayoutBorderBottomWidthValue> { match self { CssProperty::BorderBottomWidth(f) => Some(f), _ => None, } }
+        pub const fn as_overflow_x(&self) -> Option<&LayoutOverflowValue> { match self { CssProperty::OverflowX(f) => Some(f), _ => None, } }
+        pub const fn as_overflow_y(&self) -> Option<&LayoutOverflowValue> { match self { CssProperty::OverflowY(f) => Some(f), _ => None, } }
+        pub const fn as_direction(&self) -> Option<&LayoutFlexDirectionValue> { match self { CssProperty::FlexDirection(f) => Some(f), _ => None, } }
+        pub const fn as_flex_wrap(&self) -> Option<&LayoutFlexWrapValue> { match self { CssProperty::FlexWrap(f) => Some(f), _ => None, } }
+        pub const fn as_flex_grow(&self) -> Option<&LayoutFlexGrowValue> { match self { CssProperty::FlexGrow(f) => Some(f), _ => None, } }
+        pub const fn as_flex_shrink(&self) -> Option<&LayoutFlexShrinkValue> { match self { CssProperty::FlexShrink(f) => Some(f), _ => None, } }
+        pub const fn as_justify_content(&self) -> Option<&LayoutJustifyContentValue> { match self { CssProperty::JustifyContent(f) => Some(f), _ => None, } }
+        pub const fn as_align_items(&self) -> Option<&LayoutAlignItemsValue> { match self { CssProperty::AlignItems(f) => Some(f), _ => None, } }
+        pub const fn as_align_content(&self) -> Option<&LayoutAlignContentValue> { match self { CssProperty::AlignContent(f) => Some(f), _ => None, } }
     }
 
     const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
@@ -6721,10 +6657,10 @@ pub mod css {
     impl_pixel_value!(StyleBorderBottomLeftRadius);
     impl_pixel_value!(StyleBorderTopRightRadius);
     impl_pixel_value!(StyleBorderBottomRightRadius);
-    impl_pixel_value!(StyleBorderTopWidth);
-    impl_pixel_value!(StyleBorderLeftWidth);
-    impl_pixel_value!(StyleBorderRightWidth);
-    impl_pixel_value!(StyleBorderBottomWidth);
+    impl_pixel_value!(LayoutBorderTopWidth);
+    impl_pixel_value!(LayoutBorderLeftWidth);
+    impl_pixel_value!(LayoutBorderRightWidth);
+    impl_pixel_value!(LayoutBorderBottomWidth);
     impl_pixel_value!(LayoutWidth);
     impl_pixel_value!(LayoutHeight);
     impl_pixel_value!(LayoutMinHeight);
@@ -7403,15 +7339,15 @@ pub mod css {
     /// `ScrollbarInfo` struct
     #[doc(inline)] pub use crate::dll::AzScrollbarInfo as ScrollbarInfo;
 
-    impl Clone for ScrollbarInfo { fn clone(&self) -> Self { *self } }
-    impl Copy for ScrollbarInfo { }
+    impl Clone for ScrollbarInfo { fn clone(&self) -> Self { unsafe { crate::dll::az_scrollbar_info_deep_copy(self) } } }
+    impl Drop for ScrollbarInfo { fn drop(&mut self) { unsafe { crate::dll::az_scrollbar_info_delete(self) }; } }
 
 
     /// `ScrollbarStyle` struct
     #[doc(inline)] pub use crate::dll::AzScrollbarStyle as ScrollbarStyle;
 
-    impl Clone for ScrollbarStyle { fn clone(&self) -> Self { *self } }
-    impl Copy for ScrollbarStyle { }
+    impl Clone for ScrollbarStyle { fn clone(&self) -> Self { unsafe { crate::dll::az_scrollbar_style_deep_copy(self) } } }
+    impl Drop for ScrollbarStyle { fn drop(&mut self) { unsafe { crate::dll::az_scrollbar_style_delete(self) }; } }
 
 
     /// `StyleCursor` struct
@@ -7802,22 +7738,22 @@ pub mod css {
     /// `StyleBackgroundPositionVecValue` struct
     #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecValue as StyleBackgroundPositionVecValue;
 
-    impl Clone for StyleBackgroundPositionVecValue { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBackgroundPositionVecValue { }
+    impl Clone for StyleBackgroundPositionVecValue { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_position_vec_value_deep_copy(self) } } }
+    impl Drop for StyleBackgroundPositionVecValue { fn drop(&mut self) { unsafe { crate::dll::az_style_background_position_vec_value_delete(self) }; } }
 
 
     /// `StyleBackgroundRepeatVecValue` struct
     #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecValue as StyleBackgroundRepeatVecValue;
 
-    impl Clone for StyleBackgroundRepeatVecValue { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBackgroundRepeatVecValue { }
+    impl Clone for StyleBackgroundRepeatVecValue { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_repeat_vec_value_deep_copy(self) } } }
+    impl Drop for StyleBackgroundRepeatVecValue { fn drop(&mut self) { unsafe { crate::dll::az_style_background_repeat_vec_value_delete(self) }; } }
 
 
     /// `StyleBackgroundSizeVecValue` struct
     #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecValue as StyleBackgroundSizeVecValue;
 
-    impl Clone for StyleBackgroundSizeVecValue { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBackgroundSizeVecValue { }
+    impl Clone for StyleBackgroundSizeVecValue { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_size_vec_value_deep_copy(self) } } }
+    impl Drop for StyleBackgroundSizeVecValue { fn drop(&mut self) { unsafe { crate::dll::az_style_background_size_vec_value_delete(self) }; } }
 
 
     /// `StyleBorderBottomColorValue` struct

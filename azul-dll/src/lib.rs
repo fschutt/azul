@@ -1625,10 +1625,18 @@ pub use AzLayoutBorderTopWidthTT as AzLayoutBorderTopWidth;
 /// Re-export of rust-allocated (stack based) `ScrollbarInfo` struct
 pub type AzScrollbarInfoTT = azul_impl::css::ScrollbarInfo;
 pub use AzScrollbarInfoTT as AzScrollbarInfo;
+/// Destructor: Takes ownership of the `ScrollbarInfo` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_scrollbar_info_delete(object: &mut AzScrollbarInfo) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_scrollbar_info_deep_copy(object: &AzScrollbarInfo) -> AzScrollbarInfo { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `ScrollbarStyle` struct
 pub type AzScrollbarStyleTT = azul_impl::css::ScrollbarStyle;
 pub use AzScrollbarStyleTT as AzScrollbarStyle;
+/// Destructor: Takes ownership of the `ScrollbarStyle` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_scrollbar_style_delete(object: &mut AzScrollbarStyle) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_scrollbar_style_deep_copy(object: &AzScrollbarStyle) -> AzScrollbarStyle { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `StyleCursor` struct
 pub type AzStyleCursorTT = azul_impl::css::StyleCursor;
@@ -1867,14 +1875,29 @@ pub use AzStyleBackgroundContentVecValueTT as AzStyleBackgroundContentVecValue;
 /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecValue` struct
 pub type AzStyleBackgroundPositionVecValueTT = azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>;
 pub use AzStyleBackgroundPositionVecValueTT as AzStyleBackgroundPositionVecValue;
+/// Destructor: Takes ownership of the `StyleBackgroundPositionVecValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_style_background_position_vec_value_delete(object: &mut AzStyleBackgroundPositionVecValue) { match object { azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>::None => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>::Exact(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_style_background_position_vec_value_deep_copy(object: &AzStyleBackgroundPositionVecValue) -> AzStyleBackgroundPositionVecValue { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecValue` struct
 pub type AzStyleBackgroundRepeatVecValueTT = azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>;
 pub use AzStyleBackgroundRepeatVecValueTT as AzStyleBackgroundRepeatVecValue;
+/// Destructor: Takes ownership of the `StyleBackgroundRepeatVecValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_style_background_repeat_vec_value_delete(object: &mut AzStyleBackgroundRepeatVecValue) { match object { azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>::None => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>::Exact(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_style_background_repeat_vec_value_deep_copy(object: &AzStyleBackgroundRepeatVecValue) -> AzStyleBackgroundRepeatVecValue { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecValue` struct
 pub type AzStyleBackgroundSizeVecValueTT = azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>;
 pub use AzStyleBackgroundSizeVecValueTT as AzStyleBackgroundSizeVecValue;
+/// Destructor: Takes ownership of the `StyleBackgroundSizeVecValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_style_background_size_vec_value_delete(object: &mut AzStyleBackgroundSizeVecValue) { match object { azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>::None => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>::Exact(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_style_background_size_vec_value_deep_copy(object: &AzStyleBackgroundSizeVecValue) -> AzStyleBackgroundSizeVecValue { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomColorValue` struct
 pub type AzStyleBorderBottomColorValueTT = azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>;
@@ -5854,7 +5877,7 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzNonXmlCharError {
-        pub ch: char,
+        pub ch: u32,
         pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `InvalidCharError` struct

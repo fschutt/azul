@@ -53,7 +53,7 @@
         pub fn new<T: 'static>(value: T) -> Self {
             use crate::dll::*;
 
-            extern "C" fn default_custom_destructor<U: 'static>(ptr: *const c_void) {
+            extern "C" fn default_custom_destructor<U: 'static>(ptr: &mut c_void) {
                 use core::{mem, ptr};
 
                 // note: in the default constructor, we do not need to check whether U == T
@@ -61,7 +61,7 @@
                 unsafe {
                     // copy the struct from the heap to the stack and call mem::drop on U to run the destructor
                     let mut stack_mem = mem::zeroed::<U>();
-                    ptr::copy_nonoverlapping(ptr as *const U, &mut stack_mem as *mut U, mem::size_of::<U>());
+                    ptr::copy_nonoverlapping((ptr as *mut c_void) as *const U, &mut stack_mem as *mut U, mem::size_of::<U>());
                     mem::drop(stack_mem);
                 }
             }

@@ -172,5 +172,5 @@
     impl_option!(AzCallback, AzOptionCallback, [Debug, Copy, Clone]);
     impl_option!(AzTagId, AzOptionTagId, [Debug, Copy, Clone]);
     impl_option!(AzDuration, AzOptionDuration, [Debug, Copy, Clone]);
-    impl_option!(AzInstantPtr, AzOptionInstantPtr, copy = false, clone = false, [Debug]); // TODO: impl clone!
+    impl_option!(AzInstant, AzOptionInstant, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);

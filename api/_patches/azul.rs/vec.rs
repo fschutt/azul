@@ -118,7 +118,6 @@
     impl_vec!(u32, AzGLuintVec);
     impl_vec!(i32, AzGLintVec);
     impl_vec!(AzStyleTransform, AzStyleTransformVec);
-    impl_vec!(AzContentGroup, AzContentGroupVec);
     impl_vec!(AzCssProperty, AzCssPropertyVec);
     impl_vec!(AzSvgMultiPolygon, AzSvgMultiPolygonVec);
     impl_vec!(AzSvgPath, AzSvgPathVec);
@@ -139,7 +138,6 @@
     impl_vec!(AzStringPair, AzStringPairVec);
     impl_vec!(AzLinearColorStop, AzLinearColorStopVec);
     impl_vec!(AzRadialColorStop, AzRadialColorStopVec);
-    impl_vec!(AzCascadedCssPropertyWithSource, AzCascadedCssPropertyWithSourceVec);
     impl_vec!(AzNodeId, AzNodeIdVec);
     impl_vec!(AzNode, AzNodeVec);
     impl_vec!(AzStyledNode, AzStyledNodeVec);

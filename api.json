@@ -1642,7 +1642,7 @@
 					"external": "azul_impl::xml::NonXmlCharError",
 					"derive": ["Copy"],
 					"struct_fields": [
-						{"ch": {"type": "char"}},
+						{"ch": {"type": "u32"}},
 						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
 				},
@@ -3328,7 +3328,6 @@
 				},
 				"ScrollbarInfo": {
 					"external": "azul_impl::css::ScrollbarInfo",
-					"derive": ["Copy"],
 					"struct_fields": [
 						{"width": {"type": "LayoutWidth"}},
 						{"padding_left": {"type": "LayoutPaddingLeft"}},
@@ -3342,7 +3341,6 @@
 				},
 				"ScrollbarStyle": {
 					"external": "azul_impl::css::ScrollbarStyle",
-					"derive": ["Copy"],
 					"struct_fields": [
 						{"horizontal": {"type": "ScrollbarInfo"}},
 						{"vertical": {"type": "ScrollbarInfo"}}
@@ -3948,7 +3946,6 @@
 				},
 				"StyleBackgroundPositionVecValue": {
 					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>",
-					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3959,7 +3956,6 @@
 				},
 				"StyleBackgroundRepeatVecValue": {
 					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>",
-					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3970,7 +3966,6 @@
 				},
 				"StyleBackgroundSizeVecValue": {
 					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>",
-					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
