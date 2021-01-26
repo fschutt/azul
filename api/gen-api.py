@@ -2,6 +2,9 @@ import json
 import re
 import pprint
 
+# dict that keeps the order of insertion
+from collections import OrderedDict
+
 def read_file(path):
     text_file = open(path, 'r')
     text_file_contents = text_file.read()
@@ -10,7 +13,6 @@ def read_file(path):
 
 prefix = "Az"
 fn_prefix = "az_"
-postfix = "Ptr"
 basic_types = [
     "bool", "char", "f32", "f64", "fn", "i128", "i16",
     "i32", "i64", "i8", "isize", "slice", "u128", "u16",
@@ -55,7 +57,6 @@ rust_api_patches = {
     tuple(['css']): read_file("./patches/azul.rs/css.rs"),
     tuple(['window']): read_file("./patches/azul.rs/window.rs"),
     tuple(['callbacks']): read_file("./patches/azul.rs/callbacks.rs"),
-    tuple(['callbacks', 'UpdateScreen']): read_file("./patches/azul.rs/update_screen.rs"),
     tuple(['callbacks', 'LayoutCallbackType']): read_file("./patches/azul.rs/layout_callback_type.rs"),
     tuple(['callbacks', 'CallbackType']): read_file("./patches/azul.rs/callback_type.rs"),
     tuple(['callbacks', 'GlCallbackType']): read_file("./patches/azul.rs/gl_callback_type.rs"),
@@ -216,10 +217,7 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
                     print("arg_type not found: " + str(arg_type))
                     raise Exception("type not found: " + arg_type)
                 arg_type = arg_type_new[1]
-                if class_is_virtual(apiData, arg_type, "dll") or is_stack_allocated_type(apiData, arg_type):
-                    fn_args += arg_name + ": " + ptr_type + prefix + arg_type + ", " # no postfix
-                else:
-                    fn_args += arg_name + ": " + ptr_type + prefix + arg_type + postfix + ", "
+                fn_args += arg_name + ": " + ptr_type + prefix + arg_type + ", " # no postfix
         fn_args = fn_args[:-2]
 
     return fn_args
@@ -323,10 +321,8 @@ def get_fn_args_c(f, class_name, class_ptr_name, apiData):
 
             if is_primitive_arg(arg_type):
                 fn_args += arg_name + ": " + arg_type + ", " # no pre, no postfix
-            elif class_is_virtual(apiData, arg_type, "rust"):
-                fn_args += prefix + arg_type + arg_name + " " + ", " # no postfix
             else:
-                fn_args += prefix + arg_type + postfix + arg_name + " " + ", "
+                fn_args += prefix + arg_type + arg_name + " " + ", " # no postfix
         fn_args = fn_args[:-2]
         if (len(f["fn_args"]) == 0):
             fn_args = "void"
@@ -454,10 +450,6 @@ def generate_rust_dll(apiData):
 
             code += "\r\n"
 
-            if tuple([module_name, class_name]) in dll_patches.keys() and "use_patches" in c.keys() and "dll" in c["use_patches"]:
-                code += dll_patches[tuple([module_name, class_name])]
-                continue
-
             rust_class_name = class_name
             if "rust_class_name" in c.keys():
                 rust_class_name = c["rust_class_name"]
@@ -487,10 +479,13 @@ def generate_rust_dll(apiData):
             # They don't have destructors, since they
             c_is_stack_allocated = not(class_is_boxed_object)
 
-            if c_is_stack_allocated:
-                class_ptr_name = prefix + class_name
-            else:
-                class_ptr_name = prefix + class_name + postfix
+            class_ptr_name = prefix + class_name
+
+            if tuple([module_name, class_name]) in dll_patches.keys() and "use_patches" in c.keys() and "dll" in c["use_patches"]:
+                code += dll_patches[tuple([module_name, class_name])]
+                if class_is_typedef:
+                    structs_map[class_ptr_name] = {"typedef": True}
+                continue
 
             struct_doc = ""
             if "doc" in c.keys():
@@ -507,8 +502,6 @@ def generate_rust_dll(apiData):
                 external_path = c["external"]
                 if class_is_const:
                     code += "pub static " + class_ptr_name + ": " + prefix + c["const"] + " = " + external_path + ";\r\n"
-                elif class_is_typedef:
-                    code += "pub type " + class_ptr_name + " = " + external_path + ";\r\n"
                 elif class_is_boxed_object:
                     structs_map[class_ptr_name] = {"external": external_path, "derive": struct_derive, "doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void" }}]}
                     if treat_external_as_ptr:
@@ -564,10 +557,9 @@ def generate_rust_dll(apiData):
                             return_type_class = search_for_class_by_rust_class_name(apiData, analyzed_return_type[1])
                             if return_type_class is None:
                                 print("rust-dll: (line 549): no return_type_class found for " + return_type)
-                            if class_is_stack_allocated(get_class(apiData, return_type_class[0], return_type_class[1])):
-                                returns = analyzed_return_type[0] + prefix + return_type_class[1] + analyzed_return_type[2] # no postfix
-                            else:
-                                returns = analyzed_return_type[0] + prefix + return_type_class[1] + postfix + analyzed_return_type[2]
+
+                            returns = analyzed_return_type[0] + prefix + return_type_class[1] + analyzed_return_type[2] # no postfix
+
 
                     fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, apiData)
 
@@ -606,10 +598,8 @@ def generate_rust_dll(apiData):
                             return_type_class = search_for_class_by_rust_class_name(apiData, analyzed_return_type[1])
                             if return_type_class is None:
                                 print("rust-dll: (line 549): no return_type_class found for " + return_type)
-                            if class_is_stack_allocated(get_class(apiData, return_type_class[0], return_type_class[1])):
-                                returns = analyzed_return_type[0] + prefix + return_type_class[1] + analyzed_return_type[2] # no postfix
-                            else:
-                                returns = analyzed_return_type[0] + prefix + return_type_class[1] + postfix + analyzed_return_type[2]
+
+                            returns = analyzed_return_type[0] + prefix + return_type_class[1] + analyzed_return_type[2] # no postfix
 
                     functions_map[str(to_snake_case(class_ptr_name) + "_" + fn_name)] = [fn_args, returns];
                     return_arrow = "" if returns == "" else " -> "
@@ -738,6 +728,113 @@ def generate_rust_dll(apiData):
 
     return [code, structs_map, functions_map]
 
+# Returns a sorted structs map where the structs are sorted
+# so that all structs that a class depends on as fields appear
+# before the class itself
+#
+# This is important because then we don't need forward declarations
+# when generating C and C++ code (plus it also makes the size-tests
+# easier to debug)
+def sort_structs_map(structs_map):
+
+    # From Python 3.6 onwards, the standard dict type maintains insertion order by default.
+    sorted_class_map = OrderedDict([])
+    # when encountering the class "DomVec", you must forward-declare the class "Dom"
+    forward_delcarations = OrderedDict([("DomVec", "Dom")])
+    classes_not_found = OrderedDict([])
+
+    # first, insert all types that only have primitive types as fields
+    for class_name in structs_map.keys():
+        clazz = structs_map[class_name]
+        should_insert_struct = True
+
+        found_c_is_typedef = "typedef" in clazz.keys() and clazz["typedef"]
+        found_c_is_boxed_object = "is_boxed_object" in clazz.keys() and clazz["is_boxed_object"]
+
+        if found_c_is_typedef or found_c_is_boxed_object:
+            pass
+        elif "struct" in clazz.keys():
+            struct = clazz["struct"]
+            for field in struct:
+                field_name = list(field.keys())[0]
+                field_type = list(field.values())[0]
+                field_type = prefix + analyze_type(field_type["type"])[1]
+                if not(is_primitive_arg(field_type)):
+                    should_insert_struct = False
+        elif "enum" in clazz.keys():
+            enum = clazz["enum"]
+            for variant in enum:
+                variant_name = list(variant.keys())[0]
+                variant_type = list(variant.values())[0]
+                if "type" in variant_type.keys():
+                    variant_type = prefix + analyze_type(variant_type["type"])[1]
+                    if not(is_primitive_arg(variant_type)):
+                        should_insert_struct = False
+        else:
+            raise Exception("sort_structs_map: not enum nor struct nor typedef" + class_name + "")
+
+        if should_insert_struct:
+            sorted_class_map[class_name] = clazz
+        else:
+            classes_not_found[class_name] = clazz
+
+    # Now loop through every class that was not a primitive type
+    # usually this should resolve in 9 - 10 iterations
+    iteration_count = 0;
+    while not(len(classes_not_found.keys()) == 0):
+        # classes not found in this iteration
+        current_classes_not_found = OrderedDict([])
+
+        for class_name in classes_not_found.keys():
+            clazz = classes_not_found[class_name]
+            should_insert_struct = True
+            found_c_is_typedef = "typedef" in clazz.keys() and clazz["typedef"]
+
+            if found_c_is_typedef:
+                print("found typedef" + class_name + "\r\n")
+                pass
+            elif "struct" in clazz.keys():
+                struct = clazz["struct"]
+                for field in struct:
+                    field_name = list(field.keys())[0]
+                    field_type = list(field.values())[0]
+                    field_type = analyze_type(field_type["type"])[1]
+                    if not(is_primitive_arg(field_type)) and not(field_type in forward_delcarations.keys()):
+                        field_type = prefix + field_type
+                        if not(field_type in sorted_class_map.keys()):
+                            if iteration_count == 200: #debug
+                                print("failed to find " + field_type + " on " + class_name + "\r\n")
+                            should_insert_struct = False
+            elif "enum" in clazz.keys():
+                enum = clazz["enum"]
+                for variant in enum:
+                    variant_name = list(variant.keys())[0]
+                    variant_type = list(variant.values())[0]
+                    if "type" in variant_type.keys():
+                        variant_type = analyze_type(variant_type["type"])[1]
+                        if not(is_primitive_arg(variant_type)) and not(variant_type in forward_delcarations.keys()):
+                            variant_type = prefix + variant_type
+                            if not(variant_type in sorted_class_map.keys()):
+                                should_insert_struct = False
+            else:
+                raise Exception("sort_structs_map: not enum nor struct " + class_name + "")
+
+            if should_insert_struct:
+                sorted_class_map[class_name] = clazz
+            else:
+                current_classes_not_found[class_name] = clazz
+
+
+        classes_not_found = current_classes_not_found
+        iteration_count += 1
+
+        # NOTE: if the iteration count is extremely high,
+        # something is wrong with the script
+        if iteration_count > 500:
+            raise Exception("infinite recursion detected in sort_structs_map: " + str(len(current_classes_not_found.keys())) + " unresolved structs = " + str(current_classes_not_found.keys()) + "\r\n")
+
+    return [sorted_class_map, forward_delcarations]
+
 # Generate the struct layout of the final API
 # This function has to be called twice in order to ensure that the layout of the struct
 # matches the layout in the binary
@@ -802,10 +899,7 @@ def generate_structs(apiData, structs_map, version):
                             code += "        pub(crate) "
                         else:
                             code += "        pub "
-                        if treat_external_as_ptr:
-                            code += field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + postfix + analyzed_arg_type[2] + ",\r\n"
-                        else:
-                            code += field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + ",\r\n"
+                        code += field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + ",\r\n"
                 else:
                     print("struct " + struct_name + " does not have a type on field " + field_name)
                     raise Exception("error")
@@ -834,10 +928,7 @@ def generate_structs(apiData, structs_map, version):
                             print("variant_type not found: " + variant_type + " in " + struct_name)
                         found_c = get_class(apiData, field_type_class_path[0], field_type_class_path[1])
                         treat_external_as_ptr = "external" in found_c.keys() and "is_boxed_object" in found_c.keys() and found_c["is_boxed_object"]
-                        if treat_external_as_ptr:
-                            code += "        " + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + postfix + analyzed_arg_type[2] + "),\r\n"
-                        else:
-                            code += "        " + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + "),\r\n"
+                        code += "        " + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + "),\r\n"
                 else:
                     code += "        " + variant_name + ",\r\n"
             code += "    }\r\n"
@@ -981,7 +1072,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                 class_can_be_cloned = c["clone"]
 
             c_is_stack_allocated = not(class_is_boxed_object)
-            class_ptr_name = prefix + class_name + postfix
+            class_ptr_name = prefix + class_name
             if c_is_stack_allocated:
                 class_ptr_name = prefix + class_name
 
@@ -1165,6 +1256,13 @@ def main():
 
     # generate azul-dll/lib.rs
     rust_dll_result = generate_rust_dll(apiData)
+
+    sort_structs_result = sort_structs_map(rust_dll_result[1])
+    rust_dll_result[1] = sort_structs_result[0]
+    forward_delcarations = sort_structs_result[1]
+
+    # TODO: use forward_declarations!
+
     size_test = generate_size_test(apiData, rust_dll_result[1])
     rust_dll_file = ""
     rust_dll_file += rust_dll_result[0]
@@ -1178,6 +1276,7 @@ def main():
         file_path = rust_api_path + "/" + file_name
         file_contents = api_files[file_name]
         write_file(file_contents, file_path)
+
     # write_file(generate_c_api(apiData), c_api_path)
     # write_file(generate_cpp_api(apiData), cpp_api_path)
     # write_file(generate_python_api(apiData), python_api_path)

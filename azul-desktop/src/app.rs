@@ -1,3 +1,4 @@
+use core::ffi::c_void;
 use std::{
     time::Duration,
     collections::BTreeMap,
@@ -46,6 +47,25 @@ pub struct App {
     pub windows: Vec<WindowCreateOptions>,
     /// Glutin / winit event loop
     pub event_loop: GlutinEventLoop<UserEvent>,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct AzAppPtr { /* ptr: *const App */ pub ptr: *const c_void }
+
+impl AzAppPtr {
+    pub fn new(app: App) -> Self { Self { ptr: Box::into_raw(Box::new(app)) as *const c_void } }
+    pub fn downcast_modify<F: FnOnce(&mut App)>(&mut self, f: F) { unsafe { f(&mut *(self.ptr as *mut App)) } }
+    pub fn get(self) -> App {
+        let p = unsafe { Box::<App>::from_raw(self.ptr as *mut App) };
+        *p
+    }
+}
+
+impl Drop for AzAppPtr {
+    fn drop(&mut self) {
+        let _ = unsafe { Box::<App>::from_raw(self.ptr as *mut App) };
+    }
 }
 
 impl App {

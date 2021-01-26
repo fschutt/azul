@@ -254,11 +254,12 @@
     impl Drop for CallbackInfo { fn drop(&mut self) { unsafe { crate::dll::az_callback_info_delete(self) }; } }
 
 
-    /// `UpdateScreen` struct
-    pub use crate::dll::AzUpdateScreen as UpdateScreen;
+    /// Specifies if the screen should be updated after the callback function has returned
+    #[doc(inline)] pub use crate::dll::AzUpdateScreen as UpdateScreen;
 
     impl Clone for UpdateScreen { fn clone(&self) -> Self { *self } }
     impl Copy for UpdateScreen { }
+
 
     /// `IFrameCallback` struct
     #[doc(inline)] pub use crate::dll::AzIFrameCallback as IFrameCallback;

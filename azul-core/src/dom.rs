@@ -618,11 +618,15 @@ pub struct NodeData {
     tab_index: OptionTabIndex,
 }
 
+// Clone, PartialEq, Eq, Hash, PartialOrd, Ord
 impl_vec!(NodeData, NodeDataVec);
 impl_vec_debug!(NodeData, NodeDataVec);
 impl_vec_partialord!(NodeData, NodeDataVec);
+impl_vec_ord!(NodeData, NodeDataVec);
 impl_vec_clone!(NodeData, NodeDataVec);
 impl_vec_partialeq!(NodeData, NodeDataVec);
+impl_vec_eq!(NodeData, NodeDataVec);
+impl_vec_hash!(NodeData, NodeDataVec);
 
 impl NodeDataVec {
     pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, NodeData> {

@@ -417,11 +417,11 @@
     impl Copy for OptionDuration { }
 
 
-    /// `OptionInstantPtr` struct
-    #[doc(inline)] pub use crate::dll::AzOptionInstantPtr as OptionInstantPtr;
+    /// `OptionInstant` struct
+    #[doc(inline)] pub use crate::dll::AzOptionInstant as OptionInstant;
 
-    impl Clone for OptionInstantPtr { fn clone(&self) -> Self { unsafe { crate::dll::az_option_instant_ptr_deep_copy(self) } } }
-    impl Drop for OptionInstantPtr { fn drop(&mut self) { unsafe { crate::dll::az_option_instant_ptr_delete(self) }; } }
+    impl Clone for OptionInstant { fn clone(&self) -> Self { unsafe { crate::dll::az_option_instant_deep_copy(self) } } }
+    impl Drop for OptionInstant { fn drop(&mut self) { unsafe { crate::dll::az_option_instant_delete(self) }; } }
 
 
     /// `OptionUsize` struct

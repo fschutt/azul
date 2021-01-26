@@ -5,14 +5,15 @@
 
 
     /// `Instant` struct
-    #[doc(inline)] pub use crate::dll::AzInstantPtr as Instant;
+    #[doc(inline)] pub use crate::dll::AzInstant as Instant;
 
     impl Instant {
         /// Creates a new `Instant` instance.
-        pub fn now() -> Self { unsafe { crate::dll::az_instant_ptr_now() } }
+        pub fn now() -> Self { unsafe { crate::dll::az_instant_now() } }
     }
 
-    impl Drop for Instant { fn drop(&mut self) { unsafe { crate::dll::az_instant_ptr_delete(self) }; } }
+    impl Clone for Instant { fn clone(&self) -> Self { unsafe { crate::dll::az_instant_deep_copy(self) } } }
+    impl Drop for Instant { fn drop(&mut self) { unsafe { crate::dll::az_instant_delete(self) }; } }
 
 
     /// `Duration` struct

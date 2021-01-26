@@ -62,13 +62,6 @@
     impl Copy for ParentWithNodeDepth { }
 
 
-    /// `ContentGroup` struct
-    #[doc(inline)] pub use crate::dll::AzContentGroup as ContentGroup;
-
-    impl Clone for ContentGroup { fn clone(&self) -> Self { unsafe { crate::dll::az_content_group_deep_copy(self) } } }
-    impl Drop for ContentGroup { fn drop(&mut self) { unsafe { crate::dll::az_content_group_delete(self) }; } }
-
-
     /// `StyledDom` struct
     #[doc(inline)] pub use crate::dll::AzStyledDom as StyledDom;
 

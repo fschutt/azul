@@ -171,12 +171,28 @@
         }
     }    use crate::dom::{CallbackData, Dom, IdOrClass, NodeData, NodeDataInlineCssProperty};
     use crate::css::{CssDeclaration, CssPathSelector, CssProperty, CssRuleBlock, LinearColorStop, RadialColorStop, StyleBackgroundContent, StyleBackgroundPosition, StyleBackgroundRepeat, StyleBackgroundSize, StyleTransform, Stylesheet};
-    use crate::style::{CascadeInfo, ContentGroup, Node, ParentWithNodeDepth, StyledNode, TagIdToNodeIdMapping};
     use crate::svg::{SvgMultiPolygon, SvgPath, SvgPathElement, SvgVertex};
     use crate::gl::{DebugMessage, VertexAttribute};
     use crate::window::{StringPair, VirtualKeyCode, XWindowType};
+    use crate::style::{CascadeInfo, Node, ParentWithNodeDepth, StyledNode, TagIdToNodeIdMapping};
     use crate::str::String;
     use crate::callbacks::NodeId;
+
+
+    /// Wrapper over a Rust-allocated `Vec<Dom>`
+    #[doc(inline)] pub use crate::dll::AzDomVec as DomVec;
+
+    impl DomVec {
+        /// Creates a new, empty Rust `Vec<Dom>`
+        pub fn new() -> Self { unsafe { crate::dll::az_dom_vec_new() } }
+        /// Creates a new, empty Rust `Vec<Dom>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_dom_vec_with_capacity(cap) } }
+        /// Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzDom, len: usize) -> Self { unsafe { crate::dll::az_dom_vec_copy_from(ptr, len) } }
+    }
+
+    impl Clone for DomVec { fn clone(&self) -> Self { unsafe { crate::dll::az_dom_vec_deep_copy(self) } } }
+    impl Drop for DomVec { fn drop(&mut self) { unsafe { crate::dll::az_dom_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
@@ -289,22 +305,6 @@
 
     impl Clone for StyleTransformVec { fn clone(&self) -> Self { unsafe { crate::dll::az_style_transform_vec_deep_copy(self) } } }
     impl Drop for StyleTransformVec { fn drop(&mut self) { unsafe { crate::dll::az_style_transform_vec_delete(self) }; } }
-
-
-    /// Wrapper over a Rust-allocated `Vec<ContentGroup>`
-    #[doc(inline)] pub use crate::dll::AzContentGroupVec as ContentGroupVec;
-
-    impl ContentGroupVec {
-        /// Creates a new, empty Rust `Vec<ContentGroup>`
-        pub fn new() -> Self { unsafe { crate::dll::az_content_group_vec_new() } }
-        /// Creates a new, empty Rust `Vec<ContentGroup>` with a given, pre-allocated capacity
-        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_content_group_vec_with_capacity(cap) } }
-        /// Creates + allocates a Rust `Vec<ContentGroup>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzContentGroup, len: usize) -> Self { unsafe { crate::dll::az_content_group_vec_copy_from(ptr, len) } }
-    }
-
-    impl Clone for ContentGroupVec { fn clone(&self) -> Self { unsafe { crate::dll::az_content_group_vec_deep_copy(self) } } }
-    impl Drop for ContentGroupVec { fn drop(&mut self) { unsafe { crate::dll::az_content_group_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`
@@ -625,22 +625,6 @@
 
     impl Clone for GLintVec { fn clone(&self) -> Self { unsafe { crate::dll::az_g_lint_vec_deep_copy(self) } } }
     impl Drop for GLintVec { fn drop(&mut self) { unsafe { crate::dll::az_g_lint_vec_delete(self) }; } }
-
-
-    /// Wrapper over a Rust-allocated `DomVec`
-    #[doc(inline)] pub use crate::dll::AzDomVec as DomVec;
-
-    impl DomVec {
-        /// Creates a new, empty Rust `Vec<Dom>`
-        pub fn new() -> Self { unsafe { crate::dll::az_dom_vec_new() } }
-        /// Creates a new, empty Rust `Vec<Dom>` with a given, pre-allocated capacity
-        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_dom_vec_with_capacity(cap) } }
-        /// Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzDom, len: usize) -> Self { unsafe { crate::dll::az_dom_vec_copy_from(ptr, len) } }
-    }
-
-    impl Clone for DomVec { fn clone(&self) -> Self { unsafe { crate::dll::az_dom_vec_deep_copy(self) } } }
-    impl Drop for DomVec { fn drop(&mut self) { unsafe { crate::dll::az_dom_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `StringVec`
