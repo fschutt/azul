@@ -102,8 +102,16 @@ pub struct Node {
     pub parent: Option<NodeId>,
     pub previous_sibling: Option<NodeId>,
     pub next_sibling: Option<NodeId>,
-    pub first_child: Option<NodeId>,
     pub last_child: Option<NodeId>,
+
+    // NOTE: first_child can be calculated on the fly:
+    //
+    //   - if last_child is None, first_child is None
+    //   - if last_child is Some, first_child is parent_index + 1
+    //
+    // This makes the "Node" struct take up 4 registers instead of 5
+    //
+    // pub first_child: Option<NodeId>,
 }
 
 // Node that initializes a Dom
@@ -111,22 +119,25 @@ pub const ROOT_NODE: Node = Node {
     parent: None,
     previous_sibling: None,
     next_sibling: None,
-    first_child: None,
     last_child: None,
 };
 
 impl Node {
     pub const ROOT: Node = ROOT_NODE;
+
     #[inline]
-    pub fn has_parent(&self) -> bool { self.parent.is_some() }
+    pub const fn has_parent(&self) -> bool { self.parent.is_some() }
     #[inline]
-    pub fn has_previous_sibling(&self) -> bool { self.previous_sibling.is_some() }
+    pub const fn has_previous_sibling(&self) -> bool { self.previous_sibling.is_some() }
     #[inline]
-    pub fn has_next_sibling(&self) -> bool { self.next_sibling.is_some() }
+    pub const fn has_next_sibling(&self) -> bool { self.next_sibling.is_some() }
     #[inline]
-    pub fn has_first_child(&self) -> bool { self.first_child.is_some() }
+    pub const fn has_first_child(&self) -> bool { self.last_child.is_some() /* last_child and first_child are always set together */ }
     #[inline]
-    pub fn has_last_child(&self) -> bool { self.last_child.is_some() }
+    pub const fn has_last_child(&self) -> bool { self.last_child.is_some() }
+
+    #[inline]
+    pub fn get_first_child(&self) -> Option<NodeId> { self.last_child.and_then(|_| Some(self.parent? + 1)) /* last_child and first_child are always set together */ }
 }
 
 /// The hierarchy of nodes is stored separately from the actual node content in order
@@ -207,7 +218,7 @@ impl<'a> NodeHierarchyRef<'a> {
         loop {
 
             for id in &current_children {
-                for child_id in id.1.children(self).filter(|id| self[*id].first_child.is_some()) {
+                for child_id in id.1.children(self).filter(|id| self[*id].has_first_child()) {
                     next_children.push((depth, child_id));
                 }
             }
@@ -463,7 +474,7 @@ impl NodeId {
     pub fn children<'a>(self, node_hierarchy: &'a NodeHierarchyRef<'a>) -> Children<'a> {
         Children {
             node_hierarchy,
-            node: node_hierarchy[self].first_child,
+            node: node_hierarchy[self].get_first_child(),
         }
     }
 
@@ -703,7 +714,7 @@ impl<'a> Iterator for Traverse<'a> {
             Some(item) => {
                 self.next = match item {
                     NodeEdge::Start(node) => {
-                        match self.node_hierarchy[node].first_child {
+                        match self.node_hierarchy[node].get_first_child() {
                             Some(first_child) => Some(NodeEdge::Start(first_child)),
                             None => Some(NodeEdge::End(node.clone()))
                         }

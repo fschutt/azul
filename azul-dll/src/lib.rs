@@ -70,6 +70,196 @@ pub use AzStringTT as AzString;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_string_deep_copy(object: &AzString) -> AzString { object.clone() }
 
+/// Re-export of rust-allocated (stack based) `DomVecDestructor` struct
+pub type AzDomVecDestructorTT = azul_impl::dom::DomVecDestructor;
+pub use AzDomVecDestructorTT as AzDomVecDestructor;
+
+pub type AzDomVecDestructorType = extern "C" fn(&mut AzDomVec);
+/// Re-export of rust-allocated (stack based) `IdOrClassVecDestructor` struct
+pub type AzIdOrClassVecDestructorTT = azul_impl::dom::IdOrClassVecDestructor;
+pub use AzIdOrClassVecDestructorTT as AzIdOrClassVecDestructor;
+
+pub type AzIdOrClassVecDestructorType = extern "C" fn(&mut AzIdOrClassVec);
+/// Re-export of rust-allocated (stack based) `NodeDataInlineCssPropertyVecDestructor` struct
+pub type AzNodeDataInlineCssPropertyVecDestructorTT = azul_impl::dom::NodeDataInlineCssPropertyVecDestructor;
+pub use AzNodeDataInlineCssPropertyVecDestructorTT as AzNodeDataInlineCssPropertyVecDestructor;
+
+pub type AzNodeDataInlineCssPropertyVecDestructorType = extern "C" fn(&mut AzNodeDataInlineCssPropertyVec);
+/// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecDestructor` struct
+pub type AzStyleBackgroundContentVecDestructorTT = azul_impl::css::StyleBackgroundContentVecDestructor;
+pub use AzStyleBackgroundContentVecDestructorTT as AzStyleBackgroundContentVecDestructor;
+
+pub type AzStyleBackgroundContentVecDestructorType = extern "C" fn(&mut AzStyleBackgroundContentVec);
+/// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecDestructor` struct
+pub type AzStyleBackgroundPositionVecDestructorTT = azul_impl::css::StyleBackgroundPositionVecDestructor;
+pub use AzStyleBackgroundPositionVecDestructorTT as AzStyleBackgroundPositionVecDestructor;
+
+pub type AzStyleBackgroundPositionVecDestructorType = extern "C" fn(&mut AzStyleBackgroundPositionVec);
+/// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecDestructor` struct
+pub type AzStyleBackgroundRepeatVecDestructorTT = azul_impl::css::StyleBackgroundRepeatVecDestructor;
+pub use AzStyleBackgroundRepeatVecDestructorTT as AzStyleBackgroundRepeatVecDestructor;
+
+pub type AzStyleBackgroundRepeatVecDestructorType = extern "C" fn(&mut AzStyleBackgroundRepeatVec);
+/// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecDestructor` struct
+pub type AzStyleBackgroundSizeVecDestructorTT = azul_impl::css::StyleBackgroundSizeVecDestructor;
+pub use AzStyleBackgroundSizeVecDestructorTT as AzStyleBackgroundSizeVecDestructor;
+
+pub type AzStyleBackgroundSizeVecDestructorType = extern "C" fn(&mut AzStyleBackgroundSizeVec);
+/// Re-export of rust-allocated (stack based) `StyleTransformVecDestructor` struct
+pub type AzStyleTransformVecDestructorTT = azul_impl::css::StyleTransformVecDestructor;
+pub use AzStyleTransformVecDestructorTT as AzStyleTransformVecDestructor;
+
+pub type AzStyleTransformVecDestructorType = extern "C" fn(&mut AzStyleTransformVec);
+/// Re-export of rust-allocated (stack based) `CssPropertyVecDestructor` struct
+pub type AzCssPropertyVecDestructorTT = azul_impl::css::CssPropertyVecDestructor;
+pub use AzCssPropertyVecDestructorTT as AzCssPropertyVecDestructor;
+
+pub type AzCssPropertyVecDestructorType = extern "C" fn(&mut AzCssPropertyVec);
+/// Re-export of rust-allocated (stack based) `SvgMultiPolygonVecDestructor` struct
+pub type AzSvgMultiPolygonVecDestructorTT = azul_impl::svg::SvgMultiPolygonVecDestructor;
+pub use AzSvgMultiPolygonVecDestructorTT as AzSvgMultiPolygonVecDestructor;
+
+pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
+/// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
+pub type AzSvgPathVecDestructorTT = azul_impl::svg::SvgPathVecDestructor;
+pub use AzSvgPathVecDestructorTT as AzSvgPathVecDestructor;
+
+pub type AzSvgPathVecDestructorType = extern "C" fn(&mut AzSvgPathVec);
+/// Re-export of rust-allocated (stack based) `VertexAttributeVecDestructor` struct
+pub type AzVertexAttributeVecDestructorTT = azul_impl::gl::VertexAttributeVecDestructor;
+pub use AzVertexAttributeVecDestructorTT as AzVertexAttributeVecDestructor;
+
+pub type AzVertexAttributeVecDestructorType = extern "C" fn(&mut AzVertexAttributeVec);
+/// Re-export of rust-allocated (stack based) `SvgPathElementVecDestructor` struct
+pub type AzSvgPathElementVecDestructorTT = azul_impl::svg::SvgPathElementVecDestructor;
+pub use AzSvgPathElementVecDestructorTT as AzSvgPathElementVecDestructor;
+
+pub type AzSvgPathElementVecDestructorType = extern "C" fn(&mut AzSvgPathElementVec);
+/// Re-export of rust-allocated (stack based) `SvgVertexVecDestructor` struct
+pub type AzSvgVertexVecDestructorTT = azul_impl::svg::SvgVertexVecDestructor;
+pub use AzSvgVertexVecDestructorTT as AzSvgVertexVecDestructor;
+
+pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
+/// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
+pub type AzU32VecDestructorTT = azul_impl::svg::u32VecDestructor;
+pub use AzU32VecDestructorTT as AzU32VecDestructor;
+
+pub type AzU32VecDestructorType = extern "C" fn(&mut AzU32Vec);
+/// Re-export of rust-allocated (stack based) `XWindowTypeVecDestructor` struct
+pub type AzXWindowTypeVecDestructorTT = azul_impl::window::XWindowTypeVecDestructor;
+pub use AzXWindowTypeVecDestructorTT as AzXWindowTypeVecDestructor;
+
+pub type AzXWindowTypeVecDestructorType = extern "C" fn(&mut AzXWindowTypeVec);
+/// Re-export of rust-allocated (stack based) `VirtualKeyCodeVecDestructor` struct
+pub type AzVirtualKeyCodeVecDestructorTT = azul_impl::window::VirtualKeyCodeVecDestructor;
+pub use AzVirtualKeyCodeVecDestructorTT as AzVirtualKeyCodeVecDestructor;
+
+pub type AzVirtualKeyCodeVecDestructorType = extern "C" fn(&mut AzVirtualKeyCodeVec);
+/// Re-export of rust-allocated (stack based) `CascadeInfoVecDestructor` struct
+pub type AzCascadeInfoVecDestructorTT = azul_impl::style::CascadeInfoVecDestructor;
+pub use AzCascadeInfoVecDestructorTT as AzCascadeInfoVecDestructor;
+
+pub type AzCascadeInfoVecDestructorType = extern "C" fn(&mut AzCascadeInfoVec);
+/// Re-export of rust-allocated (stack based) `ScanCodeVecDestructor` struct
+pub type AzScanCodeVecDestructorTT = azul_impl::window::ScanCodeVecDestructor;
+pub use AzScanCodeVecDestructorTT as AzScanCodeVecDestructor;
+
+pub type AzScanCodeVecDestructorType = extern "C" fn(&mut AzScanCodeVec);
+/// Re-export of rust-allocated (stack based) `CssDeclarationVecDestructor` struct
+pub type AzCssDeclarationVecDestructorTT = azul_impl::css::CssDeclarationVecDestructor;
+pub use AzCssDeclarationVecDestructorTT as AzCssDeclarationVecDestructor;
+
+pub type AzCssDeclarationVecDestructorType = extern "C" fn(&mut AzCssDeclarationVec);
+/// Re-export of rust-allocated (stack based) `CssPathSelectorVecDestructor` struct
+pub type AzCssPathSelectorVecDestructorTT = azul_impl::css::CssPathSelectorVecDestructor;
+pub use AzCssPathSelectorVecDestructorTT as AzCssPathSelectorVecDestructor;
+
+pub type AzCssPathSelectorVecDestructorType = extern "C" fn(&mut AzCssPathSelectorVec);
+/// Re-export of rust-allocated (stack based) `StylesheetVecDestructor` struct
+pub type AzStylesheetVecDestructorTT = azul_impl::css::StylesheetVecDestructor;
+pub use AzStylesheetVecDestructorTT as AzStylesheetVecDestructor;
+
+pub type AzStylesheetVecDestructorType = extern "C" fn(&mut AzStylesheetVec);
+/// Re-export of rust-allocated (stack based) `CssRuleBlockVecDestructor` struct
+pub type AzCssRuleBlockVecDestructorTT = azul_impl::css::CssRuleBlockVecDestructor;
+pub use AzCssRuleBlockVecDestructorTT as AzCssRuleBlockVecDestructor;
+
+pub type AzCssRuleBlockVecDestructorType = extern "C" fn(&mut AzCssRuleBlockVec);
+/// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
+pub type AzU8VecDestructorTT = azul_impl::css::U8VecDestructor;
+pub use AzU8VecDestructorTT as AzU8VecDestructor;
+
+pub type AzU8VecDestructorType = extern "C" fn(&mut AzU8Vec);
+/// Re-export of rust-allocated (stack based) `CallbackDataVecDestructor` struct
+pub type AzCallbackDataVecDestructorTT = azul_impl::dom::CallbackDataVecDestructor;
+pub use AzCallbackDataVecDestructorTT as AzCallbackDataVecDestructor;
+
+pub type AzCallbackDataVecDestructorType = extern "C" fn(&mut AzCallbackDataVec);
+/// Re-export of rust-allocated (stack based) `DebugMessageVecDestructor` struct
+pub type AzDebugMessageVecDestructorTT = azul_impl::gl::AzDebugMessageVecDestructor;
+pub use AzDebugMessageVecDestructorTT as AzDebugMessageVecDestructor;
+
+pub type AzDebugMessageVecDestructorType = extern "C" fn(&mut AzDebugMessageVec);
+/// Re-export of rust-allocated (stack based) `GLuintVecDestructor` struct
+pub type AzGLuintVecDestructorTT = azul_impl::gl::GLuintVecDestructor;
+pub use AzGLuintVecDestructorTT as AzGLuintVecDestructor;
+
+pub type AzGLuintVecDestructorType = extern "C" fn(&mut AzGLuintVec);
+/// Re-export of rust-allocated (stack based) `GLintVecDestructor` struct
+pub type AzGLintVecDestructorTT = azul_impl::gl::GLintVecDestructor;
+pub use AzGLintVecDestructorTT as AzGLintVecDestructor;
+
+pub type AzGLintVecDestructorType = extern "C" fn(&mut AzGLintVec);
+/// Re-export of rust-allocated (stack based) `StringVecDestructor` struct
+pub type AzStringVecDestructorTT = azul_impl::css::StringVecDestructor;
+pub use AzStringVecDestructorTT as AzStringVecDestructor;
+
+pub type AzStringVecDestructorType = extern "C" fn(&mut AzStringVec);
+/// Re-export of rust-allocated (stack based) `StringPairVecDestructor` struct
+pub type AzStringPairVecDestructorTT = azul_impl::window::AzStringPairVecDestructor;
+pub use AzStringPairVecDestructorTT as AzStringPairVecDestructor;
+
+pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
+/// Re-export of rust-allocated (stack based) `LinearColorStopVecDestructor` struct
+pub type AzLinearColorStopVecDestructorTT = azul_impl::css::LinearColorStopVecDestructor;
+pub use AzLinearColorStopVecDestructorTT as AzLinearColorStopVecDestructor;
+
+pub type AzLinearColorStopVecDestructorType = extern "C" fn(&mut AzLinearColorStopVec);
+/// Re-export of rust-allocated (stack based) `RadialColorStopVecDestructor` struct
+pub type AzRadialColorStopVecDestructorTT = azul_impl::css::RadialColorStopVecDestructor;
+pub use AzRadialColorStopVecDestructorTT as AzRadialColorStopVecDestructor;
+
+pub type AzRadialColorStopVecDestructorType = extern "C" fn(&mut AzRadialColorStopVec);
+/// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
+pub type AzNodeIdVecDestructorTT = azul_impl::styled_dom::AzNodeIdVecDestructor;
+pub use AzNodeIdVecDestructorTT as AzNodeIdVecDestructor;
+
+pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
+/// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
+pub type AzNodeVecDestructorTT = azul_impl::styled_dom::AzNodeVecDestructor;
+pub use AzNodeVecDestructorTT as AzNodeVecDestructor;
+
+pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
+/// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
+pub type AzStyledNodeVecDestructorTT = azul_impl::styled_dom::StyledNodeVecDestructor;
+pub use AzStyledNodeVecDestructorTT as AzStyledNodeVecDestructor;
+
+pub type AzStyledNodeVecDestructorType = extern "C" fn(&mut AzStyledNodeVec);
+/// Re-export of rust-allocated (stack based) `TagIdsToNodeIdsMappingVecDestructor` struct
+pub type AzTagIdsToNodeIdsMappingVecDestructorTT = azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor;
+pub use AzTagIdsToNodeIdsMappingVecDestructorTT as AzTagIdsToNodeIdsMappingVecDestructor;
+
+pub type AzTagIdsToNodeIdsMappingVecDestructorType = extern "C" fn(&mut AzTagIdsToNodeIdsMappingVec);
+/// Re-export of rust-allocated (stack based) `ParentWithNodeDepthVecDestructor` struct
+pub type AzParentWithNodeDepthVecDestructorTT = azul_impl::styled_dom::ParentWithNodeDepthVecDestructor;
+pub use AzParentWithNodeDepthVecDestructorTT as AzParentWithNodeDepthVecDestructor;
+
+pub type AzParentWithNodeDepthVecDestructorType = extern "C" fn(&mut AzParentWithNodeDepthVec);
+/// Re-export of rust-allocated (stack based) `NodeDataVecDestructor` struct
+pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
+pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
+
+pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
 /// Wrapper over a Rust-allocated `Vec<Dom>`
 pub type AzDomVecTT = azul_impl::dom::DomVec;
 pub use AzDomVecTT as AzDomVec;
@@ -3542,6 +3732,82 @@ mod test_sizes {
             Ok(())
         }
     }
+    /// `AzDomVecDestructorType` struct
+    pub type AzDomVecDestructorType = extern "C" fn(&mut AzDomVec);
+    /// `AzIdOrClassVecDestructorType` struct
+    pub type AzIdOrClassVecDestructorType = extern "C" fn(&mut AzIdOrClassVec);
+    /// `AzNodeDataInlineCssPropertyVecDestructorType` struct
+    pub type AzNodeDataInlineCssPropertyVecDestructorType = extern "C" fn(&mut AzNodeDataInlineCssPropertyVec);
+    /// `AzStyleBackgroundContentVecDestructorType` struct
+    pub type AzStyleBackgroundContentVecDestructorType = extern "C" fn(&mut AzStyleBackgroundContentVec);
+    /// `AzStyleBackgroundPositionVecDestructorType` struct
+    pub type AzStyleBackgroundPositionVecDestructorType = extern "C" fn(&mut AzStyleBackgroundPositionVec);
+    /// `AzStyleBackgroundRepeatVecDestructorType` struct
+    pub type AzStyleBackgroundRepeatVecDestructorType = extern "C" fn(&mut AzStyleBackgroundRepeatVec);
+    /// `AzStyleBackgroundSizeVecDestructorType` struct
+    pub type AzStyleBackgroundSizeVecDestructorType = extern "C" fn(&mut AzStyleBackgroundSizeVec);
+    /// `AzStyleTransformVecDestructorType` struct
+    pub type AzStyleTransformVecDestructorType = extern "C" fn(&mut AzStyleTransformVec);
+    /// `AzCssPropertyVecDestructorType` struct
+    pub type AzCssPropertyVecDestructorType = extern "C" fn(&mut AzCssPropertyVec);
+    /// `AzSvgMultiPolygonVecDestructorType` struct
+    pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
+    /// `AzSvgPathVecDestructorType` struct
+    pub type AzSvgPathVecDestructorType = extern "C" fn(&mut AzSvgPathVec);
+    /// `AzVertexAttributeVecDestructorType` struct
+    pub type AzVertexAttributeVecDestructorType = extern "C" fn(&mut AzVertexAttributeVec);
+    /// `AzSvgPathElementVecDestructorType` struct
+    pub type AzSvgPathElementVecDestructorType = extern "C" fn(&mut AzSvgPathElementVec);
+    /// `AzSvgVertexVecDestructorType` struct
+    pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
+    /// `AzU32VecDestructorType` struct
+    pub type AzU32VecDestructorType = extern "C" fn(&mut AzU32Vec);
+    /// `AzXWindowTypeVecDestructorType` struct
+    pub type AzXWindowTypeVecDestructorType = extern "C" fn(&mut AzXWindowTypeVec);
+    /// `AzVirtualKeyCodeVecDestructorType` struct
+    pub type AzVirtualKeyCodeVecDestructorType = extern "C" fn(&mut AzVirtualKeyCodeVec);
+    /// `AzCascadeInfoVecDestructorType` struct
+    pub type AzCascadeInfoVecDestructorType = extern "C" fn(&mut AzCascadeInfoVec);
+    /// `AzScanCodeVecDestructorType` struct
+    pub type AzScanCodeVecDestructorType = extern "C" fn(&mut AzScanCodeVec);
+    /// `AzCssDeclarationVecDestructorType` struct
+    pub type AzCssDeclarationVecDestructorType = extern "C" fn(&mut AzCssDeclarationVec);
+    /// `AzCssPathSelectorVecDestructorType` struct
+    pub type AzCssPathSelectorVecDestructorType = extern "C" fn(&mut AzCssPathSelectorVec);
+    /// `AzStylesheetVecDestructorType` struct
+    pub type AzStylesheetVecDestructorType = extern "C" fn(&mut AzStylesheetVec);
+    /// `AzCssRuleBlockVecDestructorType` struct
+    pub type AzCssRuleBlockVecDestructorType = extern "C" fn(&mut AzCssRuleBlockVec);
+    /// `AzU8VecDestructorType` struct
+    pub type AzU8VecDestructorType = extern "C" fn(&mut AzU8Vec);
+    /// `AzCallbackDataVecDestructorType` struct
+    pub type AzCallbackDataVecDestructorType = extern "C" fn(&mut AzCallbackDataVec);
+    /// `AzDebugMessageVecDestructorType` struct
+    pub type AzDebugMessageVecDestructorType = extern "C" fn(&mut AzDebugMessageVec);
+    /// `AzGLuintVecDestructorType` struct
+    pub type AzGLuintVecDestructorType = extern "C" fn(&mut AzGLuintVec);
+    /// `AzGLintVecDestructorType` struct
+    pub type AzGLintVecDestructorType = extern "C" fn(&mut AzGLintVec);
+    /// `AzStringVecDestructorType` struct
+    pub type AzStringVecDestructorType = extern "C" fn(&mut AzStringVec);
+    /// `AzStringPairVecDestructorType` struct
+    pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
+    /// `AzLinearColorStopVecDestructorType` struct
+    pub type AzLinearColorStopVecDestructorType = extern "C" fn(&mut AzLinearColorStopVec);
+    /// `AzRadialColorStopVecDestructorType` struct
+    pub type AzRadialColorStopVecDestructorType = extern "C" fn(&mut AzRadialColorStopVec);
+    /// `AzNodeIdVecDestructorType` struct
+    pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
+    /// `AzNodeVecDestructorType` struct
+    pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
+    /// `AzStyledNodeVecDestructorType` struct
+    pub type AzStyledNodeVecDestructorType = extern "C" fn(&mut AzStyledNodeVec);
+    /// `AzTagIdsToNodeIdsMappingVecDestructorType` struct
+    pub type AzTagIdsToNodeIdsMappingVecDestructorType = extern "C" fn(&mut AzTagIdsToNodeIdsMappingVec);
+    /// `AzParentWithNodeDepthVecDestructorType` struct
+    pub type AzParentWithNodeDepthVecDestructorType = extern "C" fn(&mut AzParentWithNodeDepthVec);
+    /// `AzNodeDataVecDestructorType` struct
+    pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
     /// Re-export of rust-allocated (stack based) `AppLogLevel` struct
     #[repr(C)] #[derive(Debug)] pub enum AzAppLogLevel {
         Off,
@@ -4282,6 +4548,234 @@ mod test_sizes {
     #[repr(C)] #[derive(Debug)] pub enum AzWindowTheme {
         DarkMode,
         LightMode,
+    }
+    /// Re-export of rust-allocated (stack based) `DomVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzDomVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzDomVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `IdOrClassVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzIdOrClassVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzIdOrClassVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `NodeDataInlineCssPropertyVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeDataInlineCssPropertyVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeDataInlineCssPropertyVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundContentVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleBackgroundContentVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundPositionVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleBackgroundPositionVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundRepeatVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleBackgroundRepeatVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundSizeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleBackgroundSizeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleTransformVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleTransformVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleTransformVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `CssPropertyVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzCssPropertyVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCssPropertyVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgMultiPolygonVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgMultiPolygonVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgMultiPolygonVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgPathVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgPathVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `VertexAttributeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzVertexAttributeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzVertexAttributeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgPathElementVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgPathElementVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgPathElementVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgVertexVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgVertexVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgVertexVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzU32VecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzU32VecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `XWindowTypeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzXWindowTypeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzXWindowTypeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `VirtualKeyCodeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzVirtualKeyCodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzVirtualKeyCodeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `CascadeInfoVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzCascadeInfoVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCascadeInfoVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `ScanCodeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzScanCodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzScanCodeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `CssDeclarationVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzCssDeclarationVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCssDeclarationVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `CssPathSelectorVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzCssPathSelectorVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCssPathSelectorVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StylesheetVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStylesheetVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStylesheetVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `CssRuleBlockVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzCssRuleBlockVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCssRuleBlockVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzU8VecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzU8VecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `CallbackDataVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzCallbackDataVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCallbackDataVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `DebugMessageVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzDebugMessageVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzDebugMessageVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `GLuintVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzGLuintVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzGLuintVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `GLintVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzGLintVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzGLintVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StringVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStringVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStringVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StringPairVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStringPairVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStringPairVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `LinearColorStopVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzLinearColorStopVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzLinearColorStopVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `RadialColorStopVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzRadialColorStopVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzRadialColorStopVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeIdVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeIdVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyledNodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyledNodeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `TagIdsToNodeIdsMappingVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzTagIdsToNodeIdsMappingVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzTagIdsToNodeIdsMappingVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `ParentWithNodeDepthVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzParentWithNodeDepthVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzParentWithNodeDepthVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `NodeDataVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeDataVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeDataVecDestructorType),
     }
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
     #[repr(C)] #[derive(Debug)] pub struct AzStyleBackgroundRepeatVec {
@@ -5251,7 +5745,6 @@ mod test_sizes {
         pub parent: usize,
         pub previous_sibling: usize,
         pub next_sibling: usize,
-        pub first_child: usize,
         pub last_child: usize,
     }
     /// Re-export of rust-allocated (stack based) `CascadeInfo` struct
@@ -6892,6 +7385,44 @@ mod test_sizes {
         assert_eq!(Layout::new::<azul_impl::window::RendererType>(), Layout::new::<AzRendererType>());
         assert_eq!(Layout::new::<azul_impl::window::FullScreenMode>(), Layout::new::<AzFullScreenMode>());
         assert_eq!(Layout::new::<azul_impl::window::WindowTheme>(), Layout::new::<AzWindowTheme>());
+        assert_eq!(Layout::new::<azul_impl::dom::DomVecDestructor>(), Layout::new::<AzDomVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::dom::IdOrClassVecDestructor>(), Layout::new::<AzIdOrClassVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVecDestructor>(), Layout::new::<AzNodeDataInlineCssPropertyVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundContentVecDestructor>(), Layout::new::<AzStyleBackgroundContentVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundPositionVecDestructor>(), Layout::new::<AzStyleBackgroundPositionVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundRepeatVecDestructor>(), Layout::new::<AzStyleBackgroundRepeatVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundSizeVecDestructor>(), Layout::new::<AzStyleBackgroundSizeVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::StyleTransformVecDestructor>(), Layout::new::<AzStyleTransformVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::CssPropertyVecDestructor>(), Layout::new::<AzCssPropertyVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::svg::SvgMultiPolygonVecDestructor>(), Layout::new::<AzSvgMultiPolygonVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::svg::SvgPathVecDestructor>(), Layout::new::<AzSvgPathVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::gl::VertexAttributeVecDestructor>(), Layout::new::<AzVertexAttributeVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::svg::SvgPathElementVecDestructor>(), Layout::new::<AzSvgPathElementVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::svg::SvgVertexVecDestructor>(), Layout::new::<AzSvgVertexVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::svg::u32VecDestructor>(), Layout::new::<AzU32VecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::window::XWindowTypeVecDestructor>(), Layout::new::<AzXWindowTypeVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::window::VirtualKeyCodeVecDestructor>(), Layout::new::<AzVirtualKeyCodeVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::style::CascadeInfoVecDestructor>(), Layout::new::<AzCascadeInfoVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::window::ScanCodeVecDestructor>(), Layout::new::<AzScanCodeVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::CssDeclarationVecDestructor>(), Layout::new::<AzCssDeclarationVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::CssPathSelectorVecDestructor>(), Layout::new::<AzCssPathSelectorVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::StylesheetVecDestructor>(), Layout::new::<AzStylesheetVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::CssRuleBlockVecDestructor>(), Layout::new::<AzCssRuleBlockVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::U8VecDestructor>(), Layout::new::<AzU8VecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::dom::CallbackDataVecDestructor>(), Layout::new::<AzCallbackDataVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::gl::AzDebugMessageVecDestructor>(), Layout::new::<AzDebugMessageVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::gl::GLuintVecDestructor>(), Layout::new::<AzGLuintVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::gl::GLintVecDestructor>(), Layout::new::<AzGLintVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::StringVecDestructor>(), Layout::new::<AzStringVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::window::AzStringPairVecDestructor>(), Layout::new::<AzStringPairVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::LinearColorStopVecDestructor>(), Layout::new::<AzLinearColorStopVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::css::RadialColorStopVecDestructor>(), Layout::new::<AzRadialColorStopVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::styled_dom::AzNodeIdVecDestructor>(), Layout::new::<AzNodeIdVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::styled_dom::AzNodeVecDestructor>(), Layout::new::<AzNodeVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::styled_dom::StyledNodeVecDestructor>(), Layout::new::<AzStyledNodeVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor>(), Layout::new::<AzTagIdsToNodeIdsMappingVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVecDestructor>(), Layout::new::<AzParentWithNodeDepthVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::dom::NodeDataVecDestructor>(), Layout::new::<AzNodeDataVecDestructor>());
         assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundRepeatVec>(), Layout::new::<AzStyleBackgroundRepeatVec>());
         assert_eq!(Layout::new::<azul_impl::svg::U32Vec>(), Layout::new::<AzU32Vec>());
         assert_eq!(Layout::new::<azul_impl::window::XWindowTypeVec>(), Layout::new::<AzXWindowTypeVec>());

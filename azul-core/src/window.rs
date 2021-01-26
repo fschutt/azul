@@ -268,7 +268,7 @@ pub struct KeyboardState {
 impl_option!(u32, OptionChar, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 impl_option!(VirtualKeyCode, OptionVirtualKeyCode, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
-impl_vec!(VirtualKeyCode, VirtualKeyCodeVec);
+impl_vec!(VirtualKeyCode, VirtualKeyCodeVec, VirtualKeyCodeVecDestructor);
 impl_vec_debug!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_partialord!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_ord!(VirtualKeyCode, VirtualKeyCodeVec);
@@ -279,7 +279,7 @@ impl_vec_hash!(VirtualKeyCode, VirtualKeyCodeVec);
 
 impl_vec_as_hashmap!(VirtualKeyCode, VirtualKeyCodeVec);
 
-impl_vec!(ScanCode, ScanCodeVec);
+impl_vec!(ScanCode, ScanCodeVec, ScanCodeVecDestructor);
 impl_vec_debug!(ScanCode, ScanCodeVec);
 impl_vec_partialord!(ScanCode, ScanCodeVec);
 impl_vec_ord!(ScanCode, ScanCodeVec);
@@ -1388,7 +1388,7 @@ pub struct AzStringPair {
     pub value: AzString,
 }
 
-impl_vec!(AzStringPair, StringPairVec);
+impl_vec!(AzStringPair, StringPairVec, AzStringPairVecDestructor);
 impl_vec_debug!(AzStringPair, StringPairVec);
 impl_vec_partialord!(AzStringPair, StringPairVec);
 impl_vec_ord!(AzStringPair, StringPairVec);
@@ -1397,7 +1397,7 @@ impl_vec_partialeq!(AzStringPair, StringPairVec);
 impl_vec_eq!(AzStringPair, StringPairVec);
 impl_vec_hash!(AzStringPair, StringPairVec);
 
-impl_vec!(XWindowType, XWindowTypeVec);
+impl_vec!(XWindowType, XWindowTypeVec, XWindowTypeVecDestructor);
 impl_vec_debug!(XWindowType, XWindowTypeVec);
 impl_vec_partialord!(XWindowType, XWindowTypeVec);
 impl_vec_ord!(XWindowType, XWindowTypeVec);

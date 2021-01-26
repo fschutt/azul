@@ -1293,15 +1293,15 @@ def build_docs():
 
 def main():
     print("removing old azul.dll...")
-    # cleanup_start()
+    cleanup_start()
     print("verifying that LLVM / clang-cl is installed...\r\n")
     assure_clang_is_installed()
     print("generating API...")
     generate_api()
     print("building azul-dll (release mode)...")
-    # build_dll()
+    build_dll()
     print("checking azul-dll for struct size integrity...")
-    # run_size_test()
+    run_size_test()
     print("building examples...")
     build_examples()
     print("building docs (output_dir = /target/doc)...")

@@ -53,7 +53,7 @@ pub struct ChangedCssProperty {
     pub current_prop: CssProperty,
 }
 
-impl_vec!(ChangedCssProperty, ChangedCssPropertyVec);
+impl_vec!(ChangedCssProperty, ChangedCssPropertyVec, ChangedCssPropertyVecDestructor);
 impl_vec_debug!(ChangedCssProperty, ChangedCssPropertyVec);
 impl_vec_partialord!(ChangedCssProperty, ChangedCssPropertyVec);
 impl_vec_clone!(ChangedCssProperty, ChangedCssPropertyVec);
@@ -105,7 +105,7 @@ pub struct StyledNode {
     pub tag_id: OptionTagId,
 }
 
-impl_vec!(StyledNode, StyledNodeVec);
+impl_vec!(StyledNode, StyledNodeVec, StyledNodeVecDestructor);
 impl_vec_debug!(StyledNode, StyledNodeVec);
 impl_vec_partialord!(StyledNode, StyledNodeVec);
 impl_vec_clone!(StyledNode, StyledNodeVec);
@@ -501,7 +501,7 @@ impl AzNodeId {
 
 impl_option!(AzNodeId, OptionNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
-impl_vec!(AzNodeId, NodeIdVec);
+impl_vec!(AzNodeId, NodeIdVec, AzNodeIdVecDestructor);
 impl_vec_debug!(AzNodeId, NodeIdVec);
 impl_vec_partialord!(AzNodeId, NodeIdVec);
 impl_vec_clone!(AzNodeId, NodeIdVec);
@@ -540,7 +540,6 @@ pub struct AzNode {
     pub parent: usize,
     pub previous_sibling: usize,
     pub next_sibling: usize,
-    pub first_child: usize,
     pub last_child: usize,
 }
 
@@ -550,7 +549,6 @@ impl From<Node> for AzNode {
             parent: NodeId::into_usize(&node.parent),
             previous_sibling: NodeId::into_usize(&node.previous_sibling),
             next_sibling: NodeId::into_usize(&node.next_sibling),
-            first_child: NodeId::into_usize(&node.first_child),
             last_child: NodeId::into_usize(&node.last_child),
         }
     }
@@ -560,11 +558,11 @@ impl AzNode {
     pub fn parent_id(&self) -> Option<NodeId> { NodeId::from_usize(self.parent) }
     pub fn previous_sibling_id(&self) -> Option<NodeId> { NodeId::from_usize(self.previous_sibling) }
     pub fn next_sibling_id(&self) -> Option<NodeId> { NodeId::from_usize(self.next_sibling) }
-    pub fn first_child_id(&self) -> Option<NodeId> { NodeId::from_usize(self.first_child) }
+    pub fn first_child_id(&self) -> Option<NodeId> { self.last_child_id().and_then(|_| Some(self.parent_id()? + 1)) }
     pub fn last_child_id(&self) -> Option<NodeId> { NodeId::from_usize(self.last_child) }
 }
 
-impl_vec!(AzNode, AzNodeVec);
+impl_vec!(AzNode, AzNodeVec, AzNodeVecDestructor);
 impl_vec_debug!(AzNode, AzNodeVec);
 impl_vec_partialord!(AzNode, AzNodeVec);
 impl_vec_clone!(AzNode, AzNodeVec);
@@ -588,7 +586,7 @@ pub struct ParentWithNodeDepth {
     pub node_id: AzNodeId,
 }
 
-impl_vec!(ParentWithNodeDepth, ParentWithNodeDepthVec);
+impl_vec!(ParentWithNodeDepth, ParentWithNodeDepthVec, ParentWithNodeDepthVecDestructor);
 impl_vec_debug!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 impl_vec_partialord!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 impl_vec_clone!(ParentWithNodeDepth, ParentWithNodeDepthVec);
@@ -605,7 +603,7 @@ pub struct TagIdToNodeIdMapping {
     pub tab_index: OptionTabIndex,
 }
 
-impl_vec!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
+impl_vec!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec, TagIdToNodeIdMappingVecDestructor);
 impl_vec_debug!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
 impl_vec_partialord!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
 impl_vec_clone!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
@@ -623,7 +621,7 @@ pub struct ContentGroup {
     pub children: ContentGroupVec,
 }
 
-impl_vec!(ContentGroup, ContentGroupVec);
+impl_vec!(ContentGroup, ContentGroupVec, ContentGroupVecDestructor);
 impl_vec_debug!(ContentGroup, ContentGroupVec);
 impl_vec_partialord!(ContentGroup, ContentGroupVec);
 impl_vec_clone!(ContentGroup, ContentGroupVec);
@@ -1094,7 +1092,6 @@ impl StyledDom {
             node.parent += self_len;
             node.previous_sibling += self_len;
             node.next_sibling += self_len;
-            node.first_child += self_len;
             node.last_child += self_len;
         }
 

@@ -75,6 +75,82 @@ mod dll {
             Ok(())
         }
     }
+    /// `AzDomVecDestructorType` struct
+    pub type AzDomVecDestructorType = extern "C" fn(&mut AzDomVec);
+    /// `AzIdOrClassVecDestructorType` struct
+    pub type AzIdOrClassVecDestructorType = extern "C" fn(&mut AzIdOrClassVec);
+    /// `AzNodeDataInlineCssPropertyVecDestructorType` struct
+    pub type AzNodeDataInlineCssPropertyVecDestructorType = extern "C" fn(&mut AzNodeDataInlineCssPropertyVec);
+    /// `AzStyleBackgroundContentVecDestructorType` struct
+    pub type AzStyleBackgroundContentVecDestructorType = extern "C" fn(&mut AzStyleBackgroundContentVec);
+    /// `AzStyleBackgroundPositionVecDestructorType` struct
+    pub type AzStyleBackgroundPositionVecDestructorType = extern "C" fn(&mut AzStyleBackgroundPositionVec);
+    /// `AzStyleBackgroundRepeatVecDestructorType` struct
+    pub type AzStyleBackgroundRepeatVecDestructorType = extern "C" fn(&mut AzStyleBackgroundRepeatVec);
+    /// `AzStyleBackgroundSizeVecDestructorType` struct
+    pub type AzStyleBackgroundSizeVecDestructorType = extern "C" fn(&mut AzStyleBackgroundSizeVec);
+    /// `AzStyleTransformVecDestructorType` struct
+    pub type AzStyleTransformVecDestructorType = extern "C" fn(&mut AzStyleTransformVec);
+    /// `AzCssPropertyVecDestructorType` struct
+    pub type AzCssPropertyVecDestructorType = extern "C" fn(&mut AzCssPropertyVec);
+    /// `AzSvgMultiPolygonVecDestructorType` struct
+    pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
+    /// `AzSvgPathVecDestructorType` struct
+    pub type AzSvgPathVecDestructorType = extern "C" fn(&mut AzSvgPathVec);
+    /// `AzVertexAttributeVecDestructorType` struct
+    pub type AzVertexAttributeVecDestructorType = extern "C" fn(&mut AzVertexAttributeVec);
+    /// `AzSvgPathElementVecDestructorType` struct
+    pub type AzSvgPathElementVecDestructorType = extern "C" fn(&mut AzSvgPathElementVec);
+    /// `AzSvgVertexVecDestructorType` struct
+    pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
+    /// `AzU32VecDestructorType` struct
+    pub type AzU32VecDestructorType = extern "C" fn(&mut AzU32Vec);
+    /// `AzXWindowTypeVecDestructorType` struct
+    pub type AzXWindowTypeVecDestructorType = extern "C" fn(&mut AzXWindowTypeVec);
+    /// `AzVirtualKeyCodeVecDestructorType` struct
+    pub type AzVirtualKeyCodeVecDestructorType = extern "C" fn(&mut AzVirtualKeyCodeVec);
+    /// `AzCascadeInfoVecDestructorType` struct
+    pub type AzCascadeInfoVecDestructorType = extern "C" fn(&mut AzCascadeInfoVec);
+    /// `AzScanCodeVecDestructorType` struct
+    pub type AzScanCodeVecDestructorType = extern "C" fn(&mut AzScanCodeVec);
+    /// `AzCssDeclarationVecDestructorType` struct
+    pub type AzCssDeclarationVecDestructorType = extern "C" fn(&mut AzCssDeclarationVec);
+    /// `AzCssPathSelectorVecDestructorType` struct
+    pub type AzCssPathSelectorVecDestructorType = extern "C" fn(&mut AzCssPathSelectorVec);
+    /// `AzStylesheetVecDestructorType` struct
+    pub type AzStylesheetVecDestructorType = extern "C" fn(&mut AzStylesheetVec);
+    /// `AzCssRuleBlockVecDestructorType` struct
+    pub type AzCssRuleBlockVecDestructorType = extern "C" fn(&mut AzCssRuleBlockVec);
+    /// `AzU8VecDestructorType` struct
+    pub type AzU8VecDestructorType = extern "C" fn(&mut AzU8Vec);
+    /// `AzCallbackDataVecDestructorType` struct
+    pub type AzCallbackDataVecDestructorType = extern "C" fn(&mut AzCallbackDataVec);
+    /// `AzDebugMessageVecDestructorType` struct
+    pub type AzDebugMessageVecDestructorType = extern "C" fn(&mut AzDebugMessageVec);
+    /// `AzGLuintVecDestructorType` struct
+    pub type AzGLuintVecDestructorType = extern "C" fn(&mut AzGLuintVec);
+    /// `AzGLintVecDestructorType` struct
+    pub type AzGLintVecDestructorType = extern "C" fn(&mut AzGLintVec);
+    /// `AzStringVecDestructorType` struct
+    pub type AzStringVecDestructorType = extern "C" fn(&mut AzStringVec);
+    /// `AzStringPairVecDestructorType` struct
+    pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
+    /// `AzLinearColorStopVecDestructorType` struct
+    pub type AzLinearColorStopVecDestructorType = extern "C" fn(&mut AzLinearColorStopVec);
+    /// `AzRadialColorStopVecDestructorType` struct
+    pub type AzRadialColorStopVecDestructorType = extern "C" fn(&mut AzRadialColorStopVec);
+    /// `AzNodeIdVecDestructorType` struct
+    pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
+    /// `AzNodeVecDestructorType` struct
+    pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
+    /// `AzStyledNodeVecDestructorType` struct
+    pub type AzStyledNodeVecDestructorType = extern "C" fn(&mut AzStyledNodeVec);
+    /// `AzTagIdsToNodeIdsMappingVecDestructorType` struct
+    pub type AzTagIdsToNodeIdsMappingVecDestructorType = extern "C" fn(&mut AzTagIdsToNodeIdsMappingVec);
+    /// `AzParentWithNodeDepthVecDestructorType` struct
+    pub type AzParentWithNodeDepthVecDestructorType = extern "C" fn(&mut AzParentWithNodeDepthVec);
+    /// `AzNodeDataVecDestructorType` struct
+    pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
     /// Re-export of rust-allocated (stack based) `AppLogLevel` struct
     #[repr(C)] #[derive(Debug)] pub enum AzAppLogLevel {
         Off,
@@ -815,6 +891,234 @@ mod dll {
     #[repr(C)] #[derive(Debug)] pub enum AzWindowTheme {
         DarkMode,
         LightMode,
+    }
+    /// Re-export of rust-allocated (stack based) `DomVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzDomVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzDomVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `IdOrClassVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzIdOrClassVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzIdOrClassVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `NodeDataInlineCssPropertyVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeDataInlineCssPropertyVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeDataInlineCssPropertyVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundContentVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleBackgroundContentVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundPositionVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleBackgroundPositionVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundRepeatVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleBackgroundRepeatVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundSizeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleBackgroundSizeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleTransformVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleTransformVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleTransformVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `CssPropertyVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzCssPropertyVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCssPropertyVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgMultiPolygonVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgMultiPolygonVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgMultiPolygonVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgPathVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgPathVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `VertexAttributeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzVertexAttributeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzVertexAttributeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgPathElementVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgPathElementVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgPathElementVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgVertexVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgVertexVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgVertexVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzU32VecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzU32VecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `XWindowTypeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzXWindowTypeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzXWindowTypeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `VirtualKeyCodeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzVirtualKeyCodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzVirtualKeyCodeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `CascadeInfoVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzCascadeInfoVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCascadeInfoVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `ScanCodeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzScanCodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzScanCodeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `CssDeclarationVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzCssDeclarationVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCssDeclarationVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `CssPathSelectorVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzCssPathSelectorVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCssPathSelectorVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StylesheetVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStylesheetVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStylesheetVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `CssRuleBlockVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzCssRuleBlockVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCssRuleBlockVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzU8VecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzU8VecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `CallbackDataVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzCallbackDataVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCallbackDataVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `DebugMessageVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzDebugMessageVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzDebugMessageVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `GLuintVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzGLuintVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzGLuintVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `GLintVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzGLintVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzGLintVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StringVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStringVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStringVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StringPairVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStringPairVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStringPairVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `LinearColorStopVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzLinearColorStopVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzLinearColorStopVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `RadialColorStopVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzRadialColorStopVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzRadialColorStopVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeIdVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeIdVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyledNodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyledNodeVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `TagIdsToNodeIdsMappingVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzTagIdsToNodeIdsMappingVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzTagIdsToNodeIdsMappingVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `ParentWithNodeDepthVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzParentWithNodeDepthVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzParentWithNodeDepthVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `NodeDataVecDestructor` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeDataVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeDataVecDestructorType),
     }
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
     #[repr(C)] #[derive(Debug)] pub struct AzStyleBackgroundRepeatVec {
@@ -1784,7 +2088,6 @@ mod dll {
         pub parent: usize,
         pub previous_sibling: usize,
         pub next_sibling: usize,
-        pub first_child: usize,
         pub last_child: usize,
     }
     /// Re-export of rust-allocated (stack based) `CascadeInfo` struct
@@ -4414,6 +4717,462 @@ pub mod vec {
     use crate::style::{CascadeInfo, Node, ParentWithNodeDepth, StyledNode, TagIdToNodeIdMapping};
     use crate::str::String;
     use crate::callbacks::NodeId;
+
+
+    /// `DomVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzDomVecDestructor as DomVecDestructor;
+
+    impl Clone for DomVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for DomVecDestructor { }
+
+
+    /// `DomVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzDomVecDestructorType as DomVecDestructorType;
+
+
+
+    /// `IdOrClassVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzIdOrClassVecDestructor as IdOrClassVecDestructor;
+
+    impl Clone for IdOrClassVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for IdOrClassVecDestructor { }
+
+
+    /// `IdOrClassVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzIdOrClassVecDestructorType as IdOrClassVecDestructorType;
+
+
+
+    /// `NodeDataInlineCssPropertyVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVecDestructor as NodeDataInlineCssPropertyVecDestructor;
+
+    impl Clone for NodeDataInlineCssPropertyVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for NodeDataInlineCssPropertyVecDestructor { }
+
+
+    /// `NodeDataInlineCssPropertyVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVecDestructorType as NodeDataInlineCssPropertyVecDestructorType;
+
+
+
+    /// `StyleBackgroundContentVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecDestructor as StyleBackgroundContentVecDestructor;
+
+    impl Clone for StyleBackgroundContentVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for StyleBackgroundContentVecDestructor { }
+
+
+    /// `StyleBackgroundContentVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecDestructorType as StyleBackgroundContentVecDestructorType;
+
+
+
+    /// `StyleBackgroundPositionVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecDestructor as StyleBackgroundPositionVecDestructor;
+
+    impl Clone for StyleBackgroundPositionVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for StyleBackgroundPositionVecDestructor { }
+
+
+    /// `StyleBackgroundPositionVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecDestructorType as StyleBackgroundPositionVecDestructorType;
+
+
+
+    /// `StyleBackgroundRepeatVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecDestructor as StyleBackgroundRepeatVecDestructor;
+
+    impl Clone for StyleBackgroundRepeatVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for StyleBackgroundRepeatVecDestructor { }
+
+
+    /// `StyleBackgroundRepeatVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecDestructorType as StyleBackgroundRepeatVecDestructorType;
+
+
+
+    /// `StyleBackgroundSizeVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecDestructor as StyleBackgroundSizeVecDestructor;
+
+    impl Clone for StyleBackgroundSizeVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for StyleBackgroundSizeVecDestructor { }
+
+
+    /// `StyleBackgroundSizeVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecDestructorType as StyleBackgroundSizeVecDestructorType;
+
+
+
+    /// `StyleTransformVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzStyleTransformVecDestructor as StyleTransformVecDestructor;
+
+    impl Clone for StyleTransformVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for StyleTransformVecDestructor { }
+
+
+    /// `StyleTransformVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzStyleTransformVecDestructorType as StyleTransformVecDestructorType;
+
+
+
+    /// `CssPropertyVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzCssPropertyVecDestructor as CssPropertyVecDestructor;
+
+    impl Clone for CssPropertyVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for CssPropertyVecDestructor { }
+
+
+    /// `CssPropertyVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzCssPropertyVecDestructorType as CssPropertyVecDestructorType;
+
+
+
+    /// `SvgMultiPolygonVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVecDestructor as SvgMultiPolygonVecDestructor;
+
+    impl Clone for SvgMultiPolygonVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for SvgMultiPolygonVecDestructor { }
+
+
+    /// `SvgMultiPolygonVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVecDestructorType as SvgMultiPolygonVecDestructorType;
+
+
+
+    /// `SvgPathVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzSvgPathVecDestructor as SvgPathVecDestructor;
+
+    impl Clone for SvgPathVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for SvgPathVecDestructor { }
+
+
+    /// `SvgPathVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzSvgPathVecDestructorType as SvgPathVecDestructorType;
+
+
+
+    /// `VertexAttributeVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzVertexAttributeVecDestructor as VertexAttributeVecDestructor;
+
+    impl Clone for VertexAttributeVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for VertexAttributeVecDestructor { }
+
+
+    /// `VertexAttributeVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzVertexAttributeVecDestructorType as VertexAttributeVecDestructorType;
+
+
+
+    /// `SvgPathElementVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzSvgPathElementVecDestructor as SvgPathElementVecDestructor;
+
+    impl Clone for SvgPathElementVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for SvgPathElementVecDestructor { }
+
+
+    /// `SvgPathElementVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzSvgPathElementVecDestructorType as SvgPathElementVecDestructorType;
+
+
+
+    /// `SvgVertexVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzSvgVertexVecDestructor as SvgVertexVecDestructor;
+
+    impl Clone for SvgVertexVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for SvgVertexVecDestructor { }
+
+
+    /// `SvgVertexVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzSvgVertexVecDestructorType as SvgVertexVecDestructorType;
+
+
+
+    /// `U32VecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzU32VecDestructor as U32VecDestructor;
+
+    impl Clone for U32VecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for U32VecDestructor { }
+
+
+    /// `U32VecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzU32VecDestructorType as U32VecDestructorType;
+
+
+
+    /// `XWindowTypeVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzXWindowTypeVecDestructor as XWindowTypeVecDestructor;
+
+    impl Clone for XWindowTypeVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for XWindowTypeVecDestructor { }
+
+
+    /// `XWindowTypeVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzXWindowTypeVecDestructorType as XWindowTypeVecDestructorType;
+
+
+
+    /// `VirtualKeyCodeVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVecDestructor as VirtualKeyCodeVecDestructor;
+
+    impl Clone for VirtualKeyCodeVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for VirtualKeyCodeVecDestructor { }
+
+
+    /// `VirtualKeyCodeVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVecDestructorType as VirtualKeyCodeVecDestructorType;
+
+
+
+    /// `CascadeInfoVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzCascadeInfoVecDestructor as CascadeInfoVecDestructor;
+
+    impl Clone for CascadeInfoVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for CascadeInfoVecDestructor { }
+
+
+    /// `CascadeInfoVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzCascadeInfoVecDestructorType as CascadeInfoVecDestructorType;
+
+
+
+    /// `ScanCodeVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzScanCodeVecDestructor as ScanCodeVecDestructor;
+
+    impl Clone for ScanCodeVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for ScanCodeVecDestructor { }
+
+
+    /// `ScanCodeVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzScanCodeVecDestructorType as ScanCodeVecDestructorType;
+
+
+
+    /// `CssDeclarationVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzCssDeclarationVecDestructor as CssDeclarationVecDestructor;
+
+    impl Clone for CssDeclarationVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for CssDeclarationVecDestructor { }
+
+
+    /// `CssDeclarationVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzCssDeclarationVecDestructorType as CssDeclarationVecDestructorType;
+
+
+
+    /// `CssPathSelectorVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzCssPathSelectorVecDestructor as CssPathSelectorVecDestructor;
+
+    impl Clone for CssPathSelectorVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for CssPathSelectorVecDestructor { }
+
+
+    /// `CssPathSelectorVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzCssPathSelectorVecDestructorType as CssPathSelectorVecDestructorType;
+
+
+
+    /// `StylesheetVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzStylesheetVecDestructor as StylesheetVecDestructor;
+
+    impl Clone for StylesheetVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for StylesheetVecDestructor { }
+
+
+    /// `StylesheetVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzStylesheetVecDestructorType as StylesheetVecDestructorType;
+
+
+
+    /// `CssRuleBlockVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzCssRuleBlockVecDestructor as CssRuleBlockVecDestructor;
+
+    impl Clone for CssRuleBlockVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for CssRuleBlockVecDestructor { }
+
+
+    /// `CssRuleBlockVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzCssRuleBlockVecDestructorType as CssRuleBlockVecDestructorType;
+
+
+
+    /// `U8VecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzU8VecDestructor as U8VecDestructor;
+
+    impl Clone for U8VecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for U8VecDestructor { }
+
+
+    /// `U8VecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzU8VecDestructorType as U8VecDestructorType;
+
+
+
+    /// `CallbackDataVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzCallbackDataVecDestructor as CallbackDataVecDestructor;
+
+    impl Clone for CallbackDataVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for CallbackDataVecDestructor { }
+
+
+    /// `CallbackDataVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzCallbackDataVecDestructorType as CallbackDataVecDestructorType;
+
+
+
+    /// `DebugMessageVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzDebugMessageVecDestructor as DebugMessageVecDestructor;
+
+    impl Clone for DebugMessageVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for DebugMessageVecDestructor { }
+
+
+    /// `DebugMessageVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzDebugMessageVecDestructorType as DebugMessageVecDestructorType;
+
+
+
+    /// `GLuintVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzGLuintVecDestructor as GLuintVecDestructor;
+
+    impl Clone for GLuintVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for GLuintVecDestructor { }
+
+
+    /// `GLuintVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzGLuintVecDestructorType as GLuintVecDestructorType;
+
+
+
+    /// `GLintVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzGLintVecDestructor as GLintVecDestructor;
+
+    impl Clone for GLintVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for GLintVecDestructor { }
+
+
+    /// `GLintVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzGLintVecDestructorType as GLintVecDestructorType;
+
+
+
+    /// `StringVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzStringVecDestructor as StringVecDestructor;
+
+    impl Clone for StringVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for StringVecDestructor { }
+
+
+    /// `StringVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzStringVecDestructorType as StringVecDestructorType;
+
+
+
+    /// `StringPairVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzStringPairVecDestructor as StringPairVecDestructor;
+
+    impl Clone for StringPairVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for StringPairVecDestructor { }
+
+
+    /// `StringPairVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzStringPairVecDestructorType as StringPairVecDestructorType;
+
+
+
+    /// `LinearColorStopVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzLinearColorStopVecDestructor as LinearColorStopVecDestructor;
+
+    impl Clone for LinearColorStopVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for LinearColorStopVecDestructor { }
+
+
+    /// `LinearColorStopVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzLinearColorStopVecDestructorType as LinearColorStopVecDestructorType;
+
+
+
+    /// `RadialColorStopVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzRadialColorStopVecDestructor as RadialColorStopVecDestructor;
+
+    impl Clone for RadialColorStopVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for RadialColorStopVecDestructor { }
+
+
+    /// `RadialColorStopVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzRadialColorStopVecDestructorType as RadialColorStopVecDestructorType;
+
+
+
+    /// `NodeIdVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzNodeIdVecDestructor as NodeIdVecDestructor;
+
+    impl Clone for NodeIdVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for NodeIdVecDestructor { }
+
+
+    /// `NodeIdVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzNodeIdVecDestructorType as NodeIdVecDestructorType;
+
+
+
+    /// `NodeVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzNodeVecDestructor as NodeVecDestructor;
+
+    impl Clone for NodeVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for NodeVecDestructor { }
+
+
+    /// `NodeVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzNodeVecDestructorType as NodeVecDestructorType;
+
+
+
+    /// `StyledNodeVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzStyledNodeVecDestructor as StyledNodeVecDestructor;
+
+    impl Clone for StyledNodeVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for StyledNodeVecDestructor { }
+
+
+    /// `StyledNodeVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzStyledNodeVecDestructorType as StyledNodeVecDestructorType;
+
+
+
+    /// `TagIdsToNodeIdsMappingVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzTagIdsToNodeIdsMappingVecDestructor as TagIdsToNodeIdsMappingVecDestructor;
+
+    impl Clone for TagIdsToNodeIdsMappingVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for TagIdsToNodeIdsMappingVecDestructor { }
+
+
+    /// `TagIdsToNodeIdsMappingVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzTagIdsToNodeIdsMappingVecDestructorType as TagIdsToNodeIdsMappingVecDestructorType;
+
+
+
+    /// `ParentWithNodeDepthVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVecDestructor as ParentWithNodeDepthVecDestructor;
+
+    impl Clone for ParentWithNodeDepthVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for ParentWithNodeDepthVecDestructor { }
+
+
+    /// `ParentWithNodeDepthVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVecDestructorType as ParentWithNodeDepthVecDestructorType;
+
+
+
+    /// `NodeDataVecDestructor` struct
+    #[doc(inline)] pub use crate::dll::AzNodeDataVecDestructor as NodeDataVecDestructor;
+
+    impl Clone for NodeDataVecDestructor { fn clone(&self) -> Self { *self } }
+    impl Copy for NodeDataVecDestructor { }
+
+
+    /// `NodeDataVecDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzNodeDataVecDestructorType as NodeDataVecDestructorType;
+
 
 
     /// Wrapper over a Rust-allocated `Vec<Dom>`

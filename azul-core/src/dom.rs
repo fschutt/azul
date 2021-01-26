@@ -532,7 +532,7 @@ pub struct CallbackData {
     pub data: RefAny,
 }
 
-impl_vec!(CallbackData, CallbackDataVec);
+impl_vec!(CallbackData, CallbackDataVec, CallbackDataVecDestructor);
 impl_vec_debug!(CallbackData, CallbackDataVec);
 impl_vec_partialord!(CallbackData, CallbackDataVec);
 impl_vec_ord!(CallbackData, CallbackDataVec);
@@ -548,7 +548,7 @@ pub enum IdOrClass {
     Class(AzString),
 }
 
-impl_vec!(IdOrClass, IdOrClassVec);
+impl_vec!(IdOrClass, IdOrClassVec, IdOrClassVecDestructor);
 impl_vec_debug!(IdOrClass, IdOrClassVec);
 impl_vec_partialord!(IdOrClass, IdOrClassVec);
 impl_vec_ord!(IdOrClass, IdOrClassVec);
@@ -582,7 +582,7 @@ pub enum NodeDataInlineCssProperty {
     Hover(CssProperty),
 }
 
-impl_vec!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
+impl_vec!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, NodeDataInlineCssPropertyVecDestructor);
 impl_vec_debug!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 impl_vec_partialord!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 impl_vec_ord!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
@@ -619,7 +619,7 @@ pub struct NodeData {
 }
 
 // Clone, PartialEq, Eq, Hash, PartialOrd, Ord
-impl_vec!(NodeData, NodeDataVec);
+impl_vec!(NodeData, NodeDataVec, NodeDataVecDestructor);
 impl_vec_debug!(NodeData, NodeDataVec);
 impl_vec_partialord!(NodeData, NodeDataVec);
 impl_vec_ord!(NodeData, NodeDataVec);
@@ -961,7 +961,7 @@ pub struct Dom {
 
 impl_option!(Dom, OptionDom, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
-impl_vec!(Dom, DomVec);
+impl_vec!(Dom, DomVec, DomVecDestructor);
 impl_vec_debug!(Dom, DomVec);
 impl_vec_partialord!(Dom, DomVec);
 impl_vec_ord!(Dom, DomVec);
@@ -1221,7 +1221,6 @@ impl From<Dom> for CompactDom {
                         parent: Some(parent_node_id),
                         previous_sibling: previous_sibling_id,
                         next_sibling: if is_last_child { None } else { Some(child_node_id + child_dom.estimated_total_children + 1) },
-                        first_child: if child_dom_is_empty { None } else { Some(child_node_id + 1) },
                         last_child: if child_dom_is_empty { None } else { Some(child_node_id + child_dom.estimated_total_children) },
                     };
                     previous_sibling_id = Some(child_node_id);
@@ -1242,7 +1241,6 @@ impl From<Dom> for CompactDom {
                 parent: None,
                 previous_sibling: None,
                 next_sibling: None,
-                first_child: if dom.children.is_empty() { None } else { Some(root_node_id + 1) },
                 last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
             };
 

@@ -1,13 +1,22 @@
 //! Provides datatypes used to describe an application's style using the Azul GUI framework.
 
 #[macro_export]
-macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
+macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name:ident) => (
 
     #[repr(C)]
     pub struct $struct_name {
         ptr: *mut $struct_type,
         len: usize,
         cap: usize,
+        destructor: $destructor_name,
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    #[repr(C, u8)]
+    pub enum $destructor_name {
+        DefaultRust,
+        NoDestructor,
+        External(extern "C" fn(*mut $struct_name)),
     }
 
     unsafe impl Send for $struct_name { }
@@ -279,7 +288,12 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         fn from(input: Vec<$struct_type>) -> $struct_name {
             use std::mem::ManuallyDrop;
             let mut me = ManuallyDrop::new(input);
-            $struct_name { ptr: me.as_mut_ptr(), len: me.len(), cap: me.capacity() }
+            $struct_name {
+                ptr: me.as_mut_ptr(),
+                len: me.len(),
+                cap: me.capacity(),
+                destructor: $destructor_name::DefaultRust,
+            }
         }
     }
 
@@ -307,7 +321,11 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
     impl Drop for $struct_name {
         fn drop(&mut self) {
-            let _ = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            match self.destructor {
+                $destructor_name::DefaultRust => { let _ = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) }; },
+                $destructor_name::NoDestructor => { },
+                $destructor_name::External(f) => { f(self); }
+            }
         }
     }
 )}
@@ -688,7 +706,12 @@ impl AzString {
     #[inline]
     pub fn into_bytes(self) -> U8Vec {
         let mut m = std::mem::ManuallyDrop::new(self);
-        U8Vec { ptr: m.vec.as_mut_ptr(), len: m.vec.len(), cap: m.vec.capacity() }
+        U8Vec {
+            ptr: m.vec.as_mut_ptr(),
+            len: m.vec.len(),
+            cap: m.vec.capacity(),
+            destructor: U8VecDestructor::DefaultRust,
+        }
     }
 }
 
@@ -745,7 +768,7 @@ impl Drop for AzString {
 
 impl_option!(ColorU, OptionColorU, [Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash]);
 
-impl_vec!(u8, U8Vec);
+impl_vec!(u8, U8Vec, U8VecDestructor);
 impl_vec_debug!(u8, U8Vec);
 impl_vec_partialord!(u8, U8Vec);
 impl_vec_ord!(u8, U8Vec);
@@ -754,7 +777,7 @@ impl_vec_partialeq!(u8, U8Vec);
 impl_vec_eq!(u8, U8Vec);
 impl_vec_hash!(u8, U8Vec);
 
-impl_vec!(AzString, StringVec);
+impl_vec!(AzString, StringVec, StringVecDestructor);
 impl_vec_debug!(AzString, StringVec);
 impl_vec_partialord!(AzString, StringVec);
 impl_vec_ord!(AzString, StringVec);

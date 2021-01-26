@@ -929,7 +929,7 @@ impl Glyph {
 }
 */
 
-impl_vec!(Glyph, GlyphVec);
+impl_vec!(Glyph, GlyphVec, GlyphVecDestructor);
 impl_vec_debug!(Glyph, GlyphVec);
 impl_vec_partialord!(Glyph, GlyphVec);
 impl_vec_clone!(Glyph, GlyphVec);
@@ -989,7 +989,7 @@ impl<'a> From<owned_ttf_parser::Name<'a>> for FontName {
     }
 }
 
-impl_vec!(FontName, FontNameVec);
+impl_vec!(FontName, FontNameVec, FontNameVecDestructor);
 impl_vec_debug!(FontName, FontNameVec);
 impl_vec_partialord!(FontName, FontNameVec);
 impl_vec_clone!(FontName, FontNameVec);
@@ -1027,7 +1027,7 @@ pub enum TableName {
     WindowsMetrics,
 }
 
-impl_vec!(TableName, TableNameVec);
+impl_vec!(TableName, TableNameVec, TableNameVecDestructor);
 impl_vec_debug!(TableName, TableNameVec);
 impl_vec_partialord!(TableName, TableNameVec);
 impl_vec_clone!(TableName, TableNameVec);

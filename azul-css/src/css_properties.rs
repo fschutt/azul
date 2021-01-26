@@ -942,7 +942,7 @@ pub enum CssProperty {
     BackfaceVisibility(CssPropertyValue<StyleBackfaceVisibility>),
 }
 
-impl_vec!(CssProperty, CssPropertyVec);
+impl_vec!(CssProperty, CssPropertyVec, CssPropertyVecDestructor);
 impl_vec_debug!(CssProperty, CssPropertyVec);
 impl_vec_partialord!(CssProperty, CssPropertyVec);
 impl_vec_ord!(CssProperty, CssPropertyVec);
@@ -1732,7 +1732,7 @@ impl Default for StyleBackgroundSize {
     }
 }
 
-impl_vec!(StyleBackgroundSize, StyleBackgroundSizeVec);
+impl_vec!(StyleBackgroundSize, StyleBackgroundSizeVec, StyleBackgroundSizeVecDestructor);
 impl_vec_debug!(StyleBackgroundSize, StyleBackgroundSizeVec);
 impl_vec_partialord!(StyleBackgroundSize, StyleBackgroundSizeVec);
 impl_vec_ord!(StyleBackgroundSize, StyleBackgroundSizeVec);
@@ -1749,7 +1749,7 @@ pub struct StyleBackgroundPosition {
     pub vertical: BackgroundPositionVertical,
 }
 
-impl_vec!(StyleBackgroundPosition, StyleBackgroundPositionVec);
+impl_vec!(StyleBackgroundPosition, StyleBackgroundPositionVec, StyleBackgroundPositionVecDestructor);
 impl_vec_debug!(StyleBackgroundPosition, StyleBackgroundPositionVec);
 impl_vec_partialord!(StyleBackgroundPosition, StyleBackgroundPositionVec);
 impl_vec_ord!(StyleBackgroundPosition, StyleBackgroundPositionVec);
@@ -1795,7 +1795,7 @@ pub enum StyleBackgroundRepeat {
     RepeatY,
 }
 
-impl_vec!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
+impl_vec!(StyleBackgroundRepeat, StyleBackgroundRepeatVec, StyleBackgroundRepeatVecDestructor);
 impl_vec_debug!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
 impl_vec_partialord!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
 impl_vec_ord!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
@@ -1946,7 +1946,7 @@ pub enum StyleBackgroundContent {
     Color(ColorU),
 }
 
-impl_vec!(StyleBackgroundContent, StyleBackgroundContentVec);
+impl_vec!(StyleBackgroundContent, StyleBackgroundContentVec, StyleBackgroundContentVecDestructor);
 impl_vec_debug!(StyleBackgroundContent, StyleBackgroundContentVec);
 impl_vec_partialord!(StyleBackgroundContent, StyleBackgroundContentVec);
 impl_vec_ord!(StyleBackgroundContent, StyleBackgroundContentVec);
@@ -2435,7 +2435,7 @@ pub struct RadialColorStop {
     pub color: ColorU,
 }
 
-impl_vec!(RadialColorStop, RadialColorStopVec);
+impl_vec!(RadialColorStop, RadialColorStopVec, RadialColorStopVecDestructor);
 impl_vec_debug!(RadialColorStop, RadialColorStopVec);
 impl_vec_partialord!(RadialColorStop, RadialColorStopVec);
 impl_vec_ord!(RadialColorStop, RadialColorStopVec);
@@ -2452,7 +2452,7 @@ pub struct LinearColorStop {
     pub color: ColorU,
 }
 
-impl_vec!(LinearColorStop, LinearColorStopVec);
+impl_vec!(LinearColorStop, LinearColorStopVec, LinearColorStopVecDestructor);
 impl_vec_debug!(LinearColorStop, LinearColorStopVec);
 impl_vec_partialord!(LinearColorStop, LinearColorStopVec);
 impl_vec_ord!(LinearColorStop, LinearColorStopVec);
@@ -2948,7 +2948,7 @@ pub enum StyleTransform {
     Perspective(PixelValue),
 }
 
-impl_vec!(StyleTransform, StyleTransformVec);
+impl_vec!(StyleTransform, StyleTransformVec, StyleTransformVecDestructor);
 impl_vec_debug!(StyleTransform, StyleTransformVec);
 impl_vec_partialord!(StyleTransform, StyleTransformVec);
 impl_vec_ord!(StyleTransform, StyleTransformVec);

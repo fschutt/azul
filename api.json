@@ -42,6 +42,614 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"DomVecDestructor": {
+				    "external": "azul_impl::dom::DomVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "DomVecDestructorType"}}
+				    ]
+				},
+				"DomVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "DomVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"IdOrClassVecDestructor": {
+				    "external": "azul_impl::dom::IdOrClassVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "IdOrClassVecDestructorType"}}
+				    ]
+				},
+				"IdOrClassVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "IdOrClassVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"NodeDataInlineCssPropertyVecDestructor": {
+				    "external": "azul_impl::dom::NodeDataInlineCssPropertyVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "NodeDataInlineCssPropertyVecDestructorType"}}
+				    ]
+				},
+				"NodeDataInlineCssPropertyVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "NodeDataInlineCssPropertyVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"StyleBackgroundContentVecDestructor": {
+				    "external": "azul_impl::css::StyleBackgroundContentVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "StyleBackgroundContentVecDestructorType"}}
+				    ]
+				},
+				"StyleBackgroundContentVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "StyleBackgroundContentVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"StyleBackgroundPositionVecDestructor": {
+				    "external": "azul_impl::css::StyleBackgroundPositionVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "StyleBackgroundPositionVecDestructorType"}}
+				    ]
+				},
+				"StyleBackgroundPositionVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "StyleBackgroundPositionVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"StyleBackgroundRepeatVecDestructor": {
+				    "external": "azul_impl::css::StyleBackgroundRepeatVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "StyleBackgroundRepeatVecDestructorType"}}
+				    ]
+				},
+				"StyleBackgroundRepeatVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "StyleBackgroundRepeatVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"StyleBackgroundSizeVecDestructor": {
+				    "external": "azul_impl::css::StyleBackgroundSizeVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "StyleBackgroundSizeVecDestructorType"}}
+				    ]
+				},
+				"StyleBackgroundSizeVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "StyleBackgroundSizeVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"StyleTransformVecDestructor": {
+				    "external": "azul_impl::css::StyleTransformVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "StyleTransformVecDestructorType"}}
+				    ]
+				},
+				"StyleTransformVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "StyleTransformVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"CssPropertyVecDestructor": {
+				    "external": "azul_impl::css::CssPropertyVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "CssPropertyVecDestructorType"}}
+				    ]
+				},
+				"CssPropertyVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "CssPropertyVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"SvgMultiPolygonVecDestructor": {
+				    "external": "azul_impl::svg::SvgMultiPolygonVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "SvgMultiPolygonVecDestructorType"}}
+				    ]
+				},
+				"SvgMultiPolygonVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "SvgMultiPolygonVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"SvgPathVecDestructor": {
+				    "external": "azul_impl::svg::SvgPathVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "SvgPathVecDestructorType"}}
+				    ]
+				},
+				"SvgPathVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "SvgPathVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"VertexAttributeVecDestructor": {
+				    "external": "azul_impl::gl::VertexAttributeVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "VertexAttributeVecDestructorType"}}
+				    ]
+				},
+				"VertexAttributeVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "VertexAttributeVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"SvgPathElementVecDestructor": {
+				    "external": "azul_impl::svg::SvgPathElementVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "SvgPathElementVecDestructorType"}}
+				    ]
+				},
+				"SvgPathElementVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "SvgPathElementVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"SvgVertexVecDestructor": {
+				    "external": "azul_impl::svg::SvgVertexVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "SvgVertexVecDestructorType"}}
+				    ]
+				},
+				"SvgVertexVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "SvgVertexVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"U32VecDestructor": {
+				    "external": "azul_impl::svg::u32VecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "U32VecDestructorType"}}
+				    ]
+				},
+				"U32VecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "U32Vec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"XWindowTypeVecDestructor": {
+				    "external": "azul_impl::window::XWindowTypeVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "XWindowTypeVecDestructorType"}}
+				    ]
+				},
+				"XWindowTypeVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "XWindowTypeVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"VirtualKeyCodeVecDestructor": {
+				    "external": "azul_impl::window::VirtualKeyCodeVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "VirtualKeyCodeVecDestructorType"}}
+				    ]
+				},
+				"VirtualKeyCodeVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "VirtualKeyCodeVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"CascadeInfoVecDestructor": {
+				    "external": "azul_impl::style::CascadeInfoVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "CascadeInfoVecDestructorType"}}
+				    ]
+				},
+				"CascadeInfoVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "CascadeInfoVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"ScanCodeVecDestructor": {
+				    "external": "azul_impl::window::ScanCodeVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "ScanCodeVecDestructorType"}}
+				    ]
+				},
+				"ScanCodeVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "ScanCodeVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"CssDeclarationVecDestructor": {
+				    "external": "azul_impl::css::CssDeclarationVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "CssDeclarationVecDestructorType"}}
+				    ]
+				},
+				"CssDeclarationVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "CssDeclarationVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"CssPathSelectorVecDestructor": {
+				    "external": "azul_impl::css::CssPathSelectorVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "CssPathSelectorVecDestructorType"}}
+				    ]
+				},
+				"CssPathSelectorVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "CssPathSelectorVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"StylesheetVecDestructor": {
+				    "external": "azul_impl::css::StylesheetVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "StylesheetVecDestructorType"}}
+				    ]
+				},
+				"StylesheetVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "StylesheetVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"CssRuleBlockVecDestructor": {
+				    "external": "azul_impl::css::CssRuleBlockVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "CssRuleBlockVecDestructorType"}}
+				    ]
+				},
+				"CssRuleBlockVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "CssRuleBlockVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"U8VecDestructor": {
+				    "external": "azul_impl::css::U8VecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "U8VecDestructorType"}}
+				    ]
+				},
+				"U8VecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "U8Vec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"CallbackDataVecDestructor": {
+				    "external": "azul_impl::dom::CallbackDataVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "CallbackDataVecDestructorType"}}
+				    ]
+				},
+				"CallbackDataVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "CallbackDataVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"DebugMessageVecDestructor": {
+				    "external": "azul_impl::gl::AzDebugMessageVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "DebugMessageVecDestructorType"}}
+				    ]
+				},
+				"DebugMessageVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "DebugMessageVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"GLuintVecDestructor": {
+				    "external": "azul_impl::gl::GLuintVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "GLuintVecDestructorType"}}
+				    ]
+				},
+				"GLuintVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "GLuintVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"GLintVecDestructor": {
+				    "external": "azul_impl::gl::GLintVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "GLintVecDestructorType"}}
+				    ]
+				},
+				"GLintVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "GLintVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"StringVecDestructor": {
+				    "external": "azul_impl::css::StringVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "StringVecDestructorType"}}
+				    ]
+				},
+				"StringVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "StringVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"StringPairVecDestructor": {
+				    "external": "azul_impl::window::AzStringPairVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "StringPairVecDestructorType"}}
+				    ]
+				},
+				"StringPairVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "StringPairVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"LinearColorStopVecDestructor": {
+				    "external": "azul_impl::css::LinearColorStopVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "LinearColorStopVecDestructorType"}}
+				    ]
+				},
+				"LinearColorStopVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "LinearColorStopVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"RadialColorStopVecDestructor": {
+				    "external": "azul_impl::css::RadialColorStopVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "RadialColorStopVecDestructorType"}}
+				    ]
+				},
+				"RadialColorStopVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "RadialColorStopVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"NodeIdVecDestructor": {
+				    "external": "azul_impl::styled_dom::AzNodeIdVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "NodeIdVecDestructorType"}}
+				    ]
+				},
+				"NodeIdVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "NodeIdVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"NodeVecDestructor": {
+				    "external": "azul_impl::styled_dom::AzNodeVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "NodeVecDestructorType"}}
+				    ]
+				},
+				"NodeVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "NodeVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"StyledNodeVecDestructor": {
+				    "external": "azul_impl::styled_dom::StyledNodeVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "StyledNodeVecDestructorType"}}
+				    ]
+				},
+				"StyledNodeVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "StyledNodeVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"TagIdsToNodeIdsMappingVecDestructor": {
+				    "external": "azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "TagIdsToNodeIdsMappingVecDestructorType"}}
+				    ]
+				},
+				"TagIdsToNodeIdsMappingVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "TagIdsToNodeIdsMappingVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"ParentWithNodeDepthVecDestructor": {
+				    "external": "azul_impl::styled_dom::ParentWithNodeDepthVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "ParentWithNodeDepthVecDestructorType"}}
+				    ]
+				},
+				"ParentWithNodeDepthVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "ParentWithNodeDepthVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"NodeDataVecDestructor": {
+				    "external": "azul_impl::dom::NodeDataVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "NodeDataVecDestructorType"}}
+				    ]
+				},
+				"NodeDataVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "NodeDataVec", "ref": "refmut"}
+				        ]
+				    }
+				},
 				"DomVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<Dom>`",
 					"external": "azul_impl::dom::DomVec",
@@ -4390,7 +4998,6 @@
 						{"parent": {"type": "usize"}},
 						{"previous_sibling": {"type": "usize"}},
 						{"next_sibling": {"type": "usize"}},
-						{"first_child": {"type": "usize"}},
 						{"last_child": {"type": "usize"}}
 					]
 				},

@@ -116,7 +116,7 @@ impl SvgPathElement {
     }
 }
 
-impl_vec!(SvgPathElement, SvgPathElementVec);
+impl_vec!(SvgPathElement, SvgPathElementVec, SvgPathElementVecDestructor);
 impl_vec_debug!(SvgPathElement, SvgPathElementVec);
 impl_vec_clone!(SvgPathElement, SvgPathElementVec);
 impl_vec_partialeq!(SvgPathElement, SvgPathElementVec);
@@ -138,13 +138,13 @@ pub struct SvgMultiPolygon {
 unsafe impl Send for SvgMultiPolygon { }
 unsafe impl Sync for SvgMultiPolygon { }
 
-impl_vec!(SvgPath, SvgPathVec);
+impl_vec!(SvgPath, SvgPathVec, SvgPathVecDestructor);
 impl_vec_debug!(SvgPath, SvgPathVec);
 impl_vec_clone!(SvgPath, SvgPathVec);
 impl_vec_partialeq!(SvgPath, SvgPathVec);
 impl_vec_partialord!(SvgPath, SvgPathVec);
 
-impl_vec!(SvgMultiPolygon, SvgMultiPolygonVec);
+impl_vec!(SvgMultiPolygon, SvgMultiPolygonVec, SvgMultiPolygonVecDestructor);
 impl_vec_debug!(SvgMultiPolygon, SvgMultiPolygonVec);
 impl_vec_clone!(SvgMultiPolygon, SvgMultiPolygonVec);
 impl_vec_partialeq!(SvgMultiPolygon, SvgMultiPolygonVec);
@@ -259,13 +259,13 @@ impl TesselatedCPUSvgNode {
     }
 }
 
-impl_vec!(SvgVertex, SvgVertexVec);
+impl_vec!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor);
 impl_vec_debug!(SvgVertex, SvgVertexVec);
 impl_vec_partialord!(SvgVertex, SvgVertexVec);
 impl_vec_clone!(SvgVertex, SvgVertexVec);
 impl_vec_partialeq!(SvgVertex, SvgVertexVec);
 
-impl_vec!(u32, U32Vec);
+impl_vec!(u32, U32Vec, u32VecDestructor);
 impl_vec_debug!(u32, U32Vec);
 impl_vec_partialord!(u32, U32Vec);
 impl_vec_ord!(u32, U32Vec);

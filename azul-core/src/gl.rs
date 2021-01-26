@@ -352,7 +352,7 @@ pub struct AzDebugMessage {
     pub severity: GLenum,
 }
 
-impl_vec!(AzDebugMessage, AzDebugMessageVec);
+impl_vec!(AzDebugMessage, AzDebugMessageVec, AzDebugMessageVecDestructor);
 impl_vec_debug!(AzDebugMessage, AzDebugMessageVec);
 impl_vec_partialord!(AzDebugMessage, AzDebugMessageVec);
 impl_vec_ord!(AzDebugMessage, AzDebugMessageVec);
@@ -361,7 +361,7 @@ impl_vec_partialeq!(AzDebugMessage, AzDebugMessageVec);
 impl_vec_eq!(AzDebugMessage, AzDebugMessageVec);
 impl_vec_hash!(AzDebugMessage, AzDebugMessageVec);
 
-impl_vec!(GLint, GLintVec);
+impl_vec!(GLint, GLintVec, GLintVecDestructor);
 impl_vec_debug!(GLint, GLintVec);
 impl_vec_partialord!(GLint, GLintVec);
 impl_vec_ord!(GLint, GLintVec);
@@ -370,7 +370,7 @@ impl_vec_partialeq!(GLint, GLintVec);
 impl_vec_eq!(GLint, GLintVec);
 impl_vec_hash!(GLint, GLintVec);
 
-impl_vec!(GLuint, GLuintVec);
+impl_vec!(GLuint, GLuintVec, GLuintVecDestructor);
 impl_vec_debug!(GLuint, GLuintVec);
 impl_vec_partialord!(GLuint, GLuintVec);
 impl_vec_ord!(GLuint, GLuintVec);
@@ -1898,7 +1898,7 @@ pub struct VertexLayout {
     pub fields: VertexAttributeVec,
 }
 
-impl_vec!(VertexAttribute, VertexAttributeVec);
+impl_vec!(VertexAttribute, VertexAttributeVec, VertexAttributeVecDestructor);
 impl_vec_debug!(VertexAttribute, VertexAttributeVec);
 impl_vec_partialord!(VertexAttribute, VertexAttributeVec);
 impl_vec_ord!(VertexAttribute, VertexAttributeVec);
