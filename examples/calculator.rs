@@ -4,10 +4,70 @@ extern crate azul;
 
 use azul::prelude::*;
 
-macro_rules! CSS_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/calculator/calculator.css")};}
-macro_rules! FONT_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/fonts/KoHo-Light.ttf")};}
+macro_rules! FONT_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/examples/assets/fonts/KoHo-Light.ttf")};}
 
 const FONT: &[u8] = include_bytes!(FONT_PATH!());
+
+const CSS: &str = "
+    * {
+        font-size: 27px;
+        font-family: "KoHo-Light";
+        flex-direction: column;
+        box-sizing: border-box;
+        flex-grow: 1;
+    }
+
+    #expression {
+        max-height: 50pt;
+        background-color: #444;
+        color: white;
+        flex-direction: row;
+        text-align: right;
+        padding-right: 40pt;
+        justify-content: flex-end;
+    }
+
+    #result {
+        max-height: 81pt;
+        background: linear-gradient(to top, #111, #444);
+        color: white;
+        flex-direction: row;
+        text-align: right;
+        padding-right: 16pt;
+        justify-content: flex-end;
+        font-size: 60px;
+    }
+
+    #numpad-container {
+        background-color: #d6d6d6;
+    }
+
+    .numpad-button {
+        border-right: 1px solid #8d8d8d;
+    }
+
+    .row {
+        flex-direction: row;
+        border-bottom: 1px solid #8d8d8d;
+        height: 78px;
+    }
+
+    .orange {
+        background: linear-gradient(to bottom, #f69135, #f37335);
+        color: white;
+        border-bottom: 1px solid #8d8d8d;
+        width: 98px;
+    }
+
+    .orange:focus {
+        border: 3px solid blue;
+    }
+
+    #zero {
+        flex-grow: 2;
+        border-bottom: none;
+    }
+";
 
 #[derive(Default)]
 struct Calculator {

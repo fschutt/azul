@@ -1,9 +1,24 @@
 import json
 import re
 import pprint
+import os
+import subprocess
+import shutil
 
 # dict that keeps the order of insertion
 from collections import OrderedDict
+
+def remove_path(path):
+    """ param <path> could either be relative or absolute. """
+    if os.path.isfile(path) or os.path.islink(path):
+        os.remove(path)  # remove the file
+    elif os.path.isdir(path):
+        shutil.rmtree(path)  # remove dir and all contains
+    else:
+        raise ValueError("file {} is not a file or dir.".format(path))
+
+def zip_directory(output_filename, dir_name):
+    shutil.make_archive(output_filename, 'zip', dir_name)
 
 def read_file(path):
     text_file = open(path, 'r')
@@ -11,6 +26,12 @@ def read_file(path):
     text_file.close()
     return text_file_contents
 
+def read_api_file(path):
+    api_file_contents = read_file(path)
+    apiData = json.loads(api_file_contents)
+    return apiData
+
+root_folder = os.path.abspath(os.path.join(__file__, os.pardir))
 prefix = "Az"
 fn_prefix = "az_"
 basic_types = [
@@ -19,27 +40,18 @@ basic_types = [
     "u32", "u64", "u8", "()", "usize", "c_void"
 ]
 
-azul_readme_path = "../azul/README.md"
-license_path = "../LICENSE"
-api_file_path = "../api.json"
-rust_dll_path = "../azul-dll/src/lib.rs"
-
-c_api_path = "../azul/src/c/azul.h"
-cpp_api_path = "../azul/src/cpp/azul.h"
-rust_api_path = "../azul/src/rust"
-python_api_path = "../azul/src/python/azul.py"
-js_api_path = "../azul/src/js/azul.js"
+license = read_file(root_folder + "/LICENSE")
+apiData = read_api_file(root_folder + "/api.json")
 
 rust_api_patches = {
-    tuple(['str']): read_file("./patches/azul.rs/string.rs"),
-    tuple(['vec']): read_file("./patches/azul.rs/vec.rs"),
-    tuple(['option']): read_file("./patches/azul.rs/option.rs"),
-    tuple(['dom']): read_file("./patches/azul.rs/dom.rs"),
-    tuple(['dll']): read_file("./patches/azul.rs/dll.rs"),
-    tuple(['gl']): read_file("./patches/azul.rs/gl.rs"),
-    tuple(['css']): read_file("./patches/azul.rs/css.rs"),
-    tuple(['window']): read_file("./patches/azul.rs/window.rs"),
-    tuple(['callbacks']): read_file("./patches/azul.rs/callbacks.rs"),
+    tuple(['str']): read_file(root_folder + "/api/_patches/azul.rs/string.rs"),
+    tuple(['vec']): read_file(root_folder + "/api/_patches/azul.rs/vec.rs"),
+    tuple(['option']): read_file(root_folder + "/api/_patches/azul.rs/option.rs"),
+    tuple(['dom']): read_file(root_folder + "/api/_patches/azul.rs/dom.rs"),
+    tuple(['gl']): read_file(root_folder + "/api/_patches/azul.rs/gl.rs"),
+    tuple(['css']): read_file(root_folder + "/api/_patches/azul.rs/css.rs"),
+    tuple(['window']): read_file(root_folder + "/api/_patches/azul.rs/window.rs"),
+    tuple(['callbacks']): read_file(root_folder + "/api/_patches/azul.rs/callbacks.rs"),
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -65,12 +77,6 @@ def strip_fn_arg_types(arg_list):
         arg_list1 = arg_list1[:-2]
 
     return arg_list1.strip()
-
-
-def read_api_file(path):
-    api_file_contents = read_file(path)
-    apiData = json.loads(api_file_contents)
-    return apiData
 
 def write_file(string, path):
     text_file = open(path, "w+", newline='')
@@ -241,9 +247,9 @@ def class_is_stack_allocated(c):
 
 # Find the [module, classname] given a class_name, returns None if not found
 # Then you can use get_class() to get the class object
-def search_for_class_by_class_name(apiData, searched_class_name):
-    for module_name in apiData.keys():
-        module = apiData[module_name]
+def search_for_class_by_class_name(api_data, searched_class_name):
+    for module_name in api_data.keys():
+        module = api_data[module_name]
         for class_name in module["classes"].keys():
             c = module["classes"][class_name]
             class_name = class_name
@@ -252,22 +258,22 @@ def search_for_class_by_class_name(apiData, searched_class_name):
 
     return None
 
-def get_class(apiData, module_name, class_name):
-    return apiData[module_name]["classes"][class_name]
+def get_class(api_data, module_name, class_name):
+    return api_data[module_name]["classes"][class_name]
 
 # Returns whether a type is external, searches by class_name instead of class_name
-def is_stack_allocated_type(apiData, class_name):
-    search_result = search_for_class_by_class_name(apiData, class_name)
+def is_stack_allocated_type(api_data, class_name):
+    search_result = search_for_class_by_class_name(api_data, class_name)
     if search_result is None:
         raise Exception("type not found " + class_name)
-    c = get_class(apiData, search_result[0], search_result[1])
+    c = get_class(api_data, search_result[0], search_result[1])
     return class_is_stack_allocated(c)
 
 # Returns if the class is "pure virtual", i.e. if it is an
 # object consisting of patches instead of being defined in the API
-def class_is_virtual(apiData, className, api):
-    for module_name in apiData.keys():
-        module = apiData[module_name]["classes"]
+def class_is_virtual(api_data, className, api):
+    for module_name in api_data.keys():
+        module = api_data[module_name]["classes"]
         for class_name in module.keys():
             if class_name != className:
                 continue
@@ -277,28 +283,8 @@ def class_is_virtual(apiData, className, api):
 
     return False
 
-def get_fn_args_c(f, class_name, class_ptr_name, apiData):
-    fn_args = ""
-
-    if "fn_args" in f.keys():
-        for arg_object in f["fn_args"]:
-            arg_name = list(arg_object.keys())[0]
-            if arg_name == "self":
-                continue
-            arg_type = arg_object[arg_name]
-
-            if is_primitive_arg(arg_type):
-                fn_args += arg_name + ": " + arg_type + ", " # no pre, no postfix
-            else:
-                fn_args += prefix + arg_type + arg_name + " " + ", " # no postfix
-        fn_args = fn_args[:-2]
-        if (len(f["fn_args"]) == 0):
-            fn_args = "void"
-
-    return fn_args
-
 # Generate the string for TAKING rust-api function arguments
-def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiData):
+def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, api_data):
     fn_args = ""
 
     if self_as_first_arg:
@@ -327,10 +313,10 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiD
             if is_primitive_arg(arg_type):
                 fn_args += arg_name + ": " + start + arg_type + ", " # usize
             else:
-                arg_type_class_name = search_for_class_by_class_name(apiData, arg_type)
+                arg_type_class_name = search_for_class_by_class_name(api_data, arg_type)
                 if arg_type_class_name is None:
                     raise Exception("arg type " + arg_type + " not found!")
-                arg_type_class = get_class(apiData, arg_type_class_name[0], arg_type_class_name[1])
+                arg_type_class = get_class(api_data, arg_type_class_name[0], arg_type_class_name[1])
 
                 if start == "*const " or start == "*mut ":
                     fn_args += arg_name + ": " + start + prefix + arg_type_class_name[1] + ", "
@@ -342,7 +328,7 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiD
     return fn_args
 
 # Generate the string for CALLING rust-api function args
-def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiData, class_is_boxed_object):
+def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg, api_data, class_is_boxed_object):
     fn_args = ""
     if self_as_first_arg:
         self_val = list(f["fn_args"][0].values())[0]
@@ -364,10 +350,10 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg,
                 fn_args += arg_name + ", "
             else:
                 arg_type = arg_type.strip()
-                arg_type_class = search_for_class_by_class_name(apiData, arg_type)
+                arg_type_class = search_for_class_by_class_name(api_data, arg_type)
                 if arg_type_class is None:
                     raise Exception("arg type " + arg_type + " not found!")
-                arg_type_class = get_class(apiData, arg_type_class[0], arg_type_class[1])
+                arg_type_class = get_class(api_data, arg_type_class[0], arg_type_class[1])
 
                 if start == "*const " or start == "*mut ":
                     fn_args += arg_name + ", "
@@ -388,9 +374,19 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg,
 
 
 # Generates the azul-dll/lib.rs file
-def generate_rust_dll(apiData):
+#
+# Returns an array:
+#
+#   [
+#      dll.rs code,
+#      all structs (in order of dependency),
+#      all functions (in order of appearance),
+#      C forward_declarations,
+#   ]
+#
+def generate_rust_dll(api_data):
 
-    version = list(apiData.keys())[-1]
+    version = list(api_data.keys())[-1]
     code = ""
     code += "#![crate_type = \"cdylib\"]\r\n"
     code += "#![deny(improper_ctypes_definitions)]"
@@ -398,15 +394,15 @@ def generate_rust_dll(apiData):
     code += "// WARNING: autogenerated code for azul api version " + str(version) + "\r\n"
     code += "\r\n\r\n"
 
-    apiData = apiData[version]
+    api_data = api_data[version]
 
     structs_map = {}
     functions_map = {}
 
-    code += read_file("./patches/azul-dll/header.rs")
+    code += read_file(root_folder + "/api/_patches/azul-dll/header.rs")
 
-    for module_name in apiData.keys():
-        module = apiData[module_name]["classes"]
+    for module_name in api_data.keys():
+        module = api_data[module_name]["classes"]
 
         for class_name in module.keys():
             c = module[class_name]
@@ -441,7 +437,8 @@ def generate_rust_dll(apiData):
             class_ptr_name = prefix + class_name
 
             if class_is_callback_typedef:
-                structs_map[class_ptr_name] = {"callback_typedef": c }
+                code += "pub type " + class_ptr_name + " = " + generate_rust_callback_fn_type(api_data, c["callback_typedef"]) + ";"
+                structs_map[class_ptr_name] = { "callback_typedef": c["callback_typedef"] }
                 continue
 
             struct_doc = ""
@@ -506,14 +503,14 @@ def generate_rust_dll(apiData):
                         if is_primitive_arg(analyzed_return_type[1]):
                             returns = return_type
                         else:
-                            return_type_class = search_for_class_by_class_name(apiData, analyzed_return_type[1])
+                            return_type_class = search_for_class_by_class_name(api_data, analyzed_return_type[1])
                             if return_type_class is None:
                                 print("rust-dll: (line 549): no return_type_class found for " + return_type)
 
                             returns = analyzed_return_type[0] + prefix + return_type_class[1] + analyzed_return_type[2] # no postfix
 
 
-                    fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, apiData)
+                    fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, api_data)
 
                     functions_map[str(to_snake_case(class_ptr_name) + "_" + fn_name)] = [fn_args, returns];
                     code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_" + fn_name + "(" + fn_args + ") -> " + returns + " { "
@@ -532,7 +529,7 @@ def generate_rust_dll(apiData):
                     else:
                         code += "/// Equivalent to the Rust `" + class_name  + "::" + fn_name + "()` function.\r\n"
 
-                    fn_args = fn_args_c_api(f, class_name, class_ptr_name, True, apiData)
+                    fn_args = fn_args_c_api(f, class_name, class_ptr_name, True, api_data)
 
                     returns = ""
                     if "returns" in f.keys():
@@ -541,7 +538,7 @@ def generate_rust_dll(apiData):
                         if is_primitive_arg(analyzed_return_type[1]):
                             returns = return_type
                         else:
-                            return_type_class = search_for_class_by_class_name(apiData, analyzed_return_type[1])
+                            return_type_class = search_for_class_by_class_name(api_data, analyzed_return_type[1])
                             if return_type_class is None:
                                 print("rust-dll: (line 549): no return_type_class found for " + return_type)
 
@@ -643,7 +640,15 @@ def generate_rust_dll(apiData):
                 code += "let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() "
                 code += "}\r\n"
 
-    return [code, structs_map, functions_map]
+
+    sort_structs_result = sort_structs_map(structs_map)
+    structs_map = sort_structs_result[0]
+    forward_delcarations = sort_structs_result[1]
+
+    code += "\r\n\r\n"
+    code += generate_size_test(api_data, structs_map)
+
+    return [code, structs_map, functions_map, forward_delcarations]
 
 # Returns a sorted structs map where the structs are sorted
 # so that all structs that a class depends on as fields appear
@@ -749,12 +754,10 @@ def sort_structs_map(structs_map):
 
     return [sorted_class_map, forward_delcarations]
 
-# Generate the struct layout of the final API
+# Generate the RUST code for the struct layout of the final API
 # This function has to be called twice in order to ensure that the layout of the struct
 # matches the layout in the binary
-def generate_structs(apiData, structs_map, version):
-
-    apiData = apiData[version]
+def generate_structs(api_data, structs_map):
 
     code = ""
 
@@ -766,7 +769,11 @@ def generate_structs(apiData, structs_map, version):
         else:
             code += "    /// `" + struct_name + "` struct\r\n"
 
-        if "struct" in struct.keys():
+        class_is_callback_typedef = "callback_typedef" in struct.keys() and (len(struct["callback_typedef"].keys()) > 0)
+        if class_is_callback_typedef:
+            fn_ptr = generate_rust_callback_fn_type(api_data, struct["callback_typedef"])
+            code += "    pub type " + struct_name + " = " + fn_ptr + ";\r\n"
+        elif "struct" in struct.keys():
             struct = struct["struct"]
 
             # for LayoutCallback and RefAny, etc. the #[derive(Debug)] has to be implemented manually
@@ -778,10 +785,10 @@ def generate_structs(apiData, structs_map, version):
                 if "type" in list(field.values())[0]:
                     analyzed_arg_type = analyze_type(list(field.values())[0]["type"])
                     if not(is_primitive_arg(analyzed_arg_type[1])):
-                        field_type_class_path = search_for_class_by_class_name(apiData, analyzed_arg_type[1])
+                        field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
                         if field_type_class_path is None:
                             print("no field_type_class_path found for " + str(analyzed_arg_type))
-                        found_c = get_class(apiData, field_type_class_path[0], field_type_class_path[1])
+                        found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
                         found_c_is_callback_typedef = "callback_typedef" in found_c.keys() and found_c["callback_typedef"]
                         if found_c_is_callback_typedef:
                             opt_derive_debug = ""
@@ -803,11 +810,11 @@ def generate_structs(apiData, structs_map, version):
                             code += "        pub "
                         code += field_name + ": " + field_type + ",\r\n"
                     else:
-                        field_type_class_path = search_for_class_by_class_name(apiData, analyzed_arg_type[1])
+                        field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
                         if field_type_class_path is None:
                             print("no field_type_class_path found for " + str(analyzed_arg_type))
 
-                        found_c = get_class(apiData, field_type_class_path[0], field_type_class_path[1])
+                        found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
                         treat_external_as_ptr = "external" in found_c.keys() and "is_boxed_object" in found_c.keys() and found_c["is_boxed_object"]
                         if field_name == "ptr":
                             code += "        pub(crate) "
@@ -837,10 +844,10 @@ def generate_structs(apiData, structs_map, version):
                         code += "        " + variant_name + "(" + variant_type + "),\r\n"
                     else:
                         analyzed_arg_type = analyze_type(variant_type)
-                        field_type_class_path = search_for_class_by_class_name(apiData, analyzed_arg_type[1])
+                        field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
                         if field_type_class_path is None:
                             print("variant_type not found: " + variant_type + " in " + struct_name)
-                        found_c = get_class(apiData, field_type_class_path[0], field_type_class_path[1])
+                        found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
                         treat_external_as_ptr = "external" in found_c.keys() and "is_boxed_object" in found_c.keys() and found_c["is_boxed_object"]
                         code += "        " + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + "),\r\n"
                 else:
@@ -849,16 +856,15 @@ def generate_structs(apiData, structs_map, version):
 
     return code
 
-# returns the code + a list of the generated functions
-def generate_dll_loader(apiData, structs_map, functions_map, version):
+# returns the RUST DLL binding code
+def generate_rust_dll_bindings(api_data, structs_map, functions_map):
 
     code = ""
     code += "    use core::ffi::c_void;\r\n\r\n"
 
-    if tuple(['dll']) in rust_api_patches.keys():
-        code += rust_api_patches[tuple(['dll'])]
+    code += read_file(root_folder + "/api/_patches/azul.rs/dll.rs")
 
-    code += generate_structs(apiData, structs_map, version)
+    code += generate_structs(api_data, structs_map)
 
     for struct_name in structs_map.keys():
         struct = structs_map[struct_name]
@@ -883,7 +889,8 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
     code += "\r\n"
     code += "\r\n"
 
-    code += "    #[link(name=\"azul\")]\r\n"
+    code += "    #[cfg_attr(target_os = \"windows\", link(name=\"azul.dll\"))] // https://github.com/rust-lang/cargo/issues/9082\r\n"
+    code += "    #[cfg_attr(not(target_os = \"windows\"), link(name=\"azul\"))] // https://github.com/rust-lang/cargo/issues/9082\r\n"
     code += "    extern \"C\" {\r\n"
 
     for fn_name in functions_map.keys():
@@ -895,64 +902,23 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
 
     code += "    }\r\n\r\n"
 
-    # Generate loading function
-    # TODO: use proper path here!
-
     return code
 
 # Generates the azul/rust/azul.rs file
-def generate_rust_api(apiData, structs_map, functions_map):
+def generate_rust_api(api_data, structs_map, functions_map):
 
     module_file_map = {}
+    version = list(api_data.keys())[-1]
+    module_file_map['dll'] = generate_rust_dll_bindings(api_data[version], structs_map, functions_map)
+    api_data = api_data[version]
 
-    version = list(apiData.keys())[-1]
-    code = ""
-    code += "#![no_std]\r\n"
-    code += "#![doc(\r\n"
-    code += "    html_logo_url = \"https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png\",\r\n"
-    code += "    html_favicon_url = \"https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico\",\r\n"
-    code += ")]\r\n"
-    code += "\r\n"
-    code += "\r\n"
-    code += "//! Auto-generated public Rust API for the Azul GUI toolkit version " + version + "\r\n"
-    code += "//!\r\n"
-    code += "\r\n"
-    code += "\r\n"
-    code += "extern crate alloc;\r\n"
-    code += "\r\n"
-
-    # readme = read_file(azul_readme_path)
-    #
-    # for line in readme.splitlines():
-    #     code += "//! " + line + "\r\n"
-    # code += "\r\n"
-
-    module_file_map['dll.rs'] = generate_dll_loader(apiData, structs_map, functions_map, version)
-
-    apiData = apiData[version]
-
-    license = read_file(license_path)
-
-    for line in license.splitlines():
-        code += "// " + line + "\r\n"
-
-    code += "\r\n\r\n"
-    code += "mod dll;\r\n"
-
-    for module_name in apiData.keys():
-        code += "pub mod " + module_name + ";\r\n"
-
-    code += read_file("./patches/azul.rs/header.rs")
-
-    module_file_map['lib.rs'] = code
-
-    for module_name in apiData.keys():
+    for module_name in api_data.keys():
         code = ""
         module_doc = None
-        if "doc" in apiData[module_name]:
-            module_doc = apiData[module_name]["doc"]
+        if "doc" in api_data[module_name]:
+            module_doc = api_data[module_name]["doc"]
 
-        module = apiData[module_name]["classes"]
+        module = api_data[module_name]["classes"]
 
         code += "    #![allow(dead_code, unused_imports)]\r\n"
         if module_doc != None:
@@ -963,7 +929,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
         if tuple([module_name]) in rust_api_patches:
             code += rust_api_patches[tuple([module_name])]
 
-        code += get_all_imports(apiData, module, module_name)
+        code += get_all_imports(api_data, module, module_name)
 
         for class_name in module.keys():
             c = module[class_name]
@@ -1007,8 +973,8 @@ def generate_rust_api(apiData, structs_map, functions_map):
                         const = c["constructors"][fn_name]
 
                         c_fn_name = to_snake_case(class_ptr_name) + "_" + fn_name
-                        fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False, apiData)
-                        fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False, apiData, class_is_boxed_object)
+                        fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False, api_data)
+                        fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False, api_data, class_is_boxed_object)
 
                         fn_body = ""
 
@@ -1032,7 +998,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                             if is_primitive_arg(analyzed_return_type[1]):
                                 fn_body = fn_body
                             else:
-                                return_type_class = search_for_class_by_class_name(apiData, analyzed_return_type[1])
+                                return_type_class = search_for_class_by_class_name(api_data, analyzed_return_type[1])
                                 if return_type_class is None:
                                     print("no return type found for return type: " + return_type)
                                 returns = analyzed_return_type[0] + " crate::" + return_type_class[0] + "::" + return_type_class[1] + analyzed_return_type[2]
@@ -1044,8 +1010,8 @@ def generate_rust_api(apiData, structs_map, functions_map):
                     for fn_name in c["functions"]:
                         f = c["functions"][fn_name]
 
-                        fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True, apiData)
-                        fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True, apiData, class_is_boxed_object)
+                        fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True, api_data)
+                        fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True, api_data, class_is_boxed_object)
                         c_fn_name = to_snake_case(class_ptr_name) + "_" + fn_name
 
                         fn_body = ""
@@ -1075,7 +1041,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                             if is_primitive_arg(analyzed_return_type[1]):
                                 fn_body = fn_body
                             else:
-                                return_type_class = search_for_class_by_class_name(apiData, analyzed_return_type[1])
+                                return_type_class = search_for_class_by_class_name(api_data, analyzed_return_type[1])
                                 if return_type_class is None:
                                     print("no return type found for return type: " + return_type)
                                 returns = " ->" + analyzed_return_type[0] + " crate::" + return_type_class[0] + "::" + return_type_class[1] + analyzed_return_type[2]
@@ -1101,40 +1067,104 @@ def generate_rust_api(apiData, structs_map, functions_map):
             if not(class_is_const or class_is_callback_typedef or class_can_be_copied):
                 code += "    impl Drop for " + class_name + " { fn drop(&mut self) { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_delete(self) }; } }\r\n"
 
-        module_file_name = module_name + ".rs"
-        module_file_map[module_file_name] = code
+        module_file_map[module_name] = code
 
-    return module_file_map
+    final_code = ""
 
-"""
-# TODO
-# Generates the azul/cpp/azul.h file
-def generate_cpp_api(apiData):
-    return generate_c_api(apiData)
+    for line in license.splitlines():
+        final_code += "// " + line + "\r\n"
 
-# TODO
-# Generates the azul/python/azul.py file
-def generate_python_api(apiData):
-    return ""
+    final_code += read_file(root_folder + "/api/_patches/azul.rs/header.rs")
 
-# TODO
-# Generates the azul/js/azul.js file (wasm preparation)
-def generate_js_api(apiData):
-    return ""
-"""
+    for module_name in module_file_map.keys():
+        if module_name != "dll":
+            final_code += "pub "
+        final_code += "mod " + module_name + " {\r\n"
+        final_code += module_file_map[module_name]
+        final_code += "}\r\n\r\n"
+
+    return final_code
+
+# Generate the RUST function callback type:
+#
+# extern "C" fn(&Blah, &Foo) -> FooReturn
+def generate_rust_callback_fn_type(api_data, callback_typedef):
+    # callback_typedef
+
+    fn_string = "extern \"C\" fn("
+
+    if "fn_args" in callback_typedef.keys():
+        fn_args = callback_typedef["fn_args"]
+        for fn_arg in fn_args:
+            fn_arg_type = fn_arg["type"]
+            fn_arg_ref = fn_arg["ref"]
+            search_result = search_for_class_by_class_name(api_data, fn_arg_type)
+            fn_arg_class = fn_arg_type
+            if not(is_primitive_arg(fn_arg_type)):
+                if search_result is None:
+                    print("fn_arg_type " + fn_arg_type + " not found!")
+                fn_arg_class = search_result[1]
+
+            if not(is_primitive_arg(fn_arg_type)):
+                if fn_arg_ref == "ref":
+                    fn_string += "&" + prefix + fn_arg_class
+                elif fn_arg_ref == "refmut":
+                    fn_string += "&mut " + prefix + fn_arg_class
+                elif fn_arg_ref == "value":
+                    fn_string += prefix + fn_arg_class
+                else:
+                    raise Exception("wrong fn_arg_ref on " + fn_arg_type)
+            else:
+                if fn_arg_ref == "ref":
+                    fn_string += "&"  + fn_arg_class
+                elif fn_arg_ref == "refmut":
+                    fn_string += "&mut " + fn_arg_class
+                elif fn_arg_ref == "value":
+                    fn_string += fn_arg_class
+                else:
+                    raise Exception("wrong fn_arg_ref on " + fn_arg_type)
+
+            fn_string += ", "
+
+        fn_string = fn_string[:-2] # trim last comma
+
+    fn_string += ")"
+
+    if "returns" in callback_typedef.keys():
+        fn_string += " -> "
+        search_result = search_for_class_by_class_name(api_data, callback_typedef["returns"])
+        fn_arg_class = fn_arg_type
+
+        if not(is_primitive_arg(fn_arg_type)):
+            if search_result is None:
+                print("fn_arg_type " + fn_arg_type + " not found!")
+            fn_arg_class = search_result[1]
+
+        if not(is_primitive_arg(fn_arg_type)):
+            fn_string += prefix + fn_arg_class
+        else:
+            fn_string += fn_arg_class
+
+    return fn_string
+
+def generate_c_api(api_data, structs_map, functions_map):
+    pass
+
+def generate_c_callback_fn_type(api_data, callback_typedef):
+    pass
 
 # generate a test function that asserts that the struct layout in the DLL
 # is the same as in the generated bindings
-def generate_size_test(apiData, structs_map):
+def generate_size_test(api_data, structs_map):
 
-    generated_structs = generate_structs(apiData, structs_map, list(apiData.keys())[-1])
+    generated_structs = generate_structs(api_data, structs_map)
 
     test_str = ""
 
     test_str += "#[cfg(test)]\r\n"
     test_str += "mod test_sizes {\r\n"
 
-    test_str += read_file("./patches/azul-dll/test-sizes.rs")
+    test_str += read_file(root_folder + "/api/_patches/azul-dll/test-sizes.rs")
 
     test_str += generated_structs
     test_str += "    use core::ffi::c_void;\r\n"
@@ -1155,36 +1185,130 @@ def generate_size_test(apiData, structs_map):
     test_str += "}\r\n"
     return test_str
 
-def main():
-    apiData = read_api_file(api_file_path)
+# ---------------------------
 
-    # generate azul-dll/lib.rs
+def assure_clang_is_installed():
+    if not(os.environ['CC'] == 'clang-cl') or not(os.environ['CXX'] == 'clang-cl'):
+        raise Exception("environment variables CC and CXX have to be set to 'clang-cl' before building! Make sure LLVM and clang is installed!")
+
+def cleanup_start():
+    # TODO: remove entire /api folder and re-generate it?
+    files = ["azul.dll", "azul.sh", "azul.dylib"]
+
+    for f in files:
+        if os.path.exists(root_folder + "/target/debug/examples/" + f):
+            remove_path(root_folder + "/target/debug/examples/" + f)
+
+        if os.path.exists(root_folder + "/target/release/examples/" + f):
+            remove_path(root_folder + "/target/release/examples/" + f)
+
+        if os.path.exists(root_folder + "/target/debug/" + f):
+            remove_path(root_folder + "/target/debug/" + f)
+
+        if os.path.exists(root_folder + "/target/release/" + f):
+            remove_path(root_folder + "/target/release/" + f)
+
+    # if (len(os.environ.get('AZUL_INSTALL_DIR', '')) > 0):
+    #     if os.path.exists(os.environ['AZUL_INSTALL_DIR']):
+    #         remove_path(os.environ['AZUL_INSTALL_DIR'])
+
+def generate_api():
     rust_dll_result = generate_rust_dll(apiData)
 
-    sort_structs_result = sort_structs_map(rust_dll_result[1])
-    rust_dll_result[1] = sort_structs_result[0]
-    forward_delcarations = sort_structs_result[1]
+    rust_dll_code = rust_dll_result[0]
+    structs_map = rust_dll_result[1]
+    functions_map = rust_dll_result[2]
+    forward_declarations = rust_dll_result[3]
 
-    # TODO: use forward_declarations!
+    write_file(rust_dll_code, root_folder + "/azul-dll/src/lib.rs")
+    write_file(generate_rust_api(apiData, structs_map, functions_map), root_folder + "/api/rust/lib.rs")
+    # write_file(generate_c_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/c/azul.h")
+    # write_file(generate_cpp_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/cpp/azul.h")
+    # write_file(generate_cpp_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/python/azul.py")
 
-    size_test = generate_size_test(apiData, rust_dll_result[1])
-    rust_dll_file = ""
-    rust_dll_file += rust_dll_result[0]
-    rust_dll_file += "\r\n\r\n"
-    rust_dll_file += size_test
-    write_file(rust_dll_file, rust_dll_path)
+def build_dll():
+    # build the library with release settings
+    d = dict(os.environ)   # Make a copy of the current environment
+    d['CC'] = 'clang-cl'
+    d['CXX'] = 'clang-cl'
+    d['RUSTFLAGS'] = '-C target-feature=+crt-static -C link-arg=-s'
+    cwd = root_folder + "/azul-dll"
+    subprocess.Popen(['cargo', 'build', '--all-features', '--release'], env=d, cwd=cwd).wait()
+    pass
 
-    # generate azul/rust/*.rs
-    api_files = generate_rust_api(apiData, rust_dll_result[1], rust_dll_result[2]);
-    for file_name in api_files:
-        file_path = rust_api_path + "/" + file_name
-        file_contents = api_files[file_name]
-        write_file(file_contents, file_path)
+def run_size_test():
+    d = dict(os.environ)   # Make a copy of the current environment
+    d['CC'] = 'clang-cl'
+    d['CXX'] = 'clang-cl'
+    d['RUSTFLAGS'] = '-C target-feature=+crt-static -C link-arg=-s'
+    cwd = root_folder + "/azul-dll"
+    subprocess.Popen(['cargo', 'test', '--all-features', '--release'], env=d, cwd=cwd).wait()
 
-    # write_file(generate_c_api(apiData), c_api_path)
-    # write_file(generate_cpp_api(apiData), cpp_api_path)
-    # write_file(generate_python_api(apiData), python_api_path)
-    # write_file(generate_js_api(apiData), js_api_path)
+def build_examples():
+    cwd = root_folder + "/examples"
+    examples = [
+        # "async",
+        # "calculator",
+        # "components",
+        # "game_of_life",
+        # "headless",
+        # "hello_world",
+        # "layout_tests",
+        # "list",
+        # "opengl",
+        "public",
+        # "slider",
+        # "svg",
+        "table",
+        # "text_input",
+    ]
+    for e in examples:
+        subprocess.Popen(['cargo', 'build', '--release', '--bin', e], cwd=cwd).wait()
+    pass
+
+def release_on_cargo():
+    # Publish packages in the correct order of dedpendencies
+    os.system("cd \"" + root_folder + "/azul-css\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/azul-css-parser\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/azul-core\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/azul-text-layout\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/azulc\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/azul-layout\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/azul-desktop\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/azul-web\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/azul-dll\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/azul\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/azul-widgets\" && cargo check && cargo test && cargo publish")
+
+def make_debian_release_package():
+    # copy the files such that file is Debian deploy-able
+    pass
+
+def make_release_zip_files():
+    # Generate the [arch]-*x86_64, [arch]-*i686 etc. ZIP files
+    pass
+
+def build_docs():
+    pass
+
+def main():
+    print("removing old azul.dll...")
+    cleanup_start()
+    print("verifying that LLVM / clang-cl is installed...\r\n")
+    assure_clang_is_installed()
+    print("generating API...")
+    generate_api()
+    print("building azul-dll (release mode)...")
+    build_dll()
+    print("checking azul-dll for struct size integrity...")
+    run_size_test()
+    print("building examples...")
+    # build_examples()
+    print("building docs (output_dir = /target/doc)...")
+    # build_docs()
+    # release_on_cargo()
+    # make_debian_release_package()
+    # make_release_zip_files()
 
 if __name__ == "__main__":
     main()

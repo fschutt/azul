@@ -168,7 +168,7 @@ impl RefAny {
     /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID
     pub fn new<T: 'static>(value: T) -> Self {
 
-        extern "C" fn default_custom_destructor<U: 'static>(ptr: *mut c_void) {
+        extern "C" fn default_custom_destructor<U: 'static>(ptr: &mut c_void) {
             use std::{mem, ptr};
 
             // note: in the default constructor, we do not need to check whether U == T
@@ -176,7 +176,7 @@ impl RefAny {
             unsafe {
                 // copy the struct from the heap to the stack and call mem::drop on U to run the destructor
                 let mut stack_mem = mem::zeroed::<U>();
-                ptr::copy_nonoverlapping(ptr as *const U, &mut stack_mem as *mut U, mem::size_of::<U>());
+                ptr::copy_nonoverlapping((ptr as *mut c_void) as *const U, &mut stack_mem as *mut U, mem::size_of::<U>());
                 mem::drop(stack_mem);
             }
         }
@@ -193,7 +193,7 @@ impl RefAny {
         s
     }
 
-    pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, custom_destructor: extern "C" fn(*const c_void)) -> Self {
+    pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, custom_destructor: extern "C" fn(&mut c_void)) -> Self {
         use std::{alloc, ptr};
 
         // cast the struct as bytes
@@ -214,7 +214,7 @@ impl RefAny {
             type_id,
             type_name,
             sharing_info: sharing_info,
-            custom_destructor,
+            custom_destructor: unsafe { std::mem::transmute(custom_destructor) }, // fn(&mut c_void) and fn(*mut c_void) are the same
         };
 
         s
@@ -275,7 +275,7 @@ impl Drop for RefAny {
     fn drop(&mut self) {
         use std::alloc;
         if self.sharing_info.downcast().num_copies.fetch_sub(1, Ordering::SeqCst) == 1 {
-            (self.custom_destructor)(self._internal_ptr);
+            (self.custom_destructor)(self._internal_ptr as *mut c_void);
             unsafe { alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
         }
     }

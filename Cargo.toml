@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "azul",
+    "api/rust",
     "azul-dll",
     "azul-desktop",
     "azul-web",

@@ -7,7 +7,53 @@ use azul::{
     widgets::{button::Button, svg::*},
 };
 
-macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/svg/svg.css")) }
+const CSS: &str = "
+#svg-container {
+    width: 100%;
+    height: 100%;
+}
+
+.control-btn {
+    width: 20px;
+    height: 20px;
+    position: absolute;
+    text-align: center;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    box-sizing: border-box;
+}
+
+#btn-zoom-in {
+    top: 30px;
+    left: 30px;
+}
+
+#btn-zoom-out {
+    top: 30px;
+    left: 70px;
+}
+
+#btn-move-up {
+    top: 70px;
+    left: 50px;
+}
+
+#btn-move-right {
+    top: 90px;
+    left: 70px;
+}
+
+#btn-move-left {
+    top: 90px;
+    left: 30px;
+}
+
+#btn-move-down {
+    top: 110px;
+    left: 50px;
+}
+";
 
 const SVG: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/svg/tiger.svg"));
 

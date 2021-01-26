@@ -1,5 +1,5 @@
 [package]
-name = "azul-examples"
+name = "azul"
 version = "0.0.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
@@ -12,29 +12,14 @@ homepage = "https://azul.rs/"
 keywords = ["gui", "GUI", "user-interface", "svg", "graphics" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
+readme = "../README.md"
+exclude = ["../assets/*", "../doc/*", "../examples/*"]
+autoexamples = false
 edition = "2018"
+build = "build.rs"
+links = "azul"
 
-[profile.dev]
-incremental = false
-
-[profile.release]
-opt-level = 3
-lto = "fat"
-panic = "abort"
-codegen-units = 1
-debug = false
-overflow-checks = false
-incremental = false
-
-[[bin]]
-name = "public"
-path = "public.rs"
-
-[[bin]]
-name = "table"
-path = "table.rs"
+[lib]
+path = "lib.rs"
 
 [dependencies]
-azul = { version = "0.0.1", path = "../api/rust" }
-azul-widgets = { version = "0.0.2", path = "../azul-widgets" }
-# libc_alloc = { version = "1.0.2", default-features = false }

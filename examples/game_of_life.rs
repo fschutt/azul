@@ -5,9 +5,70 @@ extern crate azul;
 use azul::{prelude::*, widgets::button::Button};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-macro_rules! CSS_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/game_of_life/game_of_life.css")};}
+const CSS: &str = "
+#header {
+    background-color: #3aadff;
+    box-shadow: -2px 2px 6px 4px #00000080;
+    height: 65px;
+    text-align: left;
+}
 
-const CSS: &str = include_str!(CSS_PATH!());
+#title {
+    background-color: #007ede;
+    border-radius: 5px;
+    color: #FFFFFF;
+    font-size: 25px;
+    padding: 10px 0px 10px 10px;
+    margin: 10px 15px;
+    width: 164px;
+    height: 40px;
+}
+
+#alive_count {
+    font-size: 15px;
+    margin: -47px 0px 0px 200px;
+}
+
+#dead_count {
+    font-size: 15px;
+    margin: 8px 0px 0px 200px;
+}
+
+#universe {
+    margin-top: 5px;
+}
+
+#start_btn {
+    background-color: #007ede;
+    border: none;
+    color: #FFFFFF;
+    font-size: 25px;
+    height: 40px;
+    width: 90px;
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    text-align: center;
+}
+
+.row {
+    flex-direction: row;
+    height: 7.02px;
+}
+
+.alive_cell {
+    background-color: #000000;
+    border: 1px solid #444444;
+    width: 7.02px;
+    height: 7.02px;
+}
+
+.dead_cell {
+    border: 1px solid #444444;
+    width: 7.02px;
+    height: 7.02px;
+}
+";
 const INITIAL_UNIVERSE_WIDTH: usize = 75;
 const INITIAL_UNIVERSE_HEIGHT: usize = 75;
 

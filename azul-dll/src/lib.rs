@@ -31,9 +31,9 @@ use azul_impl::{
     dom::{Dom, NodeData},
     callbacks::{
         RefAny, LayoutInfo,
-        Callback, CallbackInfo, CallbackType,
-        TimerCallback, TimerCallbackType, TimerCallbackInfo, TimerCallbackReturn,
-        GlCallback, GlCallbackInfo, GlCallbackReturn, ThreadCallbackType,
+        Callback, CallbackInfo,
+        TimerCallback, TimerCallbackInfo, TimerCallbackReturn,
+        GlCallback, GlCallbackInfo, GlCallbackReturn,
         IFrameCallback, IFrameCallbackInfo, IFrameCallbackReturn
     },
     window::{WindowCreateOptions, WindowState},
@@ -1003,7 +1003,7 @@ pub use AzHidpiAdjustedBoundsTT as AzHidpiAdjustedBounds;
 pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
 pub use AzLayoutCallbackTT as AzLayoutCallback;
 
-
+pub type AzLayoutCallbackType = extern "C" fn(&AzRefAny, AzLayoutInfo) -> AzStyledDom;
 /// Re-export of rust-allocated (stack based) `Callback` struct
 pub type AzCallbackTT = azul_impl::callbacks::Callback;
 pub use AzCallbackTT as AzCallback;
@@ -1025,7 +1025,7 @@ pub use AzFocusTargetPathTT as AzFocusTargetPath;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_focus_target_path_deep_copy(object: &AzFocusTargetPath) -> AzFocusTargetPath { object.clone() }
 
-
+pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
 /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
 pub type AzCallbackInfoTT = azul_impl::callbacks::CallbackInfo;
 pub use AzCallbackInfoTT as AzCallbackInfo;
@@ -1082,7 +1082,7 @@ pub use AzUpdateScreenTT as AzUpdateScreen;
 pub type AzIFrameCallbackTT = azul_impl::callbacks::IFrameCallback;
 pub use AzIFrameCallbackTT as AzIFrameCallback;
 
-
+pub type AzIFrameCallbackType = extern "C" fn(&AzRefAny, AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
 /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
 pub type AzIFrameCallbackInfoTT = azul_impl::callbacks::IFrameCallbackInfo;
 pub use AzIFrameCallbackInfoTT as AzIFrameCallbackInfo;
@@ -1101,7 +1101,7 @@ pub use AzIFrameCallbackReturnTT as AzIFrameCallbackReturn;
 pub type AzGlCallbackTT = azul_impl::callbacks::GlCallback;
 pub use AzGlCallbackTT as AzGlCallback;
 
-
+pub type AzGlCallbackType = extern "C" fn(&AzRefAny, AzGlCallbackInfo) -> AzGlCallbackReturn;
 /// Re-export of rust-allocated (stack based) `GlCallbackInfo` struct
 pub type AzGlCallbackInfoTT = azul_impl::callbacks::GlCallbackInfo;
 pub use AzGlCallbackInfoTT as AzGlCallbackInfo;
@@ -1120,7 +1120,7 @@ pub use AzGlCallbackReturnTT as AzGlCallbackReturn;
 pub type AzTimerCallbackTT = azul_impl::callbacks::TimerCallback;
 pub use AzTimerCallbackTT as AzTimerCallback;
 
-
+pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzTimerCallbackInfo) -> AzTimerCallbackReturn;
 /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
 pub type AzTimerCallbackInfoTT = azul_impl::callbacks::TimerCallbackInfo;
 pub use AzTimerCallbackInfoTT as AzTimerCallbackInfo;
@@ -1135,7 +1135,7 @@ pub use AzTimerCallbackReturnTT as AzTimerCallbackReturn;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_timer_callback_return_deep_copy(object: &AzTimerCallbackReturn) -> AzTimerCallbackReturn { object.clone() }
 
-
+pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
 /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
 pub type AzWriteBackCallbackTT = azul_impl::callbacks::WriteBackCallback;
 pub use AzWriteBackCallbackTT as AzWriteBackCallback;
@@ -1144,8 +1144,8 @@ pub use AzWriteBackCallbackTT as AzWriteBackCallback;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_write_back_callback_deep_copy(object: &AzWriteBackCallback) -> AzWriteBackCallback { object.clone() }
 
-
-
+pub type AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver);
+pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
 /// Re-export of rust-allocated (stack based) `AtomicRefCount` struct
 pub type AzAtomicRefCountTT = azul_impl::callbacks::AtomicRefCount;
 pub use AzAtomicRefCountTT as AzAtomicRefCount;
@@ -3529,7 +3529,9 @@ mod test_sizes {
         Trace,
     }
     /// `AzLayoutCallbackType` struct
+    pub type AzLayoutCallbackType = extern "C" fn(&AzRefAny, AzLayoutInfo) -> AzStyledDom;
     /// `AzCallbackType` struct
+    pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
     /// Specifies if the screen should be updated after the callback function has returned
     #[repr(C)] #[derive(Debug)] pub enum AzUpdateScreen {
         DoNothing,
@@ -3537,11 +3539,17 @@ mod test_sizes {
         RegenerateStyledDomForAllWindows,
     }
     /// `AzIFrameCallbackType` struct
+    pub type AzIFrameCallbackType = extern "C" fn(&AzRefAny, AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
     /// `AzGlCallbackType` struct
+    pub type AzGlCallbackType = extern "C" fn(&AzRefAny, AzGlCallbackInfo) -> AzGlCallbackReturn;
     /// `AzTimerCallbackType` struct
+    pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzTimerCallbackInfo) -> AzTimerCallbackReturn;
     /// `AzWriteBackCallbackType` struct
+    pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
     /// `AzThreadCallbackType` struct
+    pub type AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver);
     /// `AzRefAnyDestructorType` struct
+    pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
     /// Re-export of rust-allocated (stack based) `NodeTypePath` struct
     #[repr(C)] #[derive(Debug)] pub enum AzNodeTypePath {
         Body,

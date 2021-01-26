@@ -13,4 +13,4 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [dependencies]
-azul                    = { path = "../azul", version = "0.0.1",  default-features = false }
+azul                    = { path = "../api/rust", version = "0.0.1",  default-features = false }

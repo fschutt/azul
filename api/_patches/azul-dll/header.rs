@@ -26,9 +26,9 @@ use azul_impl::{
     dom::{Dom, NodeData},
     callbacks::{
         RefAny, LayoutInfo,
-        Callback, CallbackInfo, CallbackType,
-        TimerCallback, TimerCallbackType, TimerCallbackInfo, TimerCallbackReturn,
-        GlCallback, GlCallbackInfo, GlCallbackReturn, ThreadCallbackType,
+        Callback, CallbackInfo,
+        TimerCallback, TimerCallbackInfo, TimerCallbackReturn,
+        GlCallback, GlCallbackInfo, GlCallbackReturn,
         IFrameCallback, IFrameCallbackInfo, IFrameCallbackReturn
     },
     window::{WindowCreateOptions, WindowState},
