@@ -141,7 +141,8 @@
     impl_vec!(AzDom, AzDomVec);
     impl_vec!(AzString, AzStringVec);
     impl_vec!(AzStringPair, AzStringPairVec);
-    impl_vec!(AzGradientStopPre, AzGradientStopPreVec);
+    impl_vec!(AzLinearColorStop, AzLinearColorStopVec);
+    impl_vec!(AzRadialColorStop, AzRadialColorStopVec);
     impl_vec!(AzCascadedCssPropertyWithSource, AzCascadedCssPropertyWithSourceVec);
     impl_vec!(AzNodeId, AzNodeIdVec);
     impl_vec!(AzNode, AzNodeVec);
@@ -168,14 +169,110 @@
 
             // delete() not necessary because StringVec is stack-allocated
         }
-    }    use crate::css::{CssDeclaration, CssPathSelector, CssProperty, CssRuleBlock, GradientStopPre, StyleTransform, Stylesheet};
-    use crate::style::{CascadeInfo, CascadedCssPropertyWithSource, ContentGroup, Node, ParentWithNodeDepth, StyledNode, TagIdToNodeIdMapping};
+    }    use crate::dom::{CallbackData, Dom, IdOrClass, NodeData, NodeDataInlineCssProperty};
+    use crate::css::{CssDeclaration, CssPathSelector, CssProperty, CssRuleBlock, LinearColorStop, RadialColorStop, StyleBackgroundContent, StyleBackgroundPosition, StyleBackgroundRepeat, StyleBackgroundSize, StyleTransform, Stylesheet};
+    use crate::style::{CascadeInfo, ContentGroup, Node, ParentWithNodeDepth, StyledNode, TagIdToNodeIdMapping};
     use crate::svg::{SvgMultiPolygon, SvgPath, SvgPathElement, SvgVertex};
     use crate::gl::{DebugMessage, VertexAttribute};
     use crate::window::{StringPair, VirtualKeyCode, XWindowType};
-    use crate::dom::{CallbackData, Dom, NodeData};
     use crate::str::String;
     use crate::callbacks::NodeId;
+
+
+    /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
+    #[doc(inline)] pub use crate::dll::AzIdOrClassVec as IdOrClassVec;
+
+    impl IdOrClassVec {
+        /// Creates a new, empty Rust `Vec<IdOrClass>`
+        pub fn new() -> Self { unsafe { crate::dll::az_id_or_class_vec_new() } }
+        /// Creates a new, empty Rust `Vec<IdOrClass>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_id_or_class_vec_with_capacity(cap) } }
+        /// Creates + allocates a Rust `Vec<IdOrClass>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzIdOrClass, len: usize) -> Self { unsafe { crate::dll::az_id_or_class_vec_copy_from(ptr, len) } }
+    }
+
+    impl Clone for IdOrClassVec { fn clone(&self) -> Self { unsafe { crate::dll::az_id_or_class_vec_deep_copy(self) } } }
+    impl Drop for IdOrClassVec { fn drop(&mut self) { unsafe { crate::dll::az_id_or_class_vec_delete(self) }; } }
+
+
+    /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
+    #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVec as NodeDataInlineCssPropertyVec;
+
+    impl NodeDataInlineCssPropertyVec {
+        /// Creates a new, empty Rust `Vec<NodeDataInlineCssProperty>`
+        pub fn new() -> Self { unsafe { crate::dll::az_node_data_inline_css_property_vec_new() } }
+        /// Creates a new, empty Rust `Vec<NodeDataInlineCssProperty>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_node_data_inline_css_property_vec_with_capacity(cap) } }
+        /// Creates + allocates a Rust `Vec<NodeDataInlineCssProperty>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzNodeDataInlineCssProperty, len: usize) -> Self { unsafe { crate::dll::az_node_data_inline_css_property_vec_copy_from(ptr, len) } }
+    }
+
+    impl Clone for NodeDataInlineCssPropertyVec { fn clone(&self) -> Self { unsafe { crate::dll::az_node_data_inline_css_property_vec_deep_copy(self) } } }
+    impl Drop for NodeDataInlineCssPropertyVec { fn drop(&mut self) { unsafe { crate::dll::az_node_data_inline_css_property_vec_delete(self) }; } }
+
+
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVec as StyleBackgroundContentVec;
+
+    impl StyleBackgroundContentVec {
+        /// Creates a new, empty Rust `Vec<StyleBackgroundContent>`
+        pub fn new() -> Self { unsafe { crate::dll::az_style_background_content_vec_new() } }
+        /// Creates a new, empty Rust `Vec<StyleBackgroundContent>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_style_background_content_vec_with_capacity(cap) } }
+        /// Creates + allocates a Rust `Vec<StyleBackgroundContent>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzStyleBackgroundContent, len: usize) -> Self { unsafe { crate::dll::az_style_background_content_vec_copy_from(ptr, len) } }
+    }
+
+    impl Clone for StyleBackgroundContentVec { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_content_vec_deep_copy(self) } } }
+    impl Drop for StyleBackgroundContentVec { fn drop(&mut self) { unsafe { crate::dll::az_style_background_content_vec_delete(self) }; } }
+
+
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVec as StyleBackgroundPositionVec;
+
+    impl StyleBackgroundPositionVec {
+        /// Creates a new, empty Rust `Vec<StyleBackgroundPosition>`
+        pub fn new() -> Self { unsafe { crate::dll::az_style_background_position_vec_new() } }
+        /// Creates a new, empty Rust `Vec<StyleBackgroundPosition>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_style_background_position_vec_with_capacity(cap) } }
+        /// Creates + allocates a Rust `Vec<StyleBackgroundPosition>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzStyleBackgroundPosition, len: usize) -> Self { unsafe { crate::dll::az_style_background_position_vec_copy_from(ptr, len) } }
+    }
+
+    impl Clone for StyleBackgroundPositionVec { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_position_vec_deep_copy(self) } } }
+    impl Drop for StyleBackgroundPositionVec { fn drop(&mut self) { unsafe { crate::dll::az_style_background_position_vec_delete(self) }; } }
+
+
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVec as StyleBackgroundRepeatVec;
+
+    impl StyleBackgroundRepeatVec {
+        /// Creates a new, empty Rust `Vec<StyleBackgroundRepeat>`
+        pub fn new() -> Self { unsafe { crate::dll::az_style_background_repeat_vec_new() } }
+        /// Creates a new, empty Rust `Vec<StyleBackgroundRepeat>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_style_background_repeat_vec_with_capacity(cap) } }
+        /// Creates + allocates a Rust `Vec<StyleBackgroundRepeat>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzStyleBackgroundRepeat, len: usize) -> Self { unsafe { crate::dll::az_style_background_repeat_vec_copy_from(ptr, len) } }
+    }
+
+    impl Clone for StyleBackgroundRepeatVec { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_repeat_vec_deep_copy(self) } } }
+    impl Drop for StyleBackgroundRepeatVec { fn drop(&mut self) { unsafe { crate::dll::az_style_background_repeat_vec_delete(self) }; } }
+
+
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVec as StyleBackgroundSizeVec;
+
+    impl StyleBackgroundSizeVec {
+        /// Creates a new, empty Rust `Vec<StyleBackgroundSize>`
+        pub fn new() -> Self { unsafe { crate::dll::az_style_background_size_vec_new() } }
+        /// Creates a new, empty Rust `Vec<StyleBackgroundSize>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_style_background_size_vec_with_capacity(cap) } }
+        /// Creates + allocates a Rust `Vec<StyleBackgroundSize>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzStyleBackgroundSize, len: usize) -> Self { unsafe { crate::dll::az_style_background_size_vec_copy_from(ptr, len) } }
+    }
+
+    impl Clone for StyleBackgroundSizeVec { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_size_vec_deep_copy(self) } } }
+    impl Drop for StyleBackgroundSizeVec { fn drop(&mut self) { unsafe { crate::dll::az_style_background_size_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
@@ -578,36 +675,36 @@
     impl Drop for StringPairVec { fn drop(&mut self) { unsafe { crate::dll::az_string_pair_vec_delete(self) }; } }
 
 
-    /// Wrapper over a Rust-allocated `GradientStopPreVec`
-    #[doc(inline)] pub use crate::dll::AzGradientStopPreVec as GradientStopPreVec;
+    /// Wrapper over a Rust-allocated `LinearColorStopVec`
+    #[doc(inline)] pub use crate::dll::AzLinearColorStopVec as LinearColorStopVec;
 
-    impl GradientStopPreVec {
-        /// Creates a new, empty Rust `Vec<GradientStopPre>`
-        pub fn new() -> Self { unsafe { crate::dll::az_gradient_stop_pre_vec_new() } }
-        /// Creates a new, empty Rust `Vec<GradientStopPre>` with a given, pre-allocated capacity
-        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_gradient_stop_pre_vec_with_capacity(cap) } }
-        /// Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzGradientStopPre, len: usize) -> Self { unsafe { crate::dll::az_gradient_stop_pre_vec_copy_from(ptr, len) } }
+    impl LinearColorStopVec {
+        /// Creates a new, empty Rust `Vec<LinearColorStop>`
+        pub fn new() -> Self { unsafe { crate::dll::az_linear_color_stop_vec_new() } }
+        /// Creates a new, empty Rust `Vec<LinearColorStop>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_linear_color_stop_vec_with_capacity(cap) } }
+        /// Creates + allocates a Rust `Vec<LinearColorStop>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzLinearColorStop, len: usize) -> Self { unsafe { crate::dll::az_linear_color_stop_vec_copy_from(ptr, len) } }
     }
 
-    impl Clone for GradientStopPreVec { fn clone(&self) -> Self { unsafe { crate::dll::az_gradient_stop_pre_vec_deep_copy(self) } } }
-    impl Drop for GradientStopPreVec { fn drop(&mut self) { unsafe { crate::dll::az_gradient_stop_pre_vec_delete(self) }; } }
+    impl Clone for LinearColorStopVec { fn clone(&self) -> Self { unsafe { crate::dll::az_linear_color_stop_vec_deep_copy(self) } } }
+    impl Drop for LinearColorStopVec { fn drop(&mut self) { unsafe { crate::dll::az_linear_color_stop_vec_delete(self) }; } }
 
 
-    /// Wrapper over a Rust-allocated `CascadedCssPropertyWithSourceVec`
-    #[doc(inline)] pub use crate::dll::AzCascadedCssPropertyWithSourceVec as CascadedCssPropertyWithSourceVec;
+    /// Wrapper over a Rust-allocated `RadialColorStopVec`
+    #[doc(inline)] pub use crate::dll::AzRadialColorStopVec as RadialColorStopVec;
 
-    impl CascadedCssPropertyWithSourceVec {
-        /// Creates a new, empty Rust `Vec<CascadedCssPropertyWithSource>`
-        pub fn new() -> Self { unsafe { crate::dll::az_cascaded_css_property_with_source_vec_new() } }
-        /// Creates a new, empty Rust `Vec<CascadedCssPropertyWithSource>` with a given, pre-allocated capacity
-        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_cascaded_css_property_with_source_vec_with_capacity(cap) } }
-        /// Creates + allocates a Rust `Vec<CascadedCssPropertyWithSource>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzCascadedCssPropertyWithSource, len: usize) -> Self { unsafe { crate::dll::az_cascaded_css_property_with_source_vec_copy_from(ptr, len) } }
+    impl RadialColorStopVec {
+        /// Creates a new, empty Rust `Vec<RadialColorStop>`
+        pub fn new() -> Self { unsafe { crate::dll::az_radial_color_stop_vec_new() } }
+        /// Creates a new, empty Rust `Vec<RadialColorStop>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { unsafe { crate::dll::az_radial_color_stop_vec_with_capacity(cap) } }
+        /// Creates + allocates a Rust `Vec<RadialColorStop>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzRadialColorStop, len: usize) -> Self { unsafe { crate::dll::az_radial_color_stop_vec_copy_from(ptr, len) } }
     }
 
-    impl Clone for CascadedCssPropertyWithSourceVec { fn clone(&self) -> Self { unsafe { crate::dll::az_cascaded_css_property_with_source_vec_deep_copy(self) } } }
-    impl Drop for CascadedCssPropertyWithSourceVec { fn drop(&mut self) { unsafe { crate::dll::az_cascaded_css_property_with_source_vec_delete(self) }; } }
+    impl Clone for RadialColorStopVec { fn clone(&self) -> Self { unsafe { crate::dll::az_radial_color_stop_vec_deep_copy(self) } } }
+    impl Drop for RadialColorStopVec { fn drop(&mut self) { unsafe { crate::dll::az_radial_color_stop_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `NodeIdVec`

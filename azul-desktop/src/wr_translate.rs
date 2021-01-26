@@ -82,7 +82,7 @@ use azul_core::{
     display_list::{
         CachedDisplayList, GlyphInstance, DisplayListScrollFrame,
         DisplayListFrame, LayoutRectContent, DisplayListMsg,
-        AlphaType, ImageRendering, StyleBorderRadius,
+        AlphaType, ImageRendering, StyleBorderRadius, BoxShadow,
     },
     dom::TagId,
     display_list::DisplayListImageMask,
@@ -1214,6 +1214,7 @@ fn push_frame(
     for item in frame.content {
         push_display_list_content(
             builder,
+            &frame.box_shadow,
             item,
             clip_rect,
             frame.border_radius,
@@ -1268,6 +1269,7 @@ fn push_scroll_frame(
     for item in scroll_frame.frame.content {
         push_display_list_content(
             builder,
+            &scroll_frame.frame.box_shadow,
             item,
             clip_rect,
             scroll_frame.frame.border_radius,
@@ -1332,6 +1334,7 @@ fn define_border_radius_clip(
 #[inline]
 fn push_display_list_content(
     builder: &mut WrDisplayListBuilder,
+    box_shadow: &Option<BoxShadow>,
     content: LayoutRectContent,
     clip_rect: LogicalRect,
     border_radius: StyleBorderRadius,
@@ -1350,6 +1353,15 @@ fn push_display_list_content(
     };
 
     let wr_border_radius = wr_translate_border_radius(border_radius, clip_rect.size);
+
+    if let Some(box_shadow) = box_shadow.as_ref() {
+        // push outset box shadow before the item clip is pushed
+        if box_shadow.clip_mode == CssBoxShadowClipMode::Outset {
+            // If the content is a shadow, it needs to be clipped by the root
+            normal_info.clip_id = WrClipId::root(builder.pipeline_id);
+            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Outset, box_shadow, border_radius, normal_info.spatial_id, normal_info.clip_id);
+        }
+    }
 
     // Border and BoxShadow::Ouset get a root clip, since they are outside of the rect contents
     // All other content types get the regular clip
@@ -1374,20 +1386,19 @@ fn push_display_list_content(
             normal_info.clip_id = border_radius_clip_id;
             image::push_image(builder, &normal_info, size, offset, image_key, alpha_type, image_rendering, background_color);
         },
-        BoxShadow { shadow, clip_mode: CssBoxShadowClipMode::Inset } => {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
-            normal_info.clip_id = border_radius_clip_id;
-            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Inset, shadow, border_radius, normal_info.spatial_id, normal_info.clip_id);
-        },
-        BoxShadow { shadow, clip_mode: CssBoxShadowClipMode::Outset } => {
-            // If the content is a shadow, it needs to be clipped by the root
-            normal_info.clip_id = WrClipId::root(builder.pipeline_id);
-            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Outset, shadow, border_radius, normal_info.spatial_id, normal_info.clip_id);
-        },
         Border { widths, colors, styles } => {
             // no clip necessary because item will always be in parent bounds
             border::push_border(builder, &normal_info, border_radius, widths, colors, styles);
         },
+    }
+
+    if let Some(box_shadow) = box_shadow.as_ref() {
+        // push outset box shadow before the item clip is pushed
+        if box_shadow.clip_mode == CssBoxShadowClipMode::Inset {
+            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
+            normal_info.clip_id = border_radius_clip_id;
+            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Inset, box_shadow, border_radius, normal_info.spatial_id, normal_info.clip_id);
+        }
     }
 }
 
@@ -1441,7 +1452,7 @@ mod background {
     };
     use azul_css::{
         StyleBackgroundSize, StyleBackgroundPosition, StyleBackgroundRepeat,
-        RadialGradient, LinearGradient, ColorU, LayoutSize, LayoutPoint,
+        RadialGradient, LinearGradient, ConicGradient, ColorU, LayoutSize, LayoutPoint,
     };
     use azul_core::{
         app_resources::ImageInfo,
@@ -1469,11 +1480,61 @@ mod background {
         let content_size = background.get_content_size();
 
         match background {
-            RadialGradient(rg)  => push_radial_gradient_background(builder, &info, rg, background_position, background_size, background_repeat, content_size),
-            LinearGradient(g)   => push_linear_gradient_background(builder, &info, g, background_position, background_size, background_repeat, content_size),
-            Image(image_info)   => push_image_background(builder, &info, image_info, background_position, background_size, background_repeat, content_size),
-            Color(col)          => push_color_background(builder, &info, col, background_position, background_size, background_repeat, content_size),
+            LinearGradient(g)    => push_linear_gradient_background(builder, &info, g, background_position, background_size, content_size),
+            RadialGradient(rg)   => push_radial_gradient_background(builder, &info, rg, background_position, background_size, content_size),
+            ConicGradient(cg)    => push_conic_gradient_background(builder, &info, cg, background_position, background_size, content_size),
+            Image(image_info)    => push_image_background(builder, &info, image_info, background_position, background_size, background_repeat, content_size),
+            Color(col)           => push_color_background(builder, &info, col, background_position, background_size, background_repeat, content_size),
         }
+    }
+
+    fn push_conic_gradient_background(
+        builder: &mut WrDisplayListBuilder,
+        info: &WrCommonItemProperties,
+        conic_gradient: ConicGradient,
+        background_position: Option<StyleBackgroundPosition>,
+        background_size: Option<StyleBackgroundSize>,
+        content_size: Option<(f32, f32)>,
+    ) {
+        use webrender::api::units::LayoutPoint as WrLayoutPoint;
+        use super::{wr_translate_color_u, wr_translate_logical_size, wr_translate_extend_mode};
+
+        let width = info.clip_rect.size.width.round();
+        let height = info.clip_rect.size.height.round();
+        let background_position = background_position.unwrap_or_default();
+        let background_size = calculate_background_size(info, background_size, content_size);
+        let offset = calculate_background_position(width, height, background_position, background_size);
+
+        let mut offset_info = *info;
+        offset_info.clip_rect.origin.x += offset.x;
+        offset_info.clip_rect.origin.y += offset.y;
+
+        let radial_gradient_normalized = conic_gradient.stops.get_normalized_radial_stops();
+
+        let stops: Vec<WrGradientStop> = radial_gradient_normalized.iter().map(|gradient_pre|
+            WrGradientStop {
+                offset: gradient_pre.angle.to_degrees(),
+                color: wr_translate_color_u(gradient_pre.color).into(),
+            }
+        ).collect();
+
+        let center = calculate_background_position(width, height, conic_gradient.center, background_size);
+        let center = WrLayoutPoint::new(center.x, center.y);
+
+        let gradient = builder.create_conic_gradient(
+            center,
+            conic_gradient.angle.to_degrees(),
+            stops,
+            wr_translate_extend_mode(conic_gradient.extend_mode)
+        );
+
+        builder.push_conic_gradient(
+            &offset_info,
+            offset_info.clip_rect,
+            gradient,
+            wr_translate_logical_size(background_size),
+            WrLayoutSize::zero()
+        );
     }
 
     fn push_radial_gradient_background(
@@ -1482,28 +1543,32 @@ mod background {
         radial_gradient: RadialGradient,
         background_position: Option<StyleBackgroundPosition>,
         background_size: Option<StyleBackgroundSize>,
-        background_repeat: Option<StyleBackgroundRepeat>,
         content_size: Option<(f32, f32)>,
     ) {
         use azul_css::Shape;
         use super::{wr_translate_color_u, wr_translate_logical_size, wr_translate_extend_mode};
+        use webrender::api::units::LayoutPoint as WrLayoutPoint;
 
+        let width = info.clip_rect.size.width.round();
+        let height = info.clip_rect.size.height.round();
         let background_position = background_position.unwrap_or_default();
-        let _background_repeat = background_repeat.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
-        let offset = calculate_background_position(info, background_position, background_size);
+        let offset = calculate_background_position(width, height, background_position, background_size);
 
         let mut offset_info = *info;
         offset_info.clip_rect.origin.x += offset.x;
         offset_info.clip_rect.origin.y += offset.y;
 
-        let stops: Vec<WrGradientStop> = radial_gradient.stops.as_ref().iter().map(|gradient_pre|
-            WrGradientStop {
-                offset: gradient_pre.offset.as_option().unwrap().get(),
-                color: wr_translate_color_u(gradient_pre.color).into(),
-            }).collect();
+        let center = calculate_background_position(width, height, radial_gradient.position, background_size);
+        let center = WrLayoutPoint::new(center.x, center.y);
+        let linear_gradient_normalized = radial_gradient.stops.get_normalized_linear_stops();
 
-        let center = info.clip_rect.center();
+        let stops: Vec<WrGradientStop> = linear_gradient_normalized.iter().map(|gradient_pre|
+            WrGradientStop {
+                offset: gradient_pre.offset.get() / 100.0,
+                color: wr_translate_color_u(gradient_pre.color).into(),
+            }
+        ).collect();
 
         // Note: division by 2.0 because it's the radius, not the diameter
         let radius = match radial_gradient.shape {
@@ -1531,7 +1596,6 @@ mod background {
         linear_gradient: LinearGradient,
         background_position: Option<StyleBackgroundPosition>,
         background_size: Option<StyleBackgroundSize>,
-        background_repeat: Option<StyleBackgroundRepeat>,
         content_size: Option<(f32, f32)>,
     ) {
         use super::{
@@ -1541,19 +1605,21 @@ mod background {
         };
 
         let background_position = background_position.unwrap_or_default();
-        let _background_repeat = background_repeat.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
-        let offset = calculate_background_position(info, background_position, background_size);
+        let offset = calculate_background_position(info.clip_rect.size.width.round(), info.clip_rect.size.height.round(), background_position, background_size);
 
         let mut offset_info = *info;
         offset_info.clip_rect.origin.x += offset.x;
         offset_info.clip_rect.origin.y += offset.y;
 
-        let stops: Vec<WrGradientStop> = linear_gradient.stops.as_ref().iter().map(|gradient_pre|
+        let linear_gradient_normalized = linear_gradient.stops.get_normalized_linear_stops();
+
+        let stops: Vec<WrGradientStop> = linear_gradient_normalized.iter().map(|gradient_pre|
             WrGradientStop {
-                offset: gradient_pre.offset.as_option().unwrap().get() / 100.0,
+                offset: gradient_pre.offset.get() / 100.0,
                 color: wr_translate_color_u(gradient_pre.color).into(),
-            }).collect();
+            }
+        ).collect();
 
         let (begin_pt, end_pt) = linear_gradient.direction.to_points(&wr_translate_css_layout_rect(offset_info.clip_rect));
         let gradient = builder.create_gradient(
@@ -1586,7 +1652,7 @@ mod background {
         let background_position = background_position.unwrap_or_default();
         let background_repeat = background_repeat.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
-        let background_position = calculate_background_position(info, background_position, background_size);
+        let background_position = calculate_background_position(info.clip_rect.size.width.round(), info.clip_rect.size.height.round(), background_position, background_size);
         let background_repeat_info = get_background_repeat_info(info, background_repeat, background_size);
 
         // TODO: customize this for image backgrounds?
@@ -1611,7 +1677,7 @@ mod background {
         let background_position = background_position.unwrap_or_default();
         let _background_repeat = background_repeat.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
-        let offset = calculate_background_position(info, background_position, background_size);
+        let offset = calculate_background_position(info.clip_rect.size.width.round(), info.clip_rect.size.height.round(), background_position, background_size);
 
         let mut offset_info = *info;
         offset_info.clip_rect.origin.x += offset.x;
@@ -1694,16 +1760,14 @@ mod background {
 
     /// Transforma background-position attribute into pixel coordinates
     fn calculate_background_position(
-        info: &WrCommonItemProperties,
+        width: f32,
+        height: f32,
         background_position: StyleBackgroundPosition,
         background_size: LogicalSize,
     ) -> LogicalPosition {
 
         use azul_css::BackgroundPositionVertical;
         use azul_css::BackgroundPositionHorizontal;
-
-        let width = info.clip_rect.size.width.round();
-        let height = info.clip_rect.size.height.round();
 
         let horizontal_offset = match background_position.horizontal {
             BackgroundPositionHorizontal::Right => 0.0,
@@ -1774,9 +1838,9 @@ mod image {
 
 mod box_shadow {
 
-    use azul_css::{BoxShadowClipMode, LayoutRect, ColorF, BoxShadowPreDisplayItem};
+    use azul_css::{BoxShadowClipMode, LayoutRect, ColorF, StyleBoxShadow};
     use azul_core::{
-        display_list::{StyleBoxShadow, StyleBorderRadius},
+        display_list::{BoxShadow, StyleBorderRadius},
         window::LogicalRect,
         window::LogicalSize,
     };
@@ -1803,7 +1867,7 @@ mod box_shadow {
         builder: &mut WrDisplayListBuilder,
         bounds: LogicalRect,
         shadow_type: BoxShadowClipMode,
-        box_shadow: StyleBoxShadow,
+        box_shadow: &BoxShadow,
         border_radius: StyleBorderRadius,
         parent_spatial_id: WrSpatialId,
         parent_clip_id: WrClipId,
@@ -1811,9 +1875,9 @@ mod box_shadow {
         use self::ShouldPushShadow::*;
         use azul_css::CssPropertyValue;
 
-        let StyleBoxShadow { top, left, bottom, right } = &box_shadow;
+        let BoxShadow { clip_mode, top, left, bottom, right } = box_shadow;
 
-        fn translate_shadow_side(input: &Option<CssPropertyValue<BoxShadowPreDisplayItem>>) -> Option<BoxShadowPreDisplayItem> {
+        fn translate_shadow_side(input: &Option<CssPropertyValue<StyleBoxShadow>>) -> Option<StyleBoxShadow> {
             input.and_then(|prop| prop.get_property().cloned())
         }
 
@@ -1902,14 +1966,14 @@ mod box_shadow {
     #[allow(clippy::collapsible_if)]
     fn push_single_box_shadow_edge(
         builder: &mut WrDisplayListBuilder,
-        current_shadow: &BoxShadowPreDisplayItem,
+        current_shadow: &StyleBoxShadow,
         bounds: LogicalRect,
         border_radius: StyleBorderRadius,
         shadow_type: BoxShadowClipMode,
-        top: &Option<BoxShadowPreDisplayItem>,
-        bottom: &Option<BoxShadowPreDisplayItem>,
-        left: &Option<BoxShadowPreDisplayItem>,
-        right: &Option<BoxShadowPreDisplayItem>,
+        top: &Option<StyleBoxShadow>,
+        bottom: &Option<StyleBoxShadow>,
+        left: &Option<StyleBoxShadow>,
+        right: &Option<StyleBoxShadow>,
         parent_spatial_id: WrSpatialId,
         parent_clip_id: WrClipId,
     ) {
@@ -1980,7 +2044,7 @@ mod box_shadow {
     #[inline]
     fn push_box_shadow_inner(
         builder: &mut WrDisplayListBuilder,
-        pre_shadow: BoxShadowPreDisplayItem,
+        pre_shadow: StyleBoxShadow,
         border_radius: StyleBorderRadius,
         bounds: LogicalRect,
         clip_rect: LogicalRect,
@@ -2035,7 +2099,7 @@ mod box_shadow {
         }
     }
 
-    fn get_clip_rect(pre_shadow: &BoxShadowPreDisplayItem, bounds: LogicalRect) -> LogicalRect {
+    fn get_clip_rect(pre_shadow: &StyleBoxShadow, bounds: LogicalRect) -> LogicalRect {
         if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
             // inset shadows do not work like outset shadows
             // for inset shadows, you have to push a clip ID first, so that they are

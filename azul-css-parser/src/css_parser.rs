@@ -1802,7 +1802,7 @@ pub fn parse_style_background_content<'a>(input: &'a str) -> Result<StyleBackgro
 
 #[derive(Clone, PartialEq)]
 pub enum CssConicGradientParseError<'a> {
-    Pixel(CssPixelValueParseError<'a>),
+    Position(CssBackgroundPositionParseError<'a>),
     Angle(CssAngleValueParseError<'a>),
     NoAngle(&'a str),
 }
@@ -1810,20 +1810,18 @@ pub enum CssConicGradientParseError<'a> {
 
 impl_debug_as_display!(CssConicGradientParseError<'a>);
 impl_display!{ CssConicGradientParseError<'a>, {
-    Pixel(val) => format!("Invalid pixel value: \"{}\"", val),
+    Position(val) => format!("Invalid position attribute: \"{}\"", val),
     Angle(val) => format!("Invalid angle value: \"{}\"", val),
     NoAngle(val) => format!("Expected angle: \"{}\"", val),
 }}
 
-impl_from!(CssPixelValueParseError<'a>, CssConicGradientParseError::Pixel);
 impl_from!(CssAngleValueParseError<'a>, CssConicGradientParseError::Angle);
+impl_from!(CssBackgroundPositionParseError<'a>, CssConicGradientParseError::Position);
 
 // parse a conic gradient first item such as "from 0.25turn at 50% 30%"
 pub fn parse_conic_first_item<'a>(input: &'a str)
--> Result<Option<(AngleValue, PixelValue, PixelValue)>, CssConicGradientParseError<'a>>
+-> Result<Option<(AngleValue, StyleBackgroundPosition)>, CssConicGradientParseError<'a>>
 {
-    const HALF: PixelValue = PixelValue::const_percent(50);
-
     let input = input.trim();
     if !input.starts_with("from") { return Ok(None); }
     let input = &input["from".len()..];
@@ -1832,20 +1830,13 @@ pub fn parse_conic_first_item<'a>(input: &'a str)
     let angle = parse_angle_value(iter.next().ok_or(CssConicGradientParseError::NoAngle(input))?)?;
 
     if !(iter.next() == Some("at")) {
-        return Ok(Some((angle, HALF, HALF)));
+        return Ok(Some((angle, StyleBackgroundPosition::default())));
     }
 
-    let x_pos = match iter.next() {
-        Some(s) => parse_pixel_value(s)?,
-        None => { return Ok(Some((angle, HALF, HALF))); },
-    };
+    let remaining = iter.next().unwrap_or("");
+    let position = parse_style_background_position(&remaining)?;
 
-    let y_pos = match iter.next() {
-        Some(s) => parse_pixel_value(s)?,
-        None => { return Ok(Some((angle, x_pos, HALF))); },
-    };
-
-    Ok(Some((angle, x_pos, y_pos)))
+    Ok(Some((angle, position)))
 }
 
 #[derive(Clone, PartialEq)]
@@ -2279,9 +2270,8 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
         Ok(StyleBackgroundContent::RadialGradient(radial_gradient))
     } else /* if is_conic_gradient */ {
         let mut conic_gradient = ConicGradient::default();
-        if let Some((angle, center_x, center_y)) = parse_conic_first_item(first_brace_item)? {
-            conic_gradient.center_x = center_x;
-            conic_gradient.center_y = center_y;
+        if let Some((angle, center)) = parse_conic_first_item(first_brace_item)? {
+            conic_gradient.center = center;
             conic_gradient.angle = angle;
         } else {
             conic_gradient.stops.push(parse_radial_color_stop(first_brace_item)?);

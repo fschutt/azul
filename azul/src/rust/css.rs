@@ -66,10 +66,10 @@
             CssPropertyType::BorderRightWidth => CssProperty::BorderRightWidth(StyleBorderRightWidthValue::$content_type),
             CssPropertyType::BorderLeftWidth => CssProperty::BorderLeftWidth(StyleBorderLeftWidthValue::$content_type),
             CssPropertyType::BorderBottomWidth => CssProperty::BorderBottomWidth(StyleBorderBottomWidthValue::$content_type),
-            CssPropertyType::BoxShadowLeft => CssProperty::BoxShadowLeft(BoxShadowPreDisplayItemValue::$content_type),
-            CssPropertyType::BoxShadowRight => CssProperty::BoxShadowRight(BoxShadowPreDisplayItemValue::$content_type),
-            CssPropertyType::BoxShadowTop => CssProperty::BoxShadowTop(BoxShadowPreDisplayItemValue::$content_type),
-            CssPropertyType::BoxShadowBottom => CssProperty::BoxShadowBottom(BoxShadowPreDisplayItemValue::$content_type),
+            CssPropertyType::BoxShadowLeft => CssProperty::BoxShadowLeft(StyleBoxShadowValue::$content_type),
+            CssPropertyType::BoxShadowRight => CssProperty::BoxShadowRight(StyleBoxShadowValue::$content_type),
+            CssPropertyType::BoxShadowTop => CssProperty::BoxShadowTop(StyleBoxShadowValue::$content_type),
+            CssPropertyType::BoxShadowBottom => CssProperty::BoxShadowBottom(StyleBoxShadowValue::$content_type),
             CssPropertyType::Opacity => CssProperty::Opacity(StyleOpacityValue::$content_type),
             CssPropertyType::Transform => CssProperty::Transform(StyleTransformVecValue::$content_type),
             CssPropertyType::PerspectiveOrigin => CssProperty::PerspectiveOrigin(StylePerspectiveOriginValue::$content_type),
@@ -352,16 +352,16 @@
         pub const fn border_bottom_width(input: StyleBorderBottomWidth) -> Self { CssProperty::BorderBottomWidth(StyleBorderBottomWidthValue::Exact(input)) }
 
         /// Creates a `box_shadow_left` CSS attribute
-        pub const fn box_shadow_left(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowLeft(BoxShadowPreDisplayItemValue::Exact(input)) }
+        pub const fn box_shadow_left(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(input)) }
 
         /// Creates a `box_shadow_right` CSS attribute
-        pub const fn box_shadow_right(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowRight(BoxShadowPreDisplayItemValue::Exact(input)) }
+        pub const fn box_shadow_right(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(input)) }
 
         /// Creates a `box_shadow_top` CSS attribute
-        pub const fn box_shadow_top(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowTop(BoxShadowPreDisplayItemValue::Exact(input)) }
+        pub const fn box_shadow_top(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(input)) }
 
         /// Creates a `box_shadow_bottom` CSS attribute
-        pub const fn box_shadow_bottom(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowBottom(BoxShadowPreDisplayItemValue::Exact(input)) }
+        pub const fn box_shadow_bottom(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(input)) }
 
         /// Creates a `opacity` CSS attribute
         pub const fn opacity(input: StyleOpacity) -> Self { CssProperty::Opacity(StyleOpacityValue::Exact(input)) }
@@ -802,11 +802,11 @@
     impl Copy for BoxShadowClipMode { }
 
 
-    /// `BoxShadowPreDisplayItem` struct
-    #[doc(inline)] pub use crate::dll::AzBoxShadowPreDisplayItem as BoxShadowPreDisplayItem;
+    /// `StyleBoxShadow` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBoxShadow as StyleBoxShadow;
 
-    impl Clone for BoxShadowPreDisplayItem { fn clone(&self) -> Self { *self } }
-    impl Copy for BoxShadowPreDisplayItem { }
+    impl Clone for StyleBoxShadow { fn clone(&self) -> Self { *self } }
+    impl Copy for StyleBoxShadow { }
 
 
     /// `LayoutAlignContent` struct
@@ -1005,18 +1005,18 @@
     impl Copy for LayoutWidth { }
 
 
-    /// `LayoutWrap` struct
-    #[doc(inline)] pub use crate::dll::AzLayoutWrap as LayoutWrap;
+    /// `LayoutFlexWrap` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutFlexWrap as LayoutFlexWrap;
 
-    impl Clone for LayoutWrap { fn clone(&self) -> Self { *self } }
-    impl Copy for LayoutWrap { }
+    impl Clone for LayoutFlexWrap { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutFlexWrap { }
 
 
-    /// `Overflow` struct
-    #[doc(inline)] pub use crate::dll::AzOverflow as Overflow;
+    /// `LayoutOverflow` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutOverflow as LayoutOverflow;
 
-    impl Clone for Overflow { fn clone(&self) -> Self { *self } }
-    impl Copy for Overflow { }
+    impl Clone for LayoutOverflow { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutOverflow { }
 
 
     /// `PercentageValue` struct
@@ -1026,11 +1026,32 @@
     impl Copy for PercentageValue { }
 
 
-    /// `GradientStopPre` struct
-    #[doc(inline)] pub use crate::dll::AzGradientStopPre as GradientStopPre;
+    /// `AngleMetric` struct
+    #[doc(inline)] pub use crate::dll::AzAngleMetric as AngleMetric;
 
-    impl Clone for GradientStopPre { fn clone(&self) -> Self { *self } }
-    impl Copy for GradientStopPre { }
+    impl Clone for AngleMetric { fn clone(&self) -> Self { *self } }
+    impl Copy for AngleMetric { }
+
+
+    /// `AngleValue` struct
+    #[doc(inline)] pub use crate::dll::AzAngleValue as AngleValue;
+
+    impl Clone for AngleValue { fn clone(&self) -> Self { *self } }
+    impl Copy for AngleValue { }
+
+
+    /// `LinearColorStop` struct
+    #[doc(inline)] pub use crate::dll::AzLinearColorStop as LinearColorStop;
+
+    impl Clone for LinearColorStop { fn clone(&self) -> Self { *self } }
+    impl Copy for LinearColorStop { }
+
+
+    /// `RadialColorStop` struct
+    #[doc(inline)] pub use crate::dll::AzRadialColorStop as RadialColorStop;
+
+    impl Clone for RadialColorStop { fn clone(&self) -> Self { *self } }
+    impl Copy for RadialColorStop { }
 
 
     /// `DirectionCorner` struct
@@ -1080,6 +1101,13 @@
 
     impl Clone for RadialGradient { fn clone(&self) -> Self { unsafe { crate::dll::az_radial_gradient_deep_copy(self) } } }
     impl Drop for RadialGradient { fn drop(&mut self) { unsafe { crate::dll::az_radial_gradient_delete(self) }; } }
+
+
+    /// `ConicGradient` struct
+    #[doc(inline)] pub use crate::dll::AzConicGradient as ConicGradient;
+
+    impl Clone for ConicGradient { fn clone(&self) -> Self { unsafe { crate::dll::az_conic_gradient_deep_copy(self) } } }
+    impl Drop for ConicGradient { fn drop(&mut self) { unsafe { crate::dll::az_conic_gradient_delete(self) }; } }
 
 
     /// `CssImageId` struct
@@ -1166,11 +1194,11 @@
     impl Copy for StyleBorderBottomStyle { }
 
 
-    /// `StyleBorderBottomWidth` struct
-    #[doc(inline)] pub use crate::dll::AzStyleBorderBottomWidth as StyleBorderBottomWidth;
+    /// `LayoutBorderBottomWidth` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutBorderBottomWidth as LayoutBorderBottomWidth;
 
-    impl Clone for StyleBorderBottomWidth { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBorderBottomWidth { }
+    impl Clone for LayoutBorderBottomWidth { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutBorderBottomWidth { }
 
 
     /// `StyleBorderLeftColor` struct
@@ -1187,11 +1215,11 @@
     impl Copy for StyleBorderLeftStyle { }
 
 
-    /// `StyleBorderLeftWidth` struct
-    #[doc(inline)] pub use crate::dll::AzStyleBorderLeftWidth as StyleBorderLeftWidth;
+    /// `LayoutBorderLeftWidth` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutBorderLeftWidth as LayoutBorderLeftWidth;
 
-    impl Clone for StyleBorderLeftWidth { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBorderLeftWidth { }
+    impl Clone for LayoutBorderLeftWidth { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutBorderLeftWidth { }
 
 
     /// `StyleBorderRightColor` struct
@@ -1208,11 +1236,11 @@
     impl Copy for StyleBorderRightStyle { }
 
 
-    /// `StyleBorderRightWidth` struct
-    #[doc(inline)] pub use crate::dll::AzStyleBorderRightWidth as StyleBorderRightWidth;
+    /// `LayoutBorderRightWidth` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutBorderRightWidth as LayoutBorderRightWidth;
 
-    impl Clone for StyleBorderRightWidth { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBorderRightWidth { }
+    impl Clone for LayoutBorderRightWidth { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutBorderRightWidth { }
 
 
     /// `StyleBorderTopColor` struct
@@ -1243,11 +1271,25 @@
     impl Copy for StyleBorderTopStyle { }
 
 
-    /// `StyleBorderTopWidth` struct
-    #[doc(inline)] pub use crate::dll::AzStyleBorderTopWidth as StyleBorderTopWidth;
+    /// `LayoutBorderTopWidth` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutBorderTopWidth as LayoutBorderTopWidth;
 
-    impl Clone for StyleBorderTopWidth { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBorderTopWidth { }
+    impl Clone for LayoutBorderTopWidth { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutBorderTopWidth { }
+
+
+    /// `ScrollbarInfo` struct
+    #[doc(inline)] pub use crate::dll::AzScrollbarInfo as ScrollbarInfo;
+
+    impl Clone for ScrollbarInfo { fn clone(&self) -> Self { *self } }
+    impl Copy for ScrollbarInfo { }
+
+
+    /// `ScrollbarStyle` struct
+    #[doc(inline)] pub use crate::dll::AzScrollbarStyle as ScrollbarStyle;
+
+    impl Clone for ScrollbarStyle { fn clone(&self) -> Self { *self } }
+    impl Copy for ScrollbarStyle { }
 
 
     /// `StyleCursor` struct
@@ -1404,11 +1446,11 @@
     impl Copy for StyleWordSpacing { }
 
 
-    /// `BoxShadowPreDisplayItemValue` struct
-    #[doc(inline)] pub use crate::dll::AzBoxShadowPreDisplayItemValue as BoxShadowPreDisplayItemValue;
+    /// `StyleBoxShadowValue` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBoxShadowValue as StyleBoxShadowValue;
 
-    impl Clone for BoxShadowPreDisplayItemValue { fn clone(&self) -> Self { *self } }
-    impl Copy for BoxShadowPreDisplayItemValue { }
+    impl Clone for StyleBoxShadowValue { fn clone(&self) -> Self { *self } }
+    impl Copy for StyleBoxShadowValue { }
 
 
     /// `LayoutAlignContentValue` struct
@@ -1607,46 +1649,53 @@
     impl Copy for LayoutWidthValue { }
 
 
-    /// `LayoutWrapValue` struct
-    #[doc(inline)] pub use crate::dll::AzLayoutWrapValue as LayoutWrapValue;
+    /// `LayoutFlexWrapValue` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutFlexWrapValue as LayoutFlexWrapValue;
 
-    impl Clone for LayoutWrapValue { fn clone(&self) -> Self { *self } }
-    impl Copy for LayoutWrapValue { }
-
-
-    /// `OverflowValue` struct
-    #[doc(inline)] pub use crate::dll::AzOverflowValue as OverflowValue;
-
-    impl Clone for OverflowValue { fn clone(&self) -> Self { *self } }
-    impl Copy for OverflowValue { }
+    impl Clone for LayoutFlexWrapValue { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutFlexWrapValue { }
 
 
-    /// `StyleBackgroundContentValue` struct
-    #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentValue as StyleBackgroundContentValue;
+    /// `LayoutOverflowValue` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutOverflowValue as LayoutOverflowValue;
 
-    impl Clone for StyleBackgroundContentValue { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_content_value_deep_copy(self) } } }
-    impl Drop for StyleBackgroundContentValue { fn drop(&mut self) { unsafe { crate::dll::az_style_background_content_value_delete(self) }; } }
-
-
-    /// `StyleBackgroundPositionValue` struct
-    #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionValue as StyleBackgroundPositionValue;
-
-    impl Clone for StyleBackgroundPositionValue { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBackgroundPositionValue { }
+    impl Clone for LayoutOverflowValue { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutOverflowValue { }
 
 
-    /// `StyleBackgroundRepeatValue` struct
-    #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatValue as StyleBackgroundRepeatValue;
+    /// `ScrollbarStyleValue` struct
+    #[doc(inline)] pub use crate::dll::AzScrollbarStyleValue as ScrollbarStyleValue;
 
-    impl Clone for StyleBackgroundRepeatValue { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBackgroundRepeatValue { }
+    impl Clone for ScrollbarStyleValue { fn clone(&self) -> Self { unsafe { crate::dll::az_scrollbar_style_value_deep_copy(self) } } }
+    impl Drop for ScrollbarStyleValue { fn drop(&mut self) { unsafe { crate::dll::az_scrollbar_style_value_delete(self) }; } }
 
 
-    /// `StyleBackgroundSizeValue` struct
-    #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeValue as StyleBackgroundSizeValue;
+    /// `StyleBackgroundContentVecValue` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecValue as StyleBackgroundContentVecValue;
 
-    impl Clone for StyleBackgroundSizeValue { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBackgroundSizeValue { }
+    impl Clone for StyleBackgroundContentVecValue { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_content_vec_value_deep_copy(self) } } }
+    impl Drop for StyleBackgroundContentVecValue { fn drop(&mut self) { unsafe { crate::dll::az_style_background_content_vec_value_delete(self) }; } }
+
+
+    /// `StyleBackgroundPositionVecValue` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecValue as StyleBackgroundPositionVecValue;
+
+    impl Clone for StyleBackgroundPositionVecValue { fn clone(&self) -> Self { *self } }
+    impl Copy for StyleBackgroundPositionVecValue { }
+
+
+    /// `StyleBackgroundRepeatVecValue` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecValue as StyleBackgroundRepeatVecValue;
+
+    impl Clone for StyleBackgroundRepeatVecValue { fn clone(&self) -> Self { *self } }
+    impl Copy for StyleBackgroundRepeatVecValue { }
+
+
+    /// `StyleBackgroundSizeVecValue` struct
+    #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecValue as StyleBackgroundSizeVecValue;
+
+    impl Clone for StyleBackgroundSizeVecValue { fn clone(&self) -> Self { *self } }
+    impl Copy for StyleBackgroundSizeVecValue { }
 
 
     /// `StyleBorderBottomColorValue` struct
@@ -1677,11 +1726,11 @@
     impl Copy for StyleBorderBottomStyleValue { }
 
 
-    /// `StyleBorderBottomWidthValue` struct
-    #[doc(inline)] pub use crate::dll::AzStyleBorderBottomWidthValue as StyleBorderBottomWidthValue;
+    /// `LayoutBorderBottomWidthValue` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutBorderBottomWidthValue as LayoutBorderBottomWidthValue;
 
-    impl Clone for StyleBorderBottomWidthValue { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBorderBottomWidthValue { }
+    impl Clone for LayoutBorderBottomWidthValue { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutBorderBottomWidthValue { }
 
 
     /// `StyleBorderLeftColorValue` struct
@@ -1698,11 +1747,11 @@
     impl Copy for StyleBorderLeftStyleValue { }
 
 
-    /// `StyleBorderLeftWidthValue` struct
-    #[doc(inline)] pub use crate::dll::AzStyleBorderLeftWidthValue as StyleBorderLeftWidthValue;
+    /// `LayoutBorderLeftWidthValue` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutBorderLeftWidthValue as LayoutBorderLeftWidthValue;
 
-    impl Clone for StyleBorderLeftWidthValue { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBorderLeftWidthValue { }
+    impl Clone for LayoutBorderLeftWidthValue { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutBorderLeftWidthValue { }
 
 
     /// `StyleBorderRightColorValue` struct
@@ -1719,11 +1768,11 @@
     impl Copy for StyleBorderRightStyleValue { }
 
 
-    /// `StyleBorderRightWidthValue` struct
-    #[doc(inline)] pub use crate::dll::AzStyleBorderRightWidthValue as StyleBorderRightWidthValue;
+    /// `LayoutBorderRightWidthValue` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutBorderRightWidthValue as LayoutBorderRightWidthValue;
 
-    impl Clone for StyleBorderRightWidthValue { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBorderRightWidthValue { }
+    impl Clone for LayoutBorderRightWidthValue { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutBorderRightWidthValue { }
 
 
     /// `StyleBorderTopColorValue` struct
@@ -1754,11 +1803,11 @@
     impl Copy for StyleBorderTopStyleValue { }
 
 
-    /// `StyleBorderTopWidthValue` struct
-    #[doc(inline)] pub use crate::dll::AzStyleBorderTopWidthValue as StyleBorderTopWidthValue;
+    /// `LayoutBorderTopWidthValue` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutBorderTopWidthValue as LayoutBorderTopWidthValue;
 
-    impl Clone for StyleBorderTopWidthValue { fn clone(&self) -> Self { *self } }
-    impl Copy for StyleBorderTopWidthValue { }
+    impl Clone for LayoutBorderTopWidthValue { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutBorderTopWidthValue { }
 
 
     /// `StyleCursorValue` struct

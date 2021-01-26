@@ -137,7 +137,8 @@
     impl_vec!(AzDom, AzDomVec);
     impl_vec!(AzString, AzStringVec);
     impl_vec!(AzStringPair, AzStringPairVec);
-    impl_vec!(AzGradientStopPre, AzGradientStopPreVec);
+    impl_vec!(AzLinearColorStop, AzLinearColorStopVec);
+    impl_vec!(AzRadialColorStop, AzRadialColorStopVec);
     impl_vec!(AzCascadedCssPropertyWithSource, AzCascadedCssPropertyWithSourceVec);
     impl_vec!(AzNodeId, AzNodeIdVec);
     impl_vec!(AzNode, AzNodeVec);

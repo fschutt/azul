@@ -42,6 +42,192 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"IdOrClassVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<IdOrClass>`",
+					"external": "azul_impl::dom::IdOrClassVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut IdOrClass" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<IdOrClass>`",
+							"fn_body": "Vec::<AzIdOrClass>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<IdOrClass>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzIdOrClass>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<IdOrClass>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const IdOrClass"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"NodeDataInlineCssPropertyVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`",
+					"external": "azul_impl::dom::NodeDataInlineCssPropertyVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut NodeDataInlineCssProperty" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<NodeDataInlineCssProperty>`",
+							"fn_body": "Vec::<AzNodeDataInlineCssProperty>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<NodeDataInlineCssProperty>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzNodeDataInlineCssProperty>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<NodeDataInlineCssProperty>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const NodeDataInlineCssProperty"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"StyleBackgroundContentVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`",
+					"external": "azul_impl::css::StyleBackgroundContentVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut StyleBackgroundContent" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundContent>`",
+							"fn_body": "Vec::<AzStyleBackgroundContent>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundContent>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzStyleBackgroundContent>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<StyleBackgroundContent>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const StyleBackgroundContent"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"StyleBackgroundPositionVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`",
+					"external": "azul_impl::css::StyleBackgroundPositionVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut StyleBackgroundPosition" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundPosition>`",
+							"fn_body": "Vec::<AzStyleBackgroundPosition>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundPosition>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzStyleBackgroundPosition>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<StyleBackgroundPosition>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const StyleBackgroundPosition"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"StyleBackgroundRepeatVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`",
+					"external": "azul_impl::css::StyleBackgroundRepeatVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut StyleBackgroundRepeat" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundRepeat>`",
+							"fn_body": "Vec::<AzStyleBackgroundRepeat>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundRepeat>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzStyleBackgroundRepeat>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<StyleBackgroundRepeat>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const StyleBackgroundRepeat"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"StyleBackgroundSizeVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`",
+					"external": "azul_impl::css::StyleBackgroundSizeVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut StyleBackgroundSize" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundSize>`",
+							"fn_body": "Vec::<AzStyleBackgroundSize>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundSize>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzStyleBackgroundSize>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<StyleBackgroundSize>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const StyleBackgroundSize"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
 				"StyleTransformVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<StyleTransform>`",
 					"external": "azul_impl::css::StyleTransformVec",
@@ -817,30 +1003,30 @@
 					},
 					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
 				},
-				"GradientStopPreVec": {
-					"doc": "Wrapper over a Rust-allocated `GradientStopPreVec`",
-					"external": "azul_impl::css::GradientStopPreVec",
+				"LinearColorStopVec": {
+					"doc": "Wrapper over a Rust-allocated `LinearColorStopVec`",
+					"external": "azul_impl::css::LinearColorStopVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut GradientStopPre" } },
+						{ "ptr": { "type": "*mut LinearColorStop" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
 						"new": {
-							"doc": "Creates a new, empty Rust `Vec<GradientStopPre>`",
-							"fn_body": "Vec::<AzGradientStopPre>::new().into()"
+							"doc": "Creates a new, empty Rust `Vec<LinearColorStop>`",
+							"fn_body": "Vec::<AzLinearColorStop>::new().into()"
 						},
 						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<GradientStopPre>` with a given, pre-allocated capacity",
+							"doc": "Creates a new, empty Rust `Vec<LinearColorStop>` with a given, pre-allocated capacity",
 							"fn_args": [
 							    {"cap": "usize"}
 							],
-							"fn_body": "Vec::<AzGradientStopPre>::with_capacity(cap).into()"
+							"fn_body": "Vec::<AzLinearColorStop>::with_capacity(cap).into()"
 						},
 					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source",
+					        "doc": "Creates + allocates a Rust `Vec<LinearColorStop>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const GradientStopPre"},
+					            {"ptr": "*const LinearColorStop"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -848,30 +1034,30 @@
 					},
 					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
 				},
-				"CascadedCssPropertyWithSourceVec": {
-					"doc": "Wrapper over a Rust-allocated `CascadedCssPropertyWithSourceVec`",
-					"external": "azul_impl::styled_dom::CascadedCssPropertyWithSourceVec",
+				"RadialColorStopVec": {
+					"doc": "Wrapper over a Rust-allocated `RadialColorStopVec`",
+					"external": "azul_impl::css::RadialColorStopVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut CascadedCssPropertyWithSource" } },
+						{ "ptr": { "type": "*mut RadialColorStop" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
 						"new": {
-							"doc": "Creates a new, empty Rust `Vec<CascadedCssPropertyWithSource>`",
-							"fn_body": "Vec::<AzCascadedCssPropertyWithSource>::new().into()"
+							"doc": "Creates a new, empty Rust `Vec<RadialColorStop>`",
+							"fn_body": "Vec::<AzRadialColorStop>::new().into()"
 						},
 						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<CascadedCssPropertyWithSource>` with a given, pre-allocated capacity",
+							"doc": "Creates a new, empty Rust `Vec<RadialColorStop>` with a given, pre-allocated capacity",
 							"fn_args": [
 							    {"cap": "usize"}
 							],
-							"fn_body": "Vec::<AzCascadedCssPropertyWithSource>::with_capacity(cap).into()"
+							"fn_body": "Vec::<AzRadialColorStop>::with_capacity(cap).into()"
 						},
 					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<CascadedCssPropertyWithSource>` by **copying** it from a bytes source",
+					        "doc": "Creates + allocates a Rust `Vec<RadialColorStop>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const CascadedCssPropertyWithSource"},
+					            {"ptr": "*const RadialColorStop"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -1036,7 +1222,7 @@
 				},
 				"NodeDataVec": {
 					"doc": "Wrapper over a Rust-allocated `NodeDataVec`",
-					"external": "azul_impl::styled_dom::NodeDataVec",
+					"external": "azul_impl::dom::NodeDataVec",
 					"struct_fields": [
 						{ "ptr": { "type": "*mut NodeData" } },
 						{ "len": { "type": "usize" } },
@@ -1070,6 +1256,22 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionPercentageValue": {
+				    "external": "azul_impl::css::OptionPercentageValue",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": { "type": "PercentageValue" }}
+				    ]
+				},
+				"OptionAngleValue": {
+				    "external": "azul_impl::css::OptionAngleValue",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": { "type": "AngleValue" }}
+				    ]
+				},
 				"OptionRendererOptions": {
 					"external": "azul_impl::window::OptionRendererOptions",
 					"derive": ["Copy"],
@@ -1107,45 +1309,6 @@
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "RefAny" }}
-					]
-				},
-				"OptionStyleOpacityValue": {
-					"external": "azul_impl::css::OptionStyleOpacityValue",
-					"derive": ["Copy"],
-					"enum_fields": [
-						{"None": {}},
-						{"Some": { "type": "StyleOpacityValue" }}
-					]
-				},
-				"OptionStyleTransformVecValue": {
-					"external": "azul_impl::css::OptionStyleTransformVecValue",
-					"enum_fields": [
-						{"None": {}},
-						{"Some": { "type": "StyleTransformVecValue" }}
-					]
-				},
-				"OptionStyleTransformOriginValue": {
-					"external": "azul_impl::css::OptionStyleTransformOriginValue",
-					"derive": ["Copy"],
-					"enum_fields": [
-						{"None": {}},
-						{"Some": { "type": "StyleTransformOriginValue" }}
-					]
-				},
-				"OptionStylePerspectiveOriginValue": {
-					"external": "azul_impl::css::OptionStylePerspectiveOriginValue",
-					"derive": ["Copy"],
-					"enum_fields": [
-						{"None": {}},
-						{"Some": { "type": "StylePerspectiveOriginValue" }}
-					]
-				},
-				"OptionStyleBackfaceVisibilityValue": {
-					"external": "azul_impl::css::OptionStyleBackfaceVisibilityValue",
-					"derive": ["Copy"],
-					"enum_fields": [
-						{"None": {}},
-						{"Some": { "type": "StyleBackfaceVisibilityValue" }}
 					]
 				},
 				"OptionLayoutPoint": {
@@ -1312,14 +1475,6 @@
 						{"Some": { "type": "VirtualKeyCode" }}
 					]
 				},
-				"OptionPercentageValue": {
-					"external": "azul_impl::css::OptionPercentageValue",
-					"derive": ["Copy"],
-					"enum_fields": [
-						{"None": {}},
-						{"Some": { "type": "PercentageValue" }}
-					]
-				},
 				"OptionDom": {
 					"external": "azul_impl::dom::OptionDom",
 					"enum_fields": [
@@ -1349,483 +1504,6 @@
 						{"None": {}},
 						{"Some": { "type": "TabIndex" }}
 					]
-				},
-				"OptionStyleBackgroundContentValue": {
-				    "external": "azul_impl::css::OptionStyleBackgroundContentValue",
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBackgroundContentValue"}}
-				    ]
-				},
-				"OptionStyleBackgroundPositionValue": {
-				    "external": "azul_impl::css::OptionStyleBackgroundPositionValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBackgroundPositionValue"}}
-				    ]
-				},
-				"OptionStyleBackgroundSizeValue": {
-				    "external": "azul_impl::css::OptionStyleBackgroundSizeValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBackgroundSizeValue"}}
-				    ]
-				},
-				"OptionStyleBackgroundRepeatValue": {
-				    "external": "azul_impl::css::OptionStyleBackgroundRepeatValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBackgroundRepeatValue"}}
-				    ]
-				},
-				"OptionStyleFontSizeValue": {
-				    "external": "azul_impl::css::OptionStyleFontSizeValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleFontSizeValue"}}
-				    ]
-				},
-				"OptionStyleFontFamilyValue": {
-				    "external": "azul_impl::css::OptionStyleFontFamilyValue",
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleFontFamilyValue"}}
-				    ]
-				},
-				"OptionStyleTextColorValue": {
-				    "external": "azul_impl::css::OptionStyleTextColorValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleTextColorValue"}}
-				    ]
-				},
-				"OptionStyleTextAlignmentHorzValue": {
-				    "external": "azul_impl::css::OptionStyleTextAlignmentHorzValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleTextAlignmentHorzValue"}}
-				    ]
-				},
-				"OptionStyleLineHeightValue": {
-				    "external": "azul_impl::css::OptionStyleLineHeightValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleLineHeightValue"}}
-				    ]
-				},
-				"OptionStyleLetterSpacingValue": {
-				    "external": "azul_impl::css::OptionStyleLetterSpacingValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleLetterSpacingValue"}}
-				    ]
-				},
-				"OptionStyleWordSpacingValue": {
-				    "external": "azul_impl::css::OptionStyleWordSpacingValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleWordSpacingValue"}}
-				    ]
-				},
-				"OptionStyleTabWidthValue": {
-				    "external": "azul_impl::css::OptionStyleTabWidthValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleTabWidthValue"}}
-				    ]
-				},
-				"OptionStyleCursorValue": {
-				    "external": "azul_impl::css::OptionStyleCursorValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleCursorValue"}}
-				    ]
-				},
-				"OptionBoxShadowPreDisplayItemValue": {
-				    "external": "azul_impl::css::OptionBoxShadowPreDisplayItemValue",
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "BoxShadowPreDisplayItemValue"}}
-				    ]
-				},
-				"OptionStyleBorderTopColorValue": {
-				    "external": "azul_impl::css::OptionStyleBorderTopColorValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderTopColorValue"}}
-				    ]
-				},
-				"OptionStyleBorderLeftColorValue": {
-				    "external": "azul_impl::css::OptionStyleBorderLeftColorValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderLeftColorValue"}}
-				    ]
-				},
-				"OptionStyleBorderRightColorValue": {
-				    "external": "azul_impl::css::OptionStyleBorderRightColorValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderRightColorValue"}}
-				    ]
-				},
-				"OptionStyleBorderBottomColorValue": {
-				    "external": "azul_impl::css::OptionStyleBorderBottomColorValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderBottomColorValue"}}
-				    ]
-				},
-				"OptionStyleBorderTopStyleValue": {
-				    "external": "azul_impl::css::OptionStyleBorderTopStyleValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderTopStyleValue"}}
-				    ]
-				},
-				"OptionStyleBorderLeftStyleValue": {
-				    "external": "azul_impl::css::OptionStyleBorderLeftStyleValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderLeftStyleValue"}}
-				    ]
-				},
-				"OptionStyleBorderRightStyleValue": {
-				    "external": "azul_impl::css::OptionStyleBorderRightStyleValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderRightStyleValue"}}
-				    ]
-				},
-				"OptionStyleBorderBottomStyleValue": {
-				    "external": "azul_impl::css::OptionStyleBorderBottomStyleValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderBottomStyleValue"}}
-				    ]
-				},
-				"OptionStyleBorderTopLeftRadiusValue": {
-				    "external": "azul_impl::css::OptionStyleBorderTopLeftRadiusValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderTopLeftRadiusValue"}}
-				    ]
-				},
-				"OptionStyleBorderTopRightRadiusValue": {
-				    "external": "azul_impl::css::OptionStyleBorderTopRightRadiusValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderTopRightRadiusValue"}}
-				    ]
-				},
-				"OptionStyleBorderBottomLeftRadiusValue": {
-				    "external": "azul_impl::css::OptionStyleBorderBottomLeftRadiusValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderBottomLeftRadiusValue"}}
-				    ]
-				},
-				"OptionStyleBorderBottomRightRadiusValue": {
-				    "external": "azul_impl::css::OptionStyleBorderBottomRightRadiusValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderBottomRightRadiusValue"}}
-				    ]
-				},
-				"OptionLayoutDisplayValue": {
-				    "external": "azul_impl::css::OptionLayoutDisplayValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutDisplayValue"}}
-				    ]
-				},
-				"OptionLayoutFloatValue": {
-				    "external": "azul_impl::css::OptionLayoutFloatValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutFloatValue"}}
-				    ]
-				},
-				"OptionLayoutBoxSizingValue": {
-				    "external": "azul_impl::css::OptionLayoutBoxSizingValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutBoxSizingValue"}}
-				    ]
-				},
-				"OptionLayoutWidthValue": {
-				    "external": "azul_impl::css::OptionLayoutWidthValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutWidthValue"}}
-				    ]
-				},
-				"OptionLayoutHeightValue": {
-				    "external": "azul_impl::css::OptionLayoutHeightValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutHeightValue"}}
-				    ]
-				},
-				"OptionLayoutMinWidthValue": {
-				    "external": "azul_impl::css::OptionLayoutMinWidthValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutMinWidthValue"}}
-				    ]
-				},
-				"OptionLayoutMinHeightValue": {
-				    "external": "azul_impl::css::OptionLayoutMinHeightValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutMinHeightValue"}}
-				    ]
-				},
-				"OptionLayoutMaxWidthValue": {
-				    "external": "azul_impl::css::OptionLayoutMaxWidthValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutMaxWidthValue"}}
-				    ]
-				},
-				"OptionLayoutMaxHeightValue": {
-				    "external": "azul_impl::css::OptionLayoutMaxHeightValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutMaxHeightValue"}}
-				    ]
-				},
-				"OptionLayoutPositionValue": {
-				    "external": "azul_impl::css::OptionLayoutPositionValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutPositionValue"}}
-				    ]
-				},
-				"OptionLayoutTopValue": {
-				    "external": "azul_impl::css::OptionLayoutTopValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutTopValue"}}
-				    ]
-				},
-				"OptionLayoutBottomValue": {
-				    "external": "azul_impl::css::OptionLayoutBottomValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutBottomValue"}}
-				    ]
-				},
-				"OptionLayoutRightValue": {
-				    "external": "azul_impl::css::OptionLayoutRightValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutRightValue"}}
-				    ]
-				},
-				"OptionLayoutLeftValue": {
-				    "external": "azul_impl::css::OptionLayoutLeftValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutLeftValue"}}
-				    ]
-				},
-				"OptionLayoutPaddingTopValue": {
-				    "external": "azul_impl::css::OptionLayoutPaddingTopValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutPaddingTopValue"}}
-				    ]
-				},
-				"OptionLayoutPaddingBottomValue": {
-				    "external": "azul_impl::css::OptionLayoutPaddingBottomValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutPaddingBottomValue"}}
-				    ]
-				},
-				"OptionLayoutPaddingLeftValue": {
-				    "external": "azul_impl::css::OptionLayoutPaddingLeftValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutPaddingLeftValue"}}
-				    ]
-				},
-				"OptionLayoutPaddingRightValue": {
-				    "external": "azul_impl::css::OptionLayoutPaddingRightValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutPaddingRightValue"}}
-				    ]
-				},
-				"OptionLayoutMarginTopValue": {
-				    "external": "azul_impl::css::OptionLayoutMarginTopValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutMarginTopValue"}}
-				    ]
-				},
-				"OptionLayoutMarginBottomValue": {
-				    "external": "azul_impl::css::OptionLayoutMarginBottomValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutMarginBottomValue"}}
-				    ]
-				},
-				"OptionLayoutMarginLeftValue": {
-				    "external": "azul_impl::css::OptionLayoutMarginLeftValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutMarginLeftValue"}}
-				    ]
-				},
-				"OptionLayoutMarginRightValue": {
-				    "external": "azul_impl::css::OptionLayoutMarginRightValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutMarginRightValue"}}
-				    ]
-				},
-				"OptionStyleBorderTopWidthValue": {
-				    "external": "azul_impl::css::OptionStyleBorderTopWidthValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderTopWidthValue"}}
-				    ]
-				},
-				"OptionStyleBorderLeftWidthValue": {
-				    "external": "azul_impl::css::OptionStyleBorderLeftWidthValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderLeftWidthValue"}}
-				    ]
-				},
-				"OptionStyleBorderRightWidthValue": {
-				    "external": "azul_impl::css::OptionStyleBorderRightWidthValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderRightWidthValue"}}
-				    ]
-				},
-				"OptionStyleBorderBottomWidthValue": {
-				    "external": "azul_impl::css::OptionStyleBorderBottomWidthValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "StyleBorderBottomWidthValue"}}
-				    ]
-				},
-				"OptionOverflowValue": {
-				    "external": "azul_impl::css::OptionOverflowValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "OverflowValue"}}
-				    ]
-				},
-				"OptionLayoutFlexDirectionValue": {
-				    "external": "azul_impl::css::OptionLayoutFlexDirectionValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutFlexDirectionValue"}}
-				    ]
-				},
-				"OptionLayoutWrapValue": {
-				    "external": "azul_impl::css::OptionLayoutWrapValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutWrapValue"}}
-				    ]
-				},
-				"OptionLayoutFlexGrowValue": {
-				    "external": "azul_impl::css::OptionLayoutFlexGrowValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutFlexGrowValue"}}
-				    ]
-				},
-				"OptionLayoutFlexShrinkValue": {
-				    "external": "azul_impl::css::OptionLayoutFlexShrinkValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutFlexShrinkValue"}}
-				    ]
-				},
-				"OptionLayoutJustifyContentValue": {
-				    "external": "azul_impl::css::OptionLayoutJustifyContentValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutJustifyContentValue"}}
-				    ]
-				},
-				"OptionLayoutAlignItemsValue": {
-				    "external": "azul_impl::css::OptionLayoutAlignItemsValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutAlignItemsValue"}}
-				    ]
-				},
-				"OptionLayoutAlignContentValue": {
-				    "external": "azul_impl::css::OptionLayoutAlignContentValue",
-				    "derive": ["Copy"],
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "LayoutAlignContentValue"}}
-				    ]
 				},
 				"OptionTagId": {
 				    "external": "azul_impl::styled_dom::OptionTagId",
@@ -2477,6 +2155,7 @@
 				},
 				"IFrameCallbackReturn": {
 					"external": "azul_impl::callbacks::IFrameCallbackReturn",
+					"clone": false,
 					"struct_fields": [
 						{"dom": { "type": "StyledDom" }},
 						{"size": {"type": "LayoutRect"}},
@@ -2967,6 +2646,7 @@
 						{"BoxShadowRight": {}},
 						{"BoxShadowTop": {}},
 						{"BoxShadowBottom": {}},
+						{"ScrollbarStyle": {}},
 						{"Opacity": {}},
 						{"Transform": {}},
 						{"PerspectiveOrigin": {}},
@@ -3041,8 +2721,8 @@
 						{"Inset": {}}
 					]
 				},
-				"BoxShadowPreDisplayItem": {
-					"external": "azul_impl::css::BoxShadowPreDisplayItem",
+				"StyleBoxShadow": {
+					"external": "azul_impl::css::StyleBoxShadow",
 					"derive": ["Copy"],
 					"struct_fields": [
 						{ "offset": {"type": "[PixelValueNoPercent;2]" }},
@@ -3271,16 +2951,16 @@
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
-				"LayoutWrap": {
-					"external": "azul_impl::css::LayoutWrap",
+				"LayoutFlexWrap": {
+					"external": "azul_impl::css::LayoutFlexWrap",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{"Wrap": {}},
 						{"NoWrap": {}}
 					]
 				},
-				"Overflow": {
-					"external": "azul_impl::css::Overflow",
+				"LayoutOverflow": {
+					"external": "azul_impl::css::LayoutOverflow",
 					"derive": ["Copy"],
 					"enum_fields": [
 						 {"Scroll": {"doc": "Always shows a scroll bar, overflows on scroll"}},
@@ -3303,11 +2983,38 @@
 						{ "number": {"type": "FloatValue" }}
 					]
 				},
-				"GradientStopPre": {
-					"external": "azul_impl::css::GradientStopPre",
+				"AngleMetric": {
+					"external": "azul_impl::css::AngleMetric",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Degree": {}},
+						{"Radians": {}},
+						{"Grad": {}},
+						{"Turn": {}},
+						{"Percent": {}}
+					]
+				},
+				"AngleValue": {
+					"external": "azul_impl::css::AngleValue",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{ "metric": {"type": "AngleMetric" }},
+						{ "number": {"type": "FloatValue" }}
+					]
+				},
+				"LinearColorStop": {
+					"external": "azul_impl::css::LinearColorStop",
 					"derive": ["Copy"],
 					"struct_fields": [
 						{"offset": {"type": "OptionPercentageValue"}},
+						{"color": {"type": "ColorU"}}
+					]
+				},
+				"RadialColorStop": {
+					"external": "azul_impl::css::RadialColorStop",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"offset": {"type": "OptionAngleValue"}},
 						{"color": {"type": "ColorU"}}
 					]
 				},
@@ -3354,7 +3061,7 @@
 					"struct_fields": [
 						{"direction": {"type": "Direction"}},
 						{"extend_mode": {"type": "ExtendMode"}},
-						{"stops": {"type": "GradientStopPreVec"}}
+						{"stops": {"type": "LinearColorStopVec"}}
 					]
 				},
 				"Shape": {
@@ -3370,7 +3077,16 @@
 					"struct_fields": [
 						{"shape": {"type": "Shape"}},
 						{"extend_mode": {"type": "ExtendMode"}},
-						{"stops": {"type": "GradientStopPreVec"}}
+						{"stops": {"type": "LinearColorStopVec"}}
+					]
+				},
+				"ConicGradient": {
+					"external": "azul_impl::css::ConicGradient",
+					"struct_fields": [
+						{"extend_mode": {"type": "ExtendMode"}},
+						{"center": {"type": "StyleBackgroundPosition"}},
+						{"angle": {"type": "AngleValue"}},
+						{"stops": {"type": "RadialColorStopVec"}}
 					]
 				},
 				"CssImageId": {
@@ -3384,6 +3100,7 @@
 					"enum_fields": [
 						{"LinearGradient": {"type": "LinearGradient"}},
 						{"RadialGradient": {"type": "RadialGradient"}},
+						{"ConicGradient": {"type": "ConicGradient"}},
 						{"Image": {"type": "CssImageId"}},
 						{"Color": {"type": "ColorU"}}
 					]
@@ -3479,8 +3196,8 @@
 						{"inner": {"type": "BorderStyle"}}
 					]
 				},
-				"StyleBorderBottomWidth": {
-					"external": "azul_impl::css::StyleBorderBottomWidth",
+				"LayoutBorderBottomWidth": {
+					"external": "azul_impl::css::LayoutBorderBottomWidth",
 					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
@@ -3500,8 +3217,8 @@
 						{"inner": {"type": "BorderStyle"}}
 					]
 				},
-				"StyleBorderLeftWidth": {
-					"external": "azul_impl::css::StyleBorderLeftWidth",
+				"LayoutBorderLeftWidth": {
+					"external": "azul_impl::css::LayoutBorderLeftWidth",
 					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
@@ -3521,8 +3238,8 @@
 						{"inner": {"type": "BorderStyle"}}
 					]
 				},
-				"StyleBorderRightWidth": {
-					"external": "azul_impl::css::StyleBorderRightWidth",
+				"LayoutBorderRightWidth": {
+					"external": "azul_impl::css::LayoutBorderRightWidth",
 					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
@@ -3556,11 +3273,33 @@
 						{"inner": {"type": "BorderStyle"}}
 					]
 				},
-				"StyleBorderTopWidth": {
-					"external": "azul_impl::css::StyleBorderTopWidth",
+				"LayoutBorderTopWidth": {
+					"external": "azul_impl::css::LayoutBorderTopWidth",
 					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
+					]
+				},
+				"ScrollbarInfo": {
+					"external": "azul_impl::css::ScrollbarInfo",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"width": {"type": "LayoutWidth"}},
+						{"padding_left": {"type": "LayoutPaddingLeft"}},
+						{"padding_right": {"type": "LayoutPaddingRight"}},
+						{"track": {"type": "StyleBackgroundContent"}},
+						{"thumb": {"type": "StyleBackgroundContent"}},
+						{"button": {"type": "StyleBackgroundContent"}},
+						{"corner": {"type": "StyleBackgroundContent"}},
+						{"resizer": {"type": "StyleBackgroundContent"}}
+					]
+				},
+				"ScrollbarStyle": {
+					"external": "azul_impl::css::ScrollbarStyle",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"horizontal": {"type": "ScrollbarInfo"}},
+						{"vertical": {"type": "ScrollbarInfo"}}
 					]
 				},
 				"StyleCursor": {
@@ -3800,16 +3539,16 @@
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
-				"BoxShadowPreDisplayItemValue": {
-					"rust_class_name": "CssPropertyValue<BoxShadowPreDisplayItem>",
-					"external": "azul_impl::css::CssPropertyValue::<BoxShadowPreDisplayItem>",
+				"StyleBoxShadowValue": {
+					"rust_class_name": "CssPropertyValue<StyleBoxShadow>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBoxShadow>",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
-						{ "Exact": { "type": "BoxShadowPreDisplayItem" }}
+						{ "Exact": { "type": "StyleBoxShadow" }}
 					]
 				},
 				"LayoutAlignContentValue": {
@@ -4148,75 +3887,86 @@
 						{ "Exact": { "type": "LayoutWidth" }}
 					]
 				},
-				"LayoutWrapValue": {
-					"rust_class_name": "CssPropertyValue<LayoutWrap>",
-					"external": "azul_impl::css::CssPropertyValue::<LayoutWrap>",
+				"LayoutFlexWrapValue": {
+					"rust_class_name": "CssPropertyValue<LayoutFlexWrap>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutFlexWrap>",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
-						{ "Exact": { "type": "LayoutWrap" }}
+						{ "Exact": { "type": "LayoutFlexWrap" }}
 					]
 				},
-				"OverflowValue": {
-					"rust_class_name": "CssPropertyValue<Overflow>",
-					"external": "azul_impl::css::CssPropertyValue::<Overflow>",
+				"LayoutOverflowValue": {
+					"rust_class_name": "CssPropertyValue<LayoutOverflow>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutOverflow>",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
-						{ "Exact": { "type": "Overflow" }}
+						{ "Exact": { "type": "LayoutOverflow" }}
 					]
 				},
-				"StyleBackgroundContentValue": {
-					"rust_class_name": "CssPropertyValue<StyleBackgroundContent>",
-					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundContent>",
+				"ScrollbarStyleValue": {
+					"rust_class_name": "CssPropertyValue<ScrollbarStyle>",
+					"external": "azul_impl::css::CssPropertyValue::<ScrollbarStyle>",
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
-						{ "Exact": { "type": "StyleBackgroundContent" }}
+						{ "Exact": { "type": "ScrollbarStyle" }}
 					]
 				},
-				"StyleBackgroundPositionValue": {
-					"rust_class_name": "CssPropertyValue<StyleBackgroundPosition>",
-					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>",
+				"StyleBackgroundContentVecValue": {
+					"rust_class_name": "CssPropertyValue<StyleBackgroundContentVec>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundContentVec>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBackgroundContentVec" }}
+					]
+				},
+				"StyleBackgroundPositionVecValue": {
+					"rust_class_name": "CssPropertyValue<StyleBackgroundPositionVec>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
-						{ "Exact": { "type": "StyleBackgroundPosition" }}
+						{ "Exact": { "type": "StyleBackgroundPositionVec" }}
 					]
 				},
-				"StyleBackgroundRepeatValue": {
-					"rust_class_name": "CssPropertyValue<StyleBackgroundRepeat>",
-					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>",
+				"StyleBackgroundRepeatVecValue": {
+					"rust_class_name": "CssPropertyValue<StyleBackgroundRepeatVec>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
-						{ "Exact": { "type": "StyleBackgroundRepeat" }}
+						{ "Exact": { "type": "StyleBackgroundRepeatVec" }}
 					]
 				},
-				"StyleBackgroundSizeValue": {
-					"rust_class_name": "CssPropertyValue<StyleBackgroundSize>",
-					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundSize>",
+				"StyleBackgroundSizeVecValue": {
+					"rust_class_name": "CssPropertyValue<StyleBackgroundSizeVec>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
-						{ "Exact": { "type": "StyleBackgroundSize" }}
+						{ "Exact": { "type": "StyleBackgroundSizeVec" }}
 					]
 				},
 				"StyleBorderBottomColorValue": {
@@ -4267,16 +4017,16 @@
 						{ "Exact": { "type": "StyleBorderBottomStyle" }}
 					]
 				},
-				"StyleBorderBottomWidthValue": {
-					"rust_class_name": "CssPropertyValue<StyleBorderBottomWidth>",
-					"external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>",
+				"LayoutBorderBottomWidthValue": {
+					"rust_class_name": "CssPropertyValue<LayoutBorderBottomWidth>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutBorderBottomWidth>",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
-						{ "Exact": { "type": "StyleBorderBottomWidth" }}
+						{ "Exact": { "type": "LayoutBorderBottomWidth" }}
 					]
 				},
 				"StyleBorderLeftColorValue": {
@@ -4303,16 +4053,16 @@
 						{ "Exact": { "type": "StyleBorderLeftStyle" }}
 					]
 				},
-				"StyleBorderLeftWidthValue": {
-					"rust_class_name": "CssPropertyValue<StyleBorderLeftWidth>",
-					"external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>",
+				"LayoutBorderLeftWidthValue": {
+					"rust_class_name": "CssPropertyValue<LayoutBorderLeftWidth>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutBorderLeftWidth>",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
-						{ "Exact": { "type": "StyleBorderLeftWidth" }}
+						{ "Exact": { "type": "LayoutBorderLeftWidth" }}
 					]
 				},
 				"StyleBorderRightColorValue": {
@@ -4339,16 +4089,16 @@
 						{ "Exact": { "type": "StyleBorderRightStyle" }}
 					]
 				},
-				"StyleBorderRightWidthValue": {
-					"rust_class_name": "CssPropertyValue<StyleBorderRightWidth>",
-					"external": "azul_impl::css::CssPropertyValue::<StyleBorderRightWidth>",
+				"LayoutBorderRightWidthValue": {
+					"rust_class_name": "CssPropertyValue<LayoutBorderRightWidth>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutBorderRightWidth>",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
-						{ "Exact": { "type": "StyleBorderRightWidth" }}
+						{ "Exact": { "type": "LayoutBorderRightWidth" }}
 					]
 				},
 				"StyleBorderTopColorValue": {
@@ -4399,16 +4149,16 @@
 						{ "Exact": { "type": "StyleBorderTopStyle" }}
 					]
 				},
-				"StyleBorderTopWidthValue": {
-					"rust_class_name": "CssPropertyValue<StyleBorderTopWidth>",
-					"external": "azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>",
+				"LayoutBorderTopWidthValue": {
+					"rust_class_name": "CssPropertyValue<LayoutBorderTopWidth>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutBorderTopWidth>",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
-						{ "Exact": { "type": "StyleBorderTopWidth" }}
+						{ "Exact": { "type": "LayoutBorderTopWidth" }}
 					]
 				},
 				"StyleCursorValue": {
@@ -4581,75 +4331,76 @@
 					"doc": "Parsed CSS key-value pair",
 					"external": "azul_impl::css::CssProperty",
 					"enum_fields": [
-						{ "TextColor": { "type": "CssPropertyValue<StyleTextColor>" }} ,
-						{ "FontSize": { "type": "CssPropertyValue<StyleFontSize>" }} ,
-						{ "FontFamily": { "type": "CssPropertyValue<StyleFontFamily>" }} ,
-						{ "TextAlign": { "type": "CssPropertyValue<StyleTextAlignmentHorz>" }} ,
-						{ "LetterSpacing": { "type": "CssPropertyValue<StyleLetterSpacing>" }} ,
-						{ "LineHeight": { "type": "CssPropertyValue<StyleLineHeight>" }} ,
-						{ "WordSpacing": { "type": "CssPropertyValue<StyleWordSpacing>" }} ,
-						{ "TabWidth": { "type": "CssPropertyValue<StyleTabWidth>" }} ,
-						{ "Cursor": { "type": "CssPropertyValue<StyleCursor>" }} ,
-						{ "Display": { "type": "CssPropertyValue<LayoutDisplay>" }} ,
-						{ "Float": { "type": "CssPropertyValue<LayoutFloat>" }} ,
-						{ "BoxSizing": { "type": "CssPropertyValue<LayoutBoxSizing>" }} ,
-						{ "Width": { "type": "CssPropertyValue<LayoutWidth>" }} ,
-						{ "Height": { "type": "CssPropertyValue<LayoutHeight>" }} ,
-						{ "MinWidth": { "type": "CssPropertyValue<LayoutMinWidth>" }} ,
-						{ "MinHeight": { "type": "CssPropertyValue<LayoutMinHeight>" }} ,
-						{ "MaxWidth": { "type": "CssPropertyValue<LayoutMaxWidth>" }} ,
-						{ "MaxHeight": { "type": "CssPropertyValue<LayoutMaxHeight>" }} ,
-						{ "Position": { "type": "CssPropertyValue<LayoutPosition>" }} ,
-						{ "Top": { "type": "CssPropertyValue<LayoutTop>" }} ,
-						{ "Right": { "type": "CssPropertyValue<LayoutRight>" }} ,
-						{ "Left": { "type": "CssPropertyValue<LayoutLeft>" }} ,
-						{ "Bottom": { "type": "CssPropertyValue<LayoutBottom>" }} ,
-						{ "FlexWrap": { "type": "CssPropertyValue<LayoutWrap>" }} ,
-						{ "FlexDirection": { "type": "CssPropertyValue<LayoutFlexDirection>" }} ,
-						{ "FlexGrow": { "type": "CssPropertyValue<LayoutFlexGrow>" }} ,
-						{ "FlexShrink": { "type": "CssPropertyValue<LayoutFlexShrink>" }} ,
-						{ "JustifyContent": { "type": "CssPropertyValue<LayoutJustifyContent>" }} ,
-						{ "AlignItems": { "type": "CssPropertyValue<LayoutAlignItems>" }} ,
-						{ "AlignContent": { "type": "CssPropertyValue<LayoutAlignContent>" }} ,
-						{ "BackgroundContent": { "type": "CssPropertyValue<StyleBackgroundContent>" }} ,
-						{ "BackgroundPosition": { "type": "CssPropertyValue<StyleBackgroundPosition>" }} ,
-						{ "BackgroundSize": { "type": "CssPropertyValue<StyleBackgroundSize>" }} ,
-						{ "BackgroundRepeat": { "type": "CssPropertyValue<StyleBackgroundRepeat>" }} ,
-						{ "OverflowX": { "type": "CssPropertyValue<Overflow>" }} ,
-						{ "OverflowY": { "type": "CssPropertyValue<Overflow>" }} ,
-						{ "PaddingTop": { "type": "CssPropertyValue<LayoutPaddingTop>" }} ,
-						{ "PaddingLeft": { "type": "CssPropertyValue<LayoutPaddingLeft>" }} ,
-						{ "PaddingRight": { "type": "CssPropertyValue<LayoutPaddingRight>" }} ,
-						{ "PaddingBottom": { "type": "CssPropertyValue<LayoutPaddingBottom>" }} ,
-						{ "MarginTop": { "type": "CssPropertyValue<LayoutMarginTop>" }} ,
-						{ "MarginLeft": { "type": "CssPropertyValue<LayoutMarginLeft>" }} ,
-						{ "MarginRight": { "type": "CssPropertyValue<LayoutMarginRight>" }} ,
-						{ "MarginBottom": { "type": "CssPropertyValue<LayoutMarginBottom>" }} ,
-						{ "BorderTopLeftRadius": { "type": "CssPropertyValue<StyleBorderTopLeftRadius>" }} ,
-						{ "BorderTopRightRadius": { "type": "CssPropertyValue<StyleBorderTopRightRadius>" }} ,
-						{ "BorderBottomLeftRadius": { "type": "CssPropertyValue<StyleBorderBottomLeftRadius>" }} ,
-						{ "BorderBottomRightRadius": { "type": "CssPropertyValue<StyleBorderBottomRightRadius>" }} ,
-						{ "BorderTopColor": { "type": "CssPropertyValue<StyleBorderTopColor>" }} ,
-						{ "BorderRightColor": { "type": "CssPropertyValue<StyleBorderRightColor>" }} ,
-						{ "BorderLeftColor": { "type": "CssPropertyValue<StyleBorderLeftColor>" }} ,
-						{ "BorderBottomColor": { "type": "CssPropertyValue<StyleBorderBottomColor>" }} ,
-						{ "BorderTopStyle": { "type": "CssPropertyValue<StyleBorderTopStyle>" }} ,
-						{ "BorderRightStyle": { "type": "CssPropertyValue<StyleBorderRightStyle>" }} ,
-						{ "BorderLeftStyle": { "type": "CssPropertyValue<StyleBorderLeftStyle>" }} ,
-						{ "BorderBottomStyle": { "type": "CssPropertyValue<StyleBorderBottomStyle>" }} ,
-						{ "BorderTopWidth": { "type": "CssPropertyValue<StyleBorderTopWidth>" }} ,
-						{ "BorderRightWidth": { "type": "CssPropertyValue<StyleBorderRightWidth>" }} ,
-						{ "BorderLeftWidth": { "type": "CssPropertyValue<StyleBorderLeftWidth>" }} ,
-						{ "BorderBottomWidth": { "type": "CssPropertyValue<StyleBorderBottomWidth>" }} ,
-						{ "BoxShadowLeft": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
-						{ "BoxShadowRight": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
-						{ "BoxShadowTop": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
-						{ "BoxShadowBottom": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }},
-						{ "Opacity": { "type": "CssPropertyValue<StyleOpacity>" }},
-						{ "Transform": { "type": "CssPropertyValue<StyleTransformVec>" }},
-						{ "TransformOrigin": {"type": "CssPropertyValue<StyleTransformOrigin>" }},
-						{ "PerspectiveOrigin": {"type": "CssPropertyValue<StylePerspectiveOrigin>" }},
-						{ "BackfaceVisibility": {"type": "CssPropertyValue<StyleBackfaceVisibility>" }}
+						{"TextColor": {"type": "CssPropertyValue<StyleTextColor>" }},
+						{"FontSize": {"type": "CssPropertyValue<StyleFontSize>" }},
+						{"FontFamily": {"type": "CssPropertyValue<StyleFontFamily>" }},
+						{"TextAlign": {"type": "CssPropertyValue<StyleTextAlignmentHorz>" }},
+						{"LetterSpacing": {"type": "CssPropertyValue<StyleLetterSpacing>" }},
+						{"LineHeight": {"type": "CssPropertyValue<StyleLineHeight>" }},
+						{"WordSpacing": {"type": "CssPropertyValue<StyleWordSpacing>" }},
+						{"TabWidth": {"type": "CssPropertyValue<StyleTabWidth>" }},
+						{"Cursor": {"type": "CssPropertyValue<StyleCursor>" }},
+						{"Display": {"type": "CssPropertyValue<LayoutDisplay>" }},
+						{"Float": {"type": "CssPropertyValue<LayoutFloat>" }},
+						{"BoxSizing": {"type": "CssPropertyValue<LayoutBoxSizing>" }},
+						{"Width": {"type": "CssPropertyValue<LayoutWidth>" }},
+						{"Height": {"type": "CssPropertyValue<LayoutHeight>" }},
+						{"MinWidth": {"type": "CssPropertyValue<LayoutMinWidth>" }},
+						{"MinHeight": {"type": "CssPropertyValue<LayoutMinHeight>" }},
+						{"MaxWidth": {"type": "CssPropertyValue<LayoutMaxWidth>" }},
+						{"MaxHeight": {"type": "CssPropertyValue<LayoutMaxHeight>" }},
+						{"Position": {"type": "CssPropertyValue<LayoutPosition>" }},
+						{"Top": {"type": "CssPropertyValue<LayoutTop>" }},
+						{"Right": {"type": "CssPropertyValue<LayoutRight>" }},
+						{"Left": {"type": "CssPropertyValue<LayoutLeft>" }},
+						{"Bottom": {"type": "CssPropertyValue<LayoutBottom>" }},
+						{"FlexWrap": {"type": "CssPropertyValue<LayoutFlexWrap>" }},
+						{"FlexDirection": {"type": "CssPropertyValue<LayoutFlexDirection>" }},
+						{"FlexGrow": {"type": "CssPropertyValue<LayoutFlexGrow>" }},
+						{"FlexShrink": {"type": "CssPropertyValue<LayoutFlexShrink>" }},
+						{"JustifyContent": {"type": "CssPropertyValue<LayoutJustifyContent>" }},
+						{"AlignItems": {"type": "CssPropertyValue<LayoutAlignItems>" }},
+						{"AlignContent": {"type": "CssPropertyValue<LayoutAlignContent>" }},
+						{"BackgroundContent": {"type": "CssPropertyValue<StyleBackgroundContentVec>" }},
+						{"BackgroundPosition": {"type": "CssPropertyValue<StyleBackgroundPositionVec>" }},
+						{"BackgroundSize": {"type": "CssPropertyValue<StyleBackgroundSizeVec>" }},
+						{"BackgroundRepeat": {"type": "CssPropertyValue<StyleBackgroundRepeatVec>" }},
+						{"OverflowX": {"type": "CssPropertyValue<LayoutOverflow>" }},
+						{"OverflowY": {"type": "CssPropertyValue<LayoutOverflow>" }},
+						{"PaddingTop": {"type": "CssPropertyValue<LayoutPaddingTop>" }},
+						{"PaddingLeft": {"type": "CssPropertyValue<LayoutPaddingLeft>" }},
+						{"PaddingRight": {"type": "CssPropertyValue<LayoutPaddingRight>" }},
+						{"PaddingBottom": {"type": "CssPropertyValue<LayoutPaddingBottom>" }},
+						{"MarginTop": {"type": "CssPropertyValue<LayoutMarginTop>" }},
+						{"MarginLeft": {"type": "CssPropertyValue<LayoutMarginLeft>" }},
+						{"MarginRight": {"type": "CssPropertyValue<LayoutMarginRight>" }},
+						{"MarginBottom": {"type": "CssPropertyValue<LayoutMarginBottom>" }},
+						{"BorderTopLeftRadius": {"type": "CssPropertyValue<StyleBorderTopLeftRadius>" }},
+						{"BorderTopRightRadius": {"type": "CssPropertyValue<StyleBorderTopRightRadius>" }},
+						{"BorderBottomLeftRadius": {"type": "CssPropertyValue<StyleBorderBottomLeftRadius>" }},
+						{"BorderBottomRightRadius": {"type": "CssPropertyValue<StyleBorderBottomRightRadius>" }},
+						{"BorderTopColor": {"type": "CssPropertyValue<StyleBorderTopColor>" }},
+						{"BorderRightColor": {"type": "CssPropertyValue<StyleBorderRightColor>" }},
+						{"BorderLeftColor": {"type": "CssPropertyValue<StyleBorderLeftColor>" }},
+						{"BorderBottomColor": {"type": "CssPropertyValue<StyleBorderBottomColor>" }},
+						{"BorderTopStyle": {"type": "CssPropertyValue<StyleBorderTopStyle>" }},
+						{"BorderRightStyle": {"type": "CssPropertyValue<StyleBorderRightStyle>" }},
+						{"BorderLeftStyle": {"type": "CssPropertyValue<StyleBorderLeftStyle>" }},
+						{"BorderBottomStyle": {"type": "CssPropertyValue<StyleBorderBottomStyle>" }},
+						{"BorderTopWidth": {"type": "CssPropertyValue<LayoutBorderTopWidth>" }},
+						{"BorderRightWidth": {"type": "CssPropertyValue<LayoutBorderRightWidth>" }},
+						{"BorderLeftWidth": {"type": "CssPropertyValue<LayoutBorderLeftWidth>" }},
+						{"BorderBottomWidth": {"type": "CssPropertyValue<LayoutBorderBottomWidth>" }},
+						{"BoxShadowLeft": {"type": "CssPropertyValue<StyleBoxShadow>" }},
+						{"BoxShadowRight": {"type": "CssPropertyValue<StyleBoxShadow>" }},
+						{"BoxShadowTop": {"type": "CssPropertyValue<StyleBoxShadow>" }},
+						{"BoxShadowBottom": {"type": "CssPropertyValue<StyleBoxShadow>" }},
+						{"ScrollbarStyle": {"type": "CssPropertyValue<ScrollbarStyle>" }},
+						{"Opacity": {"type": "CssPropertyValue<StyleOpacity>" }},
+						{"Transform": {"type": "CssPropertyValue<StyleTransformVec>" }},
+						{"TransformOrigin": {"type": "CssPropertyValue<StyleTransformOrigin>" }},
+						{"PerspectiveOrigin": {"type": "CssPropertyValue<StylePerspectiveOrigin>" }},
+						{"BackfaceVisibility": {"type": "CssPropertyValue<StyleBackfaceVisibility>" }}
 					]
 				}
 			}
@@ -4676,92 +4427,6 @@
 						{"is_last_child": {"type": "bool"}}
 			  		]
 				},
-				"RectStyle": {
-					"external": "azul_impl::css::RectStyle",
-					"struct_fields": [
-						{"background": {"type": "OptionStyleBackgroundContentValue"}},
-						{"background_position": {"type": "OptionStyleBackgroundPositionValue"}},
-						{"background_size": {"type": "OptionStyleBackgroundSizeValue"}},
-						{"background_repeat": {"type": "OptionStyleBackgroundRepeatValue"}},
-						{"font_size": {"type": "OptionStyleFontSizeValue"}},
-						{"font_family": {"type": "OptionStyleFontFamilyValue"}},
-						{"text_color": {"type": "OptionStyleTextColorValue"}},
-						{"text_align": {"type": "OptionStyleTextAlignmentHorzValue"}},
-						{"line_height": {"type": "OptionStyleLineHeightValue"}},
-						{"letter_spacing": {"type": "OptionStyleLetterSpacingValue"}},
-						{"word_spacing": {"type": "OptionStyleWordSpacingValue"}},
-						{"tab_width": {"type": "OptionStyleTabWidthValue"}},
-						{"cursor": {"type": "OptionStyleCursorValue"}},
-						{"box_shadow_left": {"type": "OptionBoxShadowPreDisplayItemValue"}},
-						{"box_shadow_right": {"type": "OptionBoxShadowPreDisplayItemValue"}},
-						{"box_shadow_top": {"type": "OptionBoxShadowPreDisplayItemValue"}},
-						{"box_shadow_bottom": {"type": "OptionBoxShadowPreDisplayItemValue"}},
-						{"border_top_color": {"type": "OptionStyleBorderTopColorValue"}},
-						{"border_left_color": {"type": "OptionStyleBorderLeftColorValue"}},
-						{"border_right_color": {"type": "OptionStyleBorderRightColorValue"}},
-						{"border_bottom_color": {"type": "OptionStyleBorderBottomColorValue"}},
-						{"border_top_style": {"type": "OptionStyleBorderTopStyleValue"}},
-						{"border_left_style": {"type": "OptionStyleBorderLeftStyleValue"}},
-						{"border_right_style": {"type": "OptionStyleBorderRightStyleValue"}},
-						{"border_bottom_style": {"type": "OptionStyleBorderBottomStyleValue"}},
-						{"border_top_left_radius": {"type": "OptionStyleBorderTopLeftRadiusValue"}},
-						{"border_top_right_radius": {"type": "OptionStyleBorderTopRightRadiusValue"}},
-						{"border_bottom_left_radius": {"type": "OptionStyleBorderBottomLeftRadiusValue"}},
-						{"border_bottom_right_radius": {"type": "OptionStyleBorderBottomRightRadiusValue"}},
-						{"opacity": {"type": "OptionStyleOpacityValue"}},
-						{"transform": {"type": "OptionStyleTransformVecValue"}},
-						{"transform_origin": {"type": "OptionStyleTransformOriginValue"}},
-						{"perspective_origin": {"type": "OptionStylePerspectiveOriginValue"}},
-						{"backface_visibility": {"type": "OptionStyleBackfaceVisibilityValue"}}
-					]
-				},
-				"RectLayout": {
-					"external": "azul_impl::css::RectLayout",
-					"struct_fields": [
-						{"display": {"type": "OptionLayoutDisplayValue"}},
-						{"float": {"type": "OptionLayoutFloatValue"}},
-						{"box_sizing": {"type": "OptionLayoutBoxSizingValue"}},
-						{"width": {"type": "OptionLayoutWidthValue"}},
-						{"height": {"type": "OptionLayoutHeightValue"}},
-						{"min_width": {"type": "OptionLayoutMinWidthValue"}},
-						{"min_height": {"type": "OptionLayoutMinHeightValue"}},
-						{"max_width": {"type": "OptionLayoutMaxWidthValue"}},
-						{"max_height": {"type": "OptionLayoutMaxHeightValue"}},
-						{"position": {"type": "OptionLayoutPositionValue"}},
-						{"top": {"type": "OptionLayoutTopValue"}},
-						{"bottom": {"type": "OptionLayoutBottomValue"}},
-						{"right": {"type": "OptionLayoutRightValue"}},
-						{"left": {"type": "OptionLayoutLeftValue"}},
-						{"padding_top": {"type": "OptionLayoutPaddingTopValue"}},
-						{"padding_bottom": {"type": "OptionLayoutPaddingBottomValue"}},
-						{"padding_left": {"type": "OptionLayoutPaddingLeftValue"}},
-						{"padding_right": {"type": "OptionLayoutPaddingRightValue"}},
-						{"margin_top": {"type": "OptionLayoutMarginTopValue"}},
-						{"margin_bottom": {"type": "OptionLayoutMarginBottomValue"}},
-						{"margin_left": {"type": "OptionLayoutMarginLeftValue"}},
-						{"margin_right": {"type": "OptionLayoutMarginRightValue"}},
-						{"border_top_width": {"type": "OptionStyleBorderTopWidthValue"}},
-						{"border_left_width": {"type": "OptionStyleBorderLeftWidthValue"}},
-						{"border_right_width": {"type": "OptionStyleBorderRightWidthValue"}},
-						{"border_bottom_width": {"type": "OptionStyleBorderBottomWidthValue"}},
-						{"overflow_x": {"type": "OptionOverflowValue"}},
-						{"overflow_y": {"type": "OptionOverflowValue"}},
-						{"direction": {"type": "OptionLayoutFlexDirectionValue"}},
-						{"wrap": {"type": "OptionLayoutWrapValue"}},
-						{"flex_grow": {"type": "OptionLayoutFlexGrowValue"}},
-						{"flex_shrink": {"type": "OptionLayoutFlexShrinkValue"}},
-						{"justify_content": {"type": "OptionLayoutJustifyContentValue"}},
-						{"align_items": {"type": "OptionLayoutAlignItemsValue"}},
-						{"align_content": {"type": "OptionLayoutAlignContentValue"}}
-					]
-				},
-				"CascadedCssPropertyWithSource": {
-					"external": "azul_impl::styled_dom::CascadedCssPropertyWithSource",
-					"struct_fields": [
-						{"prop": {"type": "CssProperty"}},
-						{"source": {"type": "CssPropertySource"}}
-					]
-				},
 				"CssPropertySource": {
 					"external": "azul_impl::styled_dom::CssPropertySource",
 					"enum_fields": [
@@ -4772,25 +4437,18 @@
 				"StyledNodeState": {
 					"external": "azul_impl::styled_dom::StyledNodeState",
 					"derive": ["Copy"],
-					"enum_fields": [
-						{"Uninitialized": {}},
-						{"Normal": {}},
-						{"Hover": {}},
-						{"Active": {}},
-						{"Focused": {}}
+					"struct_fields": [
+						{"normal": {"type": "bool"}},
+						{"hover": {"type": "bool"}},
+						{"active": {"type": "bool"}},
+						{"focused": {"type": "bool"}}
 					]
 				},
 				"StyledNode": {
 					"external": "azul_impl::styled_dom::StyledNode",
 					"struct_fields": [
-						{"css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
-						{"hover_css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
-						{"active_css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
-						{"focus_css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
 						{"state": {"type": "StyledNodeState", "doc": ""}},
-						{"tag_id": {"type": "OptionTagId", "doc": "Optional hit-testing tag ID (NOTE: The tag ID has to be adjusted after the layout is done (to account for scroll tags))"}},
-						{"style": {"type": "RectStyle", "doc": "Final computed rect style, after all CSS rules are applied in order"}},
-						{"layout": {"type": "RectLayout", "doc": "Final computed rect layout, after all CSS rules are applied in order"}}
+						{"tag_id": {"type": "OptionTagId", "doc": "Optional hit-testing tag ID (NOTE: The tag ID has to be adjusted after the layout is done (to account for scroll tags))"}}
 					]
 				},
 				"TagId": {
@@ -4826,6 +4484,7 @@
 				},
 				"StyledDom": {
 					"external": "azul_impl::styled_dom::StyledDom",
+					"clone": false,
 					"struct_fields": [
 						{"root": {"type": "NodeId" }},
 						{"node_hierarchy": {"type": "NodeVec" }},
@@ -4862,6 +4521,22 @@
 		"dom": {
 			"doc": "`Dom` construction and configuration",
 			"classes": {
+				"IdOrClass": {
+					"external": "azul_impl::dom::IdOrClass",
+					"enum_fields": [
+						{"Id": {"type": "String"}},
+						{"Class": {"type": "String"}}
+					]
+				},
+				"NodeDataInlineCssProperty": {
+					"external": "azul_impl::dom::NodeDataInlineCssProperty",
+					"enum_fields": [
+						{"Normal": {"type": "CssProperty"}},
+						{"Active": {"type": "CssProperty"}},
+						{"Focus": {"type": "CssProperty"}},
+						{"Hover": {"type": "CssProperty"}}
+					]
+				},
 				"Dom": {
 					"external": "azul_impl::dom::Dom",
 					"struct_fields": [
@@ -4941,23 +4616,6 @@
 							"returns": "Dom",
 							"fn_body": "az_dom_add_id(&mut dom, id); dom"
 						},
-						"set_ids": {
-							"doc": "Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs",
-							"fn_args": [
-								{"self": "refmut"},
-								{"ids": "StringVec"}
-							],
-							"fn_body": "dom.set_ids(ids);"
-						},
-						"with_ids": {
-							"doc": "Same as [`Dom::set_ids`](#method.set_ids), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"ids": "StringVec"}
-							],
-							"returns": "Dom",
-							"fn_body": "az_dom_set_ids(&mut dom, ids); dom"
-						},
 						"add_class": {
 							"doc": "Adds a CSS class (`.something`) to the DOM node",
 							"fn_args": [
@@ -4974,23 +4632,6 @@
 							],
 							"returns": "Dom",
 							"fn_body": "az_dom_add_class(&mut dom, class); dom"
-						},
-						"set_classes": {
-							"doc": "Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes",
-							"fn_args": [
-								{"self": "refmut"},
-								{"classes": "StringVec"}
-							],
-							"fn_body": "dom.set_classes(classes);"
-						},
-						"with_classes": {
-							"doc": "Same as [`Dom::set_classes`](#method.set_classes), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"classes": "StringVec"}
-							],
-							"returns": "Dom",
-							"fn_body": "az_dom_set_classes(&mut dom, classes); dom"
 						},
 						"add_callback": {
 							"doc": "Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens",
@@ -5050,7 +4691,7 @@
 						"set_inline_css_props": {
 							"fn_args": [
 								{"self": "refmut"},
-								{"props": "CssPropertyVec"}
+								{"props": "NodeDataInlineCssPropertyVec"}
 							],
 							"fn_body": "dom.set_inline_css_props(props);"
 						},
@@ -5058,7 +4699,7 @@
 							"doc": "Same as [`Dom::set_inline_css_props`](#method.set_inline_css_props), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
-								{"props": "CssPropertyVec"}
+								{"props": "NodeDataInlineCssPropertyVec"}
 							],
 							"returns": "Dom",
 							"fn_body": "az_dom_set_inline_css_props(&mut dom, props); dom"
@@ -5080,22 +4721,6 @@
 							"returns": "Dom",
 							"fn_body": "az_dom_add_inline_hover_css(&mut dom, prop); dom"
 						},
-						"set_inline_hover_css_props": {
-							"fn_args": [
-								{"self": "refmut"},
-								{"props": "CssPropertyVec"}
-							],
-							"fn_body": "dom.set_inline_hover_css_props(props);"
-						},
-						"with_inline_hover_css_props": {
-							"doc": "Same as [`Dom::set_inline_hover_css_props`](#method.set_inline_hover_css_props), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"props": "CssPropertyVec"}
-							],
-							"returns": "Dom",
-							"fn_body": "az_dom_set_inline_hover_css_props(&mut dom, props); dom"
-						},
 						"add_inline_active_css": {
 							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
 							"fn_args": [
@@ -5113,22 +4738,6 @@
 							"returns": "Dom",
 							"fn_body": "az_dom_add_inline_active_css(&mut dom, prop); dom"
 						},
-						"set_inline_active_css_props": {
-							"fn_args": [
-								{"self": "refmut"},
-								{"props": "CssPropertyVec"}
-							],
-							"fn_body": "dom.set_inline_active_css_props(props);"
-						},
-						"with_inline_active_css_props": {
-							"doc": "Same as [`Dom::set_inline_active_css_props`](#method.set_inline_active_css_props), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"props": "CssPropertyVec"}
-							],
-							"returns": "Dom",
-							"fn_body": "az_dom_set_inline_active_css_props(&mut dom, props); dom"
-						},
 						"add_inline_focus_css": {
 							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
 							"fn_args": [
@@ -5145,22 +4754,6 @@
 							],
 							"returns": "Dom",
 							"fn_body": "az_dom_add_inline_focus_css(&mut dom, prop); dom"
-						},
-						"set_inline_focus_css_props": {
-							"fn_args": [
-								{"self": "refmut"},
-								{"props": "CssPropertyVec"}
-							],
-							"fn_body": "dom.set_inline_focus_css_props(props);"
-						},
-						"with_inline_focus_css_props": {
-							"doc": "Same as [`Dom::set_inline_focus_css_props`](#method.set_inline_focus_css_props), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"props": "CssPropertyVec"}
-							],
-							"returns": "Dom",
-							"fn_body": "az_dom_set_inline_focus_css_props(&mut dom, props); dom"
 						},
 						"set_is_draggable": {
 							"doc": "Sets the `is_draggable` attribute of this DOM node (default: false)",
@@ -5285,13 +4878,9 @@
 					"struct_fields": [
 						{"node_type": {"type": "NodeType", "doc": "Stores the type of the node, i.e. `div`, `img`, `p`, etc."}},
 						{"dataset": {"type": "OptionRefAny", "doc": "`dataset` attribute of the node, useful to store any UI-related data on the node itself"}},
-						{"ids": {"type": "StringVec", "doc": "Stores the ids of the node, i.e. `[#main, #something]`"}},
-						{"classes": {"type": "StringVec", "doc": "Stores the classes of the node, i.e. `[.myclass, .otherclass]`"}},
+						{"ids_and_classes": {"type": "IdOrClassVec", "doc": "Stores the ids of the node, i.e. `[#main, #something]`"}},
 						{"callbacks": {"type": "CallbackDataVec", "doc": "Stores the callbacks of the node, i.e. `On::MouseUp` -> `Callback(my_button_click_handler)`"}},
 						{"inline_css_props": {"type": "CssPropertyVec", "doc": "Override certain dynamic styling properties for this DOM node"}},
-						{"inline_hover_css_props": {"type": "CssPropertyVec", "doc": "Inline CSS properties that are applied on `:hover`"}},
-						{"inline_active_css_props": {"type": "CssPropertyVec", "doc": "Inline CSS properties that are applied on `:active`"}},
-						{"inline_focus_css_props": {"type": "CssPropertyVec", "doc": "Inline CSS properties that are applied on `:focus`"}},
 						{"clip_mask": {"type": "OptionImageMask", "doc": "Optional clip mask for this DOM node"}},
 						{"is_draggable": {"type": "bool", "doc": "Whether this div can be dragged or not, similar to `draggable = \"true\"` in HTML"}},
 						{"tab_index": {"type": "OptionTabIndex", "doc": "Whether this div can be focused, and if yes, in what default to `None` (not focusable). Note that without this, there can be no `On::FocusReceived` / `On::FocusLost` (equivalent to onfocus). For this reason, this is automatically set to `TabIndex::Auto` if a callback with `On::Focus*` is inserted"}}
@@ -5372,23 +4961,6 @@
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_id(&mut nodedata, id); nodedata"
 						},
-						"set_ids": {
-							"doc": "Same as calling [`NodeData::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs",
-							"fn_args": [
-								{"self": "refmut"},
-								{"ids": "StringVec"}
-							],
-							"fn_body": "nodedata.set_ids(ids);"
-						},
-						"with_ids": {
-							"doc": "Same as [`NodeData::set_ids`](#method.set_ids), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"ids": "StringVec"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_set_ids(&mut nodedata, ids); nodedata"
-						},
 						"add_class": {
 							"doc": "Adds a CSS class (`.something`) to the `NodeData`",
 							"fn_args": [
@@ -5406,22 +4978,22 @@
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_class(&mut nodedata, class); nodedata"
 						},
-						"set_classes": {
-							"doc": "Same as calling [`NodeData::add_class`](#method.add_class) for each class, but this function **replaces** all current classes",
+						"set_ids_and_classes": {
+							"doc": "Same as calling [`NodeData::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs",
 							"fn_args": [
 								{"self": "refmut"},
-								{"classes": "StringVec"}
+								{"ids_and_classes": "IdOrClassVec"}
 							],
-							"fn_body": "nodedata.set_classes(classes);"
+							"fn_body": "nodedata.set_ids_and_classes(ids_and_classes);"
 						},
-						"with_classes": {
-							"doc": "Same as [`NodeData::set_classes`](#method.set_classes), but as a builder method",
+						"with_ids_and_classes": {
+							"doc": "Same as [`NodeData::set_ids_and_classes`](#method.set_ids_and_classes), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
-								{"classes": "StringVec"}
+								{"ids_and_classes": "IdOrClassVec"}
 							],
 							"returns": "NodeData",
-							"fn_body": "az_node_data_set_classes(&mut nodedata, classes); nodedata"
+							"fn_body": "az_node_data_set_ids_and_classes(&mut nodedata, ids_and_classes); nodedata"
 						},
 						"add_dataset": {
 							"doc": "Adds a dataset to the `NodeData`",
@@ -5478,22 +5050,6 @@
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_inline_css(&mut nodedata, prop); nodedata"
 						},
-						"set_inline_css_props": {
-							"fn_args": [
-								{"self": "refmut"},
-								{"props": "CssPropertyVec"}
-							],
-							"fn_body": "nodedata.set_inline_css_props(props);"
-						},
-						"with_inline_css_props": {
-							"doc": "Same as [`NodeData::set_inline_css_props`](#method.set_inline_active_css_props), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"props": "CssPropertyVec"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_set_inline_css_props(&mut nodedata, props); nodedata"
-						},
 						"add_inline_hover_css": {
 							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
 							"fn_args": [
@@ -5510,22 +5066,6 @@
 							],
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_inline_hover_css(&mut nodedata, prop); nodedata"
-						},
-						"set_inline_hover_css_props": {
-							"fn_args": [
-								{"self": "refmut"},
-								{"props": "CssPropertyVec"}
-							],
-							"fn_body": "nodedata.set_inline_hover_css_props(props);"
-						},
-						"with_inline_hover_css_props": {
-							"doc": "Same as [`NodeData::set_inline_hover_css_props`](#method.set_inline_active_css_props), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"props": "CssPropertyVec"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_set_inline_hover_css_props(&mut nodedata, props); nodedata"
 						},
 						"add_inline_active_css": {
 							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
@@ -5544,22 +5084,6 @@
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_inline_active_css(&mut nodedata, prop); nodedata"
 						},
-						"set_inline_active_css_props": {
-							"fn_args": [
-								{"self": "refmut"},
-								{"props": "CssPropertyVec"}
-							],
-							"fn_body": "nodedata.set_inline_active_css_props(props);"
-						},
-						"with_inline_active_css_props": {
-							"doc": "Same as [`NodeData::set_inline_active_css_props`](#method.set_inline_active_css_props), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"props": "CssPropertyVec"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_set_inline_active_css_props(&mut nodedata, props); nodedata"
-						},
 						"add_inline_focus_css": {
 							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
 							"fn_args": [
@@ -5576,22 +5100,6 @@
 							],
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_inline_focus_css(&mut nodedata, prop); nodedata"
-						},
-						"set_inline_focus_css_props": {
-							"fn_args": [
-								{"self": "refmut"},
-								{"props": "CssPropertyVec"}
-							],
-							"fn_body": "nodedata.set_inline_focus_css_props(props);"
-						},
-						"with_inline_focus_css_props": {
-							"doc": "Same as [`NodeData::set_inline_focus_css_props`](#method.set_inline_focus_css_props), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"props": "CssPropertyVec"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_set_inline_focus_css_props(&mut nodedata, props); nodedata"
 						},
 						"with_clip_mask": {
 							"doc": "Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method",
@@ -8232,13 +7740,6 @@
 						{"miter_limit": {"type": "usize", "doc": "Limit for caps on path edges if line_join is set to `Miter`, (multiplied * 1000 as usize). Must be greater than or equal to 1px (`1000`). Default value = 1px (`1000`)"}},
 						{"tolerance": {"type": "usize", "doc": "Maximum allowed distance between path points when tesselating curves. Default value = 0.1px (`100`)"}},
 						{"apply_line_width": {"type": "bool", "doc": "When set to false, the generated vertices will all be positioned in the center. The width can be applied later on (eg in a vertex shader) by adding the vertex normal multiplied by the line with to each vertex position. Default value = `false`"}}
-					]
-				},
-				"SvgNodeId": {
-					"external": "azul_impl::resources::SvgNodeId",
-					"derive": ["Copy"],
-					"struct_fields": [
-						{"id": {"type": "usize"}}
 					]
 				}
 			}

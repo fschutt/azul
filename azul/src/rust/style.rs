@@ -20,27 +20,6 @@
     impl Copy for CascadeInfo { }
 
 
-    /// `RectStyle` struct
-    #[doc(inline)] pub use crate::dll::AzRectStyle as RectStyle;
-
-    impl Clone for RectStyle { fn clone(&self) -> Self { unsafe { crate::dll::az_rect_style_deep_copy(self) } } }
-    impl Drop for RectStyle { fn drop(&mut self) { unsafe { crate::dll::az_rect_style_delete(self) }; } }
-
-
-    /// `RectLayout` struct
-    #[doc(inline)] pub use crate::dll::AzRectLayout as RectLayout;
-
-    impl Clone for RectLayout { fn clone(&self) -> Self { unsafe { crate::dll::az_rect_layout_deep_copy(self) } } }
-    impl Drop for RectLayout { fn drop(&mut self) { unsafe { crate::dll::az_rect_layout_delete(self) }; } }
-
-
-    /// `CascadedCssPropertyWithSource` struct
-    #[doc(inline)] pub use crate::dll::AzCascadedCssPropertyWithSource as CascadedCssPropertyWithSource;
-
-    impl Clone for CascadedCssPropertyWithSource { fn clone(&self) -> Self { unsafe { crate::dll::az_cascaded_css_property_with_source_deep_copy(self) } } }
-    impl Drop for CascadedCssPropertyWithSource { fn drop(&mut self) { unsafe { crate::dll::az_cascaded_css_property_with_source_delete(self) }; } }
-
-
     /// `CssPropertySource` struct
     #[doc(inline)] pub use crate::dll::AzCssPropertySource as CssPropertySource;
 
@@ -100,5 +79,4 @@
         pub fn append(&mut self, dom: StyledDom)  { unsafe { crate::dll::az_styled_dom_append(self, dom) } }
     }
 
-    impl Clone for StyledDom { fn clone(&self) -> Self { unsafe { crate::dll::az_styled_dom_deep_copy(self) } } }
     impl Drop for StyledDom { fn drop(&mut self) { unsafe { crate::dll::az_styled_dom_delete(self) }; } }

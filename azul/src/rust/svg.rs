@@ -214,10 +214,3 @@
 
     impl Clone for SvgStrokeStyle { fn clone(&self) -> Self { *self } }
     impl Copy for SvgStrokeStyle { }
-
-
-    /// `SvgNodeId` struct
-    #[doc(inline)] pub use crate::dll::AzSvgNodeId as SvgNodeId;
-
-    impl Clone for SvgNodeId { fn clone(&self) -> Self { *self } }
-    impl Copy for SvgNodeId { }

@@ -283,7 +283,6 @@
     /// `IFrameCallbackReturn` struct
     #[doc(inline)] pub use crate::dll::AzIFrameCallbackReturn as IFrameCallbackReturn;
 
-    impl Clone for IFrameCallbackReturn { fn clone(&self) -> Self { unsafe { crate::dll::az_i_frame_callback_return_deep_copy(self) } } }
     impl Drop for IFrameCallbackReturn { fn drop(&mut self) { unsafe { crate::dll::az_i_frame_callback_return_delete(self) }; } }
 
 

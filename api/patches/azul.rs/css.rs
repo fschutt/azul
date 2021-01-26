@@ -62,10 +62,10 @@
             CssPropertyType::BorderRightWidth => CssProperty::BorderRightWidth(StyleBorderRightWidthValue::$content_type),
             CssPropertyType::BorderLeftWidth => CssProperty::BorderLeftWidth(StyleBorderLeftWidthValue::$content_type),
             CssPropertyType::BorderBottomWidth => CssProperty::BorderBottomWidth(StyleBorderBottomWidthValue::$content_type),
-            CssPropertyType::BoxShadowLeft => CssProperty::BoxShadowLeft(BoxShadowPreDisplayItemValue::$content_type),
-            CssPropertyType::BoxShadowRight => CssProperty::BoxShadowRight(BoxShadowPreDisplayItemValue::$content_type),
-            CssPropertyType::BoxShadowTop => CssProperty::BoxShadowTop(BoxShadowPreDisplayItemValue::$content_type),
-            CssPropertyType::BoxShadowBottom => CssProperty::BoxShadowBottom(BoxShadowPreDisplayItemValue::$content_type),
+            CssPropertyType::BoxShadowLeft => CssProperty::BoxShadowLeft(StyleBoxShadowValue::$content_type),
+            CssPropertyType::BoxShadowRight => CssProperty::BoxShadowRight(StyleBoxShadowValue::$content_type),
+            CssPropertyType::BoxShadowTop => CssProperty::BoxShadowTop(StyleBoxShadowValue::$content_type),
+            CssPropertyType::BoxShadowBottom => CssProperty::BoxShadowBottom(StyleBoxShadowValue::$content_type),
             CssPropertyType::Opacity => CssProperty::Opacity(StyleOpacityValue::$content_type),
             CssPropertyType::Transform => CssProperty::Transform(StyleTransformVecValue::$content_type),
             CssPropertyType::PerspectiveOrigin => CssProperty::PerspectiveOrigin(StylePerspectiveOriginValue::$content_type),
@@ -348,16 +348,16 @@
         pub const fn border_bottom_width(input: StyleBorderBottomWidth) -> Self { CssProperty::BorderBottomWidth(StyleBorderBottomWidthValue::Exact(input)) }
 
         /// Creates a `box_shadow_left` CSS attribute
-        pub const fn box_shadow_left(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowLeft(BoxShadowPreDisplayItemValue::Exact(input)) }
+        pub const fn box_shadow_left(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(input)) }
 
         /// Creates a `box_shadow_right` CSS attribute
-        pub const fn box_shadow_right(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowRight(BoxShadowPreDisplayItemValue::Exact(input)) }
+        pub const fn box_shadow_right(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(input)) }
 
         /// Creates a `box_shadow_top` CSS attribute
-        pub const fn box_shadow_top(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowTop(BoxShadowPreDisplayItemValue::Exact(input)) }
+        pub const fn box_shadow_top(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(input)) }
 
         /// Creates a `box_shadow_bottom` CSS attribute
-        pub const fn box_shadow_bottom(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowBottom(BoxShadowPreDisplayItemValue::Exact(input)) }
+        pub const fn box_shadow_bottom(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(input)) }
 
         /// Creates a `opacity` CSS attribute
         pub const fn opacity(input: StyleOpacity) -> Self { CssProperty::Opacity(StyleOpacityValue::Exact(input)) }

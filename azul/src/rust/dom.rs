@@ -50,9 +50,23 @@
     }    use crate::str::String;
     use crate::resources::{ImageId, TextId};
     use crate::callbacks::{CallbackType, GlCallbackType, IFrameCallbackType, RefAny};
-    use crate::vec::{CssPropertyVec, StringVec};
     use crate::css::{Css, CssProperty};
+    use crate::vec::{IdOrClassVec, NodeDataInlineCssPropertyVec};
     use crate::option::{OptionImageMask, OptionTabIndex};
+
+
+    /// `IdOrClass` struct
+    #[doc(inline)] pub use crate::dll::AzIdOrClass as IdOrClass;
+
+    impl Clone for IdOrClass { fn clone(&self) -> Self { unsafe { crate::dll::az_id_or_class_deep_copy(self) } } }
+    impl Drop for IdOrClass { fn drop(&mut self) { unsafe { crate::dll::az_id_or_class_delete(self) }; } }
+
+
+    /// `NodeDataInlineCssProperty` struct
+    #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssProperty as NodeDataInlineCssProperty;
+
+    impl Clone for NodeDataInlineCssProperty { fn clone(&self) -> Self { unsafe { crate::dll::az_node_data_inline_css_property_deep_copy(self) } } }
+    impl Drop for NodeDataInlineCssProperty { fn drop(&mut self) { unsafe { crate::dll::az_node_data_inline_css_property_delete(self) }; } }
 
 
     /// `Dom` struct
@@ -79,18 +93,10 @@
         pub fn add_id(&mut self, id: String)  { unsafe { crate::dll::az_dom_add_id(self, id) } }
         /// Same as [`Dom::add_id`](#method.add_id), but as a builder method
         pub fn with_id(self, id: String)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_id(self, id) } }
-        /// Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
-        pub fn set_ids(&mut self, ids: StringVec)  { unsafe { crate::dll::az_dom_set_ids(self, ids) } }
-        /// Same as [`Dom::set_ids`](#method.set_ids), but as a builder method
-        pub fn with_ids(self, ids: StringVec)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_ids(self, ids) } }
         /// Adds a CSS class (`.something`) to the DOM node
         pub fn add_class(&mut self, class: String)  { unsafe { crate::dll::az_dom_add_class(self, class) } }
         /// Same as [`Dom::add_class`](#method.add_class), but as a builder method
         pub fn with_class(self, class: String)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_class(self, class) } }
-        /// Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
-        pub fn set_classes(&mut self, classes: StringVec)  { unsafe { crate::dll::az_dom_set_classes(self, classes) } }
-        /// Same as [`Dom::set_classes`](#method.set_classes), but as a builder method
-        pub fn with_classes(self, classes: StringVec)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_classes(self, classes) } }
         /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
         pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType)  { unsafe { crate::dll::az_dom_add_callback(self, event, data, callback) } }
         /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
@@ -104,33 +110,21 @@
         /// Same as [`Dom::add_inline_css`](#method.add_inline_css), but as a builder method
         pub fn with_inline_css(self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_inline_css(self, prop) } }
         /// Calls the `Dom::set_inline_css_props` function.
-        pub fn set_inline_css_props(&mut self, props: CssPropertyVec)  { unsafe { crate::dll::az_dom_set_inline_css_props(self, props) } }
+        pub fn set_inline_css_props(&mut self, props: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::az_dom_set_inline_css_props(self, props) } }
         /// Same as [`Dom::set_inline_css_props`](#method.set_inline_css_props), but as a builder method
-        pub fn with_inline_css_props(self, props: CssPropertyVec)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_inline_css_props(self, props) } }
+        pub fn with_inline_css_props(self, props: NodeDataInlineCssPropertyVec)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_inline_css_props(self, props) } }
         /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
         pub fn add_inline_hover_css(&mut self, prop: CssProperty)  { unsafe { crate::dll::az_dom_add_inline_hover_css(self, prop) } }
         /// Same as [`Dom::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method
         pub fn with_inline_hover_css(self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_inline_hover_css(self, prop) } }
-        /// Calls the `Dom::set_inline_hover_css_props` function.
-        pub fn set_inline_hover_css_props(&mut self, props: CssPropertyVec)  { unsafe { crate::dll::az_dom_set_inline_hover_css_props(self, props) } }
-        /// Same as [`Dom::set_inline_hover_css_props`](#method.set_inline_hover_css_props), but as a builder method
-        pub fn with_inline_hover_css_props(self, props: CssPropertyVec)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_inline_hover_css_props(self, props) } }
         /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
         pub fn add_inline_active_css(&mut self, prop: CssProperty)  { unsafe { crate::dll::az_dom_add_inline_active_css(self, prop) } }
         /// Same as [`Dom::add_inline_active_css`](#method.add_inline_active_css), but as a builder method
         pub fn with_inline_active_css(self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_inline_active_css(self, prop) } }
-        /// Calls the `Dom::set_inline_active_css_props` function.
-        pub fn set_inline_active_css_props(&mut self, props: CssPropertyVec)  { unsafe { crate::dll::az_dom_set_inline_active_css_props(self, props) } }
-        /// Same as [`Dom::set_inline_active_css_props`](#method.set_inline_active_css_props), but as a builder method
-        pub fn with_inline_active_css_props(self, props: CssPropertyVec)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_inline_active_css_props(self, props) } }
         /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
         pub fn add_inline_focus_css(&mut self, prop: CssProperty)  { unsafe { crate::dll::az_dom_add_inline_focus_css(self, prop) } }
         /// Same as [`Dom::add_inline_focus_css`](#method.add_inline_active_css), but as a builder method
         pub fn with_inline_focus_css(self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_inline_focus_css(self, prop) } }
-        /// Calls the `Dom::set_inline_focus_css_props` function.
-        pub fn set_inline_focus_css_props(&mut self, props: CssPropertyVec)  { unsafe { crate::dll::az_dom_set_inline_focus_css_props(self, props) } }
-        /// Same as [`Dom::set_inline_focus_css_props`](#method.set_inline_focus_css_props), but as a builder method
-        pub fn with_inline_focus_css_props(self, props: CssPropertyVec)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_inline_focus_css_props(self, props) } }
         /// Sets the `is_draggable` attribute of this DOM node (default: false)
         pub fn set_is_draggable(&mut self, is_draggable: bool)  { unsafe { crate::dll::az_dom_set_is_draggable(self, is_draggable) } }
         /// Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method
@@ -211,18 +205,14 @@
         pub fn add_id(&mut self, id: String)  { unsafe { crate::dll::az_node_data_add_id(self, id) } }
         /// Same as [`NodeData::add_id`](#method.add_id), but as a builder method
         pub fn with_id(self, id: String)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_id(self, id) } }
-        /// Same as calling [`NodeData::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
-        pub fn set_ids(&mut self, ids: StringVec)  { unsafe { crate::dll::az_node_data_set_ids(self, ids) } }
-        /// Same as [`NodeData::set_ids`](#method.set_ids), but as a builder method
-        pub fn with_ids(self, ids: StringVec)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_ids(self, ids) } }
         /// Adds a CSS class (`.something`) to the `NodeData`
         pub fn add_class(&mut self, class: String)  { unsafe { crate::dll::az_node_data_add_class(self, class) } }
         /// Same as [`NodeData::add_class`](#method.add_class), but as a builder method
         pub fn with_class(self, class: String)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_class(self, class) } }
-        /// Same as calling [`NodeData::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
-        pub fn set_classes(&mut self, classes: StringVec)  { unsafe { crate::dll::az_node_data_set_classes(self, classes) } }
-        /// Same as [`NodeData::set_classes`](#method.set_classes), but as a builder method
-        pub fn with_classes(self, classes: StringVec)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_classes(self, classes) } }
+        /// Same as calling [`NodeData::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
+        pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec)  { unsafe { crate::dll::az_node_data_set_ids_and_classes(self, ids_and_classes) } }
+        /// Same as [`NodeData::set_ids_and_classes`](#method.set_ids_and_classes), but as a builder method
+        pub fn with_ids_and_classes(self, ids_and_classes: IdOrClassVec)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_ids_and_classes(self, ids_and_classes) } }
         /// Adds a dataset to the `NodeData`
         pub fn add_dataset(&mut self, data: RefAny)  { unsafe { crate::dll::az_node_data_add_dataset(self, data) } }
         /// Same as [`NodeData::add_dataset`](#method.add_dataset), but as a builder method
@@ -235,34 +225,18 @@
         pub fn add_inline_css(&mut self, prop: CssProperty)  { unsafe { crate::dll::az_node_data_add_inline_css(self, prop) } }
         /// Same as [`NodeData::add_inline_css`](#method.add_inline_css), but as a builder method
         pub fn with_inline_css(self, prop: CssProperty)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_inline_css(self, prop) } }
-        /// Calls the `NodeData::set_inline_css_props` function.
-        pub fn set_inline_css_props(&mut self, props: CssPropertyVec)  { unsafe { crate::dll::az_node_data_set_inline_css_props(self, props) } }
-        /// Same as [`NodeData::set_inline_css_props`](#method.set_inline_active_css_props), but as a builder method
-        pub fn with_inline_css_props(self, props: CssPropertyVec)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_inline_css_props(self, props) } }
         /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
         pub fn add_inline_hover_css(&mut self, prop: CssProperty)  { unsafe { crate::dll::az_node_data_add_inline_hover_css(self, prop) } }
         /// Same as [`NodeData::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method
         pub fn with_inline_hover_css(self, prop: CssProperty)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_inline_hover_css(self, prop) } }
-        /// Calls the `NodeData::set_inline_hover_css_props` function.
-        pub fn set_inline_hover_css_props(&mut self, props: CssPropertyVec)  { unsafe { crate::dll::az_node_data_set_inline_hover_css_props(self, props) } }
-        /// Same as [`NodeData::set_inline_hover_css_props`](#method.set_inline_active_css_props), but as a builder method
-        pub fn with_inline_hover_css_props(self, props: CssPropertyVec)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_inline_hover_css_props(self, props) } }
         /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
         pub fn add_inline_active_css(&mut self, prop: CssProperty)  { unsafe { crate::dll::az_node_data_add_inline_active_css(self, prop) } }
         /// Same as [`NodeData::add_inline_active_css`](#method.add_inline_active_css), but as a builder method
         pub fn with_inline_active_css(self, prop: CssProperty)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_inline_active_css(self, prop) } }
-        /// Calls the `NodeData::set_inline_active_css_props` function.
-        pub fn set_inline_active_css_props(&mut self, props: CssPropertyVec)  { unsafe { crate::dll::az_node_data_set_inline_active_css_props(self, props) } }
-        /// Same as [`NodeData::set_inline_active_css_props`](#method.set_inline_active_css_props), but as a builder method
-        pub fn with_inline_active_css_props(self, props: CssPropertyVec)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_inline_active_css_props(self, props) } }
         /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
         pub fn add_inline_focus_css(&mut self, prop: CssProperty)  { unsafe { crate::dll::az_node_data_add_inline_focus_css(self, prop) } }
         /// Same as [`NodeData::add_inline_focus_css`](#method.add_inline_focus_css), but as a builder method
         pub fn with_inline_focus_css(self, prop: CssProperty)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_inline_focus_css(self, prop) } }
-        /// Calls the `NodeData::set_inline_focus_css_props` function.
-        pub fn set_inline_focus_css_props(&mut self, props: CssPropertyVec)  { unsafe { crate::dll::az_node_data_set_inline_focus_css_props(self, props) } }
-        /// Same as [`NodeData::set_inline_focus_css_props`](#method.set_inline_focus_css_props), but as a builder method
-        pub fn with_inline_focus_css_props(self, props: CssPropertyVec)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_inline_focus_css_props(self, props) } }
         /// Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method
         pub fn with_clip_mask(self, clip_mask: OptionImageMask)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_clip_mask(self, clip_mask) } }
         /// Sets the `clip_mask` attribute of this `NodeData` (default: None)

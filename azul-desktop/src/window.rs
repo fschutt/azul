@@ -363,16 +363,14 @@ impl Window {
         // always use a transparent background, reduces visible artifacts on resize
         let is_transparent_background = true;
 
-        // set the visibility of the window initially to false, only show the
-        // window after the first frame has been drawn + swapped
-        let is_initially_visible = options.state.flags.is_visible;
-
         let window_builder = Self::create_window_builder(
             is_transparent_background,
             options.theme.into_option(),
             &options.state.platform_specific_options
         );
 
+        // set the visibility of the window initially to false, only show the
+        // window after the first frame has been drawn + swapped
         let window_builder = window_builder.with_visible(false);
 
         // Only create a context with VSync and SRGB if the context creation works
@@ -642,7 +640,8 @@ impl Window {
             &self.internal.current_window_state,
             &self.internal.layout_results,
             &self.internal.gl_texture_cache,
-            app_resources
+            app_resources,
+            crate::text_layout::get_layouted_glyphs,
         );
         let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id);
 
@@ -1083,7 +1082,6 @@ impl Window {
 
         let physical_size = self.internal.current_window_state.size.get_physical_size();
         let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
-        let background_color_f: ColorF = self.internal.current_window_state.background_color.into();
 
         // Especially during minimization / maximization of a window, it can happen that the window
         // width or height is zero. In that case, no rendering is necessary (doing so would crash

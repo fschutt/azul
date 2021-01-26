@@ -580,11 +580,10 @@ fn format_conic_gradient(r: &ConicGradient, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
 
-    format!("ConicGradient {{\r\n{}extend_mode: {},\r\n{}center_x: {},\r\n{}center_y: {},\r\n{}angle: {},\r\n{}stops: vec![\r\n{}{}\r\n{}].into(),\r\n{}}}",
+    format!("ConicGradient {{\r\n{}extend_mode: {},\r\n{}center: {},\r\n{}angle: {},\r\n{}stops: vec![\r\n{}{}\r\n{}].into(),\r\n{}}}",
         t1,
         r.extend_mode.format_as_rust_code(tabs + 1), t1,
-        format_pixel_value(&r.center_x), t1,
-        format_pixel_value(&r.center_y), t1,
+        format_style_background_position(&r.center, tabs + 1), t1,
         format_angle_value(&r.angle), t1,
         t1, format_radial_color_stops(r.stops.as_ref(), tabs + 1), t1,
         t,

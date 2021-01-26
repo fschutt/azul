@@ -1986,8 +1986,7 @@ pub struct LinearGradient {
 #[repr(C)]
 pub struct ConicGradient {
     pub extend_mode: ExtendMode, // default = clamp (no-repeat)
-    pub center_x: PixelValue, // default = 50% 50%
-    pub center_y: PixelValue, // default = 50% 50%
+    pub center: StyleBackgroundPosition, // default = center center
     pub angle: AngleValue, // default = 0deg
     pub stops: RadialColorStopVec, // default = []
 }
@@ -2077,7 +2076,7 @@ impl LinearColorStopVec {
 }
 
 impl RadialColorStopVec {
-    pub fn get_normalized_linear_stops(&self) -> Vec<NormalizedRadialColorStop> {
+    pub fn get_normalized_radial_stops(&self) -> Vec<NormalizedRadialColorStop> {
 
         let mut last_stop = MIN_STOP_DEGREE;
         let mut stops = Vec::new();
@@ -2150,8 +2149,41 @@ impl RadialColorStopVec {
 #[repr(C)]
 pub struct RadialGradient {
     pub shape: Shape,
+    pub size: RadialGradientSize,
+    pub position: StyleBackgroundPosition,
     pub extend_mode: ExtendMode,
     pub stops: LinearColorStopVec,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum RadialGradientSize {
+    // The gradient's ending shape meets the side of the box closest to its center
+    // (for circles) or meets both the vertical and horizontal sides closest to the
+    // center (for ellipses).
+    ClosestSide,
+    // The gradient's ending shape is sized so that it exactly meets the closest
+    // corner of the box from its center
+    ClosestCorner,
+    // Similar to closest-side, except the ending shape is sized to meet the side
+    // of the box farthest from its center (or vertical and horizontal sides)
+    FarthestSide,
+    // The default value, the gradient's ending shape is sized so that it exactly
+    // meets the farthest corner of the box from its center
+    FarthestCorner,
+}
+
+impl Default for RadialGradientSize {
+    fn default() -> Self {
+        RadialGradientSize::FarthestCorner
+    }
+}
+
+impl RadialGradientSize {
+    pub fn get_size(&self, parent_rect: LayoutRect, gradient_center: LayoutPosition) -> LayoutSize {
+        // TODO!
+        parent_rect.size
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -3149,36 +3181,6 @@ pub struct ScrollbarStyle {
     /// Horizontal scrollbar style, if any
     pub vertical: ScrollbarInfo,
 }
-
-/*
-impl RectStyle {
-
-    pub fn has_box_shadow(&self) -> bool {
-        self.box_shadow_left.as_ref().and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
-        self.box_shadow_right.as_ref().and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
-        self.box_shadow_top.as_ref().and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
-        self.box_shadow_bottom.as_ref().and_then(|bs| bs.get_property().map(|_| ())).is_some()
-    }
-
-    pub fn has_border(&self) -> bool {
-        self.border_left_style.as_ref().and_then(|bs| bs.get_property_or_default()).is_some() ||
-        self.border_right_style.as_ref().and_then(|bs| bs.get_property_or_default()).is_some() ||
-        self.border_top_style.as_ref().and_then(|bs| bs.get_property_or_default()).is_some() ||
-        self.border_bottom_style.as_ref().and_then(|bs| bs.get_property_or_default()).is_some()
-    }
-}
-
-impl RectLayout {
-
-    pub fn is_horizontal_overflow_visible(&self) -> bool {
-        self.overflow_x.as_ref().map(|css_prop| css_prop.get_property().map(|overflow| overflow.is_overflow_visible()).unwrap_or_default()) == Some(true)
-    }
-
-    pub fn is_vertical_overflow_visible(&self) -> bool {
-        self.overflow_y.as_ref().map(|css_prop| css_prop.get_property().map(|overflow| overflow.is_overflow_visible()).unwrap_or_default()) == Some(true)
-    }
-}
-*/
 
 /// Represents a `font-size` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

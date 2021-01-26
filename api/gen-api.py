@@ -1142,7 +1142,7 @@ def generate_size_test(apiData, structs_map):
         test_str += test_sizes_patches[tuple(['dll'])]
 
     test_str += generated_structs
-    test_str += "    use core::os::raw::c_void;\r\n"
+    test_str += "    use core::ffi::c_void;\r\n"
     test_str += "    use azul_impl::css::*;\r\n"
     test_str += "\r\n"
 

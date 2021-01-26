@@ -6,7 +6,7 @@ use azul_css::{
     LayoutPoint, LayoutSize, LayoutRect,
     StyleBackgroundRepeat, StyleBackgroundPosition, ColorU,
     LinearGradient, RadialGradient, ConicGradient, StyleBoxShadow, StyleBackgroundSize,
-    CssPropertyValue,
+    CssPropertyValue, BoxShadowClipMode,
 
     LayoutBorderTopWidth, LayoutBorderRightWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
     StyleBorderTopColor, StyleBorderRightColor, StyleBorderBottomColor, StyleBorderLeftColor,
@@ -53,9 +53,6 @@ pub struct CachedDisplayList {
 }
 
 impl CachedDisplayList {
-    pub fn empty(size: LayoutSize, origin: LayoutPoint) -> Self {
-        Self { root: DisplayListMsg::Frame(DisplayListFrame::root(size, origin)) }
-    }
 
     pub fn new(
         epoch: Epoch,
@@ -90,9 +87,9 @@ impl CachedDisplayList {
         if dl.root.is_content_empty() {
             dl.root.push_content(LayoutRectContent::Background {
                 content: RectBackground::Color(full_window_state.background_color),
-                size: StyleBackgroundSize::default(),
-                offset: StyleBackgroundPosition::default(),
-                repeat: StyleBackgroundRepeat::default(),
+                size: None,
+                offset: None,
+                repeat: None,
             });
         }
 
@@ -388,6 +385,7 @@ tlbr_debug!(StyleBorderStyles);
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BoxShadow {
+    pub clip_mode: BoxShadowClipMode,
     pub top: Option<CssPropertyValue<StyleBoxShadow>>,
     pub right: Option<CssPropertyValue<StyleBoxShadow>>,
     pub bottom: Option<CssPropertyValue<StyleBoxShadow>>,
@@ -407,9 +405,9 @@ pub enum LayoutRectContent {
     },
     Background {
         content: RectBackground,
-        size: StyleBackgroundSize,
-        offset: StyleBackgroundPosition,
-        repeat: StyleBackgroundRepeat,
+        size: Option<StyleBackgroundSize>,
+        offset: Option<StyleBackgroundPosition>,
+        repeat: Option<StyleBackgroundRepeat>,
     },
     Image {
         size: LogicalSize,
@@ -682,7 +680,7 @@ impl SolvedLayout {
         }
 
         // Delete unused font and image keys (that were not used in this display list)
-        // garbage_collect_fonts_and_images(app_resources, render_api, &pipeline_id);
+        garbage_collect_fonts_and_images(app_resources, all_resource_updates, &pipeline_id);
         // Add the new GL textures to the RenderApi
         add_resources(app_resources, all_resource_updates, &pipeline_id, Vec::new(), image_resource_updates);
 
@@ -789,14 +787,26 @@ pub fn displaylist_handle_rect<'a>(
     };
 
     // push box shadow
-    let box_shadow = if layout_result.styled_dom.get_css_property_cache().has_box_shadow(&rect_idx, &styled_node.state) {
-        Some(BoxShadow {
-            left: layout_result.styled_dom.get_css_property_cache().get_box_shadow_left(&rect_idx, &styled_node.state).cloned(),
-            right: layout_result.styled_dom.get_css_property_cache().get_box_shadow_right(&rect_idx, &styled_node.state).cloned(),
-            top: layout_result.styled_dom.get_css_property_cache().get_box_shadow_top(&rect_idx, &styled_node.state).cloned(),
-            bottom: layout_result.styled_dom.get_css_property_cache().get_box_shadow_bottom(&rect_idx, &styled_node.state).cloned(),
-        })
-    } else { None };
+    let box_shadow_left = layout_result.styled_dom.get_css_property_cache().get_box_shadow_left(&rect_idx, &styled_node.state).cloned();
+    let box_shadow_right = layout_result.styled_dom.get_css_property_cache().get_box_shadow_right(&rect_idx, &styled_node.state).cloned();
+    let box_shadow_top = layout_result.styled_dom.get_css_property_cache().get_box_shadow_top(&rect_idx, &styled_node.state).cloned();
+    let box_shadow_bottom = layout_result.styled_dom.get_css_property_cache().get_box_shadow_bottom(&rect_idx, &styled_node.state).cloned();
+
+    let box_shadows = [&box_shadow_left, &box_shadow_right, &box_shadow_top, &box_shadow_bottom];
+
+    let box_shadow = if box_shadows.iter().all(|b| b.is_some()) {
+        let mut clip_mode = None;
+
+        if box_shadows.iter().all(|b| b.and_then(|b| b.get_property().map(|p| p.clip_mode)) == Some(BoxShadowClipMode::Outset)) {
+            clip_mode = Some(BoxShadowClipMode::Outset);
+        } else if box_shadows.iter().all(|b| b.and_then(|b| b.get_property().map(|p| p.clip_mode)) == Some(BoxShadowClipMode::Inset)) {
+            clip_mode = Some(BoxShadowClipMode::Inset);
+        }
+
+        clip_mode.map(|c| BoxShadow { clip_mode: c, left: box_shadow_left, right: box_shadow_right, top: box_shadow_top, bottom: box_shadow_bottom })
+    } else {
+        None
+    };
 
     frame.box_shadow = box_shadow;
 
@@ -804,10 +814,6 @@ pub fn displaylist_handle_rect<'a>(
     if let Some(bg) = layout_result.styled_dom.get_css_property_cache().get_background(&rect_idx, &styled_node.state).and_then(|br| br.get_property()) {
 
         use azul_css::{StyleBackgroundSizeVec, StyleBackgroundPositionVec, StyleBackgroundRepeatVec};
-
-        let default_size = StyleBackgroundSize::default();
-        let default_position = StyleBackgroundPosition::default();
-        let default_repeat = StyleBackgroundRepeat::default();
 
         let default_bg_size_vec: StyleBackgroundSizeVec = Vec::new().into();
         let default_bg_position_vec: StyleBackgroundPositionVec = Vec::new().into();
@@ -835,9 +841,9 @@ pub fn displaylist_handle_rect<'a>(
                 Color(c) => Some(RectBackground::Color(*c)),
             };
 
-            let bg_size = bg_sizes.get(bg_index).or(bg_sizes.get(0)).unwrap_or(&default_size);
-            let bg_position = bg_positions.get(bg_index).or(bg_positions.get(0)).unwrap_or(&default_position);
-            let bg_repeat = bg_repeats.get(bg_index).or(bg_repeats.get(0)).unwrap_or(&default_repeat);
+            let bg_size = bg_sizes.get(bg_index).or(bg_sizes.get(0)).copied();
+            let bg_position = bg_positions.get(bg_index).or(bg_positions.get(0)).copied();
+            let bg_repeat = bg_repeats.get(bg_index).or(bg_repeats.get(0)).copied();
 
             if let Some(background_content) = background_content {
                 frame.content.push(LayoutRectContent::Background {

@@ -54,6 +54,42 @@
     #[repr(C)] #[derive(Debug)] pub struct AzString {
         pub vec: AzU8Vec,
     }
+    /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
+    #[repr(C)] #[derive(Debug)] pub struct AzIdOrClassVec {
+        pub(crate) ptr: *mut AzIdOrClass,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
+    #[repr(C)] #[derive(Debug)] pub struct AzNodeDataInlineCssPropertyVec {
+        pub(crate) ptr: *mut AzNodeDataInlineCssProperty,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
+    #[repr(C)] #[derive(Debug)] pub struct AzStyleBackgroundContentVec {
+        pub(crate) ptr: *mut AzStyleBackgroundContent,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
+    #[repr(C)] #[derive(Debug)] pub struct AzStyleBackgroundPositionVec {
+        pub(crate) ptr: *mut AzStyleBackgroundPosition,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
+    #[repr(C)] #[derive(Debug)] pub struct AzStyleBackgroundRepeatVec {
+        pub(crate) ptr: *mut AzStyleBackgroundRepeat,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
+    #[repr(C)] #[derive(Debug)] pub struct AzStyleBackgroundSizeVec {
+        pub(crate) ptr: *mut AzStyleBackgroundSize,
+        pub len: usize,
+        pub cap: usize,
+    }
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
     #[repr(C)] #[derive(Debug)] pub struct AzStyleTransformVec {
         pub(crate) ptr: *mut AzStyleTransform,
@@ -204,15 +240,15 @@
         pub len: usize,
         pub cap: usize,
     }
-    /// Wrapper over a Rust-allocated `GradientStopPreVec`
-    #[repr(C)] #[derive(Debug)] pub struct AzGradientStopPreVec {
-        pub(crate) ptr: *mut AzGradientStopPre,
+    /// Wrapper over a Rust-allocated `LinearColorStopVec`
+    #[repr(C)] #[derive(Debug)] pub struct AzLinearColorStopVec {
+        pub(crate) ptr: *mut AzLinearColorStop,
         pub len: usize,
         pub cap: usize,
     }
-    /// Wrapper over a Rust-allocated `CascadedCssPropertyWithSourceVec`
-    #[repr(C)] #[derive(Debug)] pub struct AzCascadedCssPropertyWithSourceVec {
-        pub(crate) ptr: *mut AzCascadedCssPropertyWithSource,
+    /// Wrapper over a Rust-allocated `RadialColorStopVec`
+    #[repr(C)] #[derive(Debug)] pub struct AzRadialColorStopVec {
+        pub(crate) ptr: *mut AzRadialColorStop,
         pub len: usize,
         pub cap: usize,
     }
@@ -252,6 +288,16 @@
         pub len: usize,
         pub cap: usize,
     }
+    /// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionPercentageValue {
+        None,
+        Some(AzPercentageValue),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionAngleValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionAngleValue {
+        None,
+        Some(AzAngleValue),
+    }
     /// Re-export of rust-allocated (stack based) `OptionRendererOptions` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionRendererOptions {
         None,
@@ -276,31 +322,6 @@
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionRefAny {
         None,
         Some(AzRefAny),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleOpacityValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleOpacityValue {
-        None,
-        Some(AzStyleOpacityValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleTransformVecValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleTransformVecValue {
-        None,
-        Some(AzStyleTransformVecValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleTransformOriginValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleTransformOriginValue {
-        None,
-        Some(AzStyleTransformOriginValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStylePerspectiveOriginValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStylePerspectiveOriginValue {
-        None,
-        Some(AzStylePerspectiveOriginValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBackfaceVisibilityValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBackfaceVisibilityValue {
-        None,
-        Some(AzStyleBackfaceVisibilityValue),
     }
     /// Re-export of rust-allocated (stack based) `OptionLayoutPoint` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutPoint {
@@ -407,11 +428,6 @@
         None,
         Some(AzVirtualKeyCode),
     }
-    /// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionPercentageValue {
-        None,
-        Some(AzPercentageValue),
-    }
     /// Re-export of rust-allocated (stack based) `OptionDom` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionDom {
         None,
@@ -431,306 +447,6 @@
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionTabIndex {
         None,
         Some(AzTabIndex),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBackgroundContentValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBackgroundContentValue {
-        None,
-        Some(AzStyleBackgroundContentValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBackgroundPositionValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBackgroundPositionValue {
-        None,
-        Some(AzStyleBackgroundPositionValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBackgroundSizeValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBackgroundSizeValue {
-        None,
-        Some(AzStyleBackgroundSizeValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBackgroundRepeatValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBackgroundRepeatValue {
-        None,
-        Some(AzStyleBackgroundRepeatValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleFontSizeValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleFontSizeValue {
-        None,
-        Some(AzStyleFontSizeValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleFontFamilyValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleFontFamilyValue {
-        None,
-        Some(AzStyleFontFamilyValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleTextColorValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleTextColorValue {
-        None,
-        Some(AzStyleTextColorValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleTextAlignmentHorzValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleTextAlignmentHorzValue {
-        None,
-        Some(AzStyleTextAlignmentHorzValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleLineHeightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleLineHeightValue {
-        None,
-        Some(AzStyleLineHeightValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleLetterSpacingValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleLetterSpacingValue {
-        None,
-        Some(AzStyleLetterSpacingValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleWordSpacingValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleWordSpacingValue {
-        None,
-        Some(AzStyleWordSpacingValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleTabWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleTabWidthValue {
-        None,
-        Some(AzStyleTabWidthValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleCursorValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleCursorValue {
-        None,
-        Some(AzStyleCursorValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionBoxShadowPreDisplayItemValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionBoxShadowPreDisplayItemValue {
-        None,
-        Some(AzBoxShadowPreDisplayItemValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderTopColorValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderTopColorValue {
-        None,
-        Some(AzStyleBorderTopColorValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderLeftColorValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderLeftColorValue {
-        None,
-        Some(AzStyleBorderLeftColorValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderRightColorValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderRightColorValue {
-        None,
-        Some(AzStyleBorderRightColorValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderBottomColorValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderBottomColorValue {
-        None,
-        Some(AzStyleBorderBottomColorValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderTopStyleValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderTopStyleValue {
-        None,
-        Some(AzStyleBorderTopStyleValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderLeftStyleValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderLeftStyleValue {
-        None,
-        Some(AzStyleBorderLeftStyleValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderRightStyleValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderRightStyleValue {
-        None,
-        Some(AzStyleBorderRightStyleValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderBottomStyleValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderBottomStyleValue {
-        None,
-        Some(AzStyleBorderBottomStyleValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderTopLeftRadiusValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderTopLeftRadiusValue {
-        None,
-        Some(AzStyleBorderTopLeftRadiusValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderTopRightRadiusValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderTopRightRadiusValue {
-        None,
-        Some(AzStyleBorderTopRightRadiusValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderBottomLeftRadiusValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderBottomLeftRadiusValue {
-        None,
-        Some(AzStyleBorderBottomLeftRadiusValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderBottomRightRadiusValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderBottomRightRadiusValue {
-        None,
-        Some(AzStyleBorderBottomRightRadiusValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutDisplayValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutDisplayValue {
-        None,
-        Some(AzLayoutDisplayValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutFloatValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutFloatValue {
-        None,
-        Some(AzLayoutFloatValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutBoxSizingValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutBoxSizingValue {
-        None,
-        Some(AzLayoutBoxSizingValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutWidthValue {
-        None,
-        Some(AzLayoutWidthValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutHeightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutHeightValue {
-        None,
-        Some(AzLayoutHeightValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutMinWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutMinWidthValue {
-        None,
-        Some(AzLayoutMinWidthValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutMinHeightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutMinHeightValue {
-        None,
-        Some(AzLayoutMinHeightValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutMaxWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutMaxWidthValue {
-        None,
-        Some(AzLayoutMaxWidthValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutMaxHeightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutMaxHeightValue {
-        None,
-        Some(AzLayoutMaxHeightValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutPositionValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutPositionValue {
-        None,
-        Some(AzLayoutPositionValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutTopValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutTopValue {
-        None,
-        Some(AzLayoutTopValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutBottomValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutBottomValue {
-        None,
-        Some(AzLayoutBottomValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutRightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutRightValue {
-        None,
-        Some(AzLayoutRightValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutLeftValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutLeftValue {
-        None,
-        Some(AzLayoutLeftValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutPaddingTopValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutPaddingTopValue {
-        None,
-        Some(AzLayoutPaddingTopValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutPaddingBottomValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutPaddingBottomValue {
-        None,
-        Some(AzLayoutPaddingBottomValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutPaddingLeftValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutPaddingLeftValue {
-        None,
-        Some(AzLayoutPaddingLeftValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutPaddingRightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutPaddingRightValue {
-        None,
-        Some(AzLayoutPaddingRightValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutMarginTopValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutMarginTopValue {
-        None,
-        Some(AzLayoutMarginTopValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutMarginBottomValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutMarginBottomValue {
-        None,
-        Some(AzLayoutMarginBottomValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutMarginLeftValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutMarginLeftValue {
-        None,
-        Some(AzLayoutMarginLeftValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutMarginRightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutMarginRightValue {
-        None,
-        Some(AzLayoutMarginRightValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderTopWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderTopWidthValue {
-        None,
-        Some(AzStyleBorderTopWidthValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderLeftWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderLeftWidthValue {
-        None,
-        Some(AzStyleBorderLeftWidthValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderRightWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderRightWidthValue {
-        None,
-        Some(AzStyleBorderRightWidthValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionStyleBorderBottomWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionStyleBorderBottomWidthValue {
-        None,
-        Some(AzStyleBorderBottomWidthValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionOverflowValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionOverflowValue {
-        None,
-        Some(AzOverflowValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutFlexDirectionValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutFlexDirectionValue {
-        None,
-        Some(AzLayoutFlexDirectionValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutWrapValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutWrapValue {
-        None,
-        Some(AzLayoutWrapValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutFlexGrowValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutFlexGrowValue {
-        None,
-        Some(AzLayoutFlexGrowValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutFlexShrinkValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutFlexShrinkValue {
-        None,
-        Some(AzLayoutFlexShrinkValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutJustifyContentValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutJustifyContentValue {
-        None,
-        Some(AzLayoutJustifyContentValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutAlignItemsValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutAlignItemsValue {
-        None,
-        Some(AzLayoutAlignItemsValue),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutAlignContentValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutAlignContentValue {
-        None,
-        Some(AzLayoutAlignContentValue),
     }
     /// Re-export of rust-allocated (stack based) `OptionTagId` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionTagId {
@@ -1187,6 +903,7 @@
         BoxShadowRight,
         BoxShadowTop,
         BoxShadowBottom,
+        ScrollbarStyle,
         Opacity,
         Transform,
         PerspectiveOrigin,
@@ -1225,8 +942,8 @@
         Outset,
         Inset,
     }
-    /// Re-export of rust-allocated (stack based) `BoxShadowPreDisplayItem` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzBoxShadowPreDisplayItem {
+    /// Re-export of rust-allocated (stack based) `StyleBoxShadow` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzStyleBoxShadow {
         pub offset: [AzPixelValueNoPercent;2],
         pub color: AzColorU,
         pub blur_radius: AzPixelValueNoPercent,
@@ -1368,13 +1085,13 @@
     #[repr(C)] #[derive(Debug)] pub struct AzLayoutWidth {
         pub inner: AzPixelValue,
     }
-    /// Re-export of rust-allocated (stack based) `LayoutWrap` struct
-    #[repr(C)] #[derive(Debug)] pub enum AzLayoutWrap {
+    /// Re-export of rust-allocated (stack based) `LayoutFlexWrap` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzLayoutFlexWrap {
         Wrap,
         NoWrap,
     }
-    /// Re-export of rust-allocated (stack based) `Overflow` struct
-    #[repr(C)] #[derive(Debug)] pub enum AzOverflow {
+    /// Re-export of rust-allocated (stack based) `LayoutOverflow` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzLayoutOverflow {
         Scroll,
         Auto,
         Hidden,
@@ -1384,9 +1101,27 @@
     #[repr(C)] #[derive(Debug)] pub struct AzPercentageValue {
         pub number: AzFloatValue,
     }
-    /// Re-export of rust-allocated (stack based) `GradientStopPre` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzGradientStopPre {
+    /// Re-export of rust-allocated (stack based) `AngleMetric` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzAngleMetric {
+        Degree,
+        Radians,
+        Grad,
+        Turn,
+        Percent,
+    }
+    /// Re-export of rust-allocated (stack based) `AngleValue` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzAngleValue {
+        pub metric: AzAngleMetric,
+        pub number: AzFloatValue,
+    }
+    /// Re-export of rust-allocated (stack based) `LinearColorStop` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzLinearColorStop {
         pub offset: AzOptionPercentageValue,
+        pub color: AzColorU,
+    }
+    /// Re-export of rust-allocated (stack based) `RadialColorStop` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzRadialColorStop {
+        pub offset: AzOptionAngleValue,
         pub color: AzColorU,
     }
     /// Re-export of rust-allocated (stack based) `DirectionCorner` struct
@@ -1419,7 +1154,7 @@
     #[repr(C)] #[derive(Debug)] pub struct AzLinearGradient {
         pub direction: AzDirection,
         pub extend_mode: AzExtendMode,
-        pub stops: AzGradientStopPreVec,
+        pub stops: AzLinearColorStopVec,
     }
     /// Re-export of rust-allocated (stack based) `Shape` struct
     #[repr(C)] #[derive(Debug)] pub enum AzShape {
@@ -1430,7 +1165,14 @@
     #[repr(C)] #[derive(Debug)] pub struct AzRadialGradient {
         pub shape: AzShape,
         pub extend_mode: AzExtendMode,
-        pub stops: AzGradientStopPreVec,
+        pub stops: AzLinearColorStopVec,
+    }
+    /// Re-export of rust-allocated (stack based) `ConicGradient` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzConicGradient {
+        pub extend_mode: AzExtendMode,
+        pub center: AzStyleBackgroundPosition,
+        pub angle: AzAngleValue,
+        pub stops: AzRadialColorStopVec,
     }
     /// Re-export of rust-allocated (stack based) `CssImageId` struct
     #[repr(C)] #[derive(Debug)] pub struct AzCssImageId {
@@ -1440,6 +1182,7 @@
     #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundContent {
         LinearGradient(AzLinearGradient),
         RadialGradient(AzRadialGradient),
+        ConicGradient(AzConicGradient),
         Image(AzCssImageId),
         Color(AzColorU),
     }
@@ -1504,8 +1247,8 @@
     #[repr(C)] #[derive(Debug)] pub struct AzStyleBorderBottomStyle {
         pub inner: AzBorderStyle,
     }
-    /// Re-export of rust-allocated (stack based) `StyleBorderBottomWidth` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzStyleBorderBottomWidth {
+    /// Re-export of rust-allocated (stack based) `LayoutBorderBottomWidth` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzLayoutBorderBottomWidth {
         pub inner: AzPixelValue,
     }
     /// Re-export of rust-allocated (stack based) `StyleBorderLeftColor` struct
@@ -1516,8 +1259,8 @@
     #[repr(C)] #[derive(Debug)] pub struct AzStyleBorderLeftStyle {
         pub inner: AzBorderStyle,
     }
-    /// Re-export of rust-allocated (stack based) `StyleBorderLeftWidth` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzStyleBorderLeftWidth {
+    /// Re-export of rust-allocated (stack based) `LayoutBorderLeftWidth` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzLayoutBorderLeftWidth {
         pub inner: AzPixelValue,
     }
     /// Re-export of rust-allocated (stack based) `StyleBorderRightColor` struct
@@ -1528,8 +1271,8 @@
     #[repr(C)] #[derive(Debug)] pub struct AzStyleBorderRightStyle {
         pub inner: AzBorderStyle,
     }
-    /// Re-export of rust-allocated (stack based) `StyleBorderRightWidth` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzStyleBorderRightWidth {
+    /// Re-export of rust-allocated (stack based) `LayoutBorderRightWidth` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzLayoutBorderRightWidth {
         pub inner: AzPixelValue,
     }
     /// Re-export of rust-allocated (stack based) `StyleBorderTopColor` struct
@@ -1548,9 +1291,25 @@
     #[repr(C)] #[derive(Debug)] pub struct AzStyleBorderTopStyle {
         pub inner: AzBorderStyle,
     }
-    /// Re-export of rust-allocated (stack based) `StyleBorderTopWidth` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzStyleBorderTopWidth {
+    /// Re-export of rust-allocated (stack based) `LayoutBorderTopWidth` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzLayoutBorderTopWidth {
         pub inner: AzPixelValue,
+    }
+    /// Re-export of rust-allocated (stack based) `ScrollbarInfo` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzScrollbarInfo {
+        pub width: AzLayoutWidth,
+        pub padding_left: AzLayoutPaddingLeft,
+        pub padding_right: AzLayoutPaddingRight,
+        pub track: AzStyleBackgroundContent,
+        pub thumb: AzStyleBackgroundContent,
+        pub button: AzStyleBackgroundContent,
+        pub corner: AzStyleBackgroundContent,
+        pub resizer: AzStyleBackgroundContent,
+    }
+    /// Re-export of rust-allocated (stack based) `ScrollbarStyle` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzScrollbarStyle {
+        pub horizontal: AzScrollbarInfo,
+        pub vertical: AzScrollbarInfo,
     }
     /// Re-export of rust-allocated (stack based) `StyleCursor` struct
     #[repr(C)] #[derive(Debug)] pub enum AzStyleCursor {
@@ -1724,13 +1483,13 @@
     #[repr(C)] #[derive(Debug)] pub struct AzStyleWordSpacing {
         pub inner: AzPixelValue,
     }
-    /// Re-export of rust-allocated (stack based) `BoxShadowPreDisplayItemValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzBoxShadowPreDisplayItemValue {
+    /// Re-export of rust-allocated (stack based) `StyleBoxShadowValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBoxShadowValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzBoxShadowPreDisplayItem),
+        Exact(AzStyleBoxShadow),
     }
     /// Re-export of rust-allocated (stack based) `LayoutAlignContentValue` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzLayoutAlignContentValue {
@@ -1956,53 +1715,61 @@
         Initial,
         Exact(AzLayoutWidth),
     }
-    /// Re-export of rust-allocated (stack based) `LayoutWrapValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzLayoutWrapValue {
+    /// Re-export of rust-allocated (stack based) `LayoutFlexWrapValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzLayoutFlexWrapValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzLayoutWrap),
+        Exact(AzLayoutFlexWrap),
     }
-    /// Re-export of rust-allocated (stack based) `OverflowValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOverflowValue {
+    /// Re-export of rust-allocated (stack based) `LayoutOverflowValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzLayoutOverflowValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzOverflow),
+        Exact(AzLayoutOverflow),
     }
-    /// Re-export of rust-allocated (stack based) `StyleBackgroundContentValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundContentValue {
+    /// Re-export of rust-allocated (stack based) `ScrollbarStyleValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzScrollbarStyleValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzStyleBackgroundContent),
+        Exact(AzScrollbarStyle),
     }
-    /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundPositionValue {
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundContentVecValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzStyleBackgroundPosition),
+        Exact(AzStyleBackgroundContentVec),
     }
-    /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundRepeatValue {
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundPositionVecValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzStyleBackgroundRepeat),
+        Exact(AzStyleBackgroundPositionVec),
     }
-    /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundSizeValue {
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundRepeatVecValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzStyleBackgroundSize),
+        Exact(AzStyleBackgroundRepeatVec),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundSizeVecValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBackgroundSizeVec),
     }
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomColorValue` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBorderBottomColorValue {
@@ -2036,13 +1803,13 @@
         Initial,
         Exact(AzStyleBorderBottomStyle),
     }
-    /// Re-export of rust-allocated (stack based) `StyleBorderBottomWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBorderBottomWidthValue {
+    /// Re-export of rust-allocated (stack based) `LayoutBorderBottomWidthValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzLayoutBorderBottomWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzStyleBorderBottomWidth),
+        Exact(AzLayoutBorderBottomWidth),
     }
     /// Re-export of rust-allocated (stack based) `StyleBorderLeftColorValue` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBorderLeftColorValue {
@@ -2060,13 +1827,13 @@
         Initial,
         Exact(AzStyleBorderLeftStyle),
     }
-    /// Re-export of rust-allocated (stack based) `StyleBorderLeftWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBorderLeftWidthValue {
+    /// Re-export of rust-allocated (stack based) `LayoutBorderLeftWidthValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzLayoutBorderLeftWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzStyleBorderLeftWidth),
+        Exact(AzLayoutBorderLeftWidth),
     }
     /// Re-export of rust-allocated (stack based) `StyleBorderRightColorValue` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBorderRightColorValue {
@@ -2084,13 +1851,13 @@
         Initial,
         Exact(AzStyleBorderRightStyle),
     }
-    /// Re-export of rust-allocated (stack based) `StyleBorderRightWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBorderRightWidthValue {
+    /// Re-export of rust-allocated (stack based) `LayoutBorderRightWidthValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzLayoutBorderRightWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzStyleBorderRightWidth),
+        Exact(AzLayoutBorderRightWidth),
     }
     /// Re-export of rust-allocated (stack based) `StyleBorderTopColorValue` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBorderTopColorValue {
@@ -2124,13 +1891,13 @@
         Initial,
         Exact(AzStyleBorderTopStyle),
     }
-    /// Re-export of rust-allocated (stack based) `StyleBorderTopWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBorderTopWidthValue {
+    /// Re-export of rust-allocated (stack based) `LayoutBorderTopWidthValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzLayoutBorderTopWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzStyleBorderTopWidth),
+        Exact(AzLayoutBorderTopWidth),
     }
     /// Re-export of rust-allocated (stack based) `StyleCursorValue` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleCursorValue {
@@ -2269,19 +2036,19 @@
         Right(AzLayoutRightValue),
         Left(AzLayoutLeftValue),
         Bottom(AzLayoutBottomValue),
-        FlexWrap(AzLayoutWrapValue),
+        FlexWrap(AzLayoutFlexWrapValue),
         FlexDirection(AzLayoutFlexDirectionValue),
         FlexGrow(AzLayoutFlexGrowValue),
         FlexShrink(AzLayoutFlexShrinkValue),
         JustifyContent(AzLayoutJustifyContentValue),
         AlignItems(AzLayoutAlignItemsValue),
         AlignContent(AzLayoutAlignContentValue),
-        BackgroundContent(AzStyleBackgroundContentValue),
-        BackgroundPosition(AzStyleBackgroundPositionValue),
-        BackgroundSize(AzStyleBackgroundSizeValue),
-        BackgroundRepeat(AzStyleBackgroundRepeatValue),
-        OverflowX(AzOverflowValue),
-        OverflowY(AzOverflowValue),
+        BackgroundContent(AzStyleBackgroundContentVecValue),
+        BackgroundPosition(AzStyleBackgroundPositionVecValue),
+        BackgroundSize(AzStyleBackgroundSizeVecValue),
+        BackgroundRepeat(AzStyleBackgroundRepeatVecValue),
+        OverflowX(AzLayoutOverflowValue),
+        OverflowY(AzLayoutOverflowValue),
         PaddingTop(AzLayoutPaddingTopValue),
         PaddingLeft(AzLayoutPaddingLeftValue),
         PaddingRight(AzLayoutPaddingRightValue),
@@ -2302,14 +2069,15 @@
         BorderRightStyle(AzStyleBorderRightStyleValue),
         BorderLeftStyle(AzStyleBorderLeftStyleValue),
         BorderBottomStyle(AzStyleBorderBottomStyleValue),
-        BorderTopWidth(AzStyleBorderTopWidthValue),
-        BorderRightWidth(AzStyleBorderRightWidthValue),
-        BorderLeftWidth(AzStyleBorderLeftWidthValue),
-        BorderBottomWidth(AzStyleBorderBottomWidthValue),
-        BoxShadowLeft(AzBoxShadowPreDisplayItemValue),
-        BoxShadowRight(AzBoxShadowPreDisplayItemValue),
-        BoxShadowTop(AzBoxShadowPreDisplayItemValue),
-        BoxShadowBottom(AzBoxShadowPreDisplayItemValue),
+        BorderTopWidth(AzLayoutBorderTopWidthValue),
+        BorderRightWidth(AzLayoutBorderRightWidthValue),
+        BorderLeftWidth(AzLayoutBorderLeftWidthValue),
+        BorderBottomWidth(AzLayoutBorderBottomWidthValue),
+        BoxShadowLeft(AzStyleBoxShadowValue),
+        BoxShadowRight(AzStyleBoxShadowValue),
+        BoxShadowTop(AzStyleBoxShadowValue),
+        BoxShadowBottom(AzStyleBoxShadowValue),
+        ScrollbarStyle(AzScrollbarStyleValue),
         Opacity(AzStyleOpacityValue),
         Transform(AzStyleTransformVecValue),
         TransformOrigin(AzStyleTransformOriginValue),
@@ -2329,109 +2097,22 @@
         pub index_in_parent: u32,
         pub is_last_child: bool,
     }
-    /// Re-export of rust-allocated (stack based) `RectStyle` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzRectStyle {
-        pub background: AzOptionStyleBackgroundContentValue,
-        pub background_position: AzOptionStyleBackgroundPositionValue,
-        pub background_size: AzOptionStyleBackgroundSizeValue,
-        pub background_repeat: AzOptionStyleBackgroundRepeatValue,
-        pub font_size: AzOptionStyleFontSizeValue,
-        pub font_family: AzOptionStyleFontFamilyValue,
-        pub text_color: AzOptionStyleTextColorValue,
-        pub text_align: AzOptionStyleTextAlignmentHorzValue,
-        pub line_height: AzOptionStyleLineHeightValue,
-        pub letter_spacing: AzOptionStyleLetterSpacingValue,
-        pub word_spacing: AzOptionStyleWordSpacingValue,
-        pub tab_width: AzOptionStyleTabWidthValue,
-        pub cursor: AzOptionStyleCursorValue,
-        pub box_shadow_left: AzOptionBoxShadowPreDisplayItemValue,
-        pub box_shadow_right: AzOptionBoxShadowPreDisplayItemValue,
-        pub box_shadow_top: AzOptionBoxShadowPreDisplayItemValue,
-        pub box_shadow_bottom: AzOptionBoxShadowPreDisplayItemValue,
-        pub border_top_color: AzOptionStyleBorderTopColorValue,
-        pub border_left_color: AzOptionStyleBorderLeftColorValue,
-        pub border_right_color: AzOptionStyleBorderRightColorValue,
-        pub border_bottom_color: AzOptionStyleBorderBottomColorValue,
-        pub border_top_style: AzOptionStyleBorderTopStyleValue,
-        pub border_left_style: AzOptionStyleBorderLeftStyleValue,
-        pub border_right_style: AzOptionStyleBorderRightStyleValue,
-        pub border_bottom_style: AzOptionStyleBorderBottomStyleValue,
-        pub border_top_left_radius: AzOptionStyleBorderTopLeftRadiusValue,
-        pub border_top_right_radius: AzOptionStyleBorderTopRightRadiusValue,
-        pub border_bottom_left_radius: AzOptionStyleBorderBottomLeftRadiusValue,
-        pub border_bottom_right_radius: AzOptionStyleBorderBottomRightRadiusValue,
-        pub opacity: AzOptionStyleOpacityValue,
-        pub transform: AzOptionStyleTransformVecValue,
-        pub transform_origin: AzOptionStyleTransformOriginValue,
-        pub perspective_origin: AzOptionStylePerspectiveOriginValue,
-        pub backface_visibility: AzOptionStyleBackfaceVisibilityValue,
-    }
-    /// Re-export of rust-allocated (stack based) `RectLayout` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzRectLayout {
-        pub display: AzOptionLayoutDisplayValue,
-        pub float: AzOptionLayoutFloatValue,
-        pub box_sizing: AzOptionLayoutBoxSizingValue,
-        pub width: AzOptionLayoutWidthValue,
-        pub height: AzOptionLayoutHeightValue,
-        pub min_width: AzOptionLayoutMinWidthValue,
-        pub min_height: AzOptionLayoutMinHeightValue,
-        pub max_width: AzOptionLayoutMaxWidthValue,
-        pub max_height: AzOptionLayoutMaxHeightValue,
-        pub position: AzOptionLayoutPositionValue,
-        pub top: AzOptionLayoutTopValue,
-        pub bottom: AzOptionLayoutBottomValue,
-        pub right: AzOptionLayoutRightValue,
-        pub left: AzOptionLayoutLeftValue,
-        pub padding_top: AzOptionLayoutPaddingTopValue,
-        pub padding_bottom: AzOptionLayoutPaddingBottomValue,
-        pub padding_left: AzOptionLayoutPaddingLeftValue,
-        pub padding_right: AzOptionLayoutPaddingRightValue,
-        pub margin_top: AzOptionLayoutMarginTopValue,
-        pub margin_bottom: AzOptionLayoutMarginBottomValue,
-        pub margin_left: AzOptionLayoutMarginLeftValue,
-        pub margin_right: AzOptionLayoutMarginRightValue,
-        pub border_top_width: AzOptionStyleBorderTopWidthValue,
-        pub border_left_width: AzOptionStyleBorderLeftWidthValue,
-        pub border_right_width: AzOptionStyleBorderRightWidthValue,
-        pub border_bottom_width: AzOptionStyleBorderBottomWidthValue,
-        pub overflow_x: AzOptionOverflowValue,
-        pub overflow_y: AzOptionOverflowValue,
-        pub direction: AzOptionLayoutFlexDirectionValue,
-        pub wrap: AzOptionLayoutWrapValue,
-        pub flex_grow: AzOptionLayoutFlexGrowValue,
-        pub flex_shrink: AzOptionLayoutFlexShrinkValue,
-        pub justify_content: AzOptionLayoutJustifyContentValue,
-        pub align_items: AzOptionLayoutAlignItemsValue,
-        pub align_content: AzOptionLayoutAlignContentValue,
-    }
-    /// Re-export of rust-allocated (stack based) `CascadedCssPropertyWithSource` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzCascadedCssPropertyWithSource {
-        pub prop: AzCssProperty,
-        pub source: AzCssPropertySource,
-    }
     /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzCssPropertySource {
         Css(AzCssPath),
         Inline,
     }
     /// Re-export of rust-allocated (stack based) `StyledNodeState` struct
-    #[repr(C)] #[derive(Debug)] pub enum AzStyledNodeState {
-        Uninitialized,
-        Normal,
-        Hover,
-        Active,
-        Focused,
+    #[repr(C)] #[derive(Debug)] pub struct AzStyledNodeState {
+        pub normal: bool,
+        pub hover: bool,
+        pub active: bool,
+        pub focused: bool,
     }
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
     #[repr(C)] #[derive(Debug)] pub struct AzStyledNode {
-        pub css_constraints: AzCascadedCssPropertyWithSourceVec,
-        pub hover_css_constraints: AzCascadedCssPropertyWithSourceVec,
-        pub active_css_constraints: AzCascadedCssPropertyWithSourceVec,
-        pub focus_css_constraints: AzCascadedCssPropertyWithSourceVec,
         pub state: AzStyledNodeState,
         pub tag_id: AzOptionTagId,
-        pub style: AzRectStyle,
-        pub layout: AzRectLayout,
     }
     /// Re-export of rust-allocated (stack based) `TagId` struct
     #[repr(C)] #[derive(Debug)] pub struct AzTagId {
@@ -2463,6 +2144,18 @@
         pub tag_ids_to_node_ids: AzTagIdsToNodeIdsMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub rects_in_rendering_order: AzContentGroup,
+    }
+    /// Re-export of rust-allocated (stack based) `IdOrClass` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzIdOrClass {
+        Id(AzString),
+        Class(AzString),
+    }
+    /// Re-export of rust-allocated (stack based) `NodeDataInlineCssProperty` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeDataInlineCssProperty {
+        Normal(AzCssProperty),
+        Active(AzCssProperty),
+        Focus(AzCssProperty),
+        Hover(AzCssProperty),
     }
     /// Re-export of rust-allocated (stack based) `Dom` struct
     #[repr(C)] #[derive(Debug)] pub struct AzDom {
@@ -2496,13 +2189,9 @@
     #[repr(C)] #[derive(Debug)] pub struct AzNodeData {
         pub node_type: AzNodeType,
         pub dataset: AzOptionRefAny,
-        pub ids: AzStringVec,
-        pub classes: AzStringVec,
+        pub ids_and_classes: AzIdOrClassVec,
         pub callbacks: AzCallbackDataVec,
         pub inline_css_props: AzCssPropertyVec,
-        pub inline_hover_css_props: AzCssPropertyVec,
-        pub inline_active_css_props: AzCssPropertyVec,
-        pub inline_focus_css_props: AzCssPropertyVec,
         pub clip_mask: AzOptionImageMask,
         pub is_draggable: bool,
         pub tab_index: AzOptionTabIndex,
@@ -3032,10 +2721,6 @@
         pub miter_limit: usize,
         pub tolerance: usize,
         pub apply_line_width: bool,
-    }
-    /// Re-export of rust-allocated (stack based) `SvgNodeId` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzSvgNodeId {
-        pub id: usize,
     }
     /// Re-export of rust-allocated (stack based) `TimerId` struct
     #[repr(C)] #[derive(Debug)] pub struct AzTimerId {
@@ -3651,6 +3336,36 @@
         pub(crate) fn az_string_into_bytes(_:  AzString) -> AzU8Vec;
         pub(crate) fn az_string_delete(_:  &mut AzString);
         pub(crate) fn az_string_deep_copy(_:  &AzString) -> AzString;
+        pub(crate) fn az_id_or_class_vec_new() -> AzIdOrClassVec;
+        pub(crate) fn az_id_or_class_vec_with_capacity(_:  usize) -> AzIdOrClassVec;
+        pub(crate) fn az_id_or_class_vec_copy_from(_:  *const AzIdOrClass, _:  usize) -> AzIdOrClassVec;
+        pub(crate) fn az_id_or_class_vec_delete(_:  &mut AzIdOrClassVec);
+        pub(crate) fn az_id_or_class_vec_deep_copy(_:  &AzIdOrClassVec) -> AzIdOrClassVec;
+        pub(crate) fn az_node_data_inline_css_property_vec_new() -> AzNodeDataInlineCssPropertyVec;
+        pub(crate) fn az_node_data_inline_css_property_vec_with_capacity(_:  usize) -> AzNodeDataInlineCssPropertyVec;
+        pub(crate) fn az_node_data_inline_css_property_vec_copy_from(_:  *const AzNodeDataInlineCssProperty, _:  usize) -> AzNodeDataInlineCssPropertyVec;
+        pub(crate) fn az_node_data_inline_css_property_vec_delete(_:  &mut AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn az_node_data_inline_css_property_vec_deep_copy(_:  &AzNodeDataInlineCssPropertyVec) -> AzNodeDataInlineCssPropertyVec;
+        pub(crate) fn az_style_background_content_vec_new() -> AzStyleBackgroundContentVec;
+        pub(crate) fn az_style_background_content_vec_with_capacity(_:  usize) -> AzStyleBackgroundContentVec;
+        pub(crate) fn az_style_background_content_vec_copy_from(_:  *const AzStyleBackgroundContent, _:  usize) -> AzStyleBackgroundContentVec;
+        pub(crate) fn az_style_background_content_vec_delete(_:  &mut AzStyleBackgroundContentVec);
+        pub(crate) fn az_style_background_content_vec_deep_copy(_:  &AzStyleBackgroundContentVec) -> AzStyleBackgroundContentVec;
+        pub(crate) fn az_style_background_position_vec_new() -> AzStyleBackgroundPositionVec;
+        pub(crate) fn az_style_background_position_vec_with_capacity(_:  usize) -> AzStyleBackgroundPositionVec;
+        pub(crate) fn az_style_background_position_vec_copy_from(_:  *const AzStyleBackgroundPosition, _:  usize) -> AzStyleBackgroundPositionVec;
+        pub(crate) fn az_style_background_position_vec_delete(_:  &mut AzStyleBackgroundPositionVec);
+        pub(crate) fn az_style_background_position_vec_deep_copy(_:  &AzStyleBackgroundPositionVec) -> AzStyleBackgroundPositionVec;
+        pub(crate) fn az_style_background_repeat_vec_new() -> AzStyleBackgroundRepeatVec;
+        pub(crate) fn az_style_background_repeat_vec_with_capacity(_:  usize) -> AzStyleBackgroundRepeatVec;
+        pub(crate) fn az_style_background_repeat_vec_copy_from(_:  *const AzStyleBackgroundRepeat, _:  usize) -> AzStyleBackgroundRepeatVec;
+        pub(crate) fn az_style_background_repeat_vec_delete(_:  &mut AzStyleBackgroundRepeatVec);
+        pub(crate) fn az_style_background_repeat_vec_deep_copy(_:  &AzStyleBackgroundRepeatVec) -> AzStyleBackgroundRepeatVec;
+        pub(crate) fn az_style_background_size_vec_new() -> AzStyleBackgroundSizeVec;
+        pub(crate) fn az_style_background_size_vec_with_capacity(_:  usize) -> AzStyleBackgroundSizeVec;
+        pub(crate) fn az_style_background_size_vec_copy_from(_:  *const AzStyleBackgroundSize, _:  usize) -> AzStyleBackgroundSizeVec;
+        pub(crate) fn az_style_background_size_vec_delete(_:  &mut AzStyleBackgroundSizeVec);
+        pub(crate) fn az_style_background_size_vec_deep_copy(_:  &AzStyleBackgroundSizeVec) -> AzStyleBackgroundSizeVec;
         pub(crate) fn az_style_transform_vec_new() -> AzStyleTransformVec;
         pub(crate) fn az_style_transform_vec_with_capacity(_:  usize) -> AzStyleTransformVec;
         pub(crate) fn az_style_transform_vec_copy_from(_:  *const AzStyleTransform, _:  usize) -> AzStyleTransformVec;
@@ -3776,16 +3491,16 @@
         pub(crate) fn az_string_pair_vec_copy_from(_:  *const AzStringPair, _:  usize) -> AzStringPairVec;
         pub(crate) fn az_string_pair_vec_delete(_:  &mut AzStringPairVec);
         pub(crate) fn az_string_pair_vec_deep_copy(_:  &AzStringPairVec) -> AzStringPairVec;
-        pub(crate) fn az_gradient_stop_pre_vec_new() -> AzGradientStopPreVec;
-        pub(crate) fn az_gradient_stop_pre_vec_with_capacity(_:  usize) -> AzGradientStopPreVec;
-        pub(crate) fn az_gradient_stop_pre_vec_copy_from(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec;
-        pub(crate) fn az_gradient_stop_pre_vec_delete(_:  &mut AzGradientStopPreVec);
-        pub(crate) fn az_gradient_stop_pre_vec_deep_copy(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec;
-        pub(crate) fn az_cascaded_css_property_with_source_vec_new() -> AzCascadedCssPropertyWithSourceVec;
-        pub(crate) fn az_cascaded_css_property_with_source_vec_with_capacity(_:  usize) -> AzCascadedCssPropertyWithSourceVec;
-        pub(crate) fn az_cascaded_css_property_with_source_vec_copy_from(_:  *const AzCascadedCssPropertyWithSource, _:  usize) -> AzCascadedCssPropertyWithSourceVec;
-        pub(crate) fn az_cascaded_css_property_with_source_vec_delete(_:  &mut AzCascadedCssPropertyWithSourceVec);
-        pub(crate) fn az_cascaded_css_property_with_source_vec_deep_copy(_:  &AzCascadedCssPropertyWithSourceVec) -> AzCascadedCssPropertyWithSourceVec;
+        pub(crate) fn az_linear_color_stop_vec_new() -> AzLinearColorStopVec;
+        pub(crate) fn az_linear_color_stop_vec_with_capacity(_:  usize) -> AzLinearColorStopVec;
+        pub(crate) fn az_linear_color_stop_vec_copy_from(_:  *const AzLinearColorStop, _:  usize) -> AzLinearColorStopVec;
+        pub(crate) fn az_linear_color_stop_vec_delete(_:  &mut AzLinearColorStopVec);
+        pub(crate) fn az_linear_color_stop_vec_deep_copy(_:  &AzLinearColorStopVec) -> AzLinearColorStopVec;
+        pub(crate) fn az_radial_color_stop_vec_new() -> AzRadialColorStopVec;
+        pub(crate) fn az_radial_color_stop_vec_with_capacity(_:  usize) -> AzRadialColorStopVec;
+        pub(crate) fn az_radial_color_stop_vec_copy_from(_:  *const AzRadialColorStop, _:  usize) -> AzRadialColorStopVec;
+        pub(crate) fn az_radial_color_stop_vec_delete(_:  &mut AzRadialColorStopVec);
+        pub(crate) fn az_radial_color_stop_vec_deep_copy(_:  &AzRadialColorStopVec) -> AzRadialColorStopVec;
         pub(crate) fn az_node_id_vec_new() -> AzNodeIdVec;
         pub(crate) fn az_node_id_vec_with_capacity(_:  usize) -> AzNodeIdVec;
         pub(crate) fn az_node_id_vec_copy_from(_:  *const AzNodeId, _:  usize) -> AzNodeIdVec;
@@ -3818,8 +3533,6 @@
         pub(crate) fn az_node_data_vec_deep_copy(_:  &AzNodeDataVec) -> AzNodeDataVec;
         pub(crate) fn az_option_ref_any_delete(_:  &mut AzOptionRefAny);
         pub(crate) fn az_option_ref_any_deep_copy(_:  &AzOptionRefAny) -> AzOptionRefAny;
-        pub(crate) fn az_option_style_transform_vec_value_delete(_:  &mut AzOptionStyleTransformVecValue);
-        pub(crate) fn az_option_style_transform_vec_value_deep_copy(_:  &AzOptionStyleTransformVecValue) -> AzOptionStyleTransformVecValue;
         pub(crate) fn az_option_raw_image_delete(_:  &mut AzOptionRawImage);
         pub(crate) fn az_option_raw_image_deep_copy(_:  &AzOptionRawImage) -> AzOptionRawImage;
         pub(crate) fn az_option_wayland_theme_delete(_:  &mut AzOptionWaylandTheme);
@@ -3835,12 +3548,6 @@
         pub(crate) fn az_option_texture_delete(_:  &mut AzOptionTexture);
         pub(crate) fn az_option_image_mask_delete(_:  &mut AzOptionImageMask);
         pub(crate) fn az_option_image_mask_deep_copy(_:  &AzOptionImageMask) -> AzOptionImageMask;
-        pub(crate) fn az_option_style_background_content_value_delete(_:  &mut AzOptionStyleBackgroundContentValue);
-        pub(crate) fn az_option_style_background_content_value_deep_copy(_:  &AzOptionStyleBackgroundContentValue) -> AzOptionStyleBackgroundContentValue;
-        pub(crate) fn az_option_style_font_family_value_delete(_:  &mut AzOptionStyleFontFamilyValue);
-        pub(crate) fn az_option_style_font_family_value_deep_copy(_:  &AzOptionStyleFontFamilyValue) -> AzOptionStyleFontFamilyValue;
-        pub(crate) fn az_option_box_shadow_pre_display_item_value_delete(_:  &mut AzOptionBoxShadowPreDisplayItemValue);
-        pub(crate) fn az_option_box_shadow_pre_display_item_value_deep_copy(_:  &AzOptionBoxShadowPreDisplayItemValue) -> AzOptionBoxShadowPreDisplayItemValue;
         pub(crate) fn az_option_instant_ptr_delete(_:  &mut AzOptionInstantPtr);
         pub(crate) fn az_option_instant_ptr_deep_copy(_:  &AzOptionInstantPtr) -> AzOptionInstantPtr;
         pub(crate) fn az_option_u8_vec_ref_delete(_:  &mut AzOptionU8VecRef);
@@ -3913,7 +3620,6 @@
         pub(crate) fn az_i_frame_callback_info_get_bounds(_:  &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds;
         pub(crate) fn az_i_frame_callback_info_delete(_:  &mut AzIFrameCallbackInfo);
         pub(crate) fn az_i_frame_callback_return_delete(_:  &mut AzIFrameCallbackReturn);
-        pub(crate) fn az_i_frame_callback_return_deep_copy(_:  &AzIFrameCallbackReturn) -> AzIFrameCallbackReturn;
         pub(crate) fn az_gl_callback_info_get_gl_context(_:  &AzGlCallbackInfo) -> AzGlContextPtr;
         pub(crate) fn az_gl_callback_info_delete(_:  &mut AzGlCallbackInfo);
         pub(crate) fn az_gl_callback_return_delete(_:  &mut AzGlCallbackReturn);
@@ -3969,26 +3675,24 @@
         pub(crate) fn az_linear_gradient_deep_copy(_:  &AzLinearGradient) -> AzLinearGradient;
         pub(crate) fn az_radial_gradient_delete(_:  &mut AzRadialGradient);
         pub(crate) fn az_radial_gradient_deep_copy(_:  &AzRadialGradient) -> AzRadialGradient;
+        pub(crate) fn az_conic_gradient_delete(_:  &mut AzConicGradient);
+        pub(crate) fn az_conic_gradient_deep_copy(_:  &AzConicGradient) -> AzConicGradient;
         pub(crate) fn az_css_image_id_delete(_:  &mut AzCssImageId);
         pub(crate) fn az_css_image_id_deep_copy(_:  &AzCssImageId) -> AzCssImageId;
         pub(crate) fn az_style_background_content_delete(_:  &mut AzStyleBackgroundContent);
         pub(crate) fn az_style_background_content_deep_copy(_:  &AzStyleBackgroundContent) -> AzStyleBackgroundContent;
         pub(crate) fn az_style_font_family_delete(_:  &mut AzStyleFontFamily);
         pub(crate) fn az_style_font_family_deep_copy(_:  &AzStyleFontFamily) -> AzStyleFontFamily;
-        pub(crate) fn az_style_background_content_value_delete(_:  &mut AzStyleBackgroundContentValue);
-        pub(crate) fn az_style_background_content_value_deep_copy(_:  &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue;
+        pub(crate) fn az_scrollbar_style_value_delete(_:  &mut AzScrollbarStyleValue);
+        pub(crate) fn az_scrollbar_style_value_deep_copy(_:  &AzScrollbarStyleValue) -> AzScrollbarStyleValue;
+        pub(crate) fn az_style_background_content_vec_value_delete(_:  &mut AzStyleBackgroundContentVecValue);
+        pub(crate) fn az_style_background_content_vec_value_deep_copy(_:  &AzStyleBackgroundContentVecValue) -> AzStyleBackgroundContentVecValue;
         pub(crate) fn az_style_font_family_value_delete(_:  &mut AzStyleFontFamilyValue);
         pub(crate) fn az_style_font_family_value_deep_copy(_:  &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue;
         pub(crate) fn az_style_transform_vec_value_delete(_:  &mut AzStyleTransformVecValue);
         pub(crate) fn az_style_transform_vec_value_deep_copy(_:  &AzStyleTransformVecValue) -> AzStyleTransformVecValue;
         pub(crate) fn az_css_property_delete(_:  &mut AzCssProperty);
         pub(crate) fn az_css_property_deep_copy(_:  &AzCssProperty) -> AzCssProperty;
-        pub(crate) fn az_rect_style_delete(_:  &mut AzRectStyle);
-        pub(crate) fn az_rect_style_deep_copy(_:  &AzRectStyle) -> AzRectStyle;
-        pub(crate) fn az_rect_layout_delete(_:  &mut AzRectLayout);
-        pub(crate) fn az_rect_layout_deep_copy(_:  &AzRectLayout) -> AzRectLayout;
-        pub(crate) fn az_cascaded_css_property_with_source_delete(_:  &mut AzCascadedCssPropertyWithSource);
-        pub(crate) fn az_cascaded_css_property_with_source_deep_copy(_:  &AzCascadedCssPropertyWithSource) -> AzCascadedCssPropertyWithSource;
         pub(crate) fn az_css_property_source_delete(_:  &mut AzCssPropertySource);
         pub(crate) fn az_css_property_source_deep_copy(_:  &AzCssPropertySource) -> AzCssPropertySource;
         pub(crate) fn az_styled_node_delete(_:  &mut AzStyledNode);
@@ -3998,7 +3702,10 @@
         pub(crate) fn az_styled_dom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn az_styled_dom_append(_:  &mut AzStyledDom, _:  AzStyledDom);
         pub(crate) fn az_styled_dom_delete(_:  &mut AzStyledDom);
-        pub(crate) fn az_styled_dom_deep_copy(_:  &AzStyledDom) -> AzStyledDom;
+        pub(crate) fn az_id_or_class_delete(_:  &mut AzIdOrClass);
+        pub(crate) fn az_id_or_class_deep_copy(_:  &AzIdOrClass) -> AzIdOrClass;
+        pub(crate) fn az_node_data_inline_css_property_delete(_:  &mut AzNodeDataInlineCssProperty);
+        pub(crate) fn az_node_data_inline_css_property_deep_copy(_:  &AzNodeDataInlineCssProperty) -> AzNodeDataInlineCssProperty;
         pub(crate) fn az_dom_new(_:  AzNodeType) -> AzDom;
         pub(crate) fn az_dom_div() -> AzDom;
         pub(crate) fn az_dom_body() -> AzDom;
@@ -4009,32 +3716,22 @@
         pub(crate) fn az_dom_iframe(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzDom;
         pub(crate) fn az_dom_add_id(_:  &mut AzDom, _:  AzString);
         pub(crate) fn az_dom_with_id(_:  AzDom, _:  AzString) -> AzDom;
-        pub(crate) fn az_dom_set_ids(_:  &mut AzDom, _:  AzStringVec);
-        pub(crate) fn az_dom_with_ids(_:  AzDom, _:  AzStringVec) -> AzDom;
         pub(crate) fn az_dom_add_class(_:  &mut AzDom, _:  AzString);
         pub(crate) fn az_dom_with_class(_:  AzDom, _:  AzString) -> AzDom;
-        pub(crate) fn az_dom_set_classes(_:  &mut AzDom, _:  AzStringVec);
-        pub(crate) fn az_dom_with_classes(_:  AzDom, _:  AzStringVec) -> AzDom;
         pub(crate) fn az_dom_add_callback(_:  &mut AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType);
         pub(crate) fn az_dom_with_callback(_:  AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzDom;
         pub(crate) fn az_dom_set_dataset(_:  &mut AzDom, _:  AzRefAny);
         pub(crate) fn az_dom_with_dataset(_:  AzDom, _:  AzRefAny) -> AzDom;
         pub(crate) fn az_dom_add_inline_css(_:  &mut AzDom, _:  AzCssProperty);
         pub(crate) fn az_dom_with_inline_css(_:  AzDom, _:  AzCssProperty) -> AzDom;
-        pub(crate) fn az_dom_set_inline_css_props(_:  &mut AzDom, _:  AzCssPropertyVec);
-        pub(crate) fn az_dom_with_inline_css_props(_:  AzDom, _:  AzCssPropertyVec) -> AzDom;
+        pub(crate) fn az_dom_set_inline_css_props(_:  &mut AzDom, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn az_dom_with_inline_css_props(_:  AzDom, _:  AzNodeDataInlineCssPropertyVec) -> AzDom;
         pub(crate) fn az_dom_add_inline_hover_css(_:  &mut AzDom, _:  AzCssProperty);
         pub(crate) fn az_dom_with_inline_hover_css(_:  AzDom, _:  AzCssProperty) -> AzDom;
-        pub(crate) fn az_dom_set_inline_hover_css_props(_:  &mut AzDom, _:  AzCssPropertyVec);
-        pub(crate) fn az_dom_with_inline_hover_css_props(_:  AzDom, _:  AzCssPropertyVec) -> AzDom;
         pub(crate) fn az_dom_add_inline_active_css(_:  &mut AzDom, _:  AzCssProperty);
         pub(crate) fn az_dom_with_inline_active_css(_:  AzDom, _:  AzCssProperty) -> AzDom;
-        pub(crate) fn az_dom_set_inline_active_css_props(_:  &mut AzDom, _:  AzCssPropertyVec);
-        pub(crate) fn az_dom_with_inline_active_css_props(_:  AzDom, _:  AzCssPropertyVec) -> AzDom;
         pub(crate) fn az_dom_add_inline_focus_css(_:  &mut AzDom, _:  AzCssProperty);
         pub(crate) fn az_dom_with_inline_focus_css(_:  AzDom, _:  AzCssProperty) -> AzDom;
-        pub(crate) fn az_dom_set_inline_focus_css_props(_:  &mut AzDom, _:  AzCssPropertyVec);
-        pub(crate) fn az_dom_with_inline_focus_css_props(_:  AzDom, _:  AzCssPropertyVec) -> AzDom;
         pub(crate) fn az_dom_set_is_draggable(_:  &mut AzDom, _:  bool);
         pub(crate) fn az_dom_with_clip_mask(_:  AzDom, _:  AzOptionImageMask) -> AzDom;
         pub(crate) fn az_dom_set_clip_mask(_:  &mut AzDom, _:  AzOptionImageMask);
@@ -4066,32 +3763,22 @@
         pub(crate) fn az_node_data_default() -> AzNodeData;
         pub(crate) fn az_node_data_add_id(_:  &mut AzNodeData, _:  AzString);
         pub(crate) fn az_node_data_with_id(_:  AzNodeData, _:  AzString) -> AzNodeData;
-        pub(crate) fn az_node_data_set_ids(_:  &mut AzNodeData, _:  AzStringVec);
-        pub(crate) fn az_node_data_with_ids(_:  AzNodeData, _:  AzStringVec) -> AzNodeData;
         pub(crate) fn az_node_data_add_class(_:  &mut AzNodeData, _:  AzString);
         pub(crate) fn az_node_data_with_class(_:  AzNodeData, _:  AzString) -> AzNodeData;
-        pub(crate) fn az_node_data_set_classes(_:  &mut AzNodeData, _:  AzStringVec);
-        pub(crate) fn az_node_data_with_classes(_:  AzNodeData, _:  AzStringVec) -> AzNodeData;
+        pub(crate) fn az_node_data_set_ids_and_classes(_:  &mut AzNodeData, _:  AzIdOrClassVec);
+        pub(crate) fn az_node_data_with_ids_and_classes(_:  AzNodeData, _:  AzIdOrClassVec) -> AzNodeData;
         pub(crate) fn az_node_data_add_dataset(_:  &mut AzNodeData, _:  AzRefAny);
         pub(crate) fn az_node_data_with_dataset(_:  AzNodeData, _:  AzRefAny) -> AzNodeData;
         pub(crate) fn az_node_data_add_callback(_:  &mut AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType);
         pub(crate) fn az_node_data_with_callback(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData;
         pub(crate) fn az_node_data_add_inline_css(_:  &mut AzNodeData, _:  AzCssProperty);
         pub(crate) fn az_node_data_with_inline_css(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData;
-        pub(crate) fn az_node_data_set_inline_css_props(_:  &mut AzNodeData, _:  AzCssPropertyVec);
-        pub(crate) fn az_node_data_with_inline_css_props(_:  AzNodeData, _:  AzCssPropertyVec) -> AzNodeData;
         pub(crate) fn az_node_data_add_inline_hover_css(_:  &mut AzNodeData, _:  AzCssProperty);
         pub(crate) fn az_node_data_with_inline_hover_css(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData;
-        pub(crate) fn az_node_data_set_inline_hover_css_props(_:  &mut AzNodeData, _:  AzCssPropertyVec);
-        pub(crate) fn az_node_data_with_inline_hover_css_props(_:  AzNodeData, _:  AzCssPropertyVec) -> AzNodeData;
         pub(crate) fn az_node_data_add_inline_active_css(_:  &mut AzNodeData, _:  AzCssProperty);
         pub(crate) fn az_node_data_with_inline_active_css(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData;
-        pub(crate) fn az_node_data_set_inline_active_css_props(_:  &mut AzNodeData, _:  AzCssPropertyVec);
-        pub(crate) fn az_node_data_with_inline_active_css_props(_:  AzNodeData, _:  AzCssPropertyVec) -> AzNodeData;
         pub(crate) fn az_node_data_add_inline_focus_css(_:  &mut AzNodeData, _:  AzCssProperty);
         pub(crate) fn az_node_data_with_inline_focus_css(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData;
-        pub(crate) fn az_node_data_set_inline_focus_css_props(_:  &mut AzNodeData, _:  AzCssPropertyVec);
-        pub(crate) fn az_node_data_with_inline_focus_css_props(_:  AzNodeData, _:  AzCssPropertyVec) -> AzNodeData;
         pub(crate) fn az_node_data_with_clip_mask(_:  AzNodeData, _:  AzOptionImageMask) -> AzNodeData;
         pub(crate) fn az_node_data_set_clip_mask(_:  &mut AzNodeData, _:  AzOptionImageMask);
         pub(crate) fn az_node_data_set_is_draggable(_:  &mut AzNodeData, _:  bool);
