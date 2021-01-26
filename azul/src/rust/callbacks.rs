@@ -177,7 +177,10 @@
     impl Copy for LayoutCallback { }
 
 
-    pub use crate::dll::AzLayoutCallbackType as LayoutCallbackType;
+    /// `LayoutCallbackType` struct
+    #[doc(inline)] pub use crate::dll::AzLayoutCallbackType as LayoutCallbackType;
+
+
 
     /// `Callback` struct
     #[doc(inline)] pub use crate::dll::AzCallback as Callback;
@@ -200,8 +203,10 @@
     impl Drop for FocusTargetPath { fn drop(&mut self) { unsafe { crate::dll::az_focus_target_path_delete(self) }; } }
 
 
-    pub use crate::dll::AzCallbackReturn as CallbackReturn;
-    pub use crate::dll::AzCallbackType as CallbackType;
+    /// `CallbackType` struct
+    #[doc(inline)] pub use crate::dll::AzCallbackType as CallbackType;
+
+
 
     /// `CallbackInfo` struct
     #[doc(inline)] pub use crate::dll::AzCallbackInfo as CallbackInfo;
@@ -268,7 +273,10 @@
     impl Copy for IFrameCallback { }
 
 
-    pub use crate::dll::AzIFrameCallbackType as IFrameCallbackType;
+    /// `IFrameCallbackType` struct
+    #[doc(inline)] pub use crate::dll::AzIFrameCallbackType as IFrameCallbackType;
+
+
 
     /// `IFrameCallbackInfo` struct
     #[doc(inline)] pub use crate::dll::AzIFrameCallbackInfo as IFrameCallbackInfo;
@@ -294,7 +302,10 @@
     impl Copy for GlCallback { }
 
 
-    pub use crate::dll::AzGlCallbackType as GlCallbackType;
+    /// `GlCallbackType` struct
+    #[doc(inline)] pub use crate::dll::AzGlCallbackType as GlCallbackType;
+
+
 
     /// `GlCallbackInfo` struct
     #[doc(inline)] pub use crate::dll::AzGlCallbackInfo as GlCallbackInfo;
@@ -320,7 +331,10 @@
     impl Copy for TimerCallback { }
 
 
-    pub use crate::dll::AzTimerCallbackType as TimerCallbackType;
+    /// `TimerCallbackType` struct
+    #[doc(inline)] pub use crate::dll::AzTimerCallbackType as TimerCallbackType;
+
+
 
     /// `TimerCallbackInfo` struct
     #[doc(inline)] pub use crate::dll::AzTimerCallbackInfo as TimerCallbackInfo;
@@ -335,7 +349,10 @@
     impl Drop for TimerCallbackReturn { fn drop(&mut self) { unsafe { crate::dll::az_timer_callback_return_delete(self) }; } }
 
 
-    pub use crate::dll::AzWriteBackCallbackType as WriteBackCallbackType;
+    /// `WriteBackCallbackType` struct
+    #[doc(inline)] pub use crate::dll::AzWriteBackCallbackType as WriteBackCallbackType;
+
+
 
     /// `WriteBackCallback` struct
     #[doc(inline)] pub use crate::dll::AzWriteBackCallback as WriteBackCallback;
@@ -344,9 +361,15 @@
     impl Drop for WriteBackCallback { fn drop(&mut self) { unsafe { crate::dll::az_write_back_callback_delete(self) }; } }
 
 
-    pub use crate::dll::AzThreadCallbackType as ThreadCallbackType;
+    /// `ThreadCallbackType` struct
+    #[doc(inline)] pub use crate::dll::AzThreadCallbackType as ThreadCallbackType;
 
-    pub use crate::dll::AzRefAnyDestructorType as RefAnyDestructorType;
+
+
+    /// `RefAnyDestructorType` struct
+    #[doc(inline)] pub use crate::dll::AzRefAnyDestructorType as RefAnyDestructorType;
+
+
 
     /// `AtomicRefCount` struct
     #[doc(inline)] pub use crate::dll::AzAtomicRefCount as AtomicRefCount;

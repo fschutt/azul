@@ -1876,7 +1876,7 @@
 					"callback_typedef": {
 						"fn_args": [
 							{"type": "RefAny", "ref": "ref"},
-							{"type": "LayoutInfo", "ref": "value"},
+							{"type": "LayoutInfo", "ref": "value"}
 						],
 						"returns": "StyledDom"
 					}
@@ -1910,7 +1910,7 @@
 					"callback_typedef": {
 						"fn_args": [
 							{"type": "RefAny", "ref": "refmut"},
-							{"type": "CallbackInfo", "ref": "value"},
+							{"type": "CallbackInfo", "ref": "value"}
 						],
 						"returns": "UpdateScreen"
 					}
@@ -2139,7 +2139,7 @@
 					"callback_typedef": {
 						"fn_args": [
 							{"type": "RefAny", "ref": "ref"},
-							{"type": "IFrameCallbackInfo", "ref": "value"},
+							{"type": "IFrameCallbackInfo", "ref": "value"}
 						],
 						"returns": "IFrameCallbackReturn"
 					}
@@ -2172,7 +2172,7 @@
 					"callback_typedef": {
 						"fn_args": [
 							{"type": "RefAny", "ref": "ref"},
-							{"type": "GlCallbackInfo", "ref": "value"},
+							{"type": "GlCallbackInfo", "ref": "value"}
 						],
 						"returns": "GlCallbackReturn"
 					}

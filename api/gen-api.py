@@ -30,24 +30,7 @@ rust_api_path = "../azul/src/rust"
 python_api_path = "../azul/src/python/azul.py"
 js_api_path = "../azul/src/js/azul.js"
 
-test_sizes_patches = {
-    tuple(['dll']): read_file("./patches/azul-dll/test-sizes.rs"),
-}
-
-dll_patches = {
-    tuple(['*']): read_file("./patches/azul-dll/header.rs"),
-    tuple(['callbacks', 'LayoutCallbackType']): read_file("./patches/azul-dll/layout_callback_type.rs"),
-    tuple(['callbacks', 'CallbackType']): read_file("./patches/azul-dll/callback_type.rs"),
-    tuple(['callbacks', 'GlCallbackType']): read_file("./patches/azul-dll/gl_callback_type.rs"),
-    tuple(['callbacks', 'IFrameCallbackType']): read_file("./patches/azul-dll/iframe_callback_type.rs"),
-    tuple(['callbacks', 'ThreadCallbackType']): read_file("./patches/azul-dll/thread_callback_type.rs"),
-    tuple(['callbacks', 'TimerCallbackType']): read_file("./patches/azul-dll/timer_callback_type.rs"),
-    tuple(['callbacks', 'WriteBackCallbackType']): read_file("./patches/azul-dll/write_back_callback_type.rs"),
-    tuple(['callbacks', 'RefAnyDestructorType']): read_file("./patches/azul-dll/ref_any_destructor_type.rs"),
-}
-
 rust_api_patches = {
-    tuple(['*']): read_file("./patches/azul.rs/header.rs"),
     tuple(['str']): read_file("./patches/azul.rs/string.rs"),
     tuple(['vec']): read_file("./patches/azul.rs/vec.rs"),
     tuple(['option']): read_file("./patches/azul.rs/option.rs"),
@@ -57,18 +40,6 @@ rust_api_patches = {
     tuple(['css']): read_file("./patches/azul.rs/css.rs"),
     tuple(['window']): read_file("./patches/azul.rs/window.rs"),
     tuple(['callbacks']): read_file("./patches/azul.rs/callbacks.rs"),
-    tuple(['callbacks', 'LayoutCallbackType']): read_file("./patches/azul.rs/layout_callback_type.rs"),
-    tuple(['callbacks', 'CallbackType']): read_file("./patches/azul.rs/callback_type.rs"),
-    tuple(['callbacks', 'GlCallbackType']): read_file("./patches/azul.rs/gl_callback_type.rs"),
-    tuple(['callbacks', 'IFrameCallbackType']): read_file("./patches/azul.rs/iframe_callback_type.rs"),
-    tuple(['callbacks', 'ThreadCallbackType']): read_file("./patches/azul.rs/thread_callback_type.rs"),
-    tuple(['callbacks', 'TimerCallbackType']): read_file("./patches/azul.rs/timer_callback_type.rs"),
-    tuple(['callbacks', 'WriteBackCallbackType']): read_file("./patches/azul.rs/write_back_callback_type.rs"),
-    tuple(['callbacks', 'RefAnyDestructorType']): read_file("./patches/azul.rs/ref_any_destructor_type.rs"),
-}
-
-c_api_patches = {
-    tuple(['callbacks', 'LayoutCallback']): read_file("./patches/c/layout_callback.h"),
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -150,7 +121,7 @@ def get_all_imports(apiData, module, module_name):
         if arg in basic_types:
             continue
 
-        found_module = search_for_class_by_rust_class_name(apiData, arg)
+        found_module = search_for_class_by_class_name(apiData, arg)
 
         if found_module is None:
             raise Exception(arg + " not found!")
@@ -212,7 +183,7 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
             if is_primitive_arg(arg_type):
                 fn_args += arg_name + ": " + ptr_type + arg_type + ", " # no pre, no postfix
             else:
-                arg_type_new = search_for_class_by_rust_class_name(apiData, arg_type)
+                arg_type_new = search_for_class_by_class_name(apiData, arg_type)
                 if arg_type_new is None:
                     print("arg_type not found: " + str(arg_type))
                     raise Exception("type not found: " + arg_type)
@@ -262,24 +233,21 @@ def class_is_small_struct(c):
     return "struct_fields" in c.keys()
 
 def class_is_typedef(c):
-    return "typedef" in c.keys()
+    return "callback_typedef" in c.keys()
 
 def class_is_stack_allocated(c):
-    class_is_boxed_object = not("external" in c.keys() and ("struct_fields" in c.keys() or "enum_fields" in c.keys() or "typedef" in c.keys() or "const" in c.keys()))
+    class_is_boxed_object = not("external" in c.keys() and ("struct_fields" in c.keys() or "enum_fields" in c.keys() or "callback_typedef" in c.keys() or "const" in c.keys()))
     return not(class_is_boxed_object)
 
-# Find the [module, classname] given a rust_class_name, returns None if not found
-# For example searching for "Vec<u8>" will return ["vec", "U8Vec"]
+# Find the [module, classname] given a class_name, returns None if not found
 # Then you can use get_class() to get the class object
-def search_for_class_by_rust_class_name(apiData, searched_rust_class_name):
+def search_for_class_by_class_name(apiData, searched_class_name):
     for module_name in apiData.keys():
         module = apiData[module_name]
         for class_name in module["classes"].keys():
             c = module["classes"][class_name]
-            rust_class_name = class_name
-            if "rust_class_name" in c.keys():
-                rust_class_name = c["rust_class_name"]
-            if rust_class_name == searched_rust_class_name or class_name == searched_rust_class_name:
+            class_name = class_name
+            if class_name == searched_class_name or class_name == searched_class_name:
                 return [module_name, class_name]
 
     return None
@@ -287,11 +255,11 @@ def search_for_class_by_rust_class_name(apiData, searched_rust_class_name):
 def get_class(apiData, module_name, class_name):
     return apiData[module_name]["classes"][class_name]
 
-# Returns whether a type is external, searches by rust_class_name instead of class_name
-def is_stack_allocated_type(apiData, rust_class_name):
-    search_result = search_for_class_by_rust_class_name(apiData, rust_class_name)
+# Returns whether a type is external, searches by class_name instead of class_name
+def is_stack_allocated_type(apiData, class_name):
+    search_result = search_for_class_by_class_name(apiData, class_name)
     if search_result is None:
-        raise Exception("type not found " + rust_class_name)
+        raise Exception("type not found " + class_name)
     c = get_class(apiData, search_result[0], search_result[1])
     return class_is_stack_allocated(c)
 
@@ -359,7 +327,7 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiD
             if is_primitive_arg(arg_type):
                 fn_args += arg_name + ": " + start + arg_type + ", " # usize
             else:
-                arg_type_class_name = search_for_class_by_rust_class_name(apiData, arg_type)
+                arg_type_class_name = search_for_class_by_class_name(apiData, arg_type)
                 if arg_type_class_name is None:
                     raise Exception("arg type " + arg_type + " not found!")
                 arg_type_class = get_class(apiData, arg_type_class_name[0], arg_type_class_name[1])
@@ -396,7 +364,7 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg,
                 fn_args += arg_name + ", "
             else:
                 arg_type = arg_type.strip()
-                arg_type_class = search_for_class_by_rust_class_name(apiData, arg_type)
+                arg_type_class = search_for_class_by_class_name(apiData, arg_type)
                 if arg_type_class is None:
                     raise Exception("arg type " + arg_type + " not found!")
                 arg_type_class = get_class(apiData, arg_type_class[0], arg_type_class[1])
@@ -435,24 +403,15 @@ def generate_rust_dll(apiData):
     structs_map = {}
     functions_map = {}
 
-    if tuple(['*']) in dll_patches.keys():
-        code += dll_patches[tuple(['*'])]
+    code += read_file("./patches/azul-dll/header.rs")
 
     for module_name in apiData.keys():
         module = apiData[module_name]["classes"]
-
-        if tuple([module_name]) in dll_patches.keys() and "use_patches" in module.keys() and "dll" in module["use_patches"]:
-            code += dll_patches[tuple([module_name])]
-            continue
 
         for class_name in module.keys():
             c = module[class_name]
 
             code += "\r\n"
-
-            rust_class_name = class_name
-            if "rust_class_name" in c.keys():
-                rust_class_name = c["rust_class_name"]
 
             class_is_boxed_object = not(class_is_stack_allocated(c))
             class_is_const = "const" in c.keys()
@@ -472,7 +431,7 @@ def generate_rust_dll(apiData):
             class_has_ord = "derive" in c.keys() and "Ord" in c["derive"]
             class_can_be_hashed = "derive" in c.keys() and "Hash" in c["derive"]
 
-            class_is_typedef = "typedef" in c.keys() and c["typedef"]
+            class_is_callback_typedef = "callback_typedef" in c.keys() and (len(c["callback_typedef"].keys()) > 0)
             treat_external_as_ptr = "external" in c.keys() and "is_boxed_object" in c.keys() and c["is_boxed_object"]
 
             # Small structs and enums are stack-allocated in order to save on indirection
@@ -481,10 +440,8 @@ def generate_rust_dll(apiData):
 
             class_ptr_name = prefix + class_name
 
-            if tuple([module_name, class_name]) in dll_patches.keys() and "use_patches" in c.keys() and "dll" in c["use_patches"]:
-                code += dll_patches[tuple([module_name, class_name])]
-                if class_is_typedef:
-                    structs_map[class_ptr_name] = {"typedef": True}
+            if class_is_callback_typedef:
+                structs_map[class_ptr_name] = {"callback_typedef": c }
                 continue
 
             struct_doc = ""
@@ -529,17 +486,12 @@ def generate_rust_dll(apiData):
 
                     fn_body = ""
 
-                    if tuple([module_name, class_name, fn_name]) in dll_patches.keys() \
-                    and "use_patches" in const.keys() \
-                    and "dll" in const["use_patches"]:
-                        fn_body = dll_patches[tuple([module_name, class_name, fn_name])]
+                    if c_is_stack_allocated:
+                        fn_body += const["fn_body"]
                     else:
-                        if c_is_stack_allocated:
-                            fn_body += const["fn_body"]
-                        else:
-                            fn_body += "let object: " + rust_class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
-                            fn_body += "let ptr = Box::into_raw(Box::new(object)) as *mut c_void; "
-                            fn_body += class_ptr_name + " { ptr }"
+                        fn_body += "let object: " + class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
+                        fn_body += "let ptr = Box::into_raw(Box::new(object)) as *mut c_void; "
+                        fn_body += class_ptr_name + " { ptr }"
 
                     if "doc" in const.keys():
                         code += "/// " + const["doc"] + "\r\n"
@@ -554,7 +506,7 @@ def generate_rust_dll(apiData):
                         if is_primitive_arg(analyzed_return_type[1]):
                             returns = return_type
                         else:
-                            return_type_class = search_for_class_by_rust_class_name(apiData, analyzed_return_type[1])
+                            return_type_class = search_for_class_by_class_name(apiData, analyzed_return_type[1])
                             if return_type_class is None:
                                 print("rust-dll: (line 549): no return_type_class found for " + return_type)
 
@@ -573,13 +525,7 @@ def generate_rust_dll(apiData):
 
                     f = c["functions"][fn_name]
 
-                    fn_body = ""
-                    if tuple([module_name, class_name, fn_name]) in dll_patches.keys() \
-                    and "use_patches" in f.keys() \
-                    and "dll" in f["use_patches"]:
-                        fn_body = dll_patches[tuple([module_name, class_name, fn_name])]
-                    else:
-                        fn_body = f["fn_body"]
+                    fn_body = f["fn_body"]
 
                     if "doc" in f.keys():
                         code += "/// " + f["doc"] + "\r\n"
@@ -595,7 +541,7 @@ def generate_rust_dll(apiData):
                         if is_primitive_arg(analyzed_return_type[1]):
                             returns = return_type
                         else:
-                            return_type_class = search_for_class_by_rust_class_name(apiData, analyzed_return_type[1])
+                            return_type_class = search_for_class_by_class_name(apiData, analyzed_return_type[1])
                             if return_type_class is None:
                                 print("rust-dll: (line 549): no return_type_class found for " + return_type)
 
@@ -608,14 +554,14 @@ def generate_rust_dll(apiData):
                     code += " }\r\n"
 
             lifetime = ""
-            if "<'a>" in rust_class_name:
+            if "<'a>" in class_name:
                 lifetime = "<'a>"
 
             if c_is_stack_allocated:
                 if class_can_be_copied:
                     # intentionally empty, no destructor necessary
                     pass
-                elif not(class_is_const or class_is_typedef):
+                elif not(class_is_const or class_is_callback_typedef):
 
                     # Generate the destructor for an enum
                     stack_delete_body = ""
@@ -649,36 +595,7 @@ def generate_rust_dll(apiData):
                         code += " }\r\n"
 
             else:
-                # az_item_delete()
-                code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-                functions_map[str(to_snake_case(class_ptr_name) + "_delete")] = ["ptr: &mut " + class_ptr_name, ""];
-                code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
-                code += "let _ = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
-                code += "}\r\n"
-
-                # az_item_downcast()
-                code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `Box<" + rust_class_name + ">`. Note that this takes ownership of the pointer.\r\n"
-                code += "#[inline(always)] fn " + to_snake_case(class_ptr_name) + "_downcast" + lifetime + "(ptr: " + class_ptr_name + ") -> Box<" + rust_class_name + "> { "
-                code += "    unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") }"
-                code += "}\r\n"
-
-                # az_item_downcast_refmut()
-                downcast_refmut_generics = "<P, F: FnOnce(&mut " + rust_class_name + ") -> P>"
-                if lifetime == "<'a>":
-                    downcast_refmut_generics = "<'a, P, F: FnOnce(&mut " + rust_class_name + ") -> P>"
-                code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&mut Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
-                code += "#[inline(always)] fn " + to_snake_case(class_ptr_name) + "_downcast_refmut" + downcast_refmut_generics + "(ptr: &mut " + class_ptr_name + ", func: F) -> P { "
-                code += "    func(unsafe { &mut *(ptr.ptr as *mut " + rust_class_name + ") })"
-                code += "}\r\n"
-
-                # az_item_downcast_ref()
-                downcast_ref_generics = "<P, F: FnOnce(&" + rust_class_name + ") -> P>"
-                if lifetime == "<'a>":
-                    downcast_ref_generics = "<'a, P, F: FnOnce(&" + rust_class_name + ") -> P>"
-                code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
-                code += "#[inline(always)] fn " + to_snake_case(class_ptr_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &" + class_ptr_name + ", func: F) -> P { "
-                code += "    func(unsafe { &*(ptr.ptr as *const " + rust_class_name + ") })"
-                code += "}\r\n"
+                raise Exception("type " + class_name + "is not stack allocated!")
 
             if class_can_derive_debug:
                 # az_item_fmt_debug()
@@ -748,10 +665,10 @@ def sort_structs_map(structs_map):
         clazz = structs_map[class_name]
         should_insert_struct = True
 
-        found_c_is_typedef = "typedef" in clazz.keys() and clazz["typedef"]
+        found_c_is_callback_typedef = "callback_typedef" in clazz.keys() and (len(clazz["callback_typedef"].keys()) > 0)
         found_c_is_boxed_object = "is_boxed_object" in clazz.keys() and clazz["is_boxed_object"]
 
-        if found_c_is_typedef or found_c_is_boxed_object:
+        if found_c_is_callback_typedef or found_c_is_boxed_object:
             pass
         elif "struct" in clazz.keys():
             struct = clazz["struct"]
@@ -788,10 +705,9 @@ def sort_structs_map(structs_map):
         for class_name in classes_not_found.keys():
             clazz = classes_not_found[class_name]
             should_insert_struct = True
-            found_c_is_typedef = "typedef" in clazz.keys() and clazz["typedef"]
+            found_c_is_callback_typedef = "callback_typedef" in clazz.keys() and (len(clazz["callback_typedef"].keys()) > 0)
 
-            if found_c_is_typedef:
-                print("found typedef" + class_name + "\r\n")
+            if found_c_is_callback_typedef:
                 pass
             elif "struct" in clazz.keys():
                 struct = clazz["struct"]
@@ -802,8 +718,6 @@ def sort_structs_map(structs_map):
                     if not(is_primitive_arg(field_type)) and not(field_type in forward_delcarations.keys()):
                         field_type = prefix + field_type
                         if not(field_type in sorted_class_map.keys()):
-                            if iteration_count == 200: #debug
-                                print("failed to find " + field_type + " on " + class_name + "\r\n")
                             should_insert_struct = False
             elif "enum" in clazz.keys():
                 enum = clazz["enum"]
@@ -864,12 +778,12 @@ def generate_structs(apiData, structs_map, version):
                 if "type" in list(field.values())[0]:
                     analyzed_arg_type = analyze_type(list(field.values())[0]["type"])
                     if not(is_primitive_arg(analyzed_arg_type[1])):
-                        field_type_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
+                        field_type_class_path = search_for_class_by_class_name(apiData, analyzed_arg_type[1])
                         if field_type_class_path is None:
                             print("no field_type_class_path found for " + str(analyzed_arg_type))
                         found_c = get_class(apiData, field_type_class_path[0], field_type_class_path[1])
-                        found_c_is_typedef = "typedef" in found_c.keys() and found_c["typedef"]
-                        if found_c_is_typedef:
+                        found_c_is_callback_typedef = "callback_typedef" in found_c.keys() and found_c["callback_typedef"]
+                        if found_c_is_callback_typedef:
                             opt_derive_debug = ""
 
             code += "    #[repr(C)] "  + opt_derive_debug + " pub struct " + struct_name + " {\r\n"
@@ -889,7 +803,7 @@ def generate_structs(apiData, structs_map, version):
                             code += "        pub "
                         code += field_name + ": " + field_type + ",\r\n"
                     else:
-                        field_type_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
+                        field_type_class_path = search_for_class_by_class_name(apiData, analyzed_arg_type[1])
                         if field_type_class_path is None:
                             print("no field_type_class_path found for " + str(analyzed_arg_type))
 
@@ -923,7 +837,7 @@ def generate_structs(apiData, structs_map, version):
                         code += "        " + variant_name + "(" + variant_type + "),\r\n"
                     else:
                         analyzed_arg_type = analyze_type(variant_type)
-                        field_type_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
+                        field_type_class_path = search_for_class_by_class_name(apiData, analyzed_arg_type[1])
                         if field_type_class_path is None:
                             print("variant_type not found: " + variant_type + " in " + struct_name)
                         found_c = get_class(apiData, field_type_class_path[0], field_type_class_path[1])
@@ -1028,8 +942,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
     for module_name in apiData.keys():
         code += "pub mod " + module_name + ";\r\n"
 
-    if tuple(['*']) in rust_api_patches:
-        code += rust_api_patches[tuple(['*'])]
+    code += read_file("./patches/azul.rs/header.rs")
 
     module_file_map['lib.rs'] = code
 
@@ -1065,7 +978,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
 
             class_is_boxed_object = not(class_is_stack_allocated(c))
             class_is_const = "const" in c.keys()
-            class_is_typedef = "typedef" in c.keys() and c["typedef"]
+            class_is_callback_typedef = "callback_typedef" in c.keys() and (len(c["callback_typedef"]) > 0)
             treat_external_as_ptr = "external" in c.keys() and "is_boxed_object" in c.keys() and c["is_boxed_object"]
             class_can_be_cloned = True
             if "clone" in c.keys():
@@ -1078,10 +991,6 @@ def generate_rust_api(apiData, structs_map, functions_map):
 
             code += "\r\n\r\n"
 
-            if tuple([module_name, class_name]) in rust_api_patches.keys() and "use_patches" in c.keys() and "rust" in c["use_patches"]:
-                code += rust_api_patches[tuple([module_name, class_name])]
-                continue
-
             if "doc" in c.keys():
                 code += "    /// " + c["doc"] + "\r\n    "
             else:
@@ -1089,7 +998,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
 
             code += "#[doc(inline)] pub use crate::dll::" + class_ptr_name + " as " + class_name + ";\r\n\r\n"
 
-            should_emit_impl = not(class_is_const or class_is_typedef) and (("constructors" in c.keys() and len(c["constructors"]) > 0) or ("functions" in c.keys() and len(c["functions"]) > 0))
+            should_emit_impl = not(class_is_const or class_is_callback_typedef) and (("constructors" in c.keys() and len(c["constructors"]) > 0) or ("functions" in c.keys() and len(c["functions"]) > 0))
             if should_emit_impl:
                 code += "    impl " + class_name + " {\r\n"
 
@@ -1123,7 +1032,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                             if is_primitive_arg(analyzed_return_type[1]):
                                 fn_body = fn_body
                             else:
-                                return_type_class = search_for_class_by_rust_class_name(apiData, analyzed_return_type[1])
+                                return_type_class = search_for_class_by_class_name(apiData, analyzed_return_type[1])
                                 if return_type_class is None:
                                     print("no return type found for return type: " + return_type)
                                 returns = analyzed_return_type[0] + " crate::" + return_type_class[0] + "::" + return_type_class[1] + analyzed_return_type[2]
@@ -1166,7 +1075,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                             if is_primitive_arg(analyzed_return_type[1]):
                                 fn_body = fn_body
                             else:
-                                return_type_class = search_for_class_by_rust_class_name(apiData, analyzed_return_type[1])
+                                return_type_class = search_for_class_by_class_name(apiData, analyzed_return_type[1])
                                 if return_type_class is None:
                                     print("no return type found for return type: " + return_type)
                                 returns = " ->" + analyzed_return_type[0] + " crate::" + return_type_class[0] + "::" + return_type_class[1] + analyzed_return_type[2]
@@ -1176,12 +1085,8 @@ def generate_rust_api(apiData, structs_map, functions_map):
 
                 code += "    }\r\n\r\n" # end of class
 
-            rust_class_name = class_name
-            if "rust_class_name" in c.keys():
-                rust_class_name = c["rust_class_name"]
-
             lifetime = ""
-            if "<'a>" in rust_class_name:
+            if "<'a>" in class_name:
                 lifetime = "<'a>"
 
             if class_can_derive_debug:
@@ -1190,10 +1095,10 @@ def generate_rust_api(apiData, structs_map, functions_map):
             if class_can_be_copied:
                 code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { *self } }\r\n"
                 code += "    impl Copy for " + class_name + " { }\r\n"
-            elif c_is_stack_allocated and class_can_be_cloned and lifetime == "" and not(class_is_const or class_is_typedef):
+            elif c_is_stack_allocated and class_can_be_cloned and lifetime == "" and not(class_is_const or class_is_callback_typedef):
                 code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_deep_copy(self) } } }\r\n"
 
-            if not(class_is_const or class_is_typedef or class_can_be_copied):
+            if not(class_is_const or class_is_callback_typedef or class_can_be_copied):
                 code += "    impl Drop for " + class_name + " { fn drop(&mut self) { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_delete(self) }; } }\r\n"
 
         module_file_name = module_name + ".rs"
@@ -1229,8 +1134,7 @@ def generate_size_test(apiData, structs_map):
     test_str += "#[cfg(test)]\r\n"
     test_str += "mod test_sizes {\r\n"
 
-    if tuple(['dll']) in test_sizes_patches.keys():
-        test_str += test_sizes_patches[tuple(['dll'])]
+    test_str += read_file("./patches/azul-dll/test-sizes.rs")
 
     test_str += generated_structs
     test_str += "    use core::ffi::c_void;\r\n"
