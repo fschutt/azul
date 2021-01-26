@@ -21,7 +21,7 @@ basic_types = [
 
 azul_readme_path = "../azul/README.md"
 license_path = "../LICENSE"
-api_file_path = "./public.api.json"
+api_file_path = "../api.json"
 rust_dll_path = "../azul-dll/src/lib.rs"
 
 c_api_path = "../azul/src/c/azul.h"
