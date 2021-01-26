@@ -266,6 +266,13 @@
         Ellipse,
         Circle,
     }
+    /// Re-export of rust-allocated (stack based) `RadialGradientSize` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzRadialGradientSize {
+        ClosestSide,
+        ClosestCorner,
+        FarthestSide,
+        FarthestCorner,
+    }
     /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeat` struct
     #[repr(C)] #[derive(Debug)] pub enum AzStyleBackgroundRepeat {
         NoRepeat,
@@ -1068,7 +1075,7 @@
     }
     /// Re-export of rust-allocated (stack based) `Direction` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzDirection {
-        Angle(AzFloatValue),
+        Angle(AzAngleValue),
         FromTo(AzDirectionCorners),
     }
     /// Re-export of rust-allocated (stack based) `BackgroundPositionHorizontal` struct
@@ -1234,7 +1241,7 @@
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
         pub z: AzPercentageValue,
-        pub angle: AzPercentageValue,
+        pub angle: AzAngleValue,
     }
     /// Re-export of rust-allocated (stack based) `StyleTransformScale2D` struct
     #[repr(C)] #[derive(Debug)] pub struct AzStyleTransformScale2D {
@@ -2810,6 +2817,8 @@
     /// Re-export of rust-allocated (stack based) `RadialGradient` struct
     #[repr(C)] #[derive(Debug)] pub struct AzRadialGradient {
         pub shape: AzShape,
+        pub size: AzRadialGradientSize,
+        pub position: AzStyleBackgroundPosition,
         pub extend_mode: AzExtendMode,
         pub stops: AzLinearColorStopVec,
     }
@@ -3234,6 +3243,7 @@
         pub cascade_info: AzCascadeInfoVec,
         pub tag_ids_to_node_ids: AzTagIdsToNodeIdsMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
+        pub css_property_cache: *mut c_void,
     }
     /// Re-export of rust-allocated (stack based) `Dom` struct
     #[repr(C)] #[derive(Debug)] pub struct AzDom {
@@ -3666,6 +3676,8 @@
         pub(crate) fn az_color_u_to_hash(_:  &AzColorU) -> AzString;
         pub(crate) fn az_linear_gradient_delete(_:  &mut AzLinearGradient);
         pub(crate) fn az_linear_gradient_deep_copy(_:  &AzLinearGradient) -> AzLinearGradient;
+        pub(crate) fn az_radial_gradient_size_delete(_:  &mut AzRadialGradientSize);
+        pub(crate) fn az_radial_gradient_size_deep_copy(_:  &AzRadialGradientSize) -> AzRadialGradientSize;
         pub(crate) fn az_radial_gradient_delete(_:  &mut AzRadialGradient);
         pub(crate) fn az_radial_gradient_deep_copy(_:  &AzRadialGradient) -> AzRadialGradient;
         pub(crate) fn az_conic_gradient_delete(_:  &mut AzConicGradient);

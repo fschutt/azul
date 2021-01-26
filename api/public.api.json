@@ -3021,7 +3021,7 @@
 					"external": "azul_impl::css::Direction",
 					"derive": ["Copy"],
 					"enum_fields": [
-						{"Angle": {"type": "FloatValue"}},
+						{"Angle": {"type": "AngleValue"}},
 						{"FromTo": {"type": "DirectionCorners"}}
 					]
 				},
@@ -3049,10 +3049,21 @@
 						{"Circle": {}}
 					]
 				},
+				"RadialGradientSize": {
+					"external": "azul_impl::css::RadialGradientSize",
+					"enum_fields": [
+						{"ClosestSide": {"doc": "The gradients ending shape meets the side of the box closest to its center (for circles) or meets both the vertical and horizontal sides closest to the center (for ellipses)"}},
+						{"ClosestCorner": {"doc": "The gradients ending shape is sized so that it exactly meets the closest corner of the box from its center"}},
+						{"FarthestSide": {"doc": "Similar to closest-side, except the ending shape is sized to meet the side of the box farthest from its center (or vertical and horizontal sides)"}},
+						{"FarthestCorner": {"doc": "The default value, the gradient's ending shape is sized so that it exactly meets the farthest corner of the box from its center"}}
+					]
+				},
 				"RadialGradient": {
 					"external": "azul_impl::css::RadialGradient",
 					"struct_fields": [
 						{"shape": {"type": "Shape"}},
+						{"size": {"type": "RadialGradientSize"}},
+						{"position": {"type": "StyleBackgroundPosition"}},
 						{"extend_mode": {"type": "ExtendMode"}},
 						{"stops": {"type": "LinearColorStopVec"}}
 					]
@@ -3465,7 +3476,7 @@
 						{"x": {"type": "PercentageValue"}},
 						{"y": {"type": "PercentageValue"}},
 						{"z": {"type": "PercentageValue"}},
-						{"angle": {"type": "PercentageValue"}}
+						{"angle": {"type": "AngleValue"}}
 					]
 				},
 				"StyleTransformScale2D": {
@@ -4396,7 +4407,8 @@
 						{"styled_nodes": {"type": "StyledNodeVec" }},
 						{"cascade_info": {"type": "CascadeInfoVec" }},
 						{"tag_ids_to_node_ids": {"type": "TagIdsToNodeIdsMappingVec" }},
-						{"non_leaf_nodes": {"type": "ParentWithNodeDepthVec" }}
+						{"non_leaf_nodes": {"type": "ParentWithNodeDepthVec" }},
+						{"css_property_cache": {"type": "*mut c_void" }}
 					],
 					"constructors": {
 						"new": {

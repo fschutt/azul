@@ -1096,6 +1096,13 @@
     impl Copy for Shape { }
 
 
+    /// `RadialGradientSize` struct
+    #[doc(inline)] pub use crate::dll::AzRadialGradientSize as RadialGradientSize;
+
+    impl Clone for RadialGradientSize { fn clone(&self) -> Self { unsafe { crate::dll::az_radial_gradient_size_deep_copy(self) } } }
+    impl Drop for RadialGradientSize { fn drop(&mut self) { unsafe { crate::dll::az_radial_gradient_size_delete(self) }; } }
+
+
     /// `RadialGradient` struct
     #[doc(inline)] pub use crate::dll::AzRadialGradient as RadialGradient;
 

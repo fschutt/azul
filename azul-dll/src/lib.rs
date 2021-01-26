@@ -1498,6 +1498,15 @@ pub use AzLinearGradientTT as AzLinearGradient;
 pub type AzShapeTT = azul_impl::css::Shape;
 pub use AzShapeTT as AzShape;
 
+/// Re-export of rust-allocated (stack based) `RadialGradientSize` struct
+pub type AzRadialGradientSizeTT = azul_impl::css::RadialGradientSize;
+pub use AzRadialGradientSizeTT as AzRadialGradientSize;
+/// Destructor: Takes ownership of the `RadialGradientSize` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_radial_gradient_size_delete(object: &mut AzRadialGradientSize) { match object { azul_impl::css::RadialGradientSize::ClosestSide => { }, azul_impl::css::RadialGradientSize::ClosestCorner => { }, azul_impl::css::RadialGradientSize::FarthestSide => { }, azul_impl::css::RadialGradientSize::FarthestCorner => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_radial_gradient_size_deep_copy(object: &AzRadialGradientSize) -> AzRadialGradientSize { object.clone() }
+
 /// Re-export of rust-allocated (stack based) `RadialGradient` struct
 pub type AzRadialGradientTT = azul_impl::css::RadialGradient;
 pub use AzRadialGradientTT as AzRadialGradient;
@@ -3750,6 +3759,13 @@ mod test_sizes {
         Ellipse,
         Circle,
     }
+    /// Re-export of rust-allocated (stack based) `RadialGradientSize` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzRadialGradientSize {
+        ClosestSide,
+        ClosestCorner,
+        FarthestSide,
+        FarthestCorner,
+    }
     /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeat` struct
     #[repr(C)] #[derive(Debug)] pub enum AzStyleBackgroundRepeat {
         NoRepeat,
@@ -4552,7 +4568,7 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `Direction` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzDirection {
-        Angle(AzFloatValue),
+        Angle(AzAngleValue),
         FromTo(AzDirectionCorners),
     }
     /// Re-export of rust-allocated (stack based) `BackgroundPositionHorizontal` struct
@@ -4718,7 +4734,7 @@ mod test_sizes {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
         pub z: AzPercentageValue,
-        pub angle: AzPercentageValue,
+        pub angle: AzAngleValue,
     }
     /// Re-export of rust-allocated (stack based) `StyleTransformScale2D` struct
     #[repr(C)] #[derive(Debug)] pub struct AzStyleTransformScale2D {
@@ -6294,6 +6310,8 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `RadialGradient` struct
     #[repr(C)] #[derive(Debug)] pub struct AzRadialGradient {
         pub shape: AzShape,
+        pub size: AzRadialGradientSize,
+        pub position: AzStyleBackgroundPosition,
         pub extend_mode: AzExtendMode,
         pub stops: AzLinearColorStopVec,
     }
@@ -6718,6 +6736,7 @@ mod test_sizes {
         pub cascade_info: AzCascadeInfoVec,
         pub tag_ids_to_node_ids: AzTagIdsToNodeIdsMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
+        pub css_property_cache: *mut c_void,
     }
     /// Re-export of rust-allocated (stack based) `Dom` struct
     #[repr(C)] #[derive(Debug)] pub struct AzDom {
@@ -6834,6 +6853,7 @@ mod test_sizes {
         assert_eq!(Layout::new::<azul_impl::css::DirectionCorner>(), Layout::new::<AzDirectionCorner>());
         assert_eq!(Layout::new::<azul_impl::css::ExtendMode>(), Layout::new::<AzExtendMode>());
         assert_eq!(Layout::new::<azul_impl::css::Shape>(), Layout::new::<AzShape>());
+        assert_eq!(Layout::new::<azul_impl::css::RadialGradientSize>(), Layout::new::<AzRadialGradientSize>());
         assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundRepeat>(), Layout::new::<AzStyleBackgroundRepeat>());
         assert_eq!(Layout::new::<azul_impl::css::BorderStyle>(), Layout::new::<AzBorderStyle>());
         assert_eq!(Layout::new::<azul_impl::css::StyleCursor>(), Layout::new::<AzStyleCursor>());
