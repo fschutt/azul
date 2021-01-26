@@ -1872,8 +1872,15 @@
 						{"cb": {"type": "LayoutCallbackType"}}
 					]
 				},
-				"LayoutCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
-
+				"LayoutCallbackType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "RefAny", "ref": "ref"},
+							{"type": "LayoutInfo", "ref": "value"},
+						],
+						"returns": "StyledDom"
+					}
+				},
 				"Callback": {
 					"external": "azul_impl::callbacks::Callback",
 					"derive": ["Copy"],
@@ -1899,7 +1906,15 @@
 						{"css_path": {"type": "CssPath"}}
 					]
 				},
-				"CallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
+				"CallbackType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "RefAny", "ref": "refmut"},
+							{"type": "CallbackInfo", "ref": "value"},
+						],
+						"returns": "UpdateScreen"
+					}
+				},
 				"CallbackInfo": {
 					"external": "azul_impl::callbacks::CallbackInfo",
 					"clone": false,
@@ -2113,7 +2128,6 @@
 						{"RegenerateStyledDomForAllWindows": {"doc": "After the callback is called, the layout() function needs to be called again for ALL windows"}}
 					]
 				},
-
 				"IFrameCallback": {
 					"external": "azul_impl::callbacks::IFrameCallback",
 					"derive": ["Copy"],
@@ -2121,7 +2135,15 @@
 						{"cb": {"type": "IFrameCallbackType"}}
 					]
 				},
-				"IFrameCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
+				"IFrameCallbackType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "RefAny", "ref": "ref"},
+							{"type": "IFrameCallbackInfo", "ref": "value"},
+						],
+						"returns": "IFrameCallbackReturn"
+					}
+				},
 				"IFrameCallbackInfo": {
 					"external": "azul_impl::callbacks::IFrameCallbackInfo",
 					"clone": false,
@@ -2139,7 +2161,6 @@
 						{"virtual_size": {"type": "OptionLayoutRect"}}
 					]
 				},
-
 				"GlCallback": {
 					"external": "azul_impl::callbacks::GlCallback",
 					"derive": ["Copy"],
@@ -2147,7 +2168,15 @@
 						{"cb": {"type": "GlCallbackType"}}
 					]
 				},
-				"GlCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
+				"GlCallbackType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "RefAny", "ref": "ref"},
+							{"type": "GlCallbackInfo", "ref": "value"},
+						],
+						"returns": "GlCallbackReturn"
+					}
+				},
 				"GlCallbackInfo": {
 					"external": "azul_impl::callbacks::GlCallbackInfo",
 					"clone": false,
@@ -2190,7 +2219,16 @@
 						{"cb": {"type": "TimerCallbackType"}}
 					]
 				},
-				"TimerCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
+				"TimerCallbackType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "RefAny", "ref": "refmut"},
+							{"type": "RefAny", "ref": "refmut"},
+							{"type": "TimerCallbackInfo", "ref": "value"}
+						],
+						"returns": "TimerCallbackReturn"
+					}
+				},
 				"TimerCallbackInfo": {
 					"external": "azul_impl::callbacks::TimerCallbackInfo",
 					"clone": false,
@@ -2207,18 +2245,38 @@
 						{"should_terminate": {"type": "TerminateTimer"}}
 					]
 				},
-
-				"WriteBackCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
+				"WriteBackCallbackType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "RefAny", "ref": "refmut"},
+							{"type": "RefAny", "ref": "value"},
+							{"type": "CallbackInfo", "ref": "value"}
+						],
+						"returns": "UpdateScreen"
+					}
+				},
 				"WriteBackCallback": {
 					"external": "azul_impl::callbacks::WriteBackCallback",
 					"struct_fields": [
 						{"cb": {"type": "WriteBackCallbackType"}}
 					]
 				},
-
-				"ThreadCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
-				"RefAnyDestructorType": { "use_patches": ["dll", "rust"], "typedef": true },
-
+				"ThreadCallbackType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "RefAny", "ref": "value"},
+							{"type": "ThreadSender", "ref": "value"},
+							{"type": "ThreadReceiver", "ref": "value"}
+						]
+					}
+				},
+				"RefAnyDestructorType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "c_void", "ref": "refmut"}
+						]
+					}
+				},
 				"AtomicRefCount": {
 					"external": "azul_impl::callbacks::AtomicRefCount",
 					"derive": ["Debug"],

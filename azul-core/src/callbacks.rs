@@ -137,7 +137,7 @@ pub struct RefAny {
     pub type_id: u64,
     pub type_name: AzString,
     pub sharing_info: AtomicRefCount,
-    pub custom_destructor: extern "C" fn(*const c_void),
+    pub custom_destructor: extern "C" fn(*mut c_void),
 }
 
 impl_option!(RefAny, OptionRefAny, copy = false, [Debug, Clone, Hash, PartialEq, PartialOrd, Ord, Eq]);
@@ -168,7 +168,7 @@ impl RefAny {
     /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID
     pub fn new<T: 'static>(value: T) -> Self {
 
-        extern "C" fn default_custom_destructor<U: 'static>(ptr: *const c_void) {
+        extern "C" fn default_custom_destructor<U: 'static>(ptr: *mut c_void) {
             use std::{mem, ptr};
 
             // note: in the default constructor, we do not need to check whether U == T
