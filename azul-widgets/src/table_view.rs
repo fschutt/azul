@@ -136,6 +136,7 @@ impl TableViewState {
         use azul::css::*;
         use azul::str::String as AzString;
         use azul::vec::StringVec as AzStringVec;
+        use azul::vec::StyleBackgroundContentVec;
 
         let font: AzString = "sans-serif".into();
         let font_vec: AzStringVec = [font][..].into();
@@ -152,7 +153,7 @@ impl TableViewState {
         const SELECTED_CELL_BORDER_STYLE: BorderStyle = BorderStyle::Solid;
         const SELECTED_CELL_BORDER_COLOR: ColorU = COLOR_407C40;
 
-        let shadow = BoxShadowPreDisplayItem {
+        let shadow = StyleBoxShadow {
             offset: [PixelValueNoPercent::zero(), PixelValueNoPercent::zero()],
             color: COLOR_2D2D2D,
             blur_radius: PixelValueNoPercent::const_px(3),
@@ -164,7 +165,7 @@ impl TableViewState {
         let top_left_empty_rect = Dom::div()
         .with_inline_css_props(CssPropertyVec::from(&[
             CssProperty::height(LayoutHeight::const_px(20)),
-            CssProperty::background_content(StyleBackgroundContent::Color(COLOR_E6E6E6)),
+            CssProperty::background_content(StyleBackgroundContentVec::from(&[StyleBackgroundContent::Color(COLOR_E6E6E6)][..])),
             CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 }),
             CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 }),
         ][..]));
@@ -183,7 +184,7 @@ impl TableViewState {
                 CssProperty::justify_content(LayoutJustifyContent::Center),
                 CssProperty::align_items(LayoutAlignItems::Center),
                 CssProperty::min_height(LayoutMinHeight::const_px(20)),
-                CssProperty::border_bottom_width(StyleBorderBottomWidth::const_px(1)),
+                CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1)),
                 CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid }),
                 CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 }),
             ][..]))
@@ -242,16 +243,16 @@ impl TableViewState {
                 .map(|selection| LayoutMarginTop::px(selection.from_top_left.row as f32 * self.default_row_height))
                 .unwrap_or(LayoutMarginTop::zero()) // TODO: replace with transform-y
             }),
-            CssProperty::border_bottom_width(StyleBorderBottomWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
+            CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
             CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: SELECTED_CELL_BORDER_STYLE }),
             CssProperty::border_bottom_color(StyleBorderBottomColor { inner: SELECTED_CELL_BORDER_COLOR }),
-            CssProperty::border_top_width(StyleBorderTopWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
+            CssProperty::border_top_width(LayoutBorderTopWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
             CssProperty::border_top_style(StyleBorderTopStyle { inner: SELECTED_CELL_BORDER_STYLE }),
             CssProperty::border_top_color(StyleBorderTopColor { inner: SELECTED_CELL_BORDER_COLOR }),
-            CssProperty::border_left_width(StyleBorderLeftWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
+            CssProperty::border_left_width(LayoutBorderLeftWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
             CssProperty::border_left_style(StyleBorderLeftStyle { inner: SELECTED_CELL_BORDER_STYLE }),
             CssProperty::border_left_color(StyleBorderLeftColor { inner: SELECTED_CELL_BORDER_COLOR }),
-            CssProperty::border_right_width(StyleBorderRightWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
+            CssProperty::border_right_width(LayoutBorderRightWidth::const_px(SELECTED_CELL_BORDER_WIDTH)),
             CssProperty::border_right_style(StyleBorderRightStyle { inner: SELECTED_CELL_BORDER_STYLE }),
             CssProperty::border_right_color(StyleBorderRightColor { inner: SELECTED_CELL_BORDER_COLOR }),
             // don't show the selection when the table doesn't have one
@@ -277,7 +278,7 @@ impl TableViewState {
                 CssProperty::background_content(StyleBackgroundContent::Color(COLOR_E6E6E6)),
                 CssProperty::flex_direction(LayoutFlexDirection::Row),
                 CssProperty::align_items(LayoutAlignItems::Center),
-                CssProperty::border_right_width(StyleBorderRightWidth::const_px(1)),
+                CssProperty::border_right_width(LayoutBorderRightWidth::const_px(1)),
                 CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid }),
                 CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 }),
                 CssProperty::box_shadow_bottom(shadow),
@@ -301,7 +302,7 @@ impl TableViewState {
                        CssProperty::text_align(StyleTextAlignmentHorz::Left),
                        CssProperty::text_color(StyleTextColor { inner: COLOR_BLACK }),
                        CssProperty::font_family(sans_serif_font_family.clone()),
-                       CssProperty::border_bottom_width(StyleBorderBottomWidth::px(1.0)),
+                       CssProperty::border_bottom_width(LayoutBorderBottomWidth::px(1.0)),
                        CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid }),
                        CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_D1D1D1 }),
                     ][..]))
@@ -313,7 +314,7 @@ impl TableViewState {
             .with_inline_css_props(CssPropertyVec::from(&[
                 CssProperty::flex_direction(LayoutFlexDirection::Column),
                 CssProperty::min_width(LayoutMinWidth::px(100.0)),
-                CssProperty::border_right_width(StyleBorderRightWidth::px(1.0)),
+                CssProperty::border_right_width(LayoutBorderRightWidth::px(1.0)),
                 CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid }),
                 CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_D1D1D1 }),
             ][..]))

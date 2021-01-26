@@ -117,6 +117,8 @@
     impl_vec!(u32, AzScanCodeVec);
     impl_vec!(u32, AzGLuintVec);
     impl_vec!(i32, AzGLintVec);
+    impl_vec!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
+    impl_vec!(IdOrClass, IdOrClassVec);
     impl_vec!(AzStyleTransform, AzStyleTransformVec);
     impl_vec!(AzCssProperty, AzCssPropertyVec);
     impl_vec!(AzSvgMultiPolygon, AzSvgMultiPolygonVec);
