@@ -893,229 +893,229 @@ mod dll {
         LightMode,
     }
     /// Re-export of rust-allocated (stack based) `DomVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzDomVecDestructor {
+    #[repr(C, u8)]  pub enum AzDomVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzDomVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `IdOrClassVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzIdOrClassVecDestructor {
+    #[repr(C, u8)]  pub enum AzIdOrClassVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzIdOrClassVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `NodeDataInlineCssPropertyVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeDataInlineCssPropertyVecDestructor {
+    #[repr(C, u8)]  pub enum AzNodeDataInlineCssPropertyVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNodeDataInlineCssPropertyVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundContentVecDestructor {
+    #[repr(C, u8)]  pub enum AzStyleBackgroundContentVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleBackgroundContentVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundPositionVecDestructor {
+    #[repr(C, u8)]  pub enum AzStyleBackgroundPositionVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleBackgroundPositionVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundRepeatVecDestructor {
+    #[repr(C, u8)]  pub enum AzStyleBackgroundRepeatVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleBackgroundRepeatVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleBackgroundSizeVecDestructor {
+    #[repr(C, u8)]  pub enum AzStyleBackgroundSizeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleBackgroundSizeVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `StyleTransformVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyleTransformVecDestructor {
+    #[repr(C, u8)]  pub enum AzStyleTransformVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleTransformVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `CssPropertyVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzCssPropertyVecDestructor {
+    #[repr(C, u8)]  pub enum AzCssPropertyVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCssPropertyVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygonVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgMultiPolygonVecDestructor {
+    #[repr(C, u8)]  pub enum AzSvgMultiPolygonVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzSvgMultiPolygonVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgPathVecDestructor {
+    #[repr(C, u8)]  pub enum AzSvgPathVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzSvgPathVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `VertexAttributeVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzVertexAttributeVecDestructor {
+    #[repr(C, u8)]  pub enum AzVertexAttributeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzVertexAttributeVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `SvgPathElementVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgPathElementVecDestructor {
+    #[repr(C, u8)]  pub enum AzSvgPathElementVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzSvgPathElementVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `SvgVertexVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgVertexVecDestructor {
+    #[repr(C, u8)]  pub enum AzSvgVertexVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzSvgVertexVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzU32VecDestructor {
+    #[repr(C, u8)]  pub enum AzU32VecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzU32VecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `XWindowTypeVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzXWindowTypeVecDestructor {
+    #[repr(C, u8)]  pub enum AzXWindowTypeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzXWindowTypeVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `VirtualKeyCodeVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzVirtualKeyCodeVecDestructor {
+    #[repr(C, u8)]  pub enum AzVirtualKeyCodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzVirtualKeyCodeVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `CascadeInfoVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzCascadeInfoVecDestructor {
+    #[repr(C, u8)]  pub enum AzCascadeInfoVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCascadeInfoVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `ScanCodeVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzScanCodeVecDestructor {
+    #[repr(C, u8)]  pub enum AzScanCodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzScanCodeVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `CssDeclarationVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzCssDeclarationVecDestructor {
+    #[repr(C, u8)]  pub enum AzCssDeclarationVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCssDeclarationVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `CssPathSelectorVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzCssPathSelectorVecDestructor {
+    #[repr(C, u8)]  pub enum AzCssPathSelectorVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCssPathSelectorVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `StylesheetVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStylesheetVecDestructor {
+    #[repr(C, u8)]  pub enum AzStylesheetVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStylesheetVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `CssRuleBlockVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzCssRuleBlockVecDestructor {
+    #[repr(C, u8)]  pub enum AzCssRuleBlockVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCssRuleBlockVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzU8VecDestructor {
+    #[repr(C, u8)]  pub enum AzU8VecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzU8VecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `CallbackDataVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzCallbackDataVecDestructor {
+    #[repr(C, u8)]  pub enum AzCallbackDataVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCallbackDataVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `DebugMessageVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzDebugMessageVecDestructor {
+    #[repr(C, u8)]  pub enum AzDebugMessageVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzDebugMessageVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `GLuintVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzGLuintVecDestructor {
+    #[repr(C, u8)]  pub enum AzGLuintVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzGLuintVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `GLintVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzGLintVecDestructor {
+    #[repr(C, u8)]  pub enum AzGLintVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzGLintVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `StringVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStringVecDestructor {
+    #[repr(C, u8)]  pub enum AzStringVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStringVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `StringPairVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStringPairVecDestructor {
+    #[repr(C, u8)]  pub enum AzStringPairVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStringPairVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `LinearColorStopVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzLinearColorStopVecDestructor {
+    #[repr(C, u8)]  pub enum AzLinearColorStopVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzLinearColorStopVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `RadialColorStopVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzRadialColorStopVecDestructor {
+    #[repr(C, u8)]  pub enum AzRadialColorStopVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzRadialColorStopVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeIdVecDestructor {
+    #[repr(C, u8)]  pub enum AzNodeIdVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNodeIdVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeVecDestructor {
+    #[repr(C, u8)]  pub enum AzNodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNodeVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzStyledNodeVecDestructor {
+    #[repr(C, u8)]  pub enum AzStyledNodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyledNodeVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `TagIdsToNodeIdsMappingVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzTagIdsToNodeIdsMappingVecDestructor {
+    #[repr(C, u8)]  pub enum AzTagIdsToNodeIdsMappingVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzTagIdsToNodeIdsMappingVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepthVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzParentWithNodeDepthVecDestructor {
+    #[repr(C, u8)]  pub enum AzParentWithNodeDepthVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzParentWithNodeDepthVecDestructorType),
     }
     /// Re-export of rust-allocated (stack based) `NodeDataVecDestructor` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzNodeDataVecDestructor {
+    #[repr(C, u8)]  pub enum AzNodeDataVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNodeDataVecDestructorType),

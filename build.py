@@ -834,7 +834,24 @@ def generate_structs(api_data, structs_map):
                 if "type" in variant.keys():
                     repr = "#[repr(C, u8)]"
 
-            code += "    " + repr + " #[derive(Debug)] pub enum " + struct_name + " {\r\n"
+            # don't derive(Debug) for enums with function pointers in their variants
+            opt_derive_debug = "#[derive(Debug)]"
+
+            for variant in enum:
+                variant = list(variant.values())[0]
+                if "type" in variant.keys():
+                    variant_type = variant["type"]
+                    analyzed_arg_type = analyze_type(variant_type)
+                    if not(is_primitive_arg(analyzed_arg_type[1])):
+                        field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
+                        if field_type_class_path is None:
+                            print("no field_type_class_path found for " + str(analyzed_arg_type))
+                        found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
+                        found_c_is_callback_typedef = "callback_typedef" in found_c.keys() and found_c["callback_typedef"]
+                        if found_c_is_callback_typedef:
+                            opt_derive_debug = ""
+
+            code += "    " + repr + " " + opt_derive_debug + " pub enum " + struct_name + " {\r\n"
             for variant in enum:
                 variant_name = list(variant.keys())[0]
                 variant = list(variant.values())[0]
@@ -1231,7 +1248,7 @@ def build_dll():
     d = dict(os.environ)   # Make a copy of the current environment
     d['CC'] = 'clang-cl'
     d['CXX'] = 'clang-cl'
-    d['RUSTFLAGS'] = '-C target-feature=+crt-static -C link-arg=-s'
+    d['RUSTFLAGS'] = '-C target-feature=+crt-static'
     cwd = root_folder + "/azul-dll"
     subprocess.Popen(['cargo', 'build', '--all-features', '--release'], env=d, cwd=cwd).wait()
     pass
@@ -1240,7 +1257,7 @@ def run_size_test():
     d = dict(os.environ)   # Make a copy of the current environment
     d['CC'] = 'clang-cl'
     d['CXX'] = 'clang-cl'
-    d['RUSTFLAGS'] = '-C target-feature=+crt-static -C link-arg=-s'
+    d['RUSTFLAGS'] = '-C target-feature=+crt-static'
     cwd = root_folder + "/azul-dll"
     subprocess.Popen(['cargo', 'test', '--all-features', '--release'], env=d, cwd=cwd).wait()
 
@@ -1299,9 +1316,9 @@ def main():
     print("generating API...")
     generate_api()
     print("building azul-dll (release mode)...")
-    build_dll()
+    # build_dll()
     print("checking azul-dll for struct size integrity...")
-    run_size_test()
+    # run_size_test()
     print("building examples...")
     build_examples()
     print("building docs (output_dir = /target/doc)...")
