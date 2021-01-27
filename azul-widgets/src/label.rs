@@ -13,9 +13,9 @@ pub struct Label {
 impl Label {
 
     #[inline]
-    pub fn new<S: AsRef<str>>(string: S) -> Self {
+    pub fn new<S: Into<AzString>>(string: S) -> Self {
         Self {
-            string: string.as_ref().into(),
+            string: string.into(),
             style: Self::native_css(),
         }
     }

@@ -21,9 +21,9 @@ pub enum ButtonContent {
 
 impl Button {
 
-    pub fn label<S: AsRef<str>>(text: S) -> Self {
+    pub fn label<S: Into<AzString>>(text: S) -> Self {
         Self {
-            content: ButtonContent::Text(text.as_ref().into()),
+            content: ButtonContent::Text(text.into()),
             style: Self::native_css(),
         }
     }
@@ -136,7 +136,7 @@ impl Button {
         use azul::dom::Dom;
 
         let content = match self.content {
-            Text(s) => Dom::label(s.into()),
+            Text(s) => Dom::label(s),
             Image(i) => Dom::image(i),
         };
 

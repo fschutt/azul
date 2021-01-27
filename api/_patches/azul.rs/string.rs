@@ -1,6 +1,13 @@
 
     use alloc::string;
 
+
+    impl From<&'static str> for crate::str::String {
+        fn from(v: &'static str) -> crate::str::String {
+            crate::str::String::from_const_str(v)
+        }
+    }
+
     impl From<string::String> for crate::str::String {
         fn from(s: string::String) -> crate::str::String {
             crate::str::String::from_utf8_unchecked(s.as_ptr(), s.len()) // - copies s into a new String
@@ -8,16 +15,9 @@
         }
     }
 
-    impl From<&str> for crate::str::String {
-        fn from(s: &str) -> crate::str::String {
-            crate::str::String::from_utf8_unchecked(s.as_ptr(), s.len()) // - copies s into a new String
-        }
-    }
-
     impl From<crate::str::String> for string::String {
         fn from(s: crate::str::String) -> string::String {
-            let s_bytes = s.into_bytes();
-            unsafe { string::String::from_utf8_unchecked(s_bytes.into()) } // - copies s into a new String
+            s.as_str().into()
             // - s_bytes is deallocated here
         }
     }
@@ -38,5 +38,12 @@
         #[inline]
         pub fn into_string(self) -> String {
             self.into()
+        }
+
+        #[inline(always)]
+        pub const fn from_const_str(s: &'static str) -> Self {
+            String {
+                vec: crate::vec::U8Vec::from_const_slice(s.as_bytes())
+            }
         }
     }

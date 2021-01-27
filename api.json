@@ -5645,6 +5645,22 @@
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_inline_css(&mut nodedata, prop); nodedata"
 						},
+						"set_inline_css_props": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"props": "NodeDataInlineCssPropertyVec"}
+							],
+							"fn_body": "nodedata.set_inline_css_props(props);"
+						},
+						"with_inline_css_props": {
+							"doc": "Same as [`NodeData::set_inline_css_props`](#method.set_inline_css_props), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"props": "NodeDataInlineCssPropertyVec"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_set_inline_css_props(&mut nodedata, props); nodedata"
+						},
 						"add_inline_hover_css": {
 							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
 							"fn_args": [

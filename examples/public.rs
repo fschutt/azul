@@ -36,8 +36,7 @@
 use azul::prelude::*;
 use azul::style::StyledDom;
 use azul::callbacks::{
-    UpdateScreen, TimerCallbackInfo, CallbackInfo,
-    TimerCallbackReturn, CallbackReturn,
+    UpdateScreen, TimerCallbackInfo, CallbackInfo, TimerCallbackReturn,
 };
 use azul::task::{TimerId, Timer, TerminateTimer};
 
@@ -55,8 +54,6 @@ extern "C" fn layout(data: &RefAny, _info: LayoutInfo) -> StyledDom {
 
 fn main() {
     use azul::dom::NodeData;
-    use azul::style::RectStyle;
-    use azul::style::RectLayout;
     use azul::vec::CssPropertyVec;
     use azul::vec::StringVec;
 

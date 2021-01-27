@@ -67,6 +67,16 @@
             pub fn as_slice(&self) -> &[$struct_type] {
                 self.as_ref()
             }
+
+            #[inline(always)]
+            pub const fn from_const_slice(input: &'static [$struct_type]) -> Self {
+                Self {
+                    ptr: input.as_ptr(),
+                    len: input.len(),
+                    cap: input.len(),
+                    destructor: $destructor_name::NoDestructor, // because of &'static
+                }
+            }
         }
 
         impl AsRef<[$struct_type]> for $struct_name {
@@ -100,17 +110,12 @@
 
         impl From<&'static [$struct_type]> for $struct_name {
             fn from(input: &'static [$struct_type]) -> $struct_name {
-                Self {
-                    ptr: input.as_ptr(),
-                    len: input.len(),
-                    cap: input.len(),
-                    destructor: $destructor_name::NoDestructor, // because of &'static
-                }
+                Self::from_const_slice(input)
             }
         }
 
         impl From<$struct_name> for Vec<$struct_type> {
-            fn from(mut input: $struct_name) -> Vec<$struct_type> {
+            fn from(input: $struct_name) -> Vec<$struct_type> {
                 input.as_ref().to_vec()
             }
         }
@@ -167,7 +172,7 @@
 
     impl From<vec::Vec<string::String>> for crate::vec::StringVec {
         fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {
-            let mut vec: Vec<AzString> = v.into_iter().map(Into::into).collect();
+            let vec: Vec<AzString> = v.into_iter().map(Into::into).collect();
             vec.into()
         }
     }

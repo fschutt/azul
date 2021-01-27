@@ -2374,6 +2374,10 @@ pub use AzNodeDataTT as AzNodeData;
 #[no_mangle] pub extern "C" fn az_node_data_add_inline_css(nodedata: &mut AzNodeData, prop: AzCssProperty) { nodedata.add_inline_css(prop); }
 /// Same as [`NodeData::add_inline_css`](#method.add_inline_css), but as a builder method
 #[no_mangle] pub extern "C" fn az_node_data_with_inline_css(mut nodedata: AzNodeData, prop: AzCssProperty) -> AzNodeData { az_node_data_add_inline_css(&mut nodedata, prop); nodedata }
+/// Equivalent to the Rust `NodeData::set_inline_css_props()` function.
+#[no_mangle] pub extern "C" fn az_node_data_set_inline_css_props(nodedata: &mut AzNodeData, props: AzNodeDataInlineCssPropertyVec) { nodedata.set_inline_css_props(props); }
+/// Same as [`NodeData::set_inline_css_props`](#method.set_inline_css_props), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_inline_css_props(mut nodedata: AzNodeData, props: AzNodeDataInlineCssPropertyVec) -> AzNodeData { az_node_data_set_inline_css_props(&mut nodedata, props); nodedata }
 /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
 #[no_mangle] pub extern "C" fn az_node_data_add_inline_hover_css(nodedata: &mut AzNodeData, prop: AzCssProperty) { nodedata.add_inline_hover_css(prop); }
 /// Same as [`NodeData::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method

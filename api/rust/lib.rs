@@ -4119,6 +4119,8 @@ mod dll {
         pub(crate) fn az_node_data_with_callback(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData;
         pub(crate) fn az_node_data_add_inline_css(_:  &mut AzNodeData, _:  AzCssProperty);
         pub(crate) fn az_node_data_with_inline_css(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData;
+        pub(crate) fn az_node_data_set_inline_css_props(_:  &mut AzNodeData, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn az_node_data_with_inline_css_props(_:  AzNodeData, _:  AzNodeDataInlineCssPropertyVec) -> AzNodeData;
         pub(crate) fn az_node_data_add_inline_hover_css(_:  &mut AzNodeData, _:  AzCssProperty);
         pub(crate) fn az_node_data_with_inline_hover_css(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData;
         pub(crate) fn az_node_data_add_inline_active_css(_:  &mut AzNodeData, _:  AzCssProperty);
@@ -4476,6 +4478,13 @@ pub mod str {
 
     use alloc::string;
 
+
+    impl From<&'static str> for crate::str::String {
+        fn from(v: &'static str) -> crate::str::String {
+            crate::str::String::from_const_str(v)
+        }
+    }
+
     impl From<string::String> for crate::str::String {
         fn from(s: string::String) -> crate::str::String {
             crate::str::String::from_utf8_unchecked(s.as_ptr(), s.len()) // - copies s into a new String
@@ -4483,16 +4492,9 @@ pub mod str {
         }
     }
 
-    impl From<&str> for crate::str::String {
-        fn from(s: &str) -> crate::str::String {
-            crate::str::String::from_utf8_unchecked(s.as_ptr(), s.len()) // - copies s into a new String
-        }
-    }
-
     impl From<crate::str::String> for string::String {
         fn from(s: crate::str::String) -> string::String {
-            let s_bytes = s.into_bytes();
-            unsafe { string::String::from_utf8_unchecked(s_bytes.into()) } // - copies s into a new String
+            s.as_str().into()
             // - s_bytes is deallocated here
         }
     }
@@ -4513,6 +4515,13 @@ pub mod str {
         #[inline]
         pub fn into_string(self) -> String {
             self.into()
+        }
+
+        #[inline(always)]
+        pub const fn from_const_str(s: &'static str) -> Self {
+            String {
+                vec: crate::vec::U8Vec::from_const_slice(s.as_bytes())
+            }
         }
     }
 
@@ -4606,6 +4615,16 @@ pub mod vec {
             pub fn as_slice(&self) -> &[$struct_type] {
                 self.as_ref()
             }
+
+            #[inline(always)]
+            pub const fn from_const_slice(input: &'static [$struct_type]) -> Self {
+                Self {
+                    ptr: input.as_ptr(),
+                    len: input.len(),
+                    cap: input.len(),
+                    destructor: $destructor_name::NoDestructor, // because of &'static
+                }
+            }
         }
 
         impl AsRef<[$struct_type]> for $struct_name {
@@ -4639,17 +4658,12 @@ pub mod vec {
 
         impl From<&'static [$struct_type]> for $struct_name {
             fn from(input: &'static [$struct_type]) -> $struct_name {
-                Self {
-                    ptr: input.as_ptr(),
-                    len: input.len(),
-                    cap: input.len(),
-                    destructor: $destructor_name::NoDestructor, // because of &'static
-                }
+                Self::from_const_slice(input)
             }
         }
 
         impl From<$struct_name> for Vec<$struct_type> {
-            fn from(mut input: $struct_name) -> Vec<$struct_type> {
+            fn from(input: $struct_name) -> Vec<$struct_type> {
                 input.as_ref().to_vec()
             }
         }
@@ -4706,8 +4720,8 @@ pub mod vec {
 
     impl From<vec::Vec<string::String>> for crate::vec::StringVec {
         fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {
-            let mut vec: Vec<AzString> = v.into_iter().map(Into::into).collect();
-            unsafe { crate::dll::az_string_vec_copy_from(vec.as_mut_ptr(), vec.len()) }
+            let vec: Vec<AzString> = v.into_iter().map(Into::into).collect();
+            vec.into()
         }
     }
 
@@ -9011,6 +9025,10 @@ pub mod dom {
         pub fn add_inline_css(&mut self, prop: CssProperty)  { unsafe { crate::dll::az_node_data_add_inline_css(self, prop) } }
         /// Same as [`NodeData::add_inline_css`](#method.add_inline_css), but as a builder method
         pub fn with_inline_css(self, prop: CssProperty)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_inline_css(self, prop) } }
+        /// Calls the `NodeData::set_inline_css_props` function.
+        pub fn set_inline_css_props(&mut self, props: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::az_node_data_set_inline_css_props(self, props) } }
+        /// Same as [`NodeData::set_inline_css_props`](#method.set_inline_css_props), but as a builder method
+        pub fn with_inline_css_props(self, props: NodeDataInlineCssPropertyVec)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_inline_css_props(self, props) } }
         /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
         pub fn add_inline_hover_css(&mut self, prop: CssProperty)  { unsafe { crate::dll::az_node_data_add_inline_hover_css(self, prop) } }
         /// Same as [`NodeData::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method
