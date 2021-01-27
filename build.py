@@ -427,6 +427,7 @@ def generate_rust_dll(api_data):
             class_has_ord = "derive" in c.keys() and "Ord" in c["derive"]
             class_can_be_hashed = "derive" in c.keys() and "Hash" in c["derive"]
 
+            class_has_custom_destructor = "custom_destructor" in c.keys() and c["custom_destructor"]
             class_is_callback_typedef = "callback_typedef" in c.keys() and (len(c["callback_typedef"].keys()) > 0)
             treat_external_as_ptr = "external" in c.keys() and "is_boxed_object" in c.keys() and c["is_boxed_object"]
 
@@ -558,30 +559,30 @@ def generate_rust_dll(api_data):
                 if class_can_be_copied:
                     # intentionally empty, no destructor necessary
                     pass
-                elif not(class_is_const or class_is_callback_typedef):
+                else:
+                    if not(class_is_const or class_is_callback_typedef or class_has_custom_destructor):
+                        # Generate the destructor for an enum
+                        stack_delete_body = ""
+                        if "destructor" in c.keys():
+                            stack_delete_body = c["destructor"]
+                        else:
+                            if class_is_small_enum(c):
+                                stack_delete_body += "match object { "
+                                for enum_variant in c["enum_fields"]:
+                                    enum_variant_name = list(enum_variant.keys())[0]
+                                    enum_variant = list(enum_variant.values())[0]
+                                    if "type" in enum_variant.keys():
+                                        stack_delete_body += c["external"] + "::" + enum_variant_name + "(_) => { }, "
+                                    else:
+                                        stack_delete_body += c["external"] + "::" + enum_variant_name + " => { }, "
+                                stack_delete_body += "}\r\n"
 
-                    # Generate the destructor for an enum
-                    stack_delete_body = ""
-                    if "destructor" in c.keys():
-                        stack_delete_body = c["destructor"]
-                    else:
-                        if class_is_small_enum(c):
-                            stack_delete_body += "match object { "
-                            for enum_variant in c["enum_fields"]:
-                                enum_variant_name = list(enum_variant.keys())[0]
-                                enum_variant = list(enum_variant.values())[0]
-                                if "type" in enum_variant.keys():
-                                    stack_delete_body += c["external"] + "::" + enum_variant_name + "(_) => { }, "
-                                else:
-                                    stack_delete_body += c["external"] + "::" + enum_variant_name + " => { }, "
-                            stack_delete_body += "}\r\n"
-
-                    # az_item_delete()
-                    code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-                    functions_map[str(to_snake_case(class_ptr_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
-                    code += "#[no_mangle] #[allow(unused_variables)] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { "
-                    code += stack_delete_body
-                    code += "}\r\n"
+                        # az_item_delete()
+                        code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
+                        functions_map[str(to_snake_case(class_ptr_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
+                        code += "#[no_mangle] #[allow(unused_variables)] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { "
+                        code += stack_delete_body
+                        code += "}\r\n"
 
                     if class_can_be_cloned and lifetime == "":
                         # az_item_deep_copy()
@@ -815,7 +816,6 @@ def generate_structs(api_data, structs_map):
                             print("no field_type_class_path found for " + str(analyzed_arg_type))
 
                         found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
-                        treat_external_as_ptr = "external" in found_c.keys() and "is_boxed_object" in found_c.keys() and found_c["is_boxed_object"]
                         if field_name == "ptr":
                             code += "        pub(crate) "
                         else:
@@ -865,7 +865,6 @@ def generate_structs(api_data, structs_map):
                         if field_type_class_path is None:
                             print("variant_type not found: " + variant_type + " in " + struct_name)
                         found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
-                        treat_external_as_ptr = "external" in found_c.keys() and "is_boxed_object" in found_c.keys() and found_c["is_boxed_object"]
                         code += "        " + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + "),\r\n"
                 else:
                     code += "        " + variant_name + ",\r\n"
@@ -962,7 +961,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
             class_is_boxed_object = not(class_is_stack_allocated(c))
             class_is_const = "const" in c.keys()
             class_is_callback_typedef = "callback_typedef" in c.keys() and (len(c["callback_typedef"]) > 0)
-            treat_external_as_ptr = "external" in c.keys() and "is_boxed_object" in c.keys() and c["is_boxed_object"]
+            class_has_custom_destructor = "custom_destructor" in c.keys() and c["custom_destructor"]
             class_can_be_cloned = True
             if "clone" in c.keys():
                 class_can_be_cloned = c["clone"]
@@ -1081,7 +1080,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
             elif c_is_stack_allocated and class_can_be_cloned and lifetime == "" and not(class_is_const or class_is_callback_typedef):
                 code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_deep_copy(self) } } }\r\n"
 
-            if not(class_is_const or class_is_callback_typedef or class_can_be_copied):
+            if not(class_is_const or class_is_callback_typedef or class_can_be_copied or class_has_custom_destructor):
                 code += "    impl Drop for " + class_name + " { fn drop(&mut self) { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_delete(self) }; } }\r\n"
 
         module_file_map[module_name] = code
@@ -1316,7 +1315,7 @@ def main():
     print("generating API...")
     generate_api()
     print("building azul-dll (release mode)...")
-    # build_dll()
+    build_dll()
     print("checking azul-dll for struct size integrity...")
     # run_size_test()
     print("building examples...")

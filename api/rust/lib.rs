@@ -1122,51 +1122,59 @@ mod dll {
     }
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
     #[repr(C)] #[derive(Debug)] pub struct AzStyleBackgroundRepeatVec {
-        pub(crate) ptr: *mut AzStyleBackgroundRepeat,
+        pub(crate) ptr: *const AzStyleBackgroundRepeat,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzStyleBackgroundRepeatVecDestructor,
     }
     /// Wrapper over a Rust-allocated `Vec<u32>`
     #[repr(C)] #[derive(Debug)] pub struct AzU32Vec {
-        pub(crate) ptr: *mut u32,
+        pub(crate) ptr: *const u32,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzU32VecDestructor,
     }
     /// Wrapper over a Rust-allocated `XWindowType`
     #[repr(C)] #[derive(Debug)] pub struct AzXWindowTypeVec {
-        pub(crate) ptr: *mut AzXWindowType,
+        pub(crate) ptr: *const AzXWindowType,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzXWindowTypeVecDestructor,
     }
     /// Wrapper over a Rust-allocated `VirtualKeyCode`
     #[repr(C)] #[derive(Debug)] pub struct AzVirtualKeyCodeVec {
-        pub(crate) ptr: *mut AzVirtualKeyCode,
+        pub(crate) ptr: *const AzVirtualKeyCode,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzVirtualKeyCodeVecDestructor,
     }
     /// Wrapper over a Rust-allocated `ScanCode`
     #[repr(C)] #[derive(Debug)] pub struct AzScanCodeVec {
-        pub(crate) ptr: *mut u32,
+        pub(crate) ptr: *const u32,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzScanCodeVecDestructor,
     }
     /// Wrapper over a Rust-allocated `U8Vec`
     #[repr(C)] #[derive(Debug)] pub struct AzU8Vec {
-        pub(crate) ptr: *mut u8,
+        pub(crate) ptr: *const u8,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzU8VecDestructor,
     }
     /// Wrapper over a Rust-allocated `U32Vec`
     #[repr(C)] #[derive(Debug)] pub struct AzGLuintVec {
-        pub(crate) ptr: *mut u32,
+        pub(crate) ptr: *const u32,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzGLuintVecDestructor,
     }
     /// Wrapper over a Rust-allocated `GLintVec`
     #[repr(C)] #[derive(Debug)] pub struct AzGLintVec {
-        pub(crate) ptr: *mut i32,
+        pub(crate) ptr: *const i32,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzGLintVecDestructor,
     }
     /// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionThreadSendMsg {
@@ -2529,51 +2537,59 @@ mod dll {
     }
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
     #[repr(C)] #[derive(Debug)] pub struct AzStyleBackgroundPositionVec {
-        pub(crate) ptr: *mut AzStyleBackgroundPosition,
+        pub(crate) ptr: *const AzStyleBackgroundPosition,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzStyleBackgroundPositionVecDestructor,
     }
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
     #[repr(C)] #[derive(Debug)] pub struct AzStyleBackgroundSizeVec {
-        pub(crate) ptr: *mut AzStyleBackgroundSize,
+        pub(crate) ptr: *const AzStyleBackgroundSize,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzStyleBackgroundSizeVecDestructor,
     }
     /// Wrapper over a Rust-allocated `SvgVertex`
     #[repr(C)] #[derive(Debug)] pub struct AzSvgVertexVec {
-        pub(crate) ptr: *mut AzSvgVertex,
+        pub(crate) ptr: *const AzSvgVertex,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzSvgVertexVecDestructor,
     }
     /// Wrapper over a Rust-allocated `CascadeInfo`
     #[repr(C)] #[derive(Debug)] pub struct AzCascadeInfoVec {
-        pub(crate) ptr: *mut AzCascadeInfo,
+        pub(crate) ptr: *const AzCascadeInfo,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzCascadeInfoVecDestructor,
     }
     /// Wrapper over a Rust-allocated `StringVec`
     #[repr(C)] #[derive(Debug)] pub struct AzStringVec {
-        pub(crate) ptr: *mut AzString,
+        pub(crate) ptr: *const AzString,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzStringVecDestructor,
     }
     /// Wrapper over a Rust-allocated `NodeIdVec`
     #[repr(C)] #[derive(Debug)] pub struct AzNodeIdVec {
-        pub(crate) ptr: *mut AzNodeId,
+        pub(crate) ptr: *const AzNodeId,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzNodeIdVecDestructor,
     }
     /// Wrapper over a Rust-allocated `NodeVec`
     #[repr(C)] #[derive(Debug)] pub struct AzNodeVec {
-        pub(crate) ptr: *mut AzNode,
+        pub(crate) ptr: *const AzNode,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzNodeVecDestructor,
     }
     /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
     #[repr(C)] #[derive(Debug)] pub struct AzParentWithNodeDepthVec {
-        pub(crate) ptr: *mut AzParentWithNodeDepth,
+        pub(crate) ptr: *const AzParentWithNodeDepth,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzParentWithNodeDepthVecDestructor,
     }
     /// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionPercentageValue {
@@ -3040,57 +3056,66 @@ mod dll {
     }
     /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
     #[repr(C)] #[derive(Debug)] pub struct AzIdOrClassVec {
-        pub(crate) ptr: *mut AzIdOrClass,
+        pub(crate) ptr: *const AzIdOrClass,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzIdOrClassVecDestructor,
     }
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
     #[repr(C)] #[derive(Debug)] pub struct AzStyleTransformVec {
-        pub(crate) ptr: *mut AzStyleTransform,
+        pub(crate) ptr: *const AzStyleTransform,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzStyleTransformVecDestructor,
     }
     /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
     #[repr(C)] #[derive(Debug)] pub struct AzVertexAttributeVec {
-        pub(crate) ptr: *mut AzVertexAttribute,
+        pub(crate) ptr: *const AzVertexAttribute,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzVertexAttributeVecDestructor,
     }
     /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
     #[repr(C)] #[derive(Debug)] pub struct AzDebugMessageVec {
-        pub(crate) ptr: *mut AzDebugMessage,
+        pub(crate) ptr: *const AzDebugMessage,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzDebugMessageVecDestructor,
     }
     /// Wrapper over a Rust-allocated `StringPairVec`
     #[repr(C)] #[derive(Debug)] pub struct AzStringPairVec {
-        pub(crate) ptr: *mut AzStringPair,
+        pub(crate) ptr: *const AzStringPair,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzStringPairVecDestructor,
     }
     /// Wrapper over a Rust-allocated `LinearColorStopVec`
     #[repr(C)] #[derive(Debug)] pub struct AzLinearColorStopVec {
-        pub(crate) ptr: *mut AzLinearColorStop,
+        pub(crate) ptr: *const AzLinearColorStop,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzLinearColorStopVecDestructor,
     }
     /// Wrapper over a Rust-allocated `RadialColorStopVec`
     #[repr(C)] #[derive(Debug)] pub struct AzRadialColorStopVec {
-        pub(crate) ptr: *mut AzRadialColorStop,
+        pub(crate) ptr: *const AzRadialColorStop,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzRadialColorStopVecDestructor,
     }
     /// Wrapper over a Rust-allocated `StyledNodeVec`
     #[repr(C)] #[derive(Debug)] pub struct AzStyledNodeVec {
-        pub(crate) ptr: *mut AzStyledNode,
+        pub(crate) ptr: *const AzStyledNode,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzStyledNodeVecDestructor,
     }
     /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
     #[repr(C)] #[derive(Debug)] pub struct AzTagIdsToNodeIdsMappingVec {
-        pub(crate) ptr: *mut AzTagIdToNodeIdMapping,
+        pub(crate) ptr: *const AzTagIdToNodeIdMapping,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
     }
     /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionRefAny {
@@ -3276,21 +3301,24 @@ mod dll {
     }
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
     #[repr(C)] #[derive(Debug)] pub struct AzStyleBackgroundContentVec {
-        pub(crate) ptr: *mut AzStyleBackgroundContent,
+        pub(crate) ptr: *const AzStyleBackgroundContent,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzStyleBackgroundContentVecDestructor,
     }
     /// Wrapper over a Rust-allocated `VertexAttribute`
     #[repr(C)] #[derive(Debug)] pub struct AzSvgPathElementVec {
-        pub(crate) ptr: *mut AzSvgPathElement,
+        pub(crate) ptr: *const AzSvgPathElement,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzSvgPathElementVecDestructor,
     }
     /// Wrapper over a Rust-allocated `CallbackData`
     #[repr(C)] #[derive(Debug)] pub struct AzCallbackDataVec {
-        pub(crate) ptr: *mut AzCallbackData,
+        pub(crate) ptr: *const AzCallbackData,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzCallbackDataVecDestructor,
     }
     /// Re-export of rust-allocated (stack based) `OptionImageMask` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionImageMask {
@@ -3438,27 +3466,31 @@ mod dll {
     }
     /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
     #[repr(C)] #[derive(Debug)] pub struct AzNodeDataInlineCssPropertyVec {
-        pub(crate) ptr: *mut AzNodeDataInlineCssProperty,
+        pub(crate) ptr: *const AzNodeDataInlineCssProperty,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzNodeDataInlineCssPropertyVecDestructor,
     }
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`
     #[repr(C)] #[derive(Debug)] pub struct AzCssPropertyVec {
-        pub(crate) ptr: *mut AzCssProperty,
+        pub(crate) ptr: *const AzCssProperty,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzCssPropertyVecDestructor,
     }
     /// Wrapper over a Rust-allocated `Vec<SvgPath>`
     #[repr(C)] #[derive(Debug)] pub struct AzSvgPathVec {
-        pub(crate) ptr: *mut AzSvgPath,
+        pub(crate) ptr: *const AzSvgPath,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzSvgPathVecDestructor,
     }
     /// Wrapper over a Rust-allocated `CssPathSelector`
     #[repr(C)] #[derive(Debug)] pub struct AzCssPathSelectorVec {
-        pub(crate) ptr: *mut AzCssPathSelector,
+        pub(crate) ptr: *const AzCssPathSelector,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzCssPathSelectorVecDestructor,
     }
     /// Re-export of rust-allocated (stack based) `XmlParseError` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzXmlParseError {
@@ -3519,9 +3551,8 @@ mod dll {
         pub dataset: AzOptionRefAny,
         pub ids_and_classes: AzIdOrClassVec,
         pub callbacks: AzCallbackDataVec,
-        pub inline_css_props: AzCssPropertyVec,
+        pub inline_css_props: AzNodeDataInlineCssPropertyVec,
         pub clip_mask: AzOptionImageMask,
-        pub is_draggable: bool,
         pub tab_index: AzOptionTabIndex,
     }
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
@@ -3530,15 +3561,17 @@ mod dll {
     }
     /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
     #[repr(C)] #[derive(Debug)] pub struct AzSvgMultiPolygonVec {
-        pub(crate) ptr: *mut AzSvgMultiPolygon,
+        pub(crate) ptr: *const AzSvgMultiPolygon,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzSvgMultiPolygonVecDestructor,
     }
     /// Wrapper over a Rust-allocated `NodeDataVec`
     #[repr(C)] #[derive(Debug)] pub struct AzNodeDataVec {
-        pub(crate) ptr: *mut AzNodeData,
+        pub(crate) ptr: *const AzNodeData,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzNodeDataVecDestructor,
     }
     /// Re-export of rust-allocated (stack based) `XmlError` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzXmlError {
@@ -3601,15 +3634,17 @@ mod dll {
     }
     /// Wrapper over a Rust-allocated `Vec<Dom>`
     #[repr(C)] #[derive(Debug)] pub struct AzDomVec {
-        pub(crate) ptr: *mut AzDom,
+        pub(crate) ptr: *const AzDom,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzDomVecDestructor,
     }
     /// Wrapper over a Rust-allocated `CssDeclaration`
     #[repr(C)] #[derive(Debug)] pub struct AzCssDeclarationVec {
-        pub(crate) ptr: *mut AzCssDeclaration,
+        pub(crate) ptr: *const AzCssDeclaration,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzCssDeclarationVecDestructor,
     }
     /// Re-export of rust-allocated (stack based) `OptionDom` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionDom {
@@ -3646,9 +3681,10 @@ mod dll {
     }
     /// Wrapper over a Rust-allocated `CssRuleBlock`
     #[repr(C)] #[derive(Debug)] pub struct AzCssRuleBlockVec {
-        pub(crate) ptr: *mut AzCssRuleBlock,
+        pub(crate) ptr: *const AzCssRuleBlock,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzCssRuleBlockVecDestructor,
     }
     /// Re-export of rust-allocated (stack based) `ResultSvgSvgParseError` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzResultSvgSvgParseError {
@@ -3661,9 +3697,10 @@ mod dll {
     }
     /// Wrapper over a Rust-allocated `Stylesheet`
     #[repr(C)] #[derive(Debug)] pub struct AzStylesheetVec {
-        pub(crate) ptr: *mut AzStylesheet,
+        pub(crate) ptr: *const AzStylesheet,
         pub len: usize,
         pub cap: usize,
+        pub destructor: AzStylesheetVecDestructor,
     }
     /// Re-export of rust-allocated (stack based) `Css` struct
     #[repr(C)] #[derive(Debug)] pub struct AzCss {
@@ -3682,192 +3719,154 @@ mod dll {
         pub(crate) fn az_dom_vec_new() -> AzDomVec;
         pub(crate) fn az_dom_vec_with_capacity(_:  usize) -> AzDomVec;
         pub(crate) fn az_dom_vec_copy_from(_:  *const AzDom, _:  usize) -> AzDomVec;
-        pub(crate) fn az_dom_vec_delete(_:  &mut AzDomVec);
         pub(crate) fn az_dom_vec_deep_copy(_:  &AzDomVec) -> AzDomVec;
         pub(crate) fn az_id_or_class_vec_new() -> AzIdOrClassVec;
         pub(crate) fn az_id_or_class_vec_with_capacity(_:  usize) -> AzIdOrClassVec;
         pub(crate) fn az_id_or_class_vec_copy_from(_:  *const AzIdOrClass, _:  usize) -> AzIdOrClassVec;
-        pub(crate) fn az_id_or_class_vec_delete(_:  &mut AzIdOrClassVec);
         pub(crate) fn az_id_or_class_vec_deep_copy(_:  &AzIdOrClassVec) -> AzIdOrClassVec;
         pub(crate) fn az_node_data_inline_css_property_vec_new() -> AzNodeDataInlineCssPropertyVec;
         pub(crate) fn az_node_data_inline_css_property_vec_with_capacity(_:  usize) -> AzNodeDataInlineCssPropertyVec;
         pub(crate) fn az_node_data_inline_css_property_vec_copy_from(_:  *const AzNodeDataInlineCssProperty, _:  usize) -> AzNodeDataInlineCssPropertyVec;
-        pub(crate) fn az_node_data_inline_css_property_vec_delete(_:  &mut AzNodeDataInlineCssPropertyVec);
         pub(crate) fn az_node_data_inline_css_property_vec_deep_copy(_:  &AzNodeDataInlineCssPropertyVec) -> AzNodeDataInlineCssPropertyVec;
         pub(crate) fn az_style_background_content_vec_new() -> AzStyleBackgroundContentVec;
         pub(crate) fn az_style_background_content_vec_with_capacity(_:  usize) -> AzStyleBackgroundContentVec;
         pub(crate) fn az_style_background_content_vec_copy_from(_:  *const AzStyleBackgroundContent, _:  usize) -> AzStyleBackgroundContentVec;
-        pub(crate) fn az_style_background_content_vec_delete(_:  &mut AzStyleBackgroundContentVec);
         pub(crate) fn az_style_background_content_vec_deep_copy(_:  &AzStyleBackgroundContentVec) -> AzStyleBackgroundContentVec;
         pub(crate) fn az_style_background_position_vec_new() -> AzStyleBackgroundPositionVec;
         pub(crate) fn az_style_background_position_vec_with_capacity(_:  usize) -> AzStyleBackgroundPositionVec;
         pub(crate) fn az_style_background_position_vec_copy_from(_:  *const AzStyleBackgroundPosition, _:  usize) -> AzStyleBackgroundPositionVec;
-        pub(crate) fn az_style_background_position_vec_delete(_:  &mut AzStyleBackgroundPositionVec);
         pub(crate) fn az_style_background_position_vec_deep_copy(_:  &AzStyleBackgroundPositionVec) -> AzStyleBackgroundPositionVec;
         pub(crate) fn az_style_background_repeat_vec_new() -> AzStyleBackgroundRepeatVec;
         pub(crate) fn az_style_background_repeat_vec_with_capacity(_:  usize) -> AzStyleBackgroundRepeatVec;
         pub(crate) fn az_style_background_repeat_vec_copy_from(_:  *const AzStyleBackgroundRepeat, _:  usize) -> AzStyleBackgroundRepeatVec;
-        pub(crate) fn az_style_background_repeat_vec_delete(_:  &mut AzStyleBackgroundRepeatVec);
         pub(crate) fn az_style_background_repeat_vec_deep_copy(_:  &AzStyleBackgroundRepeatVec) -> AzStyleBackgroundRepeatVec;
         pub(crate) fn az_style_background_size_vec_new() -> AzStyleBackgroundSizeVec;
         pub(crate) fn az_style_background_size_vec_with_capacity(_:  usize) -> AzStyleBackgroundSizeVec;
         pub(crate) fn az_style_background_size_vec_copy_from(_:  *const AzStyleBackgroundSize, _:  usize) -> AzStyleBackgroundSizeVec;
-        pub(crate) fn az_style_background_size_vec_delete(_:  &mut AzStyleBackgroundSizeVec);
         pub(crate) fn az_style_background_size_vec_deep_copy(_:  &AzStyleBackgroundSizeVec) -> AzStyleBackgroundSizeVec;
         pub(crate) fn az_style_transform_vec_new() -> AzStyleTransformVec;
         pub(crate) fn az_style_transform_vec_with_capacity(_:  usize) -> AzStyleTransformVec;
         pub(crate) fn az_style_transform_vec_copy_from(_:  *const AzStyleTransform, _:  usize) -> AzStyleTransformVec;
-        pub(crate) fn az_style_transform_vec_delete(_:  &mut AzStyleTransformVec);
         pub(crate) fn az_style_transform_vec_deep_copy(_:  &AzStyleTransformVec) -> AzStyleTransformVec;
         pub(crate) fn az_css_property_vec_new() -> AzCssPropertyVec;
         pub(crate) fn az_css_property_vec_with_capacity(_:  usize) -> AzCssPropertyVec;
         pub(crate) fn az_css_property_vec_copy_from(_:  *const AzCssProperty, _:  usize) -> AzCssPropertyVec;
-        pub(crate) fn az_css_property_vec_delete(_:  &mut AzCssPropertyVec);
         pub(crate) fn az_css_property_vec_deep_copy(_:  &AzCssPropertyVec) -> AzCssPropertyVec;
         pub(crate) fn az_svg_multi_polygon_vec_new() -> AzSvgMultiPolygonVec;
         pub(crate) fn az_svg_multi_polygon_vec_with_capacity(_:  usize) -> AzSvgMultiPolygonVec;
         pub(crate) fn az_svg_multi_polygon_vec_copy_from(_:  *const AzSvgMultiPolygon, _:  usize) -> AzSvgMultiPolygonVec;
-        pub(crate) fn az_svg_multi_polygon_vec_delete(_:  &mut AzSvgMultiPolygonVec);
         pub(crate) fn az_svg_multi_polygon_vec_deep_copy(_:  &AzSvgMultiPolygonVec) -> AzSvgMultiPolygonVec;
         pub(crate) fn az_svg_path_vec_new() -> AzSvgPathVec;
         pub(crate) fn az_svg_path_vec_with_capacity(_:  usize) -> AzSvgPathVec;
         pub(crate) fn az_svg_path_vec_copy_from(_:  *const AzSvgPath, _:  usize) -> AzSvgPathVec;
-        pub(crate) fn az_svg_path_vec_delete(_:  &mut AzSvgPathVec);
         pub(crate) fn az_svg_path_vec_deep_copy(_:  &AzSvgPathVec) -> AzSvgPathVec;
         pub(crate) fn az_vertex_attribute_vec_new() -> AzVertexAttributeVec;
         pub(crate) fn az_vertex_attribute_vec_with_capacity(_:  usize) -> AzVertexAttributeVec;
         pub(crate) fn az_vertex_attribute_vec_copy_from(_:  *const AzVertexAttribute, _:  usize) -> AzVertexAttributeVec;
-        pub(crate) fn az_vertex_attribute_vec_delete(_:  &mut AzVertexAttributeVec);
         pub(crate) fn az_vertex_attribute_vec_deep_copy(_:  &AzVertexAttributeVec) -> AzVertexAttributeVec;
         pub(crate) fn az_svg_path_element_vec_new() -> AzSvgPathElementVec;
         pub(crate) fn az_svg_path_element_vec_with_capacity(_:  usize) -> AzSvgPathElementVec;
         pub(crate) fn az_svg_path_element_vec_copy_from(_:  *const AzSvgPathElement, _:  usize) -> AzSvgPathElementVec;
-        pub(crate) fn az_svg_path_element_vec_delete(_:  &mut AzSvgPathElementVec);
         pub(crate) fn az_svg_path_element_vec_deep_copy(_:  &AzSvgPathElementVec) -> AzSvgPathElementVec;
         pub(crate) fn az_svg_vertex_vec_new() -> AzSvgVertexVec;
         pub(crate) fn az_svg_vertex_vec_with_capacity(_:  usize) -> AzSvgVertexVec;
         pub(crate) fn az_svg_vertex_vec_copy_from(_:  *const AzSvgVertex, _:  usize) -> AzSvgVertexVec;
-        pub(crate) fn az_svg_vertex_vec_delete(_:  &mut AzSvgVertexVec);
         pub(crate) fn az_svg_vertex_vec_deep_copy(_:  &AzSvgVertexVec) -> AzSvgVertexVec;
         pub(crate) fn az_u32_vec_new() -> AzU32Vec;
         pub(crate) fn az_u32_vec_with_capacity(_:  usize) -> AzU32Vec;
         pub(crate) fn az_u32_vec_copy_from(_:  *const u32, _:  usize) -> AzU32Vec;
-        pub(crate) fn az_u32_vec_delete(_:  &mut AzU32Vec);
         pub(crate) fn az_u32_vec_deep_copy(_:  &AzU32Vec) -> AzU32Vec;
         pub(crate) fn az_x_window_type_vec_new() -> AzXWindowTypeVec;
         pub(crate) fn az_x_window_type_vec_with_capacity(_:  usize) -> AzXWindowTypeVec;
         pub(crate) fn az_x_window_type_vec_copy_from(_:  *const AzXWindowType, _:  usize) -> AzXWindowTypeVec;
-        pub(crate) fn az_x_window_type_vec_delete(_:  &mut AzXWindowTypeVec);
         pub(crate) fn az_x_window_type_vec_deep_copy(_:  &AzXWindowTypeVec) -> AzXWindowTypeVec;
         pub(crate) fn az_virtual_key_code_vec_new() -> AzVirtualKeyCodeVec;
         pub(crate) fn az_virtual_key_code_vec_with_capacity(_:  usize) -> AzVirtualKeyCodeVec;
         pub(crate) fn az_virtual_key_code_vec_copy_from(_:  *const AzVirtualKeyCode, _:  usize) -> AzVirtualKeyCodeVec;
-        pub(crate) fn az_virtual_key_code_vec_delete(_:  &mut AzVirtualKeyCodeVec);
         pub(crate) fn az_virtual_key_code_vec_deep_copy(_:  &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec;
         pub(crate) fn az_cascade_info_vec_new() -> AzCascadeInfoVec;
         pub(crate) fn az_cascade_info_vec_with_capacity(_:  usize) -> AzCascadeInfoVec;
         pub(crate) fn az_cascade_info_vec_copy_from(_:  *const AzCascadeInfo, _:  usize) -> AzCascadeInfoVec;
-        pub(crate) fn az_cascade_info_vec_delete(_:  &mut AzCascadeInfoVec);
         pub(crate) fn az_cascade_info_vec_deep_copy(_:  &AzCascadeInfoVec) -> AzCascadeInfoVec;
         pub(crate) fn az_scan_code_vec_new() -> AzScanCodeVec;
         pub(crate) fn az_scan_code_vec_with_capacity(_:  usize) -> AzScanCodeVec;
         pub(crate) fn az_scan_code_vec_copy_from(_:  *const u32, _:  usize) -> AzScanCodeVec;
-        pub(crate) fn az_scan_code_vec_delete(_:  &mut AzScanCodeVec);
         pub(crate) fn az_scan_code_vec_deep_copy(_:  &AzScanCodeVec) -> AzScanCodeVec;
         pub(crate) fn az_css_declaration_vec_new() -> AzCssDeclarationVec;
         pub(crate) fn az_css_declaration_vec_with_capacity(_:  usize) -> AzCssDeclarationVec;
         pub(crate) fn az_css_declaration_vec_copy_from(_:  *const AzCssDeclaration, _:  usize) -> AzCssDeclarationVec;
-        pub(crate) fn az_css_declaration_vec_delete(_:  &mut AzCssDeclarationVec);
         pub(crate) fn az_css_declaration_vec_deep_copy(_:  &AzCssDeclarationVec) -> AzCssDeclarationVec;
         pub(crate) fn az_css_path_selector_vec_new() -> AzCssPathSelectorVec;
         pub(crate) fn az_css_path_selector_vec_with_capacity(_:  usize) -> AzCssPathSelectorVec;
         pub(crate) fn az_css_path_selector_vec_copy_from(_:  *const AzCssPathSelector, _:  usize) -> AzCssPathSelectorVec;
-        pub(crate) fn az_css_path_selector_vec_delete(_:  &mut AzCssPathSelectorVec);
         pub(crate) fn az_css_path_selector_vec_deep_copy(_:  &AzCssPathSelectorVec) -> AzCssPathSelectorVec;
         pub(crate) fn az_stylesheet_vec_new() -> AzStylesheetVec;
         pub(crate) fn az_stylesheet_vec_with_capacity(_:  usize) -> AzStylesheetVec;
         pub(crate) fn az_stylesheet_vec_copy_from(_:  *const AzStylesheet, _:  usize) -> AzStylesheetVec;
-        pub(crate) fn az_stylesheet_vec_delete(_:  &mut AzStylesheetVec);
         pub(crate) fn az_stylesheet_vec_deep_copy(_:  &AzStylesheetVec) -> AzStylesheetVec;
         pub(crate) fn az_css_rule_block_vec_new() -> AzCssRuleBlockVec;
         pub(crate) fn az_css_rule_block_vec_with_capacity(_:  usize) -> AzCssRuleBlockVec;
         pub(crate) fn az_css_rule_block_vec_copy_from(_:  *const AzCssRuleBlock, _:  usize) -> AzCssRuleBlockVec;
-        pub(crate) fn az_css_rule_block_vec_delete(_:  &mut AzCssRuleBlockVec);
         pub(crate) fn az_css_rule_block_vec_deep_copy(_:  &AzCssRuleBlockVec) -> AzCssRuleBlockVec;
         pub(crate) fn az_u8_vec_new() -> AzU8Vec;
         pub(crate) fn az_u8_vec_with_capacity(_:  usize) -> AzU8Vec;
         pub(crate) fn az_u8_vec_copy_from(_:  *const u8, _:  usize) -> AzU8Vec;
-        pub(crate) fn az_u8_vec_delete(_:  &mut AzU8Vec);
         pub(crate) fn az_u8_vec_deep_copy(_:  &AzU8Vec) -> AzU8Vec;
         pub(crate) fn az_callback_data_vec_new() -> AzCallbackDataVec;
         pub(crate) fn az_callback_data_vec_with_capacity(_:  usize) -> AzCallbackDataVec;
         pub(crate) fn az_callback_data_vec_copy_from(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec;
-        pub(crate) fn az_callback_data_vec_delete(_:  &mut AzCallbackDataVec);
         pub(crate) fn az_callback_data_vec_deep_copy(_:  &AzCallbackDataVec) -> AzCallbackDataVec;
         pub(crate) fn az_debug_message_vec_new() -> AzDebugMessageVec;
         pub(crate) fn az_debug_message_vec_with_capacity(_:  usize) -> AzDebugMessageVec;
         pub(crate) fn az_debug_message_vec_copy_from(_:  *const AzDebugMessage, _:  usize) -> AzDebugMessageVec;
-        pub(crate) fn az_debug_message_vec_delete(_:  &mut AzDebugMessageVec);
         pub(crate) fn az_debug_message_vec_deep_copy(_:  &AzDebugMessageVec) -> AzDebugMessageVec;
         pub(crate) fn az_g_luint_vec_new() -> AzGLuintVec;
         pub(crate) fn az_g_luint_vec_with_capacity(_:  usize) -> AzGLuintVec;
         pub(crate) fn az_g_luint_vec_copy_from(_:  *const u32, _:  usize) -> AzGLuintVec;
-        pub(crate) fn az_g_luint_vec_delete(_:  &mut AzGLuintVec);
         pub(crate) fn az_g_luint_vec_deep_copy(_:  &AzGLuintVec) -> AzGLuintVec;
         pub(crate) fn az_g_lint_vec_new() -> AzGLintVec;
         pub(crate) fn az_g_lint_vec_with_capacity(_:  usize) -> AzGLintVec;
         pub(crate) fn az_g_lint_vec_copy_from(_:  *const i32, _:  usize) -> AzGLintVec;
-        pub(crate) fn az_g_lint_vec_delete(_:  &mut AzGLintVec);
         pub(crate) fn az_g_lint_vec_deep_copy(_:  &AzGLintVec) -> AzGLintVec;
         pub(crate) fn az_string_vec_new() -> AzStringVec;
         pub(crate) fn az_string_vec_with_capacity(_:  usize) -> AzStringVec;
         pub(crate) fn az_string_vec_copy_from(_:  *const AzString, _:  usize) -> AzStringVec;
-        pub(crate) fn az_string_vec_delete(_:  &mut AzStringVec);
         pub(crate) fn az_string_vec_deep_copy(_:  &AzStringVec) -> AzStringVec;
         pub(crate) fn az_string_pair_vec_new() -> AzStringPairVec;
         pub(crate) fn az_string_pair_vec_with_capacity(_:  usize) -> AzStringPairVec;
         pub(crate) fn az_string_pair_vec_copy_from(_:  *const AzStringPair, _:  usize) -> AzStringPairVec;
-        pub(crate) fn az_string_pair_vec_delete(_:  &mut AzStringPairVec);
         pub(crate) fn az_string_pair_vec_deep_copy(_:  &AzStringPairVec) -> AzStringPairVec;
         pub(crate) fn az_linear_color_stop_vec_new() -> AzLinearColorStopVec;
         pub(crate) fn az_linear_color_stop_vec_with_capacity(_:  usize) -> AzLinearColorStopVec;
         pub(crate) fn az_linear_color_stop_vec_copy_from(_:  *const AzLinearColorStop, _:  usize) -> AzLinearColorStopVec;
-        pub(crate) fn az_linear_color_stop_vec_delete(_:  &mut AzLinearColorStopVec);
         pub(crate) fn az_linear_color_stop_vec_deep_copy(_:  &AzLinearColorStopVec) -> AzLinearColorStopVec;
         pub(crate) fn az_radial_color_stop_vec_new() -> AzRadialColorStopVec;
         pub(crate) fn az_radial_color_stop_vec_with_capacity(_:  usize) -> AzRadialColorStopVec;
         pub(crate) fn az_radial_color_stop_vec_copy_from(_:  *const AzRadialColorStop, _:  usize) -> AzRadialColorStopVec;
-        pub(crate) fn az_radial_color_stop_vec_delete(_:  &mut AzRadialColorStopVec);
         pub(crate) fn az_radial_color_stop_vec_deep_copy(_:  &AzRadialColorStopVec) -> AzRadialColorStopVec;
         pub(crate) fn az_node_id_vec_new() -> AzNodeIdVec;
         pub(crate) fn az_node_id_vec_with_capacity(_:  usize) -> AzNodeIdVec;
         pub(crate) fn az_node_id_vec_copy_from(_:  *const AzNodeId, _:  usize) -> AzNodeIdVec;
-        pub(crate) fn az_node_id_vec_delete(_:  &mut AzNodeIdVec);
         pub(crate) fn az_node_id_vec_deep_copy(_:  &AzNodeIdVec) -> AzNodeIdVec;
         pub(crate) fn az_node_vec_new() -> AzNodeVec;
         pub(crate) fn az_node_vec_with_capacity(_:  usize) -> AzNodeVec;
         pub(crate) fn az_node_vec_copy_from(_:  *const AzNode, _:  usize) -> AzNodeVec;
-        pub(crate) fn az_node_vec_delete(_:  &mut AzNodeVec);
         pub(crate) fn az_node_vec_deep_copy(_:  &AzNodeVec) -> AzNodeVec;
         pub(crate) fn az_styled_node_vec_new() -> AzStyledNodeVec;
         pub(crate) fn az_styled_node_vec_with_capacity(_:  usize) -> AzStyledNodeVec;
         pub(crate) fn az_styled_node_vec_copy_from(_:  *const AzStyledNode, _:  usize) -> AzStyledNodeVec;
-        pub(crate) fn az_styled_node_vec_delete(_:  &mut AzStyledNodeVec);
         pub(crate) fn az_styled_node_vec_deep_copy(_:  &AzStyledNodeVec) -> AzStyledNodeVec;
         pub(crate) fn az_tag_ids_to_node_ids_mapping_vec_new() -> AzTagIdsToNodeIdsMappingVec;
         pub(crate) fn az_tag_ids_to_node_ids_mapping_vec_with_capacity(_:  usize) -> AzTagIdsToNodeIdsMappingVec;
         pub(crate) fn az_tag_ids_to_node_ids_mapping_vec_copy_from(_:  *const AzTagIdToNodeIdMapping, _:  usize) -> AzTagIdsToNodeIdsMappingVec;
-        pub(crate) fn az_tag_ids_to_node_ids_mapping_vec_delete(_:  &mut AzTagIdsToNodeIdsMappingVec);
         pub(crate) fn az_tag_ids_to_node_ids_mapping_vec_deep_copy(_:  &AzTagIdsToNodeIdsMappingVec) -> AzTagIdsToNodeIdsMappingVec;
         pub(crate) fn az_parent_with_node_depth_vec_new() -> AzParentWithNodeDepthVec;
         pub(crate) fn az_parent_with_node_depth_vec_with_capacity(_:  usize) -> AzParentWithNodeDepthVec;
         pub(crate) fn az_parent_with_node_depth_vec_copy_from(_:  *const AzParentWithNodeDepth, _:  usize) -> AzParentWithNodeDepthVec;
-        pub(crate) fn az_parent_with_node_depth_vec_delete(_:  &mut AzParentWithNodeDepthVec);
         pub(crate) fn az_parent_with_node_depth_vec_deep_copy(_:  &AzParentWithNodeDepthVec) -> AzParentWithNodeDepthVec;
         pub(crate) fn az_node_data_vec_new() -> AzNodeDataVec;
         pub(crate) fn az_node_data_vec_with_capacity(_:  usize) -> AzNodeDataVec;
         pub(crate) fn az_node_data_vec_copy_from(_:  *const AzNodeData, _:  usize) -> AzNodeDataVec;
-        pub(crate) fn az_node_data_vec_delete(_:  &mut AzNodeDataVec);
         pub(crate) fn az_node_data_vec_deep_copy(_:  &AzNodeDataVec) -> AzNodeDataVec;
         pub(crate) fn az_option_ref_any_delete(_:  &mut AzOptionRefAny);
         pub(crate) fn az_option_ref_any_deep_copy(_:  &AzOptionRefAny) -> AzOptionRefAny;
@@ -4081,10 +4080,8 @@ mod dll {
         pub(crate) fn az_dom_with_inline_active_css(_:  AzDom, _:  AzCssProperty) -> AzDom;
         pub(crate) fn az_dom_add_inline_focus_css(_:  &mut AzDom, _:  AzCssProperty);
         pub(crate) fn az_dom_with_inline_focus_css(_:  AzDom, _:  AzCssProperty) -> AzDom;
-        pub(crate) fn az_dom_set_is_draggable(_:  &mut AzDom, _:  bool);
         pub(crate) fn az_dom_with_clip_mask(_:  AzDom, _:  AzOptionImageMask) -> AzDom;
         pub(crate) fn az_dom_set_clip_mask(_:  &mut AzDom, _:  AzOptionImageMask);
-        pub(crate) fn az_dom_is_draggable(_:  AzDom, _:  bool) -> AzDom;
         pub(crate) fn az_dom_set_tab_index(_:  &mut AzDom, _:  AzOptionTabIndex);
         pub(crate) fn az_dom_with_tab_index(_:  AzDom, _:  AzOptionTabIndex) -> AzDom;
         pub(crate) fn az_dom_add_child(_:  &mut AzDom, _:  AzDom);
@@ -4130,8 +4127,6 @@ mod dll {
         pub(crate) fn az_node_data_with_inline_focus_css(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData;
         pub(crate) fn az_node_data_with_clip_mask(_:  AzNodeData, _:  AzOptionImageMask) -> AzNodeData;
         pub(crate) fn az_node_data_set_clip_mask(_:  &mut AzNodeData, _:  AzOptionImageMask);
-        pub(crate) fn az_node_data_set_is_draggable(_:  &mut AzNodeData, _:  bool);
-        pub(crate) fn az_node_data_is_draggable(_:  AzNodeData, _:  bool) -> AzNodeData;
         pub(crate) fn az_node_data_set_tab_index(_:  &mut AzNodeData, _:  AzOptionTabIndex);
         pub(crate) fn az_node_data_with_tab_index(_:  AzNodeData, _:  AzOptionTabIndex) -> AzNodeData;
         pub(crate) fn az_node_data_delete(_:  &mut AzNodeData);
@@ -4554,7 +4549,19 @@ pub mod vec {
         GLuint as AzGLuint,
     };
 
-    macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
+    macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name:ident, $c_destructor_fn_name:ident) => (
+
+        unsafe impl Send for $struct_name { }
+
+        impl fmt::Debug for $destructor_name {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                match self {
+                    $destructor_name::DefaultRust => write!(f, "DefaultRust"),
+                    $destructor_name::NoDestructor => write!(f, "NoDestructor"),
+                    $destructor_name::External(_) => write!(f, "External"),
+                }
+            }
+        }
 
         impl $struct_name {
 
@@ -4564,24 +4571,8 @@ pub mod vec {
             }
 
             #[inline]
-            pub fn into_iter(self) -> vec::IntoIter<$struct_type> {
-                let v1: Vec<$struct_type> = self.into();
-                v1.into_iter()
-            }
-
-            #[inline]
-            pub fn iter_mut(&mut self) -> slice::IterMut<$struct_type> {
-                self.as_mut().iter_mut()
-            }
-
-            #[inline]
             pub fn ptr_as_usize(&self) -> usize {
                 self.ptr as usize
-            }
-
-            #[inline]
-            pub fn as_mut_ptr(&mut self) -> *mut $struct_type {
-                self.ptr
             }
 
             #[inline]
@@ -4600,30 +4591,26 @@ pub mod vec {
             }
 
             pub fn get(&self, index: usize) -> Option<&$struct_type> {
-                self.as_ref().get(index)
+                let v1: &[$struct_type] = self.as_ref();
+                let res = v1.get(index);
+                res
             }
 
             #[inline]
-            pub unsafe fn get_unchecked(&self, index: usize) -> &$struct_type {
-                self.as_ref().get_unchecked(index)
+            unsafe fn get_unchecked(&self, index: usize) -> &$struct_type {
+                let v1: &[$struct_type] = self.as_ref();
+                let res = v1.get_unchecked(index);
+                res
             }
-        }
 
-        impl Default for $struct_name {
-            fn default() -> Self {
-                Self::new()
+            pub fn as_slice(&self) -> &[$struct_type] {
+                self.as_ref()
             }
         }
 
         impl AsRef<[$struct_type]> for $struct_name {
             fn as_ref(&self) -> &[$struct_type] {
                 unsafe { slice::from_raw_parts(self.ptr, self.len) }
-            }
-        }
-
-        impl AsMut<[$struct_type]> for $struct_name {
-            fn as_mut(&mut self) -> &mut [$struct_type] {
-                unsafe { slice::from_raw_parts_mut (self.ptr, self.len) }
             }
         }
 
@@ -4636,60 +4623,86 @@ pub mod vec {
 
         impl From<Vec<$struct_type>> for $struct_name {
             fn from(input: Vec<$struct_type>) -> $struct_name {
-                let s: &[$struct_type] = input.as_ref();
-                s.into()
+
+                extern "C" fn $c_destructor_fn_name(s: &mut $struct_name) {
+                    let _ = unsafe { Vec::from_raw_parts(s.ptr as *mut $struct_type, s.len, s.cap) };
+                }
+
+                Self {
+                    ptr: input.as_ptr(),
+                    len: input.len(),
+                    cap: input.len(),
+                    destructor: $destructor_name::External($c_destructor_fn_name),
+                }
             }
         }
 
-        impl From<&[$struct_type]> for $struct_name {
-            fn from(input: &[$struct_type]) -> $struct_name {
-                Self::copy_from(input.as_ptr(), input.len())
+        impl From<&'static [$struct_type]> for $struct_name {
+            fn from(input: &'static [$struct_type]) -> $struct_name {
+                Self {
+                    ptr: input.as_ptr(),
+                    len: input.len(),
+                    cap: input.len(),
+                    destructor: $destructor_name::NoDestructor, // because of &'static
+                }
             }
         }
 
         impl From<$struct_name> for Vec<$struct_type> {
             fn from(mut input: $struct_name) -> Vec<$struct_type> {
-                unsafe { slice::from_raw_parts(input.as_mut_ptr(), input.len()) }.to_vec()
+                input.as_ref().to_vec()
             }
         }
 
-        // Drop, Debug + Clone already implemented by default
+        impl Drop for $struct_name {
+            fn drop(&mut self) {
+                match self.destructor {
+                    $destructor_name::DefaultRust => { /* no destructor because this is library code */ },
+                    $destructor_name::NoDestructor => { },
+                    $destructor_name::External(f) => { f(self); }
+                }
+            }
+        }
     )}
 
-    impl_vec!(u8,  AzU8Vec);
-    impl_vec!(u32, AzU32Vec);
-    impl_vec!(u32, AzScanCodeVec);
-    impl_vec!(u32, AzGLuintVec);
-    impl_vec!(i32, AzGLintVec);
-    impl_vec!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
-    impl_vec!(IdOrClass, IdOrClassVec);
-    impl_vec!(AzStyleTransform, AzStyleTransformVec);
-    impl_vec!(AzCssProperty, AzCssPropertyVec);
-    impl_vec!(AzSvgMultiPolygon, AzSvgMultiPolygonVec);
-    impl_vec!(AzSvgPath, AzSvgPathVec);
-    impl_vec!(AzVertexAttribute, AzVertexAttributeVec);
-    impl_vec!(AzSvgPathElement, AzSvgPathElementVec);
-    impl_vec!(AzSvgVertex, AzSvgVertexVec);
-    impl_vec!(AzXWindowType, AzXWindowTypeVec);
-    impl_vec!(AzVirtualKeyCode, AzVirtualKeyCodeVec);
-    impl_vec!(AzCascadeInfo, AzCascadeInfoVec);
-    impl_vec!(AzCssDeclaration, AzCssDeclarationVec);
-    impl_vec!(AzCssPathSelector, AzCssPathSelectorVec);
-    impl_vec!(AzStylesheet, AzStylesheetVec);
-    impl_vec!(AzCssRuleBlock, AzCssRuleBlockVec);
-    impl_vec!(AzCallbackData, AzCallbackDataVec);
-    impl_vec!(AzDebugMessage, AzDebugMessageVec);
-    impl_vec!(AzDom, AzDomVec);
-    impl_vec!(AzString, AzStringVec);
-    impl_vec!(AzStringPair, AzStringPairVec);
-    impl_vec!(AzLinearColorStop, AzLinearColorStopVec);
-    impl_vec!(AzRadialColorStop, AzRadialColorStopVec);
-    impl_vec!(AzNodeId, AzNodeIdVec);
-    impl_vec!(AzNode, AzNodeVec);
-    impl_vec!(AzStyledNode, AzStyledNodeVec);
-    impl_vec!(AzTagIdToNodeIdMapping, AzTagIdsToNodeIdsMappingVec);
-    impl_vec!(AzParentWithNodeDepth, AzParentWithNodeDepthVec);
-    impl_vec!(AzNodeData, AzNodeDataVec);
+    impl_vec!(u8,  AzU8Vec,  AzU8VecDestructor, u8_vec_destructor);
+    impl_vec!(u32, AzU32Vec, AzU32VecDestructor, u32_vec_destructor);
+    impl_vec!(u32, AzScanCodeVec, AzScanCodeVecDestructor, u32_vec_destructor);
+    impl_vec!(u32, AzGLuintVec, AzGLuintVecDestructor, u32_vec_destructor);
+    impl_vec!(i32, AzGLintVec, AzGLintVecDestructor, i32_vec_destructor);
+    impl_vec!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, NodeDataInlineCssPropertyVecDestructor, node_data_inline_css_property_vec_destructor);
+    impl_vec!(IdOrClass, IdOrClassVec, IdOrClassVecDestructor, id_or_class_vec_destructor);
+    impl_vec!(AzStyleTransform, AzStyleTransformVec, AzStyleTransformVecDestructor, az_style_transform_vec_destructor);
+    impl_vec!(AzCssProperty, AzCssPropertyVec, AzCssPropertyVecDestructor, az_css_property_vec_destructor);
+    impl_vec!(AzSvgMultiPolygon, AzSvgMultiPolygonVec, AzSvgMultiPolygonVecDestructor, az_svg_multi_polygon_vec_destructor);
+    impl_vec!(AzSvgPath, AzSvgPathVec, AzSvgPathVecDestructor, az_svg_path_vec_destructor);
+    impl_vec!(AzVertexAttribute, AzVertexAttributeVec, AzVertexAttributeVecDestructor, az_vertex_attribute_vec_destructor);
+    impl_vec!(AzSvgPathElement, AzSvgPathElementVec, AzSvgPathElementVecDestructor, az_svg_path_element_vec_destructor);
+    impl_vec!(AzSvgVertex, AzSvgVertexVec, AzSvgVertexVecDestructor, az_svg_vertex_vec_destructor);
+    impl_vec!(AzXWindowType, AzXWindowTypeVec, AzXWindowTypeVecDestructor, az_x_window_type_vec_destructor);
+    impl_vec!(AzVirtualKeyCode, AzVirtualKeyCodeVec, AzVirtualKeyCodeVecDestructor, az_virtual_key_code_vec_destructor);
+    impl_vec!(AzCascadeInfo, AzCascadeInfoVec, AzCascadeInfoVecDestructor, az_cascade_info_vec_destructor);
+    impl_vec!(AzCssDeclaration, AzCssDeclarationVec, AzCssDeclarationVecDestructor, az_css_declaration_vec_destructor);
+    impl_vec!(AzCssPathSelector, AzCssPathSelectorVec, AzCssPathSelectorVecDestructor, az_css_path_selector_vec_destructor);
+    impl_vec!(AzStylesheet, AzStylesheetVec, AzStylesheetVecDestructor, az_stylesheet_vec_destructor);
+    impl_vec!(AzCssRuleBlock, AzCssRuleBlockVec, AzCssRuleBlockVecDestructor, az_css_rule_block_vec_destructor);
+    impl_vec!(AzCallbackData, AzCallbackDataVec, AzCallbackDataVecDestructor, az_callback_data_vec_destructor);
+    impl_vec!(AzDebugMessage, AzDebugMessageVec, AzDebugMessageVecDestructor, az_debug_message_vec_destructor);
+    impl_vec!(AzDom, AzDomVec, AzDomVecDestructor, az_dom_vec_destructor);
+    impl_vec!(AzString, AzStringVec, AzStringVecDestructor, az_string_vec_destructor);
+    impl_vec!(AzStringPair, AzStringPairVec, AzStringPairVecDestructor, az_string_pair_vec_destructor);
+    impl_vec!(AzLinearColorStop, AzLinearColorStopVec, AzLinearColorStopVecDestructor, az_linear_color_stop_vec_destructor);
+    impl_vec!(AzRadialColorStop, AzRadialColorStopVec, AzRadialColorStopVecDestructor, az_radial_color_stop_vec_destructor);
+    impl_vec!(AzNodeId, AzNodeIdVec, AzNodeIdVecDestructor, az_node_id_vec_destructor);
+    impl_vec!(AzNode, AzNodeVec, AzNodeVecDestructor, az_node_vec_destructor);
+    impl_vec!(AzStyledNode, AzStyledNodeVec, AzStyledNodeVecDestructor, az_styled_node_vec_destructor);
+    impl_vec!(AzTagIdToNodeIdMapping, AzTagIdsToNodeIdsMappingVec, AzTagIdsToNodeIdsMappingVecDestructor, az_tag_id_to_node_id_mapping_vec_destructor);
+    impl_vec!(AzParentWithNodeDepth, AzParentWithNodeDepthVec, AzParentWithNodeDepthVecDestructor, az_parent_with_node_depth_vec_destructor);
+    impl_vec!(AzNodeData, AzNodeDataVec, AzNodeDataVecDestructor, az_node_data_vec_destructor);
+    impl_vec!(AzStyleBackgroundRepeat, AzStyleBackgroundRepeatVec, AzStyleBackgroundRepeatVecDestructor, az_style_background_repeat_vec_destructor);
+    impl_vec!(AzStyleBackgroundPosition, AzStyleBackgroundPositionVec, AzStyleBackgroundPositionVecDestructor, az_style_background_position_vec_destructor);
+    impl_vec!(AzStyleBackgroundSize, AzStyleBackgroundSizeVec, AzStyleBackgroundSizeVecDestructor, az_style_background_size_vec_destructor);
+    impl_vec!(AzStyleBackgroundContent, AzStyleBackgroundContentVec, AzStyleBackgroundContentVecDestructor, az_style_background_content_vec_destructor);
 
     impl From<vec::Vec<string::String>> for crate::vec::StringVec {
         fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {
@@ -5188,7 +5201,6 @@ pub mod vec {
     }
 
     impl Clone for DomVec { fn clone(&self) -> Self { unsafe { crate::dll::az_dom_vec_deep_copy(self) } } }
-    impl Drop for DomVec { fn drop(&mut self) { unsafe { crate::dll::az_dom_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
@@ -5204,7 +5216,6 @@ pub mod vec {
     }
 
     impl Clone for IdOrClassVec { fn clone(&self) -> Self { unsafe { crate::dll::az_id_or_class_vec_deep_copy(self) } } }
-    impl Drop for IdOrClassVec { fn drop(&mut self) { unsafe { crate::dll::az_id_or_class_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
@@ -5220,7 +5231,6 @@ pub mod vec {
     }
 
     impl Clone for NodeDataInlineCssPropertyVec { fn clone(&self) -> Self { unsafe { crate::dll::az_node_data_inline_css_property_vec_deep_copy(self) } } }
-    impl Drop for NodeDataInlineCssPropertyVec { fn drop(&mut self) { unsafe { crate::dll::az_node_data_inline_css_property_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
@@ -5236,7 +5246,6 @@ pub mod vec {
     }
 
     impl Clone for StyleBackgroundContentVec { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_content_vec_deep_copy(self) } } }
-    impl Drop for StyleBackgroundContentVec { fn drop(&mut self) { unsafe { crate::dll::az_style_background_content_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
@@ -5252,7 +5261,6 @@ pub mod vec {
     }
 
     impl Clone for StyleBackgroundPositionVec { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_position_vec_deep_copy(self) } } }
-    impl Drop for StyleBackgroundPositionVec { fn drop(&mut self) { unsafe { crate::dll::az_style_background_position_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
@@ -5268,7 +5276,6 @@ pub mod vec {
     }
 
     impl Clone for StyleBackgroundRepeatVec { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_repeat_vec_deep_copy(self) } } }
-    impl Drop for StyleBackgroundRepeatVec { fn drop(&mut self) { unsafe { crate::dll::az_style_background_repeat_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
@@ -5284,7 +5291,6 @@ pub mod vec {
     }
 
     impl Clone for StyleBackgroundSizeVec { fn clone(&self) -> Self { unsafe { crate::dll::az_style_background_size_vec_deep_copy(self) } } }
-    impl Drop for StyleBackgroundSizeVec { fn drop(&mut self) { unsafe { crate::dll::az_style_background_size_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
@@ -5300,7 +5306,6 @@ pub mod vec {
     }
 
     impl Clone for StyleTransformVec { fn clone(&self) -> Self { unsafe { crate::dll::az_style_transform_vec_deep_copy(self) } } }
-    impl Drop for StyleTransformVec { fn drop(&mut self) { unsafe { crate::dll::az_style_transform_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`
@@ -5316,7 +5321,6 @@ pub mod vec {
     }
 
     impl Clone for CssPropertyVec { fn clone(&self) -> Self { unsafe { crate::dll::az_css_property_vec_deep_copy(self) } } }
-    impl Drop for CssPropertyVec { fn drop(&mut self) { unsafe { crate::dll::az_css_property_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
@@ -5332,7 +5336,6 @@ pub mod vec {
     }
 
     impl Clone for SvgMultiPolygonVec { fn clone(&self) -> Self { unsafe { crate::dll::az_svg_multi_polygon_vec_deep_copy(self) } } }
-    impl Drop for SvgMultiPolygonVec { fn drop(&mut self) { unsafe { crate::dll::az_svg_multi_polygon_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<SvgPath>`
@@ -5348,7 +5351,6 @@ pub mod vec {
     }
 
     impl Clone for SvgPathVec { fn clone(&self) -> Self { unsafe { crate::dll::az_svg_path_vec_deep_copy(self) } } }
-    impl Drop for SvgPathVec { fn drop(&mut self) { unsafe { crate::dll::az_svg_path_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
@@ -5364,7 +5366,6 @@ pub mod vec {
     }
 
     impl Clone for VertexAttributeVec { fn clone(&self) -> Self { unsafe { crate::dll::az_vertex_attribute_vec_deep_copy(self) } } }
-    impl Drop for VertexAttributeVec { fn drop(&mut self) { unsafe { crate::dll::az_vertex_attribute_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `VertexAttribute`
@@ -5380,7 +5381,6 @@ pub mod vec {
     }
 
     impl Clone for SvgPathElementVec { fn clone(&self) -> Self { unsafe { crate::dll::az_svg_path_element_vec_deep_copy(self) } } }
-    impl Drop for SvgPathElementVec { fn drop(&mut self) { unsafe { crate::dll::az_svg_path_element_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `SvgVertex`
@@ -5396,7 +5396,6 @@ pub mod vec {
     }
 
     impl Clone for SvgVertexVec { fn clone(&self) -> Self { unsafe { crate::dll::az_svg_vertex_vec_deep_copy(self) } } }
-    impl Drop for SvgVertexVec { fn drop(&mut self) { unsafe { crate::dll::az_svg_vertex_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<u32>`
@@ -5412,7 +5411,6 @@ pub mod vec {
     }
 
     impl Clone for U32Vec { fn clone(&self) -> Self { unsafe { crate::dll::az_u32_vec_deep_copy(self) } } }
-    impl Drop for U32Vec { fn drop(&mut self) { unsafe { crate::dll::az_u32_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `XWindowType`
@@ -5428,7 +5426,6 @@ pub mod vec {
     }
 
     impl Clone for XWindowTypeVec { fn clone(&self) -> Self { unsafe { crate::dll::az_x_window_type_vec_deep_copy(self) } } }
-    impl Drop for XWindowTypeVec { fn drop(&mut self) { unsafe { crate::dll::az_x_window_type_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `VirtualKeyCode`
@@ -5444,7 +5441,6 @@ pub mod vec {
     }
 
     impl Clone for VirtualKeyCodeVec { fn clone(&self) -> Self { unsafe { crate::dll::az_virtual_key_code_vec_deep_copy(self) } } }
-    impl Drop for VirtualKeyCodeVec { fn drop(&mut self) { unsafe { crate::dll::az_virtual_key_code_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `CascadeInfo`
@@ -5460,7 +5456,6 @@ pub mod vec {
     }
 
     impl Clone for CascadeInfoVec { fn clone(&self) -> Self { unsafe { crate::dll::az_cascade_info_vec_deep_copy(self) } } }
-    impl Drop for CascadeInfoVec { fn drop(&mut self) { unsafe { crate::dll::az_cascade_info_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `ScanCode`
@@ -5476,7 +5471,6 @@ pub mod vec {
     }
 
     impl Clone for ScanCodeVec { fn clone(&self) -> Self { unsafe { crate::dll::az_scan_code_vec_deep_copy(self) } } }
-    impl Drop for ScanCodeVec { fn drop(&mut self) { unsafe { crate::dll::az_scan_code_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `CssDeclaration`
@@ -5492,7 +5486,6 @@ pub mod vec {
     }
 
     impl Clone for CssDeclarationVec { fn clone(&self) -> Self { unsafe { crate::dll::az_css_declaration_vec_deep_copy(self) } } }
-    impl Drop for CssDeclarationVec { fn drop(&mut self) { unsafe { crate::dll::az_css_declaration_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `CssPathSelector`
@@ -5508,7 +5501,6 @@ pub mod vec {
     }
 
     impl Clone for CssPathSelectorVec { fn clone(&self) -> Self { unsafe { crate::dll::az_css_path_selector_vec_deep_copy(self) } } }
-    impl Drop for CssPathSelectorVec { fn drop(&mut self) { unsafe { crate::dll::az_css_path_selector_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Stylesheet`
@@ -5524,7 +5516,6 @@ pub mod vec {
     }
 
     impl Clone for StylesheetVec { fn clone(&self) -> Self { unsafe { crate::dll::az_stylesheet_vec_deep_copy(self) } } }
-    impl Drop for StylesheetVec { fn drop(&mut self) { unsafe { crate::dll::az_stylesheet_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `CssRuleBlock`
@@ -5540,7 +5531,6 @@ pub mod vec {
     }
 
     impl Clone for CssRuleBlockVec { fn clone(&self) -> Self { unsafe { crate::dll::az_css_rule_block_vec_deep_copy(self) } } }
-    impl Drop for CssRuleBlockVec { fn drop(&mut self) { unsafe { crate::dll::az_css_rule_block_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `U8Vec`
@@ -5556,7 +5546,6 @@ pub mod vec {
     }
 
     impl Clone for U8Vec { fn clone(&self) -> Self { unsafe { crate::dll::az_u8_vec_deep_copy(self) } } }
-    impl Drop for U8Vec { fn drop(&mut self) { unsafe { crate::dll::az_u8_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `CallbackData`
@@ -5572,7 +5561,6 @@ pub mod vec {
     }
 
     impl Clone for CallbackDataVec { fn clone(&self) -> Self { unsafe { crate::dll::az_callback_data_vec_deep_copy(self) } } }
-    impl Drop for CallbackDataVec { fn drop(&mut self) { unsafe { crate::dll::az_callback_data_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
@@ -5588,7 +5576,6 @@ pub mod vec {
     }
 
     impl Clone for DebugMessageVec { fn clone(&self) -> Self { unsafe { crate::dll::az_debug_message_vec_deep_copy(self) } } }
-    impl Drop for DebugMessageVec { fn drop(&mut self) { unsafe { crate::dll::az_debug_message_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `U32Vec`
@@ -5604,7 +5591,6 @@ pub mod vec {
     }
 
     impl Clone for GLuintVec { fn clone(&self) -> Self { unsafe { crate::dll::az_g_luint_vec_deep_copy(self) } } }
-    impl Drop for GLuintVec { fn drop(&mut self) { unsafe { crate::dll::az_g_luint_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `GLintVec`
@@ -5620,7 +5606,6 @@ pub mod vec {
     }
 
     impl Clone for GLintVec { fn clone(&self) -> Self { unsafe { crate::dll::az_g_lint_vec_deep_copy(self) } } }
-    impl Drop for GLintVec { fn drop(&mut self) { unsafe { crate::dll::az_g_lint_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `StringVec`
@@ -5636,7 +5621,6 @@ pub mod vec {
     }
 
     impl Clone for StringVec { fn clone(&self) -> Self { unsafe { crate::dll::az_string_vec_deep_copy(self) } } }
-    impl Drop for StringVec { fn drop(&mut self) { unsafe { crate::dll::az_string_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `StringPairVec`
@@ -5652,7 +5636,6 @@ pub mod vec {
     }
 
     impl Clone for StringPairVec { fn clone(&self) -> Self { unsafe { crate::dll::az_string_pair_vec_deep_copy(self) } } }
-    impl Drop for StringPairVec { fn drop(&mut self) { unsafe { crate::dll::az_string_pair_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `LinearColorStopVec`
@@ -5668,7 +5651,6 @@ pub mod vec {
     }
 
     impl Clone for LinearColorStopVec { fn clone(&self) -> Self { unsafe { crate::dll::az_linear_color_stop_vec_deep_copy(self) } } }
-    impl Drop for LinearColorStopVec { fn drop(&mut self) { unsafe { crate::dll::az_linear_color_stop_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `RadialColorStopVec`
@@ -5684,7 +5666,6 @@ pub mod vec {
     }
 
     impl Clone for RadialColorStopVec { fn clone(&self) -> Self { unsafe { crate::dll::az_radial_color_stop_vec_deep_copy(self) } } }
-    impl Drop for RadialColorStopVec { fn drop(&mut self) { unsafe { crate::dll::az_radial_color_stop_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `NodeIdVec`
@@ -5700,7 +5681,6 @@ pub mod vec {
     }
 
     impl Clone for NodeIdVec { fn clone(&self) -> Self { unsafe { crate::dll::az_node_id_vec_deep_copy(self) } } }
-    impl Drop for NodeIdVec { fn drop(&mut self) { unsafe { crate::dll::az_node_id_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `NodeVec`
@@ -5716,7 +5696,6 @@ pub mod vec {
     }
 
     impl Clone for NodeVec { fn clone(&self) -> Self { unsafe { crate::dll::az_node_vec_deep_copy(self) } } }
-    impl Drop for NodeVec { fn drop(&mut self) { unsafe { crate::dll::az_node_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `StyledNodeVec`
@@ -5732,7 +5711,6 @@ pub mod vec {
     }
 
     impl Clone for StyledNodeVec { fn clone(&self) -> Self { unsafe { crate::dll::az_styled_node_vec_deep_copy(self) } } }
-    impl Drop for StyledNodeVec { fn drop(&mut self) { unsafe { crate::dll::az_styled_node_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
@@ -5748,7 +5726,6 @@ pub mod vec {
     }
 
     impl Clone for TagIdsToNodeIdsMappingVec { fn clone(&self) -> Self { unsafe { crate::dll::az_tag_ids_to_node_ids_mapping_vec_deep_copy(self) } } }
-    impl Drop for TagIdsToNodeIdsMappingVec { fn drop(&mut self) { unsafe { crate::dll::az_tag_ids_to_node_ids_mapping_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
@@ -5764,7 +5741,6 @@ pub mod vec {
     }
 
     impl Clone for ParentWithNodeDepthVec { fn clone(&self) -> Self { unsafe { crate::dll::az_parent_with_node_depth_vec_deep_copy(self) } } }
-    impl Drop for ParentWithNodeDepthVec { fn drop(&mut self) { unsafe { crate::dll::az_parent_with_node_depth_vec_delete(self) }; } }
 
 
     /// Wrapper over a Rust-allocated `NodeDataVec`
@@ -5780,7 +5756,6 @@ pub mod vec {
     }
 
     impl Clone for NodeDataVec { fn clone(&self) -> Self { unsafe { crate::dll::az_node_data_vec_deep_copy(self) } } }
-    impl Drop for NodeDataVec { fn drop(&mut self) { unsafe { crate::dll::az_node_data_vec_delete(self) }; } }
 }
 
 pub mod option {
@@ -8940,14 +8915,10 @@ pub mod dom {
         pub fn add_inline_focus_css(&mut self, prop: CssProperty)  { unsafe { crate::dll::az_dom_add_inline_focus_css(self, prop) } }
         /// Same as [`Dom::add_inline_focus_css`](#method.add_inline_active_css), but as a builder method
         pub fn with_inline_focus_css(self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_inline_focus_css(self, prop) } }
-        /// Sets the `is_draggable` attribute of this DOM node (default: false)
-        pub fn set_is_draggable(&mut self, is_draggable: bool)  { unsafe { crate::dll::az_dom_set_is_draggable(self, is_draggable) } }
         /// Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method
         pub fn with_clip_mask(self, clip_mask: OptionImageMask)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_with_clip_mask(self, clip_mask) } }
         /// Sets the `clip_mask` attribute of this DOM node (default: None)
         pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask)  { unsafe { crate::dll::az_dom_set_clip_mask(self, clip_mask) } }
-        /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
-        pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::Dom { unsafe { crate::dll::az_dom_is_draggable(self, is_draggable) } }
         /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
         pub fn set_tab_index(&mut self, tab_index: OptionTabIndex)  { unsafe { crate::dll::az_dom_set_tab_index(self, tab_index) } }
         /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
@@ -9056,10 +9027,6 @@ pub mod dom {
         pub fn with_clip_mask(self, clip_mask: OptionImageMask)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_with_clip_mask(self, clip_mask) } }
         /// Sets the `clip_mask` attribute of this `NodeData` (default: None)
         pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask)  { unsafe { crate::dll::az_node_data_set_clip_mask(self, clip_mask) } }
-        /// Sets the `is_draggable` attribute of this `NodeData` (default: false)
-        pub fn set_is_draggable(&mut self, is_draggable: bool)  { unsafe { crate::dll::az_node_data_set_is_draggable(self, is_draggable) } }
-        /// Same as [`NodeData::set_is_draggable`](#method.set_is_draggable), but as a builder method
-        pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::NodeData { unsafe { crate::dll::az_node_data_is_draggable(self, is_draggable) } }
         /// Sets the `tabindex` attribute of this `NodeData` (makes an element focusable - default: None)
         pub fn set_tab_index(&mut self, tab_index: OptionTabIndex)  { unsafe { crate::dll::az_node_data_set_tab_index(self, tab_index) } }
         /// Same as [`NodeData::set_tab_index`](#method.set_tab_index), but as a builder method

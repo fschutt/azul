@@ -5,7 +5,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
 
     #[repr(C)]
     pub struct $struct_name {
-        ptr: *mut $struct_type,
+        ptr: *const $struct_type,
         len: usize,
         cap: usize,
         destructor: $destructor_name,
@@ -24,24 +24,91 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
 
     impl $struct_name {
 
-        #[inline]
-        pub fn new() -> Self {
-            Vec::<$struct_type>::new().into()
+        #[inline(always)]
+        pub fn new() -> $struct_name {
+            // lets hope the optimizer catches this
+            Self::new_nonconst(Vec::new())
+        }
+
+        #[inline(always)]
+        pub fn new_nonconst(v: Vec<$struct_type>) -> $struct_name {
+            use std::mem::ManuallyDrop;
+
+            // note: &[T]::as_ref() is a const fn, Vec<T>::as_ptr() is not
+
+            let ptr = v.as_ptr();
+            let len = v.len();
+            let cap =  v.capacity();
+
+            let _ = ManuallyDrop::new(v);
+
+            $struct_name {
+                ptr,
+                len,
+                cap,
+                destructor: $destructor_name::DefaultRust,
+            }
         }
 
         #[inline]
-        pub fn clear(&mut self) {
-            *self = Self::new();
+        pub fn with_capacity(cap: usize) -> Self {
+            Self::new_nonconst(Vec::<$struct_type>::with_capacity(cap))
+        }
+
+        #[inline]
+        pub fn iter(&self) -> std::slice::Iter<$struct_type> {
+            self.as_ref().iter()
+        }
+
+        #[inline]
+        pub fn ptr_as_usize(&self) -> usize {
+            self.ptr as usize
+        }
+
+        #[inline]
+        pub const fn len(&self) -> usize {
+            self.len
+        }
+
+        #[inline]
+        pub const fn capacity(&self) -> usize {
+            self.cap
+        }
+
+        #[inline]
+        pub const fn is_empty(&self) -> bool {
+            self.len == 0
+        }
+
+        pub fn get(&self, index: usize) -> Option<&$struct_type> {
+            let v1: &[$struct_type] = self.as_ref();
+            let res = v1.get(index);
+            res
+        }
+
+        #[inline]
+        unsafe fn get_unchecked(&self, index: usize) -> &$struct_type {
+            let v1: &[$struct_type] = self.as_ref();
+            let res = v1.get_unchecked(index);
+            res
+        }
+
+        pub fn as_slice(&self) -> &[$struct_type] {
+            self.as_ref()
+        }
+
+        // ---- the following function require resizing the vector -
+        // you must check that they are not called on &'static arrays
+        // since static arrays can't be resized!
+
+        #[inline]
+        pub fn as_mut_ptr(&mut self) -> *mut $struct_type {
+            self.ptr as *mut $struct_type
         }
 
         #[inline]
         pub fn sort_by<F: FnMut(&$struct_type, &$struct_type) -> std::cmp::Ordering>(&mut self, compare: F) {
             self.as_mut().sort_by(compare);
-        }
-
-        #[inline]
-        pub fn with_capacity(cap: usize) -> Self {
-            Vec::<$struct_type>::with_capacity(cap).into()
         }
 
         #[inline]
@@ -59,11 +126,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
         }
 
         #[inline]
-        pub fn iter(&self) -> std::slice::Iter<$struct_type> {
-            self.as_ref().iter()
-        }
-
-        #[inline]
         pub fn iter_mut(&mut self) -> std::slice::IterMut<$struct_type> {
             self.as_mut().iter_mut()
         }
@@ -72,44 +134,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
         pub fn into_iter(self) -> std::vec::IntoIter<$struct_type> {
             let v1: Vec<$struct_type> = self.into();
             v1.into_iter()
-        }
-
-        #[inline]
-        pub fn ptr_as_usize(&self) -> usize {
-            self.ptr as usize
-        }
-
-        #[inline]
-        pub fn as_mut_ptr(&mut self) -> *mut $struct_type {
-            self.ptr
-        }
-
-        #[inline]
-        pub fn len(&self) -> usize {
-            self.len
-        }
-
-        #[inline]
-        pub fn capacity(&self) -> usize {
-            self.cap
-        }
-
-        #[inline]
-        pub fn is_empty(&self) -> bool {
-            self.len == 0
-        }
-
-        pub fn get(&self, index: usize) -> Option<&$struct_type> {
-            let v1: &[$struct_type] = self.as_ref();
-            let res = v1.get(index);
-            res
-        }
-
-        #[inline]
-        unsafe fn get_unchecked(&self, index: usize) -> &$struct_type {
-            let v1: &[$struct_type] = self.as_ref();
-            let res = v1.get_unchecked(index);
-            res
         }
 
         #[inline]
@@ -197,10 +221,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
             }
         }
 
-        pub fn as_slice(&self) -> &[$struct_type] {
-            unsafe { std::slice::from_raw_parts(self.ptr, self.len()) }
-        }
-
         unsafe fn set_len(&mut self, new_len: usize) {
              debug_assert!(new_len <= self.capacity());
              self.len = new_len;
@@ -259,6 +279,18 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
         }
     }
 
+    impl AsMut<[$struct_type]> for $struct_name {
+        fn as_mut(&mut self) -> &mut [$struct_type] {
+            unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) }
+        }
+    }
+
+    impl AsRef<[$struct_type]> for $struct_name {
+        fn as_ref(&self) -> &[$struct_type] {
+            unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+        }
+    }
+
     impl Default for $struct_name {
         fn default() -> Self {
             Vec::<$struct_type>::default().into()
@@ -272,28 +304,9 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
         }
     }
 
-    impl AsRef<[$struct_type]> for $struct_name {
-        fn as_ref(&self) -> &[$struct_type] {
-            unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
-        }
-    }
-
-    impl AsMut<[$struct_type]> for $struct_name {
-        fn as_mut(&mut self) -> &mut [$struct_type] {
-            unsafe { std::slice::from_raw_parts_mut (self.ptr, self.len) }
-        }
-    }
-
     impl From<Vec<$struct_type>> for $struct_name {
         fn from(input: Vec<$struct_type>) -> $struct_name {
-            use std::mem::ManuallyDrop;
-            let mut me = ManuallyDrop::new(input);
-            $struct_name {
-                ptr: me.as_mut_ptr(),
-                len: me.len(),
-                cap: me.capacity(),
-                destructor: $destructor_name::DefaultRust,
-            }
+            $struct_name::new_nonconst(input)
         }
     }
 
@@ -322,7 +335,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
     impl Drop for $struct_name {
         fn drop(&mut self) {
             match self.destructor {
-                $destructor_name::DefaultRust => { let _ = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) }; },
+                $destructor_name::DefaultRust => { let _ = unsafe { Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) }; },
                 $destructor_name::NoDestructor => { },
                 $destructor_name::External(f) => { f(self); }
             }

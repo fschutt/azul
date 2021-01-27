@@ -763,7 +763,7 @@ impl StyledDom {
     pub fn new(dom: Dom, mut css: Css) -> Self {
 
         use azul_css::CssDeclaration;
-        use crate::dom::{TabIndex, NodeDataInlineCssProperty};
+        use crate::dom::{TabIndex, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec};
         use std::iter::FromIterator;
         use rayon::prelude::*;
 
@@ -781,8 +781,6 @@ impl StyledDom {
                 .par_iter()
                 .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Normal(p) => Some((p.get_type(), p.clone())), _ => None })
                 .collect::<Vec<(_, _)>>();
-
-            node_data.inline_css_props.clear(); // no need to retain the inline CSS properties in the DOM
 
             if normal_inline_props.is_empty() {
                 None
@@ -829,7 +827,7 @@ impl StyledDom {
                 .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Focus(p) => Some((p.get_type(), p.clone())), _ => None })
                 .collect::<Vec<(_, _)>>();
 
-            node_data.inline_css_props.clear(); // no need to retain the inline CSS properties in the DOM, clear here
+            node_data.inline_css_props = NodeDataInlineCssPropertyVec::new(); // no need to retain the inline CSS properties in the DOM, clear here
 
             if focus_inline_props.is_empty() {
                 None
@@ -1017,7 +1015,6 @@ impl StyledDom {
                 node_has_hover_props ||
                 node_has_focus_props ||
                 node_has_active_props ||
-                node_data.get_is_draggable() ||
                 node_has_not_only_window_callbacks ||
                 node_has_non_default_cursor;
 

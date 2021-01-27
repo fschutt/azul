@@ -652,11 +652,13 @@
 				},
 				"DomVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<Dom>`",
+					"custom_destructor": true,
 					"external": "azul_impl::dom::DomVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut Dom" } },
+						{ "ptr": { "type": "*const Dom" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "DomVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -678,16 +680,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"IdOrClassVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<IdOrClass>`",
+					"custom_destructor": true,
 					"external": "azul_impl::dom::IdOrClassVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut IdOrClass" } },
+						{ "ptr": { "type": "*const IdOrClass" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "IdOrClassVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -709,16 +712,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"NodeDataInlineCssPropertyVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`",
+					"custom_destructor": true,
 					"external": "azul_impl::dom::NodeDataInlineCssPropertyVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut NodeDataInlineCssProperty" } },
+						{ "ptr": { "type": "*const NodeDataInlineCssProperty" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "NodeDataInlineCssPropertyVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -740,16 +744,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"StyleBackgroundContentVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::StyleBackgroundContentVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut StyleBackgroundContent" } },
+						{ "ptr": { "type": "*const StyleBackgroundContent" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "StyleBackgroundContentVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -771,16 +776,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"StyleBackgroundPositionVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::StyleBackgroundPositionVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut StyleBackgroundPosition" } },
+						{ "ptr": { "type": "*const StyleBackgroundPosition" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "StyleBackgroundPositionVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -802,16 +808,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"StyleBackgroundRepeatVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::StyleBackgroundRepeatVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut StyleBackgroundRepeat" } },
+						{ "ptr": { "type": "*const StyleBackgroundRepeat" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "StyleBackgroundRepeatVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -833,16 +840,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"StyleBackgroundSizeVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::StyleBackgroundSizeVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut StyleBackgroundSize" } },
+						{ "ptr": { "type": "*const StyleBackgroundSize" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "StyleBackgroundSizeVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -864,16 +872,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"StyleTransformVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<StyleTransform>`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::StyleTransformVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut StyleTransform" } },
+						{ "ptr": { "type": "*const StyleTransform" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "StyleTransformVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -895,16 +904,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"CssPropertyVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<CssProperty>`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::CssPropertyVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut CssProperty" } },
+						{ "ptr": { "type": "*const CssProperty" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "CssPropertyVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -926,16 +936,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"SvgMultiPolygonVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`",
+					"custom_destructor": true,
 					"external": "azul_impl::svg::SvgMultiPolygonVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut SvgMultiPolygon" } },
+						{ "ptr": { "type": "*const SvgMultiPolygon" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "SvgMultiPolygonVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -957,16 +968,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"SvgPathVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<SvgPath>`",
+					"custom_destructor": true,
 					"external": "azul_impl::svg::SvgPathVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut SvgPath" } },
+						{ "ptr": { "type": "*const SvgPath" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "SvgPathVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -988,16 +1000,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"VertexAttributeVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<VertexAttribute>`",
+					"custom_destructor": true,
 					"external": "azul_impl::gl::VertexAttributeVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut VertexAttribute" } },
+						{ "ptr": { "type": "*const VertexAttribute" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "VertexAttributeVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1019,16 +1032,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"SvgPathElementVec": {
 					"doc": "Wrapper over a Rust-allocated `VertexAttribute`",
+					"custom_destructor": true,
 					"external": "azul_impl::svg::SvgPathElementVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut SvgPathElement" } },
+						{ "ptr": { "type": "*const SvgPathElement" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "SvgPathElementVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1050,16 +1064,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"SvgVertexVec": {
 					"doc": "Wrapper over a Rust-allocated `SvgVertex`",
+					"custom_destructor": true,
 					"external": "azul_impl::svg::SvgVertexVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut SvgVertex" } },
+						{ "ptr": { "type": "*const SvgVertex" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "SvgVertexVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1081,16 +1096,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"U32Vec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<u32>`",
+					"custom_destructor": true,
 					"external": "azul_impl::svg::U32Vec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut u32" } },
+						{ "ptr": { "type": "*const u32" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "U32VecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1112,16 +1128,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"XWindowTypeVec": {
 					"doc": "Wrapper over a Rust-allocated `XWindowType`",
+					"custom_destructor": true,
 					"external": "azul_impl::window::XWindowTypeVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut XWindowType" } },
+						{ "ptr": { "type": "*const XWindowType" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "XWindowTypeVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1143,16 +1160,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"VirtualKeyCodeVec": {
 					"doc": "Wrapper over a Rust-allocated `VirtualKeyCode`",
+					"custom_destructor": true,
 					"external": "azul_impl::window::VirtualKeyCodeVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut VirtualKeyCode" } },
+						{ "ptr": { "type": "*const VirtualKeyCode" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "VirtualKeyCodeVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1174,16 +1192,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"CascadeInfoVec": {
 					"doc": "Wrapper over a Rust-allocated `CascadeInfo`",
+					"custom_destructor": true,
 					"external": "azul_impl::style::CascadeInfoVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut CascadeInfo" } },
+						{ "ptr": { "type": "*const CascadeInfo" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "CascadeInfoVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1205,16 +1224,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"ScanCodeVec": {
 					"doc": "Wrapper over a Rust-allocated `ScanCode`",
+					"custom_destructor": true,
 					"external": "azul_impl::window::ScanCodeVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut u32" } },
+						{ "ptr": { "type": "*const u32" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "ScanCodeVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1236,16 +1256,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"CssDeclarationVec": {
 					"doc": "Wrapper over a Rust-allocated `CssDeclaration`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::CssDeclarationVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut CssDeclaration" } },
+						{ "ptr": { "type": "*const CssDeclaration" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "CssDeclarationVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1267,16 +1288,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"CssPathSelectorVec": {
 					"doc": "Wrapper over a Rust-allocated `CssPathSelector`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::CssPathSelectorVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut CssPathSelector" } },
+						{ "ptr": { "type": "*const CssPathSelector" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "CssPathSelectorVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1298,16 +1320,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"StylesheetVec": {
 					"doc": "Wrapper over a Rust-allocated `Stylesheet`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::StylesheetVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut Stylesheet" } },
+						{ "ptr": { "type": "*const Stylesheet" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "StylesheetVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1329,16 +1352,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"CssRuleBlockVec": {
 					"doc": "Wrapper over a Rust-allocated `CssRuleBlock`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::CssRuleBlockVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut CssRuleBlock" } },
+						{ "ptr": { "type": "*const CssRuleBlock" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "CssRuleBlockVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1360,16 +1384,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"U8Vec": {
 					"doc": "Wrapper over a Rust-allocated `U8Vec`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::U8Vec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut u8" } },
+						{ "ptr": { "type": "*const u8" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "U8VecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1391,16 +1416,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"CallbackDataVec": {
 					"doc": "Wrapper over a Rust-allocated `CallbackData`",
+					"custom_destructor": true,
 					"external": "azul_impl::dom::CallbackDataVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut CallbackData" } },
+						{ "ptr": { "type": "*const CallbackData" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "CallbackDataVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1422,16 +1448,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"DebugMessageVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<DebugMessage>`",
+					"custom_destructor": true,
 					"external": "azul_impl::gl::AzDebugMessageVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut DebugMessage" } },
+						{ "ptr": { "type": "*const DebugMessage" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "DebugMessageVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1453,16 +1480,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"GLuintVec": {
 					"doc": "Wrapper over a Rust-allocated `U32Vec`",
+					"custom_destructor": true,
 					"external": "azul_impl::gl::GLuintVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut u32" } },
+						{ "ptr": { "type": "*const u32" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "GLuintVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1484,16 +1512,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"GLintVec": {
 					"doc": "Wrapper over a Rust-allocated `GLintVec`",
+					"custom_destructor": true,
 					"external": "azul_impl::gl::GLintVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut i32" } },
+						{ "ptr": { "type": "*const i32" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "GLintVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1515,16 +1544,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"StringVec": {
 					"doc": "Wrapper over a Rust-allocated `StringVec`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::StringVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut String" } },
+						{ "ptr": { "type": "*const String" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "StringVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1546,16 +1576,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"StringPairVec": {
 					"doc": "Wrapper over a Rust-allocated `StringPairVec`",
+					"custom_destructor": true,
 					"external": "azul_impl::window::StringPairVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut StringPair" } },
+						{ "ptr": { "type": "*const StringPair" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "StringPairVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1577,16 +1608,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"LinearColorStopVec": {
 					"doc": "Wrapper over a Rust-allocated `LinearColorStopVec`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::LinearColorStopVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut LinearColorStop" } },
+						{ "ptr": { "type": "*const LinearColorStop" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "LinearColorStopVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1608,16 +1640,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"RadialColorStopVec": {
 					"doc": "Wrapper over a Rust-allocated `RadialColorStopVec`",
+					"custom_destructor": true,
 					"external": "azul_impl::css::RadialColorStopVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut RadialColorStop" } },
+						{ "ptr": { "type": "*const RadialColorStop" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "RadialColorStopVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1639,16 +1672,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"NodeIdVec": {
 					"doc": "Wrapper over a Rust-allocated `NodeIdVec`",
+					"custom_destructor": true,
 					"external": "azul_impl::styled_dom::NodeIdVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut NodeId" } },
+						{ "ptr": { "type": "*const NodeId" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "NodeIdVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1670,16 +1704,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"NodeVec": {
 					"doc": "Wrapper over a Rust-allocated `NodeVec`",
+					"custom_destructor": true,
 					"external": "azul_impl::styled_dom::AzNodeVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut Node" } },
+						{ "ptr": { "type": "*const Node" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "NodeVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1701,16 +1736,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"StyledNodeVec": {
 					"doc": "Wrapper over a Rust-allocated `StyledNodeVec`",
+					"custom_destructor": true,
 					"external": "azul_impl::styled_dom::StyledNodeVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut StyledNode" } },
+						{ "ptr": { "type": "*const StyledNode" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "StyledNodeVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1732,16 +1768,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"TagIdsToNodeIdsMappingVec": {
 					"doc": "Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`",
+					"custom_destructor": true,
 					"external": "azul_impl::styled_dom::TagIdsToNodeIdsMappingVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut TagIdToNodeIdMapping" } },
+						{ "ptr": { "type": "*const TagIdToNodeIdMapping" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "TagIdsToNodeIdsMappingVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1763,16 +1800,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"ParentWithNodeDepthVec": {
 					"doc": "Wrapper over a Rust-allocated `ParentWithNodeDepthVec`",
+					"custom_destructor": true,
 					"external": "azul_impl::styled_dom::ParentWithNodeDepthVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut ParentWithNodeDepth" } },
+						{ "ptr": { "type": "*const ParentWithNodeDepth" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "ParentWithNodeDepthVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1794,16 +1832,17 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				},
 				"NodeDataVec": {
 					"doc": "Wrapper over a Rust-allocated `NodeDataVec`",
+					"custom_destructor": true,
 					"external": "azul_impl::dom::NodeDataVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*mut NodeData" } },
+						{ "ptr": { "type": "*const NodeData" } },
 						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "NodeDataVecDestructor" } }
 					],
 					"constructors": {
 						"new": {
@@ -1825,8 +1864,7 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+					}
 				}
 			}
 		},
@@ -5330,14 +5368,6 @@
 							"returns": "Dom",
 							"fn_body": "az_dom_add_inline_focus_css(&mut dom, prop); dom"
 						},
-						"set_is_draggable": {
-							"doc": "Sets the `is_draggable` attribute of this DOM node (default: false)",
-							"fn_args": [
-								{"self": "refmut"},
-								{"is_draggable": "bool"}
-							],
-							"fn_body": "dom.set_is_draggable(is_draggable);"
-						},
 						"with_clip_mask": {
 							"doc": "Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method",
 							"fn_args": [
@@ -5354,15 +5384,6 @@
 								{"clip_mask": "OptionImageMask"}
 							],
 							"fn_body": "dom.set_clip_mask(clip_mask);"
-						},
-						"is_draggable": {
-							"doc": "Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"is_draggable": "bool"}
-							],
-							"returns": "Dom",
-							"fn_body": "az_dom_set_is_draggable(&mut dom, is_draggable); dom"
 						},
 						"set_tab_index": {
 							"doc": "Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)",
@@ -5455,9 +5476,8 @@
 						{"dataset": {"type": "OptionRefAny", "doc": "`dataset` attribute of the node, useful to store any UI-related data on the node itself"}},
 						{"ids_and_classes": {"type": "IdOrClassVec", "doc": "Stores the ids of the node, i.e. `[#main, #something]`"}},
 						{"callbacks": {"type": "CallbackDataVec", "doc": "Stores the callbacks of the node, i.e. `On::MouseUp` -> `Callback(my_button_click_handler)`"}},
-						{"inline_css_props": {"type": "CssPropertyVec", "doc": "Override certain dynamic styling properties for this DOM node"}},
+						{"inline_css_props": {"type": "NodeDataInlineCssPropertyVec", "doc": "Override certain dynamic styling properties for this DOM node"}},
 						{"clip_mask": {"type": "OptionImageMask", "doc": "Optional clip mask for this DOM node"}},
-						{"is_draggable": {"type": "bool", "doc": "Whether this div can be dragged or not, similar to `draggable = \"true\"` in HTML"}},
 						{"tab_index": {"type": "OptionTabIndex", "doc": "Whether this div can be focused, and if yes, in what default to `None` (not focusable). Note that without this, there can be no `On::FocusReceived` / `On::FocusLost` (equivalent to onfocus). For this reason, this is automatically set to `TabIndex::Auto` if a callback with `On::Focus*` is inserted"}}
 					],
 					"constructors": {
@@ -5692,23 +5712,6 @@
 								{"clip_mask": "OptionImageMask"}
 							],
 							"fn_body": "nodedata.set_clip_mask(clip_mask);"
-						},
-						"set_is_draggable": {
-							"doc": "Sets the `is_draggable` attribute of this `NodeData` (default: false)",
-							"fn_args": [
-								{"self": "refmut"},
-								{"is_draggable": "bool"}
-							],
-							"fn_body": "nodedata.set_is_draggable(is_draggable);"
-						},
-						"is_draggable": {
-							"doc": "Same as [`NodeData::set_is_draggable`](#method.set_is_draggable), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"is_draggable": "bool"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_set_is_draggable(&mut nodedata, is_draggable); nodedata"
 						},
 						"set_tab_index": {
 							"doc": "Sets the `tabindex` attribute of this `NodeData` (makes an element focusable - default: None)",

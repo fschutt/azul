@@ -608,10 +608,6 @@ pub struct NodeData {
     pub(crate) inline_css_props: NodeDataInlineCssPropertyVec,
     /// Optional clip mask for this DOM node
     clip_mask: OptionImageMask,
-    /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .
-    ///
-    /// **TODO**: Currently doesn't do anything, since the drag & drop implementation is missing, API stub.
-    is_draggable: bool,
     /// Whether this div can be focused, and if yes, in what default to `None` (not focusable).
     /// Note that without this, there can be no `On::FocusReceived` (equivalent to onfocus),
     /// `On::FocusLost` (equivalent to onblur), etc. events.
@@ -729,19 +725,13 @@ fn node_data_to_string(node_data: &NodeData) -> String {
         class_string += "\"";
     }
 
-    let draggable = if node_data.is_draggable {
-        format!(" draggable=\"true\"")
-    } else {
-        String::new()
-    };
-
     let tabindex = if let OptionTabIndex::Some(tab_index) = node_data.tab_index {
         format!(" tabindex=\"{}\"", tab_index.get_index())
     } else {
         String::new()
     };
 
-    format!("{}{}{}{}", id_string, class_string, tabindex, draggable)
+    format!("{}{}{}", id_string, class_string, tabindex)
 }
 
 impl fmt::Debug for NodeData {
@@ -751,7 +741,6 @@ impl fmt::Debug for NodeData {
         if !self.ids_and_classes.is_empty() { write!(f, "\tids_and_classes: {:?}", self.ids_and_classes)?; }
         if !self.callbacks.is_empty() { write!(f, "\tcallbacks: {:?}", self.callbacks)?; }
         if !self.inline_css_props.is_empty() { write!(f, "\tinline_css_props: {:?}", self.inline_css_props)?; }
-        if self.is_draggable { write!(f, "\tis_draggable: {:?}", self.is_draggable)?; }
         if let OptionTabIndex::Some(t) = self.tab_index { write!(f, "\ttab_index: {:?}", t)?; }
         write!(f, "}}")?;
         Ok(())
@@ -770,7 +759,6 @@ impl NodeData {
             callbacks: CallbackDataVec::new(),
             inline_css_props: NodeDataInlineCssPropertyVec::new(),
             clip_mask: OptionImageMask::None,
-            is_draggable: false,
             tab_index: OptionTabIndex::None,
         }
     }
@@ -898,8 +886,6 @@ impl NodeData {
     #[inline(always)]
     pub const fn get_clip_mask(&self) -> &OptionImageMask { &self.clip_mask }
     #[inline(always)]
-    pub const fn get_is_draggable(&self) -> bool { self.is_draggable }
-    #[inline(always)]
     pub const fn get_tab_index(&self) -> OptionTabIndex { self.tab_index }
 
     #[inline(always)]
@@ -915,8 +901,6 @@ impl NodeData {
     #[inline(always)]
     pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.clip_mask = clip_mask; }
     #[inline(always)]
-    pub fn set_is_draggable(&mut self, is_draggable: bool) { self.is_draggable = is_draggable; }
-    #[inline(always)]
     pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.tab_index = tab_index; }
 
     #[inline(always)]
@@ -931,8 +915,6 @@ impl NodeData {
     pub fn with_inline_css_props(self, inline_css_props: NodeDataInlineCssPropertyVec) -> Self { Self { inline_css_props, .. self } }
     #[inline(always)]
     pub fn with_clip_mask(self, clip_mask: OptionImageMask) -> Self { Self { clip_mask, .. self } }
-    #[inline(always)]
-    pub fn is_draggable(self, is_draggable: bool) -> Self { Self { is_draggable, .. self } }
     #[inline(always)]
     pub fn with_tab_index(self, tab_index: OptionTabIndex) -> Self { Self { tab_index, .. self } }
 
@@ -1041,8 +1023,6 @@ impl Dom {
     pub fn with_clip_mask(mut self, clip_mask: OptionImageMask) -> Self { self.set_clip_mask(clip_mask); self }
     #[inline]
     pub fn with_tab_index(mut self, tab_index: OptionTabIndex) -> Self { self.set_tab_index(tab_index); self }
-    #[inline]
-    pub fn is_draggable(mut self, draggable: bool) -> Self { self.set_is_draggable(draggable); self }
 
     #[inline]
     pub fn set_dataset(&mut self, data: RefAny){ self.root.set_dataset(Some(data).into()); }
@@ -1068,8 +1048,6 @@ impl Dom {
     pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.root.set_clip_mask(clip_mask); }
     #[inline]
     pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.root.set_tab_index(tab_index); }
-    #[inline]
-    pub fn set_is_draggable(&mut self, draggable: bool) { self.root.set_is_draggable(draggable); }
 
     pub fn get_html_string(&self) -> String {
 
