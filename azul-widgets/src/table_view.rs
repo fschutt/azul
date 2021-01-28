@@ -158,6 +158,8 @@ impl TableViewState {
         const SELECTED_CELL_BORDER_STYLE: BorderStyle = BorderStyle::Solid;
         const SELECTED_CELL_BORDER_COLOR: ColorU = COLOR_407C40;
 
+        const DEFAULT_TABLE_CELL_STRING: AzString = AzString::from_const_str("");
+
         const SHADOW: StyleBoxShadow = StyleBoxShadow {
             offset: [PixelValueNoPercent::zero(), PixelValueNoPercent::zero()],
             color: COLOR_2D2D2D,
@@ -304,7 +306,7 @@ impl TableViewState {
 
                     let node_type = match self.get_cell_content(&TableCellIndex { row: row_idx, column: col_idx }) {
                         Some(string) => NodeType::Label(string.clone().into()),
-                        None => NodeType::Label("".into()),
+                        None => NodeType::Label(DEFAULT_TABLE_CELL_STRING),
                     };
 
                     const CELL_STYLE: &[NodeDataInlineCssProperty] = &[

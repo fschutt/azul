@@ -57,13 +57,9 @@ fn main() {
     use azul::vec::CssPropertyVec;
     use azul::vec::StringVec;
 
-    // rectstyle: 1192 bytes
-    // rectlayout: 896 bytes
-
-    // total optimization = 8.3 MB saved @ 4000 nodes (2184 bytes per node)
-    // 24000 nodes -> ~50MB (currently: 250MB)
-
+    println!("hello!");
     let data = Data { counter: 5 };
     let app = App::new(RefAny::new(data), AppConfig::default());
+    println!("app created!");
     app.run(WindowCreateOptions::new(layout));
 }
