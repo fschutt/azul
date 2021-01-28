@@ -1,7 +1,9 @@
 #![cfg(feature = "font_loading")]
 
+use azul_css::U8Vec;
+
 /// Returns the font file contents from the computer + the font index
-pub fn load_system_font(id: &str) -> Option<(Vec<u8>, i32)> {
+pub fn load_system_font(id: &str) -> Option<(U8Vec, i32)> {
     use font_loader::system_fonts::{self, FontPropertyBuilder};
     let font_builder = match id {
         "monospace" => {
@@ -32,7 +34,7 @@ pub fn load_system_font(id: &str) -> Option<(Vec<u8>, i32)> {
         other => FontPropertyBuilder::new().family(other)
     };
 
-    system_fonts::get(&font_builder.build())
+    system_fonts::get(&font_builder.build()).map(|(i, q)| (i.into(), q))
 }
 
 /// Return the native fonts

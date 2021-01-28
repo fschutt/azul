@@ -298,14 +298,14 @@ pub(crate) mod winit_translate {
     pub(crate) fn translate_window_icon(input: WindowIcon) -> Result<WinitIcon, WinitBadIcon> {
         use azul_core::window::{SmallWindowIconBytes, LargeWindowIconBytes};
         match input {
-            WindowIcon::Small(SmallWindowIconBytes { rgba_bytes, .. }) => WinitIcon::from_rgba(rgba_bytes.into(), 16, 16),
-            WindowIcon::Large(LargeWindowIconBytes { rgba_bytes, .. }) => WinitIcon::from_rgba(rgba_bytes.into(), 32, 32),
+            WindowIcon::Small(SmallWindowIconBytes { rgba_bytes, .. }) => WinitIcon::from_rgba(rgba_bytes.into_library_owned_vec(), 16, 16),
+            WindowIcon::Large(LargeWindowIconBytes { rgba_bytes, .. }) => WinitIcon::from_rgba(rgba_bytes.into_library_owned_vec(), 32, 32),
         }
     }
 
     #[inline]
     pub(crate) fn translate_taskbar_icon(input: TaskBarIcon) -> Result<WinitIcon, WinitBadIcon> {
-        WinitIcon::from_rgba(input.rgba_bytes.into(), 256, 256)
+        WinitIcon::from_rgba(input.rgba_bytes.into_library_owned_vec(), 256, 256)
     }
 
     #[cfg(target_os = "linux")]
@@ -1055,7 +1055,7 @@ fn wr_translate_add_image(add_image: AddImage) -> WrAddImage {
 fn wr_translate_image_data(image_data: ImageData) -> WrImageData {
     use std::sync::Arc;
     match image_data {
-        ImageData::Raw(data) => WrImageData::Raw(Arc::new(data.into())),
+        ImageData::Raw(data) => WrImageData::Raw(Arc::new(data.into_library_owned_vec())),
         ImageData::External(external) => WrImageData::External(wr_translate_external_image_data(external)),
     }
 }

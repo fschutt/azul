@@ -106,6 +106,7 @@ pub struct StyledNode {
 }
 
 impl_vec!(StyledNode, StyledNodeVec, StyledNodeVecDestructor);
+impl_vec_mut!(StyledNode, StyledNodeVec);
 impl_vec_debug!(StyledNode, StyledNodeVec);
 impl_vec_partialord!(StyledNode, StyledNodeVec);
 impl_vec_clone!(StyledNode, StyledNodeVec);
@@ -563,6 +564,7 @@ impl AzNode {
 }
 
 impl_vec!(AzNode, AzNodeVec, AzNodeVecDestructor);
+impl_vec_mut!(AzNode, AzNodeVec);
 impl_vec_debug!(AzNode, AzNodeVec);
 impl_vec_partialord!(AzNode, AzNodeVec);
 impl_vec_clone!(AzNode, AzNodeVec);
@@ -587,6 +589,7 @@ pub struct ParentWithNodeDepth {
 }
 
 impl_vec!(ParentWithNodeDepth, ParentWithNodeDepthVec, ParentWithNodeDepthVecDestructor);
+impl_vec_mut!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 impl_vec_debug!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 impl_vec_partialord!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 impl_vec_clone!(ParentWithNodeDepth, ParentWithNodeDepthVec);
@@ -604,6 +607,7 @@ pub struct TagIdToNodeIdMapping {
 }
 
 impl_vec!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec, TagIdToNodeIdMappingVecDestructor);
+impl_vec_mut!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
 impl_vec_debug!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
 impl_vec_partialord!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
 impl_vec_clone!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
@@ -622,6 +626,7 @@ pub struct ContentGroup {
 }
 
 impl_vec!(ContentGroup, ContentGroupVec, ContentGroupVecDestructor);
+impl_vec_mut!(ContentGroup, ContentGroupVec);
 impl_vec_debug!(ContentGroup, ContentGroupVec);
 impl_vec_partialord!(ContentGroup, ContentGroupVec);
 impl_vec_clone!(ContentGroup, ContentGroupVec);
@@ -760,7 +765,7 @@ macro_rules! restyle_nodes {($self_val:expr, $field:ident, $new_field_state:expr
 
 impl StyledDom {
 
-    pub fn new(dom: Dom, mut css: Css) -> Self {
+    pub fn new(dom: Dom, css: Css) -> Self {
 
         use azul_css::CssDeclaration;
         use crate::dom::{TabIndex, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec};
@@ -847,12 +852,14 @@ impl StyledDom {
 
         let html_tree = construct_html_cascade_tree(&compact_dom.node_hierarchy.as_ref(), &non_leaf_nodes[..]);
 
+        let css_is_empty = css.is_empty();
+
         // apply all the styles from the CSS
-        if !css.is_empty() {
+        if !css_is_empty {
 
             use azul_css::{CssPathSelector, CssPathPseudoSelector};
 
-            css.sort_by_specificity();
+            let css = css.sort_by_specificity();
 
             let node_hierarchy_ref = node_hierarchy.as_container();
             let node_data = compact_dom.node_data.as_ref();
@@ -967,7 +974,7 @@ impl StyledDom {
                 }
             };}
 
-            if !css.is_empty() {
+            if !css_is_empty {
                 inherit_props!(css_property_cache.non_default_css_normal_props);
                 inherit_props!(css_property_cache.non_default_css_hover_props);
                 inherit_props!(css_property_cache.non_default_css_active_props);

@@ -1348,7 +1348,7 @@ pub struct UpdateImage {
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct AddFont {
     pub key: FontKey,
-    pub font_bytes: Arc<Vec<u8>>,
+    pub font_bytes: Arc<Vec<u8>>, // TODO: = Arc<Cow<'static, [u8]>>, blocked on https://github.com/servo/webrender/pull/4234
     pub font_index: u32,
 }
 
@@ -1603,7 +1603,7 @@ pub fn build_add_font_resource_updates(
                         font_metrics,
                         font_instances: FastHashMap::new(),
                     };
-                    resource_updates.push((im_font_id.clone(), AddFontMsg::Font(font_key, Arc::new(font_bytes.into()), font_index, loaded_font)));
+                    resource_updates.push((im_font_id.clone(), AddFontMsg::Font(font_key, Arc::new(font_bytes.into_library_owned_vec()), font_index, loaded_font)));
 
                     for font_size in font_sizes {
                         insert_font_instances!(im_font_id.clone(), font_key, font_index, *font_size);

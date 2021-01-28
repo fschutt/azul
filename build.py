@@ -577,6 +577,7 @@ def generate_rust_dll(api_data):
                                         stack_delete_body += c["external"] + "::" + enum_variant_name + " => { }, "
                                 stack_delete_body += "}\r\n"
 
+                    if not(class_is_const or class_is_callback_typedef) or class_has_custom_destructor:
                         # az_item_delete()
                         code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
                         functions_map[str(to_snake_case(class_ptr_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
@@ -1272,14 +1273,15 @@ def build_examples():
         # "layout_tests",
         # "list",
         # "opengl",
-        "public",
+        # "public",
+        "heap_corruption_test",
         # "slider",
         # "svg",
-        "table",
+        # "table",
         # "text_input",
     ]
     for e in examples:
-        subprocess.Popen(['cargo', 'build', '--release', '--bin', e], cwd=cwd).wait()
+        subprocess.Popen(['cargo', 'run', '--release', '--bin', e], cwd=cwd).wait()
     pass
 
 def release_on_cargo():
@@ -1315,11 +1317,11 @@ def main():
     print("generating API...")
     generate_api()
     print("building azul-dll (release mode)...")
-    build_dll()
+    # build_dll()
     print("checking azul-dll for struct size integrity...")
-    run_size_test()
+    # run_size_test()
     print("building examples...")
-    # build_examples()
+    build_examples()
     print("building docs (output_dir = /target/doc)...")
     # build_docs()
     # release_on_cargo()

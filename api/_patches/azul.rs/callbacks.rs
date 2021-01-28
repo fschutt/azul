@@ -67,7 +67,7 @@
             }
 
             let type_name_str = ::core::any::type_name::<T>();
-            let st = crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len());
+            let st = crate::str::String::from_const_str(type_name_str);
             let s = unsafe { crate::dll::az_ref_any_new_c(
                 (&value as *const T) as *const c_void,
                 ::core::mem::size_of::<T>(),

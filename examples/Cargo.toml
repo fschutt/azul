@@ -34,6 +34,10 @@ path = "public.rs"
 name = "table"
 path = "table.rs"
 
+[[bin]]
+name = "heap_corruption_test"
+path = "heap_corruption_test.rs"
+
 [dependencies]
 azul = { version = "0.0.1", path = "../api/rust" }
 azul-widgets = { version = "0.0.2", path = "../azul-widgets" }

@@ -235,8 +235,8 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
             AlignContent                => parse_layout_align_content(value)?.into(),
 
             Background                  => parse_style_background_content_multiple(value)?.into(),
-            BackgroundImage             => StyleBackgroundContentVec::from(&[StyleBackgroundContent::Image(parse_image(value)?)][..]).into(),
-            BackgroundColor             => StyleBackgroundContentVec::from(&[StyleBackgroundContent::Color(parse_css_color(value)?)][..]).into(),
+            BackgroundImage             => StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Image(parse_image(value)?)]).into(),
+            BackgroundColor             => StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(parse_css_color(value)?)]).into(),
             BackgroundPosition          => parse_style_background_position_multiple(value)?.into(),
             BackgroundSize              => parse_style_background_size_multiple(value)?.into(),
             BackgroundRepeat            => parse_style_background_repeat_multiple(value)?.into(),
@@ -2252,31 +2252,37 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
 
     if is_linear_gradient {
         let mut linear_gradient = LinearGradient::default();
+        let mut linear_gradient_stops = Vec::new();
         if let Ok(dir) = parse_direction(first_brace_item) {
             linear_gradient.direction = dir;
         } else {
-            linear_gradient.stops.push(parse_linear_color_stop(first_brace_item)?);
+            linear_gradient_stops.push(parse_linear_color_stop(first_brace_item)?);
         }
         linear_gradient.extend_mode = background_type.get_extend_mode();
+        linear_gradient.stops = linear_gradient_stops.into();
         Ok(StyleBackgroundContent::LinearGradient(linear_gradient))
     } else if is_radial_gradient {
         let mut radial_gradient = RadialGradient::default();
+        let mut radial_gradient_stops = Vec::new();
         if let Ok(sh) = parse_shape(first_brace_item) {
             radial_gradient.shape = sh;
         } else {
-            radial_gradient.stops.push(parse_linear_color_stop(first_brace_item)?);
+            radial_gradient_stops.push(parse_linear_color_stop(first_brace_item)?);
         }
         radial_gradient.extend_mode = background_type.get_extend_mode();
+        radial_gradient.stops = radial_gradient_stops.into();
         Ok(StyleBackgroundContent::RadialGradient(radial_gradient))
     } else /* if is_conic_gradient */ {
         let mut conic_gradient = ConicGradient::default();
+        let mut conic_gradient_stops = Vec::new();
         if let Some((angle, center)) = parse_conic_first_item(first_brace_item)? {
             conic_gradient.center = center;
             conic_gradient.angle = angle;
         } else {
-            conic_gradient.stops.push(parse_radial_color_stop(first_brace_item)?);
+            conic_gradient_stops.push(parse_radial_color_stop(first_brace_item)?);
         }
         conic_gradient.extend_mode = background_type.get_extend_mode();
+        conic_gradient.stops = conic_gradient_stops.into();
         Ok(StyleBackgroundContent::ConicGradient(conic_gradient))
     }
 }

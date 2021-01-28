@@ -10,15 +10,7 @@
 
     impl From<string::String> for crate::str::String {
         fn from(s: string::String) -> crate::str::String {
-            crate::str::String::from_utf8_unchecked(s.as_ptr(), s.len()) // - copies s into a new String
-            // - s is deallocated here
-        }
-    }
-
-    impl From<crate::str::String> for string::String {
-        fn from(s: crate::str::String) -> string::String {
-            s.as_str().into()
-            // - s_bytes is deallocated here
+            crate::str::String::from_string(s)
         }
     }
 
@@ -35,14 +27,17 @@
     }
 
     impl crate::str::String {
-        #[inline]
-        pub fn into_string(self) -> String {
-            self.into()
+
+        #[inline(always)]
+        pub fn from_string(s: string::String) -> crate::str::String {
+            crate::str::String {
+                vec: crate::vec::U8Vec::from_vec(s.into_bytes())
+            }
         }
 
         #[inline(always)]
-        pub const fn from_const_str(s: &'static str) -> Self {
-            String {
+        pub const fn from_const_str(s: &'static str) -> crate::str::String {
+            crate::str::String {
                 vec: crate::vec::U8Vec::from_const_slice(s.as_bytes())
             }
         }

@@ -29,12 +29,6 @@ impl Css {
     pub fn new(stylesheets: Vec<Stylesheet>) -> Self {
         Self { stylesheets: stylesheets.into() }
     }
-
-    pub fn append_css(&mut self, css: Css) {
-        for stylesheet in css.stylesheets.into_iter() {
-            self.stylesheets.push(stylesheet);
-        }
-    }
 }
 
 #[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
@@ -525,20 +519,10 @@ impl Css {
         Default::default()
     }
 
-    pub fn append(&mut self, css: Self) {
-        for stylesheet in css.stylesheets.into_iter() {
-            self.append_stylesheet(stylesheet);
-        }
-    }
-
-    pub fn append_stylesheet(&mut self, styles: Stylesheet) {
-        self.stylesheets.push(styles);
-    }
-
-    pub fn sort_by_specificity(&mut self) {
-        for stylesheet in self.stylesheets.iter_mut() {
-            stylesheet.sort_by_specificity()
-        }
+    pub fn sort_by_specificity(self) -> Self {
+        let stylesheet_vec: Vec<Stylesheet> = self.stylesheets.into_library_owned_vec();
+        let new_vec = stylesheet_vec.into_iter().map(|s| s.sort_by_specificity()).collect::<Vec<Stylesheet>>();
+        Self { stylesheets: new_vec.into() }
     }
 
     pub fn rules<'a>(&'a self) -> RuleIterator<'a> {
@@ -584,8 +568,10 @@ impl Stylesheet {
 
     /// Sort the style rules by their weight, so that the rules are applied in the correct order.
     /// Should always be called when a new style is loaded from an external source.
-    pub fn sort_by_specificity(&mut self) {
-        self.rules.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
+    pub fn sort_by_specificity(self) -> Self {
+        let mut rule_vec: Vec<CssRuleBlock> = self.rules.into_library_owned_vec();
+        rule_vec.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
+        Self { rules: rule_vec.into() }
     }
 }
 

@@ -132,18 +132,22 @@ impl Button {
     }
 
     pub fn dom(self) -> StyledDom {
+
         use self::ButtonContent::*;
-        use azul::dom::Dom;
+        use azul::vec::{IdOrClassVec, DomVec};
+        use azul::dom::{Dom, IdOrClass, IdOrClass::Class};
 
         let content = match self.content {
             Text(s) => Dom::label(s),
             Image(i) => Dom::image(i),
         };
 
+        const CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-button"))];
+
         let dom = Dom::div()
-        .with_class("__azul-native-button".into())
+        .with_ids_and_classes(IdOrClassVec::from(CLASSES))
         .with_tab_index(Some(TabIndex::Auto).into())
-            .with_child(content);
+            .with_children(DomVec::from(vec![content]));
 
         StyledDom::new(dom, self.style)
     }

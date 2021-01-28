@@ -27,22 +27,34 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
         #[inline(always)]
         pub fn new() -> $struct_name {
             // lets hope the optimizer catches this
-            Self::new_nonconst(Vec::new())
+            Self::from_vec(Vec::new())
+        }
+
+        #[inline]
+        pub fn with_capacity(cap: usize) -> Self {
+            Self::from_vec(Vec::<$struct_type>::with_capacity(cap))
         }
 
         #[inline(always)]
-        pub fn new_nonconst(v: Vec<$struct_type>) -> $struct_name {
-            use std::mem::ManuallyDrop;
+        pub const fn from_const_slice(input: &'static [$struct_type]) -> Self {
+            Self {
+                ptr: input.as_ptr(),
+                len: input.len(),
+                cap: input.len(),
+                destructor: $destructor_name::NoDestructor, // because of &'static
+            }
+        }
 
-            // note: &[T]::as_ref() is a const fn, Vec<T>::as_ptr() is not
+        #[inline(always)]
+        pub fn from_vec(input: Vec<$struct_type>) -> Self {
 
-            let ptr = v.as_ptr();
-            let len = v.len();
-            let cap =  v.capacity();
+            let ptr = input.as_ptr();
+            let len = input.len();
+            let cap = input.capacity();
 
-            let _ = ManuallyDrop::new(v);
+            let _ = ::core::mem::ManuallyDrop::new(input);
 
-            $struct_name {
+            Self {
                 ptr,
                 len,
                 cap,
@@ -51,55 +63,173 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
         }
 
         #[inline]
-        pub fn with_capacity(cap: usize) -> Self {
-            Self::new_nonconst(Vec::<$struct_type>::with_capacity(cap))
-        }
-
-        #[inline]
         pub fn iter(&self) -> std::slice::Iter<$struct_type> {
             self.as_ref().iter()
         }
 
-        #[inline]
+        #[inline(always)]
         pub fn ptr_as_usize(&self) -> usize {
             self.ptr as usize
         }
 
-        #[inline]
+        #[inline(always)]
         pub const fn len(&self) -> usize {
             self.len
         }
 
-        #[inline]
+        #[inline(always)]
         pub const fn capacity(&self) -> usize {
             self.cap
         }
 
-        #[inline]
+        #[inline(always)]
         pub const fn is_empty(&self) -> bool {
             self.len == 0
         }
 
+        #[inline(always)]
         pub fn get(&self, index: usize) -> Option<&$struct_type> {
             let v1: &[$struct_type] = self.as_ref();
             let res = v1.get(index);
             res
         }
 
-        #[inline]
+        #[inline(always)]
         unsafe fn get_unchecked(&self, index: usize) -> &$struct_type {
             let v1: &[$struct_type] = self.as_ref();
             let res = v1.get_unchecked(index);
             res
         }
 
+        #[inline(always)]
         pub fn as_slice(&self) -> &[$struct_type] {
             self.as_ref()
         }
 
-        // ---- the following function require resizing the vector -
-        // you must check that they are not called on &'static arrays
-        // since static arrays can't be resized!
+        /// NOTE: CLONES the memory if the memory is external or &'static
+        /// Moves the memory out if the memory is library-allocated
+        #[inline(always)]
+        pub fn clone_self(&self) -> Self {
+            match self.destructor {
+                $destructor_name::NoDestructor => {
+                    Self {
+                        ptr: self.ptr,
+                        len: self.len,
+                        cap: self.cap,
+                        destructor: $destructor_name::NoDestructor,
+                    }
+                }
+                $destructor_name::External(_) | $destructor_name::DefaultRust => {
+                    Self::from_vec(self.as_ref().to_vec())
+                }
+            }
+        }
+
+        /// NOTE: CLONES the memory if the memory is external or &'static
+        /// Moves the memory out if the memory is library-allocated
+        #[inline(always)]
+        pub fn into_library_owned_vec(self) -> Vec<$struct_type> {
+            match self.destructor {
+                $destructor_name::NoDestructor |
+                $destructor_name::External(_) => { self.as_ref().to_vec() }
+                $destructor_name::DefaultRust => {
+                    let v = unsafe { Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) };
+                    std::mem::forget(self);
+                    v
+                }
+            }
+        }
+    }
+
+    impl AsRef<[$struct_type]> for $struct_name {
+        fn as_ref(&self) -> &[$struct_type] {
+            unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+        }
+    }
+
+    impl Default for $struct_name {
+        fn default() -> Self {
+            Self::from_vec(Vec::new())
+        }
+    }
+
+    impl std::iter::FromIterator<$struct_type> for $struct_name {
+        fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = $struct_type> {
+            Self::from_vec(Vec::from_iter(iter))
+        }
+    }
+
+    impl From<Vec<$struct_type>> for $struct_name {
+        fn from(input: Vec<$struct_type>) -> $struct_name {
+            $struct_name::from_vec(input)
+        }
+    }
+
+    impl From<&'static [$struct_type]> for $struct_name {
+        fn from(input: &'static [$struct_type]) -> $struct_name {
+            Self::from_const_slice(input)
+        }
+    }
+
+    impl Drop for $struct_name {
+        fn drop(&mut self) {
+            match self.destructor {
+                $destructor_name::DefaultRust => { let _ = unsafe { Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) }; },
+                $destructor_name::NoDestructor => { },
+                $destructor_name::External(f) => { f(self); }
+            }
+        }
+    }
+)}
+
+#[macro_export]
+macro_rules! impl_vec_as_hashmap {($struct_type:ident, $struct_name:ident) => (
+    impl $struct_name {
+
+        pub fn insert_hm_item(&mut self, item: $struct_type) {
+            if !self.contains_hm_item(&item) {
+                let mut vec = self.clone().into_library_owned_vec();
+                vec.push(item);
+                *self = Self::from_vec(vec);
+            }
+        }
+
+        pub fn remove_hm_item(&mut self, remove_key: &$struct_type) {
+            let mut vec = self.clone().into_library_owned_vec();
+            vec.retain(|v| v == remove_key);
+            *self = Self::from_vec(vec);
+        }
+
+        pub fn contains_hm_item(&self, searched: &$struct_type) -> bool {
+            self.as_ref().iter().any(|i| i == searched)
+        }
+    }
+)}
+
+/// NOTE: impl_vec_mut can only exist for vectors that are known to be library-allocated!
+#[macro_export]
+macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
+    impl AsMut<[$struct_type]> for $struct_name {
+        fn as_mut(&mut self) -> &mut [$struct_type] {
+            unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) }
+        }
+    }
+
+    impl From<$struct_name> for Vec<$struct_type> {
+        fn from(input: $struct_name) -> Vec<$struct_type> {
+            input.into_library_owned_vec()
+        }
+    }
+
+    impl std::iter::Extend<$struct_type> for $struct_name {
+        fn extend<T: std::iter::IntoIterator<Item=$struct_type>>(&mut self, iter: T) {
+            for elem in iter {
+                self.push(elem);
+            }
+        }
+    }
+
+    impl $struct_name {
 
         #[inline]
         pub fn as_mut_ptr(&mut self) -> *mut $struct_type {
@@ -278,88 +408,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
             }
         }
     }
-
-    impl AsMut<[$struct_type]> for $struct_name {
-        fn as_mut(&mut self) -> &mut [$struct_type] {
-            unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) }
-        }
-    }
-
-    impl AsRef<[$struct_type]> for $struct_name {
-        fn as_ref(&self) -> &[$struct_type] {
-            unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
-        }
-    }
-
-    impl Default for $struct_name {
-        fn default() -> Self {
-            Vec::<$struct_type>::default().into()
-        }
-    }
-
-    impl std::iter::FromIterator<$struct_type> for $struct_name {
-        fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = $struct_type> {
-            let v: Vec<$struct_type> = Vec::from_iter(iter);
-            v.into()
-        }
-    }
-
-    impl From<Vec<$struct_type>> for $struct_name {
-        fn from(input: Vec<$struct_type>) -> $struct_name {
-            $struct_name::new_nonconst(input)
-        }
-    }
-
-    impl From<&[$struct_type]> for $struct_name {
-        fn from(input: &[$struct_type]) -> $struct_name {
-            input.to_vec().into()
-        }
-    }
-
-    impl std::iter::Extend<$struct_type> for $struct_name {
-        fn extend<T: std::iter::IntoIterator<Item=$struct_type>>(&mut self, iter: T) {
-            for elem in iter {
-                self.push(elem);
-            }
-        }
-    }
-
-    impl From<$struct_name> for Vec<$struct_type> {
-        fn from(input: $struct_name) -> Vec<$struct_type> {
-            use std::mem::ManuallyDrop;
-            let mut me = ManuallyDrop::new(input);
-            unsafe { Vec::from_raw_parts(me.as_mut_ptr(), me.len(), me.capacity()) }
-        }
-    }
-
-    impl Drop for $struct_name {
-        fn drop(&mut self) {
-            match self.destructor {
-                $destructor_name::DefaultRust => { let _ = unsafe { Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) }; },
-                $destructor_name::NoDestructor => { },
-                $destructor_name::External(f) => { f(self); }
-            }
-        }
-    }
-)}
-
-#[macro_export]
-macro_rules! impl_vec_as_hashmap {($struct_type:ident, $struct_name:ident) => (
-    impl $struct_name {
-        pub fn insert_hm_item(&mut self, item: $struct_type) {
-            if !self.contains_hm_item(&item) {
-                self.push(item);
-            }
-        }
-
-        pub fn contains_hm_item(&self, searched: &$struct_type) -> bool {
-            self.as_ref().iter().any(|i| i == searched)
-        }
-
-        pub fn remove_hm_item(&mut self, remove_key: &$struct_type) {
-            self.retain(|v| v == remove_key);
-        }
-    }
 )}
 
 #[macro_export]
@@ -393,7 +441,7 @@ macro_rules! impl_vec_ord {($struct_type:ident, $struct_name:ident) => (
 macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident) => (
     impl Clone for $struct_name {
         fn clone(&self) -> Self {
-            self.as_ref().to_vec().into()
+            self.clone_self()
         }
     }
 )}
@@ -685,25 +733,37 @@ impl std::fmt::Display for AzString {
 impl AzString {
 
     #[inline]
-    pub fn new(vec: U8Vec) -> Self {
-        Self { vec }
+    pub const fn from_const_str(s: &'static str) -> Self {
+        Self { vec: U8Vec::from_const_slice(s.as_bytes()) }
     }
 
     #[inline]
-    pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self {
-        let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
-        Self { vec: slice.to_vec().into() }
-    }
-
-    #[inline]
-    pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self {
-        let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
-        Self { vec: String::from_utf8_lossy(slice).into_owned().into_bytes().into() }
+    pub fn from_string(s: String) -> Self {
+        Self { vec: U8Vec::from_vec(s.into_bytes()) }
     }
 
     #[inline]
     pub fn as_str(&self) -> &str {
         unsafe { std::str::from_utf8_unchecked(self.vec.as_ref()) }
+    }
+
+    /// NOTE: CLONES the memory if the memory is external or &'static
+    /// Moves the memory out if the memory is library-allocated
+    #[inline]
+    pub fn clone_self(&self) -> Self {
+        Self { vec: self.vec.clone_self() }
+    }
+
+    #[inline]
+    pub fn into_library_owned_string(self) -> String {
+        match self.vec.destructor {
+            U8VecDestructor::NoDestructor |
+            U8VecDestructor::External(_) => { self.as_str().to_string() }
+            U8VecDestructor::DefaultRust => {
+                let m = std::mem::ManuallyDrop::new(self);
+                unsafe { String::from_raw_parts(m.vec.ptr as *mut u8, m.vec.len, m.vec.cap) }
+            }
+        }
     }
 
     #[inline]
@@ -712,31 +772,20 @@ impl AzString {
     }
 
     #[inline]
-    pub fn into_string(self) -> String {
-        String::from(self)
-    }
-
-    #[inline]
     pub fn into_bytes(self) -> U8Vec {
-        let mut m = std::mem::ManuallyDrop::new(self);
+        let m = std::mem::ManuallyDrop::new(self);
         U8Vec {
-            ptr: m.vec.as_mut_ptr(),
-            len: m.vec.len(),
-            cap: m.vec.capacity(),
-            destructor: U8VecDestructor::DefaultRust,
+            ptr: m.vec.ptr,
+            len: m.vec.len,
+            cap: m.vec.cap,
+            destructor: m.vec.destructor,
         }
-    }
-}
-
-impl From<AzString> for String {
-    fn from(input: AzString) -> String {
-        unsafe { String::from_utf8_unchecked(input.into_bytes().into()) }
     }
 }
 
 impl From<String> for AzString {
     fn from(input: String) -> AzString {
-        AzString::new(input.into_bytes().into())
+        AzString::from_string(input)
     }
 }
 
@@ -754,7 +803,7 @@ impl Ord for AzString {
 
 impl Clone for AzString {
     fn clone(&self) -> Self {
-        self.as_str().to_owned().into()
+        self.clone_self()
     }
 }
 
@@ -772,10 +821,11 @@ impl std::hash::Hash for AzString {
     }
 }
 
-impl Drop for AzString {
-    fn drop(&mut self) {
-        // NOTE: dropping self.vec would lead to a double-free,
-        // since U8Vec::drop() is automatically called here
+impl core::ops::Deref for AzString {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        self.as_str()
     }
 }
 
@@ -806,12 +856,14 @@ impl From<Vec<String>> for StringVec {
     }
 }
 
+/*
 impl From<StringVec> for Vec<String> {
     fn from(v: StringVec) -> Vec<String> {
         let v: Vec<AzString> = v.into();
         v.into_iter().map(|s| s.into()).collect()
     }
 }
+*/
 
 mod css;
 mod css_properties;

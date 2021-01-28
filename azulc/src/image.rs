@@ -3,9 +3,9 @@
 use azul_core::app_resources::LoadedImageSource;
 pub use image_crate::{ImageError, DynamicImage, GenericImageView};
 
-pub fn decode_image_data(image_data: Vec<u8>) -> Result<LoadedImageSource, ImageError> {
-    let image_format = image_crate::guess_format(&image_data)?;
-    let decoded = image_crate::load_from_memory_with_format(&image_data, image_format)?;
+pub fn decode_image_data(image_data: &[u8]) -> Result<LoadedImageSource, ImageError> {
+    let image_format = image_crate::guess_format(image_data)?;
+    let decoded = image_crate::load_from_memory_with_format(image_data, image_format)?;
     Ok(prepare_image(decoded)?)
 }
 

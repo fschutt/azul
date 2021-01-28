@@ -7,35 +7,7 @@
 					"external": "azul_impl::css::AzString",
 					"struct_fields": [
 						{ "vec": { "type": "U8Vec" } }
-					],
-					"constructors": {
-						"from_utf8_unchecked": {
-							"doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
-							"fn_args": [
-								{"ptr": "*const u8"},
-								{"len": "usize"}
-							],
-							"fn_body": "AzString::from_utf8_unchecked(ptr, len)"
-						},
-						"from_utf8_lossy": {
-							"doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
-							"fn_args": [
-								{"ptr": "*const u8"},
-								{"len": "usize"}
-							],
-							"fn_body": "AzString::from_utf8_lossy(ptr, len)"
-						}
-					},
-					"functions": {
-						"into_bytes": {
-							"doc": "Returns the internal bytes of the String as a `U8Vec`",
-							"fn_args": [
-								{"self": "value"}
-							],
-							"returns": "U8Vec",
-							"fn_body": "string.into_bytes()"
-						}
-					}
+					]
 				}
 			}
 		},
@@ -659,28 +631,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "DomVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<Dom>`",
-							"fn_body": "Vec::<AzDom>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<Dom>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzDom>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const Dom"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"IdOrClassVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<IdOrClass>`",
@@ -691,28 +642,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "IdOrClassVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<IdOrClass>`",
-							"fn_body": "Vec::<AzIdOrClass>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<IdOrClass>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzIdOrClass>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<IdOrClass>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const IdOrClass"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"NodeDataInlineCssPropertyVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`",
@@ -723,28 +653,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "NodeDataInlineCssPropertyVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<NodeDataInlineCssProperty>`",
-							"fn_body": "Vec::<AzNodeDataInlineCssProperty>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<NodeDataInlineCssProperty>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzNodeDataInlineCssProperty>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<NodeDataInlineCssProperty>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const NodeDataInlineCssProperty"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"StyleBackgroundContentVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`",
@@ -755,28 +664,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "StyleBackgroundContentVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundContent>`",
-							"fn_body": "Vec::<AzStyleBackgroundContent>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundContent>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzStyleBackgroundContent>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<StyleBackgroundContent>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const StyleBackgroundContent"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"StyleBackgroundPositionVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`",
@@ -787,28 +675,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "StyleBackgroundPositionVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundPosition>`",
-							"fn_body": "Vec::<AzStyleBackgroundPosition>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundPosition>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzStyleBackgroundPosition>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<StyleBackgroundPosition>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const StyleBackgroundPosition"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"StyleBackgroundRepeatVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`",
@@ -819,28 +686,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "StyleBackgroundRepeatVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundRepeat>`",
-							"fn_body": "Vec::<AzStyleBackgroundRepeat>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundRepeat>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzStyleBackgroundRepeat>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<StyleBackgroundRepeat>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const StyleBackgroundRepeat"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"StyleBackgroundSizeVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`",
@@ -851,28 +697,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "StyleBackgroundSizeVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundSize>`",
-							"fn_body": "Vec::<AzStyleBackgroundSize>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<StyleBackgroundSize>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzStyleBackgroundSize>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<StyleBackgroundSize>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const StyleBackgroundSize"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"StyleTransformVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<StyleTransform>`",
@@ -883,28 +708,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "StyleTransformVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<StyleTransform>`",
-							"fn_body": "Vec::<AzStyleTransform>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<StyleTransform>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzStyleTransform>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<StyleTransform>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const StyleTransform"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"CssPropertyVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<CssProperty>`",
@@ -915,28 +719,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "CssPropertyVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<CssProperty>`",
-							"fn_body": "Vec::<AzCssProperty>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<CssProperty>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzCssProperty>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<CssProperty>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const CssProperty"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"SvgMultiPolygonVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`",
@@ -947,28 +730,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "SvgMultiPolygonVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<SvgMultiPolygon>`",
-							"fn_body": "Vec::<AzSvgMultiPolygon>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<SvgMultiPolygon>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzSvgMultiPolygon>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<SvgMultiPolygon>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const SvgMultiPolygon"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"SvgPathVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<SvgPath>`",
@@ -979,28 +741,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "SvgPathVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<SvgPath>`",
-							"fn_body": "Vec::<AzSvgPath>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<SvgPath>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzSvgPath>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<SvgPath>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const SvgPath"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"VertexAttributeVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<VertexAttribute>`",
@@ -1011,28 +752,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "VertexAttributeVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<VertexAttribute>`",
-							"fn_body": "Vec::<AzVertexAttribute>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<VertexAttribute>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzVertexAttribute>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<VertexAttribute>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const VertexAttribute"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"SvgPathElementVec": {
 					"doc": "Wrapper over a Rust-allocated `VertexAttribute`",
@@ -1043,28 +763,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "SvgPathElementVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<SvgPathElement>`",
-							"fn_body": "Vec::<AzSvgPathElement>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<SvgPathElement>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzSvgPathElement>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<SvgPathElement>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const SvgPathElement"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"SvgVertexVec": {
 					"doc": "Wrapper over a Rust-allocated `SvgVertex`",
@@ -1075,28 +774,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "SvgVertexVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<SvgVertex>`",
-							"fn_body": "Vec::<AzSvgVertex>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<SvgVertex>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzSvgVertex>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<SvgVertex>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const SvgVertex"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"U32Vec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<u32>`",
@@ -1107,28 +785,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "U32VecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<u32>`",
-							"fn_body": "Vec::<u32>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<u32>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<u32>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const u32"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"XWindowTypeVec": {
 					"doc": "Wrapper over a Rust-allocated `XWindowType`",
@@ -1139,28 +796,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "XWindowTypeVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<XWindowType>`",
-							"fn_body": "Vec::<AzXWindowType>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<XWindowType>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzXWindowType>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<XWindowType>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const XWindowType"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"VirtualKeyCodeVec": {
 					"doc": "Wrapper over a Rust-allocated `VirtualKeyCode`",
@@ -1171,28 +807,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "VirtualKeyCodeVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<VirtualKeyCode>`",
-							"fn_body": "Vec::<AzVirtualKeyCode>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<VirtualKeyCode>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzVirtualKeyCode>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<VirtualKeyCode>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const VirtualKeyCode"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"CascadeInfoVec": {
 					"doc": "Wrapper over a Rust-allocated `CascadeInfo`",
@@ -1203,28 +818,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "CascadeInfoVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<CascadeInfo>`",
-							"fn_body": "Vec::<AzCascadeInfo>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<CascadeInfo>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzCascadeInfo>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<CascadeInfo>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const CascadeInfo"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"ScanCodeVec": {
 					"doc": "Wrapper over a Rust-allocated `ScanCode`",
@@ -1235,28 +829,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "ScanCodeVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<ScanCode>`",
-							"fn_body": "Vec::<u32>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<ScanCode>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<u32>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<ScanCode>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const u32"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"CssDeclarationVec": {
 					"doc": "Wrapper over a Rust-allocated `CssDeclaration`",
@@ -1267,28 +840,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "CssDeclarationVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<CssDeclaration>`",
-							"fn_body": "Vec::<AzCssDeclaration>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<CssDeclaration>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzCssDeclaration>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<CssDeclaration>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const CssDeclaration"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"CssPathSelectorVec": {
 					"doc": "Wrapper over a Rust-allocated `CssPathSelector`",
@@ -1299,28 +851,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "CssPathSelectorVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<CssPathSelector>`",
-							"fn_body": "Vec::<AzCssPathSelector>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<CssPathSelector>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzCssPathSelector>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<CssPathSelector>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const CssPathSelector"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"StylesheetVec": {
 					"doc": "Wrapper over a Rust-allocated `Stylesheet`",
@@ -1331,28 +862,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "StylesheetVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<Stylesheet>`",
-							"fn_body": "Vec::<AzStylesheet>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<Stylesheet>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzStylesheet>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<Stylesheet>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const Stylesheet"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"CssRuleBlockVec": {
 					"doc": "Wrapper over a Rust-allocated `CssRuleBlock`",
@@ -1363,28 +873,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "CssRuleBlockVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<CssRuleBlock>`",
-							"fn_body": "Vec::<AzCssRuleBlock>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<CssRuleBlock>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzCssRuleBlock>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<CssRuleBlock>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const CssRuleBlock"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"U8Vec": {
 					"doc": "Wrapper over a Rust-allocated `U8Vec`",
@@ -1395,28 +884,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "U8VecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<u8>`",
-							"fn_body": "Vec::<u8>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<u8>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<u8>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const u8"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"CallbackDataVec": {
 					"doc": "Wrapper over a Rust-allocated `CallbackData`",
@@ -1427,28 +895,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "CallbackDataVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<CallbackData>`",
-							"fn_body": "Vec::<AzCallbackData>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<CallbackData>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzCallbackData>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<CallbackData>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const CallbackData"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"DebugMessageVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<DebugMessage>`",
@@ -1459,28 +906,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "DebugMessageVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<DebugMessage>`",
-							"fn_body": "Vec::<AzDebugMessage>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<DebugMessage>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzDebugMessage>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<DebugMessage>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const DebugMessage"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"GLuintVec": {
 					"doc": "Wrapper over a Rust-allocated `U32Vec`",
@@ -1491,28 +917,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "GLuintVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<u32>`",
-							"fn_body": "Vec::<u32>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<u32>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<u32>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const u32"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"GLintVec": {
 					"doc": "Wrapper over a Rust-allocated `GLintVec`",
@@ -1523,28 +928,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "GLintVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<GLint>`",
-							"fn_body": "Vec::<i32>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<GLint>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<i32>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<GLint>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const i32"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					}
+					]
 				},
 				"StringVec": {
 					"doc": "Wrapper over a Rust-allocated `StringVec`",
@@ -1555,28 +939,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "StringVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<String>`",
-							"fn_body": "Vec::<AzString>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<String>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzString>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const String"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"StringPairVec": {
 					"doc": "Wrapper over a Rust-allocated `StringPairVec`",
@@ -1587,28 +950,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "StringPairVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<StringPair>`",
-							"fn_body": "Vec::<AzStringPair>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<StringPair>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzStringPair>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<StringPair>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const StringPair"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"LinearColorStopVec": {
 					"doc": "Wrapper over a Rust-allocated `LinearColorStopVec`",
@@ -1619,28 +961,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "LinearColorStopVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<LinearColorStop>`",
-							"fn_body": "Vec::<AzLinearColorStop>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<LinearColorStop>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzLinearColorStop>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<LinearColorStop>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const LinearColorStop"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"RadialColorStopVec": {
 					"doc": "Wrapper over a Rust-allocated `RadialColorStopVec`",
@@ -1651,28 +972,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "RadialColorStopVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<RadialColorStop>`",
-							"fn_body": "Vec::<AzRadialColorStop>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<RadialColorStop>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzRadialColorStop>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<RadialColorStop>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const RadialColorStop"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"NodeIdVec": {
 					"doc": "Wrapper over a Rust-allocated `NodeIdVec`",
@@ -1683,28 +983,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "NodeIdVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<NodeId>`",
-							"fn_body": "Vec::<AzNodeId>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<NodeId>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzNodeId>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<NodeId>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const NodeId"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"NodeVec": {
 					"doc": "Wrapper over a Rust-allocated `NodeVec`",
@@ -1715,28 +994,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "NodeVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<Node>`",
-							"fn_body": "Vec::<AzNode>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<Node>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzNode>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<Node>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const Node"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"StyledNodeVec": {
 					"doc": "Wrapper over a Rust-allocated `StyledNodeVec`",
@@ -1747,28 +1005,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "StyledNodeVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<StyledNode>`",
-							"fn_body": "Vec::<AzStyledNode>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<StyledNode>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzStyledNode>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<StyledNode>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const StyledNode"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"TagIdsToNodeIdsMappingVec": {
 					"doc": "Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`",
@@ -1779,28 +1016,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "TagIdsToNodeIdsMappingVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>`",
-							"fn_body": "Vec::<AzTagIdToNodeIdMapping>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzTagIdToNodeIdMapping>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<TagIdToNodeIdMapping>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const TagIdToNodeIdMapping"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"ParentWithNodeDepthVec": {
 					"doc": "Wrapper over a Rust-allocated `ParentWithNodeDepthVec`",
@@ -1811,28 +1027,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "ParentWithNodeDepthVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<ParentWithNodeDepth>`",
-							"fn_body": "Vec::<AzParentWithNodeDepth>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<ParentWithNodeDepth>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzParentWithNodeDepth>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<ParentWithNodeDepth>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const ParentWithNodeDepth"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				},
 				"NodeDataVec": {
 					"doc": "Wrapper over a Rust-allocated `NodeDataVec`",
@@ -1843,28 +1038,7 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "NodeDataVecDestructor" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<NodeData>`",
-							"fn_body": "Vec::<NodeData>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<NodeData>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<NodeData>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<NodeData>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const NodeData"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
-					    }
-					}
+					]
 				}
 			}
 		},
@@ -5212,60 +4386,39 @@
 						}
 					},
 					"functions": {
-						"add_id": {
-							"doc": "Adds a CSS ID (`#something`) to the DOM node",
+						"set_ids_and_classes": {
+							"doc": "Adds IDs and classes to the `Dom` root",
 							"fn_args": [
 								{"self": "refmut"},
-								{"id": "String"}
+								{"ids_and_classes": "IdOrClassVec"}
 							],
-							"fn_body": "dom.add_id(id);"
+							"fn_body": "dom.set_ids_and_classes(ids_and_classes);"
 						},
-						"with_id": {
-							"doc": "Same as [`Dom::add_id`](#method.add_id), but as a builder method",
+						"with_ids_and_classes": {
+							"doc": "Same as [`Dom::set_ids_and_classes`](#method.set_ids_and_classes), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
-								{"id": "String"}
+								{"ids_and_classes": "IdOrClassVec"}
 							],
 							"returns": "Dom",
-							"fn_body": "az_dom_add_id(&mut dom, id); dom"
+							"fn_body": "az_dom_set_ids_and_classes(&mut dom, ids_and_classes); dom"
 						},
-						"add_class": {
-							"doc": "Adds a CSS class (`.something`) to the DOM node",
+						"set_callbacks": {
+							"doc": "Adds IDs and classes to the `Dom` root",
 							"fn_args": [
 								{"self": "refmut"},
-								{"class": "String"}
+								{"callbacks": "CallbackDataVec"}
 							],
-							"fn_body": "dom.add_class(class);"
+							"fn_body": "dom.set_callbacks(callbacks);"
 						},
-						"with_class": {
-							"doc": "Same as [`Dom::add_class`](#method.add_class), but as a builder method",
+						"with_callbacks": {
+							"doc": "Same as [`Dom::set_callbacks`](#method.set_callbacks), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
-								{"class": "String"}
+								{"callbacks": "CallbackDataVec"}
 							],
 							"returns": "Dom",
-							"fn_body": "az_dom_add_class(&mut dom, class); dom"
-						},
-						"add_callback": {
-							"doc": "Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens",
-							"fn_args": [
-								{"self": "refmut"},
-								{"event": "EventFilter"},
-								{"data": "RefAny"},
-								{"callback": "CallbackType"}
-							],
-							"fn_body": "dom.add_callback(event, callback, data);"
-						},
-						"with_callback": {
-							"doc": "Same as [`Dom::add_callback`](#method.add_callback), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"event": "EventFilter"},
-								{"data": "RefAny"},
-								{"callback": "CallbackType"}
-							],
-							"returns": "Dom",
-							"fn_body": "az_dom_add_callback(&mut dom, event, data, callback); dom"
+							"fn_body": "az_dom_set_callbacks(&mut dom, callbacks); dom"
 						},
 						"set_dataset": {
 							"doc": "Adds a dataset to the `Dom` root",
@@ -5284,23 +4437,6 @@
 							"returns": "Dom",
 							"fn_body": "az_dom_set_dataset(&mut dom, data); dom"
 						},
-						"add_inline_css": {
-							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
-							"fn_args": [
-								{"self": "refmut"},
-								{"prop": "CssProperty"}
-							],
-							"fn_body": "dom.add_inline_css(prop);"
-						},
-						"with_inline_css": {
-							"doc": "Same as [`Dom::add_inline_css`](#method.add_inline_css), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"prop": "CssProperty"}
-							],
-							"returns": "Dom",
-							"fn_body": "az_dom_add_inline_css(&mut dom, prop); dom"
-						},
 						"set_inline_css_props": {
 							"fn_args": [
 								{"self": "refmut"},
@@ -5316,57 +4452,6 @@
 							],
 							"returns": "Dom",
 							"fn_body": "az_dom_set_inline_css_props(&mut dom, props); dom"
-						},
-						"add_inline_hover_css": {
-							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
-							"fn_args": [
-								{"self": "refmut"},
-								{"prop": "CssProperty"}
-							],
-							"fn_body": "dom.add_inline_hover_css(prop);"
-						},
-						"with_inline_hover_css": {
-							"doc": "Same as [`Dom::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"prop": "CssProperty"}
-							],
-							"returns": "Dom",
-							"fn_body": "az_dom_add_inline_hover_css(&mut dom, prop); dom"
-						},
-						"add_inline_active_css": {
-							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
-							"fn_args": [
-								{"self": "refmut"},
-								{"prop": "CssProperty"}
-							],
-							"fn_body": "dom.add_inline_active_css(prop);"
-						},
-						"with_inline_active_css": {
-							"doc": "Same as [`Dom::add_inline_active_css`](#method.add_inline_active_css), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"prop": "CssProperty"}
-							],
-							"returns": "Dom",
-							"fn_body": "az_dom_add_inline_active_css(&mut dom, prop); dom"
-						},
-						"add_inline_focus_css": {
-							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
-							"fn_args": [
-								{"self": "refmut"},
-								{"prop": "CssProperty"}
-							],
-							"fn_body": "dom.add_inline_focus_css(prop);"
-						},
-						"with_inline_focus_css": {
-							"doc": "Same as [`Dom::add_inline_focus_css`](#method.add_inline_active_css), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"prop": "CssProperty"}
-							],
-							"returns": "Dom",
-							"fn_body": "az_dom_add_inline_focus_css(&mut dom, prop); dom"
 						},
 						"with_clip_mask": {
 							"doc": "Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method",
@@ -5402,22 +4487,22 @@
 							"returns": "Dom",
 							"fn_body": "az_dom_set_tab_index(&mut dom, tab_index); dom"
 						},
-						"add_child": {
-							"doc": "Reparents another `Dom` to be the child node of this `Dom`",
+						"set_children": {
+							"doc": "Sets the children of this node",
 							"fn_args": [
 								{"self": "refmut"},
-								{"child": "Dom"}
+								{"children": "DomVec"}
 							],
-							"fn_body": "dom.add_child(child);"
+							"fn_body": "dom.set_children(children);"
 						},
-						"with_child": {
-							"doc": "Same as [`Dom::add_child`](#method.add_child), but as a builder method",
+						"with_children": {
+							"doc": "Same as [`Dom::set_children`](#method.set_children), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
-								{"child": "Dom"}
+								{"children": "DomVec"}
 							],
 							"returns": "Dom",
-							"fn_body": "az_dom_add_child(&mut dom, child); dom"
+							"fn_body": "az_dom_set_children(&mut dom, children); dom"
 						},
 						"get_html_string": {
 							"doc": "Returns the HTML String for this DOM",
@@ -5539,40 +4624,6 @@
 						}
 					},
 					"functions": {
-						"add_id": {
-							"doc": "Adds a CSS ID (`#something`) to the `NodeData`",
-							"fn_args": [
-								{"self": "refmut"},
-								{"id": "String"}
-							],
-							"fn_body": "nodedata.add_id(id);"
-						},
-						"with_id": {
-							"doc": "Same as [`NodeData::add_id`](#method.add_id), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"id": "String"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_add_id(&mut nodedata, id); nodedata"
-						},
-						"add_class": {
-							"doc": "Adds a CSS class (`.something`) to the `NodeData`",
-							"fn_args": [
-								{"self": "refmut"},
-								{"class": "String"}
-							],
-							"fn_body": "nodedata.add_class(class);"
-						},
-						"with_class": {
-							"doc": "Same as [`NodeData::add_class`](#method.add_class), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"class": "String"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_add_class(&mut nodedata, class); nodedata"
-						},
 						"set_ids_and_classes": {
 							"doc": "Same as calling [`NodeData::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs",
 							"fn_args": [
@@ -5590,60 +4641,39 @@
 							"returns": "NodeData",
 							"fn_body": "az_node_data_set_ids_and_classes(&mut nodedata, ids_and_classes); nodedata"
 						},
-						"add_dataset": {
+						"set_callbacks": {
+							"doc": "Sets a list of callbacks to call on this node",
+							"fn_args": [
+								{"self": "refmut"},
+								{"callbacks": "CallbackDataVec"}
+							],
+							"fn_body": "nodedata.set_callbacks(callbacks);"
+						},
+						"with_callbacks": {
+							"doc": "Same as [`NodeData::set_callbacks`](#method.set_callbacks), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"callbacks": "CallbackDataVec"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_set_callbacks(&mut nodedata, callbacks); nodedata"
+						},
+						"set_dataset": {
 							"doc": "Adds a dataset to the `NodeData`",
 							"fn_args": [
 								{"self": "refmut"},
 								{"data": "RefAny"}
 							],
-							"fn_body": "nodedata.add_dataset(data);"
+							"fn_body": "nodedata.set_dataset(Some(data).into());"
 						},
 						"with_dataset": {
-							"doc": "Same as [`NodeData::add_dataset`](#method.add_dataset), but as a builder method",
+							"doc": "Same as [`NodeData::set_dataset`](#method.add_dataset), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
 								{"data": "RefAny"}
 							],
 							"returns": "NodeData",
-							"fn_body": "az_node_data_add_dataset(&mut nodedata, data); nodedata"
-						},
-						"add_callback": {
-							"doc": "Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens",
-							"fn_args": [
-								{"self": "refmut"},
-								{"event": "EventFilter"},
-								{"data": "RefAny"},
-								{"callback": "CallbackType"}
-							],
-							"fn_body": "nodedata.add_callback(event, callback, data);"
-						},
-						"with_callback": {
-							"doc": "Same as [`NodeData::add_callback`](#method.add_callback), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"event": "EventFilter"},
-								{"data": "RefAny"},
-								{"callback": "CallbackType"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_add_callback(&mut nodedata, event, data, callback); nodedata"
-						},
-						"add_inline_css": {
-							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
-							"fn_args": [
-								{"self": "refmut"},
-								{"prop": "CssProperty"}
-							],
-							"fn_body": "nodedata.add_inline_css(prop);"
-						},
-						"with_inline_css": {
-							"doc": "Same as [`NodeData::add_inline_css`](#method.add_inline_css), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"prop": "CssProperty"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_add_inline_css(&mut nodedata, prop); nodedata"
+							"fn_body": "az_node_data_set_dataset(&mut nodedata, data); nodedata"
 						},
 						"set_inline_css_props": {
 							"fn_args": [
@@ -5660,57 +4690,6 @@
 							],
 							"returns": "NodeData",
 							"fn_body": "az_node_data_set_inline_css_props(&mut nodedata, props); nodedata"
-						},
-						"add_inline_hover_css": {
-							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
-							"fn_args": [
-								{"self": "refmut"},
-								{"prop": "CssProperty"}
-							],
-							"fn_body": "nodedata.add_inline_hover_css(prop);"
-						},
-						"with_inline_hover_css": {
-							"doc": "Same as [`NodeData::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"prop": "CssProperty"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_add_inline_hover_css(&mut nodedata, prop); nodedata"
-						},
-						"add_inline_active_css": {
-							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
-							"fn_args": [
-								{"self": "refmut"},
-								{"prop": "CssProperty"}
-							],
-							"fn_body": "nodedata.add_inline_active_css(prop);"
-						},
-						"with_inline_active_css": {
-							"doc": "Same as [`NodeData::add_inline_active_css`](#method.add_inline_active_css), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"prop": "CssProperty"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_add_inline_active_css(&mut nodedata, prop); nodedata"
-						},
-						"add_inline_focus_css": {
-							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
-							"fn_args": [
-								{"self": "refmut"},
-								{"prop": "CssProperty"}
-							],
-							"fn_body": "nodedata.add_inline_focus_css(prop);"
-						},
-						"with_inline_focus_css": {
-							"doc": "Same as [`NodeData::add_inline_focus_css`](#method.add_inline_focus_css), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"prop": "CssProperty"}
-							],
-							"returns": "NodeData",
-							"fn_body": "az_node_data_add_inline_focus_css(&mut nodedata, prop); nodedata"
 						},
 						"with_clip_mask": {
 							"doc": "Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method",

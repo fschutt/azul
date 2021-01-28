@@ -18,7 +18,11 @@
     impl core::iter::FromIterator<NodeData> for Dom {
         fn from_iter<I: IntoIterator<Item=NodeData>>(iter: I) -> Self {
             use crate::vec::DomVec;
-            let children = iter.into_iter().map(|c| Dom { root: c, children: DomVec::new(), estimated_total_children: 0 }).collect::<DomVec>();
+            let children = iter.into_iter().map(|c| Dom {
+                root: c,
+                children: DomVec::from_const_slice(&[]),
+                estimated_total_children: 0
+            }).collect::<DomVec>();
             let estimated_total_children = children.len();
 
             Dom {

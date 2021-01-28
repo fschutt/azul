@@ -82,8 +82,15 @@ impl Label {
 
     #[inline]
     pub fn dom(self) -> StyledDom {
-        use azul::dom::Dom;
-        let dom = Dom::label(self.string).with_class("__azul-native-label".into());
+
+        use azul::vec::{IdOrClassVec};
+        use azul::dom::{Dom, IdOrClass, IdOrClass::Class};
+
+        const CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-label"))];
+
+        let dom = Dom::label(self.string)
+        .with_ids_and_classes(IdOrClassVec::from(CLASSES));
+
         StyledDom::new(dom, self.style)
     }
 }

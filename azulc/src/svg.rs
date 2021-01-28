@@ -361,8 +361,8 @@ pub fn tesselate_path(node: &SvgStyledNode) -> TesselatedCPUSvgNode {
                     let mut all_vertices = Vec::new();
                     let mut all_indices = Vec::new();
                     for TesselatedCPUSvgNode { vertices, indices } in tesselated_multipolygons {
-                        let mut vertices: Vec<SvgVertex> = vertices.into();
-                        let mut indices: Vec<u32> = indices.into();
+                        let mut vertices: Vec<SvgVertex> = vertices.into_library_owned_vec();
+                        let mut indices: Vec<u32> = indices.into_library_owned_vec();
                         all_vertices.append(&mut vertices);
                         all_indices.append(&mut indices);
                         all_indices.push(GL_RESTART_INDEX);
@@ -382,8 +382,8 @@ pub fn tesselate_path(node: &SvgStyledNode) -> TesselatedCPUSvgNode {
                     let mut all_vertices = Vec::new();
                     let mut all_indices = Vec::new();
                     for TesselatedCPUSvgNode { vertices, indices } in tesselated_multipolygons {
-                        let mut vertices: Vec<SvgVertex> = vertices.into();
-                        let mut indices: Vec<u32> = indices.into();
+                        let mut vertices: Vec<SvgVertex> = vertices.into_library_owned_vec();
+                        let mut indices: Vec<u32> = indices.into_library_owned_vec();
                         all_vertices.append(&mut vertices);
                         all_indices.append(&mut indices);
                         all_indices.push(GL_RESTART_INDEX);
@@ -683,9 +683,9 @@ impl From<SvgParseOptions> for usvg::Options {
         let mut options = usvg::Options {
             // path: e.relative_image_path.into_option().map(|e| { let p: String = e.clone().into(); PathBuf::from(p) }),
             dpi: e.dpi as f64,
-            font_family: e.default_font_family.clone().into(),
+            font_family: e.default_font_family.clone().into_library_owned_string(),
             font_size: e.font_size.into(),
-            languages: e.languages.as_ref().iter().map(|e| e.clone().into()).collect(),
+            languages: e.languages.as_ref().iter().map(|e| e.clone().into_library_owned_string()).collect(),
             shape_rendering: e.shape_rendering.into(),
             text_rendering: e.text_rendering.into(),
             image_rendering: e.image_rendering.into(),

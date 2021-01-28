@@ -44,6 +44,7 @@ pub mod font_loading {
     use azul_core::app_resources::FontSource;
     #[cfg(feature = "text_layout")]
     use azul_core::app_resources::{LoadedFontSource, OptionLoadedFontSource};
+    use azul_css::U8Vec;
 
     const DEFAULT_FONT_INDEX: i32 = 0;
 
@@ -77,29 +78,29 @@ pub mod font_loading {
             Some(s) => s,
             None => { return OptionLoadedFontSource::None; },
         };
-        Some(LoadedFontSource{ font_bytes: font_bytes.into(), font_index: font_index as u32 }).into()
+        Some(LoadedFontSource{ font_bytes: font_bytes, font_index: font_index as u32 }).into()
     }
 
     /// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).
     /// Also returns the index into the font (in case the font is a font collection).
-    pub fn font_source_get_bytes_inner(font_source: &FontSource) -> Result<(Vec<u8>, i32), FontReloadError> {
+    pub fn font_source_get_bytes_inner(font_source: &FontSource) -> Result<(U8Vec, i32), FontReloadError> {
 
         match font_source {
-            FontSource::Embedded(font_bytes) => Ok((font_bytes.clone().into(), DEFAULT_FONT_INDEX)),
+            FontSource::Embedded(font_bytes) => Ok((font_bytes.clone(), DEFAULT_FONT_INDEX)),
             FontSource::File(file_path) => {
-                let file_path: String = file_path.clone().into();
+                let file_path: String = file_path.clone().into_library_owned_string();
                 let file_path = PathBuf::from(file_path);
                 std::fs::read(&file_path)
                 .map_err(|e| FontReloadError::Io(e, file_path.clone()))
-                .map(|font_bytes| (font_bytes, DEFAULT_FONT_INDEX))
+                .map(|font_bytes| (font_bytes.into(), DEFAULT_FONT_INDEX))
             },
             FontSource::System(id) => {
                 #[cfg(feature = "font_loading")] {
                     crate::font::load_system_font(id.as_str())
-                    .ok_or(FontReloadError::FontNotFound(id.clone().into()))
+                    .ok_or(FontReloadError::FontNotFound(id.clone().into_library_owned_string()))
                 }
                 #[cfg(not(feature = "font_loading"))] {
-                    Err(FontReloadError::FontLoadingNotActive(id.clone().into()))
+                    Err(FontReloadError::FontLoadingNotActive(id.clone().into_library_owned_string()))
                 }
             },
         }
@@ -154,7 +155,7 @@ pub mod image_loading {
             ImageSource::Embedded(bytes) => {
                 #[cfg(feature = "image_loading")] {
                     use crate::image::decode_image_data;
-                    decode_image_data(bytes.clone().into()).map_err(|e| ImageReloadError::DecodingError(e))
+                    decode_image_data(bytes.as_ref()).map_err(|e| ImageReloadError::DecodingError(e))
                 }
                 #[cfg(not(feature = "image_loading"))] {
                     Err(ImageReloadError::DecodingModuleNotActive)
@@ -181,10 +182,10 @@ pub mod image_loading {
                 #[cfg(feature = "image_loading")] {
                     use std::fs;
                     use crate::image::decode_image_data;
-                    let file_path: String = file_path.clone().into();
+                    let file_path: String = file_path.clone().into_library_owned_string();
                     let file_path = PathBuf::from(file_path);
                     let bytes = fs::read(&file_path).map_err(|e| ImageReloadError::Io(e, file_path.clone()))?;
-                    decode_image_data(bytes).map_err(|e| ImageReloadError::DecodingError(e))
+                    decode_image_data(&bytes).map_err(|e| ImageReloadError::DecodingError(e))
                 }
                 #[cfg(not(feature = "image_loading"))] {
                     Err(ImageReloadError::DecodingModuleNotActive)

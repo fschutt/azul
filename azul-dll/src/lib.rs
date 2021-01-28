@@ -59,12 +59,6 @@ fn deallocate_vec<T>(ptr: *mut T, cap: usize) {
 /// Re-export of rust-allocated (stack based) `String` struct
 pub type AzStringTT = azul_impl::css::AzString;
 pub use AzStringTT as AzString;
-/// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-#[no_mangle] pub extern "C" fn az_string_from_utf8_unchecked(ptr: *const u8, len: usize) -> AzString { AzString::from_utf8_unchecked(ptr, len) }
-/// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-#[no_mangle] pub extern "C" fn az_string_from_utf8_lossy(ptr: *const u8, len: usize) -> AzString { AzString::from_utf8_lossy(ptr, len) }
-/// Returns the internal bytes of the String as a `U8Vec`
-#[no_mangle] pub extern "C" fn az_string_into_bytes(string: AzString) -> AzU8Vec { string.into_bytes() }
 /// Destructor: Takes ownership of the `String` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_delete(object: &mut AzString) { }
 /// Clones the object
@@ -263,456 +257,304 @@ pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
 /// Wrapper over a Rust-allocated `Vec<Dom>`
 pub type AzDomVecTT = azul_impl::dom::DomVec;
 pub use AzDomVecTT as AzDomVec;
-/// Creates a new, empty Rust `Vec<Dom>`
-#[no_mangle] pub extern "C" fn az_dom_vec_new() -> AzDomVec { Vec::<AzDom>::new().into() }
-/// Creates a new, empty Rust `Vec<Dom>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_dom_vec_with_capacity(cap: usize) -> AzDomVec { Vec::<AzDom>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_dom_vec_copy_from(ptr: *const AzDom, len: usize) -> AzDomVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `DomVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_dom_vec_delete(object: &mut AzDomVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_dom_vec_deep_copy(object: &AzDomVec) -> AzDomVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
 pub type AzIdOrClassVecTT = azul_impl::dom::IdOrClassVec;
 pub use AzIdOrClassVecTT as AzIdOrClassVec;
-/// Creates a new, empty Rust `Vec<IdOrClass>`
-#[no_mangle] pub extern "C" fn az_id_or_class_vec_new() -> AzIdOrClassVec { Vec::<AzIdOrClass>::new().into() }
-/// Creates a new, empty Rust `Vec<IdOrClass>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_id_or_class_vec_with_capacity(cap: usize) -> AzIdOrClassVec { Vec::<AzIdOrClass>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<IdOrClass>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_id_or_class_vec_copy_from(ptr: *const AzIdOrClass, len: usize) -> AzIdOrClassVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `IdOrClassVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_id_or_class_vec_delete(object: &mut AzIdOrClassVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_id_or_class_vec_deep_copy(object: &AzIdOrClassVec) -> AzIdOrClassVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
 pub type AzNodeDataInlineCssPropertyVecTT = azul_impl::dom::NodeDataInlineCssPropertyVec;
 pub use AzNodeDataInlineCssPropertyVecTT as AzNodeDataInlineCssPropertyVec;
-/// Creates a new, empty Rust `Vec<NodeDataInlineCssProperty>`
-#[no_mangle] pub extern "C" fn az_node_data_inline_css_property_vec_new() -> AzNodeDataInlineCssPropertyVec { Vec::<AzNodeDataInlineCssProperty>::new().into() }
-/// Creates a new, empty Rust `Vec<NodeDataInlineCssProperty>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_node_data_inline_css_property_vec_with_capacity(cap: usize) -> AzNodeDataInlineCssPropertyVec { Vec::<AzNodeDataInlineCssProperty>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<NodeDataInlineCssProperty>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_node_data_inline_css_property_vec_copy_from(ptr: *const AzNodeDataInlineCssProperty, len: usize) -> AzNodeDataInlineCssPropertyVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `NodeDataInlineCssPropertyVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_data_inline_css_property_vec_delete(object: &mut AzNodeDataInlineCssPropertyVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_node_data_inline_css_property_vec_deep_copy(object: &AzNodeDataInlineCssPropertyVec) -> AzNodeDataInlineCssPropertyVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
 pub type AzStyleBackgroundContentVecTT = azul_impl::css::StyleBackgroundContentVec;
 pub use AzStyleBackgroundContentVecTT as AzStyleBackgroundContentVec;
-/// Creates a new, empty Rust `Vec<StyleBackgroundContent>`
-#[no_mangle] pub extern "C" fn az_style_background_content_vec_new() -> AzStyleBackgroundContentVec { Vec::<AzStyleBackgroundContent>::new().into() }
-/// Creates a new, empty Rust `Vec<StyleBackgroundContent>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_style_background_content_vec_with_capacity(cap: usize) -> AzStyleBackgroundContentVec { Vec::<AzStyleBackgroundContent>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<StyleBackgroundContent>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_style_background_content_vec_copy_from(ptr: *const AzStyleBackgroundContent, len: usize) -> AzStyleBackgroundContentVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `StyleBackgroundContentVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_style_background_content_vec_delete(object: &mut AzStyleBackgroundContentVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_style_background_content_vec_deep_copy(object: &AzStyleBackgroundContentVec) -> AzStyleBackgroundContentVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
 pub type AzStyleBackgroundPositionVecTT = azul_impl::css::StyleBackgroundPositionVec;
 pub use AzStyleBackgroundPositionVecTT as AzStyleBackgroundPositionVec;
-/// Creates a new, empty Rust `Vec<StyleBackgroundPosition>`
-#[no_mangle] pub extern "C" fn az_style_background_position_vec_new() -> AzStyleBackgroundPositionVec { Vec::<AzStyleBackgroundPosition>::new().into() }
-/// Creates a new, empty Rust `Vec<StyleBackgroundPosition>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_style_background_position_vec_with_capacity(cap: usize) -> AzStyleBackgroundPositionVec { Vec::<AzStyleBackgroundPosition>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<StyleBackgroundPosition>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_style_background_position_vec_copy_from(ptr: *const AzStyleBackgroundPosition, len: usize) -> AzStyleBackgroundPositionVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `StyleBackgroundPositionVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_style_background_position_vec_delete(object: &mut AzStyleBackgroundPositionVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_style_background_position_vec_deep_copy(object: &AzStyleBackgroundPositionVec) -> AzStyleBackgroundPositionVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
 pub type AzStyleBackgroundRepeatVecTT = azul_impl::css::StyleBackgroundRepeatVec;
 pub use AzStyleBackgroundRepeatVecTT as AzStyleBackgroundRepeatVec;
-/// Creates a new, empty Rust `Vec<StyleBackgroundRepeat>`
-#[no_mangle] pub extern "C" fn az_style_background_repeat_vec_new() -> AzStyleBackgroundRepeatVec { Vec::<AzStyleBackgroundRepeat>::new().into() }
-/// Creates a new, empty Rust `Vec<StyleBackgroundRepeat>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_style_background_repeat_vec_with_capacity(cap: usize) -> AzStyleBackgroundRepeatVec { Vec::<AzStyleBackgroundRepeat>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<StyleBackgroundRepeat>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_style_background_repeat_vec_copy_from(ptr: *const AzStyleBackgroundRepeat, len: usize) -> AzStyleBackgroundRepeatVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `StyleBackgroundRepeatVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_style_background_repeat_vec_delete(object: &mut AzStyleBackgroundRepeatVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_style_background_repeat_vec_deep_copy(object: &AzStyleBackgroundRepeatVec) -> AzStyleBackgroundRepeatVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
 pub type AzStyleBackgroundSizeVecTT = azul_impl::css::StyleBackgroundSizeVec;
 pub use AzStyleBackgroundSizeVecTT as AzStyleBackgroundSizeVec;
-/// Creates a new, empty Rust `Vec<StyleBackgroundSize>`
-#[no_mangle] pub extern "C" fn az_style_background_size_vec_new() -> AzStyleBackgroundSizeVec { Vec::<AzStyleBackgroundSize>::new().into() }
-/// Creates a new, empty Rust `Vec<StyleBackgroundSize>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_style_background_size_vec_with_capacity(cap: usize) -> AzStyleBackgroundSizeVec { Vec::<AzStyleBackgroundSize>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<StyleBackgroundSize>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_style_background_size_vec_copy_from(ptr: *const AzStyleBackgroundSize, len: usize) -> AzStyleBackgroundSizeVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `StyleBackgroundSizeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_style_background_size_vec_delete(object: &mut AzStyleBackgroundSizeVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_style_background_size_vec_deep_copy(object: &AzStyleBackgroundSizeVec) -> AzStyleBackgroundSizeVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
 pub type AzStyleTransformVecTT = azul_impl::css::StyleTransformVec;
 pub use AzStyleTransformVecTT as AzStyleTransformVec;
-/// Creates a new, empty Rust `Vec<StyleTransform>`
-#[no_mangle] pub extern "C" fn az_style_transform_vec_new() -> AzStyleTransformVec { Vec::<AzStyleTransform>::new().into() }
-/// Creates a new, empty Rust `Vec<StyleTransform>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_style_transform_vec_with_capacity(cap: usize) -> AzStyleTransformVec { Vec::<AzStyleTransform>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<StyleTransform>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_style_transform_vec_copy_from(ptr: *const AzStyleTransform, len: usize) -> AzStyleTransformVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `StyleTransformVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_style_transform_vec_delete(object: &mut AzStyleTransformVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_style_transform_vec_deep_copy(object: &AzStyleTransformVec) -> AzStyleTransformVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<CssProperty>`
 pub type AzCssPropertyVecTT = azul_impl::css::CssPropertyVec;
 pub use AzCssPropertyVecTT as AzCssPropertyVec;
-/// Creates a new, empty Rust `Vec<CssProperty>`
-#[no_mangle] pub extern "C" fn az_css_property_vec_new() -> AzCssPropertyVec { Vec::<AzCssProperty>::new().into() }
-/// Creates a new, empty Rust `Vec<CssProperty>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_css_property_vec_with_capacity(cap: usize) -> AzCssPropertyVec { Vec::<AzCssProperty>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<CssProperty>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_css_property_vec_copy_from(ptr: *const AzCssProperty, len: usize) -> AzCssPropertyVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `CssPropertyVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_property_vec_delete(object: &mut AzCssPropertyVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_css_property_vec_deep_copy(object: &AzCssPropertyVec) -> AzCssPropertyVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
 pub type AzSvgMultiPolygonVecTT = azul_impl::svg::SvgMultiPolygonVec;
 pub use AzSvgMultiPolygonVecTT as AzSvgMultiPolygonVec;
-/// Creates a new, empty Rust `Vec<SvgMultiPolygon>`
-#[no_mangle] pub extern "C" fn az_svg_multi_polygon_vec_new() -> AzSvgMultiPolygonVec { Vec::<AzSvgMultiPolygon>::new().into() }
-/// Creates a new, empty Rust `Vec<SvgMultiPolygon>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_svg_multi_polygon_vec_with_capacity(cap: usize) -> AzSvgMultiPolygonVec { Vec::<AzSvgMultiPolygon>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<SvgMultiPolygon>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_svg_multi_polygon_vec_copy_from(ptr: *const AzSvgMultiPolygon, len: usize) -> AzSvgMultiPolygonVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `SvgMultiPolygonVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_multi_polygon_vec_delete(object: &mut AzSvgMultiPolygonVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_svg_multi_polygon_vec_deep_copy(object: &AzSvgMultiPolygonVec) -> AzSvgMultiPolygonVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<SvgPath>`
 pub type AzSvgPathVecTT = azul_impl::svg::SvgPathVec;
 pub use AzSvgPathVecTT as AzSvgPathVec;
-/// Creates a new, empty Rust `Vec<SvgPath>`
-#[no_mangle] pub extern "C" fn az_svg_path_vec_new() -> AzSvgPathVec { Vec::<AzSvgPath>::new().into() }
-/// Creates a new, empty Rust `Vec<SvgPath>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_svg_path_vec_with_capacity(cap: usize) -> AzSvgPathVec { Vec::<AzSvgPath>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<SvgPath>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_svg_path_vec_copy_from(ptr: *const AzSvgPath, len: usize) -> AzSvgPathVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `SvgPathVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_path_vec_delete(object: &mut AzSvgPathVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_svg_path_vec_deep_copy(object: &AzSvgPathVec) -> AzSvgPathVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
 pub type AzVertexAttributeVecTT = azul_impl::gl::VertexAttributeVec;
 pub use AzVertexAttributeVecTT as AzVertexAttributeVec;
-/// Creates a new, empty Rust `Vec<VertexAttribute>`
-#[no_mangle] pub extern "C" fn az_vertex_attribute_vec_new() -> AzVertexAttributeVec { Vec::<AzVertexAttribute>::new().into() }
-/// Creates a new, empty Rust `Vec<VertexAttribute>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_vertex_attribute_vec_with_capacity(cap: usize) -> AzVertexAttributeVec { Vec::<AzVertexAttribute>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<VertexAttribute>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_vertex_attribute_vec_copy_from(ptr: *const AzVertexAttribute, len: usize) -> AzVertexAttributeVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `VertexAttributeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_vertex_attribute_vec_delete(object: &mut AzVertexAttributeVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_vertex_attribute_vec_deep_copy(object: &AzVertexAttributeVec) -> AzVertexAttributeVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `VertexAttribute`
 pub type AzSvgPathElementVecTT = azul_impl::svg::SvgPathElementVec;
 pub use AzSvgPathElementVecTT as AzSvgPathElementVec;
-/// Creates a new, empty Rust `Vec<SvgPathElement>`
-#[no_mangle] pub extern "C" fn az_svg_path_element_vec_new() -> AzSvgPathElementVec { Vec::<AzSvgPathElement>::new().into() }
-/// Creates a new, empty Rust `Vec<SvgPathElement>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_svg_path_element_vec_with_capacity(cap: usize) -> AzSvgPathElementVec { Vec::<AzSvgPathElement>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<SvgPathElement>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_svg_path_element_vec_copy_from(ptr: *const AzSvgPathElement, len: usize) -> AzSvgPathElementVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `SvgPathElementVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_path_element_vec_delete(object: &mut AzSvgPathElementVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_svg_path_element_vec_deep_copy(object: &AzSvgPathElementVec) -> AzSvgPathElementVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `SvgVertex`
 pub type AzSvgVertexVecTT = azul_impl::svg::SvgVertexVec;
 pub use AzSvgVertexVecTT as AzSvgVertexVec;
-/// Creates a new, empty Rust `Vec<SvgVertex>`
-#[no_mangle] pub extern "C" fn az_svg_vertex_vec_new() -> AzSvgVertexVec { Vec::<AzSvgVertex>::new().into() }
-/// Creates a new, empty Rust `Vec<SvgVertex>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_svg_vertex_vec_with_capacity(cap: usize) -> AzSvgVertexVec { Vec::<AzSvgVertex>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<SvgVertex>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_svg_vertex_vec_copy_from(ptr: *const AzSvgVertex, len: usize) -> AzSvgVertexVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `SvgVertexVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_vertex_vec_delete(object: &mut AzSvgVertexVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_svg_vertex_vec_deep_copy(object: &AzSvgVertexVec) -> AzSvgVertexVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<u32>`
 pub type AzU32VecTT = azul_impl::svg::U32Vec;
 pub use AzU32VecTT as AzU32Vec;
-/// Creates a new, empty Rust `Vec<u32>`
-#[no_mangle] pub extern "C" fn az_u32_vec_new() -> AzU32Vec { Vec::<u32>::new().into() }
-/// Creates a new, empty Rust `Vec<u32>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_u32_vec_with_capacity(cap: usize) -> AzU32Vec { Vec::<u32>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_u32_vec_copy_from(ptr: *const u32, len: usize) -> AzU32Vec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `U32Vec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_u32_vec_delete(object: &mut AzU32Vec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_u32_vec_deep_copy(object: &AzU32Vec) -> AzU32Vec { object.clone() }
 
 /// Wrapper over a Rust-allocated `XWindowType`
 pub type AzXWindowTypeVecTT = azul_impl::window::XWindowTypeVec;
 pub use AzXWindowTypeVecTT as AzXWindowTypeVec;
-/// Creates a new, empty Rust `Vec<XWindowType>`
-#[no_mangle] pub extern "C" fn az_x_window_type_vec_new() -> AzXWindowTypeVec { Vec::<AzXWindowType>::new().into() }
-/// Creates a new, empty Rust `Vec<XWindowType>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_x_window_type_vec_with_capacity(cap: usize) -> AzXWindowTypeVec { Vec::<AzXWindowType>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<XWindowType>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_x_window_type_vec_copy_from(ptr: *const AzXWindowType, len: usize) -> AzXWindowTypeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `XWindowTypeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_x_window_type_vec_delete(object: &mut AzXWindowTypeVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_x_window_type_vec_deep_copy(object: &AzXWindowTypeVec) -> AzXWindowTypeVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `VirtualKeyCode`
 pub type AzVirtualKeyCodeVecTT = azul_impl::window::VirtualKeyCodeVec;
 pub use AzVirtualKeyCodeVecTT as AzVirtualKeyCodeVec;
-/// Creates a new, empty Rust `Vec<VirtualKeyCode>`
-#[no_mangle] pub extern "C" fn az_virtual_key_code_vec_new() -> AzVirtualKeyCodeVec { Vec::<AzVirtualKeyCode>::new().into() }
-/// Creates a new, empty Rust `Vec<VirtualKeyCode>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_virtual_key_code_vec_with_capacity(cap: usize) -> AzVirtualKeyCodeVec { Vec::<AzVirtualKeyCode>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<VirtualKeyCode>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_virtual_key_code_vec_copy_from(ptr: *const AzVirtualKeyCode, len: usize) -> AzVirtualKeyCodeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `VirtualKeyCodeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_virtual_key_code_vec_delete(object: &mut AzVirtualKeyCodeVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_virtual_key_code_vec_deep_copy(object: &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `CascadeInfo`
 pub type AzCascadeInfoVecTT = azul_impl::style::CascadeInfoVec;
 pub use AzCascadeInfoVecTT as AzCascadeInfoVec;
-/// Creates a new, empty Rust `Vec<CascadeInfo>`
-#[no_mangle] pub extern "C" fn az_cascade_info_vec_new() -> AzCascadeInfoVec { Vec::<AzCascadeInfo>::new().into() }
-/// Creates a new, empty Rust `Vec<CascadeInfo>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_cascade_info_vec_with_capacity(cap: usize) -> AzCascadeInfoVec { Vec::<AzCascadeInfo>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<CascadeInfo>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_cascade_info_vec_copy_from(ptr: *const AzCascadeInfo, len: usize) -> AzCascadeInfoVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `CascadeInfoVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_cascade_info_vec_delete(object: &mut AzCascadeInfoVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_cascade_info_vec_deep_copy(object: &AzCascadeInfoVec) -> AzCascadeInfoVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `ScanCode`
 pub type AzScanCodeVecTT = azul_impl::window::ScanCodeVec;
 pub use AzScanCodeVecTT as AzScanCodeVec;
-/// Creates a new, empty Rust `Vec<ScanCode>`
-#[no_mangle] pub extern "C" fn az_scan_code_vec_new() -> AzScanCodeVec { Vec::<u32>::new().into() }
-/// Creates a new, empty Rust `Vec<ScanCode>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_scan_code_vec_with_capacity(cap: usize) -> AzScanCodeVec { Vec::<u32>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<ScanCode>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_scan_code_vec_copy_from(ptr: *const u32, len: usize) -> AzScanCodeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `ScanCodeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_scan_code_vec_delete(object: &mut AzScanCodeVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_scan_code_vec_deep_copy(object: &AzScanCodeVec) -> AzScanCodeVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `CssDeclaration`
 pub type AzCssDeclarationVecTT = azul_impl::css::CssDeclarationVec;
 pub use AzCssDeclarationVecTT as AzCssDeclarationVec;
-/// Creates a new, empty Rust `Vec<CssDeclaration>`
-#[no_mangle] pub extern "C" fn az_css_declaration_vec_new() -> AzCssDeclarationVec { Vec::<AzCssDeclaration>::new().into() }
-/// Creates a new, empty Rust `Vec<CssDeclaration>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_css_declaration_vec_with_capacity(cap: usize) -> AzCssDeclarationVec { Vec::<AzCssDeclaration>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<CssDeclaration>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_css_declaration_vec_copy_from(ptr: *const AzCssDeclaration, len: usize) -> AzCssDeclarationVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `CssDeclarationVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_declaration_vec_delete(object: &mut AzCssDeclarationVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_css_declaration_vec_deep_copy(object: &AzCssDeclarationVec) -> AzCssDeclarationVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `CssPathSelector`
 pub type AzCssPathSelectorVecTT = azul_impl::css::CssPathSelectorVec;
 pub use AzCssPathSelectorVecTT as AzCssPathSelectorVec;
-/// Creates a new, empty Rust `Vec<CssPathSelector>`
-#[no_mangle] pub extern "C" fn az_css_path_selector_vec_new() -> AzCssPathSelectorVec { Vec::<AzCssPathSelector>::new().into() }
-/// Creates a new, empty Rust `Vec<CssPathSelector>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_css_path_selector_vec_with_capacity(cap: usize) -> AzCssPathSelectorVec { Vec::<AzCssPathSelector>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<CssPathSelector>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_css_path_selector_vec_copy_from(ptr: *const AzCssPathSelector, len: usize) -> AzCssPathSelectorVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `CssPathSelectorVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_path_selector_vec_delete(object: &mut AzCssPathSelectorVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_css_path_selector_vec_deep_copy(object: &AzCssPathSelectorVec) -> AzCssPathSelectorVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Stylesheet`
 pub type AzStylesheetVecTT = azul_impl::css::StylesheetVec;
 pub use AzStylesheetVecTT as AzStylesheetVec;
-/// Creates a new, empty Rust `Vec<Stylesheet>`
-#[no_mangle] pub extern "C" fn az_stylesheet_vec_new() -> AzStylesheetVec { Vec::<AzStylesheet>::new().into() }
-/// Creates a new, empty Rust `Vec<Stylesheet>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_stylesheet_vec_with_capacity(cap: usize) -> AzStylesheetVec { Vec::<AzStylesheet>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<Stylesheet>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_stylesheet_vec_copy_from(ptr: *const AzStylesheet, len: usize) -> AzStylesheetVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `StylesheetVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_stylesheet_vec_delete(object: &mut AzStylesheetVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_stylesheet_vec_deep_copy(object: &AzStylesheetVec) -> AzStylesheetVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `CssRuleBlock`
 pub type AzCssRuleBlockVecTT = azul_impl::css::CssRuleBlockVec;
 pub use AzCssRuleBlockVecTT as AzCssRuleBlockVec;
-/// Creates a new, empty Rust `Vec<CssRuleBlock>`
-#[no_mangle] pub extern "C" fn az_css_rule_block_vec_new() -> AzCssRuleBlockVec { Vec::<AzCssRuleBlock>::new().into() }
-/// Creates a new, empty Rust `Vec<CssRuleBlock>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_css_rule_block_vec_with_capacity(cap: usize) -> AzCssRuleBlockVec { Vec::<AzCssRuleBlock>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<CssRuleBlock>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_css_rule_block_vec_copy_from(ptr: *const AzCssRuleBlock, len: usize) -> AzCssRuleBlockVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `CssRuleBlockVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_rule_block_vec_delete(object: &mut AzCssRuleBlockVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_css_rule_block_vec_deep_copy(object: &AzCssRuleBlockVec) -> AzCssRuleBlockVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `U8Vec`
 pub type AzU8VecTT = azul_impl::css::U8Vec;
 pub use AzU8VecTT as AzU8Vec;
-/// Creates a new, empty Rust `Vec<u8>`
-#[no_mangle] pub extern "C" fn az_u8_vec_new() -> AzU8Vec { Vec::<u8>::new().into() }
-/// Creates a new, empty Rust `Vec<u8>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_u8_vec_with_capacity(cap: usize) -> AzU8Vec { Vec::<u8>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_u8_vec_copy_from(ptr: *const u8, len: usize) -> AzU8Vec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_u8_vec_delete(object: &mut AzU8Vec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_u8_vec_deep_copy(object: &AzU8Vec) -> AzU8Vec { object.clone() }
 
 /// Wrapper over a Rust-allocated `CallbackData`
 pub type AzCallbackDataVecTT = azul_impl::dom::CallbackDataVec;
 pub use AzCallbackDataVecTT as AzCallbackDataVec;
-/// Creates a new, empty Rust `Vec<CallbackData>`
-#[no_mangle] pub extern "C" fn az_callback_data_vec_new() -> AzCallbackDataVec { Vec::<AzCallbackData>::new().into() }
-/// Creates a new, empty Rust `Vec<CallbackData>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_callback_data_vec_with_capacity(cap: usize) -> AzCallbackDataVec { Vec::<AzCallbackData>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<CallbackData>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_callback_data_vec_copy_from(ptr: *const AzCallbackData, len: usize) -> AzCallbackDataVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `CallbackDataVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_callback_data_vec_delete(object: &mut AzCallbackDataVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_callback_data_vec_deep_copy(object: &AzCallbackDataVec) -> AzCallbackDataVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
 pub type AzDebugMessageVecTT = azul_impl::gl::AzDebugMessageVec;
 pub use AzDebugMessageVecTT as AzDebugMessageVec;
-/// Creates a new, empty Rust `Vec<DebugMessage>`
-#[no_mangle] pub extern "C" fn az_debug_message_vec_new() -> AzDebugMessageVec { Vec::<AzDebugMessage>::new().into() }
-/// Creates a new, empty Rust `Vec<DebugMessage>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_debug_message_vec_with_capacity(cap: usize) -> AzDebugMessageVec { Vec::<AzDebugMessage>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<DebugMessage>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_debug_message_vec_copy_from(ptr: *const AzDebugMessage, len: usize) -> AzDebugMessageVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `DebugMessageVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_debug_message_vec_delete(object: &mut AzDebugMessageVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_debug_message_vec_deep_copy(object: &AzDebugMessageVec) -> AzDebugMessageVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `U32Vec`
 pub type AzGLuintVecTT = azul_impl::gl::GLuintVec;
 pub use AzGLuintVecTT as AzGLuintVec;
-/// Creates a new, empty Rust `Vec<u32>`
-#[no_mangle] pub extern "C" fn az_g_luint_vec_new() -> AzGLuintVec { Vec::<u32>::new().into() }
-/// Creates a new, empty Rust `Vec<u32>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_g_luint_vec_with_capacity(cap: usize) -> AzGLuintVec { Vec::<u32>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_g_luint_vec_copy_from(ptr: *const u32, len: usize) -> AzGLuintVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `GLuintVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_luint_vec_delete(object: &mut AzGLuintVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_g_luint_vec_deep_copy(object: &AzGLuintVec) -> AzGLuintVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `GLintVec`
 pub type AzGLintVecTT = azul_impl::gl::GLintVec;
 pub use AzGLintVecTT as AzGLintVec;
-/// Creates a new, empty Rust `Vec<GLint>`
-#[no_mangle] pub extern "C" fn az_g_lint_vec_new() -> AzGLintVec { Vec::<i32>::new().into() }
-/// Creates a new, empty Rust `Vec<GLint>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_g_lint_vec_with_capacity(cap: usize) -> AzGLintVec { Vec::<i32>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<GLint>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_g_lint_vec_copy_from(ptr: *const i32, len: usize) -> AzGLintVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `GLintVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_lint_vec_delete(object: &mut AzGLintVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_g_lint_vec_deep_copy(object: &AzGLintVec) -> AzGLintVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `StringVec`
 pub type AzStringVecTT = azul_impl::css::StringVec;
 pub use AzStringVecTT as AzStringVec;
-/// Creates a new, empty Rust `Vec<String>`
-#[no_mangle] pub extern "C" fn az_string_vec_new() -> AzStringVec { Vec::<AzString>::new().into() }
-/// Creates a new, empty Rust `Vec<String>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_string_vec_with_capacity(cap: usize) -> AzStringVec { Vec::<AzString>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_string_vec_copy_from(ptr: *const AzString, len: usize) -> AzStringVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `StringVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_vec_delete(object: &mut AzStringVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_string_vec_deep_copy(object: &AzStringVec) -> AzStringVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `StringPairVec`
 pub type AzStringPairVecTT = azul_impl::window::StringPairVec;
 pub use AzStringPairVecTT as AzStringPairVec;
-/// Creates a new, empty Rust `Vec<StringPair>`
-#[no_mangle] pub extern "C" fn az_string_pair_vec_new() -> AzStringPairVec { Vec::<AzStringPair>::new().into() }
-/// Creates a new, empty Rust `Vec<StringPair>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_string_pair_vec_with_capacity(cap: usize) -> AzStringPairVec { Vec::<AzStringPair>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<StringPair>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_string_pair_vec_copy_from(ptr: *const AzStringPair, len: usize) -> AzStringPairVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `StringPairVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_pair_vec_delete(object: &mut AzStringPairVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_string_pair_vec_deep_copy(object: &AzStringPairVec) -> AzStringPairVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `LinearColorStopVec`
 pub type AzLinearColorStopVecTT = azul_impl::css::LinearColorStopVec;
 pub use AzLinearColorStopVecTT as AzLinearColorStopVec;
-/// Creates a new, empty Rust `Vec<LinearColorStop>`
-#[no_mangle] pub extern "C" fn az_linear_color_stop_vec_new() -> AzLinearColorStopVec { Vec::<AzLinearColorStop>::new().into() }
-/// Creates a new, empty Rust `Vec<LinearColorStop>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_linear_color_stop_vec_with_capacity(cap: usize) -> AzLinearColorStopVec { Vec::<AzLinearColorStop>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<LinearColorStop>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_linear_color_stop_vec_copy_from(ptr: *const AzLinearColorStop, len: usize) -> AzLinearColorStopVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `LinearColorStopVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_linear_color_stop_vec_delete(object: &mut AzLinearColorStopVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_linear_color_stop_vec_deep_copy(object: &AzLinearColorStopVec) -> AzLinearColorStopVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `RadialColorStopVec`
 pub type AzRadialColorStopVecTT = azul_impl::css::RadialColorStopVec;
 pub use AzRadialColorStopVecTT as AzRadialColorStopVec;
-/// Creates a new, empty Rust `Vec<RadialColorStop>`
-#[no_mangle] pub extern "C" fn az_radial_color_stop_vec_new() -> AzRadialColorStopVec { Vec::<AzRadialColorStop>::new().into() }
-/// Creates a new, empty Rust `Vec<RadialColorStop>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_radial_color_stop_vec_with_capacity(cap: usize) -> AzRadialColorStopVec { Vec::<AzRadialColorStop>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<RadialColorStop>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_radial_color_stop_vec_copy_from(ptr: *const AzRadialColorStop, len: usize) -> AzRadialColorStopVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `RadialColorStopVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_radial_color_stop_vec_delete(object: &mut AzRadialColorStopVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_radial_color_stop_vec_deep_copy(object: &AzRadialColorStopVec) -> AzRadialColorStopVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `NodeIdVec`
 pub type AzNodeIdVecTT = azul_impl::styled_dom::NodeIdVec;
 pub use AzNodeIdVecTT as AzNodeIdVec;
-/// Creates a new, empty Rust `Vec<NodeId>`
-#[no_mangle] pub extern "C" fn az_node_id_vec_new() -> AzNodeIdVec { Vec::<AzNodeId>::new().into() }
-/// Creates a new, empty Rust `Vec<NodeId>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_node_id_vec_with_capacity(cap: usize) -> AzNodeIdVec { Vec::<AzNodeId>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<NodeId>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_node_id_vec_copy_from(ptr: *const AzNodeId, len: usize) -> AzNodeIdVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `NodeIdVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_id_vec_delete(object: &mut AzNodeIdVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_node_id_vec_deep_copy(object: &AzNodeIdVec) -> AzNodeIdVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `NodeVec`
 pub type AzNodeVecTT = azul_impl::styled_dom::AzNodeVec;
 pub use AzNodeVecTT as AzNodeVec;
-/// Creates a new, empty Rust `Vec<Node>`
-#[no_mangle] pub extern "C" fn az_node_vec_new() -> AzNodeVec { Vec::<AzNode>::new().into() }
-/// Creates a new, empty Rust `Vec<Node>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_node_vec_with_capacity(cap: usize) -> AzNodeVec { Vec::<AzNode>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<Node>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_node_vec_copy_from(ptr: *const AzNode, len: usize) -> AzNodeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `NodeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_vec_delete(object: &mut AzNodeVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_node_vec_deep_copy(object: &AzNodeVec) -> AzNodeVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `StyledNodeVec`
 pub type AzStyledNodeVecTT = azul_impl::styled_dom::StyledNodeVec;
 pub use AzStyledNodeVecTT as AzStyledNodeVec;
-/// Creates a new, empty Rust `Vec<StyledNode>`
-#[no_mangle] pub extern "C" fn az_styled_node_vec_new() -> AzStyledNodeVec { Vec::<AzStyledNode>::new().into() }
-/// Creates a new, empty Rust `Vec<StyledNode>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_styled_node_vec_with_capacity(cap: usize) -> AzStyledNodeVec { Vec::<AzStyledNode>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<StyledNode>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_styled_node_vec_copy_from(ptr: *const AzStyledNode, len: usize) -> AzStyledNodeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `StyledNodeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_styled_node_vec_delete(object: &mut AzStyledNodeVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_styled_node_vec_deep_copy(object: &AzStyledNodeVec) -> AzStyledNodeVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
 pub type AzTagIdsToNodeIdsMappingVecTT = azul_impl::styled_dom::TagIdsToNodeIdsMappingVec;
 pub use AzTagIdsToNodeIdsMappingVecTT as AzTagIdsToNodeIdsMappingVec;
-/// Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>`
-#[no_mangle] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_new() -> AzTagIdsToNodeIdsMappingVec { Vec::<AzTagIdToNodeIdMapping>::new().into() }
-/// Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_with_capacity(cap: usize) -> AzTagIdsToNodeIdsMappingVec { Vec::<AzTagIdToNodeIdMapping>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<TagIdToNodeIdMapping>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_copy_from(ptr: *const AzTagIdToNodeIdMapping, len: usize) -> AzTagIdsToNodeIdsMappingVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `TagIdsToNodeIdsMappingVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_delete(object: &mut AzTagIdsToNodeIdsMappingVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_deep_copy(object: &AzTagIdsToNodeIdsMappingVec) -> AzTagIdsToNodeIdsMappingVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
 pub type AzParentWithNodeDepthVecTT = azul_impl::styled_dom::ParentWithNodeDepthVec;
 pub use AzParentWithNodeDepthVecTT as AzParentWithNodeDepthVec;
-/// Creates a new, empty Rust `Vec<ParentWithNodeDepth>`
-#[no_mangle] pub extern "C" fn az_parent_with_node_depth_vec_new() -> AzParentWithNodeDepthVec { Vec::<AzParentWithNodeDepth>::new().into() }
-/// Creates a new, empty Rust `Vec<ParentWithNodeDepth>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_parent_with_node_depth_vec_with_capacity(cap: usize) -> AzParentWithNodeDepthVec { Vec::<AzParentWithNodeDepth>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<ParentWithNodeDepth>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_parent_with_node_depth_vec_copy_from(ptr: *const AzParentWithNodeDepth, len: usize) -> AzParentWithNodeDepthVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `ParentWithNodeDepthVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_parent_with_node_depth_vec_delete(object: &mut AzParentWithNodeDepthVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_parent_with_node_depth_vec_deep_copy(object: &AzParentWithNodeDepthVec) -> AzParentWithNodeDepthVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `NodeDataVec`
 pub type AzNodeDataVecTT = azul_impl::dom::NodeDataVec;
 pub use AzNodeDataVecTT as AzNodeDataVec;
-/// Creates a new, empty Rust `Vec<NodeData>`
-#[no_mangle] pub extern "C" fn az_node_data_vec_new() -> AzNodeDataVec { Vec::<NodeData>::new().into() }
-/// Creates a new, empty Rust `Vec<NodeData>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_node_data_vec_with_capacity(cap: usize) -> AzNodeDataVec { Vec::<NodeData>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<NodeData>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_node_data_vec_copy_from(ptr: *const AzNodeData, len: usize) -> AzNodeDataVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_data_vec_delete(object: &mut AzNodeDataVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_node_data_vec_deep_copy(object: &AzNodeDataVec) -> AzNodeDataVec { object.clone() }
 
@@ -2240,42 +2082,22 @@ pub use AzDomTT as AzDom;
 #[no_mangle] pub extern "C" fn az_dom_gl_texture(data: AzRefAny, callback: AzGlCallbackType) -> AzDom { Dom::gl_texture(data, callback) }
 /// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
 #[no_mangle] pub extern "C" fn az_dom_iframe(data: AzRefAny, callback: AzIFrameCallbackType) -> AzDom { Dom::iframe(data, callback) }
-/// Adds a CSS ID (`#something`) to the DOM node
-#[no_mangle] pub extern "C" fn az_dom_add_id(dom: &mut AzDom, id: AzString) { dom.add_id(id); }
-/// Same as [`Dom::add_id`](#method.add_id), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_id(mut dom: AzDom, id: AzString) -> AzDom { az_dom_add_id(&mut dom, id); dom }
-/// Adds a CSS class (`.something`) to the DOM node
-#[no_mangle] pub extern "C" fn az_dom_add_class(dom: &mut AzDom, class: AzString) { dom.add_class(class); }
-/// Same as [`Dom::add_class`](#method.add_class), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_class(mut dom: AzDom, class: AzString) -> AzDom { az_dom_add_class(&mut dom, class); dom }
-/// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
-#[no_mangle] pub extern "C" fn az_dom_add_callback(dom: &mut AzDom, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) { dom.add_callback(event, callback, data); }
-/// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_callback(mut dom: AzDom, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) -> AzDom { az_dom_add_callback(&mut dom, event, data, callback); dom }
+/// Adds IDs and classes to the `Dom` root
+#[no_mangle] pub extern "C" fn az_dom_set_ids_and_classes(dom: &mut AzDom, ids_and_classes: AzIdOrClassVec) { dom.set_ids_and_classes(ids_and_classes); }
+/// Same as [`Dom::set_ids_and_classes`](#method.set_ids_and_classes), but as a builder method
+#[no_mangle] pub extern "C" fn az_dom_with_ids_and_classes(mut dom: AzDom, ids_and_classes: AzIdOrClassVec) -> AzDom { az_dom_set_ids_and_classes(&mut dom, ids_and_classes); dom }
+/// Adds IDs and classes to the `Dom` root
+#[no_mangle] pub extern "C" fn az_dom_set_callbacks(dom: &mut AzDom, callbacks: AzCallbackDataVec) { dom.set_callbacks(callbacks); }
+/// Same as [`Dom::set_callbacks`](#method.set_callbacks), but as a builder method
+#[no_mangle] pub extern "C" fn az_dom_with_callbacks(mut dom: AzDom, callbacks: AzCallbackDataVec) -> AzDom { az_dom_set_callbacks(&mut dom, callbacks); dom }
 /// Adds a dataset to the `Dom` root
 #[no_mangle] pub extern "C" fn az_dom_set_dataset(dom: &mut AzDom, data: AzRefAny) { dom.set_dataset(data); }
 /// Same as [`Dom::set_dataset`](#method.set_dataset), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_with_dataset(mut dom: AzDom, data: AzRefAny) -> AzDom { az_dom_set_dataset(&mut dom, data); dom }
-/// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-#[no_mangle] pub extern "C" fn az_dom_add_inline_css(dom: &mut AzDom, prop: AzCssProperty) { dom.add_inline_css(prop); }
-/// Same as [`Dom::add_inline_css`](#method.add_inline_css), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_inline_css(mut dom: AzDom, prop: AzCssProperty) -> AzDom { az_dom_add_inline_css(&mut dom, prop); dom }
 /// Equivalent to the Rust `Dom::set_inline_css_props()` function.
 #[no_mangle] pub extern "C" fn az_dom_set_inline_css_props(dom: &mut AzDom, props: AzNodeDataInlineCssPropertyVec) { dom.set_inline_css_props(props); }
 /// Same as [`Dom::set_inline_css_props`](#method.set_inline_css_props), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_with_inline_css_props(mut dom: AzDom, props: AzNodeDataInlineCssPropertyVec) -> AzDom { az_dom_set_inline_css_props(&mut dom, props); dom }
-/// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-#[no_mangle] pub extern "C" fn az_dom_add_inline_hover_css(dom: &mut AzDom, prop: AzCssProperty) { dom.add_inline_hover_css(prop); }
-/// Same as [`Dom::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_inline_hover_css(mut dom: AzDom, prop: AzCssProperty) -> AzDom { az_dom_add_inline_hover_css(&mut dom, prop); dom }
-/// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-#[no_mangle] pub extern "C" fn az_dom_add_inline_active_css(dom: &mut AzDom, prop: AzCssProperty) { dom.add_inline_active_css(prop); }
-/// Same as [`Dom::add_inline_active_css`](#method.add_inline_active_css), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_inline_active_css(mut dom: AzDom, prop: AzCssProperty) -> AzDom { az_dom_add_inline_active_css(&mut dom, prop); dom }
-/// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-#[no_mangle] pub extern "C" fn az_dom_add_inline_focus_css(dom: &mut AzDom, prop: AzCssProperty) { dom.add_inline_focus_css(prop); }
-/// Same as [`Dom::add_inline_focus_css`](#method.add_inline_active_css), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_inline_focus_css(mut dom: AzDom, prop: AzCssProperty) -> AzDom { az_dom_add_inline_focus_css(&mut dom, prop); dom }
 /// Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_with_clip_mask(mut dom: AzDom, clip_mask: AzOptionImageMask) -> AzDom { az_dom_set_clip_mask(&mut dom, clip_mask); dom }
 /// Sets the `clip_mask` attribute of this DOM node (default: None)
@@ -2284,10 +2106,10 @@ pub use AzDomTT as AzDom;
 #[no_mangle] pub extern "C" fn az_dom_set_tab_index(dom: &mut AzDom, tab_index: AzOptionTabIndex) { dom.set_tab_index(tab_index); }
 /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_with_tab_index(mut dom: AzDom, tab_index: AzOptionTabIndex) -> AzDom { az_dom_set_tab_index(&mut dom, tab_index); dom }
-/// Reparents another `Dom` to be the child node of this `Dom`
-#[no_mangle] pub extern "C" fn az_dom_add_child(dom: &mut AzDom, child: AzDom) { dom.add_child(child); }
-/// Same as [`Dom::add_child`](#method.add_child), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_child(mut dom: AzDom, child: AzDom) -> AzDom { az_dom_add_child(&mut dom, child); dom }
+/// Sets the children of this node
+#[no_mangle] pub extern "C" fn az_dom_set_children(dom: &mut AzDom, children: AzDomVec) { dom.set_children(children); }
+/// Same as [`Dom::set_children`](#method.set_children), but as a builder method
+#[no_mangle] pub extern "C" fn az_dom_with_children(mut dom: AzDom, children: AzDomVec) -> AzDom { az_dom_set_children(&mut dom, children); dom }
 /// Returns the HTML String for this DOM
 #[no_mangle] pub extern "C" fn az_dom_get_html_string(dom: &AzDom) -> AzString { dom.get_html_string().into() }
 /// Returns the HTML String for this DOM
@@ -2350,46 +2172,22 @@ pub use AzNodeDataTT as AzNodeData;
 #[no_mangle] pub extern "C" fn az_node_data_iframe(data: AzRefAny, callback: AzIFrameCallbackType) -> AzNodeData { NodeData::iframe(data, callback) }
 /// Creates a default (div) node without any classes
 #[no_mangle] pub extern "C" fn az_node_data_default() -> AzNodeData { NodeData::default() }
-/// Adds a CSS ID (`#something`) to the `NodeData`
-#[no_mangle] pub extern "C" fn az_node_data_add_id(nodedata: &mut AzNodeData, id: AzString) { nodedata.add_id(id); }
-/// Same as [`NodeData::add_id`](#method.add_id), but as a builder method
-#[no_mangle] pub extern "C" fn az_node_data_with_id(mut nodedata: AzNodeData, id: AzString) -> AzNodeData { az_node_data_add_id(&mut nodedata, id); nodedata }
-/// Adds a CSS class (`.something`) to the `NodeData`
-#[no_mangle] pub extern "C" fn az_node_data_add_class(nodedata: &mut AzNodeData, class: AzString) { nodedata.add_class(class); }
-/// Same as [`NodeData::add_class`](#method.add_class), but as a builder method
-#[no_mangle] pub extern "C" fn az_node_data_with_class(mut nodedata: AzNodeData, class: AzString) -> AzNodeData { az_node_data_add_class(&mut nodedata, class); nodedata }
 /// Same as calling [`NodeData::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
 #[no_mangle] pub extern "C" fn az_node_data_set_ids_and_classes(nodedata: &mut AzNodeData, ids_and_classes: AzIdOrClassVec) { nodedata.set_ids_and_classes(ids_and_classes); }
 /// Same as [`NodeData::set_ids_and_classes`](#method.set_ids_and_classes), but as a builder method
 #[no_mangle] pub extern "C" fn az_node_data_with_ids_and_classes(mut nodedata: AzNodeData, ids_and_classes: AzIdOrClassVec) -> AzNodeData { az_node_data_set_ids_and_classes(&mut nodedata, ids_and_classes); nodedata }
+/// Sets a list of callbacks to call on this node
+#[no_mangle] pub extern "C" fn az_node_data_set_callbacks(nodedata: &mut AzNodeData, callbacks: AzCallbackDataVec) { nodedata.set_callbacks(callbacks); }
+/// Same as [`NodeData::set_callbacks`](#method.set_callbacks), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_callbacks(mut nodedata: AzNodeData, callbacks: AzCallbackDataVec) -> AzNodeData { az_node_data_set_callbacks(&mut nodedata, callbacks); nodedata }
 /// Adds a dataset to the `NodeData`
-#[no_mangle] pub extern "C" fn az_node_data_add_dataset(nodedata: &mut AzNodeData, data: AzRefAny) { nodedata.add_dataset(data); }
-/// Same as [`NodeData::add_dataset`](#method.add_dataset), but as a builder method
-#[no_mangle] pub extern "C" fn az_node_data_with_dataset(mut nodedata: AzNodeData, data: AzRefAny) -> AzNodeData { az_node_data_add_dataset(&mut nodedata, data); nodedata }
-/// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
-#[no_mangle] pub extern "C" fn az_node_data_add_callback(nodedata: &mut AzNodeData, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) { nodedata.add_callback(event, callback, data); }
-/// Same as [`NodeData::add_callback`](#method.add_callback), but as a builder method
-#[no_mangle] pub extern "C" fn az_node_data_with_callback(mut nodedata: AzNodeData, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) -> AzNodeData { az_node_data_add_callback(&mut nodedata, event, data, callback); nodedata }
-/// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
-#[no_mangle] pub extern "C" fn az_node_data_add_inline_css(nodedata: &mut AzNodeData, prop: AzCssProperty) { nodedata.add_inline_css(prop); }
-/// Same as [`NodeData::add_inline_css`](#method.add_inline_css), but as a builder method
-#[no_mangle] pub extern "C" fn az_node_data_with_inline_css(mut nodedata: AzNodeData, prop: AzCssProperty) -> AzNodeData { az_node_data_add_inline_css(&mut nodedata, prop); nodedata }
+#[no_mangle] pub extern "C" fn az_node_data_set_dataset(nodedata: &mut AzNodeData, data: AzRefAny) { nodedata.set_dataset(Some(data).into()); }
+/// Same as [`NodeData::set_dataset`](#method.add_dataset), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_dataset(mut nodedata: AzNodeData, data: AzRefAny) -> AzNodeData { az_node_data_set_dataset(&mut nodedata, data); nodedata }
 /// Equivalent to the Rust `NodeData::set_inline_css_props()` function.
 #[no_mangle] pub extern "C" fn az_node_data_set_inline_css_props(nodedata: &mut AzNodeData, props: AzNodeDataInlineCssPropertyVec) { nodedata.set_inline_css_props(props); }
 /// Same as [`NodeData::set_inline_css_props`](#method.set_inline_css_props), but as a builder method
 #[no_mangle] pub extern "C" fn az_node_data_with_inline_css_props(mut nodedata: AzNodeData, props: AzNodeDataInlineCssPropertyVec) -> AzNodeData { az_node_data_set_inline_css_props(&mut nodedata, props); nodedata }
-/// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
-#[no_mangle] pub extern "C" fn az_node_data_add_inline_hover_css(nodedata: &mut AzNodeData, prop: AzCssProperty) { nodedata.add_inline_hover_css(prop); }
-/// Same as [`NodeData::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method
-#[no_mangle] pub extern "C" fn az_node_data_with_inline_hover_css(mut nodedata: AzNodeData, prop: AzCssProperty) -> AzNodeData { az_node_data_add_inline_hover_css(&mut nodedata, prop); nodedata }
-/// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
-#[no_mangle] pub extern "C" fn az_node_data_add_inline_active_css(nodedata: &mut AzNodeData, prop: AzCssProperty) { nodedata.add_inline_active_css(prop); }
-/// Same as [`NodeData::add_inline_active_css`](#method.add_inline_active_css), but as a builder method
-#[no_mangle] pub extern "C" fn az_node_data_with_inline_active_css(mut nodedata: AzNodeData, prop: AzCssProperty) -> AzNodeData { az_node_data_add_inline_active_css(&mut nodedata, prop); nodedata }
-/// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
-#[no_mangle] pub extern "C" fn az_node_data_add_inline_focus_css(nodedata: &mut AzNodeData, prop: AzCssProperty) { nodedata.add_inline_focus_css(prop); }
-/// Same as [`NodeData::add_inline_focus_css`](#method.add_inline_focus_css), but as a builder method
-#[no_mangle] pub extern "C" fn az_node_data_with_inline_focus_css(mut nodedata: AzNodeData, prop: AzCssProperty) -> AzNodeData { az_node_data_add_inline_focus_css(&mut nodedata, prop); nodedata }
 /// Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method
 #[no_mangle] pub extern "C" fn az_node_data_with_clip_mask(mut nodedata: AzNodeData, clip_mask: AzOptionImageMask) -> AzNodeData { az_node_data_set_clip_mask(&mut nodedata, clip_mask); nodedata }
 /// Sets the `clip_mask` attribute of this `NodeData` (default: None)

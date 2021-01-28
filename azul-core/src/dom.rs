@@ -6,7 +6,7 @@ use std::{
 };
 use crate::{
     callbacks::{
-        Callback, CallbackType,
+        Callback,
         IFrameCallback, IFrameCallbackType,
         RefAny, OptionRefAny,
     },
@@ -616,6 +616,7 @@ pub struct NodeData {
 
 // Clone, PartialEq, Eq, Hash, PartialOrd, Ord
 impl_vec!(NodeData, NodeDataVec, NodeDataVecDestructor);
+impl_vec_mut!(NodeData, NodeDataVec);
 impl_vec_debug!(NodeData, NodeDataVec);
 impl_vec_partialord!(NodeData, NodeDataVec);
 impl_vec_ord!(NodeData, NodeDataVec);
@@ -627,9 +628,6 @@ impl_vec_hash!(NodeData, NodeDataVec);
 impl NodeDataVec {
     pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, NodeData> {
         NodeDataContainerRef { internal: self.as_ref() }
-    }
-    pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, NodeData> {
-        NodeDataContainerRefMut { internal: self.as_mut() }
     }
 }
 
@@ -751,56 +749,16 @@ impl NodeData {
 
     /// Creates a new `NodeData` instance from a given `NodeType`
     #[inline]
-    pub fn new(node_type: NodeType) -> Self {
+    pub const fn new(node_type: NodeType) -> Self {
         Self {
             node_type,
             dataset: OptionRefAny::None,
-            ids_and_classes: IdOrClassVec::new(),
-            callbacks: CallbackDataVec::new(),
-            inline_css_props: NodeDataInlineCssPropertyVec::new(),
+            ids_and_classes: IdOrClassVec::from_const_slice(&[]),
+            callbacks: CallbackDataVec::from_const_slice(&[]),
+            inline_css_props: NodeDataInlineCssPropertyVec::from_const_slice(&[]),
             clip_mask: OptionImageMask::None,
             tab_index: OptionTabIndex::None,
         }
-    }
-
-    #[inline]
-    pub fn add_dataset(&mut self, data: RefAny) {
-        self.dataset = Some(data).into();
-    }
-
-    #[inline]
-    pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType, data: RefAny) {
-        self.callbacks.push(CallbackData { event: on.into(), callback: Callback { cb: callback }, data });
-    }
-
-    #[inline]
-    pub fn add_inline_css<P: Into<CssProperty>>(&mut self, property: P) {
-        self.inline_css_props.push(NodeDataInlineCssProperty::Normal(property.into()));
-    }
-
-    #[inline]
-    pub fn add_inline_hover_css<P: Into<CssProperty>>(&mut self, property: P) {
-        self.inline_css_props.push(NodeDataInlineCssProperty::Hover(property.into()));
-    }
-
-    #[inline]
-    pub fn add_inline_active_css<P: Into<CssProperty>>(&mut self, property: P) {
-        self.inline_css_props.push(NodeDataInlineCssProperty::Active(property.into()));
-    }
-
-    #[inline]
-    pub fn add_inline_focus_css<P: Into<CssProperty>>(&mut self, property: P) {
-        self.inline_css_props.push(NodeDataInlineCssProperty::Focus(property.into()));
-    }
-
-    #[inline]
-    pub fn add_id<S: Into<AzString>>(&mut self, id: S) {
-        self.ids_and_classes.push(IdOrClass::Id(id.into()));
-    }
-
-    #[inline]
-    pub fn add_class<S: Into<AzString>>(&mut self, class: S) {
-        self.ids_and_classes.push(IdOrClass::Class(class.into()));
     }
 
     /// Checks whether this node is of the given node type (div, image, text)
@@ -831,13 +789,13 @@ impl NodeData {
 
     /// Shorthand for `NodeData::new(NodeType::Body)`.
     #[inline(always)]
-    pub fn body() -> Self {
+    pub const fn body() -> Self {
         Self::new(NodeType::Body)
     }
 
     /// Shorthand for `NodeData::new(NodeType::Div)`.
     #[inline(always)]
-    pub fn div() -> Self {
+    pub const fn div() -> Self {
         Self::new(NodeType::Div)
     }
 
@@ -957,42 +915,25 @@ impl Dom {
     /// Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and
     /// doesn't allocate, it only allocates once you add at least one child node.
     #[inline]
-    pub fn new(node_type: NodeType) -> Self {
+    pub const fn new(node_type: NodeType) -> Self {
+        const DEFAULT_VEC: DomVec = DomVec::from_const_slice(&[]);
         Self {
             root: NodeData::new(node_type),
-            children: DomVec::new(),
+            children: DEFAULT_VEC,
             estimated_total_children: 0,
         }
     }
 
-    /// Creates an empty DOM with space reserved for `cap` nodes
-    #[inline]
-    pub fn with_capacity(node_type: NodeType, cap: usize) -> Self {
-        Self {
-            root: NodeData::new(node_type),
-            children: DomVec::with_capacity(cap),
-            estimated_total_children: 0,
-        }
-    }
-
-    /// Adds a child DOM to the current DOM
-    #[inline]
-    pub fn add_child(&mut self, child: Self) {
-        self.estimated_total_children += child.estimated_total_children;
-        self.estimated_total_children += 1;
-        self.children.push(child);
-    }
-
     #[inline(always)]
-    pub fn div() -> Self { Self::new(NodeType::Div) }
+    pub const fn div() -> Self { Self::new(NodeType::Div) }
     #[inline(always)]
-    pub fn body() -> Self { Self::new(NodeType::Body) }
+    pub const fn body() -> Self { Self::new(NodeType::Body) }
     #[inline(always)]
     pub fn label<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Label(value.into())) }
     #[inline(always)]
-    pub fn text(text_id: TextId) -> Self { Self::new(NodeType::Text(text_id)) }
+    pub const fn text(text_id: TextId) -> Self { Self::new(NodeType::Text(text_id)) }
     #[inline(always)]
-    pub fn image(image: ImageId) -> Self { Self::new(NodeType::Image(image)) }
+    pub const fn image(image: ImageId) -> Self { Self::new(NodeType::Image(image)) }
     #[inline(always)]
     #[cfg(feature = "opengl")]
     pub fn gl_texture(data: RefAny, callback: GlCallbackType) -> Self { Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data })) }
@@ -1002,48 +943,34 @@ impl Dom {
     #[inline]
     pub fn with_dataset(mut self, data: RefAny) -> Self { self.set_dataset(data); self }
     #[inline]
-    pub fn with_id<S: Into<AzString>>(mut self, id: S) -> Self { self.add_id(id); self }
-    #[inline]
-    pub fn with_class<S: Into<AzString>>(mut self, class: S) -> Self { self.add_class(class); self }
-    #[inline]
-    pub fn with_callback<O: Into<EventFilter>>(mut self, on: O, callback: CallbackType, ptr: RefAny) -> Self { self.add_callback(on, callback, ptr); self }
-    #[inline]
-    pub fn with_child(mut self, child: Self) -> Self { self.add_child(child); self }
+    pub fn with_ids_and_classes(mut self, ids: IdOrClassVec) -> Self { self.set_ids_and_classes(ids); self }
     #[inline]
     pub fn with_inline_css_props(mut self, properties: NodeDataInlineCssPropertyVec) -> Self { self.set_inline_css_props(properties); self }
     #[inline]
-    pub fn with_inline_css<P: Into<CssProperty>>(mut self, property: P) -> Self { self.add_inline_css(property); self }
+    pub fn with_callbacks(mut self, callbacks: CallbackDataVec) -> Self { self.set_callbacks(callbacks); self }
     #[inline]
-    pub fn with_inline_hover_css<P: Into<CssProperty>>(mut self, property: P) -> Self { self.add_inline_hover_css(property); self }
-    #[inline]
-    pub fn with_inline_active_css<P: Into<CssProperty>>(mut self, property: P) -> Self { self.add_inline_active_css(property); self }
-    #[inline]
-    pub fn with_inline_focus_css<P: Into<CssProperty>>(mut self, property: P) -> Self { self.add_inline_focus_css(property); self }
+    pub fn with_children(mut self, children: DomVec) -> Self { self.set_children(children); self }
     #[inline]
     pub fn with_clip_mask(mut self, clip_mask: OptionImageMask) -> Self { self.set_clip_mask(clip_mask); self }
     #[inline]
     pub fn with_tab_index(mut self, tab_index: OptionTabIndex) -> Self { self.set_tab_index(tab_index); self }
 
     #[inline]
-    pub fn set_dataset(&mut self, data: RefAny){ self.root.set_dataset(Some(data).into()); }
-    #[inline]
-    pub fn add_id<S: Into<AzString>>(&mut self, id: S) { self.root.add_id(id); }
-    #[inline]
-    pub fn add_class<S: Into<AzString>>(&mut self, class: S) { self.root.add_class(class); }
+    pub fn set_dataset(&mut self, data: RefAny) { self.root.set_dataset(Some(data).into()); }
     #[inline(always)]
     pub fn set_ids_and_classes(&mut self, ids: IdOrClassVec) { self.root.set_ids_and_classes(ids); }
     #[inline]
-    pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType, data: RefAny) { self.root.add_callback(on, callback, data); }
-    #[inline]
     pub fn set_inline_css_props(&mut self, properties: NodeDataInlineCssPropertyVec) { self.root.set_inline_css_props(properties); }
     #[inline]
-    pub fn add_inline_css<P: Into<CssProperty>>(&mut self, property: P) { self.root.add_inline_css(property); }
+    pub fn set_callbacks(&mut self, callbacks: CallbackDataVec) { self.root.set_callbacks(callbacks); }
     #[inline]
-    pub fn add_inline_hover_css<P: Into<CssProperty>>(&mut self, property: P) { self.root.add_inline_hover_css(property); }
-    #[inline]
-    pub fn add_inline_active_css<P: Into<CssProperty>>(&mut self, property: P) { self.root.add_inline_active_css(property); }
-    #[inline]
-    pub fn add_inline_focus_css<P: Into<CssProperty>>(&mut self, property: P) { self.root.add_inline_focus_css(property); }
+    pub fn set_children(&mut self, children: DomVec) {
+        self.estimated_total_children = 0;
+        for c in children.iter() {
+            self.estimated_total_children += c.estimated_total_children + 1;
+        }
+        self.children = children;
+    }
     #[inline(always)]
     pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.root.set_clip_mask(clip_mask); }
     #[inline]
@@ -1167,9 +1094,9 @@ impl From<Dom> for CompactDom {
 
             // note: somehow convert this into a non-recursive form later on!
             fn convert_dom_into_compact_dom_internal(
-                dom: Dom,
-                node_hierarchy: &mut NodeHierarchyRefMut,
-                node_data: &mut NodeDataContainerRefMut<NodeData>,
+                dom: &Dom,
+                node_hierarchy: &mut [Node],
+                node_data: &mut [NodeData],
                 parent_node_id: NodeId,
                 node: Node,
                 cur_node_id: &mut usize
@@ -1185,13 +1112,13 @@ impl From<Dom> for CompactDom {
                 //        - child of child 4 [7]
 
                 // Write node into the arena here!
-                node_hierarchy[parent_node_id] = node;
-                node_data[parent_node_id] = dom.root;
+                node_hierarchy[parent_node_id.index()] = node.clone();
+                node_data[parent_node_id.index()] = dom.root.clone();
                 *cur_node_id += 1;
 
                 let mut previous_sibling_id = None;
                 let children_len = dom.children.len();
-                for (child_index, child_dom) in dom.children.into_iter().enumerate() {
+                for (child_index, child_dom) in dom.children.iter().enumerate() {
                     let child_node_id = NodeId::new(*cur_node_id);
                     let is_last_child = (child_index + 1) == children_len;
                     let child_dom_is_empty = child_dom.children.is_empty();
@@ -1208,10 +1135,10 @@ impl From<Dom> for CompactDom {
             }
 
             // Pre-allocate all nodes (+ 1 root node)
-            let default_node_data = NodeData::div();
+            const DEFAULT_NODE_DATA: NodeData = NodeData::div();
 
-            let mut node_hierarchy = NodeHierarchy { internal: vec![Node::ROOT; dom.estimated_total_children + 1] };
-            let mut node_data = NodeDataContainer { internal: vec![default_node_data; dom.estimated_total_children + 1] };
+            let mut node_hierarchy = vec![Node::ROOT; dom.estimated_total_children + 1];
+            let mut node_data = vec![DEFAULT_NODE_DATA; dom.estimated_total_children + 1];
             let mut cur_node_id = 0;
 
             let root_node_id = NodeId::ZERO;
@@ -1222,11 +1149,11 @@ impl From<Dom> for CompactDom {
                 last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
             };
 
-            convert_dom_into_compact_dom_internal(dom, &mut node_hierarchy.as_ref_mut(), &mut node_data.as_ref_mut(), root_node_id, root_node, &mut cur_node_id);
+            convert_dom_into_compact_dom_internal(&dom, &mut node_hierarchy, &mut node_data, root_node_id, root_node, &mut cur_node_id);
 
             CompactDom {
-                node_hierarchy,
-                node_data,
+                node_hierarchy: NodeHierarchy { internal: node_hierarchy },
+                node_data: NodeDataContainer { internal: node_data },
                 root: root_node_id,
             }
         }

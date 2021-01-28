@@ -134,6 +134,7 @@ impl TableViewState {
 
         use azul::css::*;
         use azul::str::String as AzString;
+        use azul::vec::DomVec as AzDomVec;
         use azul::vec::StringVec as AzStringVec;
         use azul::vec::StyleBackgroundContentVec;
         use azul::vec::NodeDataInlineCssPropertyVec;
@@ -216,8 +217,7 @@ impl TableViewState {
         // first column: contains the "top left rect" + the column
         let row_number_wrapper = Dom::div()
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROW_NUMBER_WRAPPER_STYLE))
-        .with_child(top_left_empty_rect)
-        .with_child(row_numbers);
+        .with_children(AzDomVec::from(vec![top_left_empty_rect, row_numbers]));
 
         const ACTIVE_SELECTION_HANDLE_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::position(LayoutPosition::Absolute)),
@@ -273,7 +273,7 @@ impl TableViewState {
             // TODO: animate / fade in / fade out
             Normal(CssProperty::opacity(if self.selection.is_some() { StyleOpacity::const_new(1) } else { StyleOpacity::const_new(0) })),
         ]))
-        .with_child(current_active_selection_handle);
+        .with_children(AzDomVec::from(vec![current_active_selection_handle]));
 
         let columns_table_container = columns.map(|col_idx| {
 
@@ -337,8 +337,7 @@ impl TableViewState {
             // Column name
             Dom::div()
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMN_NAME_STYLE))
-            .with_child(column_names)
-            .with_child(rows_in_this_column)
+            .with_children(AzDomVec::from(vec![column_names, rows_in_this_column]))
         })
         .collect::<Dom>()
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMNS_TABLE_CONTAINER_STYLE));
@@ -349,7 +348,7 @@ impl TableViewState {
         ];
 
         let columns_table_container = columns_table_container
-        .with_child(current_active_selection);
+        .with_children(AzDomVec::from(vec![current_active_selection]));
 
         const IFRAME_DOM_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::display(LayoutDisplay::Flex)),
@@ -359,8 +358,7 @@ impl TableViewState {
 
         let dom = Dom::div()
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(IFRAME_DOM_CONTAINER_STYLE))
-        .with_child(row_number_wrapper)
-        .with_child(columns_table_container);
+        .with_children(AzDomVec::from(vec![row_number_wrapper, columns_table_container]));
 
         let styled = dom.style(Css::empty());
 

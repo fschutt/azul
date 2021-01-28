@@ -1491,7 +1491,7 @@ impl GlContextPtr {
     pub fn tex_buffer(&self, target: GLenum, internal_format: GLenum, buffer: GLuint) { self.get().tex_buffer(target, internal_format, buffer) }
     pub fn shader_source(&self, shader: GLuint, strings: StringVec) {
         fn str_to_bytes(input: &str) -> Vec<u8> { let mut v: Vec<u8> = input.into(); v.push(0); v }
-        let shaders_as_bytes = strings.into_iter().map(|s| str_to_bytes(s.as_str())).collect::<Vec<_>>();
+        let shaders_as_bytes = strings.iter().map(|s| str_to_bytes(s.as_str())).collect::<Vec<_>>();
         let shaders_as_bytes = shaders_as_bytes.iter().map(|s| s.as_ref()).collect::<Vec<_>>();
         self.get().shader_source(shader, &shaders_as_bytes)
     }
@@ -1632,7 +1632,7 @@ impl GlContextPtr {
     pub fn depth_range(&self, near: f64, far: f64) { self.get().depth_range(near, far) }
     pub fn get_active_attrib(&self, program: GLuint, index: GLuint) -> GetActiveAttribReturn { let r = self.get().get_active_attrib(program, index); GetActiveAttribReturn { _0: r.0, _1: r.1, _2: r.2.into() } }
     pub fn get_active_uniform(&self, program: GLuint, index: GLuint) -> GetActiveUniformReturn { let r = self.get().get_active_uniform(program, index); GetActiveUniformReturn { _0: r.0, _1: r.1, _2: r.2.into() } }
-    pub fn get_active_uniforms_iv(&self, program: GLuint, indices: GLuintVec, pname: GLenum) -> GLintVec { self.get().get_active_uniforms_iv(program, indices.into(), pname).into() }
+    pub fn get_active_uniforms_iv(&self, program: GLuint, indices: GLuintVec, pname: GLenum) -> GLintVec { self.get().get_active_uniforms_iv(program, indices.into_library_owned_vec(), pname).into() }
     pub fn get_active_uniform_block_i(&self, program: GLuint, index: GLuint, pname: GLenum) -> GLint { self.get().get_active_uniform_block_i(program, index, pname) }
     pub fn get_active_uniform_block_iv(&self, program: GLuint, index: GLuint, pname: GLenum) -> GLintVec { self.get().get_active_uniform_block_iv(program, index, pname).into() }
     pub fn get_active_uniform_block_name(&self, program: GLuint, index: GLuint) -> AzString { self.get().get_active_uniform_block_name(program, index).into() }
@@ -2251,10 +2251,11 @@ impl Drop for GlShader {
     }
 }
 
+#[repr(C)]
 #[derive(Clone)]
 pub struct VertexShaderCompileError {
     pub error_id: i32,
-    pub info_log: String
+    pub info_log: AzString
 }
 
 impl_traits_for_gl_object!(VertexShaderCompileError, error_id);
@@ -2265,10 +2266,11 @@ impl ::std::fmt::Display for VertexShaderCompileError {
     }
 }
 
+#[repr(C)]
 #[derive(Clone)]
 pub struct FragmentShaderCompileError {
     pub error_id: i32,
-    pub info_log: String
+    pub info_log: AzString
 }
 
 impl_traits_for_gl_object!(FragmentShaderCompileError, error_id);
@@ -2301,10 +2303,11 @@ impl ::std::fmt::Debug for GlShaderCompileError {
     }
 }
 
+#[repr(C)]
 #[derive(Clone)]
 pub struct GlShaderLinkError {
     pub error_id: i32,
-    pub info_log: String
+    pub info_log: AzString
 }
 
 impl_traits_for_gl_object!(GlShaderLinkError, error_id);

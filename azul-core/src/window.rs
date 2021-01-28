@@ -542,7 +542,7 @@ pub fn update_full_window_state(
     full_window_state: &mut FullWindowState,
     window_state: &WindowState
 ) {
-    full_window_state.title = window_state.title.clone().into();
+    full_window_state.title = window_state.title.clone().into_library_owned_string();
     full_window_state.size = window_state.size.into();
     full_window_state.position = window_state.position.into();
     full_window_state.flags = window_state.flags;
@@ -1133,7 +1133,7 @@ impl From<WindowState> for FullWindowState {
     fn from(window_state: WindowState) -> FullWindowState {
         FullWindowState {
             theme: window_state.theme,
-            title: window_state.title.into(),
+            title: window_state.title.into_library_owned_string(),
             size: window_state.size,
             position: window_state.position.into(),
             flags: window_state.flags,

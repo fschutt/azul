@@ -28,9 +28,6 @@ impl CascadeInfoVec {
     pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, CascadeInfo> {
         NodeDataContainerRef { internal: self.as_ref() }
     }
-    pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, CascadeInfo> {
-        NodeDataContainerRefMut { internal: self.as_mut() }
-    }
 }
 
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
