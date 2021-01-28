@@ -58,6 +58,7 @@ impl AzAppPtr {
     pub fn downcast_modify<F: FnOnce(&mut App)>(&mut self, f: F) { unsafe { f(&mut *(self.ptr as *mut App)) } }
     pub fn get(self) -> App {
         let p = unsafe { Box::<App>::from_raw(self.ptr as *mut App) };
+        ::std::mem::forget(self); // prevent double free because of Drop
         *p
     }
 }
@@ -203,6 +204,7 @@ fn run_inner(app: App) -> ! {
             &mut active_windows,
             &mut resources,
         );
+
 
         if let Some(init_callback) = create_callback.as_ref() {
             if let Some(window_id) = id.as_ref() {

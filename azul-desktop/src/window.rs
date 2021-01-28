@@ -849,7 +849,7 @@ impl Window {
         } = new_state;
 
         self.internal.current_window_state.theme = theme;
-        self.internal.current_window_state.title = title.into_library_owned_string();
+        self.internal.current_window_state.title = title;
         self.internal.current_window_state.size = size;
         self.internal.current_window_state.position = position;
         self.internal.current_window_state.flags = flags;

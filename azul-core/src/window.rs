@@ -542,7 +542,7 @@ pub fn update_full_window_state(
     full_window_state: &mut FullWindowState,
     window_state: &WindowState
 ) {
-    full_window_state.title = window_state.title.clone().into_library_owned_string();
+    full_window_state.title = window_state.title.clone();
     full_window_state.size = window_state.size.into();
     full_window_state.position = window_state.position.into();
     full_window_state.flags = window_state.flags;
@@ -1013,7 +1013,7 @@ pub struct FullWindowState {
     /// emit a `WindowEventFilter::ThemeChanged` event
     pub theme: WindowTheme,
     /// Current title of the window
-    pub title: String,
+    pub title: AzString,
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
     /// The x and y position, or None to let the WM decide where to put the window (default)
@@ -1072,7 +1072,7 @@ impl Default for FullWindowState {
     fn default() -> Self {
         Self {
             theme: WindowTheme::default(),
-            title: DEFAULT_TITLE.into(),
+            title: AzString::from_const_str(DEFAULT_TITLE),
             size: WindowSize::default(),
             position: WindowPosition::Uninitialized,
             flags: WindowFlags::default(),
@@ -1133,7 +1133,7 @@ impl From<WindowState> for FullWindowState {
     fn from(window_state: WindowState) -> FullWindowState {
         FullWindowState {
             theme: window_state.theme,
-            title: window_state.title.into_library_owned_string(),
+            title: window_state.title,
             size: window_state.size,
             position: window_state.position.into(),
             flags: window_state.flags,
