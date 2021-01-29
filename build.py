@@ -429,7 +429,8 @@ def generate_rust_dll(api_data):
 
             class_has_custom_destructor = "custom_destructor" in c.keys() and c["custom_destructor"]
             class_is_callback_typedef = "callback_typedef" in c.keys() and (len(c["callback_typedef"].keys()) > 0)
-            treat_external_as_ptr = "external" in c.keys() and "is_boxed_object" in c.keys() and c["is_boxed_object"]
+            is_boxed_object = "is_boxed_object" in c.keys() and c["is_boxed_object"]
+            treat_external_as_ptr = "external" in c.keys() and is_boxed_object
 
             # Small structs and enums are stack-allocated in order to save on indirection
             # They don't have destructors, since they
@@ -458,7 +459,7 @@ def generate_rust_dll(api_data):
                 if class_is_const:
                     code += "pub static " + class_ptr_name + ": " + prefix + c["const"] + " = " + external_path + ";\r\n"
                 elif class_is_boxed_object:
-                    structs_map[class_ptr_name] = {"external": external_path, "derive": struct_derive, "doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void" }}]}
+                    structs_map[class_ptr_name] = {"external": external_path, "is_boxed_object": is_boxed_object, "custom_destructor": class_has_custom_destructor, "derive": struct_derive, "doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void" }}]}
                     if treat_external_as_ptr:
                         code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                         code += "pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
@@ -466,16 +467,14 @@ def generate_rust_dll(api_data):
                         code += "#[repr(C)] pub struct " + class_ptr_name + " { pub ptr: *mut c_void }\r\n"
                 else:
                     if "struct_fields" in c.keys():
-                        structs_map[class_ptr_name] = {"external": external_path, "derive": struct_derive, "doc": struct_doc, "struct": c["struct_fields"]}
+                        structs_map[class_ptr_name] = {"external": external_path, "is_boxed_object": is_boxed_object, "custom_destructor": class_has_custom_destructor, "derive": struct_derive, "doc": struct_doc, "struct": c["struct_fields"]}
                     elif "enum_fields" in c.keys():
-                        structs_map[class_ptr_name] = {"external": external_path, "derive": struct_derive, "doc": struct_doc, "enum": c["enum_fields"]}
+                        structs_map[class_ptr_name] = {"external": external_path, "is_boxed_object": is_boxed_object, "custom_destructor": class_has_custom_destructor, "derive": struct_derive, "doc": struct_doc, "enum": c["enum_fields"]}
 
                     code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                     code += "pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
-
             else:
-                structs_map[class_ptr_name] = {"derive": struct_derive, "doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void"}}]}
-                code += "#[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
+                raise Exception("structs without 'external' key are not allowed!")
 
             if "constructors" in c.keys():
                 for fn_name in c["constructors"]:
@@ -551,97 +550,27 @@ def generate_rust_dll(api_data):
                     code += fn_body
                     code += " }\r\n"
 
-            lifetime = ""
-            if "<'a>" in class_name:
-                lifetime = "<'a>"
-
             if c_is_stack_allocated:
                 if class_can_be_copied:
                     # intentionally empty, no destructor necessary
                     pass
-                else:
-                    if not(class_is_const or class_is_callback_typedef or class_has_custom_destructor):
-                        # Generate the destructor for an enum
-                        stack_delete_body = ""
-                        if "destructor" in c.keys():
-                            stack_delete_body = c["destructor"]
-                        else:
-                            if class_is_small_enum(c):
-                                stack_delete_body += "match object { "
-                                for enum_variant in c["enum_fields"]:
-                                    enum_variant_name = list(enum_variant.keys())[0]
-                                    enum_variant = list(enum_variant.values())[0]
-                                    if "type" in enum_variant.keys():
-                                        stack_delete_body += c["external"] + "::" + enum_variant_name + "(_) => { }, "
-                                    else:
-                                        stack_delete_body += c["external"] + "::" + enum_variant_name + " => { }, "
-                                stack_delete_body += "}\r\n"
+                elif class_has_custom_destructor:
+                    # az_item_delete()
+                    code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
+                    functions_map[str(to_snake_case(class_ptr_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
+                    code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_delete(object: &mut " + class_ptr_name + ") { "
+                    code += " unsafe { core::ptr::drop_in_place(object); } "
+                    code += "}\r\n"
 
-                    if not(class_is_const or class_is_callback_typedef) or class_has_custom_destructor:
-                        # az_item_delete()
-                        code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-                        functions_map[str(to_snake_case(class_ptr_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
-                        code += "#[no_mangle] #[allow(unused_variables)] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { "
-                        code += stack_delete_body
-                        code += "}\r\n"
-
-                    if class_can_be_cloned and lifetime == "":
-                        # az_item_deep_copy()
-                        code += "/// Clones the object\r\n"
-                        functions_map[str(to_snake_case(class_ptr_name) + "_deep_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
-                        code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_deep_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
-                        code += "object.clone()"
-                        code += " }\r\n"
-
+                if treat_external_as_ptr and class_can_be_cloned:
+                    # az_item_deep_copy()
+                    code += "/// Clones the object\r\n"
+                    functions_map[str(to_snake_case(class_ptr_name) + "_deep_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
+                    code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_deep_copy(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
+                    code += "object.clone()"
+                    code += " }\r\n"
             else:
                 raise Exception("type " + class_name + "is not stack allocated!")
-
-            if class_can_derive_debug:
-                # az_item_fmt_debug()
-                code += "/// Creates a string with the debug representation of the object\r\n"
-                functions_map[str(to_snake_case(class_ptr_name) + "_fmt_debug")] = ["object: &" + class_ptr_name, "AzString"];
-                code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_fmt_debug" + lifetime + "(object: &" + class_ptr_name + ") -> AzString { "
-                if c_is_stack_allocated:
-                    code += "format!(\"{:#?}\", object).into()"
-                else:
-                    code += "" + to_snake_case(class_ptr_name) + "_downcast_ref(object, |o| format!(\"{:#?}\", o)).into()"
-                code += " }\r\n"
-
-            if class_has_partialeq:
-                # az_item_partialeq()
-                code += "/// Compares two instances of `" + class_ptr_name + "` for equality\r\n"
-                functions_map[str(to_snake_case(class_ptr_name) + "_partial_eq")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "bool"];
-                code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_partial_eq" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> bool { "
-                code += "a.eq(b) "
-                code += "}\r\n"
-
-            if class_has_partialord:
-                # az_item_partialcmp()
-                code += "/// Compares two instances of `" + class_ptr_name + "` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). \r\n"
-                functions_map[str(to_snake_case(class_ptr_name) + "_partial_cmp")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "u8"];
-                code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_partial_cmp" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> u8 { "
-                code += "use std::cmp::Ordering::*;"
-                code += "match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } "
-                code += "}\r\n"
-
-            if class_has_ord:
-                # az_item_cmp()
-                code += "/// Compares two instances of `" + class_ptr_name + "` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. \r\n"
-                functions_map[str(to_snake_case(class_ptr_name) + "_cmp")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "u8"];
-                code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_cmp" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> u8 { "
-                code += "use std::cmp::Ordering::*; "
-                code += "match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } "
-                code += "}\r\n"
-
-            if class_can_be_hashed:
-                # az_item_hash()
-                code += "/// Returns the hash of a `" + class_ptr_name + "` instance \r\n"
-                functions_map[str(to_snake_case(class_ptr_name) + "_hash")] = ["object: &" + class_ptr_name, "u64"];
-                code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_hash" + lifetime + "(object: &" + class_ptr_name + ") -> u64 { "
-                code += "use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; "
-                code += "let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() "
-                code += "}\r\n"
-
 
     sort_structs_result = sort_structs_map(structs_map)
     structs_map = sort_structs_result[0]
@@ -759,7 +688,7 @@ def sort_structs_map(structs_map):
 # Generate the RUST code for the struct layout of the final API
 # This function has to be called twice in order to ensure that the layout of the struct
 # matches the layout in the binary
-def generate_structs(api_data, structs_map):
+def generate_structs(api_data, structs_map, autoderive):
 
     code = ""
 
@@ -772,6 +701,15 @@ def generate_structs(api_data, structs_map):
             code += "    /// `" + struct_name + "` struct\r\n"
 
         class_is_callback_typedef = "callback_typedef" in struct.keys() and (len(struct["callback_typedef"].keys()) > 0)
+        class_can_be_copied = "derive" in struct.keys() and "Copy" in struct["derive"]
+        class_has_custom_destructor = "custom_destructor" in struct.keys() and struct["custom_destructor"]
+        class_can_be_cloned = True
+        if "clone" in struct.keys():
+            class_can_be_cloned = struct["clone"]
+
+        is_boxed_object = "is_boxed_object" in struct.keys() and struct["is_boxed_object"]
+        treat_external_as_ptr = "external" in struct.keys() and is_boxed_object
+
         if class_is_callback_typedef:
             fn_ptr = generate_rust_callback_fn_type(api_data, struct["callback_typedef"])
             code += "    pub type " + struct_name + " = " + fn_ptr + ";\r\n"
@@ -780,8 +718,21 @@ def generate_structs(api_data, structs_map):
 
             # for LayoutCallback and RefAny, etc. the #[derive(Debug)] has to be implemented manually
             opt_derive_debug = "#[derive(Debug)]"
-            if struct_name == "AzAtomicRefCount":
+            opt_derive_clone = "#[derive(Clone)]"
+            opt_derive_copy = "#[derive(Copy)]"
+            opt_derive_other = "#[derive(PartialEq, PartialOrd)]"
+
+            if not(class_can_be_copied):
+                opt_derive_copy = ""
+
+            if not(class_can_be_cloned) or (treat_external_as_ptr and class_can_be_cloned):
+                opt_derive_clone = ""
+
+            if class_has_custom_destructor or not(autoderive) or struct_name == "AzAtomicRefCount" or struct_name == "AzU8VecRef":
+                opt_derive_copy = ""
                 opt_derive_debug = ""
+                opt_derive_clone = ""
+                opt_derive_other = ""
 
             for field in struct:
                 if "type" in list(field.values())[0]:
@@ -794,8 +745,9 @@ def generate_structs(api_data, structs_map):
                         found_c_is_callback_typedef = "callback_typedef" in found_c.keys() and found_c["callback_typedef"]
                         if found_c_is_callback_typedef:
                             opt_derive_debug = ""
+                            opt_derive_other = ""
 
-            code += "    #[repr(C)] "  + opt_derive_debug + " pub struct " + struct_name + " {\r\n"
+            code += "    #[repr(C)] "  + opt_derive_debug + " " + opt_derive_clone + " " + opt_derive_other + " " + opt_derive_copy + " pub struct " + struct_name + " {\r\n"
 
             for field in struct:
                 if type(field) is str:
@@ -837,6 +789,18 @@ def generate_structs(api_data, structs_map):
 
             # don't derive(Debug) for enums with function pointers in their variants
             opt_derive_debug = "#[derive(Debug)]"
+            opt_derive_clone = "#[derive(Clone)]"
+            opt_derive_copy = "#[derive(Copy)]"
+            opt_derive_other = "#[derive(PartialEq, PartialOrd)]"
+
+            if not(class_can_be_copied):
+                opt_derive_copy = ""
+
+            if class_has_custom_destructor or not(autoderive):
+                opt_derive_copy = ""
+                opt_derive_debug = ""
+                opt_derive_clone = ""
+                opt_derive_other = ""
 
             for variant in enum:
                 variant = list(variant.values())[0]
@@ -851,8 +815,9 @@ def generate_structs(api_data, structs_map):
                         found_c_is_callback_typedef = "callback_typedef" in found_c.keys() and found_c["callback_typedef"]
                         if found_c_is_callback_typedef:
                             opt_derive_debug = ""
+                            opt_derive_other = ""
 
-            code += "    " + repr + " " + opt_derive_debug + " pub enum " + struct_name + " {\r\n"
+            code += "    " + repr + " " + opt_derive_debug + " " + opt_derive_clone + " " + opt_derive_other + " " + opt_derive_copy + " pub enum " + struct_name + " {\r\n"
             for variant in enum:
                 variant_name = list(variant.keys())[0]
                 variant = list(variant.values())[0]
@@ -881,27 +846,7 @@ def generate_rust_dll_bindings(api_data, structs_map, functions_map):
 
     code += read_file(root_folder + "/api/_patches/azul.rs/dll.rs")
 
-    code += generate_structs(api_data, structs_map)
-
-    for struct_name in structs_map.keys():
-        struct = structs_map[struct_name]
-
-        class_has_partialeq = "derive" in struct.keys() and "PartialEq" in struct["derive"]
-        class_has_eq = "derive" in struct.keys() and "Eq" in struct["derive"]
-        class_has_partialord = "derive" in struct.keys() and "PartialOrd" in struct["derive"]
-        class_has_ord = "derive" in struct.keys() and "Ord" in struct["derive"]
-        class_can_be_hashed = "derive" in struct.keys() and "Hash" in struct["derive"]
-
-        if class_has_partialeq:
-            code += "\r\n    impl PartialEq for " + struct_name + " { fn eq(&self, rhs: &" + struct_name + ") -> bool { unsafe { crate::dll::" + to_snake_case(struct_name) + "_partial_eq(self, rhs) } } }\r\n"
-        if class_has_eq:
-            code += "\r\n    impl Eq for " + struct_name + " { }\r\n"
-        if class_has_partialord:
-            code += "\r\n    impl PartialOrd for " + struct_name + " { fn partial_cmp(&self, rhs: &" + struct_name + ") -> Option<core::cmp::Ordering> { use core::cmp::Ordering::*; match unsafe { crate::dll::" + to_snake_case(struct_name) + "_partial_cmp(self, rhs) } { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }\r\n"
-        if class_has_ord:
-            code += "\r\n    impl Ord for " + struct_name + " { fn cmp(&self, rhs: &" + struct_name + ") -> core::cmp::Ordering { use core::cmp::Ordering::*; match unsafe { crate::dll::" + to_snake_case(struct_name) + "_cmp(self, rhs) } { 0 => Less, 1 => Equal, _ => Greater } } }\r\n"
-        if class_can_be_hashed:
-            code += "\r\n    impl core::hash::Hash for " + struct_name + " { fn hash<H: core::hash::Hasher>(&self, state: &mut H) { (unsafe { crate::dll::" + to_snake_case(struct_name) + "_hash(self) }).hash(state) } }\r\n"
+    code += generate_structs(api_data, structs_map, True)
 
     code += "\r\n"
     code += "\r\n"
@@ -963,6 +908,8 @@ def generate_rust_api(api_data, structs_map, functions_map):
             class_is_const = "const" in c.keys()
             class_is_callback_typedef = "callback_typedef" in c.keys() and (len(c["callback_typedef"]) > 0)
             class_has_custom_destructor = "custom_destructor" in c.keys() and c["custom_destructor"]
+            treat_external_as_ptr = "external" in c.keys() and "is_boxed_object" in c.keys() and c["is_boxed_object"]
+
             class_can_be_cloned = True
             if "clone" in c.keys():
                 class_can_be_cloned = c["clone"]
@@ -972,14 +919,12 @@ def generate_rust_api(api_data, structs_map, functions_map):
             if c_is_stack_allocated:
                 class_ptr_name = prefix + class_name
 
-            code += "\r\n\r\n"
-
             if "doc" in c.keys():
                 code += "    /// " + c["doc"] + "\r\n    "
             else:
                 code += "    /// `" + class_name + "` struct\r\n    "
 
-            code += "#[doc(inline)] pub use crate::dll::" + class_ptr_name + " as " + class_name + ";\r\n\r\n"
+            code += "\r\n#[doc(inline)] pub use crate::dll::" + class_ptr_name + " as " + class_name + ";"
 
             should_emit_impl = not(class_is_const or class_is_callback_typedef) and (("constructors" in c.keys() and len(c["constructors"]) > 0) or ("functions" in c.keys() and len(c["functions"]) > 0))
             if should_emit_impl:
@@ -1068,21 +1013,9 @@ def generate_rust_api(api_data, structs_map, functions_map):
 
                 code += "    }\r\n\r\n" # end of class
 
-            lifetime = ""
-            if "<'a>" in class_name:
-                lifetime = "<'a>"
-
-            if class_can_derive_debug:
-                code += "    impl core::fmt::Debug for " + class_name + " { fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result { write!(f, \"{}\", unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_fmt_debug(self) }) } }\r\n"
-
-            if class_can_be_copied:
-                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { *self } }\r\n"
-                code += "    impl Copy for " + class_name + " { }\r\n"
-            elif c_is_stack_allocated and class_can_be_cloned and lifetime == "" and not(class_is_const or class_is_callback_typedef):
+            if treat_external_as_ptr and class_can_be_cloned:
                 code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_deep_copy(self) } } }\r\n"
 
-            if not(class_is_const or class_is_callback_typedef or class_can_be_copied or class_has_custom_destructor):
-                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_delete(self) }; } }\r\n"
 
         module_file_map[module_name] = code
 
@@ -1174,7 +1107,7 @@ def generate_c_callback_fn_type(api_data, callback_typedef):
 # is the same as in the generated bindings
 def generate_size_test(api_data, structs_map):
 
-    generated_structs = generate_structs(api_data, structs_map)
+    generated_structs = generate_structs(api_data, structs_map, False)
 
     test_str = ""
 
@@ -1273,8 +1206,8 @@ def build_examples():
         # "layout_tests",
         # "list",
         # "opengl",
-        # "public",
-        "heap_corruption_test",
+        "public",
+        # "heap_corruption_test",
         # "slider",
         # "svg",
         # "table",
@@ -1311,7 +1244,7 @@ def build_docs():
 
 def main():
     print("removing old azul.dll...")
-    cleanup_start()
+    # cleanup_start()
     print("verifying that LLVM / clang-cl is installed...\r\n")
     assure_clang_is_installed()
     print("generating API...")

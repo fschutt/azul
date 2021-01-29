@@ -772,7 +772,9 @@ impl StyledDom {
         use std::iter::FromIterator;
         use rayon::prelude::*;
 
+        let instant = std::time::Instant::now();
         let mut compact_dom: CompactDom = dom.into();
+        println!("converting into compact dom took {:?}", std::time::Instant::now() - instant);
         let non_leaf_nodes = compact_dom.node_hierarchy.as_ref().get_parents_sorted_by_depth();
         let node_hierarchy: AzNodeVec = compact_dom.node_hierarchy.internal.clone().iter().map(|i| (*i).into()).collect::<Vec<AzNode>>().into();
         let mut styled_nodes = vec![StyledNode { tag_id: OptionTagId::None, state: StyledNodeState::new() }; compact_dom.len()];
@@ -1048,6 +1050,8 @@ impl StyledDom {
         .par_iter()
         .map(|(depth, node_id)| ParentWithNodeDepth { depth: *depth, node_id: AzNodeId::from_crate_internal(Some(*node_id)) })
         .collect::<Vec<_>>();
+
+        println!("total: {:?}", std::time::Instant::now() - instant);
 
         StyledDom {
             root: AzNodeId::from_crate_internal(Some(compact_dom.root)),
@@ -1480,6 +1484,7 @@ impl StyledDom {
 
 impl Drop for StyledDom {
     fn drop(&mut self) {
+        println!("StyledDom: css property cache dropped!");
         let _ = unsafe { Box::from_raw(self.css_property_cache as *mut CssPropertyCache) };
     }
 }

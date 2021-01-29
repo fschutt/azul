@@ -3,6 +3,7 @@ target/
 *.pdf
 *.sublime-project
 .vscode/*
+.vs/*
 *.log
 .idea/*
 out.txt

@@ -777,16 +777,6 @@ impl NodeData {
         self.ids_and_classes.iter().any(|id_or_class| id_or_class.as_class() == Some(class))
     }
 
-    pub fn calculate_node_data_hash(&self) -> DomHash {
-
-        use std::collections::hash_map::DefaultHasher as HashAlgorithm;
-
-        let mut hasher = HashAlgorithm::default();
-        self.hash(&mut hasher);
-
-        DomHash(hasher.finish())
-    }
-
     /// Shorthand for `NodeData::new(NodeType::Body)`.
     #[inline(always)]
     pub const fn body() -> Self {
@@ -875,6 +865,16 @@ impl NodeData {
     pub fn with_clip_mask(self, clip_mask: OptionImageMask) -> Self { Self { clip_mask, .. self } }
     #[inline(always)]
     pub fn with_tab_index(self, tab_index: OptionTabIndex) -> Self { Self { tab_index, .. self } }
+
+    pub fn calculate_node_data_hash(&self) -> DomHash {
+
+        use std::collections::hash_map::DefaultHasher as HashAlgorithm;
+
+        let mut hasher = HashAlgorithm::default();
+        self.hash(&mut hasher);
+
+        DomHash(hasher.finish())
+    }
 
     pub fn debug_print_start(&self, close_self: bool) -> String {
         let html_type = self.node_type.get_path();

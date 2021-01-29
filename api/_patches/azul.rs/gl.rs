@@ -78,6 +78,18 @@
         fn as_slice(&self) -> &[u8] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
+    impl ::core::fmt::Debug for U8VecRef {
+        fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            self.as_slice().fmt(f)
+        }
+    }
+
+    impl Clone for U8VecRef {
+        fn clone(&self) -> Self {
+            U8VecRef::from(self.as_slice())
+        }
+    }
+
     impl PartialOrd for U8VecRef {
         fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
             self.as_slice().partial_cmp(rhs.as_slice())

@@ -36,9 +36,12 @@
 use azul::prelude::*;
 use azul::style::StyledDom;
 use azul::callbacks::{
-    UpdateScreen, TimerCallbackInfo, CallbackInfo, TimerCallbackReturn,
+    UpdateScreen, TimerCallbackInfo,
+    CallbackInfo, TimerCallbackReturn,
 };
 use azul::task::{TimerId, Timer, TerminateTimer};
+use azul::vec::DomVec;
+use azul::str::String as AzString;
 
 #[derive(Debug)]
 struct Data {
@@ -46,20 +49,48 @@ struct Data {
 }
 
 extern "C" fn layout(data: &RefAny, _info: LayoutInfo) -> StyledDom {
+    let mut instant = std::time::Instant::now();
+    println!("in function layout!");
     let data = data.downcast_ref::<Data>().unwrap();
-    Dom::body().with_child(
-        Dom::label("h".into())
-    ).style(Css::empty())
+    println!("downcast_ref succeeded in {:?}", std::time::Instant::now() - instant);
+    let dom = Dom::body()
+    .with_children(DomVec::from(vec![Dom::label(AzString::from_const_str("h"))]));
+    println!("dom construction succeeded in {:?}", std::time::Instant::now() - instant);
+
+    let dom = dom.style(Css::empty());
+    println!("styled dom: {:#?} in {:?}", dom, std::time::Instant::now() - instant);
+    dom
 }
 
 fn main() {
     use azul::dom::NodeData;
-    use azul::vec::CssPropertyVec;
-    use azul::vec::StringVec;
+    use azul::dom::NodeType;
 
-    println!("hello!");
-    let data = Data { counter: 5 };
-    let app = App::new(RefAny::new(data), AppConfig::default());
-    println!("app created!");
-    app.run(WindowCreateOptions::new(layout));
+    let data = RefAny::new(Data { counter: 5 });
+
+    const DOM_STRING: &str = "hello";
+    const DOM_CHILD: &[Dom] = &[Dom {
+        root: NodeData::new(NodeType::Label(AzString::from_const_str(DOM_STRING))),
+        children: DomVec::from_const_slice(&[]),
+        estimated_total_children: 0,
+    }];
+    const DOM_CHILDREN: DomVec = DomVec::from_const_slice(DOM_CHILD);
+    const DOM: Dom = Dom {
+        root: NodeData::body(),
+        children: DOM_CHILDREN,
+        estimated_total_children: 2,
+    };
+
+    let mut counter = 0;
+
+    loop {
+        let mut instant = std::time::Instant::now();
+        println!("in function layout!");
+        // let data = data.downcast_ref::<Data>().unwrap();
+        let dom = DOM.style(Css::empty());
+        println!("styled dom: {:#?} in {:?}", dom, std::time::Instant::now() - instant);
+    }
+
+    // let app = App::new(RefAny::new(data), AppConfig::default());
+    // app.run(WindowCreateOptions::new(layout));
 }

@@ -94,6 +94,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
             res
         }
 
+        #[allow(dead_code)]
         #[inline(always)]
         unsafe fn get_unchecked(&self, index: usize) -> &$struct_type {
             let v1: &[$struct_type] = self.as_ref();

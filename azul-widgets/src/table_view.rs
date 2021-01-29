@@ -203,7 +203,7 @@ impl TableViewState {
             ];
 
             // NOTE: to_string() heap allocation is unavoidable
-            NodeData::label((row_idx + 1).to_string().into())
+            NodeData::label((row_idx + 1).to_string())
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROW_NUMBERS_STYLE))
         })
         .collect::<Dom>()
@@ -297,7 +297,7 @@ impl TableViewState {
             let slice = &column_name_arr[zeroed_characters..];
             let s = unsafe { ::core::str::from_utf8_unchecked(slice) };
 
-            let column_names = Dom::label(s.to_string().into())
+            let column_names = Dom::label(s.to_string())
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMN_NAMES_WRAPPER_STYLE));
 
             // rows in this column, laid out vertically

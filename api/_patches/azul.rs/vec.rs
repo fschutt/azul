@@ -1,5 +1,6 @@
     use core::iter;
     use core::fmt;
+    use core::cmp;
 
     use alloc::vec::{self, Vec};
     use alloc::slice;
@@ -24,7 +25,41 @@
             }
         }
 
+        impl PartialEq for $destructor_name {
+            fn eq(&self, rhs: &Self) -> bool {
+                match (self, rhs) {
+                    ($destructor_name::DefaultRust, $destructor_name::DefaultRust) => true,
+                    ($destructor_name::NoDestructor, $destructor_name::NoDestructor) => true,
+                    ($destructor_name::External(a), $destructor_name::External(b)) => (a as *const _ as usize).eq(&(b as *const _ as usize)),
+                    _ => false,
+                }
+            }
+        }
+
+        impl PartialOrd for $destructor_name {
+            fn partial_cmp(&self, _rhs: &Self) -> Option<cmp::Ordering> {
+                None
+            }
+        }
+
         impl $struct_name {
+
+            #[inline(always)]
+            pub fn clone_self(&self) -> Self {
+                match self.destructor {
+                    $destructor_name::NoDestructor => {
+                        Self {
+                            ptr: self.ptr,
+                            len: self.len,
+                            cap: self.cap,
+                            destructor: $destructor_name::NoDestructor,
+                        }
+                    }
+                    $destructor_name::External(_) | $destructor_name::DefaultRust => {
+                        Self::from_vec(self.as_ref().to_vec())
+                    }
+                }
+            }
 
             #[inline]
             pub fn iter(&self) -> slice::Iter<$struct_type> {
@@ -131,6 +166,30 @@
                     $destructor_name::NoDestructor => { },
                     $destructor_name::External(f) => { f(self); }
                 }
+            }
+        }
+
+        impl fmt::Debug for $struct_name {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                self.as_ref().fmt(f)
+            }
+        }
+
+        impl PartialOrd for $struct_name {
+            fn partial_cmp(&self, rhs: &Self) -> Option<cmp::Ordering> {
+                self.as_ref().partial_cmp(rhs.as_ref())
+            }
+        }
+
+        impl Clone for $struct_name {
+            fn clone(&self) -> Self {
+                self.clone_self()
+            }
+        }
+
+        impl PartialEq for $struct_name {
+            fn eq(&self, rhs: &Self) -> bool {
+                self.as_ref().eq(rhs.as_ref())
             }
         }
     )}
