@@ -2147,6 +2147,7 @@
 				"RefAny": {
 					"external": "azul_impl::callbacks::RefAny",
 					"doc": "RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)",
+					"is_boxed_object": true,
 					"struct_fields": [
 						{"_internal_ptr":  {"type": "*const c_void", "doc": "Pointer to the type-erased struct"}},
 						{"_internal_len":  {"type": "usize", "doc": "Length of Vec holding type-erased struct"}},
@@ -4269,6 +4270,13 @@
 						{"node_id": {"type": "NodeId"}}
 					]
 				},
+				"CssPropertyCache": {
+					"external": "azul_impl::styled_dom::CssPropertyCachePtr",
+					"is_boxed_object": true,
+					"struct_fields": [
+						{"ptr": {"type": "*mut c_void" } }
+					]
+				},
 				"StyledDom": {
 					"external": "azul_impl::styled_dom::StyledDom",
 					"clone": false,
@@ -4280,7 +4288,7 @@
 						{"cascade_info": {"type": "CascadeInfoVec" }},
 						{"tag_ids_to_node_ids": {"type": "TagIdsToNodeIdsMappingVec" }},
 						{"non_leaf_nodes": {"type": "ParentWithNodeDepthVec" }},
-						{"css_property_cache": {"type": "*mut c_void" }}
+						{"css_property_cache": {"type": "CssPropertyCache" }}
 					],
 					"constructors": {
 						"new": {
@@ -4781,7 +4789,7 @@
 				"GLsyncPtr": {
 					"external": "azul_impl::gl::GLsyncPtr",
 					"doc": "C-ABI stable reexport of `*const gleam::gl::GLsync`",
-					"treat_as_boxed_object": true,
+					"is_boxed_object": true,
 					"clone": false,
 					"struct_fields": [
 						{"ptr": {"type": "*const c_void"}}
@@ -4798,6 +4806,7 @@
 				},
 				"GlContextPtr": {
 					"external": "azul_impl::gl::GlContextPtr",
+					"is_boxed_object": true,
 					"struct_fields": [
 						{"ptr": {"type": "*const c_void"}},
 						{"renderer_type": {"type": "RendererType"}}
@@ -6554,6 +6563,7 @@
 				"Texture": {
 					"external": "azul_impl::gl::Texture",
 					"clone": false,
+					"is_boxed_object": true,
 					"struct_fields": [
 						{"texture_id": {"type": "u32", "doc": "Raw OpenGL texture ID"}},
 						{"format": {"type": "RawImageFormat", "doc": "Format of this texture (rgba, brga, etc.)"}},
@@ -6887,7 +6897,7 @@
 				},
 				"Svg": {
 					"external": "azul_impl::svg::Svg",
-					"treat_as_boxed_object": true,
+					"is_boxed_object": true,
 					"struct_fields": [
 						{"ptr": {"type": "*mut c_void"}}
 					],
@@ -6904,7 +6914,7 @@
 				},
 				"SvgXmlNode": {
 					"external": "azul_impl::svg::SvgXmlNode",
-					"treat_as_boxed_object": true,
+					"is_boxed_object": true,
 					"struct_fields": [
 						{"ptr": {"type": "*mut c_void"}}
 					]
@@ -7041,8 +7051,9 @@
 				"ThreadSender": {
 					"external": "azul_impl::task::ThreadSender",
 					"clone": false,
+					"is_boxed_object": true,
 					"struct_fields": [
-						{"ptr": {"type": "*const c_void"}}
+						{"ptr": {"type": "*mut c_void"}}
 					],
 					"functions": {
 						"send": {
@@ -7058,8 +7069,9 @@
 				"ThreadReceiver": {
 					"external": "azul_impl::task::ThreadReceiver",
 					"clone": false,
+					"is_boxed_object": true,
 					"struct_fields": [
-						{"ptr": {"type": "*const c_void"}}
+						{"ptr": {"type": "*mut c_void"}}
 					],
 					"functions": {
 						"receive": {

@@ -223,6 +223,17 @@ mod dll {
     #[repr(C)]     pub struct AzAtomicRefCount {
         pub(crate) ptr: *const c_void,
     }
+    /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
+    #[repr(C)]     pub struct AzRefAny {
+        pub _internal_ptr: *const c_void,
+        pub _internal_len: usize,
+        pub _internal_layout_size: usize,
+        pub _internal_layout_align: usize,
+        pub type_id: u64,
+        pub type_name: AzString,
+        pub sharing_info: AzAtomicRefCount,
+        pub custom_destructor: AzRefAnyDestructorType,
+    }
     /// Re-export of rust-allocated (stack based) `NodeTypePath` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzNodeTypePath {
         Body,
@@ -486,6 +497,10 @@ mod dll {
         Center,
         Right,
     }
+    /// Re-export of rust-allocated (stack based) `CssPropertyCache` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzCssPropertyCache {
+        pub(crate) ptr: *mut c_void,
+    }
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOn {
         MouseOver,
@@ -624,6 +639,23 @@ mod dll {
         Gl,
         Gles,
     }
+    /// C-ABI stable reexport of `*const gleam::gl::GLsync`
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLsyncPtr {
+        pub(crate) ptr: *const c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `GlContextPtr` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlContextPtr {
+        pub(crate) ptr: *const c_void,
+        pub renderer_type: AzRendererType,
+    }
+    /// Re-export of rust-allocated (stack based) `Texture` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTexture {
+        pub texture_id: u32,
+        pub format: AzRawImageFormat,
+        pub flags: AzTextureFlags,
+        pub size: AzPhysicalSizeU32,
+        pub gl_context: AzGlContextPtr,
+    }
     /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzRawImageFormat {
         R8,
@@ -663,6 +695,14 @@ mod dll {
         Empty,
         System,
     }
+    /// Re-export of rust-allocated (stack based) `Svg` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvg {
+        pub(crate) ptr: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvgXmlNode {
+        pub(crate) ptr: *mut c_void,
+    }
     /// Re-export of rust-allocated (stack based) `SvgLineJoin` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgLineJoin {
         Miter,
@@ -674,6 +714,14 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzTerminateTimer {
         Terminate,
         Continue,
+    }
+    /// Re-export of rust-allocated (stack based) `ThreadSender` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadSender {
+        pub(crate) ptr: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadReceiver {
+        pub(crate) ptr: *mut c_void,
     }
     /// Re-export of rust-allocated (stack based) `ThreadSendMsg` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzThreadSendMsg {
@@ -1222,6 +1270,11 @@ mod dll {
         None,
         Some(AzThreadSendMsg),
     }
+    /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionRefAny {
+        None,
+        Some(AzRefAny),
+    }
     /// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionWindowTheme {
         None,
@@ -1261,6 +1314,11 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionVirtualKeyCode {
         None,
         Some(AzVirtualKeyCode),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionTexture` struct
+    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTexture {
+        None,
+        Some(AzTexture),
     }
     /// Re-export of rust-allocated (stack based) `OptionInstant` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionInstant {
@@ -1310,6 +1368,10 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `GlCallback` struct
     #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzGlCallback {
         pub cb: AzGlCallbackType,
+    }
+    /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlCallbackReturn {
+        pub texture: AzOptionTexture,
     }
     /// Re-export of rust-allocated (stack based) `TimerCallback` struct
     #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzTimerCallback {
@@ -2153,6 +2215,16 @@ mod dll {
         pub depth: usize,
         pub node_id: AzNodeId,
     }
+    /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGlTextureNode {
+        pub callback: AzGlCallback,
+        pub data: AzRefAny,
+    }
+    /// Re-export of rust-allocated (stack based) `IFrameNode` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameNode {
+        pub callback: AzIFrameCallback,
+        pub data: AzRefAny,
+    }
     /// Re-export of rust-allocated (stack based) `NotEventFilter` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzNotEventFilter {
         Hover(AzHoverEventFilter),
@@ -2176,52 +2248,52 @@ mod dll {
         pub len: usize,
     }
     /// C-ABI stable reexport of `&mut [u8]`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzU8VecRefMut {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzU8VecRefMut {
         pub(crate) ptr: *mut u8,
         pub len: usize,
     }
     /// C-ABI stable reexport of `&[f32]`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzF32VecRef {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzF32VecRef {
         pub(crate) ptr: *const f32,
         pub len: usize,
     }
     /// C-ABI stable reexport of `&[i32]`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzI32VecRef {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzI32VecRef {
         pub(crate) ptr: *const i32,
         pub len: usize,
     }
     /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGLuintVecRef {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLuintVecRef {
         pub(crate) ptr: *const u32,
         pub len: usize,
     }
     /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGLenumVecRef {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLenumVecRef {
         pub(crate) ptr: *const u32,
         pub len: usize,
     }
     /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGLintVecRefMut {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLintVecRefMut {
         pub(crate) ptr: *mut i32,
         pub len: usize,
     }
     /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGLint64VecRefMut {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLint64VecRefMut {
         pub(crate) ptr: *mut i64,
         pub len: usize,
     }
     /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGLbooleanVecRefMut {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLbooleanVecRefMut {
         pub(crate) ptr: *mut u8,
         pub len: usize,
     }
     /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGLfloatVecRefMut {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLfloatVecRefMut {
         pub(crate) ptr: *mut f32,
         pub len: usize,
     }
     /// C-ABI stable reexport of `&str`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzRefstr {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRefstr {
         pub(crate) ptr: *const u8,
         pub len: usize,
     }
@@ -2229,15 +2301,6 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGetProgramBinaryReturn {
         pub _0: AzU8Vec,
         pub _1: u32,
-    }
-    /// C-ABI stable reexport of `*const gleam::gl::GLsync`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGLsyncPtr {
-        pub(crate) ptr: *const c_void,
-    }
-    /// Re-export of rust-allocated (stack based) `GlContextPtr` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGlContextPtr {
-        pub(crate) ptr: *const c_void,
-        pub renderer_type: AzRendererType,
     }
     /// Re-export of rust-allocated (stack based) `TextureFlags` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzTextureFlags {
@@ -2310,14 +2373,6 @@ mod dll {
         Height(u32),
         Zoom(f32),
     }
-    /// Re-export of rust-allocated (stack based) `Svg` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvg {
-        pub(crate) ptr: *mut c_void,
-    }
-    /// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgXmlNode {
-        pub(crate) ptr: *mut c_void,
-    }
     /// Re-export of rust-allocated (stack based) `SvgDashPattern` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgDashPattern {
         pub offset: usize,
@@ -2338,13 +2393,10 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzTimerId {
         pub id: usize,
     }
-    /// Re-export of rust-allocated (stack based) `ThreadSender` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzThreadSender {
-        pub(crate) ptr: *const c_void,
-    }
-    /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzThreadReceiver {
-        pub(crate) ptr: *const c_void,
+    /// Re-export of rust-allocated (stack based) `ThreadWriteBackMsg` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadWriteBackMsg {
+        pub data: AzRefAny,
+        pub callback: AzWriteBackCallback,
     }
     /// Re-export of rust-allocated (stack based) `ThreadId` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzThreadId {
@@ -2726,7 +2778,7 @@ mod dll {
         Some(AzDuration),
     }
     /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionU8VecRef {
+    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionU8VecRef {
         None,
         Some(AzU8VecRef),
     }
@@ -2802,26 +2854,15 @@ mod dll {
         pub hidpi_factor: f32,
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameCallbackInfo {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameCallbackInfo {
         pub resources: *const c_void,
         pub bounds: AzHidpiAdjustedBounds,
     }
     /// Re-export of rust-allocated (stack based) `GlCallbackInfo` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGlCallbackInfo {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlCallbackInfo {
         pub gl_context: *const AzGlContextPtr,
         pub resources: *const c_void,
         pub bounds: AzHidpiAdjustedBounds,
-    }
-    /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
-    #[repr(C)]  #[derive(Clone)]   pub struct AzRefAny {
-        pub _internal_ptr: *const c_void,
-        pub _internal_len: usize,
-        pub _internal_layout_size: usize,
-        pub _internal_layout_align: usize,
-        pub type_id: u64,
-        pub type_name: AzString,
-        pub sharing_info: AzAtomicRefCount,
-        pub custom_destructor: AzRefAnyDestructorType,
     }
     /// Re-export of rust-allocated (stack based) `CssNthChildSelector` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzCssNthChildSelector {
@@ -2912,16 +2953,6 @@ mod dll {
         Id(AzString),
         Class(AzString),
     }
-    /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGlTextureNode {
-        pub callback: AzGlCallback,
-        pub data: AzRefAny,
-    }
-    /// Re-export of rust-allocated (stack based) `IFrameNode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameNode {
-        pub callback: AzIFrameCallback,
-        pub data: AzRefAny,
-    }
     /// List of core DOM node types built-into by `azul`
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzNodeType {
         Div,
@@ -2957,7 +2988,7 @@ mod dll {
         pub severity: u32,
     }
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzRefstrVecRef {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRefstrVecRef {
         pub(crate) ptr: *const AzRefstr,
         pub len: usize,
     }
@@ -2972,14 +3003,6 @@ mod dll {
         pub _0: i32,
         pub _1: u32,
         pub _2: AzString,
-    }
-    /// Re-export of rust-allocated (stack based) `Texture` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzTexture {
-        pub texture_id: u32,
-        pub format: AzRawImageFormat,
-        pub flags: AzTextureFlags,
-        pub size: AzPhysicalSizeU32,
-        pub gl_context: AzGlContextPtr,
     }
     /// Re-export of rust-allocated (stack based) `ImageSource` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzImageSource {
@@ -3043,10 +3066,10 @@ mod dll {
         pub timeout: AzOptionDuration,
         pub callback: AzTimerCallback,
     }
-    /// Re-export of rust-allocated (stack based) `ThreadWriteBackMsg` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzThreadWriteBackMsg {
-        pub data: AzRefAny,
-        pub callback: AzWriteBackCallback,
+    /// Re-export of rust-allocated (stack based) `ThreadReceiveMsg` struct
+    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzThreadReceiveMsg {
+        WriteBack(AzThreadWriteBackMsg),
+        Update(AzUpdateScreen),
     }
     /// Re-export of rust-allocated (stack based) `RawWindowHandle` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzRawWindowHandle {
@@ -3146,20 +3169,10 @@ mod dll {
         pub cap: usize,
         pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
     }
-    /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionRefAny {
-        None,
-        Some(AzRefAny),
-    }
     /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTaskBarIcon {
         None,
         Some(AzTaskBarIcon),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionTexture` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTexture {
-        None,
-        Some(AzTexture),
     }
     /// Re-export of rust-allocated (stack based) `XmlStreamError` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzXmlStreamError {
@@ -3177,12 +3190,8 @@ mod dll {
         InvalidCommentEnd,
         InvalidCharacterData,
     }
-    /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGlCallbackReturn {
-        pub texture: AzOptionTexture,
-    }
     /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzLayoutInfo {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzLayoutInfo {
         pub window_size: *const AzWindowSize,
         pub window_size_width_stops: *mut c_void,
         pub window_size_height_stops: *mut c_void,
@@ -3275,13 +3284,13 @@ mod dll {
         pub fields: AzVertexAttributeVec,
     }
     /// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzVertexArrayObject {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzVertexArrayObject {
         pub vertex_layout: AzVertexLayout,
         pub vao_id: u32,
         pub gl_context: AzGlContextPtr,
     }
     /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzVertexBuffer {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzVertexBuffer {
         pub vertex_buffer_id: u32,
         pub vertex_buffer_len: usize,
         pub vao: AzVertexArrayObject,
@@ -3299,11 +3308,6 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgStyle {
         Fill(AzSvgFillStyle),
         Stroke(AzSvgStrokeStyle),
-    }
-    /// Re-export of rust-allocated (stack based) `ThreadReceiveMsg` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzThreadReceiveMsg {
-        WriteBack(AzThreadWriteBackMsg),
-        Update(AzUpdateScreen),
     }
     /// Re-export of rust-allocated (stack based) `WindowsWindowOptions` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzWindowsWindowOptions {
@@ -3535,7 +3539,7 @@ mod dll {
         UnknownToken(AzSvgParseErrorPosition),
     }
     /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzCallbackInfo {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzCallbackInfo {
         pub current_window_state: *const c_void,
         pub modifiable_window_state: *mut AzWindowState,
         pub gl_context: *const AzGlContextPtr,
@@ -3555,7 +3559,7 @@ mod dll {
         pub cursor_in_viewport: AzOptionLayoutPoint,
     }
     /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzTimerCallbackInfo {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTimerCallbackInfo {
         pub callback_info: AzCallbackInfo,
         pub frame_start: AzInstant,
         pub call_count: usize,
@@ -3632,7 +3636,7 @@ mod dll {
         Dynamic(AzDynamicCssProperty),
     }
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzStyledDom {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzStyledDom {
         pub root: AzNodeId,
         pub node_hierarchy: AzNodeVec,
         pub node_data: AzNodeDataVec,
@@ -3640,7 +3644,7 @@ mod dll {
         pub cascade_info: AzCascadeInfoVec,
         pub tag_ids_to_node_ids: AzTagIdsToNodeIdsMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
-        pub css_property_cache: *mut c_void,
+        pub css_property_cache: AzCssPropertyCache,
     }
     /// Re-export of rust-allocated (stack based) `Dom` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzDom {
@@ -3698,7 +3702,7 @@ mod dll {
         NoFocus,
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallbackReturn` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameCallbackReturn {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameCallbackReturn {
         pub dom: AzStyledDom,
         pub size: AzLayoutRect,
         pub virtual_size: AzOptionLayoutRect,
@@ -3779,6 +3783,7 @@ mod dll {
         pub(crate) fn az_parent_with_node_depth_vec_delete(_:  &mut AzParentWithNodeDepthVec);
         pub(crate) fn az_node_data_vec_delete(_:  &mut AzNodeDataVec);
         pub(crate) fn az_instant_now() -> AzInstant;
+        pub(crate) fn az_instant_delete(_:  &mut AzInstant);
         pub(crate) fn az_instant_deep_copy(_:  &AzInstant) -> AzInstant;
         pub(crate) fn az_duration_milliseconds(_:  usize) -> AzDuration;
         pub(crate) fn az_duration_seconds(_:  usize) -> AzDuration;
@@ -3786,6 +3791,7 @@ mod dll {
         pub(crate) fn az_app_new(_:  AzRefAny, _:  AzAppConfig) -> AzApp;
         pub(crate) fn az_app_add_window(_:  &mut AzApp, _:  AzWindowCreateOptions);
         pub(crate) fn az_app_run(_:  AzApp, _:  AzWindowCreateOptions);
+        pub(crate) fn az_app_delete(_:  &mut AzApp);
         pub(crate) fn az_hidpi_adjusted_bounds_get_logical_size(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize;
         pub(crate) fn az_hidpi_adjusted_bounds_get_physical_size(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32;
         pub(crate) fn az_hidpi_adjusted_bounds_get_hidpi_factor(_:  &AzHidpiAdjustedBounds) -> f32;
@@ -3818,6 +3824,7 @@ mod dll {
         pub(crate) fn az_atomic_ref_count_decrease_ref(_:  &AzAtomicRefCount);
         pub(crate) fn az_atomic_ref_count_increase_refmut(_:  &AzAtomicRefCount);
         pub(crate) fn az_atomic_ref_count_decrease_refmut(_:  &AzAtomicRefCount);
+        pub(crate) fn az_atomic_ref_count_delete(_:  &mut AzAtomicRefCount);
         pub(crate) fn az_atomic_ref_count_deep_copy(_:  &AzAtomicRefCount) -> AzAtomicRefCount;
         pub(crate) fn az_ref_any_new_c(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny;
         pub(crate) fn az_ref_any_is_type(_:  &AzRefAny, _:  u64) -> bool;
@@ -3828,6 +3835,8 @@ mod dll {
         pub(crate) fn az_ref_any_decrease_ref(_:  &AzRefAny);
         pub(crate) fn az_ref_any_increase_refmut(_:  &AzRefAny);
         pub(crate) fn az_ref_any_decrease_refmut(_:  &AzRefAny);
+        pub(crate) fn az_ref_any_delete(_:  &mut AzRefAny);
+        pub(crate) fn az_ref_any_deep_copy(_:  &AzRefAny) -> AzRefAny;
         pub(crate) fn az_layout_info_window_width_larger_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
         pub(crate) fn az_layout_info_window_width_smaller_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
         pub(crate) fn az_layout_info_window_height_larger_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
@@ -3836,9 +3845,12 @@ mod dll {
         pub(crate) fn az_css_from_string(_:  AzString) -> AzCss;
         pub(crate) fn az_color_u_from_str(_:  AzString) -> AzColorU;
         pub(crate) fn az_color_u_to_hash(_:  &AzColorU) -> AzString;
+        pub(crate) fn az_css_property_cache_delete(_:  &mut AzCssPropertyCache);
+        pub(crate) fn az_css_property_cache_deep_copy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn az_styled_dom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn az_styled_dom_append(_:  &mut AzStyledDom, _:  AzStyledDom);
         pub(crate) fn az_on_into_event_filter(_:  AzOn) -> AzEventFilter;
+        pub(crate) fn az_g_lsync_ptr_delete(_:  &mut AzGLsyncPtr);
         pub(crate) fn az_gl_context_ptr_get_type(_:  &AzGlContextPtr) -> AzGlType;
         pub(crate) fn az_gl_context_ptr_buffer_data_untyped(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32);
         pub(crate) fn az_gl_context_ptr_buffer_sub_data_untyped(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  *const c_void);
@@ -4060,6 +4072,9 @@ mod dll {
         pub(crate) fn az_gl_context_ptr_copy_sub_texture_3d_angle(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8);
         pub(crate) fn az_gl_context_ptr_buffer_storage(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32);
         pub(crate) fn az_gl_context_ptr_flush_mapped_buffer_range(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize);
+        pub(crate) fn az_gl_context_ptr_delete(_:  &mut AzGlContextPtr);
+        pub(crate) fn az_gl_context_ptr_deep_copy(_:  &AzGlContextPtr) -> AzGlContextPtr;
+        pub(crate) fn az_texture_delete(_:  &mut AzTexture);
         pub(crate) fn az_texture_flags_default() -> AzTextureFlags;
         pub(crate) fn az_text_id_new() -> AzTextId;
         pub(crate) fn az_image_id_new() -> AzImageId;
@@ -4068,13 +4083,19 @@ mod dll {
         pub(crate) fn az_svg_parse_options_default() -> AzSvgParseOptions;
         pub(crate) fn az_svg_render_options_default() -> AzSvgRenderOptions;
         pub(crate) fn az_svg_parse(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
+        pub(crate) fn az_svg_delete(_:  &mut AzSvg);
+        pub(crate) fn az_svg_deep_copy(_:  &AzSvg) -> AzSvg;
+        pub(crate) fn az_svg_xml_node_delete(_:  &mut AzSvgXmlNode);
+        pub(crate) fn az_svg_xml_node_deep_copy(_:  &AzSvgXmlNode) -> AzSvgXmlNode;
         pub(crate) fn az_timer_id_unique() -> AzTimerId;
         pub(crate) fn az_timer_new(_:  AzRefAny, _:  AzTimerCallbackType) -> AzTimer;
         pub(crate) fn az_timer_with_delay(_:  AzTimer, _:  AzDuration) -> AzTimer;
         pub(crate) fn az_timer_with_interval(_:  AzTimer, _:  AzDuration) -> AzTimer;
         pub(crate) fn az_timer_with_timeout(_:  AzTimer, _:  AzDuration) -> AzTimer;
         pub(crate) fn az_thread_sender_send(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool;
+        pub(crate) fn az_thread_sender_delete(_:  &mut AzThreadSender);
         pub(crate) fn az_thread_receiver_receive(_:  &mut AzThreadReceiver) -> AzOptionThreadSendMsg;
+        pub(crate) fn az_thread_receiver_delete(_:  &mut AzThreadReceiver);
         pub(crate) fn az_window_state_new(_:  AzLayoutCallbackType) -> AzWindowState;
         pub(crate) fn az_window_state_default() -> AzWindowState;
         pub(crate) fn az_window_create_options_new(_:  AzLayoutCallbackType) -> AzWindowCreateOptions;
@@ -4931,6 +4952,7 @@ pub mod time {
     }
 
     impl Clone for Instant { fn clone(&self) -> Self { unsafe { crate::dll::az_instant_deep_copy(self) } } }
+    impl Drop for Instant { fn drop(&mut self) { unsafe { crate::dll::az_instant_delete(self) } } }
     /// `Duration` struct
     
 #[doc(inline)] pub use crate::dll::AzDuration as Duration;    impl Duration {
@@ -4969,6 +4991,7 @@ pub mod app {
         pub fn run(self, window: WindowCreateOptions)  { unsafe { crate::dll::az_app_run(self, window) } }
     }
 
+    impl Drop for App { fn drop(&mut self) { unsafe { crate::dll::az_app_delete(self) } } }
 }
 
 pub mod callbacks {
@@ -5243,6 +5266,7 @@ pub mod callbacks {
     }
 
     impl Clone for AtomicRefCount { fn clone(&self) -> Self { unsafe { crate::dll::az_atomic_ref_count_deep_copy(self) } } }
+    impl Drop for AtomicRefCount { fn drop(&mut self) { unsafe { crate::dll::az_atomic_ref_count_delete(self) } } }
     /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
     
 #[doc(inline)] pub use crate::dll::AzRefAny as RefAny;    impl RefAny {
@@ -5266,6 +5290,8 @@ pub mod callbacks {
         pub fn decrease_refmut(&self)  { unsafe { crate::dll::az_ref_any_decrease_refmut(self) } }
     }
 
+    impl Clone for RefAny { fn clone(&self) -> Self { unsafe { crate::dll::az_ref_any_deep_copy(self) } } }
+    impl Drop for RefAny { fn drop(&mut self) { unsafe { crate::dll::az_ref_any_delete(self) } } }
     /// `LayoutInfo` struct
     
 #[doc(inline)] pub use crate::dll::AzLayoutInfo as LayoutInfo;    impl LayoutInfo {
@@ -6267,7 +6293,11 @@ pub mod style {
     
 #[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMapping as TagIdToNodeIdMapping;    /// `ParentWithNodeDepth` struct
     
-#[doc(inline)] pub use crate::dll::AzParentWithNodeDepth as ParentWithNodeDepth;    /// `StyledDom` struct
+#[doc(inline)] pub use crate::dll::AzParentWithNodeDepth as ParentWithNodeDepth;    /// `CssPropertyCache` struct
+    
+#[doc(inline)] pub use crate::dll::AzCssPropertyCache as CssPropertyCache;    impl Clone for CssPropertyCache { fn clone(&self) -> Self { unsafe { crate::dll::az_css_property_cache_deep_copy(self) } } }
+    impl Drop for CssPropertyCache { fn drop(&mut self) { unsafe { crate::dll::az_css_property_cache_delete(self) } } }
+    /// `StyledDom` struct
     
 #[doc(inline)] pub use crate::dll::AzStyledDom as StyledDom;    impl StyledDom {
         /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
@@ -8330,7 +8360,8 @@ pub mod gl {
     
 #[doc(inline)] pub use crate::dll::AzGetActiveAttribReturn as GetActiveAttribReturn;    /// C-ABI stable reexport of `*const gleam::gl::GLsync`
     
-#[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;    /// C-ABI stable reexport of `(i32, u32, AzString)`
+#[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;    impl Drop for GLsyncPtr { fn drop(&mut self) { unsafe { crate::dll::az_g_lsync_ptr_delete(self) } } }
+    /// C-ABI stable reexport of `(i32, u32, AzString)`
     
 #[doc(inline)] pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;    /// `GlContextPtr` struct
     
@@ -8779,9 +8810,12 @@ pub mod gl {
         pub fn flush_mapped_buffer_range(&self, target: u32, offset: isize, length: isize)  { unsafe { crate::dll::az_gl_context_ptr_flush_mapped_buffer_range(self, target, offset, length) } }
     }
 
+    impl Clone for GlContextPtr { fn clone(&self) -> Self { unsafe { crate::dll::az_gl_context_ptr_deep_copy(self) } } }
+    impl Drop for GlContextPtr { fn drop(&mut self) { unsafe { crate::dll::az_gl_context_ptr_delete(self) } } }
     /// `Texture` struct
     
-#[doc(inline)] pub use crate::dll::AzTexture as Texture;    /// `TextureFlags` struct
+#[doc(inline)] pub use crate::dll::AzTexture as Texture;    impl Drop for Texture { fn drop(&mut self) { unsafe { crate::dll::az_texture_delete(self) } } }
+    /// `TextureFlags` struct
     
 #[doc(inline)] pub use crate::dll::AzTextureFlags as TextureFlags;    impl TextureFlags {
         /// Default texture flags (not opaque, not a video texture)
@@ -8897,9 +8931,13 @@ pub mod svg {
         pub fn parse(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::result::ResultSvgSvgParseError { unsafe { crate::dll::az_svg_parse(svg_bytes, parse_options) } }
     }
 
+    impl Clone for Svg { fn clone(&self) -> Self { unsafe { crate::dll::az_svg_deep_copy(self) } } }
+    impl Drop for Svg { fn drop(&mut self) { unsafe { crate::dll::az_svg_delete(self) } } }
     /// `SvgXmlNode` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgXmlNode as SvgXmlNode;    /// `SvgLineJoin` struct
+#[doc(inline)] pub use crate::dll::AzSvgXmlNode as SvgXmlNode;    impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::az_svg_xml_node_deep_copy(self) } } }
+    impl Drop for SvgXmlNode { fn drop(&mut self) { unsafe { crate::dll::az_svg_xml_node_delete(self) } } }
+    /// `SvgLineJoin` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgLineJoin as SvgLineJoin;    /// `SvgDashPattern` struct
     
@@ -8947,6 +8985,7 @@ pub mod task {
         pub fn send(&mut self, msg: ThreadReceiveMsg)  -> bool { unsafe { crate::dll::az_thread_sender_send(self, msg) } }
     }
 
+    impl Drop for ThreadSender { fn drop(&mut self) { unsafe { crate::dll::az_thread_sender_delete(self) } } }
     /// `ThreadReceiver` struct
     
 #[doc(inline)] pub use crate::dll::AzThreadReceiver as ThreadReceiver;    impl ThreadReceiver {
@@ -8954,6 +8993,7 @@ pub mod task {
         pub fn receive(&mut self)  -> crate::option::OptionThreadSendMsg { unsafe { crate::dll::az_thread_receiver_receive(self) } }
     }
 
+    impl Drop for ThreadReceiver { fn drop(&mut self) { unsafe { crate::dll::az_thread_receiver_delete(self) } } }
     /// `ThreadSendMsg` struct
     
 #[doc(inline)] pub use crate::dll::AzThreadSendMsg as ThreadSendMsg;    /// `ThreadReceiveMsg` struct

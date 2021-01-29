@@ -121,6 +121,36 @@ impl StyledNodeVec {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, PartialEq)]
+pub struct CssPropertyCachePtr {
+    pub ptr: *mut CssPropertyCache,
+}
+
+unsafe impl Send for CssPropertyCachePtr { } // necessary to build display list in parallel
+unsafe impl Sync for CssPropertyCachePtr { } // necessary to build display list in parallel
+
+impl CssPropertyCachePtr {
+    pub fn new(cache: CssPropertyCache) -> Self {
+        Self {
+            ptr: Box::into_raw(Box::new(cache))
+        }
+    }
+}
+
+impl Clone for CssPropertyCachePtr {
+    fn clone(&self) -> Self {
+        let p = unsafe { &*self.ptr };
+        Self::new(p.clone())
+    }
+}
+
+impl Drop for CssPropertyCachePtr {
+    fn drop(&mut self) {
+        let _ = unsafe { Box::from_raw(self.ptr) };
+    }
+
+}
 // NOTE: To avoid large memory allocations, this is a "cache" that stores all the CSS properties
 // found in the DOM. This cache exists on a per-DOM basis, so it scales independent of how many
 // nodes are in the DOM.
@@ -132,7 +162,7 @@ impl StyledNodeVec {
 // state (hover, active, focused, normal). This way we don't have to duplicate the CSS properties
 // onto every single node and exchange them when the style changes. Two caches can be appended
 // to each other by simply merging their NodeIds.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct CssPropertyCache {
     // non-default CSS properties that were set on the DOM nodes themselves (inline properties)
     pub non_default_inline_normal_props:    BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
@@ -644,11 +674,8 @@ pub struct StyledDom {
     pub cascade_info: CascadeInfoVec,
     pub tag_ids_to_node_ids: TagIdsToNodeIdsMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
-    pub css_property_cache: *mut CssPropertyCache,
+    pub css_property_cache: CssPropertyCachePtr,
 }
-
-unsafe impl Send for StyledDom { } // necessary to build display list in parallel
-unsafe impl Sync for StyledDom { } // necessary to build display list in parallel
 
 impl Default for StyledDom {
     fn default() -> Self {
@@ -1061,18 +1088,18 @@ impl StyledDom {
             styled_nodes: styled_nodes.into(),
             tag_ids_to_node_ids: tag_ids.into(),
             non_leaf_nodes: non_leaf_nodes.into(),
-            css_property_cache: Box::into_raw(Box::new(css_property_cache)) as *mut CssPropertyCache,
+            css_property_cache: CssPropertyCachePtr::new(css_property_cache),
         }
     }
 
     #[inline]
     pub fn get_css_property_cache<'a>(&'a self) -> &'a CssPropertyCache {
-        unsafe { &*self.css_property_cache }
+        unsafe { &*self.css_property_cache.ptr }
     }
 
     #[inline]
     pub fn get_css_property_cache_mut<'a>(&'a mut self) -> &'a mut CssPropertyCache {
-        unsafe { &mut *self.css_property_cache }
+        unsafe { &mut *self.css_property_cache.ptr }
     }
 
     // swap the internal css property cache with a default cache, moving the self.cache out
@@ -1480,11 +1507,4 @@ impl StyledDom {
 
     // Restyles the DOM using a DOM diff
     // pub fn restyle(&mut self, css: &Css, style_options: StyleOptions, diff: &DomDiff) { }
-}
-
-impl Drop for StyledDom {
-    fn drop(&mut self) {
-        println!("StyledDom: css property cache dropped!");
-        let _ = unsafe { Box::from_raw(self.css_property_cache as *mut CssPropertyCache) };
-    }
 }

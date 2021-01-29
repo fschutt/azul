@@ -459,7 +459,7 @@ def generate_rust_dll(api_data):
                 if class_is_const:
                     code += "pub static " + class_ptr_name + ": " + prefix + c["const"] + " = " + external_path + ";\r\n"
                 elif class_is_boxed_object:
-                    structs_map[class_ptr_name] = {"external": external_path, "is_boxed_object": is_boxed_object, "custom_destructor": class_has_custom_destructor, "derive": struct_derive, "doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void" }}]}
+                    structs_map[class_ptr_name] = {"external": external_path, "clone": class_can_be_cloned, "is_boxed_object": is_boxed_object, "custom_destructor": class_has_custom_destructor, "derive": struct_derive, "doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void" }}]}
                     if treat_external_as_ptr:
                         code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                         code += "pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
@@ -467,9 +467,9 @@ def generate_rust_dll(api_data):
                         code += "#[repr(C)] pub struct " + class_ptr_name + " { pub ptr: *mut c_void }\r\n"
                 else:
                     if "struct_fields" in c.keys():
-                        structs_map[class_ptr_name] = {"external": external_path, "is_boxed_object": is_boxed_object, "custom_destructor": class_has_custom_destructor, "derive": struct_derive, "doc": struct_doc, "struct": c["struct_fields"]}
+                        structs_map[class_ptr_name] = {"external": external_path, "clone": class_can_be_cloned, "is_boxed_object": is_boxed_object, "custom_destructor": class_has_custom_destructor, "derive": struct_derive, "doc": struct_doc, "struct": c["struct_fields"]}
                     elif "enum_fields" in c.keys():
-                        structs_map[class_ptr_name] = {"external": external_path, "is_boxed_object": is_boxed_object, "custom_destructor": class_has_custom_destructor, "derive": struct_derive, "doc": struct_doc, "enum": c["enum_fields"]}
+                        structs_map[class_ptr_name] = {"external": external_path, "clone": class_can_be_cloned, "is_boxed_object": is_boxed_object, "custom_destructor": class_has_custom_destructor, "derive": struct_derive, "doc": struct_doc, "enum": c["enum_fields"]}
 
                     code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                     code += "pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
@@ -554,7 +554,7 @@ def generate_rust_dll(api_data):
                 if class_can_be_copied:
                     # intentionally empty, no destructor necessary
                     pass
-                elif class_has_custom_destructor:
+                elif class_has_custom_destructor or treat_external_as_ptr:
                     # az_item_delete()
                     code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
                     functions_map[str(to_snake_case(class_ptr_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
@@ -796,6 +796,9 @@ def generate_structs(api_data, structs_map, autoderive):
             if not(class_can_be_copied):
                 opt_derive_copy = ""
 
+            if not(class_can_be_cloned) or (treat_external_as_ptr and class_can_be_cloned):
+                opt_derive_clone = ""
+
             if class_has_custom_destructor or not(autoderive):
                 opt_derive_copy = ""
                 opt_derive_debug = ""
@@ -1015,6 +1018,8 @@ def generate_rust_api(api_data, structs_map, functions_map):
 
             if treat_external_as_ptr and class_can_be_cloned:
                 code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_deep_copy(self) } } }\r\n"
+            if treat_external_as_ptr:
+                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_delete(self) } } }\r\n"
 
 
         module_file_map[module_name] = code
@@ -1244,15 +1249,15 @@ def build_docs():
 
 def main():
     print("removing old azul.dll...")
-    # cleanup_start()
+    cleanup_start()
     print("verifying that LLVM / clang-cl is installed...\r\n")
     assure_clang_is_installed()
     print("generating API...")
     generate_api()
     print("building azul-dll (release mode)...")
-    # build_dll()
+    build_dll()
     print("checking azul-dll for struct size integrity...")
-    # run_size_test()
+    run_size_test()
     print("building examples...")
     build_examples()
     print("building docs (output_dir = /target/doc)...")
