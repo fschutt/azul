@@ -424,7 +424,7 @@ impl StyleAndLayoutChanges {
 pub struct CallbackToCall {
     pub node_id: NodeId,
     pub hit_test_item: Option<HitTestItem>,
-    pub callback: CallbackData,
+    pub event_filter: EventFilter,
 }
 
 #[derive(Debug, Clone)]
@@ -459,7 +459,7 @@ impl CallbacksOfHitTest {
                         EventFilter::Window(wev) => {
                             if events.window_events.contains(&wev) {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback: callback.clone(),
+                                    event_filter: callback.event.clone(),
                                     hit_test_item: None,
                                     node_id,
                                 })
@@ -468,7 +468,7 @@ impl CallbacksOfHitTest {
                         EventFilter::Hover(HoverEventFilter::MouseEnter) => {
                             if let Some(hit_test_item) = nodes_to_check.onmouseenter_nodes.get(&dom_id).and_then(|n| n.get(&node_id)) {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback: callback.clone(),
+                                    event_filter: callback.event.clone(),
                                     hit_test_item: Some(*hit_test_item),
                                     node_id,
                                 });
@@ -477,7 +477,7 @@ impl CallbacksOfHitTest {
                         EventFilter::Hover(HoverEventFilter::MouseLeave) => {
                             if let Some(hit_test_item) = nodes_to_check.onmouseleave_nodes.get(&dom_id).and_then(|n| n.get(&node_id)) {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback: callback.clone(),
+                                    event_filter: callback.event.clone(),
                                     hit_test_item: Some(*hit_test_item),
                                     node_id,
                                 });
@@ -487,7 +487,7 @@ impl CallbacksOfHitTest {
                             if let Some(hit_test_item) = nodes_to_check.new_hit_node_ids.get(&dom_id).and_then(|n| n.get(&node_id)) {
                                 if events.hover_events.contains(&hev) {
                                     nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                        callback: callback.clone(),
+                                        event_filter: callback.event.clone(),
                                         hit_test_item: Some(*hit_test_item),
                                         node_id,
                                     });
@@ -497,7 +497,7 @@ impl CallbacksOfHitTest {
                         EventFilter::Focus(FocusEventFilter::FocusReceived) => {
                             if nodes_to_check.new_focus_node == Some(DomNodeId { dom: dom_id, node: az_node_id }) && nodes_to_check.old_focus_node != nodes_to_check.new_focus_node {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback: callback.clone(),
+                                    event_filter: callback.event.clone(),
                                     hit_test_item: None,
                                     node_id,
                                 });
@@ -506,7 +506,7 @@ impl CallbacksOfHitTest {
                         EventFilter::Focus(FocusEventFilter::FocusLost) => {
                             if nodes_to_check.old_focus_node == Some(DomNodeId { dom: layout_result.dom_id, node: az_node_id }) && nodes_to_check.old_focus_node != nodes_to_check.new_focus_node {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback: callback.clone(),
+                                    event_filter: callback.event.clone(),
                                     hit_test_item: None,
                                     node_id,
                                 });
@@ -515,7 +515,7 @@ impl CallbacksOfHitTest {
                         EventFilter::Focus(fev) => {
                             if nodes_to_check.new_focus_node == Some(DomNodeId { dom: layout_result.dom_id, node: az_node_id }) && events.focus_events.contains(&fev) {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback: callback.clone(),
+                                    event_filter: callback.event.clone(),
                                     hit_test_item: None,
                                     node_id,
                                 });
@@ -524,7 +524,7 @@ impl CallbacksOfHitTest {
                         EventFilter::Not(NotEventFilter::Focus(fev)) => {
                             if nodes_to_check.new_focus_node != Some(DomNodeId { dom: layout_result.dom_id, node: az_node_id }) && events.focus_events.contains(&fev) {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback: callback.clone(),
+                                    event_filter: callback.event.clone(),
                                     hit_test_item: None,
                                     node_id,
                                 });
@@ -533,7 +533,7 @@ impl CallbacksOfHitTest {
                         EventFilter::Not(NotEventFilter::Hover(hev)) => {
                             if nodes_to_check.new_hit_node_ids.get(&dom_id).and_then(|n| n.get(&node_id)).is_none() && events.hover_events.contains(&hev) {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback: callback.clone(),
+                                    event_filter: callback.event.clone(),
                                     hit_test_item: None,
                                     node_id,
                                 });
@@ -588,15 +588,23 @@ impl CallbacksOfHitTest {
         let mut nodes_scrolled_in_callbacks = BTreeMap::<DomId, BTreeMap<AzNodeId, LogicalPosition>>::new();
         let current_cursor = full_window_state.mouse_state.mouse_cursor_type.clone();
 
+        if self.nodes_with_callbacks.is_empty() {
+            return ret;
+        }
+
+        let node_hierarchies = layout_results.iter().enumerate().map(|(dom_id, lr)| {
+            (DomId { inner: dom_id }, lr.styled_dom.node_hierarchy.clone())
+        }).collect::<BTreeMap<_, _>>();
+
         for (dom_id, callbacks_filter_list) in self.nodes_with_callbacks.iter_mut() {
-            let layout_result = match layout_results.get(dom_id.inner) {
+            let layout_result = match layout_results.get_mut(dom_id.inner) {
                 Some(s) => s,
                 None => { return ret; },
             };
 
-            let mut callbacks = callbacks_filter_list
+            let callbacks = callbacks_filter_list
             .iter_mut()
-            .map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, &mut cbtc.callback)))
+            .map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, cbtc.event_filter)))
             .collect::<BTreeMap<_, _>>();
 
             let mut blacklisted_event_types = BTreeSet::new();
@@ -605,9 +613,9 @@ impl CallbacksOfHitTest {
             for ParentWithNodeDepth { depth: _, node_id } in layout_result.styled_dom.non_leaf_nodes.as_ref().iter().rev() {
                let parent_node_id = node_id;
                for child_id in parent_node_id.into_crate_internal().unwrap().az_children(&layout_result.styled_dom.node_hierarchy.as_container()) {
-                    if let Some((hit_test_item, callback_data)) = callbacks.get_mut(&child_id) {
+                    if let Some((hit_test_item, event_filter)) = callbacks.get(&child_id) {
 
-                        if blacklisted_event_types.contains(&callback_data.event) {
+                        if blacklisted_event_types.contains(&*event_filter) {
                             continue;
                         }
 
@@ -623,7 +631,7 @@ impl CallbacksOfHitTest {
                             /*threads:*/ &mut ret.threads,
                             /*new_windows:*/ &mut ret.windows_created,
                             /*current_window_handle:*/ raw_window_handle,
-                            /*layout_results,*/ layout_results,
+                            /*layout_results,*/ &node_hierarchies,
                             /*stop_propagation:*/ &mut stop_propagation,
                             /*focus_target:*/ &mut new_focus,
                             /*current_scroll_states:*/ scroll_states,
@@ -634,8 +642,17 @@ impl CallbacksOfHitTest {
                             /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_in_viewport.x, hi.point_in_viewport.y)).into(),
                         );
 
-                        // Invoke callback
-                        let callback_return = (callback_data.callback.cb)(&mut callback_data.data, callback_info);
+                        let callback_return = {
+                            // get a MUTABLE reference to the RefAny inside of the DOM
+                            let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
+                            let callbacks_mut = node_data_mut[child_id].callbacks.as_mut();
+                            if let Some(callback_data) = callbacks_mut.iter_mut().find(|i| i.event == *event_filter) {
+                                // Invoke callback
+                                (callback_data.callback.cb)(&mut callback_data.data, callback_info)
+                            } else {
+                                UpdateScreen::DoNothing
+                            }
+                        };
 
                         match callback_return {
                             UpdateScreen::RegenerateStyledDomForCurrentWindow => {
@@ -654,7 +671,7 @@ impl CallbacksOfHitTest {
                         }
 
                         if stop_propagation {
-                           blacklisted_event_types.insert(callback_data.event);
+                           blacklisted_event_types.insert(event_filter.clone());
                         }
                     }
                }
@@ -662,9 +679,10 @@ impl CallbacksOfHitTest {
 
             // run the callbacks for node ID 0
             loop {
-                if let Some((hit_test_item, callback_data)) = layout_result.styled_dom.root.into_crate_internal().and_then(|ci| callbacks.get_mut(&ci)) {
+                let root_id = layout_result.styled_dom.root.into_crate_internal();
+                if let Some(((hit_test_item, event_filter), root_id)) = root_id.and_then(|root_id| callbacks.get(&root_id).map(|cb| (cb, root_id))) {
 
-                    if blacklisted_event_types.contains(&callback_data.event) {
+                    if blacklisted_event_types.contains(&event_filter) {
                         break; // break out of loop
                     }
 
@@ -680,7 +698,7 @@ impl CallbacksOfHitTest {
                         /*threads:*/ &mut ret.threads,
                         /*new_windows:*/ &mut ret.windows_created,
                         /*current_window_handle:*/ raw_window_handle,
-                        /*layout_results,*/ layout_results,
+                        /*layout_results,*/ &node_hierarchies,
                         /*stop_propagation:*/ &mut stop_propagation,
                         /*focus_target:*/ &mut new_focus,
                         /*current_scroll_states:*/ scroll_states,
@@ -691,8 +709,19 @@ impl CallbacksOfHitTest {
                         /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_in_viewport.x, hi.point_in_viewport.y)).into(),
                     );
 
-                    // Invoke callback
-                    let callback_return = (callback_data.callback.cb)(&mut callback_data.data, callback_info);
+                    let callback_return = {
+                        // get a MUTABLE reference to the RefAny inside of the DOM
+                        let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
+                        let callbacks_mut = node_data_mut[root_id].callbacks.as_mut();
+                        if let Some(callback_data) = callbacks_mut.iter_mut().find(|i| i.event == *event_filter) {
+                            // Invoke callback
+                            (callback_data.callback.cb)(&mut callback_data.data, callback_info)
+                        } else {
+                            UpdateScreen::DoNothing
+                        }
+                    };
+
+                    // let callback_return = (callback_data.callback.cb)(&mut callback_data.data, callback_info);
 
                     match callback_return {
                         UpdateScreen::RegenerateStyledDomForCurrentWindow => {
@@ -711,7 +740,7 @@ impl CallbacksOfHitTest {
                     }
 
                     if stop_propagation {
-                       blacklisted_event_types.insert(callback_data.event);
+                       blacklisted_event_types.insert(event_filter.clone());
                     }
                 }
                 break;

@@ -728,7 +728,7 @@ def generate_structs(api_data, structs_map, autoderive):
             if not(class_can_be_cloned) or (treat_external_as_ptr and class_can_be_cloned):
                 opt_derive_clone = ""
 
-            if class_has_custom_destructor or not(autoderive) or struct_name == "AzAtomicRefCount" or struct_name == "AzU8VecRef":
+            if class_has_custom_destructor or not(autoderive) or struct_name == "AzRefCount" or struct_name == "AzU8VecRef":
                 opt_derive_copy = ""
                 opt_derive_debug = ""
                 opt_derive_clone = ""
@@ -1211,11 +1211,11 @@ def build_examples():
         # "layout_tests",
         # "list",
         # "opengl",
-        "public",
+        # "public",
         # "heap_corruption_test",
         # "slider",
         # "svg",
-        # "table",
+        "table",
         # "text_input",
     ]
     for e in examples:
@@ -1257,7 +1257,7 @@ def main():
     print("building azul-dll (release mode)...")
     build_dll()
     print("checking azul-dll for struct size integrity...")
-    run_size_test()
+    # run_size_test()
     print("building examples...")
     build_examples()
     print("building docs (output_dir = /target/doc)...")

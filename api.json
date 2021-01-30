@@ -625,6 +625,7 @@
 				"DomVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<Dom>`",
 					"custom_destructor": true,
+					"clone": false,
 					"external": "azul_impl::dom::DomVec",
 					"struct_fields": [
 						{ "ptr": { "type": "*const Dom" } },
@@ -1095,6 +1096,7 @@
 				},
 				"OptionRefAny": {
 					"external": "azul_impl::callbacks::OptionRefAny",
+					"clone": false,
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "RefAny" }}
@@ -1266,6 +1268,7 @@
 				},
 				"OptionDom": {
 					"external": "azul_impl::dom::OptionDom",
+					"clone": false,
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "Dom" }}
@@ -1695,7 +1698,7 @@
 				"LayoutCallbackType": {
 					"callback_typedef": {
 						"fn_args": [
-							{"type": "RefAny", "ref": "ref"},
+							{"type": "RefAny", "ref": "refmut"},
 							{"type": "LayoutInfo", "ref": "value"}
 						],
 						"returns": "StyledDom"
@@ -1747,7 +1750,7 @@
 						{"threads": {"type": "*mut c_void"}},
 						{"new_windows": {"type": "*mut c_void"}},
 						{"current_window_handle": {"type": "*const RawWindowHandle"}},
-						{"layout_results": {"type": "*const c_void"}},
+						{"node_hierarchies": {"type": "*mut c_void"}},
 						{"stop_propagation": {"type": "*mut bool"}},
 						{"focus_target": {"type": "*const c_void"}},
 						{"current_scroll_states": {"type": "*const c_void"}},
@@ -1785,7 +1788,7 @@
 						"get_parent": {
 							"doc": "Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
 							"fn_args": [
-								{"self": "ref"},
+								{"self": "refmut"},
 								{"node_id": "DomNodeId"}
 							],
 							"returns": "OptionDomNodeId",
@@ -1794,7 +1797,7 @@
 						"get_previous_sibling": {
 							"doc": "Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
 							"fn_args": [
-								{"self": "ref"},
+								{"self": "refmut"},
 								{"node_id": "DomNodeId"}
 							],
 							"returns": "OptionDomNodeId",
@@ -1803,7 +1806,7 @@
 						"get_next_sibling": {
 							"doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
 							"fn_args": [
-								{"self": "ref"},
+								{"self": "refmut"},
 								{"node_id": "DomNodeId"}
 							],
 							"returns": "OptionDomNodeId",
@@ -1812,7 +1815,7 @@
 						"get_first_child": {
 							"doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
 							"fn_args": [
-								{"self": "ref"},
+								{"self": "refmut"},
 								{"node_id": "DomNodeId"}
 							],
 							"returns": "OptionDomNodeId",
@@ -1821,20 +1824,11 @@
 						"get_last_child": {
 							"doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
 							"fn_args": [
-								{"self": "ref"},
+								{"self": "refmut"},
 								{"node_id": "DomNodeId"}
 							],
 							"returns": "OptionDomNodeId",
 							"fn_body": "callbackinfo.get_last_child(node_id).into()"
-						},
-						"get_dataset": {
-							"doc": "Returns the `Dataset` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
-							"fn_args": [
-								{"self": "ref"},
-								{"node_id": "DomNodeId"}
-							],
-							"returns": "OptionRefAny",
-							"fn_body": "callbackinfo.get_dataset(node_id).into()"
 						},
 						"get_window_state": {
 							"doc": "Returns a copy of the current windows `WindowState`.",
@@ -1958,7 +1952,7 @@
 				"IFrameCallbackType": {
 					"callback_typedef": {
 						"fn_args": [
-							{"type": "RefAny", "ref": "ref"},
+							{"type": "RefAny", "ref": "refmut"},
 							{"type": "IFrameCallbackInfo", "ref": "value"}
 						],
 						"returns": "IFrameCallbackReturn"
@@ -1991,7 +1985,7 @@
 				"GlCallbackType": {
 					"callback_typedef": {
 						"fn_args": [
-							{"type": "RefAny", "ref": "ref"},
+							{"type": "RefAny", "ref": "refmut"},
 							{"type": "GlCallbackInfo", "ref": "value"}
 						],
 						"returns": "GlCallbackReturn"
@@ -2097,11 +2091,20 @@
 						]
 					}
 				},
-				"AtomicRefCount": {
-					"external": "azul_impl::callbacks::AtomicRefCount",
+				"RefCountInner": {
+					"external": "azul_impl::callbacks::RefCountInner",
+					"clone": false,
+					"struct_fields": [
+						{"num_copies": {"type": "usize"}},
+						{"num_refs": {"type": "usize"}},
+						{"num_mutable_refs": {"type": "usize"}}
+					]
+				},
+				"RefCount": {
+					"external": "azul_impl::callbacks::RefCount",
 					"is_boxed_object": true,
 					"struct_fields": [
-						{"ptr": {"type": "*const c_void"}}
+						{"ptr": {"type": "*const RefCountInner"}}
 					],
 					"functions": {
 						"can_be_shared": {
@@ -2120,25 +2123,25 @@
 						},
 						"increase_ref": {
 							"fn_args": [
-								{"self": "ref"}
+								{"self": "refmut"}
 							],
 							"fn_body": "atomicrefcount.increase_ref()"
 						},
 						"decrease_ref": {
 							"fn_args": [
-								{"self": "ref"}
+								{"self": "refmut"}
 							],
 							"fn_body": "atomicrefcount.decrease_ref()"
 						},
 						"increase_refmut": {
 							"fn_args": [
-								{"self": "ref"}
+								{"self": "refmut"}
 							],
 							"fn_body": "atomicrefcount.increase_refmut()"
 						},
 						"decrease_refmut": {
 							"fn_args": [
-								{"self": "ref"}
+								{"self": "refmut"}
 							],
 							"fn_body": "atomicrefcount.decrease_refmut()"
 						}
@@ -2154,8 +2157,9 @@
 						{"_internal_layout_size":  {"type": "usize", "doc": "Size of the type-erased struct"}},
 						{"_internal_layout_align":  {"type": "usize", "doc": "Alignment of the type-erased struct (usually 0 or 8)"}},
 						{"type_id":  {"type": "u64", "doc": "TypeId that can uniquely identify the type of the struct, usually generated by the compiler (i.e. in Rust it would be `std::any::TypeId`)"}},
+						{"is_dead":  {"type": "bool", "doc": "Field to check if the pointer is dead (TRUE BY DEFAULT!)"}},
 						{"type_name":  {"type": "String", "doc": "Optional, name of the type, usually compiler-generated (in Rust, `std::any::type_name<T>()`)"}},
-						{"sharing_info":  {"type": "AtomicRefCount", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}},
+						{"sharing_info":  {"type": "RefCount", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}},
 						{"custom_destructor":  {"type": "RefAnyDestructorType", "doc": "Function pointer to the destructor of `T`. Is called when the `num_copies` count of the `RefAny` reaches 0"}}
 					],
 					"constructors": {
@@ -2186,43 +2190,11 @@
 							"returns": "String",
 							"fn_body": "refany.get_type_name()"
 						},
-						"can_be_shared": {
+						"library_deallocate": {
 							"fn_args": [
-								{"self": "ref"}
+								{"self": "value"}
 							],
-							"returns": "bool",
-							"fn_body": "refany.can_be_shared()"
-						},
-						"can_be_shared_mut": {
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": "bool",
-							"fn_body": "refany.can_be_shared_mut()"
-						},
-						"increase_ref": {
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"fn_body": "refany.increase_ref()"
-						},
-						"decrease_ref": {
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"fn_body": "refany.decrease_ref()"
-						},
-						"increase_refmut": {
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"fn_body": "refany.increase_refmut()"
-						},
-						"decrease_refmut": {
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"fn_body": "refany.decrease_refmut()"
+							"fn_body": "refany.library_deallocate()"
 						}
 					}
 				},
@@ -2357,6 +2329,7 @@
 					"enum_fields": [
 						{"Body": {}},
 						{"Div": {}},
+						{"Br": {}},
 						{"P": {}},
 						{"Img": {}},
 						{"Texture": {}},
@@ -4334,6 +4307,7 @@
 				},
 				"Dom": {
 					"external": "azul_impl::dom::Dom",
+					"clone": false,
 					"struct_fields": [
 						{"root": {"type": "NodeData"}},
 						{"children": {"type": "DomVec"}},
@@ -4356,6 +4330,7 @@
 				},
 				"CallbackData": {
 					"external": "azul_impl::dom::CallbackData",
+					"clone": false,
 					"struct_fields": [
 						{"event": {"type": "EventFilter"}},
 						{"callback": {"type": "Callback"}},
@@ -4373,6 +4348,7 @@
 				"NodeData": {
 					"doc": "Represents one single DOM node (node type, classes, ids and callbacks are stored here)",
 					"external": "azul_impl::dom::NodeData",
+					"clone": false,
 					"struct_fields": [
 						{"node_type": {"type": "NodeType", "doc": "Stores the type of the node, i.e. `div`, `img`, `p`, etc."}},
 						{"dataset": {"type": "OptionRefAny", "doc": "`dataset` attribute of the node, useful to store any UI-related data on the node itself"}},
@@ -4386,14 +4362,15 @@
 				"NodeType": {
 					"doc": "List of core DOM node types built-into by `azul`",
 					"external": "azul_impl::dom::NodeType",
+					"clone": false,
 					"enum_fields": [
 						{"Div": {"doc": "Regular div with no particular type of data attached"}},
 						{"Body": {"doc": "Same as div, but only for the root node"}},
+						{"Br": {"doc": "Creates a break in an inline text layout"}},
 						{"Label": {"type": "String", "doc": "Equivalent to the HTML `<p>` tag, a small label that can be (optionally) be selected by the user"}},
-						{"Text": {"type": "TextId", "doc": "Equivalent to the HTML `<p>` tag, but for a larger text whose layout can be cached"}},
 						{"Image": {"type": "ImageId", "doc": "Equivalent to the HTML `<img>` tag, references an image via its ID, the ID is created by the `add_image()` function(s)"}},
-						{"GlTexture": {"type": "GlTextureNode", "doc": "OpenGL texture, behaves same as a `<canvas>` / `img` node. Can be selected in CSS with the `\"gltexture\"` selector."}},
-						{"IFrame": {"type": "IFrameNode", "doc": "Callback that renders a DOM when invoked with a width / height after the layout of the parent DOM is done. Can be selected in CSS with the `\"iframe\"` selector."}}
+						{"IFrame": {"type": "IFrameNode", "doc": "Callback that renders a DOM when invoked with a width / height after the layout of the parent DOM is done. Can be selected in CSS with the `\"iframe\"` selector."}},
+						{"GlTexture": {"type": "GlTextureNode", "doc": "OpenGL texture, behaves same as a `<canvas>` / `img` node. Can be selected in CSS with the `\"gltexture\"` selector."}}
 					]
 				},
 				"On": {
@@ -6604,19 +6581,6 @@
 						{"RGBAI32": {}},
 						{"RGBA8": {}}
 					]
-				},
-				"TextId": {
-					"external": "azul_impl::resources::TextId",
-					"derive": ["Copy"],
-					"struct_fields": [
-						{ "id": { "type": "usize" } }
-					],
-					"constructors": {
-						"new": {
-						"doc": "Creates a new, unique `TextId`",
-						"fn_body":"TextId::new()"
-						}
-					}
 				},
 				"ImageId": {
 					"external": "azul_impl::resources::ImageId",

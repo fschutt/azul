@@ -135,7 +135,7 @@ impl App {
 
         Self {
             windows: Vec::new(),
-            data: initial_data,
+            data: initial_data.clone_into_library_memory(),
             config: app_config,
             event_loop,
         }

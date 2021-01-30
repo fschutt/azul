@@ -49,24 +49,9 @@ struct Data {
 }
 
 extern "C" fn layout(data: &RefAny, _info: LayoutInfo) -> StyledDom {
-    let mut instant = std::time::Instant::now();
-    println!("in function layout!");
-    let data = data.downcast_ref::<Data>().unwrap();
-    println!("downcast_ref succeeded in {:?}", std::time::Instant::now() - instant);
-    let dom = Dom::body()
-    .with_children(DomVec::from(vec![Dom::label(AzString::from_const_str("h"))]));
-    println!("dom construction succeeded in {:?}", std::time::Instant::now() - instant);
 
-    let dom = dom.style(Css::empty());
-    println!("styled dom: {:#?} in {:?}", dom, std::time::Instant::now() - instant);
-    dom
-}
-
-fn main() {
     use azul::dom::NodeData;
     use azul::dom::NodeType;
-
-    let data = RefAny::new(Data { counter: 5 });
 
     const DOM_STRING: &str = "hello";
     const DOM_CHILD: &[Dom] = &[Dom {
@@ -81,16 +66,11 @@ fn main() {
         estimated_total_children: 2,
     };
 
-    let mut counter = 0;
+    DOM.style(Css::empty())
+}
 
-    loop {
-        let mut instant = std::time::Instant::now();
-        println!("in function layout!");
-        // let data = data.downcast_ref::<Data>().unwrap();
-        let dom = DOM.style(Css::empty());
-        println!("styled dom: {:#?} in {:?}", dom, std::time::Instant::now() - instant);
-    }
-
-    // let app = App::new(RefAny::new(data), AppConfig::default());
-    // app.run(WindowCreateOptions::new(layout));
+fn main() {
+    let data = RefAny::new(Data { counter: 5 });
+    let app = App::new(data, AppConfig::default());
+    app.run(WindowCreateOptions::new(layout));
 }

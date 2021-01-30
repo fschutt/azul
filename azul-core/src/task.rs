@@ -17,8 +17,7 @@ use crate::{
     app_resources::AppResources,
     window::{FullWindowState, LogicalPosition, RawWindowHandle, WindowState, WindowCreateOptions},
     gl::GlContextPtr,
-    ui_solver::LayoutResult,
-    styled_dom::{DomId, AzNodeId},
+    styled_dom::{DomId, AzNodeId, AzNodeVec},
     id_tree::NodeId,
 };
 use azul_css::{OptionLayoutPoint, CssProperty};
@@ -164,7 +163,7 @@ impl_option!(AzDuration, OptionDuration, [Debug, Copy, Clone, PartialEq, Eq, Par
 ///
 /// The callback of a `Timer` should be fast enough to run under 16ms,
 /// otherwise running timers will block the main UI thread.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct Timer {
     /// Data that is internal to the timer
@@ -192,9 +191,9 @@ pub struct Timer {
 impl Timer {
 
     /// Create a new timer
-    pub fn new(data: RefAny, callback: TimerCallbackType) -> Self {
+    pub fn new(mut data: RefAny, callback: TimerCallbackType) -> Self {
         Timer {
-            data,
+            data: data.clone_into_library_memory(),
             created: AzInstantPtr::new(StdInstant::now()),
             run_count: 0,
             last_run: OptionInstantPtr::None,
@@ -311,8 +310,8 @@ pub struct ThreadWriteBackMsg {
 }
 
 impl ThreadWriteBackMsg {
-    pub fn new(callback: WriteBackCallbackType, data: RefAny) -> Self {
-        Self { data, callback: WriteBackCallback { cb: callback } }
+    pub fn new(callback: WriteBackCallbackType, mut data: RefAny) -> Self {
+        Self { data: data.clone_into_library_memory(), callback: WriteBackCallback { cb: callback } }
     }
 }
 
@@ -401,7 +400,7 @@ pub struct Thread {
 impl Thread {
 
     /// Creates a new Thread from a callback and a set of input data - which has to be wrapped in an `Arc<Mutex<T>>>`.
-    pub(crate) fn new(thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType) -> Self {
+    pub(crate) fn new(mut thread_initialize_data: RefAny, mut writeback_data: RefAny, callback: ThreadCallbackType) -> Self {
 
         let (sender_receiver, receiver_receiver) = ThreadSender::new();
         let (receiver_sender, sender_sender) = ThreadReceiver::new();
@@ -411,7 +410,7 @@ impl Thread {
 
         let thread_handle = thread::spawn(move || {
             let _ = thread_check;
-            callback(thread_initialize_data, sender_receiver, receiver_sender);
+            callback(thread_initialize_data.clone_into_library_memory(), sender_receiver, receiver_sender);
             // thread_check gets dropped here, signals that the thread has finished
         });
 
@@ -420,7 +419,7 @@ impl Thread {
             sender: sender_sender,
             receiver: receiver_receiver,
             dropcheck: thread_weak,
-            writeback_data,
+            writeback_data: writeback_data.clone_into_library_memory(),
         }
     }
 
@@ -454,7 +453,7 @@ pub fn run_all_timers(
     threads: &mut FastHashMap<ThreadId, Thread>,
     new_windows: &mut Vec<WindowCreateOptions>,
     current_window_handle: &RawWindowHandle,
-    layout_results: &Vec<LayoutResult>,
+    node_hierarchy: &BTreeMap<DomId, AzNodeVec>,
     stop_propagation: &mut bool,
     focus_target: &mut Option<FocusTarget>,
     current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -480,7 +479,7 @@ pub fn run_all_timers(
             threads,
             new_windows,
             current_window_handle,
-            layout_results,
+            node_hierarchy,
             stop_propagation,
             focus_target,
             current_scroll_states,
@@ -532,7 +531,7 @@ pub fn clean_up_finished_threads(
     threads: &mut FastHashMap<ThreadId, Thread>,
     new_windows: &mut Vec<WindowCreateOptions>,
     current_window_handle: &RawWindowHandle,
-    layout_results: &Vec<LayoutResult>,
+    node_hierarchy: &BTreeMap<DomId, AzNodeVec>,
     stop_propagation: &mut bool,
     focus_target: &mut Option<FocusTarget>,
     current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -562,7 +561,7 @@ pub fn clean_up_finished_threads(
                     threads,
                     new_windows,
                     current_window_handle,
-                    layout_results,
+                    node_hierarchy,
                     stop_propagation,
                     focus_target,
                     current_scroll_states,

@@ -55,43 +55,6 @@
     macro_rules! impl_option {
         ($struct_type:ident, $struct_name:ident, copy = false, clone = false, [$($derive:meta),* ]) => (
             impl_option_inner!($struct_type, $struct_name);
-
-            impl From<$struct_name> for Option<$struct_type> {
-                fn from(mut o: $struct_name) -> Option<$struct_type> {
-                    // we need to the the Some(t) out without dropping the t value
-                    let res = match &mut o {
-                        $struct_name::None => { None },
-                        $struct_name::Some(t) => {
-                            let uninitialized = unsafe{ core::mem::zeroed::<$struct_type>() };
-                            let t = core::mem::replace(t, uninitialized);
-                            Some(t)
-                        },
-                    };
-
-                    core::mem::forget(o); // do not run the destructor
-
-                    res
-                }
-            }
-
-            impl From<Option<$struct_type>> for $struct_name {
-                fn from(mut o: Option<$struct_type>) -> $struct_name {
-
-                    // we need to the the Some(t) out without dropping the t value
-                    let res = match &mut o {
-                        None => { $struct_name::None },
-                        Some(t) => {
-                            let uninitialized = unsafe{ core::mem::zeroed::<$struct_type>() };
-                            let t = core::mem::replace(t, uninitialized);
-                            $struct_name::Some(t)
-                        },
-                    };
-
-                    core::mem::forget(o); // do not run the destructor
-
-                    res
-                }
-            }
         );
         ($struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
             impl_option_inner!($struct_type, $struct_name);
@@ -165,7 +128,7 @@
     impl_option!(AzLogicalSize, AzOptionLogicalSize, [Debug, Copy, Clone]);
     impl_option!(AzVirtualKeyCode, AzOptionVirtualKeyCode, [Debug, Copy, Clone]);
     impl_option!(AzPercentageValue, AzOptionPercentageValue, [Debug, Copy, Clone]);
-    impl_option!(AzDom, AzOptionDom, copy = false, [Debug, Clone]);
+    impl_option!(AzDom, AzOptionDom, copy = false, clone = false, [Debug, Clone]);
     impl_option!(AzTexture, AzOptionTexture, copy = false, clone = false, [Debug]);
     impl_option!(AzImageMask, AzOptionImageMask, copy = false, [Debug, Clone]);
     impl_option!(AzTabIndex, AzOptionTabIndex, [Debug, Copy, Clone]);

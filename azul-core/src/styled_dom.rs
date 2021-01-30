@@ -56,7 +56,7 @@ pub struct ChangedCssProperty {
 impl_vec!(ChangedCssProperty, ChangedCssPropertyVec, ChangedCssPropertyVecDestructor);
 impl_vec_debug!(ChangedCssProperty, ChangedCssPropertyVec);
 impl_vec_partialord!(ChangedCssProperty, ChangedCssPropertyVec);
-impl_vec_clone!(ChangedCssProperty, ChangedCssPropertyVec);
+impl_vec_clone!(ChangedCssProperty, ChangedCssPropertyVec, ChangedCssPropertyVecDestructor);
 impl_vec_partialeq!(ChangedCssProperty, ChangedCssPropertyVec);
 
 #[repr(C, u8)]
@@ -109,7 +109,7 @@ impl_vec!(StyledNode, StyledNodeVec, StyledNodeVecDestructor);
 impl_vec_mut!(StyledNode, StyledNodeVec);
 impl_vec_debug!(StyledNode, StyledNodeVec);
 impl_vec_partialord!(StyledNode, StyledNodeVec);
-impl_vec_clone!(StyledNode, StyledNodeVec);
+impl_vec_clone!(StyledNode, StyledNodeVec, StyledNodeVecDestructor);
 impl_vec_partialeq!(StyledNode, StyledNodeVec);
 
 impl StyledNodeVec {
@@ -532,10 +532,10 @@ impl AzNodeId {
 
 impl_option!(AzNodeId, OptionNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
-impl_vec!(AzNodeId, NodeIdVec, AzNodeIdVecDestructor);
+impl_vec!(AzNodeId, NodeIdVec, NodeIdVecDestructor);
 impl_vec_debug!(AzNodeId, NodeIdVec);
 impl_vec_partialord!(AzNodeId, NodeIdVec);
-impl_vec_clone!(AzNodeId, NodeIdVec);
+impl_vec_clone!(AzNodeId, NodeIdVec, NodeIdVecDestructor);
 impl_vec_partialeq!(AzNodeId, NodeIdVec);
 
 impl AzNodeId {
@@ -597,7 +597,7 @@ impl_vec!(AzNode, AzNodeVec, AzNodeVecDestructor);
 impl_vec_mut!(AzNode, AzNodeVec);
 impl_vec_debug!(AzNode, AzNodeVec);
 impl_vec_partialord!(AzNode, AzNodeVec);
-impl_vec_clone!(AzNode, AzNodeVec);
+impl_vec_clone!(AzNode, AzNodeVec, AzNodeVecDestructor);
 impl_vec_partialeq!(AzNode, AzNodeVec);
 
 impl AzNodeVec {
@@ -622,7 +622,7 @@ impl_vec!(ParentWithNodeDepth, ParentWithNodeDepthVec, ParentWithNodeDepthVecDes
 impl_vec_mut!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 impl_vec_debug!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 impl_vec_partialord!(ParentWithNodeDepth, ParentWithNodeDepthVec);
-impl_vec_clone!(ParentWithNodeDepth, ParentWithNodeDepthVec);
+impl_vec_clone!(ParentWithNodeDepth, ParentWithNodeDepthVec, ParentWithNodeDepthVecDestructor);
 impl_vec_partialeq!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 
 
@@ -640,7 +640,7 @@ impl_vec!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec, TagIdToNodeIdMappingV
 impl_vec_mut!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
 impl_vec_debug!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
 impl_vec_partialord!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
-impl_vec_clone!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
+impl_vec_clone!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec, TagIdToNodeIdMappingVecDestructor);
 impl_vec_partialeq!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
 
 
@@ -659,7 +659,7 @@ impl_vec!(ContentGroup, ContentGroupVec, ContentGroupVecDestructor);
 impl_vec_mut!(ContentGroup, ContentGroupVec);
 impl_vec_debug!(ContentGroup, ContentGroupVec);
 impl_vec_partialord!(ContentGroup, ContentGroupVec);
-impl_vec_clone!(ContentGroup, ContentGroupVec);
+impl_vec_clone!(ContentGroup, ContentGroupVec, ContentGroupVecDestructor);
 impl_vec_partialeq!(ContentGroup, ContentGroupVec);
 
 
@@ -799,9 +799,7 @@ impl StyledDom {
         use std::iter::FromIterator;
         use rayon::prelude::*;
 
-        let instant = std::time::Instant::now();
         let mut compact_dom: CompactDom = dom.into();
-        println!("converting into compact dom took {:?}", std::time::Instant::now() - instant);
         let non_leaf_nodes = compact_dom.node_hierarchy.as_ref().get_parents_sorted_by_depth();
         let node_hierarchy: AzNodeVec = compact_dom.node_hierarchy.internal.clone().iter().map(|i| (*i).into()).collect::<Vec<AzNode>>().into();
         let mut styled_nodes = vec![StyledNode { tag_id: OptionTagId::None, state: StyledNodeState::new() }; compact_dom.len()];
@@ -1078,8 +1076,6 @@ impl StyledDom {
         .map(|(depth, node_id)| ParentWithNodeDepth { depth: *depth, node_id: AzNodeId::from_crate_internal(Some(*node_id)) })
         .collect::<Vec<_>>();
 
-        println!("total: {:?}", std::time::Instant::now() - instant);
-
         StyledDom {
             root: AzNodeId::from_crate_internal(Some(compact_dom.root)),
             node_hierarchy,
@@ -1173,7 +1169,7 @@ impl StyledDom {
             .filter_map(|(node_id, node_data)| {
                 let node_id = NodeId::new(node_id);
                 match node_data.get_node_type() {
-                    Text(_) | Label(_) => {
+                    Label(_) => {
                         let css_font_id = self.get_css_property_cache().get_font_id_or_default(&node_id, &self.styled_nodes.as_container()[node_id].state);
                         let font_size = self.get_css_property_cache().get_font_size_or_default(&node_id, &self.styled_nodes.as_container()[node_id].state);
                         let font_id = match app_resources.css_ids_to_font_ids.get(css_font_id) {
@@ -1314,7 +1310,7 @@ impl StyledDom {
     }
 
     /// Scans the `StyledDom` for iframe callbacks
-    pub fn scan_for_iframe_callbacks(&self) -> Vec<(NodeId, &IFrameNode)> {
+    pub fn scan_for_iframe_callbacks(&self) -> Vec<NodeId> {
         use rayon::prelude::*;
         use crate::dom::NodeType;
         self.node_data
@@ -1323,7 +1319,7 @@ impl StyledDom {
         .enumerate()
         .filter_map(|(node_id, node_data)| {
             match node_data.get_node_type() {
-                NodeType::IFrame(cb) => Some((NodeId::new(node_id), cb)),
+                NodeType::IFrame(_) => Some(NodeId::new(node_id)),
                 _ => None,
             }
         }).collect()
@@ -1331,7 +1327,7 @@ impl StyledDom {
 
     /// Scans the `StyledDom` for OpenGL callbacks
     #[cfg(feature = "opengl")]
-    pub(crate) fn scan_for_gltexture_callbacks(&self) -> Vec<(NodeId, &GlTextureNode)> {
+    pub(crate) fn scan_for_gltexture_callbacks(&self) -> Vec<NodeId> {
         use rayon::prelude::*;
         use crate::dom::NodeType;
         self.node_data
@@ -1340,7 +1336,7 @@ impl StyledDom {
         .enumerate()
         .filter_map(|(node_id, node_data)| {
             match node_data.get_node_type() {
-                NodeType::GlTexture(cb) => Some((NodeId::new(node_id), cb)),
+                NodeType::GlTexture(_) => Some(NodeId::new(node_id)),
                 _ => None,
             }
         }).collect()

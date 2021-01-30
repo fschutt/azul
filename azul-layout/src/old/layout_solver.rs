@@ -14,7 +14,7 @@ use azul_core::{
         PositionedRectangle, OverflowInfo, WhConstraint, WidthCalculatedRect, HeightCalculatedRect,
         HorizontalSolvedPosition, VerticalSolvedPosition,
     },
-    app_resources::{TextCache, ResourceUpdate, IdNamespace, AppResources, FontInstanceKey},
+    app_resources::{ResourceUpdate, IdNamespace, AppResources, FontInstanceKey},
     callbacks::PipelineId,
     display_list::RenderCallbacks,
     window::{FullWindowState, LogicalRect, LogicalSize, LogicalPosition},
@@ -1345,35 +1345,30 @@ pub fn do_the_layout(
             );
 
 
-            let iframes = layout_result.styled_dom.scan_for_iframe_callbacks();
-
-
             let mut iframe_mapping = BTreeMap::new();
 
-            for (node_id, iframe_node) in iframes.iter() {
+            for iframe_node_id in layout_result.styled_dom.scan_for_iframe_callbacks() {
 
                 use azul_core::callbacks::{HidpiAdjustedBounds, IFrameCallbackInfo, IFrameCallbackReturn};
 
                 // Generate a new DomID
                 current_dom_id += 1;
                 let iframe_dom_id = DomId { inner: current_dom_id };
-                iframe_mapping.insert(*node_id, iframe_dom_id);
+                iframe_mapping.insert(iframe_node_id, iframe_dom_id);
 
-                let bounds = &layout_result.rects.as_ref()[*node_id];
+                let bounds = &layout_result.rects.as_ref()[iframe_node_id];
                 let bounds_size = LayoutSize::new(bounds.size.width.round() as isize, bounds.size.height.round() as isize);
                 let hidpi_bounds = HidpiAdjustedBounds::from_bounds(bounds_size, full_window_state.size.hidpi_factor);
 
                 // Invoke the IFrame callback
                 let iframe_return: IFrameCallbackReturn = {
-
                     let iframe_callback_info = IFrameCallbackInfo::new(
                         &app_resources,
                         hidpi_bounds,
                     );
-
-                    (iframe_node.callback.cb)(&iframe_node.data, iframe_callback_info)
+                    let iframe_node = layout_result.styled_dom.node_data.as_container_mut()[iframe_node_id];
+                    (iframe_node.callback.cb)(&mut iframe_node.data, iframe_callback_info)
                 };
-
 
                 let mut iframe_dom = iframe_return.styled_dom;
 
@@ -1460,7 +1455,7 @@ pub fn do_the_layout_internal(
     );
 
     // Break all strings into words and / or resolve the TextIds
-    let word_cache = create_word_cache(&app_resources.text_cache, &styled_dom.node_data.as_container());
+    let word_cache = create_word_cache(&styled_dom.node_data.as_container());
     // Scale the words to the correct size - TODO: Cache this in the app_resources!
     let shaped_words = create_shaped_words(&pipeline_id, app_resources, &word_cache, &styled_dom);
 
@@ -1874,7 +1869,6 @@ fn position_nodes<'a>(
 }
 
 fn create_word_cache<'a>(
-    text_cache: &TextCache,
     node_data: &NodeDataContainerRef<'a, NodeData>,
 ) -> BTreeMap<NodeId, Words>
 {
@@ -1884,9 +1878,6 @@ fn create_word_cache<'a>(
         let node_id = NodeId::new(node_id);
         match node.get_node_type() {
             NodeType::Label(string) => Some((node_id, split_text_into_words(string.as_str()))),
-            NodeType::Text(text_id) => {
-                text_cache.get_text(text_id).map(|words| (node_id, words.clone()))
-            },
             _ => None,
         }
     }).collect::<Vec<_>>();

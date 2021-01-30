@@ -10,7 +10,7 @@ use crate::{
         IFrameCallback, IFrameCallbackType,
         RefAny, OptionRefAny,
     },
-    app_resources::{ImageId, TextId},
+    app_resources::ImageId,
     id_tree::{
         NodeDataContainer, NodeDataContainerRef,
         NodeHierarchyRefMut, NodeDataContainerRefMut
@@ -89,40 +89,58 @@ pub struct ImageMask {
 impl_option!(ImageMask, OptionImageMask, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
 
 /// List of core DOM node types built-into by `azul`.
-#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum NodeType {
     /// Regular div with no particular type of data attached
     Div,
     /// Same as div, but only for the root node
     Body,
+    /// Creates a line break in an inline text layout
+    Br,
     /// A small label that can be (optionally) be selectable with the mouse
     Label(AzString),
-    /// Larger amount of text, that has to be cached
-    Text(TextId),
     /// An image that is rendered by WebRender. The id is acquired by the
     /// `AppState::add_image()` function
     Image(ImageId),
+    /// DOM that gets passed its width / height during the layout
+    IFrame(IFrameNode),
     /// OpenGL texture. The `Svg` widget deserizalizes itself into a texture
     /// Equality and Hash values are only checked by the OpenGl texture ID,
     /// Azul does not check that the contents of two textures are the same
     #[cfg(feature = "opengl")]
     GlTexture(GlTextureNode),
-    /// DOM that gets passed its width / height during the layout
-    IFrame(IFrameNode),
 }
 
 impl NodeType {
+    fn into_library_owned_nodetype(&mut self) -> Self {
+        use self::NodeType::*;
+        match self {
+            Div => Div,
+            Body => Body,
+            Br => Br,
+            Label(s) => Label(s.clone_self()),
+            Image(i) => Image(*i),
+            IFrame(i) => IFrame(IFrameNode {
+                callback: i.callback,
+                data: i.data.clone_into_library_memory(),
+            }),
+            #[cfg(feature = "opengl")]
+            GlTexture(gl) => GlTexture(GlTextureNode {
+                callback: gl.callback,
+                data: gl.data.clone_into_library_memory(),
+            })
+        }
+    }
     pub(crate) fn get_text_content(&self) -> Option<String> {
         use self::NodeType::*;
         match self {
-            Div | Body => None,
+            Div | Body | Br => None,
             Label(s) => Some(format!("{}", s)),
             Image(id) => Some(format!("image({:?})", id)),
-            Text(t) => Some(format!("textid({:?})", t)),
+            IFrame(i) => Some(format!("iframe({:?})", i)),
             #[cfg(feature = "opengl")]
             GlTexture(g) => Some(format!("gltexture({:?})", g)),
-            IFrame(i) => Some(format!("iframe({:?})", i)),
         }
     }
 
@@ -132,7 +150,8 @@ impl NodeType {
         match self {
             Div => NodeTypePath::Div,
             Body => NodeTypePath::Body,
-            Label(_) | Text(_) => NodeTypePath::P,
+            Br => NodeTypePath::Br,
+            Label(_) => NodeTypePath::P,
             Image(_) => NodeTypePath::Img,
             #[cfg(feature = "opengl")]
             GlTexture(_) => NodeTypePath::Texture,
@@ -510,21 +529,21 @@ pub enum ApplicationEventFilter {
 }
 
 #[cfg(feature = "opengl")]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct GlTextureNode {
     pub callback: GlCallback,
     pub data: RefAny,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct IFrameNode {
     pub callback: IFrameCallback,
     pub data: RefAny,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CallbackData {
     pub event: EventFilter,
@@ -532,14 +551,41 @@ pub struct CallbackData {
     pub data: RefAny,
 }
 
+impl CallbackData {
+    // Copies the internal RefAny
+    pub(crate) fn copy_special(&mut self) -> Self {
+        Self {
+            event: self.event,
+            callback: self.callback.clone(),
+            data: self.data.clone_into_library_memory(),
+        }
+    }
+}
+
 impl_vec!(CallbackData, CallbackDataVec, CallbackDataVecDestructor);
+impl_vec_mut!(CallbackData, CallbackDataVec);
 impl_vec_debug!(CallbackData, CallbackDataVec);
 impl_vec_partialord!(CallbackData, CallbackDataVec);
 impl_vec_ord!(CallbackData, CallbackDataVec);
-impl_vec_clone!(CallbackData, CallbackDataVec);
 impl_vec_partialeq!(CallbackData, CallbackDataVec);
 impl_vec_eq!(CallbackData, CallbackDataVec);
 impl_vec_hash!(CallbackData, CallbackDataVec);
+
+impl CallbackDataVec {
+    pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, CallbackData> {
+        NodeDataContainerRef { internal: self.as_ref() }
+    }
+    pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, CallbackData> {
+        NodeDataContainerRefMut { internal: self.as_mut() }
+    }
+    pub(crate) fn into_library_owned_vec(&mut self) -> Vec<CallbackData> {
+        let mut vec = Vec::with_capacity(self.as_ref().len());
+        for item in self.as_mut().iter_mut() {
+            vec.push(item.copy_special());
+        }
+        vec
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -552,7 +598,7 @@ impl_vec!(IdOrClass, IdOrClassVec, IdOrClassVecDestructor);
 impl_vec_debug!(IdOrClass, IdOrClassVec);
 impl_vec_partialord!(IdOrClass, IdOrClassVec);
 impl_vec_ord!(IdOrClass, IdOrClassVec);
-impl_vec_clone!(IdOrClass, IdOrClassVec);
+impl_vec_clone!(IdOrClass, IdOrClassVec, IdOrClassVecDestructor);
 impl_vec_partialeq!(IdOrClass, IdOrClassVec);
 impl_vec_eq!(IdOrClass, IdOrClassVec);
 impl_vec_hash!(IdOrClass, IdOrClassVec);
@@ -586,32 +632,50 @@ impl_vec!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, NodeDataInlin
 impl_vec_debug!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 impl_vec_partialord!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 impl_vec_ord!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
-impl_vec_clone!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
+impl_vec_clone!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, NodeDataInlineCssPropertyVecDestructor);
 impl_vec_partialeq!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 impl_vec_eq!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 impl_vec_hash!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 #[repr(C)]
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeData {
     /// `div`
-    node_type: NodeType,
+    pub(crate) node_type: NodeType,
     /// data-* attributes for this node, useful to store UI-related data on the node itself
-    dataset: OptionRefAny,
+    pub(crate) dataset: OptionRefAny,
     /// Stores all ids and classes as one vec - size optimization since
     /// most nodes don't have any classes or IDs
-    ids_and_classes: IdOrClassVec,
+    pub(crate) ids_and_classes: IdOrClassVec,
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
-    callbacks: CallbackDataVec,
+    pub(crate) callbacks: CallbackDataVec,
     /// Stores the inline CSS properties, same as in HTML
     pub(crate) inline_css_props: NodeDataInlineCssPropertyVec,
     /// Optional clip mask for this DOM node
-    clip_mask: OptionImageMask,
+    pub(crate) clip_mask: OptionImageMask,
     /// Whether this div can be focused, and if yes, in what default to `None` (not focusable).
     /// Note that without this, there can be no `On::FocusReceived` (equivalent to onfocus),
     /// `On::FocusLost` (equivalent to onblur), etc. events.
-    tab_index: OptionTabIndex,
+    pub(crate) tab_index: OptionTabIndex,
+}
+
+impl NodeData {
+    #[inline]
+    pub fn copy_special(&mut self) -> Self {
+        Self {
+            node_type: self.node_type.into_library_owned_nodetype(),
+            dataset: match &mut self.dataset {
+                OptionRefAny::None => OptionRefAny::None,
+                OptionRefAny::Some(s) => OptionRefAny::Some(s.clone_into_library_memory()),
+            },
+            ids_and_classes: self.ids_and_classes.clone().into_library_owned_vec().into(),
+            inline_css_props: self.inline_css_props.clone().into_library_owned_vec().into(),
+            callbacks: self.callbacks.into_library_owned_vec().into(),
+            clip_mask: self.clip_mask.clone(),
+            tab_index: self.tab_index.clone(),
+        }
+    }
 }
 
 // Clone, PartialEq, Eq, Hash, PartialOrd, Ord
@@ -620,7 +684,6 @@ impl_vec_mut!(NodeData, NodeDataVec);
 impl_vec_debug!(NodeData, NodeDataVec);
 impl_vec_partialord!(NodeData, NodeDataVec);
 impl_vec_ord!(NodeData, NodeDataVec);
-impl_vec_clone!(NodeData, NodeDataVec);
 impl_vec_partialeq!(NodeData, NodeDataVec);
 impl_vec_eq!(NodeData, NodeDataVec);
 impl_vec_hash!(NodeData, NodeDataVec);
@@ -628,6 +691,16 @@ impl_vec_hash!(NodeData, NodeDataVec);
 impl NodeDataVec {
     pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, NodeData> {
         NodeDataContainerRef { internal: self.as_ref() }
+    }
+    pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, NodeData> {
+        NodeDataContainerRefMut { internal: self.as_mut() }
+    }
+    pub fn into_library_owned_vec(&mut self) -> Vec<NodeData> {
+        let mut vec = Vec::with_capacity(self.as_ref().len());
+        for item in self.as_mut().iter_mut() {
+            vec.push(item.copy_special());
+        }
+        vec
     }
 }
 
@@ -789,16 +862,16 @@ impl NodeData {
         Self::new(NodeType::Div)
     }
 
+    /// Shorthand for `NodeData::new(NodeType::Br)`.
+    #[inline(always)]
+    pub const fn br() -> Self {
+        Self::new(NodeType::Div)
+    }
+
     /// Shorthand for `NodeData::new(NodeType::Label(value.into()))`
     #[inline(always)]
     pub fn label<S: Into<AzString>>(value: S) -> Self {
         Self::new(NodeType::Label(value.into()))
-    }
-
-    /// Shorthand for `NodeData::new(NodeType::Text(text_id))`
-    #[inline(always)]
-    pub fn text(text_id: TextId) -> Self {
-        Self::new(NodeType::Text(text_id))
     }
 
     /// Shorthand for `NodeData::new(NodeType::Image(image_id))`
@@ -890,7 +963,7 @@ impl NodeData {
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
 #[repr(C)]
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Dom {
     pub root: NodeData,
     pub children: DomVec,
@@ -899,13 +972,34 @@ pub struct Dom {
     estimated_total_children: usize,
 }
 
-impl_option!(Dom, OptionDom, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl Dom {
+    pub fn copy_except_for_root(&mut self) -> Self {
+        Self {
+            root: self.root.copy_special(),
+            children: self.children.into_library_owned_vec().into(),
+            estimated_total_children: self.estimated_total_children,
+        }
+    }
+}
+
+impl DomVec {
+    #[inline(always)]
+    pub fn into_library_owned_vec(&mut self) -> Vec<Dom> {
+        let mut vec = Vec::with_capacity(self.as_ref().len());
+        for item in self.as_mut().iter_mut() {
+            vec.push(item.copy_except_for_root());
+        }
+        vec
+    }
+}
+
+impl_option!(Dom, OptionDom, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl_vec!(Dom, DomVec, DomVecDestructor);
+impl_vec_mut!(Dom, DomVec);
 impl_vec_debug!(Dom, DomVec);
 impl_vec_partialord!(Dom, DomVec);
 impl_vec_ord!(Dom, DomVec);
-impl_vec_clone!(Dom, DomVec);
 impl_vec_partialeq!(Dom, DomVec);
 impl_vec_eq!(Dom, DomVec);
 impl_vec_hash!(Dom, DomVec);
@@ -929,9 +1023,9 @@ impl Dom {
     #[inline(always)]
     pub const fn body() -> Self { Self::new(NodeType::Body) }
     #[inline(always)]
-    pub fn label<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Label(value.into())) }
+    pub const fn br() -> Self { Self::new(NodeType::Br) }
     #[inline(always)]
-    pub const fn text(text_id: TextId) -> Self { Self::new(NodeType::Text(text_id)) }
+    pub fn label<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Label(value.into())) }
     #[inline(always)]
     pub const fn image(image: ImageId) -> Self { Self::new(NodeType::Image(image)) }
     #[inline(always)]
@@ -1073,7 +1167,7 @@ impl FromIterator<NodeType> for Dom {
 
 
 /// Same as `Dom`, but arena-based for more efficient memory layout
-#[derive(Debug, PartialEq, PartialOrd, Clone, Eq)]
+#[derive(Debug, PartialEq, PartialOrd, Eq)]
 pub(crate) struct CompactDom {
     pub node_hierarchy: NodeHierarchy,
     pub node_data: NodeDataContainer<NodeData>,
@@ -1090,13 +1184,13 @@ impl CompactDom {
 
 impl From<Dom> for CompactDom {
     fn from(dom: Dom) -> Self {
-        fn convert_dom_into_compact_dom(dom: Dom) -> CompactDom {
+        fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
 
             // note: somehow convert this into a non-recursive form later on!
             fn convert_dom_into_compact_dom_internal(
-                dom: &Dom,
+                dom: &mut Dom,
                 node_hierarchy: &mut [Node],
-                node_data: &mut [NodeData],
+                node_data: &mut Vec<NodeData>,
                 parent_node_id: NodeId,
                 node: Node,
                 cur_node_id: &mut usize
@@ -1113,12 +1207,12 @@ impl From<Dom> for CompactDom {
 
                 // Write node into the arena here!
                 node_hierarchy[parent_node_id.index()] = node.clone();
-                node_data[parent_node_id.index()] = dom.root.clone();
+                node_data[parent_node_id.index()] = dom.root.copy_special();
                 *cur_node_id += 1;
 
                 let mut previous_sibling_id = None;
                 let children_len = dom.children.len();
-                for (child_index, child_dom) in dom.children.iter().enumerate() {
+                for (child_index, child_dom) in dom.children.as_mut().iter_mut().enumerate() {
                     let child_node_id = NodeId::new(*cur_node_id);
                     let is_last_child = (child_index + 1) == children_len;
                     let child_dom_is_empty = child_dom.children.is_empty();
@@ -1138,7 +1232,7 @@ impl From<Dom> for CompactDom {
             const DEFAULT_NODE_DATA: NodeData = NodeData::div();
 
             let mut node_hierarchy = vec![Node::ROOT; dom.estimated_total_children + 1];
-            let mut node_data = vec![DEFAULT_NODE_DATA; dom.estimated_total_children + 1];
+            let mut node_data = (0..dom.estimated_total_children + 1).map(|_| DEFAULT_NODE_DATA).collect::<Vec<_>>();
             let mut cur_node_id = 0;
 
             let root_node_id = NodeId::ZERO;
@@ -1149,7 +1243,7 @@ impl From<Dom> for CompactDom {
                 last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
             };
 
-            convert_dom_into_compact_dom_internal(&dom, &mut node_hierarchy, &mut node_data, root_node_id, root_node, &mut cur_node_id);
+            convert_dom_into_compact_dom_internal(&mut dom, &mut node_hierarchy, &mut node_data, root_node_id, root_node, &mut cur_node_id);
 
             CompactDom {
                 node_hierarchy: NodeHierarchy { internal: node_hierarchy },

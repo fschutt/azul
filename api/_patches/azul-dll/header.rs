@@ -32,7 +32,7 @@ use azul_impl::{
         IFrameCallback, IFrameCallbackInfo, IFrameCallbackReturn
     },
     window::{WindowCreateOptions, WindowState},
-    resources::{RawImage, AppConfig, RawImageFormat, FontId, TextId, ImageId},
+    resources::{RawImage, AppConfig, RawImageFormat, FontId, ImageId},
     app::App,
     task::{OptionDuration, Timer, TimerId, Thread},
     gl::{OptionTexture, TextureFlags, Texture, GlContextPtr},

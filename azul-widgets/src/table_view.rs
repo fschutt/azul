@@ -58,6 +58,7 @@ pub struct TableViewState {
 }
 
 impl Default for TableViewState {
+    #[inline]
     fn default() -> Self {
         Self {
             style: TableStyle::default(),
@@ -87,6 +88,7 @@ pub struct TableCellSelection {
 
 impl TableCellSelection {
 
+    #[inline]
     pub fn from(row: usize, column: usize) -> Self {
         Self {
             from_top_left: TableCellIndex { row, column },
@@ -94,15 +96,19 @@ impl TableCellSelection {
         }
     }
 
+    #[inline]
     pub fn to(self, row: usize, column: usize) -> Self {
         Self { to_bottom_right: TableCellIndex { row, column }, .. self }
     }
 
+    #[inline]
     pub fn number_of_rows_selected(&self) -> usize {
         let max_row = self.from_top_left.row.max(self.to_bottom_right.row);
         let min_row = self.from_top_left.row.min(self.to_bottom_right.row);
         if max_row < min_row { 0 } else { (max_row - min_row) + 1 }
     }
+
+    #[inline]
     pub fn number_of_columns_selected(&self) -> usize {
         let max_col = self.from_top_left.column.max(self.to_bottom_right.column);
         let min_col = self.from_top_left.column.min(self.to_bottom_right.column);
@@ -112,18 +118,22 @@ impl TableCellSelection {
 
 impl TableViewState {
 
+    #[inline]
     pub fn new() -> Self {
         TableViewState::default()
     }
 
+    #[inline]
     pub fn set_cell_content<I: Into<String>>(&mut self, cell: TableCellIndex, value: I) {
         self.cell_contents.insert(cell, value.into());
     }
 
+    #[inline]
     pub fn get_cell_content(&self, cell: &TableCellIndex) -> Option<&String> {
         self.cell_contents.get(cell)
     }
 
+    #[inline]
     pub fn set_selection(&mut self, selection: Option<TableCellSelection>) {
         self.selection = selection;
     }
@@ -394,11 +404,16 @@ impl TableView {
         .style(Css::empty())
     }
 
-    extern "C" fn render_table_iframe_contents(state: &RefAny, info: IFrameCallbackInfo) -> IFrameCallbackReturn {
+    extern "C" fn render_table_iframe_contents(state: &mut RefAny, info: IFrameCallbackInfo) -> IFrameCallbackReturn {
 
         use azul::window::{LayoutRect, LayoutSize, LayoutPoint};
 
+        println!("state: {:#?}", state);
+
         let table_view_state = state.downcast_ref::<TableViewState>().unwrap();
+
+        println!("table view state: {:?}", table_view_state);
+
         let logical_size = info.get_bounds().get_logical_size();
         let padding_rows = 0;
         let padding_columns = 0;

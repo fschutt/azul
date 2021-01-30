@@ -7,7 +7,6 @@
     use crate::callbacks::GlCallbackType;
     use crate::callbacks::RefAny;
     use crate::resources::ImageId;
-    use crate::resources::TextId;
     use crate::resources::FontId;
     use crate::vec::DomVec;
     use crate::vec::IdOrClassVec;
@@ -35,9 +34,9 @@
         #[inline(always)]
         pub const fn body() -> Self { Self::new(NodeType::Body) }
         #[inline(always)]
-        pub fn label<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Label(value.into())) }
+        pub const fn br() -> Self { Self::new(NodeType::Br) }
         #[inline(always)]
-        pub const fn text(text_id: TextId) -> Self { Self::new(NodeType::Text(text_id)) }
+        pub fn label<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Label(value.into())) }
         #[inline(always)]
         pub const fn image(image: ImageId) -> Self { Self::new(NodeType::Image(image)) }
         #[inline(always)]
@@ -116,6 +115,12 @@
             Self::new(NodeType::Div)
         }
 
+        /// Shorthand for `NodeData::new(NodeType::Br)`.
+        #[inline(always)]
+        pub const fn br() -> Self {
+            Self::new(NodeType::Br)
+        }
+
         /// Shorthand for `NodeData::default()`.
         #[inline(always)]
         pub const fn const_default() -> Self {
@@ -126,12 +131,6 @@
         #[inline(always)]
         pub fn label<S: Into<AzString>>(value: S) -> Self {
             Self::new(NodeType::Label(value.into()))
-        }
-
-        /// Shorthand for `NodeData::new(NodeType::Text(text_id))`
-        #[inline(always)]
-        pub fn text(text_id: TextId) -> Self {
-            Self::new(NodeType::Text(text_id))
         }
 
         /// Shorthand for `NodeData::new(NodeType::Image(image_id))`

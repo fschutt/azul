@@ -3,7 +3,7 @@
     #[repr(C)]
     pub struct Ref<'a, T> {
         ptr: &'a T,
-        sharing_info: AtomicRefCount,
+        sharing_info: RefCount,
     }
 
     impl<'a, T> Drop for Ref<'a, T> {
@@ -24,7 +24,7 @@
     #[repr(C)]
     pub struct RefMut<'a, T> {
         ptr: &'a mut T,
-        sharing_info: AtomicRefCount,
+        sharing_info: RefCount,
     }
 
     impl<'a, T> Drop for RefMut<'a, T> {
@@ -81,11 +81,11 @@
 
         /// Downcasts the type-erased pointer to a type `&U`, returns `None` if the types don't match
         #[inline]
-        pub fn downcast_ref<'a, U: 'static>(&'a self) -> Option<Ref<'a, U>> {
-            let is_same_type = unsafe { crate::dll::az_ref_any_is_type(self, Self::get_type_id::<U>()) };
+        pub fn downcast_ref<'a, U: 'static>(&'a mut self) -> Option<Ref<'a, U>> {
+            let is_same_type = self.is_type(Self::get_type_id::<U>());
             if !is_same_type { return None; }
 
-            let can_be_shared = unsafe { crate::dll::az_ref_any_can_be_shared(self) };
+            let can_be_shared = self.sharing_info.can_be_shared();
             if !can_be_shared { return None; }
 
             self.sharing_info.increase_ref();
@@ -98,10 +98,10 @@
         /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<RefMut<'a, U>> {
-            let is_same_type = unsafe { crate::dll::az_ref_any_is_type(self, Self::get_type_id::<U>()) };
+            let is_same_type = self.is_type(Self::get_type_id::<U>());
             if !is_same_type { return None; }
 
-            let can_be_shared_mut = unsafe { crate::dll::az_ref_any_can_be_shared_mut(self) };
+            let can_be_shared_mut = self.sharing_info.can_be_shared_mut();
             if !can_be_shared_mut { return None; }
 
             self.sharing_info.increase_refmut();

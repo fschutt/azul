@@ -37,7 +37,7 @@ use azul_impl::{
         IFrameCallback, IFrameCallbackInfo, IFrameCallbackReturn
     },
     window::{WindowCreateOptions, WindowState},
-    resources::{RawImage, AppConfig, RawImageFormat, FontId, TextId, ImageId},
+    resources::{RawImage, AppConfig, RawImageFormat, FontId, ImageId},
     app::App,
     task::{OptionDuration, Timer, TimerId, Thread},
     gl::{OptionTexture, TextureFlags, Texture, GlContextPtr},
@@ -767,7 +767,7 @@ pub use AzHidpiAdjustedBoundsTT as AzHidpiAdjustedBounds;
 pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
 pub use AzLayoutCallbackTT as AzLayoutCallback;
 
-pub type AzLayoutCallbackType = extern "C" fn(&AzRefAny, AzLayoutInfo) -> AzStyledDom;
+pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutInfo) -> AzStyledDom;
 /// Re-export of rust-allocated (stack based) `Callback` struct
 pub type AzCallbackTT = azul_impl::callbacks::Callback;
 pub use AzCallbackTT as AzCallback;
@@ -791,17 +791,15 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.
 #[no_mangle] pub extern "C" fn az_callback_info_get_cursor_relative_to_node(callbackinfo: &AzCallbackInfo) -> AzOptionLayoutPoint { callbackinfo.get_cursor_relative_to_node() }
 /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn az_callback_info_get_parent(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_parent(node_id).into() }
+#[no_mangle] pub extern "C" fn az_callback_info_get_parent(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_parent(node_id).into() }
 /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn az_callback_info_get_previous_sibling(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_previous_sibling(node_id).into() }
+#[no_mangle] pub extern "C" fn az_callback_info_get_previous_sibling(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_previous_sibling(node_id).into() }
 /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn az_callback_info_get_next_sibling(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_next_sibling(node_id).into() }
+#[no_mangle] pub extern "C" fn az_callback_info_get_next_sibling(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_next_sibling(node_id).into() }
 /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn az_callback_info_get_first_child(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_first_child(node_id).into() }
+#[no_mangle] pub extern "C" fn az_callback_info_get_first_child(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_first_child(node_id).into() }
 /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn az_callback_info_get_last_child(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_last_child(node_id).into() }
-/// Returns the `Dataset` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn az_callback_info_get_dataset(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionRefAny { callbackinfo.get_dataset(node_id).into() }
+#[no_mangle] pub extern "C" fn az_callback_info_get_last_child(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_last_child(node_id).into() }
 /// Returns a copy of the current windows `WindowState`.
 #[no_mangle] pub extern "C" fn az_callback_info_get_window_state(callbackinfo: &AzCallbackInfo) -> AzWindowState { callbackinfo.get_window_state() }
 /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
@@ -835,7 +833,7 @@ pub use AzUpdateScreenTT as AzUpdateScreen;
 pub type AzIFrameCallbackTT = azul_impl::callbacks::IFrameCallback;
 pub use AzIFrameCallbackTT as AzIFrameCallback;
 
-pub type AzIFrameCallbackType = extern "C" fn(&AzRefAny, AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
+pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
 /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
 pub type AzIFrameCallbackInfoTT = azul_impl::callbacks::IFrameCallbackInfo;
 pub use AzIFrameCallbackInfoTT as AzIFrameCallbackInfo;
@@ -850,7 +848,7 @@ pub use AzIFrameCallbackReturnTT as AzIFrameCallbackReturn;
 pub type AzGlCallbackTT = azul_impl::callbacks::GlCallback;
 pub use AzGlCallbackTT as AzGlCallback;
 
-pub type AzGlCallbackType = extern "C" fn(&AzRefAny, AzGlCallbackInfo) -> AzGlCallbackReturn;
+pub type AzGlCallbackType = extern "C" fn(&mut AzRefAny, AzGlCallbackInfo) -> AzGlCallbackReturn;
 /// Re-export of rust-allocated (stack based) `GlCallbackInfo` struct
 pub type AzGlCallbackInfoTT = azul_impl::callbacks::GlCallbackInfo;
 pub use AzGlCallbackInfoTT as AzGlCallbackInfo;
@@ -881,25 +879,29 @@ pub use AzWriteBackCallbackTT as AzWriteBackCallback;
 
 pub type AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver);
 pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
-/// Re-export of rust-allocated (stack based) `AtomicRefCount` struct
-pub type AzAtomicRefCountTT = azul_impl::callbacks::AtomicRefCount;
-pub use AzAtomicRefCountTT as AzAtomicRefCount;
-/// Equivalent to the Rust `AtomicRefCount::can_be_shared()` function.
-#[no_mangle] pub extern "C" fn az_atomic_ref_count_can_be_shared(atomicrefcount: &AzAtomicRefCount) -> bool { atomicrefcount.can_be_shared() }
-/// Equivalent to the Rust `AtomicRefCount::can_be_shared_mut()` function.
-#[no_mangle] pub extern "C" fn az_atomic_ref_count_can_be_shared_mut(atomicrefcount: &AzAtomicRefCount) -> bool { atomicrefcount.can_be_shared_mut() }
-/// Equivalent to the Rust `AtomicRefCount::increase_ref()` function.
-#[no_mangle] pub extern "C" fn az_atomic_ref_count_increase_ref(atomicrefcount: &AzAtomicRefCount) { atomicrefcount.increase_ref() }
-/// Equivalent to the Rust `AtomicRefCount::decrease_ref()` function.
-#[no_mangle] pub extern "C" fn az_atomic_ref_count_decrease_ref(atomicrefcount: &AzAtomicRefCount) { atomicrefcount.decrease_ref() }
-/// Equivalent to the Rust `AtomicRefCount::increase_refmut()` function.
-#[no_mangle] pub extern "C" fn az_atomic_ref_count_increase_refmut(atomicrefcount: &AzAtomicRefCount) { atomicrefcount.increase_refmut() }
-/// Equivalent to the Rust `AtomicRefCount::decrease_refmut()` function.
-#[no_mangle] pub extern "C" fn az_atomic_ref_count_decrease_refmut(atomicrefcount: &AzAtomicRefCount) { atomicrefcount.decrease_refmut() }
-/// Destructor: Takes ownership of the `AtomicRefCount` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_atomic_ref_count_delete(object: &mut AzAtomicRefCount) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Re-export of rust-allocated (stack based) `RefCountInner` struct
+pub type AzRefCountInnerTT = azul_impl::callbacks::RefCountInner;
+pub use AzRefCountInnerTT as AzRefCountInner;
+
+/// Re-export of rust-allocated (stack based) `RefCount` struct
+pub type AzRefCountTT = azul_impl::callbacks::RefCount;
+pub use AzRefCountTT as AzRefCount;
+/// Equivalent to the Rust `RefCount::can_be_shared()` function.
+#[no_mangle] pub extern "C" fn az_ref_count_can_be_shared(refcount: &AzRefCount) -> bool { atomicrefcount.can_be_shared() }
+/// Equivalent to the Rust `RefCount::can_be_shared_mut()` function.
+#[no_mangle] pub extern "C" fn az_ref_count_can_be_shared_mut(refcount: &AzRefCount) -> bool { atomicrefcount.can_be_shared_mut() }
+/// Equivalent to the Rust `RefCount::increase_ref()` function.
+#[no_mangle] pub extern "C" fn az_ref_count_increase_ref(refcount: &mut AzRefCount) { atomicrefcount.increase_ref() }
+/// Equivalent to the Rust `RefCount::decrease_ref()` function.
+#[no_mangle] pub extern "C" fn az_ref_count_decrease_ref(refcount: &mut AzRefCount) { atomicrefcount.decrease_ref() }
+/// Equivalent to the Rust `RefCount::increase_refmut()` function.
+#[no_mangle] pub extern "C" fn az_ref_count_increase_refmut(refcount: &mut AzRefCount) { atomicrefcount.increase_refmut() }
+/// Equivalent to the Rust `RefCount::decrease_refmut()` function.
+#[no_mangle] pub extern "C" fn az_ref_count_decrease_refmut(refcount: &mut AzRefCount) { atomicrefcount.decrease_refmut() }
+/// Destructor: Takes ownership of the `RefCount` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_ref_count_delete(object: &mut AzRefCount) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
-#[no_mangle] pub extern "C" fn az_atomic_ref_count_deep_copy(object: &AzAtomicRefCount) -> AzAtomicRefCount { object.clone() }
+#[no_mangle] pub extern "C" fn az_ref_count_deep_copy(object: &AzRefCount) -> AzRefCount { object.clone() }
 
 /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
 pub type AzRefAnyTT = azul_impl::callbacks::RefAny;
@@ -911,18 +913,8 @@ pub use AzRefAnyTT as AzRefAny;
 #[no_mangle] pub extern "C" fn az_ref_any_is_type(refany: &AzRefAny, type_id: u64) -> bool { refany.is_type(type_id) }
 /// Equivalent to the Rust `RefAny::get_type_name()` function.
 #[no_mangle] pub extern "C" fn az_ref_any_get_type_name(refany: &AzRefAny) -> AzString { refany.get_type_name() }
-/// Equivalent to the Rust `RefAny::can_be_shared()` function.
-#[no_mangle] pub extern "C" fn az_ref_any_can_be_shared(refany: &AzRefAny) -> bool { refany.can_be_shared() }
-/// Equivalent to the Rust `RefAny::can_be_shared_mut()` function.
-#[no_mangle] pub extern "C" fn az_ref_any_can_be_shared_mut(refany: &AzRefAny) -> bool { refany.can_be_shared_mut() }
-/// Equivalent to the Rust `RefAny::increase_ref()` function.
-#[no_mangle] pub extern "C" fn az_ref_any_increase_ref(refany: &AzRefAny) { refany.increase_ref() }
-/// Equivalent to the Rust `RefAny::decrease_ref()` function.
-#[no_mangle] pub extern "C" fn az_ref_any_decrease_ref(refany: &AzRefAny) { refany.decrease_ref() }
-/// Equivalent to the Rust `RefAny::increase_refmut()` function.
-#[no_mangle] pub extern "C" fn az_ref_any_increase_refmut(refany: &AzRefAny) { refany.increase_refmut() }
-/// Equivalent to the Rust `RefAny::decrease_refmut()` function.
-#[no_mangle] pub extern "C" fn az_ref_any_decrease_refmut(refany: &AzRefAny) { refany.decrease_refmut() }
+/// Equivalent to the Rust `RefAny::library_deallocate()` function.
+#[no_mangle] pub extern "C" fn az_ref_any_library_deallocate(refany: AzRefAny) { refany.library_deallocate() }
 /// Destructor: Takes ownership of the `RefAny` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_ref_any_delete(object: &mut AzRefAny) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
@@ -2351,12 +2343,6 @@ pub use AzTextureFlagsTT as AzTextureFlags;
 pub type AzRawImageFormatTT = azul_impl::resources::RawImageFormat;
 pub use AzRawImageFormatTT as AzRawImageFormat;
 
-/// Re-export of rust-allocated (stack based) `TextId` struct
-pub type AzTextIdTT = azul_impl::resources::TextId;
-pub use AzTextIdTT as AzTextId;
-/// Creates a new, unique `TextId`
-#[no_mangle] pub extern "C" fn az_text_id_new() -> AzTextId { TextId::new() }
-
 /// Re-export of rust-allocated (stack based) `ImageId` struct
 pub type AzImageIdTT = azul_impl::resources::ImageId;
 pub use AzImageIdTT as AzImageId;
@@ -2813,7 +2799,7 @@ mod test_sizes {
             write!(f, "    _internal_layout_align: {}\r\n", self._internal_layout_align)?;
             write!(f, "    type_name: \"{}\"\r\n", self.type_name.as_str())?;
             write!(f, "    type_id: {}\r\n", self.type_id)?;
-            write!(f, "    sharing_info: {:x}\r\n", &self.sharing_info as *const _ as usize)?;
+            write!(f, "    sharing_info: {:?}\r\n", &self.sharing_info)?;
             write!(f, "    custom_destructor: 0x{:x}\r\n", self.custom_destructor as usize)?;
             write!(f, "}}\r\n")?;
             Ok(())
@@ -2952,7 +2938,7 @@ mod test_sizes {
         pub(crate) ptr: *const c_void,
     }
     /// `AzLayoutCallbackType` struct
-    pub type AzLayoutCallbackType = extern "C" fn(&AzRefAny, AzLayoutInfo) -> AzStyledDom;
+    pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutInfo) -> AzStyledDom;
     /// `AzCallbackType` struct
     pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
     /// Specifies if the screen should be updated after the callback function has returned
@@ -2962,9 +2948,9 @@ mod test_sizes {
         RegenerateStyledDomForAllWindows,
     }
     /// `AzIFrameCallbackType` struct
-    pub type AzIFrameCallbackType = extern "C" fn(&AzRefAny, AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
+    pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
     /// `AzGlCallbackType` struct
-    pub type AzGlCallbackType = extern "C" fn(&AzRefAny, AzGlCallbackInfo) -> AzGlCallbackReturn;
+    pub type AzGlCallbackType = extern "C" fn(&mut AzRefAny, AzGlCallbackInfo) -> AzGlCallbackReturn;
     /// `AzTimerCallbackType` struct
     pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzTimerCallbackInfo) -> AzTimerCallbackReturn;
     /// `AzWriteBackCallbackType` struct
@@ -2973,9 +2959,9 @@ mod test_sizes {
     pub type AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver);
     /// `AzRefAnyDestructorType` struct
     pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
-    /// Re-export of rust-allocated (stack based) `AtomicRefCount` struct
-    #[repr(C)]     pub struct AzAtomicRefCount {
-        pub(crate) ptr: *const c_void,
+    /// Re-export of rust-allocated (stack based) `RefCount` struct
+    #[repr(C)]     pub struct AzRefCount {
+        pub(crate) ptr: *const AzRefCountInner,
     }
     /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
     #[repr(C)]     pub struct AzRefAny {
@@ -2984,14 +2970,16 @@ mod test_sizes {
         pub _internal_layout_size: usize,
         pub _internal_layout_align: usize,
         pub type_id: u64,
+        pub is_dead: bool,
         pub type_name: AzString,
-        pub sharing_info: AzAtomicRefCount,
+        pub sharing_info: AzRefCount,
         pub custom_destructor: AzRefAnyDestructorType,
     }
     /// Re-export of rust-allocated (stack based) `NodeTypePath` struct
     #[repr(C)]     pub enum AzNodeTypePath {
         Body,
         Div,
+        Br,
         P,
         Img,
         Texture,
@@ -4140,6 +4128,12 @@ mod test_sizes {
     #[repr(C)]     pub struct AzWriteBackCallback {
         pub cb: AzWriteBackCallbackType,
     }
+    /// Re-export of rust-allocated (stack based) `RefCountInner` struct
+    #[repr(C)]     pub struct AzRefCountInner {
+        pub num_copies: usize,
+        pub num_refs: usize,
+        pub num_mutable_refs: usize,
+    }
     /// Re-export of rust-allocated (stack based) `CssNthChildPattern` struct
     #[repr(C)]     pub struct AzCssNthChildPattern {
         pub repeat: u32,
@@ -5061,10 +5055,6 @@ mod test_sizes {
         pub is_opaque: bool,
         pub is_video_texture: bool,
     }
-    /// Re-export of rust-allocated (stack based) `TextId` struct
-    #[repr(C)]     pub struct AzTextId {
-        pub id: usize,
-    }
     /// Re-export of rust-allocated (stack based) `ImageId` struct
     #[repr(C)]     pub struct AzImageId {
         pub id: usize,
@@ -5711,11 +5701,11 @@ mod test_sizes {
     #[repr(C, u8)]     pub enum AzNodeType {
         Div,
         Body,
+        Br,
         Label(AzString),
-        Text(AzTextId),
         Image(AzImageId),
-        GlTexture(AzGlTextureNode),
         IFrame(AzIFrameNode),
+        GlTexture(AzGlTextureNode),
     }
     /// Re-export of rust-allocated (stack based) `EventFilter` struct
     #[repr(C, u8)]     pub enum AzEventFilter {
@@ -6302,7 +6292,7 @@ mod test_sizes {
         pub threads: *mut c_void,
         pub new_windows: *mut c_void,
         pub current_window_handle: *const AzRawWindowHandle,
-        pub layout_results: *const c_void,
+        pub node_hierarchies: *mut c_void,
         pub stop_propagation: *mut bool,
         pub focus_target: *const c_void,
         pub current_scroll_states: *const c_void,
@@ -6503,7 +6493,7 @@ mod test_sizes {
         assert_eq!(Layout::new::<azul_impl::resources::AppLogLevel>(), Layout::new::<AzAppLogLevel>());
         assert_eq!(Layout::new::<azul_impl::app::AzAppPtr>(), Layout::new::<AzApp>());
         assert_eq!(Layout::new::<azul_impl::callbacks::UpdateScreen>(), Layout::new::<AzUpdateScreen>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::AtomicRefCount>(), Layout::new::<AzAtomicRefCount>());
+        assert_eq!(Layout::new::<azul_impl::callbacks::RefCount>(), Layout::new::<AzRefCount>());
         assert_eq!(Layout::new::<azul_impl::callbacks::RefAny>(), Layout::new::<AzRefAny>());
         assert_eq!(Layout::new::<azul_impl::css::NodeTypePath>(), Layout::new::<AzNodeTypePath>());
         assert_eq!(Layout::new::<azul_impl::css::CssPropertyType>(), Layout::new::<AzCssPropertyType>());
@@ -6636,6 +6626,7 @@ mod test_sizes {
         assert_eq!(Layout::new::<azul_impl::callbacks::TimerCallback>(), Layout::new::<AzTimerCallback>());
         assert_eq!(Layout::new::<azul_impl::callbacks::TimerCallbackReturn>(), Layout::new::<AzTimerCallbackReturn>());
         assert_eq!(Layout::new::<azul_impl::callbacks::WriteBackCallback>(), Layout::new::<AzWriteBackCallback>());
+        assert_eq!(Layout::new::<azul_impl::callbacks::RefCountInner>(), Layout::new::<AzRefCountInner>());
         assert_eq!(Layout::new::<azul_impl::css::CssNthChildPattern>(), Layout::new::<AzCssNthChildPattern>());
         assert_eq!(Layout::new::<azul_impl::css::ColorU>(), Layout::new::<AzColorU>());
         assert_eq!(Layout::new::<azul_impl::css::FloatValue>(), Layout::new::<AzFloatValue>());
@@ -6786,7 +6777,6 @@ mod test_sizes {
         assert_eq!(Layout::new::<azul_impl::gl::Refstr>(), Layout::new::<AzRefstr>());
         assert_eq!(Layout::new::<azul_impl::gl::GetProgramBinaryReturn>(), Layout::new::<AzGetProgramBinaryReturn>());
         assert_eq!(Layout::new::<azul_impl::gl::TextureFlags>(), Layout::new::<AzTextureFlags>());
-        assert_eq!(Layout::new::<azul_impl::resources::TextId>(), Layout::new::<AzTextId>());
         assert_eq!(Layout::new::<azul_impl::resources::ImageId>(), Layout::new::<AzImageId>());
         assert_eq!(Layout::new::<azul_impl::resources::FontId>(), Layout::new::<AzFontId>());
         assert_eq!(Layout::new::<azul_impl::resources::RawImage>(), Layout::new::<AzRawImage>());

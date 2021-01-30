@@ -17,7 +17,7 @@ use crate::{
     app_resources::{AppResources, IdNamespace},
     styled_dom::StyledDom,
     ui_solver::{OverflowingScrollNode, LayoutedRectangle, LayoutResult},
-    styled_dom::{DomId, AzNodeId},
+    styled_dom::{DomId, AzNodeId, AzNodeVec},
     id_tree::NodeId,
     window::{
         WindowSize, WindowState, FullWindowState, LogicalPosition,
@@ -46,44 +46,35 @@ pub enum UpdateScreen {
 
 #[derive(Debug)]
 #[repr(C)]
-pub struct AtomicRefCountInner {
-    pub num_copies: AtomicUsize,
-    pub num_refs: AtomicUsize,
-    pub num_mutable_refs: AtomicUsize,
+pub struct RefCountInner {
+    pub num_copies: usize,
+    pub num_refs: usize,
+    pub num_mutable_refs: usize,
 }
 
-impl AtomicRefCountInner {
+impl RefCountInner {
     const fn initial() -> Self {
         Self {
-            num_copies: AtomicUsize::new(1),
-            num_refs: AtomicUsize::new(0),
-            num_mutable_refs: AtomicUsize::new(0),
+            num_copies: 1,
+            num_refs: 0,
+            num_mutable_refs: 0,
         }
     }
 }
 
 #[derive(Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(C)]
-pub struct AtomicRefCount {
-    pub ptr: *const c_void, /* *const AtomicRefCountInner */
+pub struct RefCount {
+    pub ptr: *const RefCountInner,
 }
 
-impl fmt::Debug for AtomicRefCount {
+impl fmt::Debug for RefCount {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.downcast().fmt(f)
     }
 }
 
-impl Drop for AtomicRefCount {
-    fn drop(&mut self) {
-        let previous = self.downcast().num_copies.fetch_sub(1, Ordering::SeqCst);
-        if previous == 1 {
-            let _ = unsafe { Box::from_raw(self.ptr as *mut AtomicRefCountInner) };
-        }
-    }
-}
-
-impl Clone for AtomicRefCount {
+impl Clone for RefCount {
     fn clone(&self) -> Self {
         Self {
             ptr: self.ptr,
@@ -91,41 +82,58 @@ impl Clone for AtomicRefCount {
     }
 }
 
-impl AtomicRefCount {
-
-    fn new(r: AtomicRefCountInner) -> Self {
-        AtomicRefCount { ptr: Box::into_raw(Box::new(r)) as *const c_void }
+impl Drop for RefCount {
+    fn drop(&mut self) {
+        let previous = self.downcast().num_copies;
+        if previous == 1 {
+            let _ = unsafe { Box::from_raw(self.ptr as *mut RefCountInner) };
+        }
     }
-    fn downcast(&self) -> &AtomicRefCountInner { unsafe { &*(self.ptr as *const AtomicRefCountInner) } }
-    fn downcast_mut(&mut self) -> &mut AtomicRefCountInner { unsafe { &mut *(self.ptr as *mut AtomicRefCountInner) } }
+}
+
+impl RefCount {
+
+    fn new() -> Self {
+        RefCount { ptr: Box::into_raw(Box::new(RefCountInner::initial())) }
+    }
+    fn downcast(&self) -> &RefCountInner { unsafe { &*self.ptr } }
+    fn downcast_mut(&mut self) -> &mut RefCountInner { unsafe { &mut *(self.ptr as *mut RefCountInner) } }
 
     /// Runtime check to check whether this `RefAny` can be borrowed
     pub fn can_be_shared(&self) -> bool {
-        self.downcast().num_mutable_refs.load(Ordering::SeqCst) == 0
+        self.downcast().num_mutable_refs == 0
     }
 
     /// Runtime check to check whether this `RefAny` can be borrowed mutably
     pub fn can_be_shared_mut(&self) -> bool {
         let info = self.downcast();
-        info.num_mutable_refs.load(Ordering::SeqCst) == 0 && info.num_refs.load(Ordering::SeqCst) == 0
+        info.num_mutable_refs == 0 && info.num_refs == 0
     }
 
-    pub fn increase_ref(&self) {
-        self.downcast().num_refs.fetch_add(1, Ordering::SeqCst);
+    pub fn increase_ref(&mut self) {
+        self.downcast_mut().num_refs += 1;
     }
 
-    pub fn decrease_ref(&self) {
-        self.downcast().num_refs.fetch_sub(1, Ordering::SeqCst);
+    pub fn decrease_ref(&mut self) {
+        self.downcast_mut().num_refs -= 1;
     }
 
-    pub fn increase_refmut(&self) {
-        self.downcast().num_mutable_refs.fetch_add(1, Ordering::SeqCst);
+    pub fn increase_refmut(&mut self) {
+        self.downcast_mut().num_mutable_refs += 1;
     }
 
-    pub fn decrease_refmut(&self) {
-        self.downcast().num_mutable_refs.fetch_sub(1, Ordering::SeqCst);
+    pub fn decrease_refmut(&mut self) {
+        self.downcast_mut().num_mutable_refs -= 1;
     }
 }
+
+struct Dummy {
+    _reserved: usize,
+}
+
+static DUMMY: Dummy = Dummy { _reserved: 0 };
+
+extern "C" fn destruct_dummy(_: *mut c_void) { }
 
 #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(C)]
@@ -135,33 +143,19 @@ pub struct RefAny {
     pub _internal_layout_size: usize,
     pub _internal_layout_align: usize,
     pub type_id: u64,
+    // Special field: in order to avoid cloning the RefAny
+    pub is_dead: bool,
     pub type_name: AzString,
-    pub sharing_info: AtomicRefCount,
+    pub sharing_info: RefCount,
     pub custom_destructor: extern "C" fn(*mut c_void),
 }
 
-impl_option!(RefAny, OptionRefAny, copy = false, [Debug, Clone, Hash, PartialEq, PartialOrd, Ord, Eq]);
+impl_option!(RefAny, OptionRefAny, copy = false, clone = false, [Debug, Hash, PartialEq, PartialOrd, Ord, Eq]);
 
 // the refcount of RefAny is atomic, therefore `RefAny` is not `Sync`, but it is `Send`
 unsafe impl Send for RefAny { }
 // necessary for rayon to work
 unsafe impl Sync for RefAny { }
-
-impl Clone for RefAny {
-    fn clone(&self) -> Self {
-        self.sharing_info.downcast().num_copies.fetch_add(1, Ordering::SeqCst);
-        Self {
-            _internal_ptr: self._internal_ptr,
-            _internal_len: self._internal_len,
-            _internal_layout_size: self._internal_layout_size,
-            _internal_layout_align: self._internal_layout_align,
-            type_id: self.type_id,
-            type_name: self.type_name.clone(),
-            sharing_info: self.sharing_info.clone(),
-            custom_destructor: self.custom_destructor,
-        }
-    }
-}
 
 impl RefAny {
 
@@ -181,12 +175,13 @@ impl RefAny {
             }
         }
 
-        let type_name = ::std::any::type_name::<T>().to_string();
+        let type_name = ::std::any::type_name::<T>();
+        let st = AzString::from_const_str(type_name);
         let s = Self::new_c(
             (&value as *const T) as *const c_void,
             ::std::mem::size_of::<T>(),
             Self::get_type_id_static::<T>(),
-            type_name.into(),
+            st,
             default_custom_destructor::<T>,
         );
         ::std::mem::forget(value); // do not run the destructor of T here!
@@ -204,20 +199,54 @@ impl RefAny {
         let heap_struct_as_bytes = unsafe { alloc::alloc(layout) };
         unsafe { ptr::copy_nonoverlapping(struct_as_bytes.as_ptr(), heap_struct_as_bytes, struct_as_bytes.len()) };
 
-        let sharing_info = AtomicRefCount::new(AtomicRefCountInner::initial());
-
         let s = Self {
             _internal_ptr: heap_struct_as_bytes as *const c_void,
             _internal_len: len,
             _internal_layout_size: layout.size(),
             _internal_layout_align: layout.align(),
             type_id,
+            is_dead: true, // NOTE: default set to true - the RefAny is not alive until "copy_into_library_memory" has been called!
             type_name,
-            sharing_info: sharing_info,
+            sharing_info: RefCount::new(),
             custom_destructor: unsafe { std::mem::transmute(custom_destructor) }, // fn(&mut c_void) and fn(*mut c_void) are the same
         };
 
         s
+    }
+
+    // In order to be able to modify the RefAny itself
+    pub fn clone_into_library_memory(&mut self) -> Self {
+        if self.is_dead {
+            // does NOT bump the reference count, instead just sets the "is_dead" field to false
+            Self {
+                _internal_ptr: self._internal_ptr,
+                _internal_len: self._internal_len,
+                _internal_layout_size: self._internal_layout_size,
+                _internal_layout_align: self._internal_layout_align,
+                type_id: self.type_id,
+                is_dead: false, // <- sets the liveness of the pointer to false
+                type_name: self.type_name.clone(),
+                sharing_info: self.sharing_info.clone(),
+                custom_destructor: self.custom_destructor,
+            }
+        } else {
+            self.sharing_info.downcast_mut().num_copies += 1; // bump refcount
+            Self {
+                _internal_ptr: self._internal_ptr,
+                _internal_len: self._internal_len,
+                _internal_layout_size: self._internal_layout_size,
+                _internal_layout_align: self._internal_layout_align,
+                type_id: self.type_id,
+                is_dead: self.is_dead,
+                type_name: self.type_name.clone(),
+                sharing_info: self.sharing_info.clone(),
+                custom_destructor: self.custom_destructor,
+            }
+        }
+    }
+
+    pub fn is_dummy(&self) -> bool {
+        self.type_id == RefAny::get_type_id_static::<Dummy>()
     }
 
     pub fn is_type(&self, type_id: u64) -> bool {
@@ -244,39 +273,26 @@ impl RefAny {
         self.type_name.clone()
     }
 
-    /// Runtime check to check whether this `RefAny` can be borrowed
-    pub fn can_be_shared(&self) -> bool {
-        self.sharing_info.can_be_shared()
-    }
-
-    /// Runtime check to check whether this `RefAny` can be borrowed mutably
-    pub fn can_be_shared_mut(&self) -> bool {
-        self.sharing_info.can_be_shared_mut()
-    }
-
-    pub fn increase_ref(&self) {
-        self.sharing_info.increase_ref()
-    }
-
-    pub fn decrease_ref(&self) {
-        self.sharing_info.decrease_ref()
-    }
-
-    pub fn increase_refmut(&self) {
-        self.sharing_info.increase_refmut()
-    }
-
-    pub fn decrease_refmut(&self) {
-        self.sharing_info.decrease_refmut();
+    // Deallocates the RefAny in a safe way
+    pub fn library_deallocate(mut self) {
+        let _ = self.clone_into_library_memory();
+        // when copy goes out of bounds, copy will run the destructor
     }
 }
 
 impl Drop for RefAny {
     fn drop(&mut self) {
         use std::alloc;
-        if self.sharing_info.downcast().num_copies.fetch_sub(1, Ordering::SeqCst) == 1 {
-            (self.custom_destructor)(self._internal_ptr as *mut c_void);
-            unsafe { alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
+        if self.is_dead {
+            // Important: if the RefAny is dead, do not run the destructor
+            // nor try to access the _internal_ptr!
+            return;
+        } else {
+            self.sharing_info.downcast_mut().num_copies -= 1;
+            if self.sharing_info.downcast().num_copies == 0 {
+                (self.custom_destructor)(self._internal_ptr as *mut c_void);
+                unsafe { alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
+            }
         }
     }
 }
@@ -470,13 +486,13 @@ impl DomNodeId {
 ///
 /// See azul-core/ui_state.rs:298 for how the memory is managed
 /// across the callback boundary.
-pub type LayoutCallbackType = extern "C" fn(&RefAny, LayoutInfo) -> StyledDom;
+pub type LayoutCallbackType = extern "C" fn(&mut RefAny, LayoutInfo) -> StyledDom;
 
 #[repr(C)]
 pub struct LayoutCallback { pub cb: LayoutCallbackType }
 impl_callback!(LayoutCallback);
 
-extern "C" fn default_layout_callback(_: &RefAny, _: LayoutInfo) -> StyledDom { StyledDom::default() }
+extern "C" fn default_layout_callback(_: &mut RefAny, _: LayoutInfo) -> StyledDom { StyledDom::default() }
 
 impl Default for LayoutCallback {
     fn default() -> Self {
@@ -519,7 +535,7 @@ pub struct CallbackInfo {
     /// Handle of the current window
     current_window_handle: *const RawWindowHandle,
     /// Currently active, layouted rectangles
-    layout_results: *const Vec<LayoutResult>,
+    node_hierarchy: *const BTreeMap<DomId, AzNodeVec>,
     /// Sets whether the event should be propagated to the parent hit node or not
     stop_propagation: *mut bool,
     /// The callback can change the focus_target - note that the focus_target is set before the
@@ -557,7 +573,7 @@ impl CallbackInfo {
        threads: &'a mut FastHashMap<ThreadId, Thread>,
        new_windows: &'a mut Vec<WindowCreateOptions>,
        current_window_handle: &'a RawWindowHandle,
-       layout_results: &'a Vec<LayoutResult>,
+       node_hierarchy: &'a BTreeMap<DomId, AzNodeVec>,
        stop_propagation: &'a mut bool,
        focus_target: &'a mut Option<FocusTarget>,
        current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -576,7 +592,7 @@ impl CallbackInfo {
             threads: threads as *mut FastHashMap<ThreadId, Thread>,
             new_windows: new_windows as *mut Vec<WindowCreateOptions>,
             current_window_handle: current_window_handle as *const RawWindowHandle,
-            layout_results: layout_results as *const Vec<LayoutResult>,
+            node_hierarchy: node_hierarchy as *const BTreeMap<DomId, AzNodeVec>,
             stop_propagation: stop_propagation as *mut bool,
             focus_target: focus_target as *mut Option<FocusTarget>,
             current_scroll_states: current_scroll_states as *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -596,7 +612,7 @@ impl CallbackInfo {
     fn internal_get_threads<'a>(&'a self) -> &'a mut FastHashMap<ThreadId, Thread> { unsafe { &mut *self.threads } }
     fn internal_get_new_windows<'a>(&'a self) -> &'a mut Vec<WindowCreateOptions> { unsafe { &mut *self.new_windows } }
     fn internal_get_current_window_handle<'a>(&'a self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
-    fn internal_get_layout_results<'a>(&'a self) -> &'a Vec<LayoutResult> { unsafe { &*self.layout_results } }
+    fn internal_get_node_hierarchy<'a>(&'a self) -> &'a BTreeMap<DomId, AzNodeVec> { unsafe { &*self.node_hierarchy } }
     fn internal_get_stop_propagation<'a>(&'a self) -> &'a mut bool { unsafe { &mut *self.stop_propagation } }
     fn internal_get_focus_target<'a>(&'a self) -> &'a mut Option<FocusTarget> { unsafe { &mut *self.focus_target } }
     fn internal_get_current_scroll_states<'a>(&'a self) -> &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>> { unsafe { &*self.current_scroll_states } }
@@ -623,46 +639,51 @@ impl CallbackInfo {
     pub fn get_gl_context(&self) -> GlContextPtr { self.internal_get_gl_context().clone() }
 
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        self.internal_get_layout_results()
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.parent_id())
+        self.internal_get_node_hierarchy()
+        .get(&node_id.dom)
+        .and_then(|node_hierarchy| node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.parent_id())
         .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
     }
 
     pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        self.internal_get_layout_results()
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id())
+        self.internal_get_node_hierarchy()
+        .get(&node_id.dom)
+        .and_then(|node_hierarchy| node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id())
         .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
     }
 
     pub fn get_next_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        self.internal_get_layout_results()
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id())
+        self.internal_get_node_hierarchy()
+        .get(&node_id.dom)
+        .and_then(|node_hierarchy| node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id())
         .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
     }
 
     pub fn get_first_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        self.internal_get_layout_results()
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.first_child_id())
+        self.internal_get_node_hierarchy()
+        .get(&node_id.dom)
+        .and_then(|node_hierarchy| node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.first_child_id())
         .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
     }
 
     pub fn get_last_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        self.internal_get_layout_results()
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.last_child_id())
+        self.internal_get_node_hierarchy()
+        .get(&node_id.dom)
+        .and_then(|node_hierarchy| node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.last_child_id())
         .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
     }
 
-    pub fn get_dataset(&self, node_id: DomNodeId) -> OptionRefAny {
+    /*
+    pub fn get_dataset(&mut self, node_id: DomNodeId) -> OptionRefAny {
         self.internal_get_layout_results()
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.get_dataset().into_option())
+        .get_mut(node_id.dom.inner as usize)
+        .and_then(|layout_result| match &mut layout_result.styled_dom.node_data.as_container_mut().get_mut(node_id.node.into_crate_internal()?)?.dataset {
+            OptionRefAny::Some(s) => Some(s.clone_into_library_memory()),
+            OptionRefAny::None => None,
+        })
         .into()
     }
+    */
 
     pub fn set_window_state(&mut self, new_state: WindowState) { *self.internal_get_modifiable_window_state() = new_state; }
 
@@ -763,7 +784,7 @@ pub struct GlCallbackReturn { pub texture: OptionTexture }
 
 // -- iframe callback
 
-pub type IFrameCallbackType = extern "C" fn(&RefAny, IFrameCallbackInfo) -> IFrameCallbackReturn;
+pub type IFrameCallbackType = extern "C" fn(&mut RefAny, IFrameCallbackInfo) -> IFrameCallbackReturn;
 
 /// Callback that, given a rectangle area on the screen, returns the DOM
 /// appropriate for that bounds (useful for infinite lists)

@@ -21,7 +21,7 @@ pub struct CascadeInfo {
 impl_vec!(CascadeInfo, CascadeInfoVec, CascadeInfoVecDestructor);
 impl_vec_debug!(CascadeInfo, CascadeInfoVec);
 impl_vec_partialord!(CascadeInfo, CascadeInfoVec);
-impl_vec_clone!(CascadeInfo, CascadeInfoVec);
+impl_vec_clone!(CascadeInfo, CascadeInfoVec, CascadeInfoVecDestructor);
 impl_vec_partialeq!(CascadeInfo, CascadeInfoVec);
 
 impl CascadeInfoVec {

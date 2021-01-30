@@ -1155,30 +1155,35 @@ fn push_display_list_msg(
 
     let (spatial_id, clip_id) = match msg.get_position() {
         Static { x_offset, y_offset, .. } | Relative { x_offset, y_offset, .. } => {
+            /*
             builder.push_simple_stacking_context(
                 WrLayoutPoint::new(x_offset as f32, y_offset as f32),
                 parent_spatial_id,
                 WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
             );
+            */
             (parent_spatial_id, parent_clip_id)
         },
         Absolute { x_offset, y_offset, .. } => {
             let (last_positioned_spatial_id, last_positioned_clip_id) = positioned_items
             .last().copied().unwrap_or((WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id)));
-
+            /*
             builder.push_simple_stacking_context(
                 WrLayoutPoint::new(x_offset as f32, y_offset as f32),
                 last_positioned_spatial_id,
                 WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
             );
+            */
             (last_positioned_spatial_id, last_positioned_clip_id)
         },
         Fixed { x_offset, y_offset, .. } => {
+            /*
             builder.push_simple_stacking_context(
                 WrLayoutPoint::new(x_offset as f32, y_offset as f32),
                 WrSpatialId::root_scroll_node(builder.pipeline_id),
                 WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
             );
+            */
             (WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id))
         },
     };
@@ -1198,7 +1203,7 @@ fn push_display_list_msg(
         positioned_items.pop();
     }
 
-    builder.pop_stacking_context();
+    // builder.pop_stacking_context();
 }
 
 #[inline]

@@ -433,8 +433,6 @@ pub struct AppResources {
     /// The only thing remaining in memory permanently is the FontSource (which is only
     /// the string of the file path where the font was loaded from, so no huge memory pressure).
     pub last_frame_font_keys: FastHashMap<PipelineId, FastHashMap<ImmediateFontId, FastHashSet<Au>>>,
-    /// Stores long texts across frames
-    pub text_cache: TextCache,
 }
 
 impl AppResources {
@@ -490,7 +488,6 @@ macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
     }
 }}
 
-unique_id!(TextId, TEXT_ID_COUNTER);
 unique_id!(ImageId, IMAGE_ID_COUNTER);
 unique_id!(FontId, FONT_ID_COUNTER);
 
@@ -588,51 +585,8 @@ impl fmt::Debug for LoadedFont {
 }
 
 impl LoadedFont {
-
     pub fn delete_font_instance(&mut self, size: &Au) {
         self.font_instances.remove(size);
-    }
-}
-
-/// Cache for accessing large amounts of text
-#[derive(Debug, Default, Clone)]
-pub struct TextCache {
-    /// Mapping from the TextID to the actual, UTF-8 String
-    ///
-    /// This is stored outside of the actual glyph calculation, because usually you don't
-    /// need the string, except for rebuilding a cached string (for example, when the font is changed)
-    pub string_cache: FastHashMap<TextId, Words>,
-
-    // -- for now, don't cache ScaledWords, it's too complicated...
-
-    // /// Caches the layout of the strings / words.
-    // ///
-    // /// TextId -> FontId (to look up by font)
-    // /// FontId -> PixelValue (to categorize by size within a font)
-    // /// PixelValue -> layouted words (to cache the glyph widths on a per-font-size basis)
-    // pub(crate) layouted_strings_cache: FastHashMap<TextId, FastHashMap<FontInstanceKey, ScaledWords>>,
-}
-
-impl TextCache {
-
-    /// Add a new, large text to the resources
-    pub fn add_text(&mut self, words: Words) -> TextId {
-        let id = TextId::new();
-        self.string_cache.insert(id, words);
-        id
-    }
-
-    pub fn get_text(&self, text_id: &TextId) -> Option<&Words> {
-        self.string_cache.get(text_id)
-    }
-
-    /// Removes a string from the string cache, but not the layouted text cache
-    pub fn delete_text(&mut self, id: TextId) {
-        self.string_cache.remove(&id);
-    }
-
-    pub fn clear_all_texts(&mut self) {
-        self.string_cache.clear();
     }
 }
 
@@ -954,10 +908,6 @@ impl AppResources {
         self.css_ids_to_font_ids.keys().cloned().collect()
     }
 
-    pub fn get_loaded_text_ids(&self) -> Vec<TextId> {
-        self.text_cache.string_cache.keys().cloned().collect()
-    }
-
     // -- ImageId cache
 
     /// Add an image from a PNG, JPEG or other source.
@@ -1045,28 +995,6 @@ impl AppResources {
 
     pub fn get_loaded_font_mut(&mut self, pipeline_id: &PipelineId, font_id: &ImmediateFontId) -> Option<&mut LoadedFont> {
         self.currently_registered_fonts.get_mut(pipeline_id).and_then(|map| map.get_mut(font_id))
-    }
-
-    // -- TextId cache
-
-    /// Adds a string to the internal text cache, but only store it as a string,
-    /// without caching the layout of the string.
-    pub fn add_text(&mut self, words: Words) -> TextId {
-        self.text_cache.add_text(words)
-    }
-
-    pub fn get_text(&self, id: &TextId) -> Option<&Words> {
-        self.text_cache.get_text(id)
-    }
-
-    /// Removes a string from both the string cache and the layouted text cache
-    pub fn delete_text(&mut self, id: TextId) {
-        self.text_cache.delete_text(id);
-    }
-
-    /// Empties the entire internal text cache, invalidating all `TextId`s. Use with care.
-    pub fn clear_all_texts(&mut self) {
-        self.text_cache.clear_all_texts();
     }
 }
 

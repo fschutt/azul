@@ -106,40 +106,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
         pub fn as_slice(&self) -> &[$struct_type] {
             self.as_ref()
         }
-
-        /// NOTE: CLONES the memory if the memory is external or &'static
-        /// Moves the memory out if the memory is library-allocated
-        #[inline(always)]
-        pub fn clone_self(&self) -> Self {
-            match self.destructor {
-                $destructor_name::NoDestructor => {
-                    Self {
-                        ptr: self.ptr,
-                        len: self.len,
-                        cap: self.cap,
-                        destructor: $destructor_name::NoDestructor,
-                    }
-                }
-                $destructor_name::External(_) | $destructor_name::DefaultRust => {
-                    Self::from_vec(self.as_ref().to_vec())
-                }
-            }
-        }
-
-        /// NOTE: CLONES the memory if the memory is external or &'static
-        /// Moves the memory out if the memory is library-allocated
-        #[inline(always)]
-        pub fn into_library_owned_vec(self) -> Vec<$struct_type> {
-            match self.destructor {
-                $destructor_name::NoDestructor |
-                $destructor_name::External(_) => { self.as_ref().to_vec() }
-                $destructor_name::DefaultRust => {
-                    let v = unsafe { Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) };
-                    std::mem::forget(self);
-                    v
-                }
-            }
-        }
     }
 
     impl AsRef<[$struct_type]> for $struct_name {
@@ -217,7 +183,7 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
     }
 
     impl From<$struct_name> for Vec<$struct_type> {
-        fn from(input: $struct_name) -> Vec<$struct_type> {
+        fn from(mut input: $struct_name) -> Vec<$struct_type> {
             input.into_library_owned_vec()
         }
     }
@@ -439,7 +405,42 @@ macro_rules! impl_vec_ord {($struct_type:ident, $struct_name:ident) => (
 )}
 
 #[macro_export]
-macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident) => (
+macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident, $destructor_name:ident) => (
+    impl $struct_name {
+        /// NOTE: CLONES the memory if the memory is external or &'static
+        /// Moves the memory out if the memory is library-allocated
+        #[inline(always)]
+        pub fn clone_self(&self) -> Self {
+            match self.destructor {
+                $destructor_name::NoDestructor => {
+                    Self {
+                        ptr: self.ptr,
+                        len: self.len,
+                        cap: self.cap,
+                        destructor: $destructor_name::NoDestructor,
+                    }
+                }
+                $destructor_name::External(_) | $destructor_name::DefaultRust => {
+                    Self::from_vec(self.as_ref().to_vec())
+                }
+            }
+        }
+
+        /// NOTE: CLONES the memory if the memory is external or &'static
+        /// Moves the memory out if the memory is library-allocated
+        #[inline(always)]
+        pub fn into_library_owned_vec(self) -> Vec<$struct_type> {
+            match self.destructor {
+                $destructor_name::NoDestructor |
+                $destructor_name::External(_) => { self.as_ref().to_vec() }
+                $destructor_name::DefaultRust => {
+                    let v = unsafe { Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) };
+                    std::mem::forget(self);
+                    v
+                }
+            }
+        }
+    }
     impl Clone for $struct_name {
         fn clone(&self) -> Self {
             self.clone_self()
@@ -836,7 +837,7 @@ impl_vec!(u8, U8Vec, U8VecDestructor);
 impl_vec_debug!(u8, U8Vec);
 impl_vec_partialord!(u8, U8Vec);
 impl_vec_ord!(u8, U8Vec);
-impl_vec_clone!(u8, U8Vec);
+impl_vec_clone!(u8, U8Vec, U8VecDestructor);
 impl_vec_partialeq!(u8, U8Vec);
 impl_vec_eq!(u8, U8Vec);
 impl_vec_hash!(u8, U8Vec);
@@ -845,7 +846,7 @@ impl_vec!(AzString, StringVec, StringVecDestructor);
 impl_vec_debug!(AzString, StringVec);
 impl_vec_partialord!(AzString, StringVec);
 impl_vec_ord!(AzString, StringVec);
-impl_vec_clone!(AzString, StringVec);
+impl_vec_clone!(AzString, StringVec, StringVecDestructor);
 impl_vec_partialeq!(AzString, StringVec);
 impl_vec_eq!(AzString, StringVec);
 impl_vec_hash!(AzString, StringVec);

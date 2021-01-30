@@ -581,10 +581,11 @@ impl SolvedLayout {
             },
             callbacks::{GlCallbackInfo, HidpiAdjustedBounds},
             gl::insert_into_active_gl_textures,
+            dom::NodeType,
         };
         use gleam::gl;
 
-        let layout_results = (callbacks.layout_fn)(
+        let mut layout_results = (callbacks.layout_fn)(
             styled_dom,
             app_resources,
             all_resource_updates,
@@ -597,11 +598,11 @@ impl SolvedLayout {
         let mut solved_textures = BTreeMap::new();
 
         // Now that the layout is done, render the OpenGL textures and add them to the RenderAPI
-        for layout_result in layout_results.iter() {
-            for (node_id, gl_texture_node) in layout_result.styled_dom.scan_for_gltexture_callbacks() {
+        for layout_result in layout_results.iter_mut() {
+            for gl_node_id in layout_result.styled_dom.scan_for_gltexture_callbacks() {
 
                 // Invoke OpenGL callback, render texture
-                let rect_size = layout_result.rects.as_ref()[node_id].size;
+                let rect_size = layout_result.rects.as_ref()[gl_node_id].size;
 
                 let texture = {
 
@@ -612,8 +613,17 @@ impl SolvedLayout {
                         /*bounds:*/ HidpiAdjustedBounds::from_bounds(size, full_window_state.size.hidpi_factor),
                     );
 
-                    let gl_callback_return = (gl_texture_node.callback.cb)(&gl_texture_node.data, gl_callback_info);
-                    let tex: Option<Texture> = gl_callback_return.texture.into();
+                    let tex: Option<Texture> = {
+                        // get a MUTABLE reference to the RefAny inside of the DOM
+                        let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
+                        match &mut node_data_mut[gl_node_id].node_type {
+                            NodeType::GlTexture(gl_texture_callback) => {
+                                let gl_callback_return = (gl_texture_callback.callback.cb)(&mut gl_texture_callback.data, gl_callback_info);
+                                gl_callback_return.texture.into()
+                            },
+                            _ => None,
+                        }
+                    };
 
                     // Reset the framebuffer and SRGB color target to 0
                     gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
@@ -627,7 +637,7 @@ impl SolvedLayout {
                     solved_textures
                         .entry(layout_result.dom_id.clone())
                         .or_insert_with(|| BTreeMap::default())
-                        .insert(node_id, t);
+                        .insert(gl_node_id, t);
                 }
             }
         }
@@ -857,8 +867,8 @@ pub fn displaylist_handle_rect<'a>(
     }
 
     match html_node.get_node_type() {
-        Div | Body => { },
-        Text(_) | Label(_) => {
+        Div | Body | Br => { },
+        Label(_) => {
 
             // compute the layouted glyphs here, this way it's easier
             // to reflow text since there is no cache that needs to be updated

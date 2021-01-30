@@ -17,7 +17,7 @@ pub struct Css {
 impl_vec!(Stylesheet, StylesheetVec, StylesheetVecDestructor);
 impl_vec_debug!(Stylesheet, StylesheetVec);
 impl_vec_partialord!(Stylesheet, StylesheetVec);
-impl_vec_clone!(Stylesheet, StylesheetVec);
+impl_vec_clone!(Stylesheet, StylesheetVec, StylesheetVecDestructor);
 impl_vec_partialeq!(Stylesheet, StylesheetVec);
 
 impl Css {
@@ -41,7 +41,7 @@ pub struct Stylesheet {
 impl_vec!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor);
 impl_vec_debug!(CssRuleBlock, CssRuleBlockVec);
 impl_vec_partialord!(CssRuleBlock, CssRuleBlockVec);
-impl_vec_clone!(CssRuleBlock, CssRuleBlockVec);
+impl_vec_clone!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor);
 impl_vec_partialeq!(CssRuleBlock, CssRuleBlockVec);
 
 impl Stylesheet {
@@ -293,7 +293,7 @@ impl_vec!(CssDeclaration, CssDeclarationVec, CssDeclarationVecDestructor);
 impl_vec_debug!(CssDeclaration, CssDeclarationVec);
 impl_vec_partialord!(CssDeclaration, CssDeclarationVec);
 impl_vec_ord!(CssDeclaration, CssDeclarationVec);
-impl_vec_clone!(CssDeclaration, CssDeclarationVec);
+impl_vec_clone!(CssDeclaration, CssDeclarationVec, CssDeclarationVecDestructor);
 impl_vec_partialeq!(CssDeclaration, CssDeclarationVec);
 impl_vec_eq!(CssDeclaration, CssDeclarationVec);
 impl_vec_hash!(CssDeclaration, CssDeclarationVec);
@@ -316,6 +316,7 @@ pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
 pub enum NodeTypePath {
     Body,
     Div,
+    Br,
     P,
     Img,
     Texture,
@@ -387,7 +388,7 @@ impl_vec!(CssPathSelector, CssPathSelectorVec, CssPathSelectorVecDestructor);
 impl_vec_debug!(CssPathSelector, CssPathSelectorVec);
 impl_vec_partialord!(CssPathSelector, CssPathSelectorVec);
 impl_vec_ord!(CssPathSelector, CssPathSelectorVec);
-impl_vec_clone!(CssPathSelector, CssPathSelectorVec);
+impl_vec_clone!(CssPathSelector, CssPathSelectorVec, CssPathSelectorVecDestructor);
 impl_vec_partialeq!(CssPathSelector, CssPathSelectorVec);
 impl_vec_eq!(CssPathSelector, CssPathSelectorVec);
 impl_vec_hash!(CssPathSelector, CssPathSelectorVec);
