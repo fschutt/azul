@@ -268,7 +268,6 @@ impl Drop for RefAny {
             if self.sharing_info.downcast().num_copies == 0 {
                 // Important: if the RefAny is dead, do not run the destructor
                 // nor try to access the _internal_ptr!
-                println!("deallocating RefAny!");
                 (self.custom_destructor)(self._internal_ptr as *mut c_void);
                 unsafe { alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
                 let _ = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };

@@ -3843,6 +3843,7 @@ mod dll {
         pub(crate) fn az_css_property_cache_deep_copy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn az_styled_dom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn az_styled_dom_append(_:  &mut AzStyledDom, _:  AzStyledDom);
+        pub(crate) fn az_styled_dom_node_count(_:  &AzStyledDom) -> usize;
         pub(crate) fn az_on_into_event_filter(_:  AzOn) -> AzEventFilter;
         pub(crate) fn az_g_lsync_ptr_delete(_:  &mut AzGLsyncPtr);
         pub(crate) fn az_gl_context_ptr_get_type(_:  &AzGlContextPtr) -> AzGlType;
@@ -6315,6 +6316,8 @@ pub mod style {
         pub fn new(dom: Dom, css: Css) -> Self { unsafe { crate::dll::az_styled_dom_new(dom, css) } }
         /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
         pub fn append(&mut self, dom: StyledDom)  { unsafe { crate::dll::az_styled_dom_append(self, dom) } }
+        /// Returns the number of nodes in the styled DOM
+        pub fn node_count(&self)  -> usize { unsafe { crate::dll::az_styled_dom_node_count(self) } }
     }
 
 }

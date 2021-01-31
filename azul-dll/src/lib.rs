@@ -1698,6 +1698,8 @@ pub use AzStyledDomTT as AzStyledDom;
 #[no_mangle] pub extern "C" fn az_styled_dom_new(dom: AzDom, css: AzCss) -> AzStyledDom { AzStyledDom::new(dom, css) }
 /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
 #[no_mangle] pub extern "C" fn az_styled_dom_append(styleddom: &mut AzStyledDom, dom: AzStyledDom) { styleddom.append(dom); }
+/// Returns the number of nodes in the styled DOM
+#[no_mangle] pub extern "C" fn az_styled_dom_node_count(styleddom: &AzStyledDom) -> usize { styleddom.node_count() }
 
 /// Re-export of rust-allocated (stack based) `IdOrClass` struct
 pub type AzIdOrClassTT = azul_impl::dom::IdOrClass;

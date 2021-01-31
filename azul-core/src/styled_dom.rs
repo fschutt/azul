@@ -1088,6 +1088,10 @@ impl StyledDom {
         }
     }
 
+    pub fn node_count(&self) -> usize {
+        self.node_data.len()
+    }
+
     #[inline]
     pub fn get_css_property_cache<'a>(&'a self) -> &'a CssPropertyCache {
         unsafe { &*self.css_property_cache.ptr }

@@ -186,6 +186,8 @@ impl TableViewState {
             Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 })),
         ];
 
+        println!("rendering {:?} x {:?}: {:#?}", rows, columns, self);
+
         // Empty rectangle at the top left of the table
         let top_left_empty_rect = Dom::div()
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(TOP_LEFT_EMPTY_RECT_STYLE));
@@ -311,8 +313,9 @@ impl TableViewState {
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMN_NAMES_WRAPPER_STYLE));
 
             // rows in this column, laid out vertically
-            let rows_in_this_column = (rows.start..rows.end)
-                .map(|row_idx| {
+            let rows_in_this_column = (rows.start..rows.end).map(|row_idx| {
+
+                    println!("    rendering row {}!", row_idx);
 
                     let node_type = match self.get_cell_content(&TableCellIndex { row: row_idx, column: col_idx }) {
                         Some(string) => NodeType::Label(string.clone().into()),
@@ -333,8 +336,8 @@ impl TableViewState {
 
                     NodeData::new(node_type)
                     .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(CELL_STYLE))
-                })
-                .collect::<Dom>();
+            })
+            .collect::<Dom>();
 
             const COLUMN_NAME_STYLE: &[NodeDataInlineCssProperty] = &[
                 Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
@@ -357,9 +360,6 @@ impl TableViewState {
             Normal(CssProperty::position(LayoutPosition::Relative)),
         ];
 
-        let columns_table_container = columns_table_container
-        .with_children(AzDomVec::from(vec![current_active_selection]));
-
         const IFRAME_DOM_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::display(LayoutDisplay::Flex)),
             Normal(CssProperty::box_sizing(LayoutBoxSizing::BorderBox)),
@@ -368,7 +368,7 @@ impl TableViewState {
 
         let dom = Dom::div()
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(IFRAME_DOM_CONTAINER_STYLE))
-        .with_children(AzDomVec::from(vec![row_number_wrapper, columns_table_container]));
+        .with_children(AzDomVec::from(vec![row_number_wrapper, columns_table_container, current_active_selection]));
 
         let styled = dom.style(Css::empty());
 
@@ -399,10 +399,7 @@ impl TableView {
             Normal(CssProperty::box_sizing(LayoutBoxSizing::BorderBox)),
         ];
 
-        println!("initial tablestate: {:#?}", self.state);
-        let refany = RefAny::new(self.state);
-        println!("initial refany: {:#?}", refany);
-        Dom::iframe(refany, Self::render_table_iframe_contents)
+        Dom::iframe(RefAny::new(self.state), Self::render_table_iframe_contents)
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(IFRAME_STYLE))
         .style(Css::empty())
     }
@@ -411,10 +408,9 @@ impl TableView {
 
         use azul::window::{LayoutRect, LayoutSize, LayoutPoint};
 
-        println!("state: {:#?}", state);
-
         let table_view_state = state.downcast_ref::<TableViewState>().unwrap();
 
+        println!("bounds: {:?}", info.get_bounds());
         println!("table view state: {:?}", table_view_state);
 
         let logical_size = info.get_bounds().get_logical_size();
@@ -436,6 +432,8 @@ impl TableView {
             row_start..(row_start + necessary_rows + padding_rows),
             column_start..(column_start + necessary_columns + padding_columns)
         );
+
+        println!("styled_dom len: {:?}", styled_dom.node_count());
 
         IFrameCallbackReturn {
             dom: styled_dom,

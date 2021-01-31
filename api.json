@@ -4284,6 +4284,14 @@
 								{"dom": "StyledDom"}
 							],
 							"fn_body": "styleddom.append(dom);"
+						},
+						"node_count": {
+							"doc": "Returns the number of nodes in the styled DOM",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "styleddom.node_count()"
 						}
 					}
 				}
