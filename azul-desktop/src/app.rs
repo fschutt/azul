@@ -74,7 +74,7 @@ impl App {
     #[cfg(not(test))]
     #[allow(unused_variables)]
     /// Creates a new, empty application using a specified callback. This does not open any windows.
-    pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
+    pub fn new(mut initial_data: RefAny, app_config: AppConfig) -> Self {
 
         #[cfg(feature = "logging")] {
 
@@ -175,6 +175,7 @@ impl App {
 fn run_inner(app: App) -> ! {
 
     use std::time::Instant;
+    use azul_core::styled_dom::DomId;
 
     let App {
         mut data,
@@ -197,7 +198,7 @@ fn run_inner(app: App) -> ! {
         let create_callback = window_create_options.create_callback.clone();
 
         let id = create_window(
-            &data,
+            &mut data,
             window_create_options,
             &event_loop,
             &proxy,
@@ -230,16 +231,21 @@ fn run_inner(app: App) -> ! {
                 let mut new_timers = FastHashMap::new();
                 let mut new_threads = FastHashMap::new();
 
+                let gl_context_ptr = window.get_gl_context_ptr();
+                let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
+                let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+
                 let callback_info = CallbackInfo::new(
                     &window.internal.current_window_state,
                     &mut window_state,
-                    &window.get_gl_context_ptr(),
+                    &gl_context_ptr,
                     &mut resources,
                     &mut new_timers,
                     &mut new_threads,
                     &mut new_windows,
                     &window_handle,
-                    &window.internal.layout_results,
+                    &layout_result.styled_dom.node_hierarchy,
+                    &mut datasets.1,
                     &mut stop_propagation,
                     &mut focus_target,
                     &scroll_states,
@@ -304,6 +310,7 @@ fn run_inner(app: App) -> ! {
                     let mut new_timers = FastHashMap::new();
                     let mut modifiable_window_state = window.internal.current_window_state.clone().into();
                     let mut cur_threads = threads.get_mut(window_id).unwrap();
+                    let current_scroll_states = window.internal.get_current_scroll_states();
 
                     let raw_window_handle = window.get_raw_window_handle();
                     let update_screen_timers = run_all_timers(
@@ -319,10 +326,10 @@ fn run_inner(app: App) -> ! {
                         &mut cur_threads,
                         &mut windows_created,
                         &raw_window_handle,
-                        &window.internal.layout_results,
+                        &mut window.internal.layout_results,
                         &mut false, // stop_propagation - can't be set in timer
                         &mut new_focus_node,
-                        &window.internal.get_current_scroll_states(),
+                        &current_scroll_states,
                         &mut css_properties_changed_in_timers,
                         &mut nodes_scrolled_in_timers,
                     );
@@ -362,7 +369,7 @@ fn run_inner(app: App) -> ! {
                         UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                             let mut resource_updates = Vec::new();
                             let mut transaction = WrTransaction::new();
-                            window.regenerate_styled_dom(&data, &mut resources, &mut resource_updates);
+                            window.regenerate_styled_dom(&mut data, &mut resources, &mut resource_updates);
                             window.rebuild_display_list(&mut transaction, &resources, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
                             windows_that_need_to_redraw.insert(*window_id);
@@ -406,6 +413,7 @@ fn run_inner(app: App) -> ! {
                     let mut cur_timers = timers.get_mut(window_id).unwrap();
                     let mut new_threads = FastHashMap::new();
 
+                    let current_scroll_states = window.internal.get_current_scroll_states();
                     let raw_window_handle = window.get_raw_window_handle();
                     let update_screen_threads = clean_up_finished_threads(
                         &mut thread_map,
@@ -418,10 +426,10 @@ fn run_inner(app: App) -> ! {
                         &mut new_threads,
                         &mut windows_created,
                         &raw_window_handle,
-                        &window.internal.layout_results,
+                        &mut window.internal.layout_results,
                         &mut false, // stop_propagation - can't be set in timer
                         &mut new_focus_node,
-                        &window.internal.get_current_scroll_states(),
+                        &current_scroll_states,
                         &mut css_properties_changed_in_threads,
                         &mut nodes_scrolled_in_threads,
                     );
@@ -460,7 +468,7 @@ fn run_inner(app: App) -> ! {
                             UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                                 let mut resource_updates = Vec::new();
                                 let mut transaction = WrTransaction::new();
-                                window.regenerate_styled_dom(&data, &mut resources, &mut resource_updates);
+                                window.regenerate_styled_dom(&mut data, &mut resources, &mut resource_updates);
                                 window.rebuild_display_list(&mut transaction, &resources, resource_updates);
                                 window.render_async(transaction, /* display list was rebuilt */ true);
                                 windows_that_need_to_redraw.insert(*window_id);
@@ -492,7 +500,7 @@ fn run_inner(app: App) -> ! {
                         let mut resource_updates = Vec::new();
                         let mut transaction = WrTransaction::new();
 
-                        window.regenerate_styled_dom(&data, &mut resources, &mut resource_updates);
+                        window.regenerate_styled_dom(&mut data, &mut resources, &mut resource_updates);
                         window.rebuild_display_list(&mut transaction, &resources, resource_updates);
                         window.render_async(transaction, /* display list was rebuilt */ true);
                         windows_that_need_to_redraw.insert(*window_id);
@@ -557,13 +565,13 @@ fn run_inner(app: App) -> ! {
                     window.internal.current_window_state.mouse_state.reset_scroll_to_zero();
 
                     if layout_callback_changed {
-                        window.regenerate_styled_dom(&data, &mut resources, &mut updated_resources);
+                        window.regenerate_styled_dom(&mut data, &mut resources, &mut updated_resources);
                         need_regenerate_display_list = true;
                         callback_results.update_focused_node = Some(None); // unset the focus
                     } else {
                         match callback_results.callbacks_update_screen {
                             UpdateScreen::RegenerateStyledDomForCurrentWindow => {
-                                window.regenerate_styled_dom(&data, &mut resources, &mut updated_resources);
+                                window.regenerate_styled_dom(&mut data, &mut resources, &mut updated_resources);
                                 need_regenerate_display_list = true;
                                 callback_results.update_focused_node = Some(None); // unset the focus
                             },
@@ -683,6 +691,9 @@ fn run_inner(app: App) -> ! {
                     let mut new_threads = FastHashMap::new();
                     let gl_context_ptr = window.get_gl_context_ptr();
 
+                    let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
+                    let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+
                     let callback_info = CallbackInfo::new(
                         &window.internal.current_window_state,
                         &mut window_state,
@@ -692,7 +703,8 @@ fn run_inner(app: App) -> ! {
                         &mut new_threads,
                         &mut new_windows,
                         &window_handle,
-                        &window.internal.layout_results,
+                        &layout_result.styled_dom.node_hierarchy,
+                        &mut datasets.1,
                         &mut stop_propagation,
                         &mut focus_target,
                         &scroll_states,
@@ -730,7 +742,7 @@ fn run_inner(app: App) -> ! {
             let create_callback = window_create_options.create_callback.clone();
 
             let id = create_window(
-                &data,
+                &mut data,
                 window_create_options,
                 &event_loop_target,
                 &proxy,
@@ -763,6 +775,9 @@ fn run_inner(app: App) -> ! {
                     let mut new_threads = FastHashMap::new();
 
                     let gl_context_ptr = window.get_gl_context_ptr();
+                    let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
+                    let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+
                     let callback_info = CallbackInfo::new(
                         &window.internal.current_window_state,
                         &mut window_state,
@@ -772,7 +787,8 @@ fn run_inner(app: App) -> ! {
                         &mut new_threads,
                         &mut new_windows,
                         &window_handle,
-                        &window.internal.layout_results,
+                        &layout_result.styled_dom.node_hierarchy,
+                        &mut datasets.1,
                         &mut stop_propagation,
                         &mut focus_target,
                         &scroll_states,
@@ -989,7 +1005,7 @@ fn process_window_event(window: &mut Window, event_loop: &GlutinEventLoopWindowT
 }
 
 fn create_window(
-    data: &RefAny,
+    data: &mut RefAny,
     window_create_options: WindowCreateOptions,
     events_loop: &GlutinEventLoopWindowTarget<UserEvent>,
     proxy: &GlutinEventLoopProxy<UserEvent>,
@@ -998,7 +1014,7 @@ fn create_window(
 ) -> Option<GlutinWindowId> {
 
     let window = Window::new(
-         &data,
+         data,
          window_create_options,
          events_loop,
          proxy,

@@ -67,7 +67,7 @@ use std::collections::{HashSet, BTreeMap};
 use crate::{
     FastHashMap,
     app_resources::AppResources,
-    dom::{EventFilter, CallbackData, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
+    dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
     callbacks:: {ScrollPosition, PipelineId, DomNodeId, HitTestItem, UpdateScreen},
     id_tree::NodeId,
     styled_dom::{DomId, ChangedCssProperty, AzNodeId},
@@ -592,27 +592,35 @@ impl CallbacksOfHitTest {
             return ret;
         }
 
-        let node_hierarchies = layout_results.iter().enumerate().map(|(dom_id, lr)| {
-            (DomId { inner: dom_id }, lr.styled_dom.node_hierarchy.clone())
+        {
+        let mut node_hierarchies = layout_results.iter_mut().enumerate().filter_map(|(dom_id, lr)| {
+            Some((
+             DomId { inner: dom_id }, (
+                lr.styled_dom.root.into_crate_internal()?,
+                &lr.styled_dom.node_hierarchy,
+                &lr.styled_dom.non_leaf_nodes,
+                lr.styled_dom.node_data.split_into_callbacks_and_dataset())
+            ))
         }).collect::<BTreeMap<_, _>>();
 
-        for (dom_id, callbacks_filter_list) in self.nodes_with_callbacks.iter_mut() {
-            let layout_result = match layout_results.get_mut(dom_id.inner) {
+        for (dom_id, callbacks_filter_list) in self.nodes_with_callbacks.iter() {
+
+            let callbacks = callbacks_filter_list
+            .iter()
+            .map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, cbtc.event_filter)))
+            .collect::<BTreeMap<_, _>>();
+
+            let (root_id, node_hierarchy, non_leaf_nodes, (callback_map, dataset_map)) = match node_hierarchies.get_mut(dom_id) {
                 Some(s) => s,
                 None => { return ret; },
             };
 
-            let callbacks = callbacks_filter_list
-            .iter_mut()
-            .map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, cbtc.event_filter)))
-            .collect::<BTreeMap<_, _>>();
-
             let mut blacklisted_event_types = BTreeSet::new();
 
             // Run all callbacks (front to back)
-            for ParentWithNodeDepth { depth: _, node_id } in layout_result.styled_dom.non_leaf_nodes.as_ref().iter().rev() {
+            for ParentWithNodeDepth { depth: _, node_id } in non_leaf_nodes.as_ref().iter().rev() {
                let parent_node_id = node_id;
-               for child_id in parent_node_id.into_crate_internal().unwrap().az_children(&layout_result.styled_dom.node_hierarchy.as_container()) {
+               for child_id in parent_node_id.into_crate_internal().unwrap().az_children(&node_hierarchy.as_container()) {
                     if let Some((hit_test_item, event_filter)) = callbacks.get(&child_id) {
 
                         if blacklisted_event_types.contains(&*event_filter) {
@@ -631,7 +639,8 @@ impl CallbacksOfHitTest {
                             /*threads:*/ &mut ret.threads,
                             /*new_windows:*/ &mut ret.windows_created,
                             /*current_window_handle:*/ raw_window_handle,
-                            /*layout_results,*/ &node_hierarchies,
+                            /*node_hierarchy*/ &node_hierarchy,
+                            /*dataset_map*/ dataset_map,
                             /*stop_propagation:*/ &mut stop_propagation,
                             /*focus_target:*/ &mut new_focus,
                             /*current_scroll_states:*/ scroll_states,
@@ -644,9 +653,7 @@ impl CallbacksOfHitTest {
 
                         let callback_return = {
                             // get a MUTABLE reference to the RefAny inside of the DOM
-                            let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
-                            let callbacks_mut = node_data_mut[child_id].callbacks.as_mut();
-                            if let Some(callback_data) = callbacks_mut.iter_mut().find(|i| i.event == *event_filter) {
+                            if let Some(callback_data) = callback_map.get_mut(&child_id).unwrap().as_mut().iter_mut().find(|i| i.event == *event_filter) {
                                 // Invoke callback
                                 (callback_data.callback.cb)(&mut callback_data.data, callback_info)
                             } else {
@@ -679,8 +686,7 @@ impl CallbacksOfHitTest {
 
             // run the callbacks for node ID 0
             loop {
-                let root_id = layout_result.styled_dom.root.into_crate_internal();
-                if let Some(((hit_test_item, event_filter), root_id)) = root_id.and_then(|root_id| callbacks.get(&root_id).map(|cb| (cb, root_id))) {
+                if let Some(((hit_test_item, event_filter), root_id)) = callbacks.get(&root_id).map(|cb| (cb, root_id)) {
 
                     if blacklisted_event_types.contains(&event_filter) {
                         break; // break out of loop
@@ -698,22 +704,21 @@ impl CallbacksOfHitTest {
                         /*threads:*/ &mut ret.threads,
                         /*new_windows:*/ &mut ret.windows_created,
                         /*current_window_handle:*/ raw_window_handle,
-                        /*layout_results,*/ &node_hierarchies,
+                        /*node_hierarchy*/ &node_hierarchy,
+                        /*dataset_map*/ dataset_map,
                         /*stop_propagation:*/ &mut stop_propagation,
                         /*focus_target:*/ &mut new_focus,
                         /*current_scroll_states:*/ scroll_states,
                         /*css_properties_changed_in_callbacks:*/ &mut ret.css_properties_changed,
                         /*nodes_scrolled_in_callback:*/ &mut nodes_scrolled_in_callbacks,
-                        /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: layout_result.styled_dom.root },
+                        /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: AzNodeId::from_crate_internal(Some(*root_id)) },
                         /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_relative_to_item.x, hi.point_relative_to_item.y)).into(),
                         /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_in_viewport.x, hi.point_in_viewport.y)).into(),
                     );
 
                     let callback_return = {
                         // get a MUTABLE reference to the RefAny inside of the DOM
-                        let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
-                        let callbacks_mut = node_data_mut[root_id].callbacks.as_mut();
-                        if let Some(callback_data) = callbacks_mut.iter_mut().find(|i| i.event == *event_filter) {
+                        if let Some(callback_data) = callback_map.get_mut(&*root_id).unwrap().iter_mut().find(|i| i.event == *event_filter) {
                             // Invoke callback
                             (callback_data.callback.cb)(&mut callback_data.data, callback_info)
                         } else {
@@ -745,6 +750,8 @@ impl CallbacksOfHitTest {
                 }
                 break;
             }
+        }
+
         }
 
         // Scroll nodes from programmatic callbacks

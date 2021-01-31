@@ -932,7 +932,7 @@ impl Glyph {
 impl_vec!(Glyph, GlyphVec, GlyphVecDestructor);
 impl_vec_debug!(Glyph, GlyphVec);
 impl_vec_partialord!(Glyph, GlyphVec);
-impl_vec_clone!(Glyph, GlyphVec);
+impl_vec_clone!(Glyph, GlyphVec, GlyphVecDestructor);
 impl_vec_partialeq!(Glyph, GlyphVec);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -992,7 +992,7 @@ impl<'a> From<owned_ttf_parser::Name<'a>> for FontName {
 impl_vec!(FontName, FontNameVec, FontNameVecDestructor);
 impl_vec_debug!(FontName, FontNameVec);
 impl_vec_partialord!(FontName, FontNameVec);
-impl_vec_clone!(FontName, FontNameVec);
+impl_vec_clone!(FontName, FontNameVec, FontNameVecDestructor);
 impl_vec_partialeq!(FontName, FontNameVec);
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
@@ -1030,7 +1030,7 @@ pub enum TableName {
 impl_vec!(TableName, TableNameVec, TableNameVecDestructor);
 impl_vec_debug!(TableName, TableNameVec);
 impl_vec_partialord!(TableName, TableNameVec);
-impl_vec_clone!(TableName, TableNameVec);
+impl_vec_clone!(TableName, TableNameVec, TableNameVecDestructor);
 impl_vec_partialeq!(TableName, TableNameVec);
 impl_vec_eq!(TableName, TableNameVec);
 impl_vec_ord!(TableName, TableNameVec);

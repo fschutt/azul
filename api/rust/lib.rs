@@ -2219,12 +2219,12 @@ mod dll {
         pub node_id: AzNodeId,
     }
     /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGlTextureNode {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlTextureNode {
         pub callback: AzGlCallback,
         pub data: AzRefAny,
     }
     /// Re-export of rust-allocated (stack based) `IFrameNode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameNode {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameNode {
         pub callback: AzIFrameCallback,
         pub data: AzRefAny,
     }
@@ -3055,7 +3055,7 @@ mod dll {
         pub apply_line_width: bool,
     }
     /// Re-export of rust-allocated (stack based) `Timer` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzTimer {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTimer {
         pub data: AzRefAny,
         pub created: AzInstant,
         pub last_run: AzOptionInstant,
@@ -3547,7 +3547,8 @@ mod dll {
         pub threads: *mut c_void,
         pub new_windows: *mut c_void,
         pub current_window_handle: *const AzRawWindowHandle,
-        pub node_hierarchies: *mut c_void,
+        pub node_hierarchy: *const c_void,
+        pub datasets: *mut c_void,
         pub stop_propagation: *mut bool,
         pub focus_target: *const c_void,
         pub current_scroll_states: *const c_void,
@@ -3827,9 +3828,8 @@ mod dll {
         pub(crate) fn az_ref_any_new_c(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny;
         pub(crate) fn az_ref_any_is_type(_:  &AzRefAny, _:  u64) -> bool;
         pub(crate) fn az_ref_any_get_type_name(_:  &AzRefAny) -> AzString;
-        pub(crate) fn az_ref_any_library_deallocate(_:  AzRefAny);
+        pub(crate) fn az_ref_any_clone(_:  &mut AzRefAny) -> AzRefAny;
         pub(crate) fn az_ref_any_delete(_:  &mut AzRefAny);
-        pub(crate) fn az_ref_any_deep_copy(_:  &AzRefAny) -> AzRefAny;
         pub(crate) fn az_layout_info_window_width_larger_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
         pub(crate) fn az_layout_info_window_width_smaller_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
         pub(crate) fn az_layout_info_window_height_larger_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
@@ -4399,11 +4399,11 @@ pub mod vec {
     impl_vec!(AzCssRuleBlock, AzCssRuleBlockVec, AzCssRuleBlockVecDestructor, az_css_rule_block_vec_destructor, az_css_rule_block_vec_delete);
     impl_vec_clone!(AzCssRuleBlock, AzCssRuleBlockVec, AzCssRuleBlockVecDestructor);
     impl_vec!(AzCallbackData, AzCallbackDataVec, AzCallbackDataVecDestructor, az_callback_data_vec_destructor, az_callback_data_vec_delete);
-    impl_vec_clone!(AzCallbackData, AzCallbackDataVec, AzCallbackDataVecDestructor);
+    // impl_vec_clone!(AzCallbackData, AzCallbackDataVec, AzCallbackDataVecDestructor);
     impl_vec!(AzDebugMessage, AzDebugMessageVec, AzDebugMessageVecDestructor, az_debug_message_vec_destructor, az_debug_message_vec_delete);
     impl_vec_clone!(AzDebugMessage, AzDebugMessageVec, AzDebugMessageVecDestructor);
     impl_vec!(AzDom, AzDomVec, AzDomVecDestructor, az_dom_vec_destructor, az_dom_vec_delete);
-    impl_vec_clone!(AzDom, AzDomVec, AzDomVecDestructor);
+    // impl_vec_clone!(AzDom, AzDomVec, AzDomVecDestructor);
     impl_vec!(AzString, AzStringVec, AzStringVecDestructor, az_string_vec_destructor, az_string_vec_delete);
     impl_vec_clone!(AzString, AzStringVec, AzStringVecDestructor);
     impl_vec!(AzStringPair, AzStringPairVec, AzStringPairVecDestructor, az_string_pair_vec_destructor, az_string_pair_vec_delete);
@@ -4423,7 +4423,7 @@ pub mod vec {
     impl_vec!(AzParentWithNodeDepth, AzParentWithNodeDepthVec, AzParentWithNodeDepthVecDestructor, az_parent_with_node_depth_vec_destructor, az_parent_with_node_depth_vec_delete);
     impl_vec_clone!(AzParentWithNodeDepth, AzParentWithNodeDepthVec, AzParentWithNodeDepthVecDestructor);
     impl_vec!(AzNodeData, AzNodeDataVec, AzNodeDataVecDestructor, az_node_data_vec_destructor, az_node_data_vec_delete);
-    impl_vec_clone!(AzNodeData, AzNodeDataVec, AzNodeDataVecDestructor);
+    // impl_vec_clone!(AzNodeData, AzNodeDataVec, AzNodeDataVecDestructor);
     impl_vec!(AzStyleBackgroundRepeat, AzStyleBackgroundRepeatVec, AzStyleBackgroundRepeatVecDestructor, az_style_background_repeat_vec_destructor, az_style_background_repeat_vec_delete);
     impl_vec_clone!(AzStyleBackgroundRepeat, AzStyleBackgroundRepeatVec, AzStyleBackgroundRepeatVecDestructor);
     impl_vec!(AzStyleBackgroundPosition, AzStyleBackgroundPositionVec, AzStyleBackgroundPositionVecDestructor, az_style_background_position_vec_destructor, az_style_background_position_vec_delete);
@@ -4690,9 +4690,6 @@ pub mod option {
                     $struct_name::Some(t) => Some(t),
                 }
             }
-            pub fn into_option(self) -> Option<$struct_type> {
-                self.into()
-            }
             pub fn replace(&mut self, value: $struct_type) -> $struct_name {
                 ::core::mem::replace(self, $struct_name::Some(value))
             }
@@ -4709,20 +4706,6 @@ pub mod option {
                 match *self {
                     $struct_name::Some(ref x) => Some(x),
                     $struct_name::None => None,
-                }
-            }
-
-            pub fn map<U, F: FnOnce($struct_type) -> U>(self, f: F) -> Option<U> {
-                match self.into_option() {
-                    None => None,
-                    Some(s) => Some(f(s)),
-                }
-            }
-
-            pub fn and_then<U, F>(self, f: F) -> Option<U> where F: FnOnce($struct_type) -> Option<U> {
-                match self.into_option() {
-                    None => None,
-                    Some(s) => f(s),
                 }
             }
         }
@@ -4752,6 +4735,25 @@ pub mod option {
                     }
                 }
             }
+
+            impl $struct_name {
+                pub fn into_option(self) -> Option<$struct_type> {
+                    self.into()
+                }
+                pub fn map<U, F: FnOnce($struct_type) -> U>(self, f: F) -> Option<U> {
+                    match self.into_option() {
+                        None => None,
+                        Some(s) => Some(f(s)),
+                    }
+                }
+
+                pub fn and_then<U, F>(self, f: F) -> Option<U> where F: FnOnce($struct_type) -> Option<U> {
+                    match self.into_option() {
+                        None => None,
+                        Some(s) => f(s),
+                    }
+                }
+            }
         );
         ($struct_type:ident, $struct_name:ident, [$($derive:meta),* ]) => (
             impl_option_inner!($struct_type, $struct_name);
@@ -4773,6 +4775,25 @@ pub mod option {
                     }
                 }
             }
+
+            impl $struct_name {
+                pub fn into_option(self) -> Option<$struct_type> {
+                    self.into()
+                }
+                pub fn map<U, F: FnOnce($struct_type) -> U>(self, f: F) -> Option<U> {
+                    match self.into_option() {
+                        None => None,
+                        Some(s) => Some(f(s)),
+                    }
+                }
+
+                pub fn and_then<U, F>(self, f: F) -> Option<U> where F: FnOnce($struct_type) -> Option<U> {
+                    match self.into_option() {
+                        None => None,
+                        Some(s) => f(s),
+                    }
+                }
+            }
         );
     }
 
@@ -4786,7 +4807,7 @@ pub mod option {
 
     impl_option!(AzThreadSendMsg, AzOptionThreadSendMsg, [Debug, Copy, Clone]);
     impl_option!(AzLayoutRect, AzOptionLayoutRect, [Debug, Copy, Clone]);
-    impl_option!(AzRefAny, AzOptionRefAny, copy = false, [Debug, Clone]);
+    impl_option!(AzRefAny, AzOptionRefAny, copy = false, clone = false, [Debug, Clone]);
     impl_option!(AzLayoutPoint, AzOptionLayoutPoint, [Debug, Copy, Clone]);
     impl_option!(AzWindowTheme, AzOptionWindowTheme, [Debug, Copy, Clone]);
     impl_option!(AzNodeId, AzOptionNodeId, [Debug, Copy, Clone]);
@@ -5276,11 +5297,10 @@ pub mod callbacks {
         pub fn is_type(&self, type_id: u64)  -> bool { unsafe { crate::dll::az_ref_any_is_type(self, type_id) } }
         /// Calls the `RefAny::get_type_name` function.
         pub fn get_type_name(&self)  -> crate::str::String { unsafe { crate::dll::az_ref_any_get_type_name(self) } }
-        /// Calls the `RefAny::library_deallocate` function.
-        pub fn library_deallocate(self)  { unsafe { crate::dll::az_ref_any_library_deallocate(self) } }
+        /// Calls the `RefAny::clone` function.
+        pub fn clone(&mut self)  -> crate::callbacks::RefAny { unsafe { crate::dll::az_ref_any_clone(self) } }
     }
 
-    impl Clone for RefAny { fn clone(&self) -> Self { unsafe { crate::dll::az_ref_any_deep_copy(self) } } }
     impl Drop for RefAny { fn drop(&mut self) { unsafe { crate::dll::az_ref_any_delete(self) } } }
     /// `LayoutInfo` struct
     
@@ -6369,7 +6389,7 @@ pub mod dom {
         pub fn with_tab_index(mut self, tab_index: OptionTabIndex) -> Self { self.set_tab_index(tab_index); self }
 
         #[inline(always)]
-        pub fn set_dataset(&mut self, data: RefAny) { self.root.set_dataset(Some(data).into()); }
+        pub fn set_dataset(&mut self, data: RefAny) { self.root.set_dataset(OptionRefAny::Some(data)); }
         #[inline(always)]
         pub fn set_ids_and_classes(&mut self, ids: IdOrClassVec) { self.root.set_ids_and_classes(ids); }
         #[inline(always)]

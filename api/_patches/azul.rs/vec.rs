@@ -244,11 +244,11 @@
     impl_vec!(AzCssRuleBlock, AzCssRuleBlockVec, AzCssRuleBlockVecDestructor, az_css_rule_block_vec_destructor, az_css_rule_block_vec_delete);
     impl_vec_clone!(AzCssRuleBlock, AzCssRuleBlockVec, AzCssRuleBlockVecDestructor);
     impl_vec!(AzCallbackData, AzCallbackDataVec, AzCallbackDataVecDestructor, az_callback_data_vec_destructor, az_callback_data_vec_delete);
-    impl_vec_clone!(AzCallbackData, AzCallbackDataVec, AzCallbackDataVecDestructor);
+    // impl_vec_clone!(AzCallbackData, AzCallbackDataVec, AzCallbackDataVecDestructor);
     impl_vec!(AzDebugMessage, AzDebugMessageVec, AzDebugMessageVecDestructor, az_debug_message_vec_destructor, az_debug_message_vec_delete);
     impl_vec_clone!(AzDebugMessage, AzDebugMessageVec, AzDebugMessageVecDestructor);
     impl_vec!(AzDom, AzDomVec, AzDomVecDestructor, az_dom_vec_destructor, az_dom_vec_delete);
-    impl_vec_clone!(AzDom, AzDomVec, AzDomVecDestructor);
+    // impl_vec_clone!(AzDom, AzDomVec, AzDomVecDestructor);
     impl_vec!(AzString, AzStringVec, AzStringVecDestructor, az_string_vec_destructor, az_string_vec_delete);
     impl_vec_clone!(AzString, AzStringVec, AzStringVecDestructor);
     impl_vec!(AzStringPair, AzStringPairVec, AzStringPairVecDestructor, az_string_pair_vec_destructor, az_string_pair_vec_delete);
@@ -268,7 +268,7 @@
     impl_vec!(AzParentWithNodeDepth, AzParentWithNodeDepthVec, AzParentWithNodeDepthVecDestructor, az_parent_with_node_depth_vec_destructor, az_parent_with_node_depth_vec_delete);
     impl_vec_clone!(AzParentWithNodeDepth, AzParentWithNodeDepthVec, AzParentWithNodeDepthVecDestructor);
     impl_vec!(AzNodeData, AzNodeDataVec, AzNodeDataVecDestructor, az_node_data_vec_destructor, az_node_data_vec_delete);
-    impl_vec_clone!(AzNodeData, AzNodeDataVec, AzNodeDataVecDestructor);
+    // impl_vec_clone!(AzNodeData, AzNodeDataVec, AzNodeDataVecDestructor);
     impl_vec!(AzStyleBackgroundRepeat, AzStyleBackgroundRepeatVec, AzStyleBackgroundRepeatVecDestructor, az_style_background_repeat_vec_destructor, az_style_background_repeat_vec_delete);
     impl_vec_clone!(AzStyleBackgroundRepeat, AzStyleBackgroundRepeatVec, AzStyleBackgroundRepeatVecDestructor);
     impl_vec!(AzStyleBackgroundPosition, AzStyleBackgroundPositionVec, AzStyleBackgroundPositionVecDestructor, az_style_background_position_vec_destructor, az_style_background_position_vec_delete);

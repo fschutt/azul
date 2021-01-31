@@ -86,6 +86,7 @@ impl Drop for RefCount {
     fn drop(&mut self) {
         let previous = self.downcast().num_copies;
         if previous == 1 {
+            println!("dropping RefCount!");
             let _ = unsafe { Box::from_raw(self.ptr as *mut RefCountInner) };
         }
     }
@@ -274,14 +275,7 @@ impl RefAny {
     }
 
     // Deallocates the RefAny in a safe way
-    pub fn library_deallocate(mut self) {
-        let _ = self.clone_into_library_memory();
-        // when copy goes out of bounds, copy will run the destructor
-    }
-}
-
-impl Drop for RefAny {
-    fn drop(&mut self) {
+    fn internal_deallocate(&mut self) {
         use std::alloc;
         if self.is_dead {
             // Important: if the RefAny is dead, do not run the destructor
@@ -293,6 +287,18 @@ impl Drop for RefAny {
                 (self.custom_destructor)(self._internal_ptr as *mut c_void);
                 unsafe { alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
             }
+        }
+    }
+}
+
+impl Drop for RefAny {
+    fn drop(&mut self) {
+        if self.is_dead {
+            //
+            // when copy goes out of bounds, copy will run the destructor
+            let _ = self.clone_into_library_memory();
+        } else {
+            self.internal_deallocate();
         }
     }
 }
@@ -535,7 +541,9 @@ pub struct CallbackInfo {
     /// Handle of the current window
     current_window_handle: *const RawWindowHandle,
     /// Currently active, layouted rectangles
-    node_hierarchy: *const BTreeMap<DomId, AzNodeVec>,
+    node_hierarchy: *const AzNodeVec,
+    /// Current datasets in the DOM
+    dataset_map: *mut BTreeMap<NodeId, *mut RefAny>, // &'a BTreeMap<NodeId, &'b mut RefAny>
     /// Sets whether the event should be propagated to the parent hit node or not
     stop_propagation: *mut bool,
     /// The callback can change the focus_target - note that the focus_target is set before the
@@ -564,7 +572,7 @@ impl CallbackInfo {
     // since the call_callbacks() function is the only function
     #[cfg(feature = "opengl")]
     #[inline]
-    pub fn new<'a>(
+    pub fn new<'a, 'b>(
        current_window_state: &'a FullWindowState,
        modifiable_window_state: &'a mut WindowState,
        gl_context: &'a GlContextPtr,
@@ -573,7 +581,8 @@ impl CallbackInfo {
        threads: &'a mut FastHashMap<ThreadId, Thread>,
        new_windows: &'a mut Vec<WindowCreateOptions>,
        current_window_handle: &'a RawWindowHandle,
-       node_hierarchy: &'a BTreeMap<DomId, AzNodeVec>,
+       node_hierarchy: &'a AzNodeVec,
+       dataset_map: &'a mut BTreeMap<NodeId, &'b mut RefAny>,
        stop_propagation: &'a mut bool,
        focus_target: &'a mut Option<FocusTarget>,
        current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -592,7 +601,8 @@ impl CallbackInfo {
             threads: threads as *mut FastHashMap<ThreadId, Thread>,
             new_windows: new_windows as *mut Vec<WindowCreateOptions>,
             current_window_handle: current_window_handle as *const RawWindowHandle,
-            node_hierarchy: node_hierarchy as *const BTreeMap<DomId, AzNodeVec>,
+            node_hierarchy: node_hierarchy as *const AzNodeVec,
+            dataset_map: dataset_map as *mut BTreeMap<NodeId, &'b mut RefAny> as *mut BTreeMap<NodeId, *mut RefAny>,
             stop_propagation: stop_propagation as *mut bool,
             focus_target: focus_target as *mut Option<FocusTarget>,
             current_scroll_states: current_scroll_states as *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -612,7 +622,8 @@ impl CallbackInfo {
     fn internal_get_threads<'a>(&'a self) -> &'a mut FastHashMap<ThreadId, Thread> { unsafe { &mut *self.threads } }
     fn internal_get_new_windows<'a>(&'a self) -> &'a mut Vec<WindowCreateOptions> { unsafe { &mut *self.new_windows } }
     fn internal_get_current_window_handle<'a>(&'a self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
-    fn internal_get_node_hierarchy<'a>(&'a self) -> &'a BTreeMap<DomId, AzNodeVec> { unsafe { &*self.node_hierarchy } }
+    fn internal_get_node_hierarchy<'a>(&'a self) -> &'a AzNodeVec { unsafe { &*self.node_hierarchy } }
+    fn internal_get_dataset_map<'a>(&'a self) -> &'a mut BTreeMap<NodeId, *mut RefAny> { unsafe { &mut *self.dataset_map } }
     fn internal_get_stop_propagation<'a>(&'a self) -> &'a mut bool { unsafe { &mut *self.stop_propagation } }
     fn internal_get_focus_target<'a>(&'a self) -> &'a mut Option<FocusTarget> { unsafe { &mut *self.focus_target } }
     fn internal_get_current_scroll_states<'a>(&'a self) -> &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>> { unsafe { &*self.current_scroll_states } }
@@ -639,51 +650,64 @@ impl CallbackInfo {
     pub fn get_gl_context(&self) -> GlContextPtr { self.internal_get_gl_context().clone() }
 
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        self.internal_get_node_hierarchy()
-        .get(&node_id.dom)
-        .and_then(|node_hierarchy| node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.parent_id())
-        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        if node_id.dom != self.get_hit_node().dom {
+            None
+        } else {
+            self.internal_get_node_hierarchy()
+            .as_container().get(node_id.node.into_crate_internal()?)?.parent_id()
+            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        }
     }
 
     pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        self.internal_get_node_hierarchy()
-        .get(&node_id.dom)
-        .and_then(|node_hierarchy| node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id())
-        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        if node_id.dom != self.get_hit_node().dom {
+            None
+        } else {
+            self.internal_get_node_hierarchy()
+            .as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id()
+            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        }
     }
 
     pub fn get_next_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        self.internal_get_node_hierarchy()
-        .get(&node_id.dom)
-        .and_then(|node_hierarchy| node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id())
-        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        if node_id.dom != self.get_hit_node().dom {
+            None
+        } else {
+            self.internal_get_node_hierarchy()
+            .as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id()
+            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        }
     }
 
     pub fn get_first_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        self.internal_get_node_hierarchy()
-        .get(&node_id.dom)
-        .and_then(|node_hierarchy| node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.first_child_id())
-        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        if node_id.dom != self.get_hit_node().dom {
+            None
+        } else {
+            self.internal_get_node_hierarchy()
+            .as_container().get(node_id.node.into_crate_internal()?)?.first_child_id()
+            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        }
     }
 
     pub fn get_last_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        self.internal_get_node_hierarchy()
-        .get(&node_id.dom)
-        .and_then(|node_hierarchy| node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.last_child_id())
-        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        if node_id.dom != self.get_hit_node().dom {
+            None
+        } else {
+            self.internal_get_node_hierarchy()
+            .as_container().get(node_id.node.into_crate_internal()?)?.last_child_id()
+            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        }
     }
 
-    /*
-    pub fn get_dataset(&mut self, node_id: DomNodeId) -> OptionRefAny {
-        self.internal_get_layout_results()
-        .get_mut(node_id.dom.inner as usize)
-        .and_then(|layout_result| match &mut layout_result.styled_dom.node_data.as_container_mut().get_mut(node_id.node.into_crate_internal()?)?.dataset {
-            OptionRefAny::Some(s) => Some(s.clone_into_library_memory()),
-            OptionRefAny::None => None,
-        })
-        .into()
+    pub fn get_dataset(&mut self, node_id: DomNodeId) -> Option<RefAny> {
+        if node_id.dom != self.get_hit_node().dom {
+            None
+        } else {
+            self.internal_get_dataset_map()
+            .get_mut(&node_id.node.into_crate_internal()?)
+            .map(|refany| unsafe { &mut **refany }.clone_into_library_memory())
+        }
     }
-    */
 
     pub fn set_window_state(&mut self, new_state: WindowState) { *self.internal_get_modifiable_window_state() = new_state; }
 
@@ -825,6 +849,16 @@ pub struct IFrameCallbackReturn {
     pub styled_dom: StyledDom,
     pub size: LayoutRect,
     pub virtual_size: OptionLayoutRect,
+}
+
+impl Default for IFrameCallbackReturn {
+    fn default() -> IFrameCallbackReturn {
+        IFrameCallbackReturn {
+            styled_dom: StyledDom::default(),
+            size: LayoutRect::zero(),
+            virtual_size: OptionLayoutRect::None,
+        }
+    }
 }
 
 // --  thread callback

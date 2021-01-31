@@ -1,6 +1,7 @@
 use std::{
     fmt,
     hash::{Hash, Hasher},
+    collections::BTreeMap,
     sync::atomic::{AtomicUsize, Ordering},
     iter::FromIterator,
 };
@@ -13,7 +14,7 @@ use crate::{
     app_resources::ImageId,
     id_tree::{
         NodeDataContainer, NodeDataContainerRef,
-        NodeHierarchyRefMut, NodeDataContainerRefMut
+        NodeDataContainerRefMut
     },
     window::LogicalRect,
     styled_dom::StyledDom,
@@ -676,6 +677,13 @@ impl NodeData {
             tab_index: self.tab_index.clone(),
         }
     }
+
+    pub fn get_iframe_node(&mut self) -> Option<&mut IFrameNode> {
+        match &mut self.node_type {
+            NodeType::IFrame(i) => Some(i),
+            _ => None,
+        }
+    }
 }
 
 // Clone, PartialEq, Eq, Hash, PartialOrd, Ord
@@ -701,6 +709,27 @@ impl NodeDataVec {
             vec.push(item.copy_special());
         }
         vec
+    }
+
+    // necessary so that the callbacks have mutable access to the NodeType while
+    // at the same time the library has mutable access to the CallbackDataVec
+    pub fn split_into_callbacks_and_dataset<'a>(&'a mut self) -> (BTreeMap<NodeId, &'a mut CallbackDataVec>, BTreeMap<NodeId, &'a mut RefAny>) {
+
+        let mut a = BTreeMap::new();
+        let mut b = BTreeMap::new();
+
+        for (node_id, node_data) in self.as_mut().iter_mut().enumerate() {
+            let a_map = &mut node_data.callbacks;
+            let b_map = &mut node_data.dataset;
+            if !a_map.is_empty() {
+                a.insert(NodeId::new(node_id), a_map);
+            }
+            if let OptionRefAny::Some(s) = b_map {
+                b.insert(NodeId::new(node_id), s);
+            }
+        }
+
+        (a, b)
     }
 }
 

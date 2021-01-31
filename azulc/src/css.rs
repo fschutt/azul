@@ -77,6 +77,7 @@ fn format_node_type(n: &NodeTypePath) -> &'static str {
     match n {
         NodeTypePath::Body => "NodeTypePath::Body",
         NodeTypePath::Div => "NodeTypePath::Div",
+        NodeTypePath::Br => "NodeTypePath::Br",
         NodeTypePath::P => "NodeTypePath::P",
         NodeTypePath::Img => "NodeTypePath::Img",
         NodeTypePath::Texture => "NodeTypePath::Texture",

@@ -239,7 +239,7 @@
 				    }
 				},
 				"U32VecDestructor": {
-				    "external": "azul_impl::svg::u32VecDestructor",
+				    "external": "azul_impl::svg::U32VecDestructor",
 				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"DefaultRust": {}},
@@ -479,7 +479,7 @@
 				    }
 				},
 				"StringPairVecDestructor": {
-				    "external": "azul_impl::window::AzStringPairVecDestructor",
+				    "external": "azul_impl::window::StringPairVecDestructor",
 				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"DefaultRust": {}},
@@ -527,7 +527,7 @@
 				    }
 				},
 				"NodeIdVecDestructor": {
-				    "external": "azul_impl::styled_dom::AzNodeIdVecDestructor",
+				    "external": "azul_impl::styled_dom::NodeIdVecDestructor",
 				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"DefaultRust": {}},
@@ -1750,7 +1750,8 @@
 						{"threads": {"type": "*mut c_void"}},
 						{"new_windows": {"type": "*mut c_void"}},
 						{"current_window_handle": {"type": "*const RawWindowHandle"}},
-						{"node_hierarchies": {"type": "*mut c_void"}},
+						{"node_hierarchy": {"type": "*const c_void"}},
+						{"datasets": {"type": "*mut c_void"}},
 						{"stop_propagation": {"type": "*mut bool"}},
 						{"focus_target": {"type": "*const c_void"}},
 						{"current_scroll_states": {"type": "*const c_void"}},
@@ -2112,38 +2113,38 @@
 								{"self": "ref"}
 							],
 							"returns": "bool",
-							"fn_body": "atomicrefcount.can_be_shared()"
+							"fn_body": "refcount.can_be_shared()"
 						},
 						"can_be_shared_mut": {
 							"fn_args": [
 								{"self": "ref"}
 							],
 							"returns": "bool",
-							"fn_body": "atomicrefcount.can_be_shared_mut()"
+							"fn_body": "refcount.can_be_shared_mut()"
 						},
 						"increase_ref": {
 							"fn_args": [
 								{"self": "refmut"}
 							],
-							"fn_body": "atomicrefcount.increase_ref()"
+							"fn_body": "refcount.increase_ref()"
 						},
 						"decrease_ref": {
 							"fn_args": [
 								{"self": "refmut"}
 							],
-							"fn_body": "atomicrefcount.decrease_ref()"
+							"fn_body": "refcount.decrease_ref()"
 						},
 						"increase_refmut": {
 							"fn_args": [
 								{"self": "refmut"}
 							],
-							"fn_body": "atomicrefcount.increase_refmut()"
+							"fn_body": "refcount.increase_refmut()"
 						},
 						"decrease_refmut": {
 							"fn_args": [
 								{"self": "refmut"}
 							],
-							"fn_body": "atomicrefcount.decrease_refmut()"
+							"fn_body": "refcount.decrease_refmut()"
 						}
 					}
 				},
@@ -2151,6 +2152,7 @@
 					"external": "azul_impl::callbacks::RefAny",
 					"doc": "RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)",
 					"is_boxed_object": true,
+					"clone": false,
 					"struct_fields": [
 						{"_internal_ptr":  {"type": "*const c_void", "doc": "Pointer to the type-erased struct"}},
 						{"_internal_len":  {"type": "usize", "doc": "Length of Vec holding type-erased struct"}},
@@ -2190,11 +2192,12 @@
 							"returns": "String",
 							"fn_body": "refany.get_type_name()"
 						},
-						"library_deallocate": {
+						"clone": {
 							"fn_args": [
-								{"self": "value"}
+								{"self": "refmut"}
 							],
-							"fn_body": "refany.library_deallocate()"
+							"returns": "RefAny",
+							"fn_body": "refany.clone_into_library_memory()"
 						}
 					}
 				},
@@ -4316,6 +4319,7 @@
 				},
 				"GlTextureNode": {
 					"external": "azul_impl::dom::GlTextureNode",
+					"clone": false,
 					"struct_fields": [
 						{"callback": {"type": "GlCallback"}},
 						{"data": {"type": "RefAny"}}
@@ -4323,6 +4327,7 @@
 				},
 				"IFrameNode": {
 					"external": "azul_impl::dom::IFrameNode",
+					"clone": false,
 					"struct_fields": [
 						{"callback": {"type": "IFrameCallback"}},
 						{"data": {"type": "RefAny"}}
@@ -6957,6 +6962,7 @@
 				},
 				"Timer": {
 					"external": "azul_impl::task::Timer",
+					"clone": false,
 					"struct_fields": [
 						{"data": {"type": "RefAny", "doc": "Stores some timer-specific data (usually animation data)"}},
 						{"created": {"type": "Instant", "doc": "Stores when the timer was created (usually acquired by `Instant::now()`)"}},

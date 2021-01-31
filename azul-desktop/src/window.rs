@@ -342,7 +342,7 @@ impl Window {
 
     /// Creates a new window
     pub(crate) fn new(
-        data: &RefAny,
+        data: &mut RefAny,
         mut options: WindowCreateOptions,
         events_loop: &EventLoopWindowTarget<UserEvent>,
         proxy: &GlutinEventLoopProxy<UserEvent>,
@@ -608,7 +608,7 @@ impl Window {
     /// Calls the layout function again and updates the self.internal.gl_texture_cache field
     pub fn regenerate_styled_dom(
         &mut self,
-        data: &RefAny,
+        data: &mut RefAny,
         app_resources: &mut AppResources,
         resource_updates: &mut Vec<ResourceUpdate>,
     ) {

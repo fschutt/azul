@@ -36,7 +36,7 @@ use azul_css::{
 use crate::{
     FastHashSet, FastHashMap,
     id_tree::{NodeDataContainerRef, Node, NodeId, NodeDataContainerRefMut},
-    dom::{Dom, NodeDataVec, IFrameNode, GlTextureNode, CompactDom, TagId, OptionTabIndex},
+    dom::{Dom, NodeDataVec, CompactDom, TagId, OptionTabIndex},
     style::{
         CascadeInfoVec, construct_html_cascade_tree,
         matches_html_element, rule_ends_with,

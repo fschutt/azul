@@ -131,7 +131,7 @@ pub use AzSvgVertexVecDestructorTT as AzSvgVertexVecDestructor;
 
 pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
 /// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
-pub type AzU32VecDestructorTT = azul_impl::svg::u32VecDestructor;
+pub type AzU32VecDestructorTT = azul_impl::svg::U32VecDestructor;
 pub use AzU32VecDestructorTT as AzU32VecDestructor;
 
 pub type AzU32VecDestructorType = extern "C" fn(&mut AzU32Vec);
@@ -206,7 +206,7 @@ pub use AzStringVecDestructorTT as AzStringVecDestructor;
 
 pub type AzStringVecDestructorType = extern "C" fn(&mut AzStringVec);
 /// Re-export of rust-allocated (stack based) `StringPairVecDestructor` struct
-pub type AzStringPairVecDestructorTT = azul_impl::window::AzStringPairVecDestructor;
+pub type AzStringPairVecDestructorTT = azul_impl::window::StringPairVecDestructor;
 pub use AzStringPairVecDestructorTT as AzStringPairVecDestructor;
 
 pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
@@ -221,7 +221,7 @@ pub use AzRadialColorStopVecDestructorTT as AzRadialColorStopVecDestructor;
 
 pub type AzRadialColorStopVecDestructorType = extern "C" fn(&mut AzRadialColorStopVec);
 /// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
-pub type AzNodeIdVecDestructorTT = azul_impl::styled_dom::AzNodeIdVecDestructor;
+pub type AzNodeIdVecDestructorTT = azul_impl::styled_dom::NodeIdVecDestructor;
 pub use AzNodeIdVecDestructorTT as AzNodeIdVecDestructor;
 
 pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
@@ -887,17 +887,17 @@ pub use AzRefCountInnerTT as AzRefCountInner;
 pub type AzRefCountTT = azul_impl::callbacks::RefCount;
 pub use AzRefCountTT as AzRefCount;
 /// Equivalent to the Rust `RefCount::can_be_shared()` function.
-#[no_mangle] pub extern "C" fn az_ref_count_can_be_shared(refcount: &AzRefCount) -> bool { atomicrefcount.can_be_shared() }
+#[no_mangle] pub extern "C" fn az_ref_count_can_be_shared(refcount: &AzRefCount) -> bool { refcount.can_be_shared() }
 /// Equivalent to the Rust `RefCount::can_be_shared_mut()` function.
-#[no_mangle] pub extern "C" fn az_ref_count_can_be_shared_mut(refcount: &AzRefCount) -> bool { atomicrefcount.can_be_shared_mut() }
+#[no_mangle] pub extern "C" fn az_ref_count_can_be_shared_mut(refcount: &AzRefCount) -> bool { refcount.can_be_shared_mut() }
 /// Equivalent to the Rust `RefCount::increase_ref()` function.
-#[no_mangle] pub extern "C" fn az_ref_count_increase_ref(refcount: &mut AzRefCount) { atomicrefcount.increase_ref() }
+#[no_mangle] pub extern "C" fn az_ref_count_increase_ref(refcount: &mut AzRefCount) { refcount.increase_ref() }
 /// Equivalent to the Rust `RefCount::decrease_ref()` function.
-#[no_mangle] pub extern "C" fn az_ref_count_decrease_ref(refcount: &mut AzRefCount) { atomicrefcount.decrease_ref() }
+#[no_mangle] pub extern "C" fn az_ref_count_decrease_ref(refcount: &mut AzRefCount) { refcount.decrease_ref() }
 /// Equivalent to the Rust `RefCount::increase_refmut()` function.
-#[no_mangle] pub extern "C" fn az_ref_count_increase_refmut(refcount: &mut AzRefCount) { atomicrefcount.increase_refmut() }
+#[no_mangle] pub extern "C" fn az_ref_count_increase_refmut(refcount: &mut AzRefCount) { refcount.increase_refmut() }
 /// Equivalent to the Rust `RefCount::decrease_refmut()` function.
-#[no_mangle] pub extern "C" fn az_ref_count_decrease_refmut(refcount: &mut AzRefCount) { atomicrefcount.decrease_refmut() }
+#[no_mangle] pub extern "C" fn az_ref_count_decrease_refmut(refcount: &mut AzRefCount) { refcount.decrease_refmut() }
 /// Destructor: Takes ownership of the `RefCount` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_ref_count_delete(object: &mut AzRefCount) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
@@ -913,12 +913,10 @@ pub use AzRefAnyTT as AzRefAny;
 #[no_mangle] pub extern "C" fn az_ref_any_is_type(refany: &AzRefAny, type_id: u64) -> bool { refany.is_type(type_id) }
 /// Equivalent to the Rust `RefAny::get_type_name()` function.
 #[no_mangle] pub extern "C" fn az_ref_any_get_type_name(refany: &AzRefAny) -> AzString { refany.get_type_name() }
-/// Equivalent to the Rust `RefAny::library_deallocate()` function.
-#[no_mangle] pub extern "C" fn az_ref_any_library_deallocate(refany: AzRefAny) { refany.library_deallocate() }
+/// Equivalent to the Rust `RefAny::clone()` function.
+#[no_mangle] pub extern "C" fn az_ref_any_clone(refany: &mut AzRefAny) -> AzRefAny { refany.clone_into_library_memory() }
 /// Destructor: Takes ownership of the `RefAny` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_ref_any_delete(object: &mut AzRefAny) {  unsafe { core::ptr::drop_in_place(object); } }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_ref_any_deep_copy(object: &AzRefAny) -> AzRefAny { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
 pub type AzLayoutInfoTT = azul_impl::callbacks::LayoutInfo;
@@ -6292,7 +6290,8 @@ mod test_sizes {
         pub threads: *mut c_void,
         pub new_windows: *mut c_void,
         pub current_window_handle: *const AzRawWindowHandle,
-        pub node_hierarchies: *mut c_void,
+        pub node_hierarchy: *const c_void,
+        pub datasets: *mut c_void,
         pub stop_propagation: *mut bool,
         pub focus_target: *const c_void,
         pub current_scroll_states: *const c_void,
@@ -6568,7 +6567,7 @@ mod test_sizes {
         assert_eq!(Layout::new::<azul_impl::gl::VertexAttributeVecDestructor>(), Layout::new::<AzVertexAttributeVecDestructor>());
         assert_eq!(Layout::new::<azul_impl::svg::SvgPathElementVecDestructor>(), Layout::new::<AzSvgPathElementVecDestructor>());
         assert_eq!(Layout::new::<azul_impl::svg::SvgVertexVecDestructor>(), Layout::new::<AzSvgVertexVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::svg::u32VecDestructor>(), Layout::new::<AzU32VecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::svg::U32VecDestructor>(), Layout::new::<AzU32VecDestructor>());
         assert_eq!(Layout::new::<azul_impl::window::XWindowTypeVecDestructor>(), Layout::new::<AzXWindowTypeVecDestructor>());
         assert_eq!(Layout::new::<azul_impl::window::VirtualKeyCodeVecDestructor>(), Layout::new::<AzVirtualKeyCodeVecDestructor>());
         assert_eq!(Layout::new::<azul_impl::style::CascadeInfoVecDestructor>(), Layout::new::<AzCascadeInfoVecDestructor>());
@@ -6583,10 +6582,10 @@ mod test_sizes {
         assert_eq!(Layout::new::<azul_impl::gl::GLuintVecDestructor>(), Layout::new::<AzGLuintVecDestructor>());
         assert_eq!(Layout::new::<azul_impl::gl::GLintVecDestructor>(), Layout::new::<AzGLintVecDestructor>());
         assert_eq!(Layout::new::<azul_impl::css::StringVecDestructor>(), Layout::new::<AzStringVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::window::AzStringPairVecDestructor>(), Layout::new::<AzStringPairVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::window::StringPairVecDestructor>(), Layout::new::<AzStringPairVecDestructor>());
         assert_eq!(Layout::new::<azul_impl::css::LinearColorStopVecDestructor>(), Layout::new::<AzLinearColorStopVecDestructor>());
         assert_eq!(Layout::new::<azul_impl::css::RadialColorStopVecDestructor>(), Layout::new::<AzRadialColorStopVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::AzNodeIdVecDestructor>(), Layout::new::<AzNodeIdVecDestructor>());
+        assert_eq!(Layout::new::<azul_impl::styled_dom::NodeIdVecDestructor>(), Layout::new::<AzNodeIdVecDestructor>());
         assert_eq!(Layout::new::<azul_impl::styled_dom::AzNodeVecDestructor>(), Layout::new::<AzNodeVecDestructor>());
         assert_eq!(Layout::new::<azul_impl::styled_dom::StyledNodeVecDestructor>(), Layout::new::<AzStyledNodeVecDestructor>());
         assert_eq!(Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor>(), Layout::new::<AzTagIdsToNodeIdsMappingVecDestructor>());

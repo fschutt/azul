@@ -97,7 +97,7 @@ pub mod prelude {
         display_list::GlyphInstance,
         app_resources::{
             AppResources, RawImageFormat, ImageId, FontId,
-            FontSource, ImageSource, TextCache, TextId, AppConfig,
+            FontSource, ImageSource, AppConfig,
         },
         styled_dom::StyledDom,
         callbacks::*,

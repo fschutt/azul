@@ -64,7 +64,7 @@
         pub fn with_tab_index(mut self, tab_index: OptionTabIndex) -> Self { self.set_tab_index(tab_index); self }
 
         #[inline(always)]
-        pub fn set_dataset(&mut self, data: RefAny) { self.root.set_dataset(Some(data).into()); }
+        pub fn set_dataset(&mut self, data: RefAny) { self.root.set_dataset(OptionRefAny::Some(data)); }
         #[inline(always)]
         pub fn set_ids_and_classes(&mut self, ids: IdOrClassVec) { self.root.set_ids_and_classes(ids); }
         #[inline(always)]

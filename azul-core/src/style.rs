@@ -7,7 +7,7 @@ use azul_css::{
 use crate::{
     dom::NodeData,
     styled_dom::AzNode,
-    id_tree::{NodeId, NodeHierarchyRef, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
+    id_tree::{NodeId, NodeHierarchyRef, NodeDataContainer, NodeDataContainerRef},
 };
 
 /// Has all the necessary information about the style CSS path

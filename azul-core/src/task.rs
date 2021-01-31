@@ -17,8 +17,9 @@ use crate::{
     app_resources::AppResources,
     window::{FullWindowState, LogicalPosition, RawWindowHandle, WindowState, WindowCreateOptions},
     gl::GlContextPtr,
-    styled_dom::{DomId, AzNodeId, AzNodeVec},
+    styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
+    ui_solver::LayoutResult,
 };
 use azul_css::{OptionLayoutPoint, CssProperty};
 
@@ -440,7 +441,7 @@ impl Drop for Thread {
 
 /// Run all currently registered timers
 #[must_use = "the UpdateScreen result of running timers should not be ignored"]
-pub fn run_all_timers(
+pub fn run_all_timers<'a, 'b>(
     data: &mut RefAny,
     current_timers: &mut FastHashMap<TimerId, Timer>,
     frame_start: StdInstant,
@@ -453,7 +454,7 @@ pub fn run_all_timers(
     threads: &mut FastHashMap<ThreadId, Thread>,
     new_windows: &mut Vec<WindowCreateOptions>,
     current_window_handle: &RawWindowHandle,
-    node_hierarchy: &BTreeMap<DomId, AzNodeVec>,
+    layout_results: &'a mut Vec<LayoutResult>,
     stop_propagation: &mut bool,
     focus_target: &mut Option<FocusTarget>,
     current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -470,6 +471,9 @@ pub fn run_all_timers(
         let cursor_relative_to_item = OptionLayoutPoint::None;
         let cursor_in_viewport = OptionLayoutPoint::None;
 
+        let layout_result = &mut layout_results[hit_dom_node.dom.inner];
+        let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+
         let callback_info = CallbackInfo::new(
             current_window_state,
             modifiable_window_state,
@@ -479,7 +483,8 @@ pub fn run_all_timers(
             threads,
             new_windows,
             current_window_handle,
-            node_hierarchy,
+            &layout_result.styled_dom.node_hierarchy,
+            &mut datasets.1,
             stop_propagation,
             focus_target,
             current_scroll_states,
@@ -520,7 +525,7 @@ pub fn run_all_timers(
 
 /// Remove all Threads that have finished executing
 #[must_use = "the UpdateScreen result of running Threads should not be ignored"]
-pub fn clean_up_finished_threads(
+pub fn clean_up_finished_threads<'a, 'b>(
     cleanup_threads: &mut FastHashMap<ThreadId, Thread>,
 
     current_window_state: &FullWindowState,
@@ -531,7 +536,7 @@ pub fn clean_up_finished_threads(
     threads: &mut FastHashMap<ThreadId, Thread>,
     new_windows: &mut Vec<WindowCreateOptions>,
     current_window_handle: &RawWindowHandle,
-    node_hierarchy: &BTreeMap<DomId, AzNodeVec>,
+    layout_results: &'a mut Vec<LayoutResult>,
     stop_propagation: &mut bool,
     focus_target: &mut Option<FocusTarget>,
     current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -544,6 +549,10 @@ pub fn clean_up_finished_threads(
     let hit_dom_node = DomNodeId { dom: DomId::ROOT_ID, node: AzNodeId::from_crate_internal(None) };
     let cursor_relative_to_item = OptionLayoutPoint::None;
     let cursor_in_viewport = OptionLayoutPoint::None;
+
+    let layout_result = &mut layout_results[hit_dom_node.dom.inner];
+    let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+    let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
 
     cleanup_threads.retain(|_thread_id, thread| {
 
@@ -562,6 +571,7 @@ pub fn clean_up_finished_threads(
                     new_windows,
                     current_window_handle,
                     node_hierarchy,
+                    &mut datasets.1,
                     stop_propagation,
                     focus_target,
                     current_scroll_states,

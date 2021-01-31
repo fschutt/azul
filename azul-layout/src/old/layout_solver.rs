@@ -1362,12 +1362,19 @@ pub fn do_the_layout(
 
                 // Invoke the IFrame callback
                 let iframe_return: IFrameCallbackReturn = {
+
                     let iframe_callback_info = IFrameCallbackInfo::new(
                         &app_resources,
                         hidpi_bounds,
                     );
-                    let iframe_node = layout_result.styled_dom.node_data.as_container_mut()[iframe_node_id];
-                    (iframe_node.callback.cb)(&mut iframe_node.data, iframe_callback_info)
+
+                    let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
+                    match &mut node_data_mut[iframe_node_id].get_iframe_node() {
+                        Some(iframe_node) => {
+                            (iframe_node.callback.cb)(&mut iframe_node.data, iframe_callback_info)
+                        },
+                        None => IFrameCallbackReturn::default(),
+                    }
                 };
 
                 let mut iframe_dom = iframe_return.styled_dom;

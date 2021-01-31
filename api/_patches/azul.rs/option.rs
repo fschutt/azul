@@ -14,9 +14,6 @@
                     $struct_name::Some(t) => Some(t),
                 }
             }
-            pub fn into_option(self) -> Option<$struct_type> {
-                self.into()
-            }
             pub fn replace(&mut self, value: $struct_type) -> $struct_name {
                 ::core::mem::replace(self, $struct_name::Some(value))
             }
@@ -33,20 +30,6 @@
                 match *self {
                     $struct_name::Some(ref x) => Some(x),
                     $struct_name::None => None,
-                }
-            }
-
-            pub fn map<U, F: FnOnce($struct_type) -> U>(self, f: F) -> Option<U> {
-                match self.into_option() {
-                    None => None,
-                    Some(s) => Some(f(s)),
-                }
-            }
-
-            pub fn and_then<U, F>(self, f: F) -> Option<U> where F: FnOnce($struct_type) -> Option<U> {
-                match self.into_option() {
-                    None => None,
-                    Some(s) => f(s),
                 }
             }
         }
@@ -76,6 +59,25 @@
                     }
                 }
             }
+
+            impl $struct_name {
+                pub fn into_option(self) -> Option<$struct_type> {
+                    self.into()
+                }
+                pub fn map<U, F: FnOnce($struct_type) -> U>(self, f: F) -> Option<U> {
+                    match self.into_option() {
+                        None => None,
+                        Some(s) => Some(f(s)),
+                    }
+                }
+
+                pub fn and_then<U, F>(self, f: F) -> Option<U> where F: FnOnce($struct_type) -> Option<U> {
+                    match self.into_option() {
+                        None => None,
+                        Some(s) => f(s),
+                    }
+                }
+            }
         );
         ($struct_type:ident, $struct_name:ident, [$($derive:meta),* ]) => (
             impl_option_inner!($struct_type, $struct_name);
@@ -97,6 +99,25 @@
                     }
                 }
             }
+
+            impl $struct_name {
+                pub fn into_option(self) -> Option<$struct_type> {
+                    self.into()
+                }
+                pub fn map<U, F: FnOnce($struct_type) -> U>(self, f: F) -> Option<U> {
+                    match self.into_option() {
+                        None => None,
+                        Some(s) => Some(f(s)),
+                    }
+                }
+
+                pub fn and_then<U, F>(self, f: F) -> Option<U> where F: FnOnce($struct_type) -> Option<U> {
+                    match self.into_option() {
+                        None => None,
+                        Some(s) => f(s),
+                    }
+                }
+            }
         );
     }
 
@@ -110,7 +131,7 @@
 
     impl_option!(AzThreadSendMsg, AzOptionThreadSendMsg, [Debug, Copy, Clone]);
     impl_option!(AzLayoutRect, AzOptionLayoutRect, [Debug, Copy, Clone]);
-    impl_option!(AzRefAny, AzOptionRefAny, copy = false, [Debug, Clone]);
+    impl_option!(AzRefAny, AzOptionRefAny, copy = false, clone = false, [Debug, Clone]);
     impl_option!(AzLayoutPoint, AzOptionLayoutPoint, [Debug, Copy, Clone]);
     impl_option!(AzWindowTheme, AzOptionWindowTheme, [Debug, Copy, Clone]);
     impl_option!(AzNodeId, AzOptionNodeId, [Debug, Copy, Clone]);
