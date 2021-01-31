@@ -140,7 +140,7 @@ impl TableViewState {
 
     /// Renders a cutout of the table from, horizontally from (col_start..col_end)
     /// and vertically from (row_start..row_end)
-    pub fn render(&self, rows: Range<usize>, columns: Range<usize>) -> StyledDom {
+    pub fn render_dom(&self, rows: Range<usize>, columns: Range<usize>) -> Dom {
 
         use azul::css::*;
         use azul::str::String as AzString;
@@ -185,8 +185,6 @@ impl TableViewState {
             Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 })),
             Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 })),
         ];
-
-        println!("rendering {:?} x {:?}: {:#?}", rows, columns, self);
 
         // Empty rectangle at the top left of the table
         let top_left_empty_rect = Dom::div()
@@ -315,8 +313,6 @@ impl TableViewState {
             // rows in this column, laid out vertically
             let rows_in_this_column = (rows.start..rows.end).map(|row_idx| {
 
-                    println!("    rendering row {}!", row_idx);
-
                     let node_type = match self.get_cell_content(&TableCellIndex { row: row_idx, column: col_idx }) {
                         Some(string) => NodeType::Label(string.clone().into()),
                         None => NodeType::Label(DEFAULT_TABLE_CELL_STRING),
@@ -370,9 +366,12 @@ impl TableViewState {
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(IFRAME_DOM_CONTAINER_STYLE))
         .with_children(AzDomVec::from(vec![row_number_wrapper, columns_table_container, current_active_selection]));
 
-        let styled = dom.style(Css::empty());
+        dom
+    }
 
-        styled
+    pub fn render(&self, rows: Range<usize>, columns: Range<usize>) -> StyledDom {
+        use azul::css::Css;
+        self.render_dom(rows, columns).style(Css::empty())
     }
 }
 
@@ -429,11 +428,11 @@ impl TableView {
         let table_width = (necessary_columns + padding_columns) as f32 * table_view_state.default_column_width;
 
         let styled_dom = table_view_state.render(
-            row_start..(row_start + necessary_rows + padding_rows),
-            column_start..(column_start + necessary_columns + padding_columns)
+            row_start..((row_start + necessary_rows + padding_rows) * 10),
+            column_start..((column_start + necessary_columns + padding_columns) * 10)
         );
 
-        println!("styled_dom len: {:?}", styled_dom.node_count());
+        println!("styled_dom node count: {:?}", styled_dom.node_count());
 
         IFrameCallbackReturn {
             dom: styled_dom,

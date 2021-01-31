@@ -3,7 +3,7 @@ use std::{
     collections::BTreeMap
 };
 use azul_css::{
-    Css, CssPath, CssProperty, CssPropertyType,
+    Css, CssPath, CssProperty, CssPropertyType, AzString,
 
     StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
     StyleBackgroundSizeVecValue, StyleBackgroundRepeatVecValue,
@@ -35,7 +35,7 @@ use azul_css::{
 };
 use crate::{
     FastHashSet, FastHashMap,
-    id_tree::{NodeDataContainerRef, Node, NodeId, NodeDataContainerRefMut},
+    id_tree::{NodeDataContainer, NodeDataContainerRef, Node, NodeId, NodeDataContainerRefMut},
     dom::{Dom, NodeDataVec, CompactDom, TagId, OptionTabIndex},
     style::{
         CascadeInfoVec, construct_html_cascade_tree,
@@ -162,19 +162,19 @@ impl Drop for CssPropertyCachePtr {
 // state (hover, active, focused, normal). This way we don't have to duplicate the CSS properties
 // onto every single node and exchange them when the style changes. Two caches can be appended
 // to each other by simply merging their NodeIds.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CssPropertyCache {
     // non-default CSS properties that were set on the DOM nodes themselves (inline properties)
-    pub non_default_inline_normal_props:    BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub non_default_inline_hover_props:     BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub non_default_inline_active_props:    BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub non_default_inline_focus_props:     BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub non_default_inline_normal_props:    NodeDataContainer<Vec<CssProperty>>,
+    pub non_default_inline_hover_props:     NodeDataContainer<Vec<CssProperty>>,
+    pub non_default_inline_active_props:    NodeDataContainer<Vec<CssProperty>>,
+    pub non_default_inline_focus_props:     NodeDataContainer<Vec<CssProperty>>,
 
     // non-default CSS properties that were set via a CSS file
-    pub non_default_css_normal_props:       BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub non_default_css_hover_props:        BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub non_default_css_active_props:       BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub non_default_css_focus_props:        BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub non_default_css_normal_props:       NodeDataContainer<Vec<CssProperty>>,
+    pub non_default_css_hover_props:        NodeDataContainer<Vec<CssProperty>>,
+    pub non_default_css_active_props:       NodeDataContainer<Vec<CssProperty>>,
+    pub non_default_css_focus_props:        NodeDataContainer<Vec<CssProperty>>,
 }
 
 macro_rules! get_property {
@@ -186,41 +186,43 @@ macro_rules! get_property {
             // :focus > :active > :hover > :normal
 
             if $node_state.focused {
-                if let Some(s) = $self_id.non_default_inline_focus_props.get($node_id).and_then(|map| map.get(&$css_property_type).and_then(|p| p.$as_downcast_fn())) {
-                    prop = Some(s);
+                if let Some(s) = $self_id.non_default_inline_focus_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
+                    prop = Some(s.clone());
                     return prop;
-                } else if let Some(s) = $self_id.non_default_css_focus_props.get($node_id).and_then(|map| map.get(&$css_property_type).and_then(|p| p.$as_downcast_fn())) {
-                    prop = Some(s);
+                }
+
+                if let Some(s) = $self_id.non_default_css_focus_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
+                    prop = Some(s.clone());
                     return prop;
                 }
             }
 
             if $node_state.active {
-                if let Some(s) = $self_id.non_default_inline_active_props.get($node_id).and_then(|map| map.get(&$css_property_type).and_then(|p| p.$as_downcast_fn())) {
-                    prop = Some(s);
+                if let Some(s) = $self_id.non_default_inline_active_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
+                    prop = Some(s.clone());
                     return prop;
-                } else if let Some(s) = $self_id.non_default_css_active_props.get($node_id).and_then(|map| map.get(&$css_property_type).and_then(|p| p.$as_downcast_fn())) {
-                    prop = Some(s);
+                } else if let Some(s) = $self_id.non_default_css_active_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
+                    prop = Some(s.clone());
                     return prop;
                 }
             }
 
             if $node_state.hover {
-                if let Some(s) = $self_id.non_default_inline_hover_props.get($node_id).and_then(|map| map.get(&$css_property_type).and_then(|p| p.$as_downcast_fn())) {
-                    prop = Some(s);
+                if let Some(s) = $self_id.non_default_inline_hover_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
+                    prop = Some(s.clone());
                     return prop;
-                } else if let Some(s) = $self_id.non_default_css_hover_props.get($node_id).and_then(|map| map.get(&$css_property_type).and_then(|p| p.$as_downcast_fn())) {
-                    prop = Some(s);
+                } else if let Some(s) = $self_id.non_default_css_hover_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
+                    prop = Some(s.clone());
                     return prop;
                 }
             }
 
             if $node_state.normal {
-                if let Some(s) = $self_id.non_default_inline_normal_props.get($node_id).and_then(|map| map.get(&$css_property_type).and_then(|p| p.$as_downcast_fn())) {
-                    prop = Some(s);
+                if let Some(s) = $self_id.non_default_inline_normal_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
+                    prop = Some(s.clone());
                     return prop;
-                } else if let Some(s) = $self_id.non_default_css_normal_props.get($node_id).and_then(|map| map.get(&$css_property_type).and_then(|p| p.$as_downcast_fn())) {
-                    prop = Some(s);
+                } else if let Some(s) = $self_id.non_default_css_normal_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
+                    prop = Some(s.clone());
                     return prop;
                 }
             }
@@ -232,25 +234,23 @@ macro_rules! get_property {
 
 impl CssPropertyCache {
 
-    pub fn append(&mut self, other: Self, node_id_shift: usize) {
+    pub fn append(&mut self, other: &mut Self) {
 
-        macro_rules! append_btreemap {($field_name:ident) => {{
-            for (node_id, tree) in other.$field_name.into_iter() {
-                self.$field_name
-                .entry(node_id + node_id_shift)
-                .or_insert_with(|| BTreeMap::default())
-                .extend(tree.into_iter());
-            }
+        // a: NodeDataContainer<Vec<Property>>
+        // b: NodeDataContainer<Vec<Property>>
+
+        macro_rules! append_css_property_vec {($field_name:ident) => {{
+            self.$field_name.internal.append(&mut other.$field_name.internal);
         }};}
 
-        append_btreemap!(non_default_inline_normal_props);
-        append_btreemap!(non_default_inline_hover_props);
-        append_btreemap!(non_default_inline_active_props);
-        append_btreemap!(non_default_inline_focus_props);
-        append_btreemap!(non_default_css_normal_props);
-        append_btreemap!(non_default_css_hover_props);
-        append_btreemap!(non_default_css_active_props);
-        append_btreemap!(non_default_css_focus_props);
+        append_css_property_vec!(non_default_inline_normal_props);
+        append_css_property_vec!(non_default_inline_hover_props);
+        append_css_property_vec!(non_default_inline_active_props);
+        append_css_property_vec!(non_default_inline_focus_props);
+        append_css_property_vec!(non_default_css_normal_props);
+        append_css_property_vec!(non_default_css_hover_props);
+        append_css_property_vec!(non_default_css_active_props);
+        append_css_property_vec!(non_default_css_focus_props);
     }
 
     pub fn is_horizontal_overflow_visible(&self, node_id: &NodeId, node_state: &StyledNodeState) -> bool {
@@ -266,10 +266,12 @@ impl CssPropertyCache {
         self.get_text_color(node_id, node_state).and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_TEXT_COLOR)
     }
 
-    pub fn get_font_id_or_default(&self, node_id: &NodeId, node_state: &StyledNodeState) -> &str {
+    pub fn get_font_id_or_default(&self, node_id: &NodeId, node_state: &StyledNodeState) -> AzString {
         use crate::ui_solver::DEFAULT_FONT_ID;
-        let font_id = self.get_font_family(node_id, node_state).and_then(|family| family.get_property()?.fonts.get(0));
-        font_id.map(|f| f.as_str()).unwrap_or(DEFAULT_FONT_ID)
+        let default_font_id = AzString::from_const_str(DEFAULT_FONT_ID);
+        let font_family_opt = self.get_font_family(node_id, node_state);
+        let font_id = font_family_opt.as_ref().and_then(|family| family.get_property()?.fonts.get(0));
+        font_id.map(|f| f.clone()).unwrap_or(default_font_id)
     }
 
     pub fn get_font_size_or_default(&self, node_id: &NodeId, node_state: &StyledNodeState) -> StyleFontSize {
@@ -291,211 +293,211 @@ impl CssPropertyCache {
         self.get_box_shadow_bottom(node_id, node_state).is_some()
     }
 
-    pub fn get_background(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBackgroundContentVecValue> {
+    pub fn get_background(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundContentVecValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Background, as_background)
     }
-    pub fn get_background_position(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBackgroundPositionVecValue> {
+    pub fn get_background_position(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundPositionVecValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BackgroundPosition, as_background_position)
     }
-    pub fn get_background_size(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBackgroundSizeVecValue> {
+    pub fn get_background_size(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundSizeVecValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BackgroundSize, as_background_size)
     }
-    pub fn get_background_repeat(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBackgroundRepeatVecValue> {
+    pub fn get_background_repeat(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundRepeatVecValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BackgroundRepeat, as_background_repeat)
     }
-    pub fn get_font_size(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleFontSizeValue> {
+    pub fn get_font_size(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleFontSizeValue> {
         get_property!(self, node_id, node_state, CssPropertyType::FontSize, as_font_size)
     }
-    pub fn get_font_family(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleFontFamilyValue> {
+    pub fn get_font_family(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleFontFamilyValue> {
         get_property!(self, node_id, node_state, CssPropertyType::FontFamily, as_font_family)
     }
-    pub fn get_text_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleTextColorValue> {
+    pub fn get_text_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTextColorValue> {
         get_property!(self, node_id, node_state, CssPropertyType::TextColor, as_text_color)
     }
-    pub fn get_text_align(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleTextAlignmentHorzValue> {
+    pub fn get_text_align(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTextAlignmentHorzValue> {
         get_property!(self, node_id, node_state, CssPropertyType::TextAlign, as_text_align)
     }
-    pub fn get_line_height(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleLineHeightValue> {
+    pub fn get_line_height(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleLineHeightValue> {
         get_property!(self, node_id, node_state, CssPropertyType::LineHeight, as_line_height)
     }
-    pub fn get_letter_spacing(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleLetterSpacingValue> {
+    pub fn get_letter_spacing(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleLetterSpacingValue> {
         get_property!(self, node_id, node_state, CssPropertyType::LetterSpacing, as_letter_spacing)
     }
-    pub fn get_word_spacing(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleWordSpacingValue> {
+    pub fn get_word_spacing(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleWordSpacingValue> {
         get_property!(self, node_id, node_state, CssPropertyType::WordSpacing, as_word_spacing)
     }
-    pub fn get_tab_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleTabWidthValue> {
+    pub fn get_tab_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTabWidthValue> {
         get_property!(self, node_id, node_state, CssPropertyType::TabWidth, as_tab_width)
     }
-    pub fn get_cursor(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleCursorValue> {
+    pub fn get_cursor(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleCursorValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Cursor, as_cursor)
     }
-    pub fn get_box_shadow_left(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBoxShadowValue> {
+    pub fn get_box_shadow_left(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBoxShadowValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BoxShadowLeft, as_box_shadow_left)
     }
-    pub fn get_box_shadow_right(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBoxShadowValue> {
+    pub fn get_box_shadow_right(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBoxShadowValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BoxShadowRight, as_box_shadow_right)
     }
-    pub fn get_box_shadow_top(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBoxShadowValue> {
+    pub fn get_box_shadow_top(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBoxShadowValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BoxShadowTop, as_box_shadow_top)
     }
-    pub fn get_box_shadow_bottom(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBoxShadowValue> {
+    pub fn get_box_shadow_bottom(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBoxShadowValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BoxShadowBottom, as_box_shadow_bottom)
     }
-    pub fn get_border_top_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBorderTopColorValue> {
+    pub fn get_border_top_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderTopColorValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderTopColor, as_border_top_color)
     }
-    pub fn get_border_left_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBorderLeftColorValue> {
+    pub fn get_border_left_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderLeftColorValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderLeftColor, as_border_left_color)
     }
-    pub fn get_border_right_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBorderRightColorValue> {
+    pub fn get_border_right_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderRightColorValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderRightColor, as_border_right_color)
     }
-    pub fn get_border_bottom_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBorderBottomColorValue> {
+    pub fn get_border_bottom_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderBottomColorValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderBottomColor, as_border_bottom_color)
     }
-    pub fn get_border_top_style(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBorderTopStyleValue> {
+    pub fn get_border_top_style(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderTopStyleValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderTopStyle, as_border_top_style)
     }
-    pub fn get_border_left_style(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBorderLeftStyleValue> {
+    pub fn get_border_left_style(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderLeftStyleValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderLeftStyle, as_border_left_style)
     }
-    pub fn get_border_right_style(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBorderRightStyleValue> {
+    pub fn get_border_right_style(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderRightStyleValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderRightStyle, as_border_right_style)
     }
-    pub fn get_border_bottom_style(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBorderBottomStyleValue> {
+    pub fn get_border_bottom_style(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderBottomStyleValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderBottomStyle, as_border_bottom_style)
     }
-    pub fn get_border_top_left_radius(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBorderTopLeftRadiusValue> {
+    pub fn get_border_top_left_radius(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderTopLeftRadiusValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderTopLeftRadius, as_border_top_left_radius)
     }
-    pub fn get_border_top_right_radius(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBorderTopRightRadiusValue> {
+    pub fn get_border_top_right_radius(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderTopRightRadiusValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderTopRightRadius, as_border_top_right_radius)
     }
-    pub fn get_border_bottom_left_radius(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBorderBottomLeftRadiusValue> {
+    pub fn get_border_bottom_left_radius(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderBottomLeftRadiusValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderBottomLeftRadius, as_border_bottom_left_radius)
     }
-    pub fn get_border_bottom_right_radius(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBorderBottomRightRadiusValue> {
+    pub fn get_border_bottom_right_radius(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderBottomRightRadiusValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderBottomRightRadius, as_border_bottom_right_radius)
     }
-    pub fn get_opacity(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleOpacityValue> {
+    pub fn get_opacity(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleOpacityValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Opacity, as_opacity)
     }
-    pub fn get_transform(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleTransformVecValue> {
+    pub fn get_transform(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTransformVecValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Transform, as_transform)
     }
-    pub fn get_transform_origin(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleTransformOriginValue> {
+    pub fn get_transform_origin(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTransformOriginValue> {
         get_property!(self, node_id, node_state, CssPropertyType::TransformOrigin, as_transform_origin)
     }
-    pub fn get_perspective_origin(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StylePerspectiveOriginValue> {
+    pub fn get_perspective_origin(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StylePerspectiveOriginValue> {
         get_property!(self, node_id, node_state, CssPropertyType::PerspectiveOrigin, as_perspective_origin)
     }
-    pub fn get_backface_visibility(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&StyleBackfaceVisibilityValue> {
+    pub fn get_backface_visibility(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackfaceVisibilityValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BackfaceVisibility, as_backface_visibility)
     }
-    pub fn get_display(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutDisplayValue> {
+    pub fn get_display(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutDisplayValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Display, as_display)
     }
-    pub fn get_float(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutFloatValue> {
+    pub fn get_float(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFloatValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Float, as_float)
     }
-    pub fn get_box_sizing(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutBoxSizingValue> {
+    pub fn get_box_sizing(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBoxSizingValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BoxSizing, as_box_sizing)
     }
-    pub fn get_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutWidthValue> {
+    pub fn get_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutWidthValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Width, as_width)
     }
-    pub fn get_height(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutHeightValue> {
+    pub fn get_height(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutHeightValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Height, as_height)
     }
-    pub fn get_min_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutMinWidthValue> {
+    pub fn get_min_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMinWidthValue> {
         get_property!(self, node_id, node_state, CssPropertyType::MinWidth, as_min_width)
     }
-    pub fn get_min_height(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutMinHeightValue> {
+    pub fn get_min_height(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMinHeightValue> {
         get_property!(self, node_id, node_state, CssPropertyType::MinHeight, as_min_height)
     }
-    pub fn get_max_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutMaxWidthValue> {
+    pub fn get_max_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMaxWidthValue> {
         get_property!(self, node_id, node_state, CssPropertyType::MaxWidth, as_max_width)
     }
-    pub fn get_max_height(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutMaxHeightValue> {
+    pub fn get_max_height(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMaxHeightValue> {
         get_property!(self, node_id, node_state, CssPropertyType::MaxHeight, as_max_height)
     }
-    pub fn get_position(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutPositionValue> {
+    pub fn get_position(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPositionValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Position, as_position)
     }
-    pub fn get_top(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutTopValue> {
+    pub fn get_top(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutTopValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Top, as_top)
     }
-    pub fn get_bottom(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutBottomValue> {
+    pub fn get_bottom(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBottomValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Bottom, as_bottom)
     }
-    pub fn get_right(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutRightValue> {
+    pub fn get_right(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutRightValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Right, as_right)
     }
-    pub fn get_left(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutLeftValue> {
+    pub fn get_left(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutLeftValue> {
         get_property!(self, node_id, node_state, CssPropertyType::Left, as_left)
     }
-    pub fn get_padding_top(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutPaddingTopValue> {
+    pub fn get_padding_top(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPaddingTopValue> {
         get_property!(self, node_id, node_state, CssPropertyType::PaddingTop, as_padding_top)
     }
-    pub fn get_padding_bottom(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutPaddingBottomValue> {
+    pub fn get_padding_bottom(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPaddingBottomValue> {
         get_property!(self, node_id, node_state, CssPropertyType::PaddingBottom, as_padding_bottom)
     }
-    pub fn get_padding_left(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutPaddingLeftValue> {
+    pub fn get_padding_left(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPaddingLeftValue> {
         get_property!(self, node_id, node_state, CssPropertyType::PaddingLeft, as_padding_left)
     }
-    pub fn get_padding_right(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutPaddingRightValue> {
+    pub fn get_padding_right(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPaddingRightValue> {
         get_property!(self, node_id, node_state, CssPropertyType::PaddingRight, as_padding_right)
     }
-    pub fn get_margin_top(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutMarginTopValue> {
+    pub fn get_margin_top(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMarginTopValue> {
         get_property!(self, node_id, node_state, CssPropertyType::MarginTop, as_margin_top)
     }
-    pub fn get_margin_bottom(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutMarginBottomValue> {
+    pub fn get_margin_bottom(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMarginBottomValue> {
         get_property!(self, node_id, node_state, CssPropertyType::MarginBottom, as_margin_bottom)
     }
-    pub fn get_margin_left(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutMarginLeftValue> {
+    pub fn get_margin_left(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMarginLeftValue> {
         get_property!(self, node_id, node_state, CssPropertyType::MarginLeft, as_margin_left)
     }
-    pub fn get_margin_right(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutMarginRightValue> {
+    pub fn get_margin_right(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMarginRightValue> {
         get_property!(self, node_id, node_state, CssPropertyType::MarginRight, as_margin_right)
     }
-    pub fn get_border_top_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutBorderTopWidthValue> {
+    pub fn get_border_top_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBorderTopWidthValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderTopWidth, as_border_top_width)
     }
-    pub fn get_border_left_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutBorderLeftWidthValue> {
+    pub fn get_border_left_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBorderLeftWidthValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderLeftWidth, as_border_left_width)
     }
-    pub fn get_border_right_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutBorderRightWidthValue> {
+    pub fn get_border_right_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBorderRightWidthValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderRightWidth, as_border_right_width)
     }
-    pub fn get_border_bottom_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutBorderBottomWidthValue> {
+    pub fn get_border_bottom_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBorderBottomWidthValue> {
         get_property!(self, node_id, node_state, CssPropertyType::BorderBottomWidth, as_border_bottom_width)
     }
-    pub fn get_overflow_x(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutOverflowValue> {
+    pub fn get_overflow_x(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutOverflowValue> {
         get_property!(self, node_id, node_state, CssPropertyType::OverflowX, as_overflow_x)
     }
-    pub fn get_overflow_y(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutOverflowValue> {
+    pub fn get_overflow_y(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutOverflowValue> {
         get_property!(self, node_id, node_state, CssPropertyType::OverflowY, as_overflow_y)
     }
-    pub fn get_flex_direction(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutFlexDirectionValue> {
+    pub fn get_flex_direction(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFlexDirectionValue> {
         get_property!(self, node_id, node_state, CssPropertyType::FlexDirection, as_direction)
     }
-    pub fn get_flex_wrap(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutFlexWrapValue> {
+    pub fn get_flex_wrap(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFlexWrapValue> {
         get_property!(self, node_id, node_state, CssPropertyType::FlexWrap, as_flex_wrap)
     }
-    pub fn get_flex_grow(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutFlexGrowValue> {
+    pub fn get_flex_grow(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFlexGrowValue> {
         get_property!(self, node_id, node_state, CssPropertyType::FlexGrow, as_flex_grow)
     }
-    pub fn get_flex_shrink(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutFlexShrinkValue> {
+    pub fn get_flex_shrink(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFlexShrinkValue> {
         get_property!(self, node_id, node_state, CssPropertyType::FlexShrink, as_flex_shrink)
     }
-    pub fn get_justify_content(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutJustifyContentValue> {
+    pub fn get_justify_content(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutJustifyContentValue> {
         get_property!(self, node_id, node_state, CssPropertyType::JustifyContent, as_justify_content)
     }
-    pub fn get_align_items(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutAlignItemsValue> {
+    pub fn get_align_items(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutAlignItemsValue> {
         get_property!(self, node_id, node_state, CssPropertyType::AlignItems, as_align_items)
     }
-    pub fn get_align_content(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&LayoutAlignContentValue> {
+    pub fn get_align_content(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutAlignContentValue> {
         get_property!(self, node_id, node_state, CssPropertyType::AlignContent, as_align_content)
     }
 }
@@ -757,26 +759,25 @@ macro_rules! restyle_nodes {($self_val:expr, $field:ident, $new_field_state:expr
             return None; // state is the same, no changes
         }
 
-        let mut old_properties = BTreeMap::new();
-        let default_map = BTreeMap::new();
+        let mut old_properties = FastHashMap::new();
 
         if current_node_state.$field {
-            for (prop_key, prop_value) in $self_val.get_css_property_cache().$css_props_field.get(node_id).unwrap_or(&default_map).iter() {
-                old_properties.insert(*prop_key, prop_value.clone());
+            for prop_value in $self_val.get_css_property_cache().$css_props_field.as_ref()[*node_id].iter() {
+                old_properties.insert(prop_value.get_type(), prop_value.clone());
             }
-            for (prop_key, prop_value) in $self_val.get_css_property_cache().$inline_props_field.get(node_id).unwrap_or(&default_map).iter() {
-                old_properties.insert(*prop_key, prop_value.clone());
+            for prop_value in $self_val.get_css_property_cache().$inline_props_field.as_ref()[*node_id].iter() {
+                old_properties.insert(prop_value.get_type(), prop_value.clone());
             }
         }
 
-        let mut new_properties = BTreeMap::new();
+        let mut new_properties = FastHashMap::new();
 
         if new_node_state.$field {
-            for (prop_key, prop_value) in $self_val.get_css_property_cache().$css_props_field.get(node_id).unwrap_or(&default_map).iter() {
-                new_properties.insert(*prop_key, prop_value.clone());
+            for prop_value in $self_val.get_css_property_cache().$css_props_field.as_ref()[*node_id].iter() {
+                new_properties.insert(prop_value.get_type(), prop_value.clone());
             }
-            for (prop_key, prop_value) in $self_val.get_css_property_cache().$inline_props_field.get(node_id).unwrap_or(&default_map).iter() {
-                new_properties.insert(*prop_key, prop_value.clone());
+            for prop_value in $self_val.get_css_property_cache().$inline_props_field.as_ref()[*node_id].iter() {
+                new_properties.insert(prop_value.get_type(), prop_value.clone());
             }
         }
 
@@ -807,74 +808,74 @@ impl StyledDom {
         // fill out the css property cache: compute the inline properties first so that
         // we can early-return in case the css is empty
 
-        let inline_normal_props = compact_dom.node_data.as_ref_mut().transform_multithread_optional(|node_data, node_id| {
+        let inline_normal_props = compact_dom.node_data.as_ref_mut().transform_multithread(|node_data, _| {
             let normal_inline_props = node_data.inline_css_props
                 .as_ref()
                 .par_iter()
-                .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Normal(p) => Some((p.get_type(), p.clone())), _ => None })
-                .collect::<Vec<(_, _)>>();
+                .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Normal(p) => Some(p.clone()), _ => None })
+                .collect::<Vec<_>>();
 
             if normal_inline_props.is_empty() {
-                None
+                Vec::new()
             } else {
-                let map = BTreeMap::from_iter(normal_inline_props.into_iter());
-                Some((node_id, map))
+                normal_inline_props
             }
         });
 
-        let inline_hover_props = compact_dom.node_data.as_ref_mut().transform_multithread_optional(|node_data, node_id| {
+        let inline_hover_props = compact_dom.node_data.as_ref_mut().transform_multithread(|node_data, _| {
             let hover_inline_props = node_data.inline_css_props
                 .as_ref()
                 .par_iter()
-                .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Hover(p) => Some((p.get_type(), p.clone())), _ => None })
-                .collect::<Vec<(_, _)>>();
+                .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Hover(p) => Some(p.clone()), _ => None })
+                .collect::<Vec<_>>();
 
             if hover_inline_props.is_empty() {
-                None
+                Vec::new()
             } else {
-                let map = BTreeMap::from_iter(hover_inline_props.into_iter());
-                Some((node_id, map))
+                hover_inline_props
             }
         });
 
-        let inline_active_props = compact_dom.node_data.as_ref_mut().transform_multithread_optional(|node_data, node_id| {
+        let inline_active_props = compact_dom.node_data.as_ref_mut().transform_multithread(|node_data, _| {
             let active_inline_props = node_data.inline_css_props
                 .as_ref()
                 .par_iter()
-                .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Active(p) => Some((p.get_type(), p.clone())), _ => None })
-                .collect::<Vec<(_, _)>>();
+                .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Active(p) => Some(p.clone()), _ => None })
+                .collect::<Vec<_>>();
 
             if active_inline_props.is_empty() {
-                None
+                Vec::new()
             } else {
-                let map = BTreeMap::from_iter(active_inline_props.into_iter());
-                Some((node_id, map))
+                active_inline_props
             }
         });
 
-        let inline_focus_props = compact_dom.node_data.as_ref_mut().transform_multithread_optional(|node_data, node_id| {
+        let inline_focus_props = compact_dom.node_data.as_ref_mut().transform_multithread(|node_data, _| {
             let focus_inline_props = node_data.inline_css_props
                 .as_ref()
                 .par_iter()
-                .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Focus(p) => Some((p.get_type(), p.clone())), _ => None })
-                .collect::<Vec<(_, _)>>();
+                .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Focus(p) => Some(p.clone()), _ => None })
+                .collect::<Vec<_>>();
 
             node_data.inline_css_props = NodeDataInlineCssPropertyVec::new(); // no need to retain the inline CSS properties in the DOM, clear here
 
             if focus_inline_props.is_empty() {
-                None
+                Vec::new()
             } else {
-                let map = BTreeMap::from_iter(focus_inline_props.into_iter());
-                Some((node_id, map))
+                focus_inline_props
             }
         });
 
         let mut css_property_cache = CssPropertyCache {
-            non_default_inline_normal_props: inline_normal_props.into_iter().collect(),
-            non_default_inline_hover_props: inline_hover_props.into_iter().collect(),
-            non_default_inline_active_props: inline_active_props.into_iter().collect(),
-            non_default_inline_focus_props: inline_focus_props.into_iter().collect(),
-            .. Default::default()
+            non_default_inline_normal_props: inline_normal_props,
+            non_default_inline_hover_props: inline_hover_props,
+            non_default_inline_active_props: inline_active_props,
+            non_default_inline_focus_props: inline_focus_props,
+
+            non_default_css_normal_props: NodeDataContainer { internal: vec![Vec::new(); compact_dom.node_data.len()] },
+            non_default_css_hover_props: NodeDataContainer { internal: vec![Vec::new(); compact_dom.node_data.len()] },
+            non_default_css_active_props: NodeDataContainer { internal: vec![Vec::new(); compact_dom.node_data.len()] },
+            non_default_css_focus_props: NodeDataContainer { internal: vec![Vec::new(); compact_dom.node_data.len()] },
         };
 
         let html_tree = construct_html_cascade_tree(&compact_dom.node_hierarchy.as_ref(), &non_leaf_nodes[..]);
@@ -908,8 +909,8 @@ impl StyledDom {
                         }
                     })
                 })
-                .map(|prop| (prop.get_type(), prop.clone()))
-                .collect::<BTreeMap<_, _>>()
+                .map(|prop| prop.clone())
+                .collect::<Vec<_>>()
             }};}
 
             // NOTE: This is wrong, but fast
@@ -921,50 +922,50 @@ impl StyledDom {
             // but that can be fixed later
 
             // go through each HTML node (in parallel) and see which CSS rules match
-            let css_normal_rules = compact_dom.node_data.as_ref().transform_nodeid_multithreaded_optional(|node_id| {
+            let css_normal_rules = compact_dom.node_data.as_ref().transform_nodeid(|node_id| {
                 let matched_rules = filter_rules!(None, node_id);
 
                 if matched_rules.is_empty() {
-                    None
+                    Vec::new()
                 } else {
-                    Some((node_id, matched_rules))
+                    matched_rules
                 }
             });
 
-            let css_hover_rules = compact_dom.node_data.as_ref().transform_nodeid_multithreaded_optional(|node_id| {
+            let css_hover_rules = compact_dom.node_data.as_ref().transform_nodeid(|node_id| {
                 let matched_rules = filter_rules!(Some(CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover)), node_id);
 
                 if matched_rules.is_empty() {
-                    None
+                    Vec::new()
                 } else {
-                    Some((node_id, matched_rules))
+                    matched_rules
                 }
             });
 
-            let css_active_rules = compact_dom.node_data.as_ref().transform_nodeid_multithreaded_optional(|node_id| {
+            let css_active_rules = compact_dom.node_data.as_ref().transform_nodeid(|node_id| {
                 let matched_rules = filter_rules!(Some(CssPathSelector::PseudoSelector(CssPathPseudoSelector::Active)), node_id);
 
                 if matched_rules.is_empty() {
-                    None
+                    Vec::new()
                 } else {
-                    Some((node_id, matched_rules))
+                    matched_rules
                 }
             });
 
-            let css_focus_rules = compact_dom.node_data.as_ref().transform_nodeid_multithreaded_optional(|node_id| {
+            let css_focus_rules = compact_dom.node_data.as_ref().transform_nodeid(|node_id| {
                 let matched_rules = filter_rules!(Some(CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus)), node_id);
 
                 if matched_rules.is_empty() {
-                    None
+                    Vec::new()
                 } else {
-                    Some((node_id, matched_rules))
+                    matched_rules
                 }
             });
 
-            css_property_cache.non_default_css_normal_props = css_normal_rules.internal.into_iter().collect::<BTreeMap<_, _>>();
-            css_property_cache.non_default_css_hover_props = css_hover_rules.internal.into_iter().collect::<BTreeMap<_, _>>();
-            css_property_cache.non_default_css_active_props = css_active_rules.internal.into_iter().collect::<BTreeMap<_, _>>();
-            css_property_cache.non_default_css_focus_props = css_focus_rules.internal.into_iter().collect::<BTreeMap<_, _>>();
+            css_property_cache.non_default_css_normal_props = css_normal_rules;
+            css_property_cache.non_default_css_hover_props = css_hover_rules;
+            css_property_cache.non_default_css_active_props = css_active_rules;
+            css_property_cache.non_default_css_focus_props = css_focus_rules;
         }
 
         // Inheritance: Inherit all values of the parent to the children, but
@@ -972,18 +973,11 @@ impl StyledDom {
         for (_depth, parent_id) in non_leaf_nodes.iter() {
 
             macro_rules! inherit_props {($inherit_map:expr) => {
-                let parent_inheritable_css_props =  {
-
-                    let parent_css_props = match $inherit_map.get(parent_id) {
-                        Some(s) => s,
-                        None => continue,
-                    };
-
-                    parent_css_props
+                let parent_inheritable_css_props = {
+                    $inherit_map.as_ref()[*parent_id]
                     .iter()
-                    .filter(|(key, _)| key.is_inheritable())
-                    .map(|(key, value)| (key.clone(), value.clone()))
-                    .collect::<Vec<(_, _)>>()
+                    .filter_map(|value| if value.get_type().is_inheritable() { Some(value.clone()) } else { None })
+                    .collect::<Vec<_>>()
                 };
 
                 if parent_inheritable_css_props.is_empty() {
@@ -992,11 +986,10 @@ impl StyledDom {
 
                 // only override the rule if the child already has an inherited rule
                 for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
-                    for (inherited_rule_key, inherited_rule_value) in parent_inheritable_css_props.iter() {
-                        $inherit_map.entry(child_id)
-                        .or_insert_with(|| BTreeMap::new())
-                        .entry(*inherited_rule_key)
-                        .or_insert_with(|| inherited_rule_value.clone());
+                    for inherited_rule_value in parent_inheritable_css_props.iter() {
+                        if !($inherit_map.as_ref()[child_id].iter().any(|k| k.get_type() == inherited_rule_value.get_type())) {
+                            $inherit_map.as_ref_mut()[child_id].push(inherited_rule_value.clone());
+                        }
                     }
                 }
             };}
@@ -1014,6 +1007,16 @@ impl StyledDom {
             inherit_props!(css_property_cache.non_default_inline_active_props);
             inherit_props!(css_property_cache.non_default_inline_focus_props);
         }
+
+        println!("css property cache non_default_inline_normal_props\t{:?}", css_property_cache.non_default_inline_normal_props.as_ref().iter().filter(|i| !i.is_empty()).count());
+        println!("css property cache non_default_inline_hover_props\t{:?}", css_property_cache.non_default_inline_hover_props.as_ref().iter().filter(|i| !i.is_empty()).count());
+        println!("css property cache non_default_inline_active_props\t{:?}", css_property_cache.non_default_inline_active_props.as_ref().iter().filter(|i| !i.is_empty()).count());
+        println!("css property cache non_default_inline_focus_props\t{:?}", css_property_cache.non_default_inline_focus_props.as_ref().iter().filter(|i| !i.is_empty()).count());
+        println!("");
+        println!("css property cache non_default_css_normal_props\t{:?}", css_property_cache.non_default_css_normal_props.as_ref().iter().filter(|i| !i.is_empty()).count());
+        println!("css property cache non_default_css_hover_props\t{:?}", css_property_cache.non_default_css_hover_props.as_ref().iter().filter(|i| !i.is_empty()).count());
+        println!("css property cache non_default_css_active_props\t{:?}", css_property_cache.non_default_css_active_props.as_ref().iter().filter(|i| !i.is_empty()).count());
+        println!("css property cache non_default_css_focus_props\t{:?}", css_property_cache.non_default_css_focus_props.as_ref().iter().filter(|i| !i.is_empty()).count());
 
         // CSS property cache is now built
 
@@ -1038,9 +1041,9 @@ impl StyledDom {
                 None => if should_auto_insert_tabindex { Some(TabIndex::Auto) } else { None }
             };
 
-            let node_has_focus_props = css_property_cache.non_default_inline_focus_props.get(&node_id).is_some() ||  css_property_cache.non_default_css_focus_props.get(&node_id).is_some();
-            let node_has_hover_props = css_property_cache.non_default_inline_hover_props.get(&node_id).is_some() ||  css_property_cache.non_default_css_hover_props.get(&node_id).is_some();
-            let node_has_active_props = css_property_cache.non_default_inline_active_props.get(&node_id).is_some() ||  css_property_cache.non_default_css_active_props.get(&node_id).is_some();
+            let node_has_focus_props = !css_property_cache.non_default_inline_focus_props.as_ref()[node_id].is_empty() ||  !css_property_cache.non_default_css_focus_props.as_ref()[node_id].is_empty();
+            let node_has_hover_props = !css_property_cache.non_default_inline_hover_props.as_ref()[node_id].is_empty() ||  !css_property_cache.non_default_css_hover_props.as_ref()[node_id].is_empty();
+            let node_has_active_props = !css_property_cache.non_default_inline_active_props.as_ref()[node_id].is_empty() ||  !css_property_cache.non_default_css_active_props.as_ref()[node_id].is_empty();
             let node_has_not_only_window_callbacks = !node_data.get_callbacks().is_empty() && !node_data.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
             let node_has_non_default_cursor = css_property_cache.get_cursor(&node_id, &default_node_state).is_some();
 
@@ -1102,14 +1105,6 @@ impl StyledDom {
         unsafe { &mut *self.css_property_cache.ptr }
     }
 
-    // swap the internal css property cache with a default cache, moving the self.cache out
-    #[inline]
-    pub fn get_css_property_cache_move(&mut self) -> CssPropertyCache {
-        let mut default_cache = CssPropertyCache::default();
-        std::mem::swap(self.get_css_property_cache_mut(), &mut default_cache);
-        default_cache
-    }
-
     /// Appends another `StyledDom` to the `self.root` without re-styling the DOM itself
     pub fn append(&mut self, mut other: Self) {
 
@@ -1137,7 +1132,7 @@ impl StyledDom {
         self.node_hierarchy.append(&mut other.node_hierarchy);
         self.node_data.append(&mut other.node_data);
         self.styled_nodes.append(&mut other.styled_nodes);
-        self.get_css_property_cache_mut().append(other.get_css_property_cache_move(), self_len);
+        self.get_css_property_cache_mut().append(other.get_css_property_cache_mut());
 
         for tag_id_node_id in other.tag_ids_to_node_ids.iter_mut() {
             tag_id_node_id.tag_id.inner += self_tag_len as u64;
@@ -1176,7 +1171,7 @@ impl StyledDom {
                     Label(_) => {
                         let css_font_id = self.get_css_property_cache().get_font_id_or_default(&node_id, &self.styled_nodes.as_container()[node_id].state);
                         let font_size = self.get_css_property_cache().get_font_size_or_default(&node_id, &self.styled_nodes.as_container()[node_id].state);
-                        let font_id = match app_resources.css_ids_to_font_ids.get(css_font_id) {
+                        let font_id = match app_resources.css_ids_to_font_ids.get(css_font_id.as_str()) {
                             Some(s) => ImmediateFontId::Resolved(*s),
                             None => ImmediateFontId::Unresolved(css_font_id.to_string()),
                         };
@@ -1290,13 +1285,12 @@ impl StyledDom {
     pub fn restyle_inline_normal_props(&mut self, node_id: &NodeId, new_properties: &[CssProperty]) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
         // exchange the inline properties for the node n with the new properties
         let mut old_properties = BTreeMap::new();
-        let default_map = BTreeMap::new();
 
-        for (prop_key, prop_value) in self.get_css_property_cache().non_default_css_normal_props.get(node_id).unwrap_or(&default_map).iter() {
-            old_properties.insert(*prop_key, prop_value.clone());
+        for prop_value in self.get_css_property_cache().non_default_css_normal_props.as_ref()[*node_id].iter() {
+            old_properties.insert(prop_value.get_type(), prop_value.clone());
         }
-        for (prop_key, prop_value) in self.get_css_property_cache().non_default_inline_normal_props.get(node_id).unwrap_or(&default_map).iter() {
-            old_properties.insert(*prop_key, prop_value.clone());
+        for prop_value in self.get_css_property_cache().non_default_inline_normal_props.as_ref()[*node_id].iter() {
+            old_properties.insert(prop_value.get_type(), prop_value.clone());
         }
 
         let new_properties: BTreeMap<_, _> = new_properties.iter().map(|c| (c.get_type(), c.clone())).collect();

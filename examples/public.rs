@@ -48,7 +48,7 @@ struct Data {
     counter: usize,
 }
 
-extern "C" fn layout(data: &RefAny, _info: LayoutInfo) -> StyledDom {
+extern "C" fn layout(data: &mut RefAny, _info: LayoutInfo) -> StyledDom {
 
     use azul::dom::NodeData;
     use azul::dom::NodeType;
@@ -70,7 +70,21 @@ extern "C" fn layout(data: &RefAny, _info: LayoutInfo) -> StyledDom {
 }
 
 fn main() {
+    use azul::dom::NodeData;
+
+    loop {
+        use azul_widgets::table_view::*;
+        let mut table_view_state = TableViewState::default();
+        table_view_state.set_cell_content(TableCellIndex { row: 2, column: 2 }, "Hello World");
+        table_view_state.set_selection(Some(TableCellSelection::from(3, 4).to(6, 7)));
+        let dom = table_view_state.render(0..80, 0..300);
+        println!("styled dom len: {:?}", dom.node_count());
+    }
+    /*
+    println!("sizeof NodeData * 25000: {:?}", ::std::mem::size_of::<NodeData>() * 25000); // 9.7275 MB
+
     let data = RefAny::new(Data { counter: 5 });
     let app = App::new(data, AppConfig::default());
     app.run(WindowCreateOptions::new(layout));
+    */
 }

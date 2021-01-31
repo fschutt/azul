@@ -57,14 +57,14 @@ fn precalculate_wh_config(styled_dom: &StyledDom) -> NodeDataContainer<WhConfig>
             let node_id = NodeId::new(node_id);
             WhConfig {
                 width: WidthConfig {
-                    exact: css_property_cache.get_width(&node_id, &styled_node.state).and_then(|p| p.get_property()).copied(),
-                    max: css_property_cache.get_max_width(&node_id, &styled_node.state).and_then(|p| p.get_property()).copied(),
-                    min: css_property_cache.get_min_width(&node_id, &styled_node.state).and_then(|p| p.get_property()).copied(),
+                    exact: css_property_cache.get_width(&node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
+                    max: css_property_cache.get_max_width(&node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
+                    min: css_property_cache.get_min_width(&node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
                 },
                 height: HeightConfig {
-                    exact: css_property_cache.get_height(&node_id, &styled_node.state).and_then(|p| p.get_property()).copied(),
-                    max: css_property_cache.get_max_height(&node_id, &styled_node.state).and_then(|p| p.get_property()).copied(),
-                    min: css_property_cache.get_min_height(&node_id, &styled_node.state).and_then(|p| p.get_property()).copied(),
+                    exact: css_property_cache.get_height(&node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
+                    max: css_property_cache.get_max_height(&node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
+                    min: css_property_cache.get_min_height(&node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
                 },
             }
         })
@@ -1077,7 +1077,7 @@ pub fn get_layout_positions<'a>(styled_dom: &StyledDom) -> NodeDataContainer<Lay
     let cache = styled_dom.get_css_property_cache();
     NodeDataContainer {
         internal: styled_dom.styled_nodes.as_container().internal.par_iter().enumerate().map(|(node_id, styled_node)| {
-            cache.get_position(&NodeId::new(node_id), &styled_node.state).copied().unwrap_or_default().get_property_or_default().unwrap_or_default()
+            cache.get_position(&NodeId::new(node_id), &styled_node.state).unwrap_or_default().get_property_or_default().unwrap_or_default()
         }).collect()
     }
 }
@@ -1087,7 +1087,7 @@ pub fn get_layout_justify_contents<'a>(styled_dom: &StyledDom) -> NodeDataContai
     let cache = styled_dom.get_css_property_cache();
     NodeDataContainer {
         internal: styled_dom.styled_nodes.as_container().internal.par_iter().enumerate().map(|(node_id, styled_node)| {
-            cache.get_justify_content(&NodeId::new(node_id), &styled_node.state).copied().unwrap_or_default().get_property_or_default().unwrap_or_default()
+            cache.get_justify_content(&NodeId::new(node_id), &styled_node.state).unwrap_or_default().get_property_or_default().unwrap_or_default()
         }).collect()
     }
 }
@@ -1097,7 +1097,7 @@ pub fn get_layout_flex_directions<'a>(styled_dom: &StyledDom) -> NodeDataContain
     let cache = styled_dom.get_css_property_cache();
     NodeDataContainer {
         internal: styled_dom.styled_nodes.as_container().internal.par_iter().enumerate().map(|(node_id, styled_node)| {
-            cache.get_flex_direction(&NodeId::new(node_id), &styled_node.state).copied().unwrap_or_default().get_property_or_default().unwrap_or_default()
+            cache.get_flex_direction(&NodeId::new(node_id), &styled_node.state).unwrap_or_default().get_property_or_default().unwrap_or_default()
         }).collect()
     }
 }
@@ -1190,31 +1190,31 @@ fn precalculate_all_offsets(styled_dom: &StyledDom) -> NodeDataContainer<AllOffs
 fn precalculate_offset(css_property_cache: &CssPropertyCache, node_id: &NodeId, state: &StyledNodeState) -> AllOffsets {
     AllOffsets {
         border_widths: LayoutBorderOffsets {
-            left: css_property_cache.get_border_left_width(node_id, state).copied(),
-            right: css_property_cache.get_border_right_width(node_id, state).copied(),
-            top: css_property_cache.get_border_top_width(node_id, state).copied(),
-            bottom: css_property_cache.get_border_bottom_width(node_id, state).copied(),
+            left: css_property_cache.get_border_left_width(node_id, state),
+            right: css_property_cache.get_border_right_width(node_id, state),
+            top: css_property_cache.get_border_top_width(node_id, state),
+            bottom: css_property_cache.get_border_bottom_width(node_id, state),
         },
         padding: LayoutPaddingOffsets {
-            left: css_property_cache.get_padding_left(node_id, state).copied(),
-            right: css_property_cache.get_padding_right(node_id, state).copied(),
-            top: css_property_cache.get_padding_top(node_id, state).copied(),
-            bottom: css_property_cache.get_padding_bottom(node_id, state).copied(),
+            left: css_property_cache.get_padding_left(node_id, state),
+            right: css_property_cache.get_padding_right(node_id, state),
+            top: css_property_cache.get_padding_top(node_id, state),
+            bottom: css_property_cache.get_padding_bottom(node_id, state),
         },
         margin: LayoutMarginOffsets {
-            left: css_property_cache.get_margin_left(node_id, state).copied(),
-            right: css_property_cache.get_margin_right(node_id, state).copied(),
-            top: css_property_cache.get_margin_top(node_id, state).copied(),
-            bottom: css_property_cache.get_margin_bottom(node_id, state).copied(),
+            left: css_property_cache.get_margin_left(node_id, state),
+            right: css_property_cache.get_margin_right(node_id, state),
+            top: css_property_cache.get_margin_top(node_id, state),
+            bottom: css_property_cache.get_margin_bottom(node_id, state),
         },
         position: LayoutAbsolutePositions {
-            left: css_property_cache.get_left(node_id, state).copied(),
-            right: css_property_cache.get_right(node_id, state).copied(),
-            top: css_property_cache.get_top(node_id, state).copied(),
-            bottom: css_property_cache.get_bottom(node_id, state).copied(),
+            left: css_property_cache.get_left(node_id, state),
+            right: css_property_cache.get_right(node_id, state),
+            top: css_property_cache.get_top(node_id, state),
+            bottom: css_property_cache.get_bottom(node_id, state),
         },
-        overflow_x: css_property_cache.get_overflow_x(node_id, state).copied(),
-        overflow_y: css_property_cache.get_overflow_y(node_id, state).copied(),
+        overflow_x: css_property_cache.get_overflow_x(node_id, state),
+        overflow_y: css_property_cache.get_overflow_y(node_id, state),
     }
 }
 
@@ -1910,7 +1910,7 @@ pub fn create_shaped_words<'a>(
 
         let styled_node_state = &styled_nodes[*node_id].state;
         let css_font_id = css_property_cache.get_font_id_or_default(node_id, styled_node_state);
-        let font_id = match app_resources.get_css_font_id(css_font_id) {
+        let font_id = match app_resources.get_css_font_id(css_font_id.as_str()) {
             Some(s) => ImmediateFontId::Resolved(*s),
             None => ImmediateFontId::Unresolved(css_font_id.to_string()),
         };
@@ -1956,7 +1956,7 @@ fn create_word_positions<'a>(
         let font_size_px = font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32);
         let css_font_id = css_property_cache.get_font_id_or_default(node_id, &styled_node_state);
 
-        let font_id = match app_resources.get_css_font_id(css_font_id) {
+        let font_id = match app_resources.get_css_font_id(css_font_id.as_str()) {
             Some(s) => ImmediateFontId::Resolved(*s),
             None => ImmediateFontId::Unresolved(css_font_id.to_string()),
         };
@@ -1965,7 +1965,7 @@ fn create_word_positions<'a>(
 
         let shaped_words = shaped_words.get(&node_id)?;
 
-        let text_can_overflow =  css_property_cache.get_overflow_x(node_id, &styled_node_state).copied().unwrap_or_default().get_property_or_default().unwrap_or_default() != LayoutOverflow::Auto;
+        let text_can_overflow =  css_property_cache.get_overflow_x(node_id, &styled_node_state).unwrap_or_default().get_property_or_default().unwrap_or_default() != LayoutOverflow::Auto;
         let letter_spacing = css_property_cache.get_letter_spacing(node_id, &styled_node_state).and_then(|ls| Some(ls.get_property()?.inner.to_pixels(DEFAULT_LETTER_SPACING)));
         let word_spacing = css_property_cache.get_word_spacing(node_id, &styled_node_state).and_then(|ws| Some(ws.get_property()?.inner.to_pixels(DEFAULT_WORD_SPACING)));
         let line_height = css_property_cache.get_line_height(node_id, &styled_node_state).and_then(|lh| Some(lh.get_property()?.inner.get()));
@@ -1998,9 +1998,9 @@ fn create_word_positions<'a>(
 
 /// For a given rectangle, determines what text alignment should be used
 fn determine_text_alignment(
-    align_items: Option<&CssPropertyValue<LayoutAlignItems>>,
-    justify_content: Option<&CssPropertyValue<LayoutJustifyContent>>,
-    text_align: Option<&CssPropertyValue<StyleTextAlignmentHorz>>,
+    align_items: Option<CssPropertyValue<LayoutAlignItems>>,
+    justify_content: Option<CssPropertyValue<LayoutJustifyContent>>,
+    text_align: Option<CssPropertyValue<StyleTextAlignmentHorz>>,
 )
     -> (StyleTextAlignmentHorz, StyleTextAlignmentVert)
 {
@@ -2266,9 +2266,9 @@ pub fn do_the_relayout(
             let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[node_id].state;
             let wh_config = WhConfig {
                 width: WidthConfig {
-                    exact: css_property_cache.get_width(&node_id, styled_node_state).and_then(|p| p.get_property()).copied(),
-                    max: css_property_cache.get_max_width(&node_id, styled_node_state).and_then(|p| p.get_property()).copied(),
-                    min: css_property_cache.get_min_width(&node_id, styled_node_state).and_then(|p| p.get_property()).copied(),
+                    exact: css_property_cache.get_width(&node_id, styled_node_state).and_then(|p| p.get_property().copied()),
+                    max: css_property_cache.get_max_width(&node_id, styled_node_state).and_then(|p| p.get_property().copied()),
+                    min: css_property_cache.get_min_width(&node_id, styled_node_state).and_then(|p| p.get_property().copied()),
                 },
                 height: HeightConfig::default(),
             };
@@ -2288,9 +2288,9 @@ pub fn do_the_relayout(
             let wh_config = WhConfig {
                 width: WidthConfig::default(),
                 height: HeightConfig {
-                    exact: css_property_cache.get_height(&node_id, &styled_node_state).and_then(|p| p.get_property()).copied(),
-                    max: css_property_cache.get_max_height(&node_id, &styled_node_state).and_then(|p| p.get_property()).copied(),
-                    min: css_property_cache.get_min_height(&node_id, &styled_node_state).and_then(|p| p.get_property()).copied(),
+                    exact: css_property_cache.get_height(&node_id, &styled_node_state).and_then(|p| p.get_property().copied()),
+                    max: css_property_cache.get_max_height(&node_id, &styled_node_state).and_then(|p| p.get_property().copied()),
+                    min: css_property_cache.get_min_height(&node_id, &styled_node_state).and_then(|p| p.get_property().copied()),
                 },
             };
             let parent_height = layout_result.preferred_heights.as_ref()[parent_id].clone().unwrap_or(root_size.height as f32);

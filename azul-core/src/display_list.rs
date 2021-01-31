@@ -778,10 +778,10 @@ pub fn displaylist_handle_rect<'a>(
         size,
         position,
         border_radius: StyleBorderRadius {
-            top_left: layout_result.styled_dom.get_css_property_cache().get_border_top_left_radius(&rect_idx, &styled_node.state).cloned(),
-            top_right: layout_result.styled_dom.get_css_property_cache().get_border_top_right_radius(&rect_idx, &styled_node.state).cloned(),
-            bottom_left: layout_result.styled_dom.get_css_property_cache().get_border_bottom_left_radius(&rect_idx, &styled_node.state).cloned(),
-            bottom_right: layout_result.styled_dom.get_css_property_cache().get_border_bottom_right_radius(&rect_idx, &styled_node.state).cloned(),
+            top_left: layout_result.styled_dom.get_css_property_cache().get_border_top_left_radius(&rect_idx, &styled_node.state),
+            top_right: layout_result.styled_dom.get_css_property_cache().get_border_top_right_radius(&rect_idx, &styled_node.state),
+            bottom_left: layout_result.styled_dom.get_css_property_cache().get_border_bottom_left_radius(&rect_idx, &styled_node.state),
+            bottom_right: layout_result.styled_dom.get_css_property_cache().get_border_bottom_right_radius(&rect_idx, &styled_node.state),
         },
         flags: PrimitiveFlags {
             is_backface_visible: true,
@@ -797,10 +797,10 @@ pub fn displaylist_handle_rect<'a>(
     };
 
     // push box shadow
-    let box_shadow_left = layout_result.styled_dom.get_css_property_cache().get_box_shadow_left(&rect_idx, &styled_node.state).cloned();
-    let box_shadow_right = layout_result.styled_dom.get_css_property_cache().get_box_shadow_right(&rect_idx, &styled_node.state).cloned();
-    let box_shadow_top = layout_result.styled_dom.get_css_property_cache().get_box_shadow_top(&rect_idx, &styled_node.state).cloned();
-    let box_shadow_bottom = layout_result.styled_dom.get_css_property_cache().get_box_shadow_bottom(&rect_idx, &styled_node.state).cloned();
+    let box_shadow_left = layout_result.styled_dom.get_css_property_cache().get_box_shadow_left(&rect_idx, &styled_node.state);
+    let box_shadow_right = layout_result.styled_dom.get_css_property_cache().get_box_shadow_right(&rect_idx, &styled_node.state);
+    let box_shadow_top = layout_result.styled_dom.get_css_property_cache().get_box_shadow_top(&rect_idx, &styled_node.state);
+    let box_shadow_bottom = layout_result.styled_dom.get_css_property_cache().get_box_shadow_bottom(&rect_idx, &styled_node.state);
 
     let box_shadows = [&box_shadow_left, &box_shadow_right, &box_shadow_top, &box_shadow_bottom];
 
@@ -821,7 +821,8 @@ pub fn displaylist_handle_rect<'a>(
     frame.box_shadow = box_shadow;
 
     // push background
-    if let Some(bg) = layout_result.styled_dom.get_css_property_cache().get_background(&rect_idx, &styled_node.state).and_then(|br| br.get_property()) {
+    let bg_opt = layout_result.styled_dom.get_css_property_cache().get_background(&rect_idx, &styled_node.state);
+    if let Some(bg) = bg_opt.as_ref().and_then(|br| br.get_property()) {
 
         use azul_css::{StyleBackgroundSizeVec, StyleBackgroundPositionVec, StyleBackgroundRepeatVec};
 
@@ -829,9 +830,13 @@ pub fn displaylist_handle_rect<'a>(
         let default_bg_position_vec: StyleBackgroundPositionVec = Vec::new().into();
         let default_bg_repeat_vec: StyleBackgroundRepeatVec = Vec::new().into();
 
-        let bg_sizes = layout_result.styled_dom.get_css_property_cache().get_background_size(&rect_idx, &styled_node.state).and_then(|p| p.get_property()).unwrap_or(&default_bg_size_vec);
-        let bg_positions = layout_result.styled_dom.get_css_property_cache().get_background_position(&rect_idx, &styled_node.state).and_then(|p| p.get_property()).unwrap_or(&default_bg_position_vec);
-        let bg_repeats = layout_result.styled_dom.get_css_property_cache().get_background_repeat(&rect_idx, &styled_node.state).and_then(|p| p.get_property()).unwrap_or(&default_bg_repeat_vec);
+        let bg_sizes_opt = layout_result.styled_dom.get_css_property_cache().get_background_size(&rect_idx, &styled_node.state);
+        let bg_positions_opt = layout_result.styled_dom.get_css_property_cache().get_background_position(&rect_idx, &styled_node.state);
+        let bg_repeats_opt = layout_result.styled_dom.get_css_property_cache().get_background_repeat(&rect_idx, &styled_node.state);
+
+        let bg_sizes = bg_sizes_opt.as_ref().and_then(|p| p.get_property()).unwrap_or(&default_bg_size_vec);
+        let bg_positions = bg_positions_opt.as_ref().and_then(|p| p.get_property()).unwrap_or(&default_bg_position_vec);
+        let bg_repeats = bg_repeats_opt.as_ref().and_then(|p| p.get_property()).unwrap_or(&default_bg_repeat_vec);
 
         for (bg_index, bg) in bg.iter().enumerate() {
 
@@ -941,22 +946,22 @@ pub fn displaylist_handle_rect<'a>(
     if layout_result.styled_dom.get_css_property_cache().has_border(&rect_idx, &styled_node.state) {
         frame.content.push(LayoutRectContent::Border {
             widths: StyleBorderWidths {
-                top: layout_result.styled_dom.get_css_property_cache().get_border_top_width(&rect_idx, &styled_node.state).copied(),
-                left: layout_result.styled_dom.get_css_property_cache().get_border_left_width(&rect_idx, &styled_node.state).copied(),
-                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_width(&rect_idx, &styled_node.state).copied(),
-                right: layout_result.styled_dom.get_css_property_cache().get_border_right_width(&rect_idx, &styled_node.state).copied(),
+                top: layout_result.styled_dom.get_css_property_cache().get_border_top_width(&rect_idx, &styled_node.state),
+                left: layout_result.styled_dom.get_css_property_cache().get_border_left_width(&rect_idx, &styled_node.state),
+                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_width(&rect_idx, &styled_node.state),
+                right: layout_result.styled_dom.get_css_property_cache().get_border_right_width(&rect_idx, &styled_node.state),
             },
             colors: StyleBorderColors {
-                top: layout_result.styled_dom.get_css_property_cache().get_border_top_color(&rect_idx, &styled_node.state).copied(),
-                left: layout_result.styled_dom.get_css_property_cache().get_border_left_color(&rect_idx, &styled_node.state).copied(),
-                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_color(&rect_idx, &styled_node.state).copied(),
-                right: layout_result.styled_dom.get_css_property_cache().get_border_right_color(&rect_idx, &styled_node.state).copied(),
+                top: layout_result.styled_dom.get_css_property_cache().get_border_top_color(&rect_idx, &styled_node.state),
+                left: layout_result.styled_dom.get_css_property_cache().get_border_left_color(&rect_idx, &styled_node.state),
+                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_color(&rect_idx, &styled_node.state),
+                right: layout_result.styled_dom.get_css_property_cache().get_border_right_color(&rect_idx, &styled_node.state),
             },
             styles: StyleBorderStyles {
-                top: layout_result.styled_dom.get_css_property_cache().get_border_top_style(&rect_idx, &styled_node.state).copied(),
-                left: layout_result.styled_dom.get_css_property_cache().get_border_left_style(&rect_idx, &styled_node.state).copied(),
-                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_style(&rect_idx, &styled_node.state).copied(),
-                right: layout_result.styled_dom.get_css_property_cache().get_border_right_style(&rect_idx, &styled_node.state).copied(),
+                top: layout_result.styled_dom.get_css_property_cache().get_border_top_style(&rect_idx, &styled_node.state),
+                left: layout_result.styled_dom.get_css_property_cache().get_border_left_style(&rect_idx, &styled_node.state),
+                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_style(&rect_idx, &styled_node.state),
+                right: layout_result.styled_dom.get_css_property_cache().get_border_right_style(&rect_idx, &styled_node.state),
             },
         });
     }

@@ -1009,6 +1009,9 @@ impl Dom {
             estimated_total_children: self.estimated_total_children,
         }
     }
+    pub fn node_count(&self) -> usize {
+        self.estimated_total_children + 1
+    }
 }
 
 impl DomVec {

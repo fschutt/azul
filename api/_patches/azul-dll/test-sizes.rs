@@ -31,6 +31,13 @@
         }
     }
 
+    impl ::std::fmt::Debug for AzRefCount {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            let ptr = unsafe { &*self.ptr };
+            write!(f, "{{ num_copies: {}, ref: {}, mut: {} }}", ptr.num_copies, ptr.num_refs, ptr.num_mutable_refs)
+        }
+    }
+
     impl ::std::fmt::Debug for AzDomVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzDomVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     impl ::std::fmt::Debug for AzIdOrClassVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzIdOrClassVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     impl ::std::fmt::Debug for AzNodeDataInlineCssPropertyVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzNodeDataInlineCssPropertyVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}

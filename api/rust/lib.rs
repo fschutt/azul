@@ -3844,6 +3844,7 @@ mod dll {
         pub(crate) fn az_styled_dom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn az_styled_dom_append(_:  &mut AzStyledDom, _:  AzStyledDom);
         pub(crate) fn az_styled_dom_node_count(_:  &AzStyledDom) -> usize;
+        pub(crate) fn az_dom_node_count(_:  &AzDom) -> usize;
         pub(crate) fn az_on_into_event_filter(_:  AzOn) -> AzEventFilter;
         pub(crate) fn az_g_lsync_ptr_delete(_:  &mut AzGLsyncPtr);
         pub(crate) fn az_gl_context_ptr_get_type(_:  &AzGlContextPtr) -> AzGlType;
@@ -6602,7 +6603,12 @@ pub mod dom {
     
 #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssProperty as NodeDataInlineCssProperty;    /// `Dom` struct
     
-#[doc(inline)] pub use crate::dll::AzDom as Dom;    /// `GlTextureNode` struct
+#[doc(inline)] pub use crate::dll::AzDom as Dom;    impl Dom {
+        /// Returns the number of nodes in the DOM
+        pub fn node_count(&self)  -> usize { unsafe { crate::dll::az_dom_node_count(self) } }
+    }
+
+    /// `GlTextureNode` struct
     
 #[doc(inline)] pub use crate::dll::AzGlTextureNode as GlTextureNode;    /// `IFrameNode` struct
     

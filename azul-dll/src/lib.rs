@@ -1712,6 +1712,8 @@ pub use AzNodeDataInlineCssPropertyTT as AzNodeDataInlineCssProperty;
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
 pub use AzDomTT as AzDom;
+/// Returns the number of nodes in the DOM
+#[no_mangle] pub extern "C" fn az_dom_node_count(dom: &AzDom) -> usize { dom.node_count() }
 
 /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
 pub type AzGlTextureNodeTT = azul_impl::dom::GlTextureNode;
@@ -2803,6 +2805,13 @@ mod test_sizes {
             write!(f, "    custom_destructor: 0x{:x}\r\n", self.custom_destructor as usize)?;
             write!(f, "}}\r\n")?;
             Ok(())
+        }
+    }
+
+    impl ::std::fmt::Debug for AzRefCount {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            let ptr = unsafe { &*self.ptr };
+            write!(f, "{{ num_copies: {}, ref: {}, mut: {} }}", ptr.num_copies, ptr.num_refs, ptr.num_mutable_refs)
         }
     }
 
