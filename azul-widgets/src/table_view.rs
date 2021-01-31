@@ -399,7 +399,10 @@ impl TableView {
             Normal(CssProperty::box_sizing(LayoutBoxSizing::BorderBox)),
         ];
 
-        Dom::iframe(RefAny::new(self.state), Self::render_table_iframe_contents)
+        println!("initial tablestate: {:#?}", self.state);
+        let refany = RefAny::new(self.state);
+        println!("initial refany: {:#?}", refany);
+        Dom::iframe(refany, Self::render_table_iframe_contents)
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(IFRAME_STYLE))
         .style(Css::empty())
     }

@@ -69,7 +69,8 @@ mod dll {
             write!(f, "    _internal_layout_align: {}\r\n", self._internal_layout_align)?;
             write!(f, "    type_name: \"{}\"\r\n", self.type_name.as_str())?;
             write!(f, "    type_id: {}\r\n", self.type_id)?;
-            write!(f, "    sharing_info: {:#?}\r\n", self.sharing_info.ptr)?;
+            write!(f, "    is_dead: {:?}\r\n", self.is_dead)?;
+            write!(f, "    sharing_info: {:#?}\r\n", self.sharing_info)?;
             write!(f, "    custom_destructor: 0x{:x}\r\n", self.custom_destructor as usize)?;
             write!(f, "}}\r\n")?;
             Ok(())

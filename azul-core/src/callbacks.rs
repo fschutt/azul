@@ -84,11 +84,7 @@ impl Clone for RefCount {
 
 impl Drop for RefCount {
     fn drop(&mut self) {
-        let previous = self.downcast().num_copies;
-        if previous == 1 {
-            println!("dropping RefCount!");
-            let _ = unsafe { Box::from_raw(self.ptr as *mut RefCountInner) };
-        }
+        // note: the owning struct of the RefCount has to do the dropping!
     }
 }
 
@@ -127,14 +123,6 @@ impl RefCount {
         self.downcast_mut().num_mutable_refs -= 1;
     }
 }
-
-struct Dummy {
-    _reserved: usize,
-}
-
-static DUMMY: Dummy = Dummy { _reserved: 0 };
-
-extern "C" fn destruct_dummy(_: *mut c_void) { }
 
 #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(C)]
@@ -217,8 +205,8 @@ impl RefAny {
 
     // In order to be able to modify the RefAny itself
     pub fn clone_into_library_memory(&mut self) -> Self {
+        self.sharing_info.downcast_mut().num_copies += 1; // bump refcount
         if self.is_dead {
-            // does NOT bump the reference count, instead just sets the "is_dead" field to false
             Self {
                 _internal_ptr: self._internal_ptr,
                 _internal_len: self._internal_len,
@@ -231,7 +219,6 @@ impl RefAny {
                 custom_destructor: self.custom_destructor,
             }
         } else {
-            self.sharing_info.downcast_mut().num_copies += 1; // bump refcount
             Self {
                 _internal_ptr: self._internal_ptr,
                 _internal_len: self._internal_len,
@@ -244,10 +231,6 @@ impl RefAny {
                 custom_destructor: self.custom_destructor,
             }
         }
-    }
-
-    pub fn is_dummy(&self) -> bool {
-        self.type_id == RefAny::get_type_id_static::<Dummy>()
     }
 
     pub fn is_type(&self, type_id: u64) -> bool {
@@ -273,32 +256,23 @@ impl RefAny {
     pub fn get_type_name(&self) -> AzString {
         self.type_name.clone()
     }
-
-    // Deallocates the RefAny in a safe way
-    fn internal_deallocate(&mut self) {
-        use std::alloc;
-        if self.is_dead {
-            // Important: if the RefAny is dead, do not run the destructor
-            // nor try to access the _internal_ptr!
-            return;
-        } else {
-            self.sharing_info.downcast_mut().num_copies -= 1;
-            if self.sharing_info.downcast().num_copies == 0 {
-                (self.custom_destructor)(self._internal_ptr as *mut c_void);
-                unsafe { alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
-            }
-        }
-    }
 }
 
 impl Drop for RefAny {
     fn drop(&mut self) {
+        use std::alloc;
+        self.sharing_info.downcast_mut().num_copies -= 1;
         if self.is_dead {
-            //
-            // when copy goes out of bounds, copy will run the destructor
             let _ = self.clone_into_library_memory();
         } else {
-            self.internal_deallocate();
+            if self.sharing_info.downcast().num_copies == 0 {
+                // Important: if the RefAny is dead, do not run the destructor
+                // nor try to access the _internal_ptr!
+                println!("deallocating RefAny!");
+                (self.custom_destructor)(self._internal_ptr as *mut c_void);
+                unsafe { alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
+                let _ = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
+            }
         }
     }
 }
