@@ -409,9 +409,6 @@ impl TableView {
 
         let table_view_state = state.downcast_ref::<TableViewState>().unwrap();
 
-        println!("bounds: {:?}", info.get_bounds());
-        println!("table view state: {:?}", table_view_state);
-
         let logical_size = info.get_bounds().get_logical_size();
         let padding_rows = 0;
         let padding_columns = 0;
@@ -428,11 +425,9 @@ impl TableView {
         let table_width = (necessary_columns + padding_columns) as f32 * table_view_state.default_column_width;
 
         let styled_dom = table_view_state.render(
-            row_start..((row_start + necessary_rows + padding_rows) * 10),
-            column_start..((column_start + necessary_columns + padding_columns) * 10)
+            row_start..((row_start + necessary_rows + padding_rows)),
+            column_start..((column_start + necessary_columns + padding_columns))
         );
-
-        println!("styled_dom node count: {:?}", styled_dom.node_count());
 
         IFrameCallbackReturn {
             dom: styled_dom,

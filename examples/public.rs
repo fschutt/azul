@@ -70,7 +70,10 @@ extern "C" fn layout(data: &mut RefAny, _info: LayoutInfo) -> StyledDom {
 }
 
 fn main() {
+    /*
     use azul::dom::NodeData;
+
+    println!("sizeof NodeData * 25000: {:?}", ::std::mem::size_of::<NodeData>() * 25000); // 9.7275 MB
 
     loop {
         use azul_widgets::table_view::*;
@@ -80,11 +83,9 @@ fn main() {
         let dom = table_view_state.render(0..80, 0..300);
         println!("styled dom len: {:?}", dom.node_count());
     }
-    /*
-    println!("sizeof NodeData * 25000: {:?}", ::std::mem::size_of::<NodeData>() * 25000); // 9.7275 MB
+    */
 
     let data = RefAny::new(Data { counter: 5 });
     let app = App::new(data, AppConfig::default());
     app.run(WindowCreateOptions::new(layout));
-    */
 }

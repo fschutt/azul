@@ -656,8 +656,9 @@ impl CallbackInfo {
         if node_id.dom != self.get_hit_node().dom {
             None
         } else {
+            let nid = node_id.node.into_crate_internal()?;
             self.internal_get_node_hierarchy()
-            .as_container().get(node_id.node.into_crate_internal()?)?.first_child_id()
+            .as_container().get(nid)?.first_child_id(nid)
             .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
         }
     }

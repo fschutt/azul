@@ -137,7 +137,10 @@ impl Node {
     pub const fn has_last_child(&self) -> bool { self.last_child.is_some() }
 
     #[inline]
-    pub fn get_first_child(&self) -> Option<NodeId> { self.last_child.and_then(|_| Some(self.parent? + 1)) /* last_child and first_child are always set together */ }
+    fn get_first_child(&self, current_node_id: NodeId) -> Option<NodeId> {
+        // last_child and first_child are always set together
+        self.last_child.map(|_| current_node_id + 1)
+    }
 }
 
 /// The hierarchy of nodes is stored separately from the actual node content in order
@@ -474,7 +477,7 @@ impl NodeId {
     pub fn children<'a>(self, node_hierarchy: &'a NodeHierarchyRef<'a>) -> Children<'a> {
         Children {
             node_hierarchy,
-            node: node_hierarchy[self].get_first_child(),
+            node: node_hierarchy[self].get_first_child(self),
         }
     }
 
@@ -629,7 +632,7 @@ impl NodeId {
     pub fn az_children<'a>(self, node_hierarchy: &'a NodeDataContainerRef<'a, AzNode>) -> AzChildren<'a> {
         AzChildren {
             node_hierarchy,
-            node: node_hierarchy[self].first_child_id(),
+            node: node_hierarchy[self].first_child_id(self),
         }
     }
 
@@ -714,7 +717,7 @@ impl<'a> Iterator for Traverse<'a> {
             Some(item) => {
                 self.next = match item {
                     NodeEdge::Start(node) => {
-                        match self.node_hierarchy[node].get_first_child() {
+                        match self.node_hierarchy[node].get_first_child(node) {
                             Some(first_child) => Some(NodeEdge::Start(first_child)),
                             None => Some(NodeEdge::End(node.clone()))
                         }

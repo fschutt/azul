@@ -591,7 +591,7 @@ impl AzNode {
     pub fn parent_id(&self) -> Option<NodeId> { NodeId::from_usize(self.parent) }
     pub fn previous_sibling_id(&self) -> Option<NodeId> { NodeId::from_usize(self.previous_sibling) }
     pub fn next_sibling_id(&self) -> Option<NodeId> { NodeId::from_usize(self.next_sibling) }
-    pub fn first_child_id(&self) -> Option<NodeId> { self.last_child_id().and_then(|_| Some(self.parent_id()? + 1)) }
+    pub fn first_child_id(&self, current_node_id: NodeId) -> Option<NodeId> { self.last_child_id().map(|_| current_node_id + 1) }
     pub fn last_child_id(&self) -> Option<NodeId> { NodeId::from_usize(self.last_child) }
 }
 
@@ -1368,7 +1368,7 @@ impl StyledDom {
             };
             let node_data = &self.node_data.as_container()[node_id];
             let tabs = String::from("    ").repeat(*depth);
-            let node_has_children = self.node_hierarchy.as_container()[node_id].first_child_id().is_some();
+            let node_has_children = self.node_hierarchy.as_container()[node_id].first_child_id(node_id).is_some();
 
             output.push_str("\r\n");
             output.push_str(&tabs);
@@ -1381,7 +1381,7 @@ impl StyledDom {
             for child_id in node_id.az_children(&self.node_hierarchy.as_container()) {
 
                 let node_data = &self.node_data.as_container()[child_id];
-                let node_has_children = self.node_hierarchy.as_container()[child_id].first_child_id().is_some();
+                let node_has_children = self.node_hierarchy.as_container()[child_id].first_child_id(child_id).is_some();
                 let tabs = String::from("    ").repeat(*depth + 1);
 
                 output.push_str("\r\n");

@@ -644,8 +644,6 @@ impl Window {
             crate::text_layout::get_layouted_glyphs,
         );
 
-        println!("sending display list: {:#?}", cached_display_list);
-
         let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id);
 
         let logical_size = WrLayoutSize::new(self.internal.current_window_state.size.dimensions.width, self.internal.current_window_state.size.dimensions.height);

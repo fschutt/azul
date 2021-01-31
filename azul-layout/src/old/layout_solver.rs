@@ -23,19 +23,20 @@ use azul_text_layout::{InlineText, text_layout::{Words, ShapedWords, WordPositio
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
 
+#[derive(Debug)]
 struct WhConfig {
     width: WidthConfig,
     height: HeightConfig,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct WidthConfig {
     exact: Option<LayoutWidth>,
     max: Option<LayoutMaxWidth>,
     min: Option<LayoutMinWidth>,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct HeightConfig {
     exact: Option<LayoutHeight>,
     max: Option<LayoutMaxHeight>,
