@@ -451,7 +451,10 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
 
 /// For a given line number (**NOTE: 0-indexed!**), calculates the Y
 /// position of the bottom left corner
+///
+/// NOTE: line_height_px has to be GREATER than font_size_px
 pub fn get_line_y_position(line_number: usize, font_size_px: f32, line_height_px: f32) -> f32 {
+    assert!(line_height_px >= font_size_px);
     ((font_size_px + line_height_px) * line_number as f32) + font_size_px
 }
 
