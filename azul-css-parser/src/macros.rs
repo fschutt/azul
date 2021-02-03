@@ -16,8 +16,8 @@ macro_rules! impl_display {
     // For a type with a lifetime
     ($enum:ident<$lt:lifetime>, {$($variant:pat => $fmt_string:expr),+$(,)* }) => {
 
-        impl<$lt> ::std::fmt::Display for $enum<$lt> {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        impl<$lt> ::core::fmt::Display for $enum<$lt> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 use self::$enum::*;
                 match &self {
                     $(
@@ -32,8 +32,8 @@ macro_rules! impl_display {
     // For a type without a lifetime
     ($enum:ident, {$($variant:pat => $fmt_string:expr),+$(,)* }) => {
 
-        impl ::std::fmt::Display for $enum {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        impl ::core::fmt::Display for $enum {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 use self::$enum::*;
                 match &self {
                     $(
@@ -51,8 +51,8 @@ macro_rules! impl_debug_as_display {
     // For a type with a lifetime
     ($enum:ident<$lt:lifetime>) => {
 
-        impl<$lt> ::std::fmt::Debug for $enum<$lt> {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        impl<$lt> ::core::fmt::Debug for $enum<$lt> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{}", self)
             }
         }
@@ -62,8 +62,8 @@ macro_rules! impl_debug_as_display {
     // For a type without a lifetime
     ($enum:ident) => {
 
-        impl ::std::fmt::Debug for $enum {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        impl ::core::fmt::Debug for $enum {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{}", self)
             }
         }

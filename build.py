@@ -1259,7 +1259,7 @@ def main():
     print("checking azul-dll for struct size integrity...")
     run_size_test()
     print("building examples...")
-    build_examples()
+    # build_examples()
     print("building docs (output_dir = /target/doc)...")
     # build_docs()
     # release_on_cargo()

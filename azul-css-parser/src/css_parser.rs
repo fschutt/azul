@@ -2,6 +2,9 @@
 
 use core::num::{ParseIntError, ParseFloatError};
 use core::fmt;
+use alloc::vec::Vec;
+use alloc::string::String;
+
 use azul_css::{
     CssPropertyType, CssProperty, CombinedCssPropertyType, CssPropertyValue,
     LayoutOverflow, Shape, PixelValue, AngleValue, AngleMetric, PixelValueNoPercent,
@@ -1505,7 +1508,7 @@ const DEFAULT_BORDER_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
 // Default border thickness on the web seems to be 3px
 const DEFAULT_BORDER_THICKNESS: PixelValue = PixelValue::const_px(3);
 
-use std::str::CharIndices;
+use core::str::CharIndices;
 
 fn advance_until_next_char(iter: &mut CharIndices) -> Option<usize> {
     let mut next_char = iter.next()?;
@@ -2289,6 +2292,7 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
 
 impl<'a> From<QuoteStripped<'a>> for CssImageId {
     fn from(input: QuoteStripped<'a>) -> Self {
+        use alloc::string::ToString;
         CssImageId { inner: input.0.to_string().into() }
     }
 }
@@ -2747,6 +2751,8 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
 /// assert_eq!(parse_style_font_family(input), Ok(StyleFontFamily { fonts }));
 /// ```
 pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, CssStyleFontFamilyParseError<'a>> {
+    use alloc::string::ToString;
+
     let multiple_fonts = input.split(',');
     let mut fonts = Vec::with_capacity(1);
 

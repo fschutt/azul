@@ -1,13 +1,16 @@
 #![allow(dead_code)]
 
-use std::{
+use core::{
     fmt,
-    sync::atomic::{AtomicUsize, Ordering},
-    collections::BTreeMap,
-    hash::Hash,
     ffi::c_void,
-    alloc::Layout,
+    sync::atomic::{AtomicUsize, Ordering},
 };
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use alloc::alloc::Layout;
+use alloc::collections::BTreeMap;
+#[cfg(feature = "std")]
+use std::hash::Hash;
 use azul_css::{
     CssProperty, LayoutPoint, OptionLayoutPoint, AzString, LayoutRect,
     LayoutSize, CssPath, OptionLayoutRect
@@ -152,7 +155,7 @@ impl RefAny {
     pub fn new<T: 'static>(value: T) -> Self {
 
         extern "C" fn default_custom_destructor<U: 'static>(ptr: &mut c_void) {
-            use std::{mem, ptr};
+            use core::{mem, ptr};
 
             // note: in the default constructor, we do not need to check whether U == T
 
@@ -164,28 +167,28 @@ impl RefAny {
             }
         }
 
-        let type_name = ::std::any::type_name::<T>();
+        let type_name = ::core::any::type_name::<T>();
         let st = AzString::from_const_str(type_name);
         let s = Self::new_c(
             (&value as *const T) as *const c_void,
-            ::std::mem::size_of::<T>(),
+            ::core::mem::size_of::<T>(),
             Self::get_type_id_static::<T>(),
             st,
             default_custom_destructor::<T>,
         );
-        ::std::mem::forget(value); // do not run the destructor of T here!
+        ::core::mem::forget(value); // do not run the destructor of T here!
         s
     }
 
     pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, custom_destructor: extern "C" fn(&mut c_void)) -> Self {
-        use std::{alloc, ptr};
+        use core::{alloc, ptr};
 
         // cast the struct as bytes
-        let struct_as_bytes = unsafe { ::std::slice::from_raw_parts(ptr as *const u8, len) };
+        let struct_as_bytes = unsafe { ::core::slice::from_raw_parts(ptr as *const u8, len) };
 
         // allocate + copy the struct to the heap
         let layout = Layout::for_value(&*struct_as_bytes);
-        let heap_struct_as_bytes = unsafe { alloc::alloc(layout) };
+        let heap_struct_as_bytes = unsafe { alloc::alloc::alloc(layout) };
         unsafe { ptr::copy_nonoverlapping(struct_as_bytes.as_ptr(), heap_struct_as_bytes, struct_as_bytes.len()) };
 
         let s = Self {
@@ -197,7 +200,7 @@ impl RefAny {
             is_dead: true, // NOTE: default set to true - the RefAny is not alive until "copy_into_library_memory" has been called!
             type_name,
             sharing_info: RefCount::new(),
-            custom_destructor: unsafe { std::mem::transmute(custom_destructor) }, // fn(&mut c_void) and fn(*mut c_void) are the same
+            custom_destructor: unsafe { core::mem::transmute(custom_destructor) }, // fn(&mut c_void) and fn(*mut c_void) are the same
         };
 
         s
@@ -237,15 +240,15 @@ impl RefAny {
         self.type_id == type_id
     }
 
-    // Returns the typeid of `T` as a u64 (necessary because `std::any::TypeId` is not C-ABI compatible)
+    // Returns the typeid of `T` as a u64 (necessary because `core::any::TypeId` is not C-ABI compatible)
     #[inline]
     pub fn get_type_id_static<T: 'static>() -> u64 {
-        use std::any::TypeId;
-        use std::mem;
+        use core::any::TypeId;
+        use core::mem;
 
         // fast method to serialize the type id into a u64
         let t_id = TypeId::of::<T>();
-        let struct_as_bytes = unsafe { ::std::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
+        let struct_as_bytes = unsafe { ::core::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
         struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
     }
 
@@ -260,7 +263,7 @@ impl RefAny {
 
 impl Drop for RefAny {
     fn drop(&mut self) {
-        use std::alloc;
+        use core::alloc;
         self.sharing_info.downcast_mut().num_copies -= 1;
         if self.is_dead {
             let _ = self.clone_into_library_memory();
@@ -269,7 +272,7 @@ impl Drop for RefAny {
                 // Important: if the RefAny is dead, do not run the destructor
                 // nor try to access the _internal_ptr!
                 (self.custom_destructor)(self._internal_ptr as *mut c_void);
-                unsafe { alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
+                unsafe { alloc::alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
                 let _ = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
             }
         }
@@ -299,13 +302,13 @@ pub struct DocumentId {
     pub id: u32
 }
 
-impl ::std::fmt::Display for DocumentId {
+impl ::core::fmt::Display for DocumentId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "DocumentId {{ ns: {}, id: {} }}", self.namespace_id, self.id)
     }
 }
 
-impl ::std::fmt::Debug for DocumentId {
+impl ::core::fmt::Debug for DocumentId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
     }
@@ -315,13 +318,13 @@ impl ::std::fmt::Debug for DocumentId {
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct PipelineId(pub PipelineSourceId, pub u32);
 
-impl ::std::fmt::Display for PipelineId {
+impl ::core::fmt::Display for PipelineId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "PipelineId({}, {})", self.0, self.1)
     }
 }
 
-impl ::std::fmt::Debug for PipelineId {
+impl ::core::fmt::Debug for PipelineId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
     }
@@ -377,13 +380,13 @@ pub struct ScrollHitTestItem {
 #[macro_export]
 macro_rules! impl_callback {($callback_value:ident) => (
 
-    impl ::std::fmt::Display for $callback_value {
+    impl ::core::fmt::Display for $callback_value {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "{:?}", self)
         }
     }
 
-    impl ::std::fmt::Debug for $callback_value {
+    impl ::core::fmt::Debug for $callback_value {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             let callback = stringify!($callback_value);
             write!(f, "{} @ 0x{:x}", callback, self.cb as usize)
@@ -396,8 +399,9 @@ macro_rules! impl_callback {($callback_value:ident) => (
         }
     }
 
-    impl ::std::hash::Hash for $callback_value {
-        fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
+    #[cfg(feature = "std")]
+    impl std::hash::Hash for $callback_value {
+        fn hash<H>(&self, state: &mut H) where H: ::core::hash::Hasher {
             state.write_usize(self.cb as usize);
         }
     }
@@ -409,13 +413,13 @@ macro_rules! impl_callback {($callback_value:ident) => (
     }
 
     impl PartialOrd for $callback_value {
-        fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+        fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
             Some((self.cb as usize).cmp(&(other.cb as usize)))
         }
     }
 
     impl Ord for $callback_value {
-        fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+        fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
             (self.cb as usize).cmp(&(other.cb as usize))
         }
     }

@@ -7,6 +7,8 @@ use crate::gl::{
     VertexAttributeType, GlApiVersion, VertexBuffer,
     GlShaderCreateError,
 };
+use alloc::vec::Vec;
+use alloc::string::String;
 
 #[cfg(feature = "opengl")]
 static mut SVG_SHADER: Option<SvgShader> = None;

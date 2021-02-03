@@ -1,7 +1,9 @@
-use std::{
+use core::{
     fmt,
-    collections::BTreeMap,
 };
+use alloc::vec::Vec;
+use alloc::string::String;
+use alloc::collections::btree_map::BTreeMap;
 use azul_css::{
     LayoutPoint, LayoutSize, LayoutRect,
     StyleBackgroundRepeat, StyleBackgroundPosition, ColorU,

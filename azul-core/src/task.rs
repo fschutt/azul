@@ -1,11 +1,21 @@
-use std::{
-    sync::{Arc, Weak, atomic::{AtomicUsize, Ordering}, mpsc::{Sender, Receiver}},
-    thread::{self, JoinHandle},
+use core::{
     ffi::c_void,
-    collections::BTreeMap,
+    sync::atomic::{AtomicUsize, Ordering},
 };
+use alloc::vec::Vec;
+use alloc::boxed::Box;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::sync::{Arc, Weak};
+
+#[cfg(feature = "std")]
+use std::thread::{self, JoinHandle};
+#[cfg(feature = "std")]
+use std::sync::mpsc::{Sender, Receiver};
+#[cfg(feature = "std")]
 use std::time::Instant as StdInstant;
+#[cfg(feature = "std")]
 use std::time::Duration as StdDuration;
+
 use crate::{
     FastHashMap,
     callbacks::{
@@ -64,12 +74,13 @@ impl ThreadId {
 #[repr(C)]
 pub struct AzInstantPtr { /* ptr: *const StdInstant */ pub ptr: *const c_void }
 
-impl std::fmt::Debug for AzInstantPtr {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl core::fmt::Debug for AzInstantPtr {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{:?}", self.get())
     }
 }
 
+#[cfg(feature = "std")]
 impl std::hash::Hash for AzInstantPtr {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.get().hash(state);
@@ -85,13 +96,13 @@ impl PartialEq for AzInstantPtr {
 impl Eq for AzInstantPtr { }
 
 impl PartialOrd for AzInstantPtr {
-    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
         Some((self.get()).cmp(&(other.get())))
     }
 }
 
 impl Ord for AzInstantPtr {
-    fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
         (self.get()).cmp(&(other.get()))
     }
 }
@@ -133,6 +144,7 @@ pub struct AzDuration {
     pub nanos: u32,
 }
 
+#[cfg(feature = "std")]
 impl From<StdDuration> for AzDuration {
     fn from(d: StdDuration) -> AzDuration {
         AzDuration { secs: d.as_secs(), nanos: d.subsec_nanos() }
@@ -324,10 +336,11 @@ pub struct ThreadSender {
 
 unsafe impl Send for ThreadSender { }
 
+#[cfg(feature = "std")]
 impl ThreadSender {
 
     pub fn new() -> (Self, Receiver<ThreadReceiveMsg>){
-        let (sender, receiver) = std::sync::mpsc::channel::<ThreadReceiveMsg>();
+        let (sender, receiver) = core::sync::mpsc::channel::<ThreadReceiveMsg>();
         let sender: Sender<ThreadReceiveMsg> = sender;
         (Self { ptr: Box::into_raw(Box::new(sender)) as *const c_void }, receiver)
     }
@@ -344,7 +357,9 @@ impl ThreadSender {
 
 impl Drop for ThreadSender {
     fn drop(&mut self) {
-        let _ = unsafe { Box::from_raw(self.ptr as *mut Sender<ThreadReceiveMsg>) };
+        #[cfg(feature = "std")] {
+            let _ = unsafe { Box::from_raw(self.ptr as *mut Sender<ThreadReceiveMsg>) };
+        }
     }
 }
 
@@ -358,7 +373,7 @@ unsafe impl Send for ThreadReceiver { }
 
 impl ThreadReceiver {
     pub fn new() -> (Self, Sender<ThreadSendMsg>) {
-        let (sender, receiver) = std::sync::mpsc::channel::<ThreadSendMsg>();
+        let (sender, receiver) = core::sync::mpsc::channel::<ThreadSendMsg>();
         let receiver: Receiver<ThreadSendMsg> = receiver;
         (Self { ptr: Box::into_raw(Box::new(receiver)) as *const c_void }, sender)
     }
@@ -389,6 +404,7 @@ impl Drop for ThreadReceiver {
 ///
 /// Azul will join the thread automatically after it is finished (joining won't block the UI).
 #[derive(Debug)]
+#[cfg(feature = "std")]
 pub struct Thread {
     // Thread handle of the currently in-progress Thread
     pub thread: Option<JoinHandle<()>>,
@@ -398,6 +414,7 @@ pub struct Thread {
     pub dropcheck: Weak<()>,
 }
 
+#[cfg(feature = "std")]
 impl Thread {
 
     /// Creates a new Thread from a callback and a set of input data - which has to be wrapped in an `Arc<Mutex<T>>>`.
@@ -430,6 +447,7 @@ impl Thread {
     }
 }
 
+#[cfg(feature = "std")]
 impl Drop for Thread {
     fn drop(&mut self) {
         if let Some(thread_handle) = self.thread.take() {
@@ -441,6 +459,7 @@ impl Drop for Thread {
 
 /// Run all currently registered timers
 #[must_use = "the UpdateScreen result of running timers should not be ignored"]
+#[cfg(feature = "std")]
 pub fn run_all_timers<'a, 'b>(
     data: &mut RefAny,
     current_timers: &mut FastHashMap<TimerId, Timer>,
@@ -525,6 +544,7 @@ pub fn run_all_timers<'a, 'b>(
 
 /// Remove all Threads that have finished executing
 #[must_use = "the UpdateScreen result of running Threads should not be ignored"]
+#[cfg(feature = "std")]
 pub fn clean_up_finished_threads<'a, 'b>(
     cleanup_threads: &mut FastHashMap<ThreadId, Thread>,
 

@@ -1,7 +1,10 @@
-use std::{
+use core::{
     fmt,
-    collections::BTreeMap
 };
+use alloc::vec::Vec;
+use alloc::boxed::Box;
+use alloc::string::{String, ToString};
+use alloc::collections::btree_map::BTreeMap;
 use azul_css::{
     Css, CssPath, CssProperty, CssPropertyType, AzString,
 
@@ -34,7 +37,7 @@ use azul_css::{
     LayoutAlignItemsValue, LayoutAlignContentValue,
 };
 use crate::{
-    FastHashSet, FastHashMap,
+    FastBTreeSet, FastHashMap,
     id_tree::{NodeDataContainer, NodeDataContainerRef, Node, NodeId, NodeDataContainerRefMut},
     dom::{Dom, NodeDataVec, CompactDom, TagId, OptionTabIndex},
     style::{
@@ -797,7 +800,7 @@ impl StyledDom {
 
         use azul_css::CssDeclaration;
         use crate::dom::{TabIndex, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec};
-        use std::iter::FromIterator;
+        use core::iter::FromIterator;
         use rayon::prelude::*;
 
         let mut compact_dom: CompactDom = dom.into();
@@ -1008,6 +1011,7 @@ impl StyledDom {
             inherit_props!(css_property_cache.non_default_inline_focus_props);
         }
 
+        /*
         println!("css property cache non_default_inline_normal_props\t{:?}", css_property_cache.non_default_inline_normal_props.as_ref().iter().filter(|i| !i.is_empty()).count());
         println!("css property cache non_default_inline_hover_props\t{:?}", css_property_cache.non_default_inline_hover_props.as_ref().iter().filter(|i| !i.is_empty()).count());
         println!("css property cache non_default_inline_active_props\t{:?}", css_property_cache.non_default_inline_active_props.as_ref().iter().filter(|i| !i.is_empty()).count());
@@ -1017,7 +1021,7 @@ impl StyledDom {
         println!("css property cache non_default_css_hover_props\t{:?}", css_property_cache.non_default_css_hover_props.as_ref().iter().filter(|i| !i.is_empty()).count());
         println!("css property cache non_default_css_active_props\t{:?}", css_property_cache.non_default_css_active_props.as_ref().iter().filter(|i| !i.is_empty()).count());
         println!("css property cache non_default_css_focus_props\t{:?}", css_property_cache.non_default_css_focus_props.as_ref().iter().filter(|i| !i.is_empty()).count());
-
+        */
         // CSS property cache is now built
 
 
@@ -1155,7 +1159,7 @@ impl StyledDom {
     }
 
     /// Scans the display list for all font IDs + their font size
-    pub(crate) fn scan_for_font_keys(&self, app_resources: &AppResources) -> FastHashMap<ImmediateFontId, FastHashSet<Au>> {
+    pub(crate) fn scan_for_font_keys(&self, app_resources: &AppResources) -> FastHashMap<ImmediateFontId, FastBTreeSet<Au>> {
 
         use crate::dom::NodeType::*;
         use crate::app_resources::font_size_to_au;
@@ -1184,13 +1188,13 @@ impl StyledDom {
 
         let mut map = FastHashMap::default();
         for (font_id, au) in keys.into_iter() {
-            map.entry(font_id).or_insert_with(|| FastHashSet::default()).insert(au);
+            map.entry(font_id).or_insert_with(|| FastBTreeSet::default()).insert(au);
         }
         map
     }
 
     /// Scans the display list for all image keys
-    pub(crate) fn scan_for_image_keys(&self, app_resources: &AppResources) -> FastHashSet<ImageId> {
+    pub(crate) fn scan_for_image_keys(&self, app_resources: &AppResources) -> FastBTreeSet<ImageId> {
 
         use crate::dom::NodeType::*;
         use crate::dom::OptionImageMask;
@@ -1237,7 +1241,7 @@ impl StyledDom {
             v
         }).collect::<Vec<_>>();
 
-        let mut set = FastHashSet::new();
+        let mut set = FastBTreeSet::new();
 
         for scan_image in images.into_iter() {
             if let Some(n) = scan_image.node_type_image { set.insert(n); }

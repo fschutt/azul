@@ -63,7 +63,9 @@
 //! }
 //! ```rust
 
-use std::collections::{HashSet, BTreeMap};
+use alloc::vec::Vec;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::collections::btree_set::BTreeSet;
 use crate::{
     FastHashMap,
     app_resources::AppResources,
@@ -568,7 +570,7 @@ impl CallbacksOfHitTest {
         resources: &mut AppResources,
     ) -> CallCallbacksResult {
 
-        use std::collections::BTreeSet;
+        use alloc::collections::btree_set::BTreeSet;
         use crate::styled_dom::ParentWithNodeDepth;
         use crate::callbacks::CallbackInfo;
         use crate::window::LogicalPosition;
@@ -785,12 +787,12 @@ impl CallbacksOfHitTest {
     }
 }
 
-fn get_window_events(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> HashSet<WindowEventFilter> {
+fn get_window_events(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> BTreeSet<WindowEventFilter> {
 
     use crate::window::CursorPosition::*;
     use crate::window::WindowPosition;
 
-    let mut events_vec = HashSet::<WindowEventFilter>::new();
+    let mut events_vec = BTreeSet::<WindowEventFilter>::new();
 
     let previous_window_state = match previous_window_state.as_ref() {
         Some(s) => s,
@@ -937,10 +939,10 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
     events_vec
 }
 
-fn get_hover_events(input: &HashSet<WindowEventFilter>) -> HashSet<HoverEventFilter> {
+fn get_hover_events(input: &BTreeSet<WindowEventFilter>) -> BTreeSet<HoverEventFilter> {
     input.iter().filter_map(|window_event| window_event.to_hover_event_filter()).collect()
 }
 
-fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEventFilter> {
+fn get_focus_events(input: &BTreeSet<HoverEventFilter>) -> BTreeSet<FocusEventFilter> {
     input.iter().filter_map(|hover_event| hover_event.to_focus_event_filter()).collect()
 }

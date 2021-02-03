@@ -1,5 +1,12 @@
 //! Shared datatypes for azul-* crates
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[macro_use]
+extern crate core;
+#[macro_use]
+extern crate alloc;
+
 extern crate rayon;
 #[macro_use]
 extern crate azul_css;
@@ -55,5 +62,5 @@ pub mod window;
 pub mod window_state;
 
 // Typedef for possible faster implementation of hashing
-pub type FastHashMap<T, U> = std::collections::HashMap<T, U>;
-pub type FastHashSet<T> = std::collections::HashSet<T>;
+pub type FastHashMap<T, U> = alloc::collections::BTreeMap<T, U>;
+pub type FastBTreeSet<T> = alloc::collections::BTreeSet<T>;

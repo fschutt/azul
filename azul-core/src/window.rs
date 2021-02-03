@@ -1,11 +1,11 @@
-use std::{
+use core::{
     hash::{Hash, Hasher},
     cmp::Ordering,
-    collections::BTreeMap,
     sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
-    path::PathBuf,
     ffi::c_void,
 };
+use alloc::vec::Vec;
+use alloc::collections::btree_map::BTreeMap;
 use azul_css::{CssProperty, LayoutSize, U8Vec, ColorU, AzString, LayoutPoint, LayoutRect, CssPath};
 use crate::{
     FastHashMap,
@@ -16,9 +16,13 @@ use crate::{
     ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId},
     display_list::{GlTextureCache, RenderCallbacks},
     callbacks::{LayoutCallback, LayoutCallbackType},
-    task::{TimerId, Timer, ThreadId, Thread},
+    task::{TimerId, ThreadId},
 };
 
+#[cfg(feature = "std")]
+use std::path::PathBuf;
+#[cfg(feature = "std")]
+use crate::task::{Timer, Thread};
 #[cfg(feature = "opengl")]
 use crate::gl::GlContextPtr;
 
@@ -1056,9 +1060,9 @@ pub struct FullWindowState {
     // --
 
     /// Whether there is a file currently hovering over the window
-    pub hovered_file: Option<PathBuf>,
+    pub hovered_file: Option<AzString>, // Option<PathBuf>
     /// Whether there was a file currently dropped on the window
-    pub dropped_file: Option<PathBuf>,
+    pub dropped_file: Option<AzString>, // Option<PathBuf>
     /// What node is currently hovered over, default to None. Only necessary internal
     /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events,
     /// as well as styling `:focus` elements
@@ -1616,8 +1620,8 @@ pub enum UpdateFocusWarning {
     CouldNotFindFocusNode(CssPath),
 }
 
-impl ::std::fmt::Display for UpdateFocusWarning {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl ::core::fmt::Display for UpdateFocusWarning {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use self::UpdateFocusWarning::*;
         match self {
             FocusInvalidDomId(dom_id) => write!(f, "Focusing on DOM with invalid ID: {:?}", dom_id),

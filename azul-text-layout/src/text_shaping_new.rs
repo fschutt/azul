@@ -217,41 +217,86 @@ pub struct ParsedFont {
     pub cmap_subtable: OwnedCmapSubtable,
 }
 
-#[derive(Debug, Clone)]
-pub enum OwnedGlyphData {
-    Simple(SimpleGlyph),
-    Composite {
-        glyphs: Vec<CompositeGlyph>,
-        instructions: Vec<u8>,
-    },
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum GlyphOutlineOperation {
+    MoveTo(OutlineMoveTo),
+    LineTo(OutlineLineTo),
+    QuadraticCurveTo(OutlineQuadTo),
+    CubicCurveTo(OutlineCubicTo),
+    ClosePath,
 }
 
-impl OwnedGlyphData {
-    pub fn from<'a>(glyph_data: GlyphData<'a>) -> Self {
-        match glyph_data {
-            GlyphData::Simple(s) => OwnedGlyphData::Simple(s),
-            GlyphData::Composite { glyphs, instructions } => OwnedGlyphData::Composite { glyphs, instructions: instructions.to_vec() },
-        }
-    }
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct OutlineMoveTo {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct OutlineLineTo {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct OutlineQuadTo {
+    pub ctrl_1_x: f32,
+    pub ctrl_1_y: f32,
+    pub end_x: f32,
+    pub end_y: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct OutlineCubicTo {
+    pub ctrl_1_x: f32,
+    pub ctrl_1_y: f32,
+    pub ctrl_2_x: f32,
+    pub ctrl_2_y: f32,
+    pub end_x: f32,
+    pub end_y: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct GlyphOutline {
+    pub operations: GlyphOutlineOperationVec,
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+struct GlyphOutlineBuilder {
+    operations: Vec<GlyphOutlineOperation>
+}
+
+impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
+    fn move_to(&mut self, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::MoveTo(OutlineMoveTo { x, y })); }
+    fn line_to(&mut self, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::LineTo(OutlineLineTo { x, y })); }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo { ctrl_1_x: x1, ctrl_1_y: y1, end_x: x, end_y: y })); }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo { ctrl_1_x: x1, ctrl_1_y: y1, ctrl_2_x: x2, ctrl_2_y: y2, end_x: x, end_y: y })); }
+    fn close(&mut self) { self.operations.push(GlyphOutlineOperation::ClosePath); }
+}
+
+impl_vec!(GlyphOutlineOperation, GlyphOutlineOperationVec);
+impl_vec_clone!(GlyphOutlineOperation, GlyphOutlineOperationVec);
+
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct OwnedGlyphBoundingBox {
+    pub max_x: i16,
+    pub max_y: i16,
+    pub min_x: i16,
+    pub min_y: i16,
 }
 
 #[derive(Debug, Clone)]
 pub struct OwnedGlyph {
-    pub number_of_contours: i16,
-    pub bounding_box: BoundingBox,
+    pub bounding_box: OwnedGlyphBoundingBox,
     pub horz_advance: u16,
-    pub data: OwnedGlyphData,
-}
-
-impl OwnedGlyph {
-    fn from_glyph_data<'a>(glyph: Glyph<'a>, horz_advance: u16) -> Self {
-        Self {
-            number_of_contours: glyph.number_of_contours,
-            bounding_box: glyph.bounding_box,
-            horz_advance,
-            data: OwnedGlyphData::from(glyph.data),
-        }
-    }
+    pub outline: GlyphOutline,
 }
 
 impl ParsedFont {
@@ -288,23 +333,39 @@ impl ParsedFont {
 
         let mut font_data_impl = allsorts::font::Font::new(provider).ok()??;
 
+        // also parse the font from owned-ttf-parser, to get the outline
+        // TODO: use decoded font
+        let owned_ttf_face = ttf_parser::Face::from_slice(font_bytes, font_index as u32).ok()?;
+
         // parse the glyphs on startup, since otherwise it will slow down the layout
         let glyph_records_decoded = glyf_table.records
         .into_par_iter()
         .enumerate()
         .filter_map(|(glyph_index, mut glyph_record)| {
-            glyph_record.parse().ok()?;
+            // glyph_record.parse().ok()?;
             if glyph_index > (u16::MAX as usize) {
                 return None;
             }
             let glyph_index = glyph_index as u16;
             let horz_advance = allsorts::glyph_info::advance(&maxp_table, &hhea_table, &hmtx_data, glyph_index).unwrap_or_default();
-            match glyph_record {
-                GlyfRecord::Empty | GlyfRecord::Present(_) => None,
-                GlyfRecord::Parsed(g) => {
-                    Some((glyph_index, OwnedGlyph::from_glyph_data(g, horz_advance)))
-                }
-            }
+            let mut outline = GlyphOutlineBuilder::default();
+            let bounding_rect = owned_ttf_face.outline_glyph(glyph_index, &mut outline)?;
+            Some(OwnedGlyph {
+                horz_advance,
+                bounding_box: OwnedGlyphBoundingBox {
+                    max_x: bounding_rect.max_x,
+                    max_y: bounding_rect.max_y,
+                    min_x: bounding_rect.min_x,
+                    min_y: bounding_rect.min_y,
+                },
+                outline: GlyphOutline { outline.operations.into() },
+            })
+            // match glyph_record {
+            //     GlyfRecord::Empty | GlyfRecord::Present(_) => None,
+            //     GlyfRecord::Parsed(g) => {
+            //         Some((glyph_index, OwnedGlyph::from_glyph_data(g, horz_advance)))
+            //     }
+            // }
         }).collect::<Vec<_>>();
 
         let glyph_records_decoded = glyph_records_decoded.into_iter().collect();

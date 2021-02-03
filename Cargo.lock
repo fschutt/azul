@@ -110,6 +110,9 @@ dependencies = [
 [[package]]
 name = "azul-css"
 version = "0.0.1"
+dependencies = [
+ "libm",
+]
 
 [[package]]
 name = "azul-css-parser"
@@ -187,6 +190,7 @@ dependencies = [
  "azul-css",
  "rayon",
  "tinyvec",
+ "ttf-parser 0.10.1",
  "unicode-normalization",
  "whatlang",
 ]
@@ -1133,6 +1137,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
+
+[[package]]
 name = "libz-sys"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1445,7 +1455,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f923fb806c46266c02ab4a5b239735c144bdeda724a50ed058e5226f594cde3"
 dependencies = [
- "ttf-parser",
+ "ttf-parser 0.6.2",
 ]
 
 [[package]]
@@ -1965,6 +1975,11 @@ name = "ttf-parser"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e5d7cd7ab3e47dda6e56542f4bbf3824c15234958c6e1bd6aaa347e93499fdc"
+
+[[package]]
+name = "ttf-parser"
+version = "0.10.1"
+source = "git+https://github.com/fschutt/ttf-parser?rev=f2fe7a2442185107f35b23726a9f4008e63179f0#f2fe7a2442185107f35b23726a9f4008e63179f0"
 
 [[package]]
 name = "ucd-trie"

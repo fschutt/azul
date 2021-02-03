@@ -1,7 +1,8 @@
-use std::{
+use core::{
     ops::{Index, IndexMut},
     slice::Iter,
 };
+use alloc::vec::Vec;
 use crate::styled_dom::AzNode;
 
 pub use self::node_id::NodeId;
@@ -12,11 +13,12 @@ pub type NodeDepths = Vec<(usize, NodeId)>;
 // which subtracts 1 from the ID (because of Option<NodeId> optimizations)
 mod node_id {
 
-    use std::{
+    use core::{
         fmt,
         num::NonZeroUsize,
         ops::{Add, AddAssign},
     };
+    use alloc::vec::Vec;
 
     /// A node identifier within a particular `Arena`.
     #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]

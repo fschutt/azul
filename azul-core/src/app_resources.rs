@@ -1,13 +1,16 @@
-use std::{
+use core::{
     fmt,
-    sync::Arc,
-    sync::atomic::{AtomicUsize, AtomicU32, Ordering},
     num::NonZeroU16,
     any::Any,
+    sync::atomic::{AtomicUsize, AtomicU32, Ordering},
 };
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use alloc::string::String;
 use azul_css::{LayoutRect, StyleFontSize, ColorU, U8Vec, AzString};
 use crate::{
-    FastHashMap, FastHashSet,
+    FastHashMap, FastBTreeSet,
     ui_solver::ResolvedTextLayoutOptions,
     display_list::GlyphInstance,
     styled_dom::StyledDom,
@@ -338,13 +341,13 @@ pub struct ImageDescriptorFlags {
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IdNamespace(pub u32);
 
-impl ::std::fmt::Display for IdNamespace {
+impl ::core::fmt::Display for IdNamespace {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "IdNamespace({})", self.0)
     }
 }
 
-impl ::std::fmt::Debug for IdNamespace {
+impl ::core::fmt::Debug for IdNamespace {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
     }
@@ -426,13 +429,13 @@ pub struct AppResources {
     /// the `ImageSource` (i.e. the path / source where the image was loaded from) remains.
     ///
     /// This way the image can be re-loaded if necessary but doesn't have to reside in memory at all times.
-    pub last_frame_image_keys: FastHashMap<PipelineId, FastHashSet<ImageId>>,
+    pub last_frame_image_keys: FastHashMap<PipelineId, FastBTreeSet<ImageId>>,
     /// If a font does not get used for one frame, the corresponding instance key gets
     /// deleted. If a FontId has no FontInstanceKeys anymore, the font key gets deleted.
     ///
     /// The only thing remaining in memory permanently is the FontSource (which is only
     /// the string of the file path where the font was loaded from, so no huge memory pressure).
-    pub last_frame_font_keys: FastHashMap<PipelineId, FastHashMap<ImmediateFontId, FastHashSet<Au>>>,
+    pub last_frame_font_keys: FastHashMap<PipelineId, FastHashMap<ImmediateFontId, FastBTreeSet<Au>>>,
 }
 
 impl AppResources {
@@ -442,7 +445,7 @@ impl AppResources {
         self.currently_registered_fonts.insert(pipeline_id, FastHashMap::default());
         self.currently_registered_images.insert(pipeline_id, FastHashMap::default());
         self.last_frame_font_keys.insert(pipeline_id, FastHashMap::default());
-        self.last_frame_image_keys.insert(pipeline_id, FastHashSet::default());
+        self.last_frame_image_keys.insert(pipeline_id, FastBTreeSet::default());
     }
 
     /// Delete and remove all fonts & font instance keys from a given pipeline
@@ -472,7 +475,7 @@ impl AppResources {
 
 macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
 
-    static $counter_name: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::AtomicUsize::new(0);
+    static $counter_name: ::core::sync::atomic::AtomicUsize = ::core::sync::atomic::AtomicUsize::new(0);
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
     #[repr(C)]
@@ -483,7 +486,7 @@ macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
     impl $struct_name {
 
         pub fn new() -> Self {
-            Self { id: $counter_name.fetch_add(1, ::std::sync::atomic::Ordering::SeqCst) }
+            Self { id: $counter_name.fetch_add(1, ::core::sync::atomic::Ordering::SeqCst) }
         }
     }
 }}
@@ -1311,7 +1314,7 @@ impl Epoch {
     // We don't want the epoch to increase to u32::MAX, since
     // u32::MAX represents an invalid epoch, which could confuse webrender
     pub fn increment(&mut self) {
-        use std::u32;
+        use core::u32;
         const MAX_ID: u32 = u32::MAX - 1;
         *self = match self.0 {
             MAX_ID => Epoch(0),
@@ -1433,12 +1436,12 @@ pub fn build_add_font_resource_updates(
     app_resources: &AppResources,
     id_namespace: IdNamespace,
     pipeline_id: &PipelineId,
-    fonts_in_dom: &FastHashMap<ImmediateFontId, FastHashSet<Au>>,
+    fonts_in_dom: &FastHashMap<ImmediateFontId, FastBTreeSet<Au>>,
     font_source_load_fn: LoadFontFn,
     parse_font_fn: ParseFontFn,
 ) -> Vec<(ImmediateFontId, AddFontMsg)> {
 
-    let mut resource_updates = Vec::new();
+    let mut resource_updates = alloc::vec::Vec::new();
 
     for (im_font_id, font_sizes) in fonts_in_dom {
 
@@ -1485,7 +1488,7 @@ pub fn build_add_font_resource_updates(
                     glyph_size: $font_size,
                     options: Some(options),
                     platform_options: Some(platform_options),
-                    variations: Vec::new(),
+                    variations: alloc::vec::Vec::new(),
                 }, $font_size)));
             }
         })}
@@ -1557,7 +1560,7 @@ pub fn build_add_image_resource_updates(
     app_resources: &AppResources,
     id_namespace: IdNamespace,
     pipeline_id: &PipelineId,
-    images_in_dom: &FastHashSet<ImageId>,
+    images_in_dom: &FastBTreeSet<ImageId>,
     image_source_load_fn: LoadImageFn,
 ) -> Vec<(ImageId, AddImageMsg)> {
 

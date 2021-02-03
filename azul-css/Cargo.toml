@@ -14,3 +14,4 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [dependencies]
+libm = { version = "0.2.1", default-features = false }

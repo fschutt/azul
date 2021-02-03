@@ -1,7 +1,9 @@
-use std::{
+use core::{
     fmt,
-    collections::BTreeSet,
 };
+use alloc::vec::Vec;
+use alloc::string::String;
+use alloc::collections::btree_set::BTreeSet;
 use crate::{
     id_tree::{NodeId, NodeDataContainer},
     dom::{CompactDom, NodeData},

@@ -1,11 +1,13 @@
 #![allow(unused_variables)]
-use std::{
+use core::{
     fmt,
-    rc::Rc,
     hash::{Hasher, Hash},
     ffi::c_void,
-    os::raw::c_int,
 };
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use alloc::rc::Rc;
+use alloc::string::{String, ToString};
 use gleam::gl::{self, Gl, GlType, DebugMessage};
 use crate::{
     FastHashMap,
@@ -15,6 +17,35 @@ use crate::{
     svg::TesselatedGPUSvgNode,
 };
 use azul_css::{AzString, StringVec, U8Vec, ColorU, ColorF};
+
+#[allow(non_camel_case_types)]
+pub mod ctypes {
+    // pub enum c_void {}
+    pub type c_char = i8;
+    pub type c_schar = i8;
+    pub type c_uchar = u8;
+    pub type c_short = i16;
+    pub type c_ushort = u16;
+    pub type c_int = i32;
+    pub type c_uint = u32;
+    pub type c_long = i32;
+    pub type c_ulong = u32;
+    pub type c_longlong = i64;
+    pub type c_ulonglong = u64;
+    pub type c_float = f32;
+    pub type c_double = f64;
+    pub type __int8 = i8;
+    pub type __uint8 = u8;
+    pub type __int16 = i16;
+    pub type __uint16 = u16;
+    pub type __int32 = i32;
+    pub type __uint32 = u32;
+    pub type __int64 = i64;
+    pub type __uint64 = u64;
+    pub type wchar_t = u16;
+}
+
+pub use self::ctypes::*;
 
 /// Typedef for an OpenGL handle
 pub type GLuint = u32;
@@ -39,14 +70,14 @@ pub struct Refstr {
     pub len: usize,
 }
 
-impl std::fmt::Debug for Refstr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for Refstr {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_str().fmt(f)
     }
 }
 
 impl Refstr {
-    fn as_str(&self) -> &str { unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.ptr, self.len)) } }
+    fn as_str(&self) -> &str { unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.ptr, self.len)) } }
 }
 
 impl From<&str> for Refstr {
@@ -62,14 +93,14 @@ pub struct RefstrVecRef {
     pub len: usize,
 }
 
-impl std::fmt::Debug for RefstrVecRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for RefstrVecRef {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
     }
 }
 
 impl RefstrVecRef {
-    pub fn as_slice(&self) -> &[Refstr] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[Refstr] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 impl From<&[Refstr]> for RefstrVecRef {
@@ -85,8 +116,8 @@ pub struct GLint64VecRefMut {
     pub len: usize,
 }
 
-impl std::fmt::Debug for GLint64VecRefMut {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for GLint64VecRefMut {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -98,8 +129,8 @@ impl From<&mut [GLint64]> for GLint64VecRefMut {
 }
 
 impl GLint64VecRefMut {
-    pub fn as_slice(&self) -> &[GLint64] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
-    fn as_mut_slice(&mut self) -> &mut [GLint64] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[GLint64] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
+    fn as_mut_slice(&mut self) -> &mut [GLint64] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
 // &mut [GLfloat]
@@ -109,8 +140,8 @@ pub struct GLfloatVecRefMut {
     pub len: usize,
 }
 
-impl std::fmt::Debug for GLfloatVecRefMut {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for GLfloatVecRefMut {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -122,8 +153,8 @@ impl From<&mut [GLfloat]> for GLfloatVecRefMut {
 }
 
 impl GLfloatVecRefMut {
-    pub fn as_slice(&self) -> &[GLfloat] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
-    fn as_mut_slice(&mut self) -> &mut [GLfloat] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[GLfloat] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
+    fn as_mut_slice(&mut self) -> &mut [GLfloat] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
 // &mut [GLint]
@@ -133,8 +164,8 @@ pub struct GLintVecRefMut {
     pub len: usize,
 }
 
-impl std::fmt::Debug for GLintVecRefMut {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for GLintVecRefMut {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -146,8 +177,8 @@ impl From<&mut [GLint]> for GLintVecRefMut {
 }
 
 impl GLintVecRefMut {
-    pub fn as_slice(&self) -> &[GLint] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
-    fn as_mut_slice(&mut self) -> &mut [GLint] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[GLint] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
+    fn as_mut_slice(&mut self) -> &mut [GLint] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
 // &[GLuint]
@@ -157,8 +188,8 @@ pub struct GLuintVecRef {
     pub len: usize,
 }
 
-impl std::fmt::Debug for GLuintVecRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for GLuintVecRef {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -170,7 +201,7 @@ impl From<&[GLuint]> for GLuintVecRef {
 }
 
 impl GLuintVecRef {
-    pub fn as_slice(&self) -> &[GLuint] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[GLuint] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 // &[GLenum]
@@ -180,8 +211,8 @@ pub struct GLenumVecRef {
     pub len: usize,
 }
 
-impl std::fmt::Debug for GLenumVecRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for GLenumVecRef {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -193,7 +224,7 @@ impl From<&[GLenum]> for GLenumVecRef {
 }
 
 impl GLenumVecRef {
-    pub fn as_slice(&self) -> &[GLenum] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[GLenum] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 
@@ -211,7 +242,7 @@ impl From<&[u8]> for U8VecRef {
 }
 
 impl U8VecRef {
-    pub fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[u8] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 impl fmt::Debug for U8VecRef {
@@ -221,13 +252,13 @@ impl fmt::Debug for U8VecRef {
 }
 
 impl PartialOrd for U8VecRef {
-    fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
         self.as_slice().partial_cmp(rhs.as_slice())
     }
 }
 
 impl Ord for U8VecRef {
-    fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, rhs: &Self) -> core::cmp::Ordering {
         self.as_slice().cmp(rhs.as_slice())
     }
 }
@@ -240,8 +271,8 @@ impl PartialEq for U8VecRef {
 
 impl Eq for U8VecRef { }
 
-impl std::hash::Hash for U8VecRef {
-    fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+impl core::hash::Hash for U8VecRef {
+    fn hash<H>(&self, state: &mut H) where H: core::hash::Hasher {
         self.as_slice().hash(state)
     }
 }
@@ -253,8 +284,8 @@ pub struct F32VecRef {
     pub len: usize,
 }
 
-impl std::fmt::Debug for F32VecRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for F32VecRef {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -266,7 +297,7 @@ impl From<&[f32]> for F32VecRef {
 }
 
 impl F32VecRef {
-    pub fn as_slice(&self) -> &[f32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[f32] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 // &[i32]
@@ -276,8 +307,8 @@ pub struct I32VecRef {
     pub len: usize,
 }
 
-impl std::fmt::Debug for I32VecRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for I32VecRef {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -289,7 +320,7 @@ impl From<&[i32]> for I32VecRef {
 }
 
 impl I32VecRef {
-    pub fn as_slice(&self) -> &[i32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[i32] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 // &mut [u8]
@@ -299,8 +330,8 @@ pub struct GLbooleanVecRefMut {
     pub len: usize,
 }
 
-impl std::fmt::Debug for GLbooleanVecRefMut {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for GLbooleanVecRefMut {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -312,8 +343,8 @@ impl From<&mut [GLboolean]> for GLbooleanVecRefMut {
 }
 
 impl GLbooleanVecRefMut {
-    pub fn as_slice(&self) -> &[GLboolean] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
-    fn as_mut_slice(&mut self) -> &mut [GLboolean] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[GLboolean] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
+    fn as_mut_slice(&mut self) -> &mut [GLboolean] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
 // &mut [u8]
@@ -323,8 +354,8 @@ pub struct U8VecRefMut {
     pub len: usize,
 }
 
-impl std::fmt::Debug for U8VecRefMut {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for U8VecRefMut {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
     }
 }
@@ -336,8 +367,8 @@ impl From<&mut [u8]> for U8VecRefMut {
 }
 
 impl U8VecRefMut {
-    pub fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
-    fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[u8] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
+    fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
 impl_option!(U8VecRef, OptionU8VecRef, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
@@ -427,8 +458,8 @@ pub struct GLsyncPtr {
     pub ptr: *const c_void, /* *const __GLsync */
 }
 
-impl std::fmt::Debug for GLsyncPtr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for GLsyncPtr {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "0x{:0x}", self.ptr as usize)
     }
 }
@@ -1462,8 +1493,8 @@ pub struct GlContextPtr {
 }
 
 #[cfg(feature = "opengl")]
-impl std::fmt::Debug for GlContextPtr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for GlContextPtr {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "0x{:0x}", self.ptr as usize)
     }
 }
@@ -1729,14 +1760,14 @@ impl Eq for GlContextPtr { }
 
 #[cfg(feature = "opengl")]
 impl PartialOrd for GlContextPtr {
-    fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
         self.as_usize().partial_cmp(&rhs.as_usize())
     }
 }
 
 #[cfg(feature = "opengl")]
 impl Ord for GlContextPtr {
-    fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, rhs: &Self) -> core::cmp::Ordering {
         self.as_usize().cmp(&rhs.as_usize())
     }
 }
@@ -1774,8 +1805,8 @@ pub struct TextureFlags {
     pub is_video_texture: bool,
 }
 
-impl ::std::fmt::Display for Texture {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl ::core::fmt::Display for Texture {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "Texture {{ id: {}, {}x{} }}", self.texture_id, self.size.width, self.size.height)
     }
 }
@@ -1783,8 +1814,8 @@ impl ::std::fmt::Display for Texture {
 macro_rules! impl_traits_for_gl_object {
     ($struct_name:ident, $gl_id_field:ident) => {
 
-        impl ::std::fmt::Debug for $struct_name {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        impl ::core::fmt::Debug for $struct_name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{}", self)
             }
         }
@@ -1804,20 +1835,20 @@ macro_rules! impl_traits_for_gl_object {
         impl Eq for $struct_name { }
 
         impl PartialOrd for $struct_name {
-            fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+            fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
                 Some((self.$gl_id_field).cmp(&(other.$gl_id_field)))
             }
         }
 
         impl Ord for $struct_name {
-            fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+            fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
                 (self.$gl_id_field).cmp(&(other.$gl_id_field))
             }
         }
     };
     ($struct_name:ident<$lt:lifetime>, $gl_id_field:ident) => {
-        impl<$lt> ::std::fmt::Debug for $struct_name<$lt> {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        impl<$lt> ::core::fmt::Debug for $struct_name<$lt> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{}", self)
             }
         }
@@ -1837,20 +1868,20 @@ macro_rules! impl_traits_for_gl_object {
         impl<$lt> Eq for $struct_name<$lt> { }
 
         impl<$lt> PartialOrd for $struct_name<$lt> {
-            fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+            fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
                 Some((self.$gl_id_field).cmp(&(other.$gl_id_field)))
             }
         }
 
         impl<$lt> Ord for $struct_name<$lt> {
-            fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+            fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
                 (self.$gl_id_field).cmp(&(other.$gl_id_field))
             }
         }
     };
     ($struct_name:ident<$t:ident: $constraint:ident>, $gl_id_field:ident) => {
-        impl<$t: $constraint> ::std::fmt::Debug for $struct_name<$t> {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        impl<$t: $constraint> ::core::fmt::Debug for $struct_name<$t> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{}", self)
             }
         }
@@ -1870,13 +1901,13 @@ macro_rules! impl_traits_for_gl_object {
         impl<$t: $constraint> Eq for $struct_name<$t> { }
 
         impl<$t: $constraint> PartialOrd for $struct_name<$t> {
-            fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+            fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
                 Some((self.$gl_id_field).cmp(&(other.$gl_id_field)))
             }
         }
 
         impl<$t: $constraint> Ord for $struct_name<$t> {
-            fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+            fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
                 (self.$gl_id_field).cmp(&(other.$gl_id_field))
             }
         }
@@ -2005,7 +2036,7 @@ impl VertexAttributeType {
     }
 
     pub fn get_mem_size(&self) -> usize {
-        use std::mem;
+        use core::mem;
         use self::VertexAttributeType::*;
         match self {
             Float => mem::size_of::<f32>(),
@@ -2045,8 +2076,8 @@ pub struct VertexBuffer {
     pub index_buffer_format: IndexBufferFormat,
 }
 
-impl std::fmt::Display for VertexBuffer {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Display for VertexBuffer {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f,
             "VertexBuffer {{ buffer: {} (length: {}) }})",
             self.vertex_buffer_id, self.vertex_buffer_len
@@ -2065,7 +2096,7 @@ impl Drop for VertexBuffer {
 impl VertexBuffer {
     pub fn new<T: VertexLayoutDescription>(shader: &GlShader, vertices: &[T], indices: &[u32], index_buffer_format: IndexBufferFormat) -> Self {
 
-        use std::mem;
+        use core::mem;
 
         let gl_context = shader.gl_context.clone();
 
@@ -2237,8 +2268,8 @@ pub struct GlShader {
     pub gl_context: GlContextPtr,
 }
 
-impl ::std::fmt::Display for GlShader {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl ::core::fmt::Display for GlShader {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "GlShader {{ program_id: {} }}", self.program_id)
     }
 }
@@ -2260,8 +2291,8 @@ pub struct VertexShaderCompileError {
 
 impl_traits_for_gl_object!(VertexShaderCompileError, error_id);
 
-impl ::std::fmt::Display for VertexShaderCompileError {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl ::core::fmt::Display for VertexShaderCompileError {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "E{}: {}", self.error_id, self.info_log)
     }
 }
@@ -2275,8 +2306,8 @@ pub struct FragmentShaderCompileError {
 
 impl_traits_for_gl_object!(FragmentShaderCompileError, error_id);
 
-impl ::std::fmt::Display for FragmentShaderCompileError {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl ::core::fmt::Display for FragmentShaderCompileError {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "E{}: {}", self.error_id, self.info_log)
     }
 }
@@ -2287,8 +2318,8 @@ pub enum GlShaderCompileError {
     Fragment(FragmentShaderCompileError),
 }
 
-impl ::std::fmt::Display for GlShaderCompileError {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl ::core::fmt::Display for GlShaderCompileError {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use self::GlShaderCompileError::*;
         match self {
             Vertex(vert_err) => write!(f, "Failed to compile vertex shader: {}", vert_err),
@@ -2297,8 +2328,8 @@ impl ::std::fmt::Display for GlShaderCompileError {
     }
 }
 
-impl ::std::fmt::Debug for GlShaderCompileError {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl ::core::fmt::Debug for GlShaderCompileError {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}", self)
     }
 }
@@ -2312,8 +2343,8 @@ pub struct GlShaderLinkError {
 
 impl_traits_for_gl_object!(GlShaderLinkError, error_id);
 
-impl ::std::fmt::Display for GlShaderLinkError {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl ::core::fmt::Display for GlShaderLinkError {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "E{}: {}", self.error_id, self.info_log)
     }
 }
@@ -2325,8 +2356,8 @@ pub enum GlShaderCreateError {
     NoShaderCompiler,
 }
 
-impl ::std::fmt::Display for GlShaderCreateError {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl ::core::fmt::Display for GlShaderCreateError {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use self::GlShaderCreateError::*;
         match self {
             Compile(compile_err) => write!(f, "Shader compile error: {}", compile_err),
@@ -2336,8 +2367,8 @@ impl ::std::fmt::Display for GlShaderCreateError {
     }
 }
 
-impl ::std::fmt::Debug for GlShaderCreateError {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl ::core::fmt::Debug for GlShaderCreateError {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}", self)
     }
 }
@@ -2413,7 +2444,7 @@ impl GlShader {
         texture_size: PhysicalSizeU32,
     ) -> Texture {
 
-        use std::collections::HashMap;
+        use alloc::collections::btree_map::BTreeMap;
 
         const INDEX_TYPE: GLuint = gl::UNSIGNED_INT;
 
@@ -2470,7 +2501,7 @@ impl GlShader {
         gl_context.disable(gl::MULTISAMPLE);
 
         // Avoid multiple calls to get_uniform_location by caching the uniform locations
-        let mut uniform_locations: HashMap<AzString, i32> = HashMap::new();
+        let mut uniform_locations: BTreeMap<AzString, i32> = BTreeMap::new();
         let mut max_uniform_len = 0;
         for (_, uniforms) in buffers {
             for uniform in uniforms.iter() {

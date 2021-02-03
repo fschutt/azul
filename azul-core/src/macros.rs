@@ -83,8 +83,8 @@ macro_rules! impl_display {
     // For a type with a lifetime
     ($enum:ident<$lt:lifetime>, {$($variant:pat => $fmt_string:expr),+$(,)* }) => {
 
-        impl<$lt> ::std::fmt::Display for $enum<$lt> {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        impl<$lt> ::core::fmt::Display for $enum<$lt> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 use self::$enum::*;
                 match &self {
                     $(
@@ -99,8 +99,8 @@ macro_rules! impl_display {
     // For a type without a lifetime
     ($enum:ident, {$($variant:pat => $fmt_string:expr),+$(,)* }) => {
 
-        impl ::std::fmt::Display for $enum {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        impl ::core::fmt::Display for $enum {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 use self::$enum::*;
                 match &self {
                     $(
@@ -119,35 +119,35 @@ macro_rules! impl_image_api {($struct_field:ident) => (
     /// See [`AppResources::get_loaded_font_ids`]
     ///
     /// [`AppResources::get_loaded_font_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_font_ids
-    pub fn get_loaded_font_ids(&self) -> Vec<FontId> {
+    pub fn get_loaded_font_ids(&self) -> alloc::vec::Vec<FontId> {
         self.$struct_field.get_loaded_font_ids()
     }
 
     /// See [`AppResources::get_loaded_image_ids`]
     ///
     /// [`AppResources::get_loaded_image_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_image_ids
-    pub fn get_loaded_image_ids(&self) -> Vec<ImageId> {
+    pub fn get_loaded_image_ids(&self) -> alloc::vec::Vec<ImageId> {
         self.$struct_field.get_loaded_image_ids()
     }
 
     /// See [`AppResources::get_loaded_css_image_ids`]
     ///
     /// [`AppResources::get_loaded_css_image_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_css_image_ids
-    pub fn get_loaded_css_image_ids(&self) -> Vec<CssImageId> {
+    pub fn get_loaded_css_image_ids(&self) -> alloc::vec::Vec<CssImageId> {
         self.$struct_field.get_loaded_css_image_ids()
     }
 
     /// See [`AppResources::get_loaded_css_font_ids`]
     ///
     /// [`AppResources::get_loaded_css_font_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_css_font_ids
-    pub fn get_loaded_css_font_ids(&self) -> Vec<CssImageId> {
+    pub fn get_loaded_css_font_ids(&self) -> alloc::vec::Vec<CssImageId> {
         self.$struct_field.get_loaded_css_font_ids()
     }
 
     /// See [`AppResources::get_loaded_text_ids`]
     ///
     /// [`AppResources::get_loaded_text_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_text_ids
-    pub fn get_loaded_text_ids(&self) -> Vec<TextId> {
+    pub fn get_loaded_text_ids(&self) -> alloc::vec::Vec<TextId> {
         self.$struct_field.get_loaded_text_ids()
     }
 
@@ -214,7 +214,7 @@ macro_rules! impl_image_api {($struct_field:ident) => (
     /// See [`AppResources::add_css_font_id`]
     ///
     /// [`AppResources::add_css_font_id`]: ../app_resources/struct.AppResources.html#method.add_css_font_id
-    pub fn add_css_font_id<S: Into<String>>(&mut self, css_id: S) -> FontId {
+    pub fn add_css_font_id<S: Into<alloc::string::String>>(&mut self, css_id: S) -> FontId {
         self.$struct_field.add_css_font_id(css_id)
     }
 

@@ -1,5 +1,15 @@
 //! Provides datatypes used to describe an application's style using the Azul GUI framework.
 
+#![no_std]
+
+#[macro_use]
+extern crate alloc;
+extern crate core;
+
+use alloc::vec::Vec;
+use alloc::string::String;
+use alloc::string::ToString;
+
 #[macro_export]
 macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name:ident) => (
 
@@ -27,12 +37,12 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
         #[inline(always)]
         pub fn new() -> $struct_name {
             // lets hope the optimizer catches this
-            Self::from_vec(Vec::new())
+            Self::from_vec(alloc::vec::Vec::new())
         }
 
         #[inline]
         pub fn with_capacity(cap: usize) -> Self {
-            Self::from_vec(Vec::<$struct_type>::with_capacity(cap))
+            Self::from_vec(alloc::vec::Vec::<$struct_type>::with_capacity(cap))
         }
 
         #[inline(always)]
@@ -46,7 +56,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
         }
 
         #[inline(always)]
-        pub fn from_vec(input: Vec<$struct_type>) -> Self {
+        pub fn from_vec(input: alloc::vec::Vec<$struct_type>) -> Self {
 
             let ptr = input.as_ptr();
             let len = input.len();
@@ -63,7 +73,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
         }
 
         #[inline]
-        pub fn iter(&self) -> std::slice::Iter<$struct_type> {
+        pub fn iter(&self) -> core::slice::Iter<$struct_type> {
             self.as_ref().iter()
         }
 
@@ -110,24 +120,24 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
 
     impl AsRef<[$struct_type]> for $struct_name {
         fn as_ref(&self) -> &[$struct_type] {
-            unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+            unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
         }
     }
 
     impl Default for $struct_name {
         fn default() -> Self {
-            Self::from_vec(Vec::new())
+            Self::from_vec(alloc::vec::Vec::new())
         }
     }
 
-    impl std::iter::FromIterator<$struct_type> for $struct_name {
+    impl core::iter::FromIterator<$struct_type> for $struct_name {
         fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = $struct_type> {
-            Self::from_vec(Vec::from_iter(iter))
+            Self::from_vec(alloc::vec::Vec::from_iter(iter))
         }
     }
 
-    impl From<Vec<$struct_type>> for $struct_name {
-        fn from(input: Vec<$struct_type>) -> $struct_name {
+    impl From<alloc::vec::Vec<$struct_type>> for $struct_name {
+        fn from(input: alloc::vec::Vec<$struct_type>) -> $struct_name {
             $struct_name::from_vec(input)
         }
     }
@@ -141,7 +151,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
     impl Drop for $struct_name {
         fn drop(&mut self) {
             match self.destructor {
-                $destructor_name::DefaultRust => { let _ = unsafe { Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) }; },
+                $destructor_name::DefaultRust => { let _ = unsafe { alloc::vec::Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) }; },
                 $destructor_name::NoDestructor => { },
                 $destructor_name::External(f) => { f(self); }
             }
@@ -178,18 +188,18 @@ macro_rules! impl_vec_as_hashmap {($struct_type:ident, $struct_name:ident) => (
 macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
     impl AsMut<[$struct_type]> for $struct_name {
         fn as_mut(&mut self) -> &mut [$struct_type] {
-            unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) }
+            unsafe { core::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) }
         }
     }
 
-    impl From<$struct_name> for Vec<$struct_type> {
-        fn from(mut input: $struct_name) -> Vec<$struct_type> {
+    impl From<$struct_name> for alloc::vec::Vec<$struct_type> {
+        fn from(mut input: $struct_name) -> alloc::vec::Vec<$struct_type> {
             input.into_library_owned_vec()
         }
     }
 
-    impl std::iter::Extend<$struct_type> for $struct_name {
-        fn extend<T: std::iter::IntoIterator<Item=$struct_type>>(&mut self, iter: T) {
+    impl core::iter::Extend<$struct_type> for $struct_name {
+        fn extend<T: core::iter::IntoIterator<Item=$struct_type>>(&mut self, iter: T) {
             for elem in iter {
                 self.push(elem);
             }
@@ -204,7 +214,7 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
         }
 
         #[inline]
-        pub fn sort_by<F: FnMut(&$struct_type, &$struct_type) -> std::cmp::Ordering>(&mut self, compare: F) {
+        pub fn sort_by<F: FnMut(&$struct_type, &$struct_type) -> core::cmp::Ordering>(&mut self, compare: F) {
             self.as_mut().sort_by(compare);
         }
 
@@ -217,19 +227,19 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
             }
             unsafe {
                 let end = self.as_mut_ptr().add(self.len);
-                std::ptr::write(end, value);
+                core::ptr::write(end, value);
                 self.len += 1;
             }
         }
 
         #[inline]
-        pub fn iter_mut(&mut self) -> std::slice::IterMut<$struct_type> {
+        pub fn iter_mut(&mut self) -> core::slice::IterMut<$struct_type> {
             self.as_mut().iter_mut()
         }
 
         #[inline]
-        pub fn into_iter(self) -> std::vec::IntoIter<$struct_type> {
-            let v1: Vec<$struct_type> = self.into();
+        pub fn into_iter(self) -> alloc::vec::IntoIter<$struct_type> {
+            let v1: alloc::vec::Vec<$struct_type> = self.into();
             v1.into_iter()
         }
 
@@ -240,27 +250,27 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
             // Cannot overflow, because `cap <= isize::MAX`, and type of `cap` is `usize`.
             let double_cap = self.cap * 2;
             // `double_cap` guarantees exponential growth.
-            Ok(std::cmp::max(double_cap, required_cap))
+            Ok(core::cmp::max(double_cap, required_cap))
         }
 
         #[inline]
-        fn current_layout(&self) -> Option<std::alloc::Layout> {
+        fn current_layout(&self) -> Option<core::alloc::Layout> {
             if self.cap == 0 {
                 None
             } else {
                 // We have an allocated chunk of memory, so we can bypass runtime
                 // checks to get our current layout.
                 unsafe {
-                    let align = std::mem::align_of::<$struct_type>();
-                    let size = std::mem::size_of::<$struct_type>() * self.cap;
-                    Some(std::alloc::Layout::from_size_align_unchecked(size, align))
+                    let align = core::mem::align_of::<$struct_type>();
+                    let size = core::mem::size_of::<$struct_type>() * self.cap;
+                    Some(core::alloc::Layout::from_size_align_unchecked(size, align))
                 }
             }
         }
 
         #[inline]
         fn alloc_guard(alloc_size: usize) -> Result<(), bool> {
-            if std::mem::size_of::<usize>() < 8 && alloc_size > ::core::isize::MAX as usize {
+            if core::mem::size_of::<usize>() < 8 && alloc_size > ::core::isize::MAX as usize {
                 Err(true)
             } else {
                 Ok(())
@@ -281,19 +291,19 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
             }
 
             let new_cap = self.amortized_new_size(used_cap, needed_extra_cap)?;
-            let new_layout = std::alloc::Layout::array::<$struct_type>(new_cap).map_err(|_| true)?;
+            let new_layout = alloc::alloc::Layout::array::<$struct_type>(new_cap).map_err(|_| true)?;
 
             // FIXME: may crash and burn on over-reserve
             $struct_name::alloc_guard(new_layout.size())?;
 
             let res = unsafe {
                 match self.current_layout() {
-                    Some(layout) => std::alloc::realloc(self.ptr as *mut u8, layout, new_layout.size()),
-                    None => std::alloc::alloc(new_layout),
+                    Some(layout) => alloc::alloc::realloc(self.ptr as *mut u8, layout, new_layout.size()),
+                    None => alloc::alloc::alloc(new_layout),
                 }
             };
 
-            if res == std::ptr::null_mut() {
+            if res == core::ptr::null_mut() {
                 return Err(false);
             }
 
@@ -305,8 +315,8 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
 
         fn buf_reserve(&mut self, used_cap: usize, needed_extra_cap: usize) {
             match self.try_reserve(used_cap, needed_extra_cap) {
-                Err(true /* Overflow */) => { std::process::exit(-1) },
-                Err(false /* AllocError(_) */) => { std::process::exit(-2); },
+                Err(true /* Overflow */) => { panic!("memory allocation failed: overflow"); },
+                Err(false /* AllocError(_) */) => { panic!("memory allocation failed: error allocating new memory"); },
                 Ok(()) => { /* yay */ }
             }
         }
@@ -333,7 +343,7 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
             let count = (*other).len();
             self.reserve(count);
             let len = self.len();
-            std::ptr::copy_nonoverlapping(other as *const $struct_type, self.as_mut_ptr().add(len), count);
+            core::ptr::copy_nonoverlapping(other as *const $struct_type, self.as_mut_ptr().add(len), count);
             self.len += count;
         }
 
@@ -350,9 +360,9 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
                     return;
                 }
                 let remaining_len = self.len - len;
-                let s = std::ptr::slice_from_raw_parts_mut(self.as_mut_ptr().add(len), remaining_len);
+                let s = core::ptr::slice_from_raw_parts_mut(self.as_mut_ptr().add(len), remaining_len);
                 self.len = len;
-                std::ptr::drop_in_place(s);
+                core::ptr::drop_in_place(s);
             }
         }
 
@@ -379,8 +389,8 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
 
 #[macro_export]
 macro_rules! impl_vec_debug {($struct_type:ident, $struct_name:ident) => (
-    impl std::fmt::Debug for $struct_name {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    impl core::fmt::Debug for $struct_name {
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
             self.as_ref().fmt(f)
         }
     }
@@ -389,7 +399,7 @@ macro_rules! impl_vec_debug {($struct_type:ident, $struct_name:ident) => (
 #[macro_export]
 macro_rules! impl_vec_partialord {($struct_type:ident, $struct_name:ident) => (
     impl PartialOrd for $struct_name {
-        fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+        fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
             self.as_ref().partial_cmp(rhs.as_ref())
         }
     }
@@ -398,7 +408,7 @@ macro_rules! impl_vec_partialord {($struct_type:ident, $struct_name:ident) => (
 #[macro_export]
 macro_rules! impl_vec_ord {($struct_type:ident, $struct_name:ident) => (
     impl Ord for $struct_name {
-        fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+        fn cmp(&self, rhs: &Self) -> core::cmp::Ordering {
             self.as_ref().cmp(rhs.as_ref())
         }
     }
@@ -429,13 +439,13 @@ macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident, $destructo
         /// NOTE: CLONES the memory if the memory is external or &'static
         /// Moves the memory out if the memory is library-allocated
         #[inline(always)]
-        pub fn into_library_owned_vec(self) -> Vec<$struct_type> {
+        pub fn into_library_owned_vec(self) -> alloc::vec::Vec<$struct_type> {
             match self.destructor {
                 $destructor_name::NoDestructor |
                 $destructor_name::External(_) => { self.as_ref().to_vec() }
                 $destructor_name::DefaultRust => {
-                    let v = unsafe { Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) };
-                    std::mem::forget(self);
+                    let v = unsafe { alloc::vec::Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) };
+                    core::mem::forget(self);
                     v
                 }
             }
@@ -464,8 +474,8 @@ macro_rules! impl_vec_eq {($struct_type:ident, $struct_name:ident) => (
 
 #[macro_export]
 macro_rules! impl_vec_hash {($struct_type:ident, $struct_name:ident) => (
-    impl std::hash::Hash for $struct_name {
-        fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+    impl core::hash::Hash for $struct_name {
+        fn hash<H>(&self, state: &mut H) where H: core::hash::Hasher {
             self.as_ref().hash(state);
         }
     }
@@ -505,7 +515,7 @@ macro_rules! impl_option_inner {
             }
         }
         pub fn replace(&mut self, value: $struct_type) -> $struct_name {
-            ::std::mem::replace(self, $struct_name::Some(value))
+            ::core::mem::replace(self, $struct_name::Some(value))
         }
         pub fn is_some(&self) -> bool {
             match self {
@@ -720,14 +730,14 @@ impl Default for AzString {
     }
 }
 
-impl std::fmt::Debug for AzString {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for AzString {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_str().fmt(f)
     }
 }
 
-impl std::fmt::Display for AzString {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Display for AzString {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_str().fmt(f)
     }
 }
@@ -746,7 +756,7 @@ impl AzString {
 
     #[inline]
     pub fn as_str(&self) -> &str {
-        unsafe { std::str::from_utf8_unchecked(self.vec.as_ref()) }
+        unsafe { core::str::from_utf8_unchecked(self.vec.as_ref()) }
     }
 
     /// NOTE: CLONES the memory if the memory is external or &'static
@@ -762,7 +772,7 @@ impl AzString {
             U8VecDestructor::NoDestructor |
             U8VecDestructor::External(_) => { self.as_str().to_string() }
             U8VecDestructor::DefaultRust => {
-                let m = std::mem::ManuallyDrop::new(self);
+                let m = core::mem::ManuallyDrop::new(self);
                 unsafe { String::from_raw_parts(m.vec.ptr as *mut u8, m.vec.len, m.vec.cap) }
             }
         }
@@ -775,7 +785,7 @@ impl AzString {
 
     #[inline]
     pub fn into_bytes(self) -> U8Vec {
-        let m = std::mem::ManuallyDrop::new(self);
+        let m = core::mem::ManuallyDrop::new(self);
         U8Vec {
             ptr: m.vec.ptr,
             len: m.vec.len,
@@ -792,13 +802,13 @@ impl From<String> for AzString {
 }
 
 impl PartialOrd for AzString {
-    fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
         self.as_str().partial_cmp(rhs.as_str())
     }
 }
 
 impl Ord for AzString {
-    fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, rhs: &Self) -> core::cmp::Ordering {
         self.as_str().cmp(rhs.as_str())
     }
 }
@@ -817,8 +827,8 @@ impl PartialEq for AzString {
 
 impl Eq for AzString { }
 
-impl std::hash::Hash for AzString {
-    fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+impl core::hash::Hash for AzString {
+    fn hash<H>(&self, state: &mut H) where H: core::hash::Hasher {
         self.as_str().hash(state)
     }
 }

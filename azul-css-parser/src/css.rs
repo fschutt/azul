@@ -1,9 +1,11 @@
 //! High-level types and functions related to CSS parsing
-use std::{
+use core::{
     num::ParseIntError,
     fmt,
-    collections::HashMap,
 };
+use alloc::collections::BTreeMap;
+use alloc::string::ToString;
+use alloc::vec::Vec;
 pub use azul_simplecss::Error as CssSyntaxError;
 use azul_simplecss::Tokenizer;
 
@@ -240,7 +242,7 @@ fn test_css_pseudo_selector_parse() {
         (("", None), UnknownSelector("", None)),
         (("nth-child", Some("2n+")), InvalidNthChildPattern("2n+")),
         // Can't test for ParseIntError because the fields are private.
-        // This is an example on why you shouldn't use std::error::Error!
+        // This is an example on why you shouldn't use core::error::Error!
     ];
 
     for ((selector, val), a) in &ok_res {
@@ -406,7 +408,7 @@ pub struct UnparsedCssRuleBlock<'a> {
     /// The css path (full selector) of the style ruleset
     pub path: CssPath,
     /// `"justify-content" => "center"`
-    pub declarations: HashMap<&'a str, (&'a str, (ErrorLocation, ErrorLocation))>,
+    pub declarations: BTreeMap<&'a str, (&'a str, (ErrorLocation, ErrorLocation))>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -442,7 +444,7 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
     // one path corresponding to one set of rules each).
     let mut current_paths = Vec::new();
     // Current CSS declarations
-    let mut current_rules = HashMap::<&str, (&str, (ErrorLocation, ErrorLocation))>::new();
+    let mut current_rules = BTreeMap::<&str, (&str, (ErrorLocation, ErrorLocation))>::new();
     // Keep track of the current path during parsing
     let mut last_path = Vec::new();
 

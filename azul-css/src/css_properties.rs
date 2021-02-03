@@ -1,7 +1,9 @@
 //! Provides a public API with datatypes used to describe style properties of DOM nodes.
 
-use std::collections::BTreeMap;
-use std::fmt;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::fmt;
 use crate::css::CssPropertyValue;
 use crate::{AzString, StringVec};
 
@@ -573,28 +575,28 @@ macro_rules! impl_pixel_value {($struct:ident) => (
 )}
 
 macro_rules! impl_percentage_value{($struct:ident) => (
-    impl ::std::fmt::Display for $struct {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    impl ::core::fmt::Display for $struct {
+        fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
             write!(f, "{}%", self.inner.get())
         }
     }
 
-    impl ::std::fmt::Debug for $struct {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    impl ::core::fmt::Debug for $struct {
+        fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
             write!(f, "{}%", self.inner.get())
         }
     }
 )}
 
 macro_rules! impl_float_value{($struct:ident) => (
-    impl ::std::fmt::Display for $struct {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    impl ::core::fmt::Display for $struct {
+        fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
             write!(f, "{}", self.inner.get())
         }
     }
 
-    impl ::std::fmt::Debug for $struct {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    impl ::core::fmt::Debug for $struct {
+        fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
             write!(f, "{}", self.inner.get())
         }
     }
@@ -1497,7 +1499,7 @@ impl AngleValue {
         let val = match self.metric {
             AngleMetric::Degree => self.number.get(),
             AngleMetric::Radians => self.number.get() / 400.0 * 360.0,
-            AngleMetric::Grad => self.number.get() / (2.0 * std::f32::consts::PI) * 360.0,
+            AngleMetric::Grad => self.number.get() / (2.0 * core::f32::consts::PI) * 360.0,
             AngleMetric::Turn => self.number.get() * 360.0,
             AngleMetric::Percent => self.number.get() / 100.0 * 360.0,
         };
@@ -2229,13 +2231,13 @@ impl Direction {
                 let height_half = rect.size.height as f32 / 2.0;
 
                 // hypotenuse_len is the length of the center of the rect to the corners
-                let hypotenuse_len = (((width_half * width_half) + (height_half * height_half))).sqrt();
+                let hypotenuse_len = libm::hypotf(width_half, height_half);
 
                 // The corner also serves to determine what quadrant we're in
                 // Get the quadrant (corner) the angle is in and get the degree associated
                 // with that corner.
 
-                let angle_to_top_left = (height_half as f32 / width_half as f32).atan().to_degrees();
+                let angle_to_top_left = libm::atanf(height_half / width_half).to_degrees();
 
                 // We need to calculate the angle from the center to the corner!
                 let ending_point_degrees = if deg < 90.0 {
@@ -2253,21 +2255,27 @@ impl Direction {
                 };
 
                 // assuming deg = 36deg, then degree_diff_to_corner = 9deg
-                let degree_diff_to_corner = ending_point_degrees - deg;
+                let degree_diff_to_corner = ending_point_degrees as f32 - deg;
 
                 // Searched_len is the distance between the center of the rect and the
                 // ending point of the gradient
-                let searched_len = (hypotenuse_len * degree_diff_to_corner.to_radians().cos()).abs() as f32;
+                let searched_len = libm::fabsf(libm::cosf(hypotenuse_len * degree_diff_to_corner.to_radians() as f32));
 
                 // TODO: This searched_len is incorrect...
 
                 // Once we have the length, we can simply rotate the length by the angle,
                 // then translate it to the center of the rect
-                let dx = deg.to_radians().sin() * searched_len;
-                let dy = deg.to_radians().cos() * searched_len;
+                let dx = libm::sinf(deg.to_radians() as f32) * searched_len;
+                let dy = libm::cosf(deg.to_radians() as f32) * searched_len;
 
-                let start_point_location = LayoutPoint { x: (width_half + dx).round() as isize, y: (height_half + dy).round() as isize };
-                let end_point_location = LayoutPoint { x: (width_half - dx).round() as isize, y: (height_half - dy).round() as isize };
+                let start_point_location = LayoutPoint {
+                    x: libm::roundf(width_half + dx) as isize,
+                    y: libm::roundf(height_half + dy) as isize
+                };
+                let end_point_location = LayoutPoint {
+                    x: libm::roundf(width_half - dx) as isize,
+                    y: libm::roundf(height_half - dy) as isize
+                };
 
                 (start_point_location, end_point_location)
             },

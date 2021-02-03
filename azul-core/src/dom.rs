@@ -1,10 +1,12 @@
-use std::{
+use core::{
     fmt,
     hash::{Hash, Hasher},
-    collections::BTreeMap,
     sync::atomic::{AtomicUsize, Ordering},
     iter::FromIterator,
 };
+use alloc::vec::Vec;
+use alloc::string::String;
+use alloc::collections::btree_map::BTreeMap;
 use crate::{
     callbacks::{
         Callback,
@@ -31,13 +33,13 @@ static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct TagId(pub u64);
 
-impl ::std::fmt::Display for TagId {
+impl ::core::fmt::Display for TagId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ScrollTagId({})", self.0)
     }
 }
 
-impl ::std::fmt::Debug for TagId {
+impl ::core::fmt::Debug for TagId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
     }
@@ -48,13 +50,13 @@ impl ::std::fmt::Debug for TagId {
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct ScrollTagId(pub TagId);
 
-impl ::std::fmt::Display for ScrollTagId {
+impl ::core::fmt::Display for ScrollTagId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ScrollTagId({})", (self.0).0)
     }
 }
 
-impl ::std::fmt::Debug for ScrollTagId {
+impl ::core::fmt::Debug for ScrollTagId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
     }
@@ -968,6 +970,7 @@ impl NodeData {
     #[inline(always)]
     pub fn with_tab_index(self, tab_index: OptionTabIndex) -> Self { Self { tab_index, .. self } }
 
+    #[cfg(feature = "std")]
     pub fn calculate_node_data_hash(&self) -> DomHash {
 
         use std::collections::hash_map::DefaultHasher as HashAlgorithm;
@@ -1129,6 +1132,8 @@ impl Dom {
                 output.push_str(&dom.root.debug_print_end());
             }
         }
+
+        use alloc::string::ToString;
 
         let mut output = String::new();
         get_html_string_inner(self, &mut output, 0);

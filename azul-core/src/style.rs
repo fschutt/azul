@@ -4,6 +4,7 @@ use azul_css::{
     CssContentGroup, CssPath, CssPathSelector,
     CssPathPseudoSelector, CssNthChildSelector::*,
 };
+use alloc::vec::Vec;
 use crate::{
     dom::NodeData,
     styled_dom::AzNode,

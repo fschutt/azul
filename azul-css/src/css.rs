@@ -1,7 +1,9 @@
 //! Types and methods used to describe the style of an application
 use crate::css_properties::{CssProperty, CssPropertyType};
 use crate::AzString;
-use std::fmt;
+use core::fmt;
+use alloc::vec::Vec;
+use alloc::string::String;
 
 /// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",
 /// i.e. blocks of key-value pairs associated with a selector path.
@@ -356,7 +358,7 @@ impl NodeTypePath {
 }
 
 impl fmt::Display for NodeTypePath {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let display_string = NODE_TYPE_PATH_MAP.iter()
             .find(|(v, _)| *self == *v)
             .and_then(|(_, k)| Some(*k))
@@ -400,7 +402,7 @@ impl CssPath {
 }
 
 impl fmt::Display for CssPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for selector in self.selectors.as_ref() {
             write!(f, "{}", selector)?;
         }
@@ -409,7 +411,7 @@ impl fmt::Display for CssPath {
 }
 
 impl fmt::Debug for CssPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
     }
 }
