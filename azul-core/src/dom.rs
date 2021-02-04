@@ -1133,6 +1133,7 @@ impl Dom {
             }
         }
 
+        #[cfg(not(feature = "std"))]
         use alloc::string::ToString;
 
         let mut output = String::new();

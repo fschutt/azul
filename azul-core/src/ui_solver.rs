@@ -604,6 +604,15 @@ impl PositionInfo {
 }
 impl PositionedRectangle {
 
+    pub(crate) fn get_approximate_static_bounds(&self) -> LayoutRect {
+        LayoutRect::new(self.get_static_offset(), self.get_content_size())
+    }
+
+    // Returns the rect where the content should be placed (for example the text itself)
+    fn get_content_size(&self) -> LayoutSize {
+        LayoutSize::new(libm::roundf(self.size.width) as isize, libm::roundf(self.size.height) as isize)
+    }
+
     fn get_static_offset(&self) -> LayoutPoint {
         match self.position {
             PositionInfo::Static { static_x_offset, static_y_offset, .. } |

@@ -716,7 +716,7 @@ impl CallbackInfo {
     }
 
     pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType) {
-        let thread = unsafe { (self.system_callbacks.create_thread_fn)(thread_initialize_data, writeback_data, callback) };
+        let thread = (self.system_callbacks.create_thread_fn)(thread_initialize_data, writeback_data, callback);
         self.internal_get_threads().insert(id, thread);
     }
 

@@ -22,7 +22,7 @@ azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1", opti
 rayon                   = { version = "1.5.0",   default-features = false,  optional = true }
 gleam                   = { version = "0.13.1",  default-features = false,  optional = true }
 [features]
-default = ["opengl"]
+default = ["opengl", "multithreading"]
 # Enables the CSS parser
 css_parser = ["azul-css-parser"]
 # Enables the OpenGL module (uses gleam)

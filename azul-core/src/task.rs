@@ -89,8 +89,8 @@ impl Instant {
             Some(d) => match (self, d) {
                 (Instant::System(i), Duration::System(d)) => {
                     #[cfg(feature = "std")] {
-                        let s: StdInstant = i.into();
-                        let d: StdDuration = d.into();
+                        let s: StdInstant = i.clone().into();
+                        let d: StdDuration = d.clone().into();
                         let new: AzInstantPtr = (s + d).into();
                         Instant::System(new)
                     }
@@ -115,8 +115,8 @@ impl Instant {
         match (earlier, self) {
             (Instant::System(prev), Instant::System(now)) => {
                 #[cfg(feature = "std")] {
-                    let prev_instant: StdInstant = prev.into();
-                    let now_instant: StdInstant = now.into();
+                    let prev_instant: StdInstant = prev.clone().into();
+                    let now_instant: StdInstant = now.clone().into();
                     Duration::System((now_instant.duration_since(prev_instant)).into())
                 }
                 #[cfg(not(feature = "std"))] {
@@ -226,7 +226,6 @@ impl Ord for AzInstantPtr {
 
 #[cfg(feature = "std")]
 impl AzInstantPtr {
-    fn new(instant: StdInstant) -> Self { instant.into() }
     fn get(&self) -> StdInstant { let p = unsafe { &*(self.ptr as *const StdInstant) }; *p }
 }
 
@@ -250,8 +249,8 @@ extern "C" fn std_instant_drop(ptr: *mut c_void) {
 impl From<StdInstant> for AzInstantPtr {
     fn from(s: StdInstant) -> AzInstantPtr {
         Self {
-            ptr: Box::into_raw(Box::new(s)) as *const c_void,
-            destructor: std_instant_clone,
+            ptr: Box::into_raw(Box::new(s)) as *mut c_void,
+            clone_fn: std_instant_clone,
             destructor: std_instant_drop,
         }
     }
@@ -288,8 +287,8 @@ impl Duration {
             // self > other
             (Duration::System(s), Duration::System(o)) => {
                 #[cfg(feature = "std")] {
-                    let s: StdDuration = s.into();
-                    let o: StdDuration = o.into();
+                    let s: StdDuration = s.clone().into();
+                    let o: StdDuration = o.clone().into();
                     s > o
                 }
                 #[cfg(not(feature = "std"))] {
@@ -310,8 +309,8 @@ impl Duration {
             // self > other
             (Duration::System(s), Duration::System(o)) => {
                 #[cfg(feature = "std")] {
-                    let s: StdDuration = s.into();
-                    let o: StdDuration = o.into();
+                    let s: StdDuration = s.clone().into();
+                    let o: StdDuration = o.clone().into();
                     s < o
                 }
                 #[cfg(not(feature = "std"))] {
@@ -343,14 +342,14 @@ pub struct SystemTimeDiff {
 
 #[cfg(feature = "std")]
 impl From<StdDuration> for SystemTimeDiff {
-    fn from(d: StdDuration) -> Duration {
-        Duration { secs: d.as_secs(), nanos: d.subsec_nanos() }
+    fn from(d: StdDuration) -> SystemTimeDiff {
+        SystemTimeDiff { secs: d.as_secs(), nanos: d.subsec_nanos() }
     }
 }
 
 #[cfg(feature = "std")]
 impl From<SystemTimeDiff> for StdDuration {
-    fn from(d: Duration) -> StdDuration {
+    fn from(d: SystemTimeDiff) -> StdDuration {
         StdDuration::new(d.secs, d.nanos)
     }
 }
@@ -639,7 +638,7 @@ pub type ThreadRecvFn = extern "C" fn(/* receiver.ptr */ *mut c_void) -> OptionT
 pub type ThreadSendFn = extern "C" fn(/* sender.ptr */*mut c_void, ThreadReceiveMsg) -> bool; // return false on error
 
 // function called on Thread::drop()
-pub type ThreadDestructorFn = extern "C" fn(/* thread handle */ *mut c_void, /* sender */ *mut c_void, /* receiver */ *mut c_void, /* dropcheck */ *const c_void);
+pub type ThreadDestructorFn = extern "C" fn(/* thread handle */ *mut c_void, /* sender */ *mut c_void, /* receiver */ *mut c_void, /* dropcheck */ *mut c_void);
 // destructor of the ThreadReceiver
 pub type ThreadReceiverDestructorFn = extern "C" fn(*mut ThreadReceiver);
 // destructor of the ThreadSender
@@ -661,7 +660,7 @@ pub struct Thread {
     pub sender: *mut c_void, // *mut Sender<ThreadSendMsg>,
     pub receiver: *mut c_void, // *mut Receiver<ThreadReceiveMsg>,
     pub writeback_data: RefAny,
-    pub dropcheck: *const c_void, // *const Weak<()>,
+    pub dropcheck: *mut c_void, // *mut Weak<()>,
     pub check_thread_finished_fn: CheckThreadFinishedFn, //
     pub send_thread_msg_fn: LibrarySendThreadMsgFn,
     pub receive_thread_msg_fn: LibraryReceiveThreadMsg,
@@ -671,22 +670,22 @@ pub struct Thread {
 #[cfg(feature = "std")]
 pub extern "C" fn create_thread_libstd(mut thread_initialize_data: RefAny, mut writeback_data: RefAny, callback: ThreadCallbackType) -> Thread {
 
-    let (sender_receiver, receiver_receiver) = core::sync::mpsc::channel::<ThreadReceiveMsg>();
+    let (sender_receiver, receiver_receiver) = std::sync::mpsc::channel::<ThreadReceiveMsg>();
     let sender_receiver = ThreadSender {
-        ptr: Box::into_raw(Box::new(sender_receiver)) as *const c_void,
+        ptr: Box::into_raw(Box::new(sender_receiver)) as *mut c_void,
         send_fn: default_send_thread_msg_fn,
         destructor: thread_sender_drop,
     };
 
-    let (sender_sender, receiver_sender) = core::sync::mpsc::channel::<ThreadSendMsg>();
+    let (sender_sender, receiver_sender) = std::sync::mpsc::channel::<ThreadSendMsg>();
     let receiver_sender = ThreadReceiver {
-        ptr: Box::into_raw(Box::new(receiver_sender)) as *const c_void,
+        ptr: Box::into_raw(Box::new(receiver_sender)) as *mut c_void,
         recv_fn: default_receive_thread_msg_fn,
         destructor: thread_receiver_drop,
     };
 
     let thread_check = Arc::new(());
-    let thread_weak = Arc::downgrade(&thread_check);
+    let dropcheck = Arc::downgrade(&thread_check);
 
     let thread_handle = Some(thread::spawn(move || {
         let _ = thread_check;
@@ -699,11 +698,11 @@ pub extern "C" fn create_thread_libstd(mut thread_initialize_data: RefAny, mut w
     let receiver: Box<Receiver<ThreadReceiveMsg>> = Box::new(receiver_receiver);
     let dropcheck: Box<Weak<()>> = Box::new(dropcheck);
 
-    Self {
+    Thread {
         thread_handle: Box::into_raw(thread) as *mut c_void,
         sender: Box::into_raw(receiver) as *mut c_void,
         receiver: Box::into_raw(sender) as *mut c_void,
-        writeback_data,
+        writeback_data: writeback_data.clone_into_library_memory(),
         dropcheck: Box::into_raw(dropcheck) as *mut c_void,
         thread_destructor_fn: default_thread_destructor_fn,
         check_thread_finished_fn: default_check_thread_finished,
@@ -740,31 +739,31 @@ extern "C" fn library_send_thread_msg_fn(ptr: *mut c_void, msg: ThreadSendMsg) -
 
 #[cfg(feature = "std")]
 extern "C" fn library_receive_thread_msg_fn(ptr: *mut c_void) -> OptionThreadReceiveMsg {
-    unsafe { &mut *(ptr as *mut Receiver<ThreadReceiveMsg>) }.try_recv().ok()
+    unsafe { &mut *(ptr as *mut Receiver<ThreadReceiveMsg>) }.try_recv().ok().into()
 }
 
 #[cfg(feature = "std")]
-extern "C" fn default_send_thread_msg_fn(sender: *mut ThreadSender, msg: ThreadReceiveMsg) -> bool {
-    unsafe { &mut *(sender.ptr as *mut Sender<ThreadReceiveMsg>) }.send(msg).is_ok()
+extern "C" fn default_send_thread_msg_fn(ptr: *mut c_void, msg: ThreadReceiveMsg) -> bool {
+    unsafe { &mut *(ptr as *mut Sender<ThreadReceiveMsg>) }.send(msg).is_ok()
 }
 
 #[cfg(feature = "std")]
-extern "C" fn default_receive_thread_msg_fn(receiver: *mut ThreadReceiver) -> OptionThreadSendMsg {
-    unsafe { &mut *(receiver.ptr as *mut Receiver<ThreadSendMsg>) }.try_recv().ok()
+extern "C" fn default_receive_thread_msg_fn(ptr: *mut c_void) -> OptionThreadSendMsg {
+    unsafe { &mut *(ptr as *mut Receiver<ThreadSendMsg>) }.try_recv().ok().into()
 }
 
 #[cfg(feature = "std")]
-extern "C" fn default_check_thread_finished(dropcheck: *mut c_void) -> bool {
-    unsafe { &mut *dropcheck as *mut Weak<()> }.upgrade().is_none()
+extern "C" fn default_check_thread_finished(dropcheck: *const c_void) -> bool {
+    unsafe { &*(dropcheck as *mut Weak<()>) }.upgrade().is_none()
 }
 
 #[cfg(feature = "std")]
 extern "C" fn default_thread_destructor_fn(thread: *mut c_void, sender: *mut c_void, receiver: *mut c_void, dropcheck: *mut c_void) {
 
-    let thread = unsafe { Box::from_raw(thread as *mut Option<JoinHandle<()>>) };
+    let mut thread = unsafe { Box::from_raw(thread as *mut Option<JoinHandle<()>>) };
     let sender = unsafe { Box::from_raw(sender as *mut Sender<ThreadSendMsg>) };
-    let receiver = unsafe { Box::from_raw(receiver as *mut Receiver<ThreadReceiveMsg>) };
-    let dropcheck = unsafe { Box::from_raw(dropcheck as *mut Weak<()>) };
+    let _receiver = unsafe { Box::from_raw(receiver as *mut Receiver<ThreadReceiveMsg>) };
+    let _dropcheck = unsafe { Box::from_raw(dropcheck as *mut Weak<()>) };
 
     if let Some(thread_handle) = thread.take() {
         let _ = sender.send(ThreadSendMsg::TerminateThread);
@@ -774,12 +773,12 @@ extern "C" fn default_thread_destructor_fn(thread: *mut c_void, sender: *mut c_v
 
 #[cfg(feature = "std")]
 extern "C" fn thread_sender_drop(val: *mut ThreadSender) {
-    let _ = unsafe { Box::from_raw(self.ptr as *mut Sender<ThreadReceiveMsg>) };
+    let _ = unsafe { Box::from_raw((*val).ptr as *mut Sender<ThreadReceiveMsg>) };
 }
 
 #[cfg(feature = "std")]
 extern "C" fn thread_receiver_drop(val: *mut ThreadReceiver) {
-    let _ = unsafe { Box::from_raw(self.ptr as *mut Receiver<ThreadSendMsg>) };
+    let _ = unsafe { Box::from_raw((*val).ptr as *mut Receiver<ThreadSendMsg>) };
 }
 
 /// Run all currently registered timers
