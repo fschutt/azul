@@ -346,6 +346,7 @@ impl<'a, T: 'a> NodeDataContainerRefMut<'a, T> {
 }
 
 impl<'a, T: Send + 'a> NodeDataContainerRefMut<'a, T> {
+    #[cfg(feature = "multithreading")]
     pub fn transform_multithread<U: Send, F: Send + Sync>(&mut self, closure: F) -> NodeDataContainer<U> where F: Fn(&mut T, NodeId) -> U {
         use rayon::iter::ParallelIterator;
         use rayon::iter::IndexedParallelIterator;
@@ -354,6 +355,7 @@ impl<'a, T: Send + 'a> NodeDataContainerRefMut<'a, T> {
             internal: self.internal.par_iter_mut().enumerate().map(|(node_id, node)| closure(node, NodeId::new(node_id))).collect::<Vec<U>>(),
         }
     }
+    #[cfg(feature = "multithreading")]
     pub fn transform_multithread_optional<U: Send, F: Send + Sync>(&mut self, closure: F) -> Vec<U> where F: Fn(&mut T, NodeId) -> Option<U> {
         use rayon::iter::ParallelIterator;
         use rayon::iter::IndexedParallelIterator;
@@ -363,6 +365,7 @@ impl<'a, T: Send + 'a> NodeDataContainerRefMut<'a, T> {
 }
 
 impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
+    #[cfg(feature = "multithreading")]
     pub fn transform_nodeid<U: Send, F: Send + Sync>(&self, closure: F) -> NodeDataContainer<U> where F: Fn(NodeId) -> U {
         use rayon::iter::IntoParallelIterator;
         use crate::rayon::iter::ParallelIterator;
@@ -372,6 +375,7 @@ impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
         }
     }
 
+    #[cfg(feature = "multithreading")]
     pub fn transform_nodeid_multithreaded_optional<U: Send, F: Send + Sync>(&self, closure: F) -> NodeDataContainer<U> where F: Fn(NodeId) -> Option<U> {
         use rayon::iter::IntoParallelIterator;
         use crate::rayon::iter::ParallelIterator;

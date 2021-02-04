@@ -74,6 +74,7 @@ use crate::{
     id_tree::NodeId,
     styled_dom::{DomId, ChangedCssProperty, AzNodeId},
     ui_solver::LayoutResult,
+    task::ExternalSystemCallbacks,
     window::{FullHitTest, RawWindowHandle, FullWindowState, ScrollStates, CallCallbacksResult},
 };
 use azul_css::{LayoutSize, CssProperty, LayoutPoint, LayoutRect};
@@ -264,6 +265,7 @@ pub struct StyleAndLayoutChanges {
 
 impl StyleAndLayoutChanges {
     /// Determines and immediately applies the changes to the layout results
+    #[cfg(feature = "multithreading")]
     pub fn new(
         nodes: &NodesToCheck,
         layout_results: &mut [LayoutResult],
@@ -568,9 +570,9 @@ impl CallbacksOfHitTest {
         layout_results: &mut Vec<LayoutResult>,
         modifiable_scroll_states: &mut ScrollStates,
         resources: &mut AppResources,
+        system_callbacks: ExternalSystemCallbacks,
     ) -> CallCallbacksResult {
 
-        use alloc::collections::btree_set::BTreeSet;
         use crate::styled_dom::ParentWithNodeDepth;
         use crate::callbacks::CallbackInfo;
         use crate::window::LogicalPosition;
@@ -642,6 +644,7 @@ impl CallbacksOfHitTest {
                             /*new_windows:*/ &mut ret.windows_created,
                             /*current_window_handle:*/ raw_window_handle,
                             /*node_hierarchy*/ &node_hierarchy,
+                            /*system_callbacks*/ system_callbacks,
                             /*dataset_map*/ dataset_map,
                             /*stop_propagation:*/ &mut stop_propagation,
                             /*focus_target:*/ &mut new_focus,
@@ -707,6 +710,7 @@ impl CallbacksOfHitTest {
                         /*new_windows:*/ &mut ret.windows_created,
                         /*current_window_handle:*/ raw_window_handle,
                         /*node_hierarchy*/ &node_hierarchy,
+                        /*system_callbacks*/ system_callbacks,
                         /*dataset_map*/ dataset_map,
                         /*stop_propagation:*/ &mut stop_propagation,
                         /*focus_target:*/ &mut new_focus,

@@ -16,13 +16,9 @@ use crate::{
     ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId},
     display_list::{GlTextureCache, RenderCallbacks},
     callbacks::{LayoutCallback, LayoutCallbackType},
-    task::{TimerId, ThreadId},
+    task::{TimerId, ThreadId, Timer, Thread},
 };
 
-#[cfg(feature = "std")]
-use std::path::PathBuf;
-#[cfg(feature = "std")]
-use crate::task::{Timer, Thread};
 #[cfg(feature = "opengl")]
 use crate::gl::GlContextPtr;
 
@@ -365,7 +361,7 @@ impl MouseState {
         let scroll_x = self.get_scroll_x();
         let scroll_y = self.get_scroll_y();
 
-        if scroll_x.abs() < SCROLL_THRESHOLD && scroll_y.abs() < SCROLL_THRESHOLD {
+        if libm::fabsf(scroll_x) < SCROLL_THRESHOLD && libm::fabsf(scroll_y) < SCROLL_THRESHOLD {
             return None;
         }
 
@@ -493,7 +489,18 @@ impl ScrollStates {
 
     /// Removes all scroll states that weren't used in the last frame
     pub fn remove_unused_scroll_states(&mut self) {
-        self.0.retain(|_, state| state.used_this_frame);
+        // NOTE: originally this code used retain(), but retain() is not available on no_std
+        let mut scroll_states_to_remove = Vec::new();
+
+        for (key, state) in self.0.iter_mut() {
+            if !state.used_this_frame {
+                scroll_states_to_remove.push(*key);
+            }
+        }
+
+        for key in scroll_states_to_remove {
+            self.0.remove(&key);
+        }
     }
 }
 
@@ -612,7 +619,7 @@ impl FullHitTest {
 
         let cursor_location = match cursor_position {
             CursorPosition::OutOfWindow | CursorPosition::Uninitialized => return FullHitTest::default(),
-            CursorPosition::InWindow(pos) => LayoutPoint::new(pos.x.round() as isize, pos.y.round() as isize),
+            CursorPosition::InWindow(pos) => LayoutPoint::new(libm::roundf(pos.x) as isize, libm::roundf(pos.y) as isize),
         };
 
         let mut map = BTreeMap::new();
@@ -739,7 +746,7 @@ pub struct WindowInternalInit {
 impl WindowInternal {
 
     /// Initializes the `WindowInternal` on window creation. Calls the layout() method once to initializes the layout
-    #[cfg(feature = "opengl")]
+    #[cfg(all(feature = "opengl", feature = "multithreading"))]
     pub fn new(
         init: WindowInternalInit,
         data: &mut RefAny,
@@ -814,7 +821,7 @@ impl WindowInternal {
     }
 
     /// Calls the layout function again and updates the self.internal.gl_texture_cache field
-    #[cfg(feature = "opengl")]
+    #[cfg(all(feature = "opengl", feature = "multithreading"))]
     pub fn regenerate_styled_dom(
         &mut self,
         data: &mut RefAny,
@@ -904,8 +911,8 @@ impl WindowInternal {
 
     pub fn get_layout_size(&self) -> LayoutSize {
         LayoutSize::new(
-            self.current_window_state.size.dimensions.width.round() as isize,
-            self.current_window_state.size.dimensions.height.round() as isize
+            libm::roundf(self.current_window_state.size.dimensions.width) as isize,
+            libm::roundf(self.current_window_state.size.dimensions.height) as isize
         )
     }
 }
@@ -1111,11 +1118,11 @@ impl FullWindowState {
         &self.keyboard_state
     }
 
-    pub fn get_hovered_file(&self) -> Option<&PathBuf> {
+    pub fn get_hovered_file(&self) -> Option<&AzString> {
         self.hovered_file.as_ref()
     }
 
-    pub fn get_dropped_file(&self) -> Option<&PathBuf> {
+    pub fn get_dropped_file(&self) -> Option<&AzString> {
         self.dropped_file.as_ref()
     }
 

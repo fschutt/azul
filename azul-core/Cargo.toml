@@ -17,15 +17,17 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 azul-css                = { path = "../azul-css",        version = "0.0.1"                  }
+libm                    = { version = "0.2.1",   default-features = false                   }
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1", optional = true }
-rayon                   = { version = "1.5.0",   default-features = false }
+rayon                   = { version = "1.5.0",   default-features = false,  optional = true }
 gleam                   = { version = "0.13.1",  default-features = false,  optional = true }
-
 [features]
 default = ["opengl"]
 # Enables the CSS parser
 css_parser = ["azul-css-parser"]
 # Enables the OpenGL module (uses gleam)
 opengl = ["gleam"]
-# Enables hashing for callbacks (needs libstd)
+# Enables multithreading functions (rayon)
+multithreading = ["rayon"]
+# Enables hashing for timing and threading
 std = []

@@ -2,7 +2,6 @@ use core::{
     fmt,
 };
 use alloc::vec::Vec;
-use alloc::string::String;
 use alloc::collections::btree_map::BTreeMap;
 use azul_css::{
     LayoutPoint, LayoutSize, LayoutRect,
@@ -56,6 +55,7 @@ pub struct CachedDisplayList {
 
 impl CachedDisplayList {
 
+    #[cfg(feature = "multithreading")]
     pub fn new(
         epoch: Epoch,
         pipeline_id: PipelineId,
@@ -553,6 +553,7 @@ pub struct SolvedLayout {
 }
 
 pub struct RenderCallbacks {
+    #[cfg(feature = "opengl")]
     pub insert_into_active_gl_textures: GlStoreImageFn,
     pub layout_fn: LayoutFn,
     pub load_font_fn: LoadFontFn,
@@ -563,7 +564,7 @@ pub struct RenderCallbacks {
 impl SolvedLayout {
 
     /// Does the layout, updates the image + font resources for the RenderAPI
-    #[cfg(feature = "opengl")]
+    #[cfg(all(feature = "opengl", feature = "multithreading"))]
     pub fn new(
         styled_dom: StyledDom,
         epoch: Epoch,
@@ -703,6 +704,7 @@ impl SolvedLayout {
     }
 }
 
+#[cfg(feature = "multithreading")]
 pub fn push_rectangles_into_displaylist<'a>(
     root_content_group: &ContentGroup,
     referenced_content: &DisplayListParametersRef<'a>,
@@ -735,6 +737,7 @@ pub fn push_rectangles_into_displaylist<'a>(
 }
 
 /// Push a single rectangle into the display list builder
+#[cfg(feature = "multithreading")]
 pub fn displaylist_handle_rect<'a>(
     rect_idx: NodeId,
     referenced_content: &DisplayListParametersRef<'a>,

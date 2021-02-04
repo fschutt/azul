@@ -3,6 +3,8 @@
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
 )]
 
+#![no_std]
+
 extern crate azul_core;
 extern crate azul_css;
 #[cfg(feature = "text_layout")]

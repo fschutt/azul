@@ -1003,6 +1003,7 @@ impl AppResources {
 
 /// Scans the DisplayList for new images and fonts. After this call, the RenderApi is
 /// guaranteed to know about all FontKeys and FontInstanceKey
+#[cfg(feature = "multithreading")]
 pub fn add_fonts_and_images(
     app_resources: &mut AppResources,
     render_api_namespace: IdNamespace,

@@ -69,6 +69,8 @@
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
 )]
 
+#![no_std] // doable once allsorts PR is merged
+
 extern crate azul_css;
 extern crate azul_core;
 extern crate unicode_normalization;

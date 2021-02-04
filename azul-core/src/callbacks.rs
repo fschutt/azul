@@ -28,7 +28,7 @@ use crate::{
         RawWindowHandle, KeyboardState, MouseState,
     },
     task::{
-        Timer, Thread, TimerId, ThreadId, AzInstantPtr,
+        Timer, Thread, TimerId, ThreadId, Instant, ExternalSystemCallbacks,
         TerminateTimer, ThreadSender, ThreadReceiver,
     },
 };
@@ -181,7 +181,7 @@ impl RefAny {
     }
 
     pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, custom_destructor: extern "C" fn(&mut c_void)) -> Self {
-        use core::{alloc, ptr};
+        use core::ptr;
 
         // cast the struct as bytes
         let struct_as_bytes = unsafe { ::core::slice::from_raw_parts(ptr as *const u8, len) };
@@ -263,7 +263,6 @@ impl RefAny {
 
 impl Drop for RefAny {
     fn drop(&mut self) {
-        use core::alloc;
         self.sharing_info.downcast_mut().num_copies -= 1;
         if self.is_dead {
             let _ = self.clone_into_library_memory();
@@ -399,8 +398,7 @@ macro_rules! impl_callback {($callback_value:ident) => (
         }
     }
 
-    #[cfg(feature = "std")]
-    impl std::hash::Hash for $callback_value {
+    impl core::hash::Hash for $callback_value {
         fn hash<H>(&self, state: &mut H) where H: ::core::hash::Hasher {
             state.write_usize(self.cb as usize);
         }
@@ -519,6 +517,8 @@ pub struct CallbackInfo {
     current_window_handle: *const RawWindowHandle,
     /// Currently active, layouted rectangles
     node_hierarchy: *const AzNodeVec,
+    /// Callbacks for creating threads and getting the system time (since this crate uses no_std)
+    system_callbacks: ExternalSystemCallbacks,
     /// Current datasets in the DOM
     dataset_map: *mut BTreeMap<NodeId, *mut RefAny>, // &'a BTreeMap<NodeId, &'b mut RefAny>
     /// Sets whether the event should be propagated to the parent hit node or not
@@ -559,6 +559,7 @@ impl CallbackInfo {
        new_windows: &'a mut Vec<WindowCreateOptions>,
        current_window_handle: &'a RawWindowHandle,
        node_hierarchy: &'a AzNodeVec,
+       system_callbacks: ExternalSystemCallbacks,
        dataset_map: &'a mut BTreeMap<NodeId, &'b mut RefAny>,
        stop_propagation: &'a mut bool,
        focus_target: &'a mut Option<FocusTarget>,
@@ -578,6 +579,7 @@ impl CallbackInfo {
             threads: threads as *mut FastHashMap<ThreadId, Thread>,
             new_windows: new_windows as *mut Vec<WindowCreateOptions>,
             current_window_handle: current_window_handle as *const RawWindowHandle,
+            system_callbacks: system_callbacks,
             node_hierarchy: node_hierarchy as *const AzNodeVec,
             dataset_map: dataset_map as *mut BTreeMap<NodeId, &'b mut RefAny> as *mut BTreeMap<NodeId, *mut RefAny>,
             stop_propagation: stop_propagation as *mut bool,
@@ -593,6 +595,7 @@ impl CallbackInfo {
 
     fn internal_get_current_window_state<'a>(&'a self) -> &'a FullWindowState { unsafe { &*self.current_window_state } }
     fn internal_get_modifiable_window_state<'a>(&'a mut self)-> &'a mut WindowState { unsafe { &mut *self.modifiable_window_state } }
+    #[cfg(feature = "opengl")]
     fn internal_get_gl_context<'a>(&'a self) -> &'a GlContextPtr { unsafe { &*self.gl_context } }
     fn internal_get_resources<'a>(&'a self) -> &'a mut AppResources { unsafe { &mut *self.resources } }
     fn internal_get_timers<'a>(&'a self) -> &'a mut FastHashMap<TimerId, Timer> { unsafe { &mut *self.timers } }
@@ -624,6 +627,7 @@ impl CallbackInfo {
 
     pub fn get_current_window_handle(&self) -> RawWindowHandle { self.internal_get_current_window_handle().clone() }
 
+    #[cfg(feature = "opengl")]
     pub fn get_gl_context(&self) -> GlContextPtr { self.internal_get_gl_context().clone() }
 
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
@@ -712,7 +716,7 @@ impl CallbackInfo {
     }
 
     pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType) {
-        let thread = Thread::new(thread_initialize_data, writeback_data, callback);
+        let thread = unsafe { (self.system_callbacks.create_thread_fn)(thread_initialize_data, writeback_data, callback) };
         self.internal_get_threads().insert(id, thread);
     }
 
@@ -755,6 +759,7 @@ pub struct GlCallbackInfo {
 pub type GlCallbackType = extern "C" fn(&RefAny, GlCallbackInfo) -> GlCallbackReturn;
 
 impl GlCallbackInfo {
+    #[cfg(feature = "opengl")]
     pub fn new<'a>(
        gl_context: &'a GlContextPtr,
        resources: &'a AppResources,
@@ -767,12 +772,14 @@ impl GlCallbackInfo {
         }
     }
 
+    #[cfg(feature = "opengl")]
     pub fn get_gl_context(&self) -> GlContextPtr { self.internal_get_gl_context().clone() }
     pub fn get_bounds(&self) -> HidpiAdjustedBounds { self.internal_get_bounds() }
 
     // fn get_font()
     // fn get_image()
 
+    #[cfg(feature = "opengl")]
     fn internal_get_gl_context<'a>(&'a self) -> &'a GlContextPtr { unsafe { &*self.gl_context } }
     fn internal_get_resources<'a>(&'a self) -> &'a AppResources { unsafe { &*self.resources } }
     fn internal_get_bounds<'a>(&'a self) -> HidpiAdjustedBounds { self.bounds }
@@ -859,7 +866,7 @@ pub struct TimerCallbackInfo {
     /// Callback info for this timer
     pub callback_info: CallbackInfo,
     /// Time when the frame was started rendering
-    pub frame_start: AzInstantPtr,
+    pub frame_start: Instant,
     /// How many times this callback has been called
     pub call_count: usize,
 }

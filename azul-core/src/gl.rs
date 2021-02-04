@@ -552,7 +552,19 @@ pub fn gl_textures_remove_epochs_from_pipeline(pipeline_id: &PipelineId, epoch: 
             Some(s) => s,
             None => return,
         };
-        active_epochs.retain(|gl_texture_epoch, _| *gl_texture_epoch > epoch);
+
+        // NOTE: original code used retain() but that doesn't work on no_std
+        let mut epochs_to_remove = Vec::new();
+
+        for (gl_texture_epoch, _) in active_epochs.iter() {
+            if !(*gl_texture_epoch > epoch) {
+                epochs_to_remove.push(*gl_texture_epoch);
+            }
+        }
+
+        for epoch in epochs_to_remove {
+            active_epochs.remove(&epoch);
+        }
     }
 }
 

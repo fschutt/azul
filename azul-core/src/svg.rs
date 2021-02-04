@@ -199,8 +199,8 @@ pub struct SvgCircle {
 
 impl SvgCircle {
     pub fn contains_point(&self, x: f32, y: f32) -> bool {
-        let x_diff = (x - self.center_x).abs();
-        let y_diff = (y - self.center_y).abs();
+        let x_diff = libm::fabsf(x - self.center_x);
+        let y_diff = libm::fabsf(y - self.center_y);
         (x_diff * x_diff) + (y_diff * y_diff) < (self.radius * self.radius)
     }
 }

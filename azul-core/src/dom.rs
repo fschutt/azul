@@ -1,6 +1,5 @@
 use core::{
     fmt,
-    hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering},
     iter::FromIterator,
 };
@@ -974,6 +973,7 @@ impl NodeData {
     pub fn calculate_node_data_hash(&self) -> DomHash {
 
         use std::collections::hash_map::DefaultHasher as HashAlgorithm;
+        use std::hash::{Hash, Hasher};
 
         let mut hasher = HashAlgorithm::default();
         self.hash(&mut hasher);
@@ -1140,6 +1140,7 @@ impl Dom {
         output.trim().to_string()
     }
 
+    #[cfg(feature = "multithreading")]
     pub fn style(self, css: Css) -> StyledDom {
         StyledDom::new(self, css)
     }

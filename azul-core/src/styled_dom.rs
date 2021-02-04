@@ -237,6 +237,23 @@ macro_rules! get_property {
 
 impl CssPropertyCache {
 
+    pub fn empty(node_count: usize) -> Self {
+        const EMPTY_VEC: Vec<CssProperty> = Vec::new();
+        Self {
+            // non-default CSS properties that were set on the DOM nodes themselves (inline properties)
+            non_default_inline_normal_props:    NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
+            non_default_inline_hover_props:     NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
+            non_default_inline_active_props:    NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
+            non_default_inline_focus_props:     NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
+
+            // non-default CSS properties that were set via a CSS file
+            non_default_css_normal_props:    NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
+            non_default_css_hover_props:     NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
+            non_default_css_active_props:    NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
+            non_default_css_focus_props:     NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
+        }
+    }
+
     pub fn append(&mut self, other: &mut Self) {
 
         // a: NodeDataContainer<Vec<Property>>
@@ -684,7 +701,26 @@ pub struct StyledDom {
 
 impl Default for StyledDom {
     fn default() -> Self {
-        StyledDom::new(Dom::body(), Css::empty())
+        use crate::dom::NodeData;
+        use crate::style::CascadeInfo;
+        let root_node: AzNode = Node::ROOT.into();
+        let root_node_id: AzNodeId = AzNodeId::from_crate_internal(Some(NodeId::ZERO));
+        Self {
+            root: root_node_id,
+            node_hierarchy: vec![root_node].into(),
+            node_data: vec![NodeData::body()].into(),
+            styled_nodes: vec![StyledNode::default()].into(),
+            cascade_info: vec![CascadeInfo {
+                index_in_parent: 0,
+                is_last_child: true,
+            }].into(),
+            tag_ids_to_node_ids: Vec::new().into(),
+            non_leaf_nodes: vec![ParentWithNodeDepth {
+                depth: 0,
+                node_id: root_node_id,
+            }].into(),
+            css_property_cache: CssPropertyCachePtr::new(CssPropertyCache::empty(1)),
+        }
     }
 }
 
@@ -796,11 +832,11 @@ macro_rules! restyle_nodes {($self_val:expr, $field:ident, $new_field_state:expr
 
 impl StyledDom {
 
+    #[cfg(feature = "multithreading")]
     pub fn new(dom: Dom, css: Css) -> Self {
 
         use azul_css::CssDeclaration;
         use crate::dom::{TabIndex, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec};
-        use core::iter::FromIterator;
         use rayon::prelude::*;
 
         let mut compact_dom: CompactDom = dom.into();
@@ -1159,6 +1195,7 @@ impl StyledDom {
     }
 
     /// Scans the display list for all font IDs + their font size
+    #[cfg(feature = "multithreading")]
     pub(crate) fn scan_for_font_keys(&self, app_resources: &AppResources) -> FastHashMap<ImmediateFontId, FastBTreeSet<Au>> {
 
         use crate::dom::NodeType::*;
@@ -1194,6 +1231,7 @@ impl StyledDom {
     }
 
     /// Scans the display list for all image keys
+    #[cfg(feature = "multithreading")]
     pub(crate) fn scan_for_image_keys(&self, app_resources: &AppResources) -> FastBTreeSet<ImageId> {
 
         use crate::dom::NodeType::*;
@@ -1270,21 +1308,25 @@ impl StyledDom {
         }
     }
 
+    #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_nodes_hover(&mut self, nodes: &[NodeId], new_hover_state: bool) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
         restyle_nodes!(self, hover, new_hover_state, non_default_inline_hover_props, non_default_css_hover_props, nodes)
     }
 
+    #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_nodes_active(&mut self, nodes: &[NodeId], new_active_state: bool) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
         restyle_nodes!(self, active, new_active_state, non_default_inline_active_props, non_default_css_active_props, nodes)
     }
 
+    #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_nodes_focus(&mut self, nodes: &[NodeId], new_focus_state: bool) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
         restyle_nodes!(self, focused, new_focus_state, non_default_inline_focus_props, non_default_css_focus_props, nodes)
     }
 
+    #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_inline_normal_props(&mut self, node_id: &NodeId, new_properties: &[CssProperty]) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
         // exchange the inline properties for the node n with the new properties
@@ -1312,6 +1354,7 @@ impl StyledDom {
     }
 
     /// Scans the `StyledDom` for iframe callbacks
+    #[cfg(feature = "multithreading")]
     pub fn scan_for_iframe_callbacks(&self) -> Vec<NodeId> {
         use rayon::prelude::*;
         use crate::dom::NodeType;
@@ -1328,7 +1371,7 @@ impl StyledDom {
     }
 
     /// Scans the `StyledDom` for OpenGL callbacks
-    #[cfg(feature = "opengl")]
+    #[cfg(all(feature = "opengl", feature = "multithreading"))]
     pub(crate) fn scan_for_gltexture_callbacks(&self) -> Vec<NodeId> {
         use rayon::prelude::*;
         use crate::dom::NodeType;
@@ -1412,6 +1455,7 @@ impl StyledDom {
         output.trim().to_string()
     }
 
+    #[cfg(feature = "multithreading")]
     pub fn get_rects_in_rendering_order(&self) -> ContentGroup {
         Self::determine_rendering_order(
             &self.non_leaf_nodes.as_ref(),
@@ -1422,6 +1466,7 @@ impl StyledDom {
     }
 
     /// Returns the rendering order of the items (the rendering order doesn't have to be the original order)
+    #[cfg(feature = "multithreading")]
     fn determine_rendering_order<'a>(
         non_leaf_nodes: &[ParentWithNodeDepth],
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>,

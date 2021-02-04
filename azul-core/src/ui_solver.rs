@@ -73,8 +73,8 @@ impl InlineTextLayout {
         // because of sub-pixel text positioning, calculating the bound has to be done using floating point
         match LogicalRect::union(self.lines.iter().map(|c| c.bounds)) {
             Some(s) => LayoutRect {
-                origin: LayoutPoint::new(s.origin.x.floor() as isize, s.origin.y.floor() as isize),
-                size: LayoutSize::new(s.size.width.ceil() as isize, s.size.height.ceil() as isize),
+                origin: LayoutPoint::new(libm::floorf(s.origin.x) as isize, libm::floorf(s.origin.y) as isize),
+                size: LayoutSize::new(libm::ceilf(s.size.width) as isize, libm::ceilf(s.size.height) as isize),
             },
             None => LayoutRect::zero(),
         }
@@ -404,8 +404,8 @@ impl LayoutResult {
             let scroll_state = scroll_states.get_scroll_position(&overflowing_scroll_node.parent_external_scroll_id)?;
 
             let mut scrolled_cursor = *cursor;
-            scrolled_cursor.x += scroll_state.x.round() as isize;
-            scrolled_cursor.y += scroll_state.y.round() as isize;
+            scrolled_cursor.x += libm::roundf(scroll_state.x) as isize;
+            scrolled_cursor.y += libm::roundf(scroll_state.y) as isize;
 
             let rect = overflowing_scroll_node.child_rect.clone();
 
@@ -583,6 +583,7 @@ impl DirectionalOverflowInfo {
         }
     }
 }
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum PositionInfo {
     Static { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
@@ -603,32 +604,13 @@ impl PositionInfo {
 }
 impl PositionedRectangle {
 
-    pub fn get_static_bounds(&self) -> Option<LayoutRect> {
-        match self.position {
-            PositionInfo::Static { static_x_offset, static_y_offset, .. }     => Some(LayoutRect::new(
-                LayoutPoint::new(static_x_offset.round() as isize, static_y_offset.round() as isize),
-                self.get_content_size()
-            )),
-            PositionInfo::Fixed { .. }      => None,
-            PositionInfo::Absolute { .. }   => None, // TODO?
-            PositionInfo::Relative { static_x_offset, static_y_offset, .. }   => Some(LayoutRect::new(
-                LayoutPoint::new(static_x_offset.round() as isize, static_y_offset.round() as isize),
-                self.get_content_size()
-            )),
-        }
-    }
-
-    pub fn get_approximate_static_bounds(&self) -> LayoutRect {
-        LayoutRect::new(self.get_static_offset(), self.get_content_size())
-    }
-
-    pub fn get_static_offset(&self) -> LayoutPoint {
+    fn get_static_offset(&self) -> LayoutPoint {
         match self.position {
             PositionInfo::Static { static_x_offset, static_y_offset, .. } |
             PositionInfo::Fixed { static_x_offset, static_y_offset, .. } |
             PositionInfo::Absolute { static_x_offset, static_y_offset, .. } |
             PositionInfo::Relative { static_x_offset, static_y_offset, .. } => {
-                LayoutPoint::new(static_x_offset.round() as isize, static_y_offset.round() as isize)
+                LayoutPoint::new(libm::roundf(static_x_offset) as isize, libm::roundf(static_y_offset) as isize)
             },
         }
     }
@@ -642,11 +624,6 @@ impl PositionedRectangle {
             border_widths: self.border_widths,
             overflow: self.overflow,
         }
-    }
-
-    // Returns the rect where the content should be placed (for example the text itself)
-    pub fn get_content_size(&self) -> LayoutSize {
-        LayoutSize::new(self.size.width.round() as isize, self.size.height.round() as isize)
     }
 
     // Returns the rect that includes bounds, expanded by the padding + the border widths

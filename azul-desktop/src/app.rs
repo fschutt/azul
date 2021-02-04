@@ -170,6 +170,12 @@ impl App {
     }
 }
 
+/// Necessary to tell azul-core what the current system time is (for animation timing)
+#[cfg(not(feature = "no_std"))]
+extern "C" fn get_current_time() -> Instant {
+    Instant::SystemInstant(std::time::Instant::now().into())
+}
+
 #[cfg(not(test))]
 #[allow(unused_variables)]
 fn run_inner(app: App) -> ! {

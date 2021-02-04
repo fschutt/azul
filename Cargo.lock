@@ -104,6 +104,7 @@ dependencies = [
  "azul-css",
  "azul-css-parser",
  "gleam",
+ "libm",
  "rayon",
 ]
 
