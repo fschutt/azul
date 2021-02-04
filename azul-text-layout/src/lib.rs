@@ -71,14 +71,22 @@
 
 #![no_std] // doable once allsorts PR is merged
 
+extern crate core;
+#[macro_use]
+extern crate alloc;
+
+#[macro_use]
 extern crate azul_css;
 extern crate azul_core;
 extern crate unicode_normalization;
 extern crate allsorts;
-extern crate whatlang;
+#[macro_use(tiny_vec)]
+extern crate tinyvec;
 
-use std::any::Any;
+use core::any::Any;
+use alloc::boxed::Box;
 
+pub mod script;
 pub mod text_layout;
 // pub mod text_shaping;
 #[path = "./text_shaping_new.rs"]

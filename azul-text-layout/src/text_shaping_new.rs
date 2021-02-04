@@ -4,8 +4,10 @@ use azul_core::app_resources::{
     Info, Advance,
 };
 use tinyvec::tiny_vec;
-use std::collections::BTreeMap;
-use std::rc::Rc;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::rc::Rc;
+use alloc::vec::Vec;
+use alloc::boxed::Box;
 use allsorts::{
     binary::read::ReadScope,
     font_data::FontData,
@@ -21,7 +23,7 @@ use allsorts::{
 
 pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
 
-    use std::num::NonZeroU16;
+    use core::num::NonZeroU16;
 
     #[derive(Default)]
     struct Os2Info {
@@ -217,7 +219,7 @@ pub struct ParsedFont {
     pub cmap_subtable: OwnedCmapSubtable,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
 pub enum GlyphOutlineOperation {
     MoveTo(OutlineMoveTo),
@@ -227,21 +229,21 @@ pub enum GlyphOutlineOperation {
     ClosePath,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct OutlineMoveTo {
     pub x: f32,
     pub y: f32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct OutlineLineTo {
     pub x: f32,
     pub y: f32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct OutlineQuadTo {
     pub ctrl_1_x: f32,
@@ -250,7 +252,7 @@ pub struct OutlineQuadTo {
     pub end_y: f32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct OutlineCubicTo {
     pub ctrl_1_x: f32,
@@ -261,15 +263,21 @@ pub struct OutlineCubicTo {
     pub end_y: f32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct GlyphOutline {
     pub operations: GlyphOutlineOperationVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 struct GlyphOutlineBuilder {
     operations: Vec<GlyphOutlineOperation>
+}
+
+impl Default for GlyphOutlineBuilder {
+    fn default() -> Self {
+        GlyphOutlineBuilder { operations: Vec::new() }
+    }
 }
 
 impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
@@ -280,8 +288,11 @@ impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
     fn close(&mut self) { self.operations.push(GlyphOutlineOperation::ClosePath); }
 }
 
-impl_vec!(GlyphOutlineOperation, GlyphOutlineOperationVec);
-impl_vec_clone!(GlyphOutlineOperation, GlyphOutlineOperationVec);
+impl_vec!(GlyphOutlineOperation, GlyphOutlineOperationVec, GlyphOutlineOperationVecDestructor);
+impl_vec_clone!(GlyphOutlineOperation, GlyphOutlineOperationVec, GlyphOutlineOperationVecDestructor);
+impl_vec_debug!(GlyphOutlineOperation, GlyphOutlineOperationVec);
+impl_vec_partialord!(GlyphOutlineOperation, GlyphOutlineOperationVec);
+impl_vec_partialeq!(GlyphOutlineOperation, GlyphOutlineOperationVec);
 
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -331,17 +342,34 @@ impl ParsedFont {
 
         let font_metrics = get_font_metrics(font_bytes, font_index);
 
-        let mut font_data_impl = allsorts::font::Font::new(provider).ok()??;
-
         // also parse the font from owned-ttf-parser, to get the outline
-        // TODO: use decoded font
-        let owned_ttf_face = ttf_parser::Face::from_slice(font_bytes, font_index as u32).ok()?;
+        // parsing the outline needs the following tables:
+        //
+        //     gvar, // optional, for variable fonts
+        //     glyf,
+        //     cff1,
+        //     cff2, // optional, for variable fonts
+
+        // required tables first
+        let cff1 = provider.table_data(tag::CFF);
+        let gvar = provider.table_data(tag::GVAR);
+        let cff2 = provider.table_data(tag!(b"CFF2"));
+
+        let mut outline_font_tables = vec![
+            Ok((ttf_parser::Tag::from_bytes(b"glyf"), Some(glyf_data.as_ref())))
+        ];
+
+        if let Ok(Some(cff1_table)) = cff1.as_ref().as_ref() { outline_font_tables.push(Ok((ttf_parser::Tag::from_bytes(b"CFF "), Some(cff1_table.as_ref())))); }
+        if let Ok(Some(gvar_table)) = gvar.as_ref().as_ref() { outline_font_tables.push(Ok((ttf_parser::Tag::from_bytes(b"gvar"), Some(gvar_table.as_ref())))); }
+        if let Ok(Some(cff2_table)) = cff2.as_ref().as_ref() { outline_font_tables.push(Ok((ttf_parser::Tag::from_bytes(b"CFF2"), Some(cff2_table.as_ref())))); }
+
+        let ttf_face_tables = ttf_parser::FaceTables::from_table_provider(outline_font_tables.into_iter()).ok()?;
 
         // parse the glyphs on startup, since otherwise it will slow down the layout
         let glyph_records_decoded = glyf_table.records
         .into_par_iter()
         .enumerate()
-        .filter_map(|(glyph_index, mut glyph_record)| {
+        .filter_map(|(glyph_index, _)| {
             // glyph_record.parse().ok()?;
             if glyph_index > (u16::MAX as usize) {
                 return None;
@@ -349,17 +377,17 @@ impl ParsedFont {
             let glyph_index = glyph_index as u16;
             let horz_advance = allsorts::glyph_info::advance(&maxp_table, &hhea_table, &hmtx_data, glyph_index).unwrap_or_default();
             let mut outline = GlyphOutlineBuilder::default();
-            let bounding_rect = owned_ttf_face.outline_glyph(glyph_index, &mut outline)?;
-            Some(OwnedGlyph {
+            let bounding_rect = ttf_face_tables.outline_glyph(ttf_parser::GlyphId(glyph_index), &mut outline)?;
+            Some((glyph_index, OwnedGlyph {
                 horz_advance,
                 bounding_box: OwnedGlyphBoundingBox {
-                    max_x: bounding_rect.max_x,
-                    max_y: bounding_rect.max_y,
-                    min_x: bounding_rect.min_x,
-                    min_y: bounding_rect.min_y,
+                    max_x: bounding_rect.x_max,
+                    max_y: bounding_rect.y_max,
+                    min_x: bounding_rect.x_min,
+                    min_y: bounding_rect.y_min,
                 },
-                outline: GlyphOutline { outline.operations.into() },
-            })
+                outline: GlyphOutline { operations: outline.operations.into() },
+            }))
             // match glyph_record {
             //     GlyfRecord::Empty | GlyfRecord::Present(_) => None,
             //     GlyfRecord::Parsed(g) => {
@@ -369,6 +397,8 @@ impl ParsedFont {
         }).collect::<Vec<_>>();
 
         let glyph_records_decoded = glyph_records_decoded.into_iter().collect();
+
+        let mut font_data_impl = allsorts::font::Font::new(provider).ok()??;
 
         // required for font layout: gsub_cache, gpos_cache and gdef_table
         let gsub_cache = font_data_impl.gsub_cache().ok()??;
@@ -416,12 +446,12 @@ impl ParsedFont {
     // get the x and y size of a glyph in unscaled units
     pub fn get_glyph_size(&self, glyph_index: u16) -> Option<(i32, i32)> {
         let g = self.glyph_records_decoded.get(&glyph_index)?;
-        let glyph_width = g.bounding_box.x_max as i32 - g.bounding_box.x_min as i32; // width
-        let glyph_height = g.bounding_box.y_max as i32 - g.bounding_box.y_min as i32; // height
+        let glyph_width = g.bounding_box.max_x as i32 - g.bounding_box.min_x as i32; // width
+        let glyph_height = g.bounding_box.max_y as i32 - g.bounding_box.min_y as i32; // height
         Some((glyph_width, glyph_height))
     }
 
-    pub fn shape(&self, text: &[char], script: u32, lang: u32) -> ShapedTextBufferUnsized {
+    pub fn shape(&self, text: &[char], script: u32, lang: Option<u32>) -> ShapedTextBufferUnsized {
         shape(self, text, script, lang).unwrap_or_default()
     }
 
@@ -467,10 +497,10 @@ const fn tag(chars: [u8; 4]) -> u32 {
 
 /// Estimate the language and the script from the text (uses trigrams)
 #[allow(dead_code)]
-pub fn estimate_script_and_language(text: &str) -> (u32, u32) {
+pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
 
     use allsorts::tag as tag_mod;
-    use whatlang::{Script, Lang};
+    use crate::script::Script; // whatlang::Script
 
     // https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags
 
@@ -645,13 +675,16 @@ pub fn estimate_script_and_language(text: &str) -> (u32, u32) {
     // missing: Yi
 
     // auto-detect script + language from text (todo: performance!)
-    let (lang, script) = whatlang::detect(text)
-        .map(|info| (info.lang(), info.script()))
-        .unwrap_or((Lang::Eng, Script::Latin));
 
-    let lang = tag_mod::from_string(&lang.code().to_string().to_uppercase()).unwrap();
+    // let (lang, script) = whatlang::detect(text)
+    //     .map(|info| (info.lang(), info.script()))
+    //     .unwrap_or((Lang::Eng, Script::Latin));
 
-    let script = match script {
+    let lang = None; // detecting the language is only necessary for special font features
+
+    // let lang = tag_mod::from_string(&lang.code().to_string().to_uppercase()).unwrap();
+
+    let script = match crate::script::detect_script(text).unwrap_or(Script::Latin) {
         Script::Arabic          => TAG_ARAB,
         Script::Bengali         => TAG_BENG,
         Script::Cyrillic        => TAG_CYRL,
@@ -685,9 +718,9 @@ pub fn estimate_script_and_language(text: &str) -> (u32, u32) {
 // get_word_visual_width(word: &TextBuffer) ->
 // get_glyph_instances(infos: &GlyphInfos, positions: &GlyphPositions) -> PositionedGlyphBuffer
 
-fn shape<'a>(font: &ParsedFont, text: &[char], script: u32, lang: u32) -> Option<ShapedTextBufferUnsized> {
+fn shape<'a>(font: &ParsedFont, text: &[char], script: u32, lang: Option<u32>) -> Option<ShapedTextBufferUnsized> {
 
-    use std::convert::TryFrom;
+    use core::convert::TryFrom;
     use allsorts::gpos::apply as gpos_apply;
     use allsorts::gsub::apply as gsub_apply;
 
@@ -723,7 +756,7 @@ fn shape<'a>(font: &ParsedFont, text: &[char], script: u32, lang: u32) -> Option
         &font.gsub_cache,
         Some(Rc::as_ref(&font.gdef_table)),
         script,
-        Some(lang),
+        lang,
         &allsorts::gsub::Features::Mask(allsorts::gsub::GsubFeatureMask::default()),
         font.num_glyphs,
         &mut glyphs,
@@ -738,7 +771,7 @@ fn shape<'a>(font: &ParsedFont, text: &[char], script: u32, lang: u32) -> Option
         Some(Rc::as_ref(&font.gdef_table)),
         kerning,
         script,
-        Some(lang),
+        lang,
         &mut infos,
     ).ok()?;
 

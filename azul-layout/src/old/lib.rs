@@ -5,6 +5,9 @@
 
 #![no_std]
 
+extern crate alloc;
+extern crate core;
+
 extern crate azul_core;
 extern crate azul_css;
 #[cfg(feature = "text_layout")]

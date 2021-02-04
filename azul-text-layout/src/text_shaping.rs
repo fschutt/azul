@@ -1,6 +1,8 @@
 //! Contains functions for laying out single words (uses HarfBuzz for context-aware font shaping).
 
-use std::{slice, ptr, u32, ops::Deref, os::raw::{c_char, c_uint}};
+use core::{slice, ptr, u32, ops::Deref};
+#[cfg(feature = "std")]
+use std::os::raw::{c_char, c_uint};
 use harfbuzz_sys::{
     hb_blob_create, hb_blob_destroy,
     hb_font_create, hb_font_destroy,

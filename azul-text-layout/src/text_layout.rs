@@ -16,6 +16,8 @@ pub use azul_core::{
     window::{LogicalRect, LogicalSize, LogicalPosition},
 };
 use azul_css::LayoutRect;
+use alloc::vec::Vec;
+use alloc::string::String;
 
 /// Creates a font from a font file (TTF, OTF, WOFF, etc.)
 ///
@@ -179,7 +181,7 @@ pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
 pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_options: &ResolvedTextLayoutOptions) -> WordPositions {
 
     use self::WordType::*;
-    use std::f32;
+    use core::f32;
 
     let font_size_px = text_layout_options.font_size_px;
     let space_advance_px = shaped_words.get_space_advance_px(text_layout_options.font_size_px);

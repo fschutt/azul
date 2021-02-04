@@ -1,5 +1,7 @@
 use rayon::prelude::*;
-use std::{f32, collections::{BTreeMap, BTreeSet}};
+use core::f32;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::collections::btree_set::BTreeSet;
 use azul_css::*;
 use azul_core::{
     traits::GetTextLayout,
