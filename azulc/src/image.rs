@@ -1,6 +1,8 @@
 #![cfg(feature = "image_loading")]
 
 use azul_core::app_resources::LoadedImageSource;
+use alloc::vec::Vec;
+
 pub use image_crate::{ImageError, DynamicImage, GenericImageView};
 
 pub fn decode_image_data(image_data: &[u8]) -> Result<LoadedImageSource, ImageError> {

@@ -1,6 +1,7 @@
-use std::ffi::c_void;
 use azul_css::{U8Vec, AzString};
 use azul_core::window::OptionAzString;
+
+pub enum c_void { }
 
 #[repr(C)]
 pub enum XmlNodeType {

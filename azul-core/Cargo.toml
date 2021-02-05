@@ -21,6 +21,8 @@ libm                    = { version = "0.2.1",   default-features = false       
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1", optional = true }
 rayon                   = { version = "1.5.0",   default-features = false,  optional = true }
 gleam                   = { version = "0.13.1",  default-features = false,  optional = true }
+ahash                   = { version = "0.7.0", default-features = false }
+
 [features]
 default = ["opengl", "multithreading"]
 # Enables the CSS parser

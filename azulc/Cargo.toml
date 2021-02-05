@@ -19,6 +19,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "azulc"
 path = "src/main.rs"
+required-features = ["xml"]
 
 [dependencies]
 gleam                   = { version = "0.13.1",          default-features = false }
@@ -28,7 +29,7 @@ azul-css                = { path = "../azul-css",        version = "0.0.1",     
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",          default-features = false }
 azul-layout             = { path = "../azul-layout",     default-features = false }
 image                   = { version = "0.23.12",         default-features = false,       optional = true,    features = ["gif", "jpeg", "png", "tiff", "bmp"]    }
-font-loader             = { version = "0.11.0",          default-features = false,       optional = true                                                                     }
+font-loader             = { version = "0.11.0",          default-features = false,       optional = true }
 lyon                    = { version = "0.15.8",  default-features = false,  optional = true }
 rusttype                = { version = "0.9.2",   default-features = false,  features = ["std"], optional = true }
 rayon                   = { version = "1.5.0",   default-features = false,  optional = true }
@@ -40,7 +41,7 @@ owned_ttf_parser        = { version = "0.6.0",   default-features = false,  opti
 default = ["text_layout", "image_loading", "font_loading"]
 # On some applications you might not want to load any images. For these purposes
 # the image crate can be disabled, to speed up compile times
-image_loading = ["image"]
+image_loading = ["image", "std"]
 # Enables loading of ICO files on the image decoder
 ico = ["image/ico"]
 # Enables loading of TGA files on the image decoder
@@ -56,7 +57,7 @@ webp = ["image/webp"]
 # Enables loading of PNM files on the image decoder
 pnm = ["image/pnm"]
 # Activates the font-loading module, important to deactivate for example
-font_loading = ["font-loader"]
+font_loading = ["font-loader", "std"]
 # Text loading module, disable if you have a custom text layouting function
 text_layout = ["azul-layout/text_layout"]
 # The SVG rendering module is pretty huge since it needs lyon - if you don't use
@@ -65,3 +66,5 @@ text_layout = ["azul-layout/text_layout"]
 svg = ["lyon", "rusttype", "owned_ttf_parser", "rayon", "usvg"]
 # Optional XML parser
 xml = ["roxmltree"]
+# Enable stdlib support
+std = []

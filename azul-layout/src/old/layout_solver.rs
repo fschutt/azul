@@ -2,6 +2,8 @@ use rayon::prelude::*;
 use core::f32;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::collections::btree_set::BTreeSet;
+use alloc::vec::Vec;
+use alloc::string::ToString;
 use azul_css::*;
 use azul_core::{
     traits::GetTextLayout,
@@ -16,12 +18,15 @@ use azul_core::{
         PositionedRectangle, OverflowInfo, WhConstraint, WidthCalculatedRect, HeightCalculatedRect,
         HorizontalSolvedPosition, VerticalSolvedPosition,
     },
-    app_resources::{ResourceUpdate, IdNamespace, AppResources, FontInstanceKey},
+    app_resources::{
+        ResourceUpdate, IdNamespace,
+        AppResources, FontInstanceKey,
+        ShapedWords, WordPositions, Words,
+    },
     callbacks::PipelineId,
     display_list::RenderCallbacks,
     window::{FullWindowState, LogicalRect, LogicalSize, LogicalPosition},
 };
-use azul_text_layout::{InlineText, text_layout::{Words, ShapedWords, WordPositions}};
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
 
@@ -1465,12 +1470,27 @@ pub fn do_the_layout_internal(
     );
 
     // Break all strings into words and / or resolve the TextIds
-    let word_cache = create_word_cache(&styled_dom.node_data.as_container());
+    let word_cache = {
+        #[cfg(feature = "text_layout")] {
+            create_word_cache(&styled_dom.node_data.as_container())
+        }
+        #[cfg(not(feature = "text_layout"))] {
+            BTreeMap::new()
+        }
+    };
     // Scale the words to the correct size - TODO: Cache this in the app_resources!
-    let shaped_words = create_shaped_words(&pipeline_id, app_resources, &word_cache, &styled_dom);
+    let shaped_words = {
+        #[cfg(feature = "text_layout")] {
+            create_shaped_words(&pipeline_id, app_resources, &word_cache, &styled_dom)
+        }
+        #[cfg(not(feature = "text_layout"))] {
+            BTreeMap::new()
+        }
+    };
 
     // Layout all words as if there was no max-width constraint (to get the texts "content width").
     let mut word_positions_no_max_width = BTreeMap::new();
+    #[cfg(feature = "text_layout")]
     create_word_positions(
         &mut word_positions_no_max_width,
         &all_nodes_btreeset,
@@ -1741,16 +1761,22 @@ fn position_nodes<'a>(
             word_positions.get(&parent_node_id)
         ) {
             if nodes_that_need_to_redraw_text.contains(&parent_node_id) {
-                let mut inline_text = InlineText { words, shaped_words };
-                let mut inline_text_layout = inline_text.get_text_layout(pipeline_id, parent_node_id, &word_positions.text_layout_options);
-                let (horz_alignment, vert_alignment) = determine_text_alignment(
-                    css_property_cache.get_align_items(&parent_node_id, parent_styled_node_state),
-                    css_property_cache.get_justify_content(&parent_node_id, parent_styled_node_state),
-                    css_property_cache.get_text_align(&parent_node_id, parent_styled_node_state),
-                );
-                inline_text_layout.align_children_horizontal(horz_alignment);
-                inline_text_layout.align_children_vertical_in_parent_bounds(&parent_parent_size, vert_alignment);
-                Some((word_positions.text_layout_options.clone(), inline_text_layout))
+                #[cfg(feature = "text_layout")] {
+                    use azul_text_layout::InlineText;
+                    let mut inline_text = InlineText { words, shaped_words };
+                    let mut inline_text_layout = inline_text.get_text_layout(pipeline_id, parent_node_id, &word_positions.text_layout_options);
+                    let (horz_alignment, vert_alignment) = determine_text_alignment(
+                        css_property_cache.get_align_items(&parent_node_id, parent_styled_node_state),
+                        css_property_cache.get_justify_content(&parent_node_id, parent_styled_node_state),
+                        css_property_cache.get_text_align(&parent_node_id, parent_styled_node_state),
+                    );
+                    inline_text_layout.align_children_horizontal(horz_alignment);
+                    inline_text_layout.align_children_vertical_in_parent_bounds(&parent_parent_size, vert_alignment);
+                    Some((word_positions.text_layout_options.clone(), inline_text_layout))
+                }
+                #[cfg(not(feature = "text_layout"))] {
+                    None
+                }
             } else {
                 positioned_rects[parent_node_id].resolved_text_layout_options.clone()
             }
@@ -1830,15 +1856,21 @@ fn position_nodes<'a>(
                 word_positions.get(&child_node_id)
             ) {
                 if nodes_that_need_to_redraw_text.contains(&child_node_id) {
-                    let mut inline_text_layout = InlineText { words, shaped_words }.get_text_layout(pipeline_id, child_node_id, &word_positions.text_layout_options);
-                    let (horz_alignment, vert_alignment) = determine_text_alignment(
-                        css_property_cache.get_align_items(&child_node_id, child_styled_node_state),
-                        css_property_cache.get_justify_content(&child_node_id, child_styled_node_state),
-                        css_property_cache.get_text_align(&child_node_id, child_styled_node_state),
-                    );
-                    inline_text_layout.align_children_horizontal(horz_alignment);
-                    inline_text_layout.align_children_vertical_in_parent_bounds(&parent_size, vert_alignment);
-                    Some((word_positions.text_layout_options.clone(), inline_text_layout))
+                    #[cfg(feature = "text_layout")] {
+                        use azul_text_layout::InlineText;
+                        let mut inline_text_layout = InlineText { words, shaped_words }.get_text_layout(pipeline_id, child_node_id, &word_positions.text_layout_options);
+                        let (horz_alignment, vert_alignment) = determine_text_alignment(
+                            css_property_cache.get_align_items(&child_node_id, child_styled_node_state),
+                            css_property_cache.get_justify_content(&child_node_id, child_styled_node_state),
+                            css_property_cache.get_text_align(&child_node_id, child_styled_node_state),
+                        );
+                        inline_text_layout.align_children_horizontal(horz_alignment);
+                        inline_text_layout.align_children_vertical_in_parent_bounds(&parent_size, vert_alignment);
+                        Some((word_positions.text_layout_options.clone(), inline_text_layout))
+                    }
+                    #[cfg(not(feature = "text_layout"))] {
+                        None
+                    }
                 } else {
                     positioned_rects[child_node_id].resolved_text_layout_options.clone()
                 }
@@ -1878,6 +1910,7 @@ fn position_nodes<'a>(
     }
 }
 
+#[cfg(feature = "text_layout")]
 fn create_word_cache<'a>(
     node_data: &NodeDataContainerRef<'a, NodeData>,
 ) -> BTreeMap<NodeId, Words>
@@ -1895,6 +1928,7 @@ fn create_word_cache<'a>(
     word_map.into_iter().filter_map(|a| a).collect()
 }
 
+#[cfg(feature = "text_layout")]
 pub fn create_shaped_words<'a>(
     pipeline_id: &PipelineId,
     app_resources: &mut AppResources,
@@ -1904,6 +1938,7 @@ pub fn create_shaped_words<'a>(
 
     use azul_core::app_resources::ImmediateFontId;
     use azul_text_layout::text_layout::shape_words;
+
     let css_property_cache = styled_dom.get_css_property_cache();
     let styled_nodes = styled_dom.styled_nodes.as_container();
 
@@ -1929,6 +1964,7 @@ pub fn create_shaped_words<'a>(
     }).collect()
 }
 
+#[cfg(feature = "text_layout")]
 fn create_word_positions<'a>(
     word_positions: &mut BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     word_positions_to_generate: &BTreeSet<NodeId>,
@@ -2561,6 +2597,8 @@ pub fn do_the_relayout(
             updated_word_caches.insert(child_id);
         }
     }
+
+    #[cfg(feature = "text_layout")]
     create_word_positions(
         &mut layout_result.positioned_words_cache,
         &updated_word_caches,

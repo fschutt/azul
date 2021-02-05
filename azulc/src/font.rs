@@ -38,10 +38,9 @@ pub fn load_system_font(id: &str) -> Option<(U8Vec, i32)> {
 }
 
 /// Return the native fonts
-#[cfg(target_os = "linux")]
 pub enum LinuxNativeFontType { SansSerif, Monospace }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "std"))]
 pub fn linux_get_native_font(font_type: LinuxNativeFontType) -> String {
 
     use std::process::Command;
@@ -86,7 +85,6 @@ pub fn parse_gsettings_font(input: &str) -> &str {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
 fn test_parse_gsettings_font() {
     assert_eq!(parse_gsettings_font("'Ubuntu 11'"), "Ubuntu");
     assert_eq!(parse_gsettings_font("'Ubuntu Mono 13'"), "Ubuntu Mono");
@@ -96,11 +94,11 @@ fn test_parse_gsettings_font() {
 #[test]
 fn test_font_gc() {
 
-    use std::{
+    use core::{
         collections::BTreeMap,
         hash::Hash,
-        sync::Arc,
     };
+    use alloc::sync::Arc;
     use azul_core::{
         FastHashMap, FastHashSet,
         ui_description::UiDescription,

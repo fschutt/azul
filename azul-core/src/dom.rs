@@ -969,11 +969,10 @@ impl NodeData {
     #[inline(always)]
     pub fn with_tab_index(self, tab_index: OptionTabIndex) -> Self { Self { tab_index, .. self } }
 
-    #[cfg(feature = "std")]
     pub fn calculate_node_data_hash(&self) -> DomHash {
 
-        use std::collections::hash_map::DefaultHasher as HashAlgorithm;
-        use std::hash::{Hash, Hasher};
+        use ahash::AHasher as HashAlgorithm;
+        use core::hash::{Hash, Hasher};
 
         let mut hasher = HashAlgorithm::default();
         self.hash(&mut hasher);

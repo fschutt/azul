@@ -1,5 +1,4 @@
-use std::ffi::c_void;
-use std::fmt;
+use core::fmt;
 use azul_core::{
     svg::*,
     window::OptionAzString,
@@ -21,8 +20,11 @@ use lyon::{
     geom::euclid::{Point2D, Rect, Size2D, UnknownUnit},
 };
 use crate::xml::XmlError;
+use alloc::boxed::Box;
 
-const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
+pub enum c_void { }
+
+const GL_RESTART_INDEX: u32 = core::u32::MAX;
 
 pub type GlyphId = u16;
 
@@ -462,13 +464,13 @@ impl fmt::Debug for Svg {
 }
 
 impl PartialOrd for Svg {
-    fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
         self.to_string(SvgXmlOptions::default()).partial_cmp(&rhs.to_string(SvgXmlOptions::default()))
     }
 }
 
 impl Ord for Svg {
-    fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, rhs: &Self) -> core::cmp::Ordering {
         self.to_string(SvgXmlOptions::default()).cmp(&rhs.to_string(SvgXmlOptions::default()))
     }
 }
@@ -481,8 +483,8 @@ impl PartialEq for Svg {
 
 impl Eq for Svg { }
 
-impl std::hash::Hash for Svg {
-    fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+impl core::hash::Hash for Svg {
+    fn hash<H>(&self, state: &mut H) where H: core::hash::Hasher {
         self.to_string(SvgXmlOptions::default()).hash(state)
     }
 }

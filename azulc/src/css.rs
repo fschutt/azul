@@ -1,5 +1,7 @@
 //! Module for printing the CSS to Rust code
 
+use alloc::string::String;
+use alloc::vec::Vec;
 use azul_css::*;
 
 pub fn css_to_rust_code(css: &Css) -> String {
