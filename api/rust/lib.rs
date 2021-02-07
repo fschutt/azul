@@ -100,6 +100,7 @@ mod dll {
             ptr.fmt(f)
         }
     }
+    #[cfg(not(feature = "link_static"))]    mod __structs {
     /// `AzDomVecDestructorType` struct
     pub type AzDomVecDestructorType = extern "C" fn(&mut AzDomVec);
     /// `AzIdOrClassVecDestructorType` struct
@@ -716,6 +717,8 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `ThreadSender` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadSender {
         pub(crate) ptr: *mut c_void,
+        pub send_fn: AzThreadSendFn,
+        pub destructor: AzThreadSenderDestructorFn,
     }
     /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadReceiver {
@@ -726,6 +729,26 @@ mod dll {
         TerminateThread,
         Tick,
     }
+    /// `AzCreateThreadFnType` struct
+    pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallbackType) -> AzThread;
+    /// `AzGetSystemTimeFnType` struct
+    pub type AzGetSystemTimeFnType = extern "C" fn() -> AzInstant;
+    /// `AzCheckThreadFinishedFnType` struct
+    pub type AzCheckThreadFinishedFnType = extern "C" fn(&c_void) -> bool;
+    /// `AzLibrarySendThreadMsgFnType` struct
+    pub type AzLibrarySendThreadMsgFnType = extern "C" fn(&mut c_void, AzThreadSendMsg) -> bool;
+    /// `AzLibraryReceiveThreadMsgFnType` struct
+    pub type AzLibraryReceiveThreadMsgFnType = extern "C" fn(&mut c_void) -> AzOptionThreadReceiveMsg;
+    /// `AzThreadRecvFnType` struct
+    pub type AzThreadRecvFnType = extern "C" fn(&mut c_void) -> AzOptionThreadSendMsg;
+    /// `AzThreadSendFnType` struct
+    pub type AzThreadSendFnType = extern "C" fn(&mut c_void, AzThreadReceiveMsg) -> bool;
+    /// `AzThreadDestructorFnType` struct
+    pub type AzThreadDestructorFnType = extern "C" fn(&mut c_void, &mut c_void, &mut c_void, &mut c_void);
+    /// `AzThreadReceiverDestructorFnType` struct
+    pub type AzThreadReceiverDestructorFnType = extern "C" fn(&mut AzThreadReceiver);
+    /// `AzThreadSenderDestructorFnType` struct
+    pub type AzThreadSenderDestructorFnType = extern "C" fn(&mut AzThreadSender);
     /// Re-export of rust-allocated (stack based) `Vsync` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzVsync {
         Enabled,
@@ -2393,14 +2416,54 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzTimerId {
         pub id: usize,
     }
+    /// Re-export of rust-allocated (stack based) `ThreadId` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzThreadId {
+        pub id: usize,
+    }
     /// Re-export of rust-allocated (stack based) `ThreadWriteBackMsg` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadWriteBackMsg {
         pub data: AzRefAny,
         pub callback: AzWriteBackCallback,
     }
-    /// Re-export of rust-allocated (stack based) `ThreadId` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzThreadId {
-        pub id: usize,
+    /// Re-export of rust-allocated (stack based) `CreateThreadFn` struct
+    #[repr(C)]  #[derive(Clone)]   pub struct AzCreateThreadFn {
+        pub cb: AzCreateThreadFnType,
+    }
+    /// Get the current system time, equivalent to `std::time::Instant::now()`, except it also works on systems that work with "ticks" instead of timers
+    #[repr(C)]  #[derive(Clone)]   pub struct AzGetSystemTimeFn {
+        pub cb: AzGetSystemTimeFnType,
+    }
+    /// Function called to check if the thread has finished
+    #[repr(C)]  #[derive(Clone)]   pub struct AzCheckThreadFinishedFn {
+        pub cb: AzCheckThreadFinishedFnType,
+    }
+    /// Function to send a message to the thread
+    #[repr(C)]  #[derive(Clone)]   pub struct AzLibrarySendThreadMsgFn {
+        pub cb: AzLibrarySendThreadMsgFnType,
+    }
+    /// Function to receive a message from the thread
+    #[repr(C)]  #[derive(Clone)]   pub struct AzLibraryReceiveThreadMsgFn {
+        pub cb: AzLibraryReceiveThreadMsgFnType,
+    }
+    /// Function that the running `Thread` can call to receive messages from the main UI thread
+    #[repr(C)]  #[derive(Clone)]   pub struct AzThreadRecvFn {
+        pub cb: AzThreadRecvFnType,
+    }
+    /// Function that the running `Thread` can call to receive messages from the main UI thread
+    #[repr(C)]  #[derive(Clone)]   pub struct AzThreadSendFn {
+        pub cb: AzThreadSendFnType,
+    }
+    /// Destructor of the `Thread`
+    #[repr(C)]  #[derive(Clone)]   pub struct AzThreadDestructorFn {
+        pub cb: AzThreadDestructorFnType,
+    }
+    /// Destructor of the `ThreadReceiver`
+    #[repr(C)]  #[derive(Clone)]   pub struct AzThreadReceiverDestructorFn {
+        pub cb: AzThreadReceiverDestructorFnType,
+    }
+    /// Destructor of the `ThreadSender`
+    #[repr(C)]  #[derive(Clone)]   pub struct AzThreadSenderDestructorFn {
+        pub cb: AzThreadSenderDestructorFnType,
     }
     /// Re-export of rust-allocated (stack based) `RendererOptions` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzRendererOptions {
@@ -3066,6 +3129,18 @@ mod dll {
         pub timeout: AzOptionDuration,
         pub callback: AzTimerCallback,
     }
+    /// Re-export of rust-allocated (stack based) `Thread` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThread {
+        pub thread_handle: *mut c_void,
+        pub sender: *mut c_void,
+        pub receiver: *mut c_void,
+        pub writeback_data: AzRefAny,
+        pub dropcheck: *mut c_void,
+        pub check_thread_finished_fn: AzCheckThreadFinishedFn,
+        pub send_thread_msg_fn: AzLibrarySendThreadMsgFn,
+        pub receive_thread_msg_fn: AzLibraryReceiveThreadMsgFn,
+        pub thread_destructor_fn: AzThreadDestructorFn,
+    }
     /// Re-export of rust-allocated (stack based) `ThreadReceiveMsg` struct
     #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzThreadReceiveMsg {
         WriteBack(AzThreadWriteBackMsg),
@@ -3168,6 +3243,11 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
+    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionThreadReceiveMsg {
+        None,
+        Some(AzThreadReceiveMsg),
     }
     /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTaskBarIcon {
@@ -3740,8 +3820,12 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzCss {
         pub stylesheets: AzStylesheetVec,
     }
+    }
+
+    #[cfg(not(feature = "link_static"))]    pub use self::structs::*;
 
 
+    #[cfg(not(feature = "link_static"))]
     #[cfg_attr(target_os = "windows", link(name="azul.dll"))] // https://github.com/rust-lang/cargo/issues/9082
     #[cfg_attr(not(target_os = "windows"), link(name="azul"))] // https://github.com/rust-lang/cargo/issues/9082
     extern "C" {
@@ -3783,7 +3867,6 @@ mod dll {
         pub(crate) fn az_tag_ids_to_node_ids_mapping_vec_delete(_:  &mut AzTagIdsToNodeIdsMappingVec);
         pub(crate) fn az_parent_with_node_depth_vec_delete(_:  &mut AzParentWithNodeDepthVec);
         pub(crate) fn az_node_data_vec_delete(_:  &mut AzNodeDataVec);
-        pub(crate) fn az_instant_now() -> AzInstant;
         pub(crate) fn az_instant_delete(_:  &mut AzInstant);
         pub(crate) fn az_instant_deep_copy(_:  &AzInstant) -> AzInstant;
         pub(crate) fn az_duration_milliseconds(_:  usize) -> AzDuration;
@@ -4083,7 +4166,7 @@ mod dll {
         pub(crate) fn az_svg_xml_node_delete(_:  &mut AzSvgXmlNode);
         pub(crate) fn az_svg_xml_node_deep_copy(_:  &AzSvgXmlNode) -> AzSvgXmlNode;
         pub(crate) fn az_timer_id_unique() -> AzTimerId;
-        pub(crate) fn az_timer_new(_:  AzRefAny, _:  AzTimerCallbackType) -> AzTimer;
+        pub(crate) fn az_timer_new(_:  AzRefAny, _:  AzTimerCallbackType, _:  AzGetSystemTimeFn) -> AzTimer;
         pub(crate) fn az_timer_with_delay(_:  AzTimer, _:  AzDuration) -> AzTimer;
         pub(crate) fn az_timer_with_interval(_:  AzTimer, _:  AzDuration) -> AzTimer;
         pub(crate) fn az_timer_with_timeout(_:  AzTimer, _:  AzDuration) -> AzTimer;
@@ -4095,6 +4178,11 @@ mod dll {
         pub(crate) fn az_window_state_default() -> AzWindowState;
         pub(crate) fn az_window_create_options_new(_:  AzLayoutCallbackType) -> AzWindowCreateOptions;
         pub(crate) fn az_window_create_options_default() -> AzWindowCreateOptions;
+    }
+
+    #[cfg(not(feature = "link_static"))] {
+        extern crate azul_dll;
+        use azul_dll::*;
     }
 
 }
@@ -4149,7 +4237,8 @@ pub mod str {
         }
     }    /// `String` struct
     
-#[doc(inline)] pub use crate::dll::AzString as String;}
+#[doc(inline)] pub use crate::dll::AzString as String;
+}
 
 pub mod vec {
     #![allow(dead_code, unused_imports)]
@@ -4444,233 +4533,347 @@ pub mod vec {
         }
     }    /// `DomVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzDomVecDestructor as DomVecDestructor;    /// `DomVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzDomVecDestructor as DomVecDestructor;
+    /// `DomVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzDomVecDestructorType as DomVecDestructorType;    /// `IdOrClassVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzDomVecDestructorType as DomVecDestructorType;
+    /// `IdOrClassVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzIdOrClassVecDestructor as IdOrClassVecDestructor;    /// `IdOrClassVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzIdOrClassVecDestructor as IdOrClassVecDestructor;
+    /// `IdOrClassVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzIdOrClassVecDestructorType as IdOrClassVecDestructorType;    /// `NodeDataInlineCssPropertyVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzIdOrClassVecDestructorType as IdOrClassVecDestructorType;
+    /// `NodeDataInlineCssPropertyVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVecDestructor as NodeDataInlineCssPropertyVecDestructor;    /// `NodeDataInlineCssPropertyVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVecDestructor as NodeDataInlineCssPropertyVecDestructor;
+    /// `NodeDataInlineCssPropertyVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVecDestructorType as NodeDataInlineCssPropertyVecDestructorType;    /// `StyleBackgroundContentVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVecDestructorType as NodeDataInlineCssPropertyVecDestructorType;
+    /// `StyleBackgroundContentVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecDestructor as StyleBackgroundContentVecDestructor;    /// `StyleBackgroundContentVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecDestructor as StyleBackgroundContentVecDestructor;
+    /// `StyleBackgroundContentVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecDestructorType as StyleBackgroundContentVecDestructorType;    /// `StyleBackgroundPositionVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecDestructorType as StyleBackgroundContentVecDestructorType;
+    /// `StyleBackgroundPositionVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecDestructor as StyleBackgroundPositionVecDestructor;    /// `StyleBackgroundPositionVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecDestructor as StyleBackgroundPositionVecDestructor;
+    /// `StyleBackgroundPositionVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecDestructorType as StyleBackgroundPositionVecDestructorType;    /// `StyleBackgroundRepeatVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecDestructorType as StyleBackgroundPositionVecDestructorType;
+    /// `StyleBackgroundRepeatVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecDestructor as StyleBackgroundRepeatVecDestructor;    /// `StyleBackgroundRepeatVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecDestructor as StyleBackgroundRepeatVecDestructor;
+    /// `StyleBackgroundRepeatVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecDestructorType as StyleBackgroundRepeatVecDestructorType;    /// `StyleBackgroundSizeVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecDestructorType as StyleBackgroundRepeatVecDestructorType;
+    /// `StyleBackgroundSizeVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecDestructor as StyleBackgroundSizeVecDestructor;    /// `StyleBackgroundSizeVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecDestructor as StyleBackgroundSizeVecDestructor;
+    /// `StyleBackgroundSizeVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecDestructorType as StyleBackgroundSizeVecDestructorType;    /// `StyleTransformVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecDestructorType as StyleBackgroundSizeVecDestructorType;
+    /// `StyleTransformVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformVecDestructor as StyleTransformVecDestructor;    /// `StyleTransformVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformVecDestructor as StyleTransformVecDestructor;
+    /// `StyleTransformVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformVecDestructorType as StyleTransformVecDestructorType;    /// `CssPropertyVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformVecDestructorType as StyleTransformVecDestructorType;
+    /// `CssPropertyVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzCssPropertyVecDestructor as CssPropertyVecDestructor;    /// `CssPropertyVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzCssPropertyVecDestructor as CssPropertyVecDestructor;
+    /// `CssPropertyVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzCssPropertyVecDestructorType as CssPropertyVecDestructorType;    /// `SvgMultiPolygonVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzCssPropertyVecDestructorType as CssPropertyVecDestructorType;
+    /// `SvgMultiPolygonVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVecDestructor as SvgMultiPolygonVecDestructor;    /// `SvgMultiPolygonVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVecDestructor as SvgMultiPolygonVecDestructor;
+    /// `SvgMultiPolygonVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVecDestructorType as SvgMultiPolygonVecDestructorType;    /// `SvgPathVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVecDestructorType as SvgMultiPolygonVecDestructorType;
+    /// `SvgPathVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgPathVecDestructor as SvgPathVecDestructor;    /// `SvgPathVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzSvgPathVecDestructor as SvgPathVecDestructor;
+    /// `SvgPathVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgPathVecDestructorType as SvgPathVecDestructorType;    /// `VertexAttributeVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzSvgPathVecDestructorType as SvgPathVecDestructorType;
+    /// `VertexAttributeVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzVertexAttributeVecDestructor as VertexAttributeVecDestructor;    /// `VertexAttributeVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzVertexAttributeVecDestructor as VertexAttributeVecDestructor;
+    /// `VertexAttributeVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzVertexAttributeVecDestructorType as VertexAttributeVecDestructorType;    /// `SvgPathElementVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzVertexAttributeVecDestructorType as VertexAttributeVecDestructorType;
+    /// `SvgPathElementVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgPathElementVecDestructor as SvgPathElementVecDestructor;    /// `SvgPathElementVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzSvgPathElementVecDestructor as SvgPathElementVecDestructor;
+    /// `SvgPathElementVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgPathElementVecDestructorType as SvgPathElementVecDestructorType;    /// `SvgVertexVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzSvgPathElementVecDestructorType as SvgPathElementVecDestructorType;
+    /// `SvgVertexVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgVertexVecDestructor as SvgVertexVecDestructor;    /// `SvgVertexVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzSvgVertexVecDestructor as SvgVertexVecDestructor;
+    /// `SvgVertexVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgVertexVecDestructorType as SvgVertexVecDestructorType;    /// `U32VecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzSvgVertexVecDestructorType as SvgVertexVecDestructorType;
+    /// `U32VecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzU32VecDestructor as U32VecDestructor;    /// `U32VecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzU32VecDestructor as U32VecDestructor;
+    /// `U32VecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzU32VecDestructorType as U32VecDestructorType;    /// `XWindowTypeVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzU32VecDestructorType as U32VecDestructorType;
+    /// `XWindowTypeVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzXWindowTypeVecDestructor as XWindowTypeVecDestructor;    /// `XWindowTypeVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzXWindowTypeVecDestructor as XWindowTypeVecDestructor;
+    /// `XWindowTypeVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzXWindowTypeVecDestructorType as XWindowTypeVecDestructorType;    /// `VirtualKeyCodeVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzXWindowTypeVecDestructorType as XWindowTypeVecDestructorType;
+    /// `VirtualKeyCodeVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVecDestructor as VirtualKeyCodeVecDestructor;    /// `VirtualKeyCodeVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVecDestructor as VirtualKeyCodeVecDestructor;
+    /// `VirtualKeyCodeVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVecDestructorType as VirtualKeyCodeVecDestructorType;    /// `CascadeInfoVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVecDestructorType as VirtualKeyCodeVecDestructorType;
+    /// `CascadeInfoVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzCascadeInfoVecDestructor as CascadeInfoVecDestructor;    /// `CascadeInfoVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzCascadeInfoVecDestructor as CascadeInfoVecDestructor;
+    /// `CascadeInfoVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzCascadeInfoVecDestructorType as CascadeInfoVecDestructorType;    /// `ScanCodeVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzCascadeInfoVecDestructorType as CascadeInfoVecDestructorType;
+    /// `ScanCodeVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzScanCodeVecDestructor as ScanCodeVecDestructor;    /// `ScanCodeVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzScanCodeVecDestructor as ScanCodeVecDestructor;
+    /// `ScanCodeVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzScanCodeVecDestructorType as ScanCodeVecDestructorType;    /// `CssDeclarationVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzScanCodeVecDestructorType as ScanCodeVecDestructorType;
+    /// `CssDeclarationVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzCssDeclarationVecDestructor as CssDeclarationVecDestructor;    /// `CssDeclarationVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzCssDeclarationVecDestructor as CssDeclarationVecDestructor;
+    /// `CssDeclarationVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzCssDeclarationVecDestructorType as CssDeclarationVecDestructorType;    /// `CssPathSelectorVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzCssDeclarationVecDestructorType as CssDeclarationVecDestructorType;
+    /// `CssPathSelectorVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzCssPathSelectorVecDestructor as CssPathSelectorVecDestructor;    /// `CssPathSelectorVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzCssPathSelectorVecDestructor as CssPathSelectorVecDestructor;
+    /// `CssPathSelectorVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzCssPathSelectorVecDestructorType as CssPathSelectorVecDestructorType;    /// `StylesheetVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzCssPathSelectorVecDestructorType as CssPathSelectorVecDestructorType;
+    /// `StylesheetVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzStylesheetVecDestructor as StylesheetVecDestructor;    /// `StylesheetVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzStylesheetVecDestructor as StylesheetVecDestructor;
+    /// `StylesheetVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzStylesheetVecDestructorType as StylesheetVecDestructorType;    /// `CssRuleBlockVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzStylesheetVecDestructorType as StylesheetVecDestructorType;
+    /// `CssRuleBlockVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzCssRuleBlockVecDestructor as CssRuleBlockVecDestructor;    /// `CssRuleBlockVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzCssRuleBlockVecDestructor as CssRuleBlockVecDestructor;
+    /// `CssRuleBlockVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzCssRuleBlockVecDestructorType as CssRuleBlockVecDestructorType;    /// `U8VecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzCssRuleBlockVecDestructorType as CssRuleBlockVecDestructorType;
+    /// `U8VecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzU8VecDestructor as U8VecDestructor;    /// `U8VecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzU8VecDestructor as U8VecDestructor;
+    /// `U8VecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzU8VecDestructorType as U8VecDestructorType;    /// `CallbackDataVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzU8VecDestructorType as U8VecDestructorType;
+    /// `CallbackDataVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzCallbackDataVecDestructor as CallbackDataVecDestructor;    /// `CallbackDataVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzCallbackDataVecDestructor as CallbackDataVecDestructor;
+    /// `CallbackDataVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzCallbackDataVecDestructorType as CallbackDataVecDestructorType;    /// `DebugMessageVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzCallbackDataVecDestructorType as CallbackDataVecDestructorType;
+    /// `DebugMessageVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzDebugMessageVecDestructor as DebugMessageVecDestructor;    /// `DebugMessageVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzDebugMessageVecDestructor as DebugMessageVecDestructor;
+    /// `DebugMessageVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzDebugMessageVecDestructorType as DebugMessageVecDestructorType;    /// `GLuintVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzDebugMessageVecDestructorType as DebugMessageVecDestructorType;
+    /// `GLuintVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzGLuintVecDestructor as GLuintVecDestructor;    /// `GLuintVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzGLuintVecDestructor as GLuintVecDestructor;
+    /// `GLuintVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzGLuintVecDestructorType as GLuintVecDestructorType;    /// `GLintVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzGLuintVecDestructorType as GLuintVecDestructorType;
+    /// `GLintVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzGLintVecDestructor as GLintVecDestructor;    /// `GLintVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzGLintVecDestructor as GLintVecDestructor;
+    /// `GLintVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzGLintVecDestructorType as GLintVecDestructorType;    /// `StringVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzGLintVecDestructorType as GLintVecDestructorType;
+    /// `StringVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzStringVecDestructor as StringVecDestructor;    /// `StringVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzStringVecDestructor as StringVecDestructor;
+    /// `StringVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzStringVecDestructorType as StringVecDestructorType;    /// `StringPairVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzStringVecDestructorType as StringVecDestructorType;
+    /// `StringPairVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzStringPairVecDestructor as StringPairVecDestructor;    /// `StringPairVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzStringPairVecDestructor as StringPairVecDestructor;
+    /// `StringPairVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzStringPairVecDestructorType as StringPairVecDestructorType;    /// `LinearColorStopVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzStringPairVecDestructorType as StringPairVecDestructorType;
+    /// `LinearColorStopVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzLinearColorStopVecDestructor as LinearColorStopVecDestructor;    /// `LinearColorStopVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzLinearColorStopVecDestructor as LinearColorStopVecDestructor;
+    /// `LinearColorStopVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzLinearColorStopVecDestructorType as LinearColorStopVecDestructorType;    /// `RadialColorStopVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzLinearColorStopVecDestructorType as LinearColorStopVecDestructorType;
+    /// `RadialColorStopVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzRadialColorStopVecDestructor as RadialColorStopVecDestructor;    /// `RadialColorStopVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzRadialColorStopVecDestructor as RadialColorStopVecDestructor;
+    /// `RadialColorStopVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzRadialColorStopVecDestructorType as RadialColorStopVecDestructorType;    /// `NodeIdVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzRadialColorStopVecDestructorType as RadialColorStopVecDestructorType;
+    /// `NodeIdVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeIdVecDestructor as NodeIdVecDestructor;    /// `NodeIdVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzNodeIdVecDestructor as NodeIdVecDestructor;
+    /// `NodeIdVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeIdVecDestructorType as NodeIdVecDestructorType;    /// `NodeVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzNodeIdVecDestructorType as NodeIdVecDestructorType;
+    /// `NodeVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeVecDestructor as NodeVecDestructor;    /// `NodeVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzNodeVecDestructor as NodeVecDestructor;
+    /// `NodeVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeVecDestructorType as NodeVecDestructorType;    /// `StyledNodeVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzNodeVecDestructorType as NodeVecDestructorType;
+    /// `StyledNodeVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzStyledNodeVecDestructor as StyledNodeVecDestructor;    /// `StyledNodeVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzStyledNodeVecDestructor as StyledNodeVecDestructor;
+    /// `StyledNodeVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzStyledNodeVecDestructorType as StyledNodeVecDestructorType;    /// `TagIdsToNodeIdsMappingVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzStyledNodeVecDestructorType as StyledNodeVecDestructorType;
+    /// `TagIdsToNodeIdsMappingVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzTagIdsToNodeIdsMappingVecDestructor as TagIdsToNodeIdsMappingVecDestructor;    /// `TagIdsToNodeIdsMappingVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzTagIdsToNodeIdsMappingVecDestructor as TagIdsToNodeIdsMappingVecDestructor;
+    /// `TagIdsToNodeIdsMappingVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzTagIdsToNodeIdsMappingVecDestructorType as TagIdsToNodeIdsMappingVecDestructorType;    /// `ParentWithNodeDepthVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzTagIdsToNodeIdsMappingVecDestructorType as TagIdsToNodeIdsMappingVecDestructorType;
+    /// `ParentWithNodeDepthVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVecDestructor as ParentWithNodeDepthVecDestructor;    /// `ParentWithNodeDepthVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVecDestructor as ParentWithNodeDepthVecDestructor;
+    /// `ParentWithNodeDepthVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVecDestructorType as ParentWithNodeDepthVecDestructorType;    /// `NodeDataVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVecDestructorType as ParentWithNodeDepthVecDestructorType;
+    /// `NodeDataVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeDataVecDestructor as NodeDataVecDestructor;    /// `NodeDataVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzNodeDataVecDestructor as NodeDataVecDestructor;
+    /// `NodeDataVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeDataVecDestructorType as NodeDataVecDestructorType;    /// Wrapper over a Rust-allocated `Vec<Dom>`
+#[doc(inline)] pub use crate::dll::AzNodeDataVecDestructorType as NodeDataVecDestructorType;
+    /// Wrapper over a Rust-allocated `Vec<Dom>`
     
-#[doc(inline)] pub use crate::dll::AzDomVec as DomVec;    /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
+#[doc(inline)] pub use crate::dll::AzDomVec as DomVec;
+    /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
     
-#[doc(inline)] pub use crate::dll::AzIdOrClassVec as IdOrClassVec;    /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
+#[doc(inline)] pub use crate::dll::AzIdOrClassVec as IdOrClassVec;
+    /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
     
-#[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVec as NodeDataInlineCssPropertyVec;    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
+#[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVec as NodeDataInlineCssPropertyVec;
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVec as StyleBackgroundContentVec;    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVec as StyleBackgroundContentVec;
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVec as StyleBackgroundPositionVec;    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVec as StyleBackgroundPositionVec;
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVec as StyleBackgroundRepeatVec;    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVec as StyleBackgroundRepeatVec;
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVec as StyleBackgroundSizeVec;    /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVec as StyleBackgroundSizeVec;
+    /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformVec as StyleTransformVec;    /// Wrapper over a Rust-allocated `Vec<CssProperty>`
+#[doc(inline)] pub use crate::dll::AzStyleTransformVec as StyleTransformVec;
+    /// Wrapper over a Rust-allocated `Vec<CssProperty>`
     
-#[doc(inline)] pub use crate::dll::AzCssPropertyVec as CssPropertyVec;    /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
+#[doc(inline)] pub use crate::dll::AzCssPropertyVec as CssPropertyVec;
+    /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
     
-#[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVec as SvgMultiPolygonVec;    /// Wrapper over a Rust-allocated `Vec<SvgPath>`
+#[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVec as SvgMultiPolygonVec;
+    /// Wrapper over a Rust-allocated `Vec<SvgPath>`
     
-#[doc(inline)] pub use crate::dll::AzSvgPathVec as SvgPathVec;    /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
+#[doc(inline)] pub use crate::dll::AzSvgPathVec as SvgPathVec;
+    /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
     
-#[doc(inline)] pub use crate::dll::AzVertexAttributeVec as VertexAttributeVec;    /// Wrapper over a Rust-allocated `VertexAttribute`
+#[doc(inline)] pub use crate::dll::AzVertexAttributeVec as VertexAttributeVec;
+    /// Wrapper over a Rust-allocated `VertexAttribute`
     
-#[doc(inline)] pub use crate::dll::AzSvgPathElementVec as SvgPathElementVec;    /// Wrapper over a Rust-allocated `SvgVertex`
+#[doc(inline)] pub use crate::dll::AzSvgPathElementVec as SvgPathElementVec;
+    /// Wrapper over a Rust-allocated `SvgVertex`
     
-#[doc(inline)] pub use crate::dll::AzSvgVertexVec as SvgVertexVec;    /// Wrapper over a Rust-allocated `Vec<u32>`
+#[doc(inline)] pub use crate::dll::AzSvgVertexVec as SvgVertexVec;
+    /// Wrapper over a Rust-allocated `Vec<u32>`
     
-#[doc(inline)] pub use crate::dll::AzU32Vec as U32Vec;    /// Wrapper over a Rust-allocated `XWindowType`
+#[doc(inline)] pub use crate::dll::AzU32Vec as U32Vec;
+    /// Wrapper over a Rust-allocated `XWindowType`
     
-#[doc(inline)] pub use crate::dll::AzXWindowTypeVec as XWindowTypeVec;    /// Wrapper over a Rust-allocated `VirtualKeyCode`
+#[doc(inline)] pub use crate::dll::AzXWindowTypeVec as XWindowTypeVec;
+    /// Wrapper over a Rust-allocated `VirtualKeyCode`
     
-#[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVec as VirtualKeyCodeVec;    /// Wrapper over a Rust-allocated `CascadeInfo`
+#[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVec as VirtualKeyCodeVec;
+    /// Wrapper over a Rust-allocated `CascadeInfo`
     
-#[doc(inline)] pub use crate::dll::AzCascadeInfoVec as CascadeInfoVec;    /// Wrapper over a Rust-allocated `ScanCode`
+#[doc(inline)] pub use crate::dll::AzCascadeInfoVec as CascadeInfoVec;
+    /// Wrapper over a Rust-allocated `ScanCode`
     
-#[doc(inline)] pub use crate::dll::AzScanCodeVec as ScanCodeVec;    /// Wrapper over a Rust-allocated `CssDeclaration`
+#[doc(inline)] pub use crate::dll::AzScanCodeVec as ScanCodeVec;
+    /// Wrapper over a Rust-allocated `CssDeclaration`
     
-#[doc(inline)] pub use crate::dll::AzCssDeclarationVec as CssDeclarationVec;    /// Wrapper over a Rust-allocated `CssPathSelector`
+#[doc(inline)] pub use crate::dll::AzCssDeclarationVec as CssDeclarationVec;
+    /// Wrapper over a Rust-allocated `CssPathSelector`
     
-#[doc(inline)] pub use crate::dll::AzCssPathSelectorVec as CssPathSelectorVec;    /// Wrapper over a Rust-allocated `Stylesheet`
+#[doc(inline)] pub use crate::dll::AzCssPathSelectorVec as CssPathSelectorVec;
+    /// Wrapper over a Rust-allocated `Stylesheet`
     
-#[doc(inline)] pub use crate::dll::AzStylesheetVec as StylesheetVec;    /// Wrapper over a Rust-allocated `CssRuleBlock`
+#[doc(inline)] pub use crate::dll::AzStylesheetVec as StylesheetVec;
+    /// Wrapper over a Rust-allocated `CssRuleBlock`
     
-#[doc(inline)] pub use crate::dll::AzCssRuleBlockVec as CssRuleBlockVec;    /// Wrapper over a Rust-allocated `U8Vec`
+#[doc(inline)] pub use crate::dll::AzCssRuleBlockVec as CssRuleBlockVec;
+    /// Wrapper over a Rust-allocated `U8Vec`
     
-#[doc(inline)] pub use crate::dll::AzU8Vec as U8Vec;    /// Wrapper over a Rust-allocated `CallbackData`
+#[doc(inline)] pub use crate::dll::AzU8Vec as U8Vec;
+    /// Wrapper over a Rust-allocated `CallbackData`
     
-#[doc(inline)] pub use crate::dll::AzCallbackDataVec as CallbackDataVec;    /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
+#[doc(inline)] pub use crate::dll::AzCallbackDataVec as CallbackDataVec;
+    /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
     
-#[doc(inline)] pub use crate::dll::AzDebugMessageVec as DebugMessageVec;    /// Wrapper over a Rust-allocated `U32Vec`
+#[doc(inline)] pub use crate::dll::AzDebugMessageVec as DebugMessageVec;
+    /// Wrapper over a Rust-allocated `U32Vec`
     
-#[doc(inline)] pub use crate::dll::AzGLuintVec as GLuintVec;    /// Wrapper over a Rust-allocated `GLintVec`
+#[doc(inline)] pub use crate::dll::AzGLuintVec as GLuintVec;
+    /// Wrapper over a Rust-allocated `GLintVec`
     
-#[doc(inline)] pub use crate::dll::AzGLintVec as GLintVec;    /// Wrapper over a Rust-allocated `StringVec`
+#[doc(inline)] pub use crate::dll::AzGLintVec as GLintVec;
+    /// Wrapper over a Rust-allocated `StringVec`
     
-#[doc(inline)] pub use crate::dll::AzStringVec as StringVec;    /// Wrapper over a Rust-allocated `StringPairVec`
+#[doc(inline)] pub use crate::dll::AzStringVec as StringVec;
+    /// Wrapper over a Rust-allocated `StringPairVec`
     
-#[doc(inline)] pub use crate::dll::AzStringPairVec as StringPairVec;    /// Wrapper over a Rust-allocated `LinearColorStopVec`
+#[doc(inline)] pub use crate::dll::AzStringPairVec as StringPairVec;
+    /// Wrapper over a Rust-allocated `LinearColorStopVec`
     
-#[doc(inline)] pub use crate::dll::AzLinearColorStopVec as LinearColorStopVec;    /// Wrapper over a Rust-allocated `RadialColorStopVec`
+#[doc(inline)] pub use crate::dll::AzLinearColorStopVec as LinearColorStopVec;
+    /// Wrapper over a Rust-allocated `RadialColorStopVec`
     
-#[doc(inline)] pub use crate::dll::AzRadialColorStopVec as RadialColorStopVec;    /// Wrapper over a Rust-allocated `NodeIdVec`
+#[doc(inline)] pub use crate::dll::AzRadialColorStopVec as RadialColorStopVec;
+    /// Wrapper over a Rust-allocated `NodeIdVec`
     
-#[doc(inline)] pub use crate::dll::AzNodeIdVec as NodeIdVec;    /// Wrapper over a Rust-allocated `NodeVec`
+#[doc(inline)] pub use crate::dll::AzNodeIdVec as NodeIdVec;
+    /// Wrapper over a Rust-allocated `NodeVec`
     
-#[doc(inline)] pub use crate::dll::AzNodeVec as NodeVec;    /// Wrapper over a Rust-allocated `StyledNodeVec`
+#[doc(inline)] pub use crate::dll::AzNodeVec as NodeVec;
+    /// Wrapper over a Rust-allocated `StyledNodeVec`
     
-#[doc(inline)] pub use crate::dll::AzStyledNodeVec as StyledNodeVec;    /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
+#[doc(inline)] pub use crate::dll::AzStyledNodeVec as StyledNodeVec;
+    /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
     
-#[doc(inline)] pub use crate::dll::AzTagIdsToNodeIdsMappingVec as TagIdsToNodeIdsMappingVec;    /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
+#[doc(inline)] pub use crate::dll::AzTagIdsToNodeIdsMappingVec as TagIdsToNodeIdsMappingVec;
+    /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
     
-#[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVec as ParentWithNodeDepthVec;    /// Wrapper over a Rust-allocated `NodeDataVec`
+#[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVec as ParentWithNodeDepthVec;
+    /// Wrapper over a Rust-allocated `NodeDataVec`
     
-#[doc(inline)] pub use crate::dll::AzNodeDataVec as NodeDataVec;}
+#[doc(inline)] pub use crate::dll::AzNodeDataVec as NodeDataVec;
+}
 
 pub mod option {
     #![allow(dead_code, unused_imports)]
@@ -4837,81 +5040,121 @@ pub mod option {
     impl_option!(AzDuration, AzOptionDuration, [Debug, Copy, Clone]);
     impl_option!(AzInstant, AzOptionInstant, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
+    /// `OptionThreadReceiveMsg` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionThreadReceiveMsg as OptionThreadReceiveMsg;
     /// `OptionPercentageValue` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionPercentageValue as OptionPercentageValue;    /// `OptionAngleValue` struct
+#[doc(inline)] pub use crate::dll::AzOptionPercentageValue as OptionPercentageValue;
+    /// `OptionAngleValue` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionAngleValue as OptionAngleValue;    /// `OptionRendererOptions` struct
+#[doc(inline)] pub use crate::dll::AzOptionAngleValue as OptionAngleValue;
+    /// `OptionRendererOptions` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionRendererOptions as OptionRendererOptions;    /// `OptionCallback` struct
+#[doc(inline)] pub use crate::dll::AzOptionRendererOptions as OptionRendererOptions;
+    /// `OptionCallback` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionCallback as OptionCallback;    /// `OptionThreadSendMsg` struct
+#[doc(inline)] pub use crate::dll::AzOptionCallback as OptionCallback;
+    /// `OptionThreadSendMsg` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionThreadSendMsg as OptionThreadSendMsg;    /// `OptionLayoutRect` struct
+#[doc(inline)] pub use crate::dll::AzOptionThreadSendMsg as OptionThreadSendMsg;
+    /// `OptionLayoutRect` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionLayoutRect as OptionLayoutRect;    /// `OptionRefAny` struct
+#[doc(inline)] pub use crate::dll::AzOptionLayoutRect as OptionLayoutRect;
+    /// `OptionRefAny` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionRefAny as OptionRefAny;    /// `OptionLayoutPoint` struct
+#[doc(inline)] pub use crate::dll::AzOptionRefAny as OptionRefAny;
+    /// `OptionLayoutPoint` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionLayoutPoint as OptionLayoutPoint;    /// `OptionWindowTheme` struct
+#[doc(inline)] pub use crate::dll::AzOptionLayoutPoint as OptionLayoutPoint;
+    /// `OptionWindowTheme` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionWindowTheme as OptionWindowTheme;    /// `OptionNodeId` struct
+#[doc(inline)] pub use crate::dll::AzOptionWindowTheme as OptionWindowTheme;
+    /// `OptionNodeId` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionNodeId as OptionNodeId;    /// `OptionDomNodeId` struct
+#[doc(inline)] pub use crate::dll::AzOptionNodeId as OptionNodeId;
+    /// `OptionDomNodeId` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionDomNodeId as OptionDomNodeId;    /// `OptionColorU` struct
+#[doc(inline)] pub use crate::dll::AzOptionDomNodeId as OptionDomNodeId;
+    /// `OptionColorU` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionColorU as OptionColorU;    /// `OptionRawImage` struct
+#[doc(inline)] pub use crate::dll::AzOptionColorU as OptionColorU;
+    /// `OptionRawImage` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionRawImage as OptionRawImage;    /// `OptionSvgDashPattern` struct
+#[doc(inline)] pub use crate::dll::AzOptionRawImage as OptionRawImage;
+    /// `OptionSvgDashPattern` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionSvgDashPattern as OptionSvgDashPattern;    /// `OptionWaylandTheme` struct
+#[doc(inline)] pub use crate::dll::AzOptionSvgDashPattern as OptionSvgDashPattern;
+    /// `OptionWaylandTheme` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionWaylandTheme as OptionWaylandTheme;    /// `OptionTaskBarIcon` struct
+#[doc(inline)] pub use crate::dll::AzOptionWaylandTheme as OptionWaylandTheme;
+    /// `OptionTaskBarIcon` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionTaskBarIcon as OptionTaskBarIcon;    /// `OptionHwndHandle` struct
+#[doc(inline)] pub use crate::dll::AzOptionTaskBarIcon as OptionTaskBarIcon;
+    /// `OptionHwndHandle` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionHwndHandle as OptionHwndHandle;    /// `OptionLogicalPosition` struct
+#[doc(inline)] pub use crate::dll::AzOptionHwndHandle as OptionHwndHandle;
+    /// `OptionLogicalPosition` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionLogicalPosition as OptionLogicalPosition;    /// `OptionPhysicalPositionI32` struct
+#[doc(inline)] pub use crate::dll::AzOptionLogicalPosition as OptionLogicalPosition;
+    /// `OptionPhysicalPositionI32` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionPhysicalPositionI32 as OptionPhysicalPositionI32;    /// `OptionWindowIcon` struct
+#[doc(inline)] pub use crate::dll::AzOptionPhysicalPositionI32 as OptionPhysicalPositionI32;
+    /// `OptionWindowIcon` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionWindowIcon as OptionWindowIcon;    /// `OptionString` struct
+#[doc(inline)] pub use crate::dll::AzOptionWindowIcon as OptionWindowIcon;
+    /// `OptionString` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionString as OptionString;    /// `OptionX11Visual` struct
+#[doc(inline)] pub use crate::dll::AzOptionString as OptionString;
+    /// `OptionX11Visual` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionX11Visual as OptionX11Visual;    /// `OptionI32` struct
+#[doc(inline)] pub use crate::dll::AzOptionX11Visual as OptionX11Visual;
+    /// `OptionI32` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionI32 as OptionI32;    /// `OptionF32` struct
+#[doc(inline)] pub use crate::dll::AzOptionI32 as OptionI32;
+    /// `OptionF32` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionF32 as OptionF32;    /// `OptionMouseCursorType` struct
+#[doc(inline)] pub use crate::dll::AzOptionF32 as OptionF32;
+    /// `OptionMouseCursorType` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionMouseCursorType as OptionMouseCursorType;    /// `OptionLogicalSize` struct
+#[doc(inline)] pub use crate::dll::AzOptionMouseCursorType as OptionMouseCursorType;
+    /// `OptionLogicalSize` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionLogicalSize as OptionLogicalSize;    /// Option<char> but the char is a u32, for C FFI stability reasons
+#[doc(inline)] pub use crate::dll::AzOptionLogicalSize as OptionLogicalSize;
+    /// Option<char> but the char is a u32, for C FFI stability reasons
     
-#[doc(inline)] pub use crate::dll::AzOptionChar as OptionChar;    /// `OptionVirtualKeyCode` struct
+#[doc(inline)] pub use crate::dll::AzOptionChar as OptionChar;
+    /// `OptionVirtualKeyCode` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionVirtualKeyCode as OptionVirtualKeyCode;    /// `OptionDom` struct
+#[doc(inline)] pub use crate::dll::AzOptionVirtualKeyCode as OptionVirtualKeyCode;
+    /// `OptionDom` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionDom as OptionDom;    /// `OptionTexture` struct
+#[doc(inline)] pub use crate::dll::AzOptionDom as OptionDom;
+    /// `OptionTexture` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionTexture as OptionTexture;    /// `OptionImageMask` struct
+#[doc(inline)] pub use crate::dll::AzOptionTexture as OptionTexture;
+    /// `OptionImageMask` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionImageMask as OptionImageMask;    /// `OptionTabIndex` struct
+#[doc(inline)] pub use crate::dll::AzOptionImageMask as OptionImageMask;
+    /// `OptionTabIndex` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionTabIndex as OptionTabIndex;    /// `OptionTagId` struct
+#[doc(inline)] pub use crate::dll::AzOptionTabIndex as OptionTabIndex;
+    /// `OptionTagId` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionTagId as OptionTagId;    /// `OptionDuration` struct
+#[doc(inline)] pub use crate::dll::AzOptionTagId as OptionTagId;
+    /// `OptionDuration` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionDuration as OptionDuration;    /// `OptionInstant` struct
+#[doc(inline)] pub use crate::dll::AzOptionDuration as OptionDuration;
+    /// `OptionInstant` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionInstant as OptionInstant;    /// `OptionUsize` struct
+#[doc(inline)] pub use crate::dll::AzOptionInstant as OptionInstant;
+    /// `OptionUsize` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionUsize as OptionUsize;    /// `OptionU8VecRef` struct
+#[doc(inline)] pub use crate::dll::AzOptionUsize as OptionUsize;
+    /// `OptionU8VecRef` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionU8VecRef as OptionU8VecRef;}
+#[doc(inline)] pub use crate::dll::AzOptionU8VecRef as OptionU8VecRef;
+}
 
 pub mod result {
     #![allow(dead_code, unused_imports)]
@@ -4920,7 +5163,8 @@ pub mod result {
     use core::ffi::c_void;
     /// `ResultSvgSvgParseError` struct
     
-#[doc(inline)] pub use crate::dll::AzResultSvgSvgParseError as ResultSvgSvgParseError;}
+#[doc(inline)] pub use crate::dll::AzResultSvgSvgParseError as ResultSvgSvgParseError;
+}
 
 pub mod error {
     #![allow(dead_code, unused_imports)]
@@ -4929,39 +5173,56 @@ pub mod error {
     use core::ffi::c_void;
     /// `SvgParseError` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgParseError as SvgParseError;    /// `XmlError` struct
+#[doc(inline)] pub use crate::dll::AzSvgParseError as SvgParseError;
+    /// `XmlError` struct
     
-#[doc(inline)] pub use crate::dll::AzXmlError as XmlError;    /// `DuplicatedNamespaceError` struct
+#[doc(inline)] pub use crate::dll::AzXmlError as XmlError;
+    /// `DuplicatedNamespaceError` struct
     
-#[doc(inline)] pub use crate::dll::AzDuplicatedNamespaceError as DuplicatedNamespaceError;    /// `UnknownNamespaceError` struct
+#[doc(inline)] pub use crate::dll::AzDuplicatedNamespaceError as DuplicatedNamespaceError;
+    /// `UnknownNamespaceError` struct
     
-#[doc(inline)] pub use crate::dll::AzUnknownNamespaceError as UnknownNamespaceError;    /// `UnexpectedCloseTagError` struct
+#[doc(inline)] pub use crate::dll::AzUnknownNamespaceError as UnknownNamespaceError;
+    /// `UnexpectedCloseTagError` struct
     
-#[doc(inline)] pub use crate::dll::AzUnexpectedCloseTagError as UnexpectedCloseTagError;    /// `UnknownEntityReferenceError` struct
+#[doc(inline)] pub use crate::dll::AzUnexpectedCloseTagError as UnexpectedCloseTagError;
+    /// `UnknownEntityReferenceError` struct
     
-#[doc(inline)] pub use crate::dll::AzUnknownEntityReferenceError as UnknownEntityReferenceError;    /// `DuplicatedAttributeError` struct
+#[doc(inline)] pub use crate::dll::AzUnknownEntityReferenceError as UnknownEntityReferenceError;
+    /// `DuplicatedAttributeError` struct
     
-#[doc(inline)] pub use crate::dll::AzDuplicatedAttributeError as DuplicatedAttributeError;    /// `XmlParseError` struct
+#[doc(inline)] pub use crate::dll::AzDuplicatedAttributeError as DuplicatedAttributeError;
+    /// `XmlParseError` struct
     
-#[doc(inline)] pub use crate::dll::AzXmlParseError as XmlParseError;    /// `XmlTextError` struct
+#[doc(inline)] pub use crate::dll::AzXmlParseError as XmlParseError;
+    /// `XmlTextError` struct
     
-#[doc(inline)] pub use crate::dll::AzXmlTextError as XmlTextError;    /// `XmlStreamError` struct
+#[doc(inline)] pub use crate::dll::AzXmlTextError as XmlTextError;
+    /// `XmlStreamError` struct
     
-#[doc(inline)] pub use crate::dll::AzXmlStreamError as XmlStreamError;    /// `NonXmlCharError` struct
+#[doc(inline)] pub use crate::dll::AzXmlStreamError as XmlStreamError;
+    /// `NonXmlCharError` struct
     
-#[doc(inline)] pub use crate::dll::AzNonXmlCharError as NonXmlCharError;    /// `InvalidCharError` struct
+#[doc(inline)] pub use crate::dll::AzNonXmlCharError as NonXmlCharError;
+    /// `InvalidCharError` struct
     
-#[doc(inline)] pub use crate::dll::AzInvalidCharError as InvalidCharError;    /// `InvalidCharMultipleError` struct
+#[doc(inline)] pub use crate::dll::AzInvalidCharError as InvalidCharError;
+    /// `InvalidCharMultipleError` struct
     
-#[doc(inline)] pub use crate::dll::AzInvalidCharMultipleError as InvalidCharMultipleError;    /// `InvalidQuoteError` struct
+#[doc(inline)] pub use crate::dll::AzInvalidCharMultipleError as InvalidCharMultipleError;
+    /// `InvalidQuoteError` struct
     
-#[doc(inline)] pub use crate::dll::AzInvalidQuoteError as InvalidQuoteError;    /// `InvalidSpaceError` struct
+#[doc(inline)] pub use crate::dll::AzInvalidQuoteError as InvalidQuoteError;
+    /// `InvalidSpaceError` struct
     
-#[doc(inline)] pub use crate::dll::AzInvalidSpaceError as InvalidSpaceError;    /// `InvalidStringError` struct
+#[doc(inline)] pub use crate::dll::AzInvalidSpaceError as InvalidSpaceError;
+    /// `InvalidStringError` struct
     
-#[doc(inline)] pub use crate::dll::AzInvalidStringError as InvalidStringError;    /// `SvgParseErrorPosition` struct
+#[doc(inline)] pub use crate::dll::AzInvalidStringError as InvalidStringError;
+    /// `SvgParseErrorPosition` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgParseErrorPosition as SvgParseErrorPosition;}
+#[doc(inline)] pub use crate::dll::AzSvgParseErrorPosition as SvgParseErrorPosition;
+}
 
 pub mod time {
     #![allow(dead_code, unused_imports)]
@@ -4970,16 +5231,13 @@ pub mod time {
     use core::ffi::c_void;
     /// `Instant` struct
     
-#[doc(inline)] pub use crate::dll::AzInstant as Instant;    impl Instant {
-        /// Creates a new `Instant` instance.
-        pub fn now() -> Self { unsafe { crate::dll::az_instant_now() } }
-    }
-
+#[doc(inline)] pub use crate::dll::AzInstant as Instant;
     impl Clone for Instant { fn clone(&self) -> Self { unsafe { crate::dll::az_instant_deep_copy(self) } } }
     impl Drop for Instant { fn drop(&mut self) { unsafe { crate::dll::az_instant_delete(self) } } }
     /// `Duration` struct
     
-#[doc(inline)] pub use crate::dll::AzDuration as Duration;    impl Duration {
+#[doc(inline)] pub use crate::dll::AzDuration as Duration;
+    impl Duration {
         /// Creates a new `Duration` instance.
         pub fn milliseconds(milliseconds: usize) -> Self { unsafe { crate::dll::az_duration_milliseconds(milliseconds) } }
         /// Creates a new `Duration` instance.
@@ -4997,16 +5255,19 @@ pub mod app {
     use crate::window::WindowCreateOptions;
     /// `AppLogLevel` struct
     
-#[doc(inline)] pub use crate::dll::AzAppLogLevel as AppLogLevel;    /// Configuration for optional features, such as whether to enable logging or panic hooks
+#[doc(inline)] pub use crate::dll::AzAppLogLevel as AppLogLevel;
+    /// Configuration for optional features, such as whether to enable logging or panic hooks
     
-#[doc(inline)] pub use crate::dll::AzAppConfig as AppConfig;    impl AppConfig {
+#[doc(inline)] pub use crate::dll::AzAppConfig as AppConfig;
+    impl AppConfig {
         /// Creates a new AppConfig with default values
         pub fn default() -> Self { unsafe { crate::dll::az_app_config_default() } }
     }
 
     /// Main application class
     
-#[doc(inline)] pub use crate::dll::AzApp as App;    impl App {
+#[doc(inline)] pub use crate::dll::AzApp as App;
+    impl App {
         /// Creates a new App instance from the given `AppConfig`
         pub fn new(data: RefAny, config: AppConfig) -> Self { unsafe { crate::dll::az_app_new(data, config) } }
         /// Spawn a new window on the screen when the app is run.
@@ -5154,13 +5415,17 @@ pub mod callbacks {
     use crate::str::String;
     /// `NodeId` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeId as NodeId;    /// `DomId` struct
+#[doc(inline)] pub use crate::dll::AzNodeId as NodeId;
+    /// `DomId` struct
     
-#[doc(inline)] pub use crate::dll::AzDomId as DomId;    /// `DomNodeId` struct
+#[doc(inline)] pub use crate::dll::AzDomId as DomId;
+    /// `DomNodeId` struct
     
-#[doc(inline)] pub use crate::dll::AzDomNodeId as DomNodeId;    /// `HidpiAdjustedBounds` struct
+#[doc(inline)] pub use crate::dll::AzDomNodeId as DomNodeId;
+    /// `HidpiAdjustedBounds` struct
     
-#[doc(inline)] pub use crate::dll::AzHidpiAdjustedBounds as HidpiAdjustedBounds;    impl HidpiAdjustedBounds {
+#[doc(inline)] pub use crate::dll::AzHidpiAdjustedBounds as HidpiAdjustedBounds;
+    impl HidpiAdjustedBounds {
         /// Returns the size of the bounds in logical units
         pub fn get_logical_size(&self)  -> crate::window::LogicalSize { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_logical_size(self) } }
         /// Returns the size of the bounds in physical units
@@ -5171,19 +5436,26 @@ pub mod callbacks {
 
     /// `LayoutCallback` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutCallback as LayoutCallback;    /// `LayoutCallbackType` struct
+#[doc(inline)] pub use crate::dll::AzLayoutCallback as LayoutCallback;
+    /// `LayoutCallbackType` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutCallbackType as LayoutCallbackType;    /// `Callback` struct
+#[doc(inline)] pub use crate::dll::AzLayoutCallbackType as LayoutCallbackType;
+    /// `Callback` struct
     
-#[doc(inline)] pub use crate::dll::AzCallback as Callback;    /// Defines the focus target for the next frame
+#[doc(inline)] pub use crate::dll::AzCallback as Callback;
+    /// Defines the focus target for the next frame
     
-#[doc(inline)] pub use crate::dll::AzFocusTarget as FocusTarget;    /// `FocusTargetPath` struct
+#[doc(inline)] pub use crate::dll::AzFocusTarget as FocusTarget;
+    /// `FocusTargetPath` struct
     
-#[doc(inline)] pub use crate::dll::AzFocusTargetPath as FocusTargetPath;    /// `CallbackType` struct
+#[doc(inline)] pub use crate::dll::AzFocusTargetPath as FocusTargetPath;
+    /// `CallbackType` struct
     
-#[doc(inline)] pub use crate::dll::AzCallbackType as CallbackType;    /// `CallbackInfo` struct
+#[doc(inline)] pub use crate::dll::AzCallbackType as CallbackType;
+    /// `CallbackInfo` struct
     
-#[doc(inline)] pub use crate::dll::AzCallbackInfo as CallbackInfo;    impl CallbackInfo {
+#[doc(inline)] pub use crate::dll::AzCallbackInfo as CallbackInfo;
+    impl CallbackInfo {
         /// Returns the `DomNodeId` of the element that the callback was attached to.
         pub fn get_hit_node(&self)  -> crate::callbacks::DomNodeId { unsafe { crate::dll::az_callback_info_get_hit_node(self) } }
         /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not in the current window.
@@ -5228,53 +5500,72 @@ pub mod callbacks {
 
     /// Specifies if the screen should be updated after the callback function has returned
     
-#[doc(inline)] pub use crate::dll::AzUpdateScreen as UpdateScreen;    /// `IFrameCallback` struct
+#[doc(inline)] pub use crate::dll::AzUpdateScreen as UpdateScreen;
+    /// `IFrameCallback` struct
     
-#[doc(inline)] pub use crate::dll::AzIFrameCallback as IFrameCallback;    /// `IFrameCallbackType` struct
+#[doc(inline)] pub use crate::dll::AzIFrameCallback as IFrameCallback;
+    /// `IFrameCallbackType` struct
     
-#[doc(inline)] pub use crate::dll::AzIFrameCallbackType as IFrameCallbackType;    /// `IFrameCallbackInfo` struct
+#[doc(inline)] pub use crate::dll::AzIFrameCallbackType as IFrameCallbackType;
+    /// `IFrameCallbackInfo` struct
     
-#[doc(inline)] pub use crate::dll::AzIFrameCallbackInfo as IFrameCallbackInfo;    impl IFrameCallbackInfo {
+#[doc(inline)] pub use crate::dll::AzIFrameCallbackInfo as IFrameCallbackInfo;
+    impl IFrameCallbackInfo {
         /// Returns a copy of the IFrame bounds
         pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { unsafe { crate::dll::az_i_frame_callback_info_get_bounds(self) } }
     }
 
     /// `IFrameCallbackReturn` struct
     
-#[doc(inline)] pub use crate::dll::AzIFrameCallbackReturn as IFrameCallbackReturn;    /// `GlCallback` struct
+#[doc(inline)] pub use crate::dll::AzIFrameCallbackReturn as IFrameCallbackReturn;
+    /// `GlCallback` struct
     
-#[doc(inline)] pub use crate::dll::AzGlCallback as GlCallback;    /// `GlCallbackType` struct
+#[doc(inline)] pub use crate::dll::AzGlCallback as GlCallback;
+    /// `GlCallbackType` struct
     
-#[doc(inline)] pub use crate::dll::AzGlCallbackType as GlCallbackType;    /// `GlCallbackInfo` struct
+#[doc(inline)] pub use crate::dll::AzGlCallbackType as GlCallbackType;
+    /// `GlCallbackInfo` struct
     
-#[doc(inline)] pub use crate::dll::AzGlCallbackInfo as GlCallbackInfo;    impl GlCallbackInfo {
+#[doc(inline)] pub use crate::dll::AzGlCallbackInfo as GlCallbackInfo;
+    impl GlCallbackInfo {
         /// Returns a copy of the internal `GlContextPtr`
         pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { unsafe { crate::dll::az_gl_callback_info_get_gl_context(self) } }
     }
 
     /// `GlCallbackReturn` struct
     
-#[doc(inline)] pub use crate::dll::AzGlCallbackReturn as GlCallbackReturn;    /// `TimerCallback` struct
+#[doc(inline)] pub use crate::dll::AzGlCallbackReturn as GlCallbackReturn;
+    /// `TimerCallback` struct
     
-#[doc(inline)] pub use crate::dll::AzTimerCallback as TimerCallback;    /// `TimerCallbackType` struct
+#[doc(inline)] pub use crate::dll::AzTimerCallback as TimerCallback;
+    /// `TimerCallbackType` struct
     
-#[doc(inline)] pub use crate::dll::AzTimerCallbackType as TimerCallbackType;    /// `TimerCallbackInfo` struct
+#[doc(inline)] pub use crate::dll::AzTimerCallbackType as TimerCallbackType;
+    /// `TimerCallbackInfo` struct
     
-#[doc(inline)] pub use crate::dll::AzTimerCallbackInfo as TimerCallbackInfo;    /// `TimerCallbackReturn` struct
+#[doc(inline)] pub use crate::dll::AzTimerCallbackInfo as TimerCallbackInfo;
+    /// `TimerCallbackReturn` struct
     
-#[doc(inline)] pub use crate::dll::AzTimerCallbackReturn as TimerCallbackReturn;    /// `WriteBackCallbackType` struct
+#[doc(inline)] pub use crate::dll::AzTimerCallbackReturn as TimerCallbackReturn;
+    /// `WriteBackCallbackType` struct
     
-#[doc(inline)] pub use crate::dll::AzWriteBackCallbackType as WriteBackCallbackType;    /// `WriteBackCallback` struct
+#[doc(inline)] pub use crate::dll::AzWriteBackCallbackType as WriteBackCallbackType;
+    /// `WriteBackCallback` struct
     
-#[doc(inline)] pub use crate::dll::AzWriteBackCallback as WriteBackCallback;    /// `ThreadCallbackType` struct
+#[doc(inline)] pub use crate::dll::AzWriteBackCallback as WriteBackCallback;
+    /// `ThreadCallbackType` struct
     
-#[doc(inline)] pub use crate::dll::AzThreadCallbackType as ThreadCallbackType;    /// `RefAnyDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzThreadCallbackType as ThreadCallbackType;
+    /// `RefAnyDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzRefAnyDestructorType as RefAnyDestructorType;    /// `RefCountInner` struct
+#[doc(inline)] pub use crate::dll::AzRefAnyDestructorType as RefAnyDestructorType;
+    /// `RefCountInner` struct
     
-#[doc(inline)] pub use crate::dll::AzRefCountInner as RefCountInner;    /// `RefCount` struct
+#[doc(inline)] pub use crate::dll::AzRefCountInner as RefCountInner;
+    /// `RefCount` struct
     
-#[doc(inline)] pub use crate::dll::AzRefCount as RefCount;    impl RefCount {
+#[doc(inline)] pub use crate::dll::AzRefCount as RefCount;
+    impl RefCount {
         /// Calls the `RefCount::can_be_shared` function.
         pub fn can_be_shared(&self)  -> bool { unsafe { crate::dll::az_ref_count_can_be_shared(self) } }
         /// Calls the `RefCount::can_be_shared_mut` function.
@@ -5293,7 +5584,8 @@ pub mod callbacks {
     impl Drop for RefCount { fn drop(&mut self) { unsafe { crate::dll::az_ref_count_delete(self) } } }
     /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
     
-#[doc(inline)] pub use crate::dll::AzRefAny as RefAny;    impl RefAny {
+#[doc(inline)] pub use crate::dll::AzRefAny as RefAny;
+    impl RefAny {
         /// Creates a new `RefAny` instance.
         pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: String, destructor: RefAnyDestructorType) -> Self { unsafe { crate::dll::az_ref_any_new_c(ptr, len, type_id, type_name, destructor) } }
         /// Calls the `RefAny::is_type` function.
@@ -5307,7 +5599,8 @@ pub mod callbacks {
     impl Drop for RefAny { fn drop(&mut self) { unsafe { crate::dll::az_ref_any_delete(self) } } }
     /// `LayoutInfo` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutInfo as LayoutInfo;    impl LayoutInfo {
+#[doc(inline)] pub use crate::dll::AzLayoutInfo as LayoutInfo;
+    impl LayoutInfo {
         /// Calls the `LayoutInfo::window_width_larger_than` function.
         pub fn window_width_larger_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::az_layout_info_window_width_larger_than(self, width) } }
         /// Calls the `LayoutInfo::window_width_smaller_than` function.
@@ -5913,27 +6206,38 @@ pub mod css {
     use crate::str::String;
     /// `CssRuleBlock` struct
     
-#[doc(inline)] pub use crate::dll::AzCssRuleBlock as CssRuleBlock;    /// `CssDeclaration` struct
+#[doc(inline)] pub use crate::dll::AzCssRuleBlock as CssRuleBlock;
+    /// `CssDeclaration` struct
     
-#[doc(inline)] pub use crate::dll::AzCssDeclaration as CssDeclaration;    /// `DynamicCssProperty` struct
+#[doc(inline)] pub use crate::dll::AzCssDeclaration as CssDeclaration;
+    /// `DynamicCssProperty` struct
     
-#[doc(inline)] pub use crate::dll::AzDynamicCssProperty as DynamicCssProperty;    /// `CssPath` struct
+#[doc(inline)] pub use crate::dll::AzDynamicCssProperty as DynamicCssProperty;
+    /// `CssPath` struct
     
-#[doc(inline)] pub use crate::dll::AzCssPath as CssPath;    /// `CssPathSelector` struct
+#[doc(inline)] pub use crate::dll::AzCssPath as CssPath;
+    /// `CssPathSelector` struct
     
-#[doc(inline)] pub use crate::dll::AzCssPathSelector as CssPathSelector;    /// `NodeTypePath` struct
+#[doc(inline)] pub use crate::dll::AzCssPathSelector as CssPathSelector;
+    /// `NodeTypePath` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeTypePath as NodeTypePath;    /// `CssPathPseudoSelector` struct
+#[doc(inline)] pub use crate::dll::AzNodeTypePath as NodeTypePath;
+    /// `CssPathPseudoSelector` struct
     
-#[doc(inline)] pub use crate::dll::AzCssPathPseudoSelector as CssPathPseudoSelector;    /// `CssNthChildSelector` struct
+#[doc(inline)] pub use crate::dll::AzCssPathPseudoSelector as CssPathPseudoSelector;
+    /// `CssNthChildSelector` struct
     
-#[doc(inline)] pub use crate::dll::AzCssNthChildSelector as CssNthChildSelector;    /// `CssNthChildPattern` struct
+#[doc(inline)] pub use crate::dll::AzCssNthChildSelector as CssNthChildSelector;
+    /// `CssNthChildPattern` struct
     
-#[doc(inline)] pub use crate::dll::AzCssNthChildPattern as CssNthChildPattern;    /// `Stylesheet` struct
+#[doc(inline)] pub use crate::dll::AzCssNthChildPattern as CssNthChildPattern;
+    /// `Stylesheet` struct
     
-#[doc(inline)] pub use crate::dll::AzStylesheet as Stylesheet;    /// `Css` struct
+#[doc(inline)] pub use crate::dll::AzStylesheet as Stylesheet;
+    /// `Css` struct
     
-#[doc(inline)] pub use crate::dll::AzCss as Css;    impl Css {
+#[doc(inline)] pub use crate::dll::AzCss as Css;
+    impl Css {
         /// Returns an empty CSS style
         pub fn empty() -> Self { unsafe { crate::dll::az_css_empty() } }
         /// Returns a CSS style parsed from a `String`
@@ -5942,9 +6246,11 @@ pub mod css {
 
     /// `CssPropertyType` struct
     
-#[doc(inline)] pub use crate::dll::AzCssPropertyType as CssPropertyType;    /// `ColorU` struct
+#[doc(inline)] pub use crate::dll::AzCssPropertyType as CssPropertyType;
+    /// `ColorU` struct
     
-#[doc(inline)] pub use crate::dll::AzColorU as ColorU;    impl ColorU {
+#[doc(inline)] pub use crate::dll::AzColorU as ColorU;
+    impl ColorU {
         /// Creates a new `ColorU` instance.
         pub fn from_str(string: String) -> Self { unsafe { crate::dll::az_color_u_from_str(string) } }
         /// Calls the `ColorU::to_hash` function.
@@ -5953,335 +6259,500 @@ pub mod css {
 
     /// `SizeMetric` struct
     
-#[doc(inline)] pub use crate::dll::AzSizeMetric as SizeMetric;    /// `FloatValue` struct
+#[doc(inline)] pub use crate::dll::AzSizeMetric as SizeMetric;
+    /// `FloatValue` struct
     
-#[doc(inline)] pub use crate::dll::AzFloatValue as FloatValue;    /// `PixelValue` struct
+#[doc(inline)] pub use crate::dll::AzFloatValue as FloatValue;
+    /// `PixelValue` struct
     
-#[doc(inline)] pub use crate::dll::AzPixelValue as PixelValue;    /// `PixelValueNoPercent` struct
+#[doc(inline)] pub use crate::dll::AzPixelValue as PixelValue;
+    /// `PixelValueNoPercent` struct
     
-#[doc(inline)] pub use crate::dll::AzPixelValueNoPercent as PixelValueNoPercent;    /// `BoxShadowClipMode` struct
+#[doc(inline)] pub use crate::dll::AzPixelValueNoPercent as PixelValueNoPercent;
+    /// `BoxShadowClipMode` struct
     
-#[doc(inline)] pub use crate::dll::AzBoxShadowClipMode as BoxShadowClipMode;    /// `StyleBoxShadow` struct
+#[doc(inline)] pub use crate::dll::AzBoxShadowClipMode as BoxShadowClipMode;
+    /// `StyleBoxShadow` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBoxShadow as StyleBoxShadow;    /// `LayoutAlignContent` struct
+#[doc(inline)] pub use crate::dll::AzStyleBoxShadow as StyleBoxShadow;
+    /// `LayoutAlignContent` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutAlignContent as LayoutAlignContent;    /// `LayoutAlignItems` struct
+#[doc(inline)] pub use crate::dll::AzLayoutAlignContent as LayoutAlignContent;
+    /// `LayoutAlignItems` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutAlignItems as LayoutAlignItems;    /// `LayoutBottom` struct
+#[doc(inline)] pub use crate::dll::AzLayoutAlignItems as LayoutAlignItems;
+    /// `LayoutBottom` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutBottom as LayoutBottom;    /// `LayoutBoxSizing` struct
+#[doc(inline)] pub use crate::dll::AzLayoutBottom as LayoutBottom;
+    /// `LayoutBoxSizing` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutBoxSizing as LayoutBoxSizing;    /// `LayoutFlexDirection` struct
+#[doc(inline)] pub use crate::dll::AzLayoutBoxSizing as LayoutBoxSizing;
+    /// `LayoutFlexDirection` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutFlexDirection as LayoutFlexDirection;    /// `LayoutDisplay` struct
+#[doc(inline)] pub use crate::dll::AzLayoutFlexDirection as LayoutFlexDirection;
+    /// `LayoutDisplay` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutDisplay as LayoutDisplay;    /// `LayoutFlexGrow` struct
+#[doc(inline)] pub use crate::dll::AzLayoutDisplay as LayoutDisplay;
+    /// `LayoutFlexGrow` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutFlexGrow as LayoutFlexGrow;    /// `LayoutFlexShrink` struct
+#[doc(inline)] pub use crate::dll::AzLayoutFlexGrow as LayoutFlexGrow;
+    /// `LayoutFlexShrink` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutFlexShrink as LayoutFlexShrink;    /// `LayoutFloat` struct
+#[doc(inline)] pub use crate::dll::AzLayoutFlexShrink as LayoutFlexShrink;
+    /// `LayoutFloat` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutFloat as LayoutFloat;    /// `LayoutHeight` struct
+#[doc(inline)] pub use crate::dll::AzLayoutFloat as LayoutFloat;
+    /// `LayoutHeight` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutHeight as LayoutHeight;    /// `LayoutJustifyContent` struct
+#[doc(inline)] pub use crate::dll::AzLayoutHeight as LayoutHeight;
+    /// `LayoutJustifyContent` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutJustifyContent as LayoutJustifyContent;    /// `LayoutLeft` struct
+#[doc(inline)] pub use crate::dll::AzLayoutJustifyContent as LayoutJustifyContent;
+    /// `LayoutLeft` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutLeft as LayoutLeft;    /// `LayoutMarginBottom` struct
+#[doc(inline)] pub use crate::dll::AzLayoutLeft as LayoutLeft;
+    /// `LayoutMarginBottom` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMarginBottom as LayoutMarginBottom;    /// `LayoutMarginLeft` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMarginBottom as LayoutMarginBottom;
+    /// `LayoutMarginLeft` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMarginLeft as LayoutMarginLeft;    /// `LayoutMarginRight` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMarginLeft as LayoutMarginLeft;
+    /// `LayoutMarginRight` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMarginRight as LayoutMarginRight;    /// `LayoutMarginTop` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMarginRight as LayoutMarginRight;
+    /// `LayoutMarginTop` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMarginTop as LayoutMarginTop;    /// `LayoutMaxHeight` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMarginTop as LayoutMarginTop;
+    /// `LayoutMaxHeight` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMaxHeight as LayoutMaxHeight;    /// `LayoutMaxWidth` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMaxHeight as LayoutMaxHeight;
+    /// `LayoutMaxWidth` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMaxWidth as LayoutMaxWidth;    /// `LayoutMinHeight` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMaxWidth as LayoutMaxWidth;
+    /// `LayoutMinHeight` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMinHeight as LayoutMinHeight;    /// `LayoutMinWidth` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMinHeight as LayoutMinHeight;
+    /// `LayoutMinWidth` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMinWidth as LayoutMinWidth;    /// `LayoutPaddingBottom` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMinWidth as LayoutMinWidth;
+    /// `LayoutPaddingBottom` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutPaddingBottom as LayoutPaddingBottom;    /// `LayoutPaddingLeft` struct
+#[doc(inline)] pub use crate::dll::AzLayoutPaddingBottom as LayoutPaddingBottom;
+    /// `LayoutPaddingLeft` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutPaddingLeft as LayoutPaddingLeft;    /// `LayoutPaddingRight` struct
+#[doc(inline)] pub use crate::dll::AzLayoutPaddingLeft as LayoutPaddingLeft;
+    /// `LayoutPaddingRight` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutPaddingRight as LayoutPaddingRight;    /// `LayoutPaddingTop` struct
+#[doc(inline)] pub use crate::dll::AzLayoutPaddingRight as LayoutPaddingRight;
+    /// `LayoutPaddingTop` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutPaddingTop as LayoutPaddingTop;    /// `LayoutPosition` struct
+#[doc(inline)] pub use crate::dll::AzLayoutPaddingTop as LayoutPaddingTop;
+    /// `LayoutPosition` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutPosition as LayoutPosition;    /// `LayoutRight` struct
+#[doc(inline)] pub use crate::dll::AzLayoutPosition as LayoutPosition;
+    /// `LayoutRight` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutRight as LayoutRight;    /// `LayoutTop` struct
+#[doc(inline)] pub use crate::dll::AzLayoutRight as LayoutRight;
+    /// `LayoutTop` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutTop as LayoutTop;    /// `LayoutWidth` struct
+#[doc(inline)] pub use crate::dll::AzLayoutTop as LayoutTop;
+    /// `LayoutWidth` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutWidth as LayoutWidth;    /// `LayoutFlexWrap` struct
+#[doc(inline)] pub use crate::dll::AzLayoutWidth as LayoutWidth;
+    /// `LayoutFlexWrap` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutFlexWrap as LayoutFlexWrap;    /// `LayoutOverflow` struct
+#[doc(inline)] pub use crate::dll::AzLayoutFlexWrap as LayoutFlexWrap;
+    /// `LayoutOverflow` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutOverflow as LayoutOverflow;    /// `PercentageValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutOverflow as LayoutOverflow;
+    /// `PercentageValue` struct
     
-#[doc(inline)] pub use crate::dll::AzPercentageValue as PercentageValue;    /// `AngleMetric` struct
+#[doc(inline)] pub use crate::dll::AzPercentageValue as PercentageValue;
+    /// `AngleMetric` struct
     
-#[doc(inline)] pub use crate::dll::AzAngleMetric as AngleMetric;    /// `AngleValue` struct
+#[doc(inline)] pub use crate::dll::AzAngleMetric as AngleMetric;
+    /// `AngleValue` struct
     
-#[doc(inline)] pub use crate::dll::AzAngleValue as AngleValue;    /// `LinearColorStop` struct
+#[doc(inline)] pub use crate::dll::AzAngleValue as AngleValue;
+    /// `LinearColorStop` struct
     
-#[doc(inline)] pub use crate::dll::AzLinearColorStop as LinearColorStop;    /// `RadialColorStop` struct
+#[doc(inline)] pub use crate::dll::AzLinearColorStop as LinearColorStop;
+    /// `RadialColorStop` struct
     
-#[doc(inline)] pub use crate::dll::AzRadialColorStop as RadialColorStop;    /// `DirectionCorner` struct
+#[doc(inline)] pub use crate::dll::AzRadialColorStop as RadialColorStop;
+    /// `DirectionCorner` struct
     
-#[doc(inline)] pub use crate::dll::AzDirectionCorner as DirectionCorner;    /// `DirectionCorners` struct
+#[doc(inline)] pub use crate::dll::AzDirectionCorner as DirectionCorner;
+    /// `DirectionCorners` struct
     
-#[doc(inline)] pub use crate::dll::AzDirectionCorners as DirectionCorners;    /// `Direction` struct
+#[doc(inline)] pub use crate::dll::AzDirectionCorners as DirectionCorners;
+    /// `Direction` struct
     
-#[doc(inline)] pub use crate::dll::AzDirection as Direction;    /// `ExtendMode` struct
+#[doc(inline)] pub use crate::dll::AzDirection as Direction;
+    /// `ExtendMode` struct
     
-#[doc(inline)] pub use crate::dll::AzExtendMode as ExtendMode;    /// `LinearGradient` struct
+#[doc(inline)] pub use crate::dll::AzExtendMode as ExtendMode;
+    /// `LinearGradient` struct
     
-#[doc(inline)] pub use crate::dll::AzLinearGradient as LinearGradient;    /// `Shape` struct
+#[doc(inline)] pub use crate::dll::AzLinearGradient as LinearGradient;
+    /// `Shape` struct
     
-#[doc(inline)] pub use crate::dll::AzShape as Shape;    /// `RadialGradientSize` struct
+#[doc(inline)] pub use crate::dll::AzShape as Shape;
+    /// `RadialGradientSize` struct
     
-#[doc(inline)] pub use crate::dll::AzRadialGradientSize as RadialGradientSize;    /// `RadialGradient` struct
+#[doc(inline)] pub use crate::dll::AzRadialGradientSize as RadialGradientSize;
+    /// `RadialGradient` struct
     
-#[doc(inline)] pub use crate::dll::AzRadialGradient as RadialGradient;    /// `ConicGradient` struct
+#[doc(inline)] pub use crate::dll::AzRadialGradient as RadialGradient;
+    /// `ConicGradient` struct
     
-#[doc(inline)] pub use crate::dll::AzConicGradient as ConicGradient;    /// `CssImageId` struct
+#[doc(inline)] pub use crate::dll::AzConicGradient as ConicGradient;
+    /// `CssImageId` struct
     
-#[doc(inline)] pub use crate::dll::AzCssImageId as CssImageId;    /// `StyleBackgroundContent` struct
+#[doc(inline)] pub use crate::dll::AzCssImageId as CssImageId;
+    /// `StyleBackgroundContent` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundContent as StyleBackgroundContent;    /// `BackgroundPositionHorizontal` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundContent as StyleBackgroundContent;
+    /// `BackgroundPositionHorizontal` struct
     
-#[doc(inline)] pub use crate::dll::AzBackgroundPositionHorizontal as BackgroundPositionHorizontal;    /// `BackgroundPositionVertical` struct
+#[doc(inline)] pub use crate::dll::AzBackgroundPositionHorizontal as BackgroundPositionHorizontal;
+    /// `BackgroundPositionVertical` struct
     
-#[doc(inline)] pub use crate::dll::AzBackgroundPositionVertical as BackgroundPositionVertical;    /// `StyleBackgroundPosition` struct
+#[doc(inline)] pub use crate::dll::AzBackgroundPositionVertical as BackgroundPositionVertical;
+    /// `StyleBackgroundPosition` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundPosition as StyleBackgroundPosition;    /// `StyleBackgroundRepeat` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundPosition as StyleBackgroundPosition;
+    /// `StyleBackgroundRepeat` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeat as StyleBackgroundRepeat;    /// `StyleBackgroundSize` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeat as StyleBackgroundRepeat;
+    /// `StyleBackgroundSize` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundSize as StyleBackgroundSize;    /// `StyleBorderBottomColor` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundSize as StyleBackgroundSize;
+    /// `StyleBorderBottomColor` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderBottomColor as StyleBorderBottomColor;    /// `StyleBorderBottomLeftRadius` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderBottomColor as StyleBorderBottomColor;
+    /// `StyleBorderBottomLeftRadius` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderBottomLeftRadius as StyleBorderBottomLeftRadius;    /// `StyleBorderBottomRightRadius` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderBottomLeftRadius as StyleBorderBottomLeftRadius;
+    /// `StyleBorderBottomRightRadius` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderBottomRightRadius as StyleBorderBottomRightRadius;    /// `BorderStyle` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderBottomRightRadius as StyleBorderBottomRightRadius;
+    /// `BorderStyle` struct
     
-#[doc(inline)] pub use crate::dll::AzBorderStyle as BorderStyle;    /// `StyleBorderBottomStyle` struct
+#[doc(inline)] pub use crate::dll::AzBorderStyle as BorderStyle;
+    /// `StyleBorderBottomStyle` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderBottomStyle as StyleBorderBottomStyle;    /// `LayoutBorderBottomWidth` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderBottomStyle as StyleBorderBottomStyle;
+    /// `LayoutBorderBottomWidth` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutBorderBottomWidth as LayoutBorderBottomWidth;    /// `StyleBorderLeftColor` struct
+#[doc(inline)] pub use crate::dll::AzLayoutBorderBottomWidth as LayoutBorderBottomWidth;
+    /// `StyleBorderLeftColor` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderLeftColor as StyleBorderLeftColor;    /// `StyleBorderLeftStyle` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderLeftColor as StyleBorderLeftColor;
+    /// `StyleBorderLeftStyle` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderLeftStyle as StyleBorderLeftStyle;    /// `LayoutBorderLeftWidth` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderLeftStyle as StyleBorderLeftStyle;
+    /// `LayoutBorderLeftWidth` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutBorderLeftWidth as LayoutBorderLeftWidth;    /// `StyleBorderRightColor` struct
+#[doc(inline)] pub use crate::dll::AzLayoutBorderLeftWidth as LayoutBorderLeftWidth;
+    /// `StyleBorderRightColor` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderRightColor as StyleBorderRightColor;    /// `StyleBorderRightStyle` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderRightColor as StyleBorderRightColor;
+    /// `StyleBorderRightStyle` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderRightStyle as StyleBorderRightStyle;    /// `LayoutBorderRightWidth` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderRightStyle as StyleBorderRightStyle;
+    /// `LayoutBorderRightWidth` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutBorderRightWidth as LayoutBorderRightWidth;    /// `StyleBorderTopColor` struct
+#[doc(inline)] pub use crate::dll::AzLayoutBorderRightWidth as LayoutBorderRightWidth;
+    /// `StyleBorderTopColor` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderTopColor as StyleBorderTopColor;    /// `StyleBorderTopLeftRadius` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderTopColor as StyleBorderTopColor;
+    /// `StyleBorderTopLeftRadius` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderTopLeftRadius as StyleBorderTopLeftRadius;    /// `StyleBorderTopRightRadius` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderTopLeftRadius as StyleBorderTopLeftRadius;
+    /// `StyleBorderTopRightRadius` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderTopRightRadius as StyleBorderTopRightRadius;    /// `StyleBorderTopStyle` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderTopRightRadius as StyleBorderTopRightRadius;
+    /// `StyleBorderTopStyle` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderTopStyle as StyleBorderTopStyle;    /// `LayoutBorderTopWidth` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderTopStyle as StyleBorderTopStyle;
+    /// `LayoutBorderTopWidth` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutBorderTopWidth as LayoutBorderTopWidth;    /// `ScrollbarInfo` struct
+#[doc(inline)] pub use crate::dll::AzLayoutBorderTopWidth as LayoutBorderTopWidth;
+    /// `ScrollbarInfo` struct
     
-#[doc(inline)] pub use crate::dll::AzScrollbarInfo as ScrollbarInfo;    /// `ScrollbarStyle` struct
+#[doc(inline)] pub use crate::dll::AzScrollbarInfo as ScrollbarInfo;
+    /// `ScrollbarStyle` struct
     
-#[doc(inline)] pub use crate::dll::AzScrollbarStyle as ScrollbarStyle;    /// `StyleCursor` struct
+#[doc(inline)] pub use crate::dll::AzScrollbarStyle as ScrollbarStyle;
+    /// `StyleCursor` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleCursor as StyleCursor;    /// `StyleFontFamily` struct
+#[doc(inline)] pub use crate::dll::AzStyleCursor as StyleCursor;
+    /// `StyleFontFamily` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleFontFamily as StyleFontFamily;    /// `StyleFontSize` struct
+#[doc(inline)] pub use crate::dll::AzStyleFontFamily as StyleFontFamily;
+    /// `StyleFontSize` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleFontSize as StyleFontSize;    /// `StyleLetterSpacing` struct
+#[doc(inline)] pub use crate::dll::AzStyleFontSize as StyleFontSize;
+    /// `StyleLetterSpacing` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleLetterSpacing as StyleLetterSpacing;    /// `StyleLineHeight` struct
+#[doc(inline)] pub use crate::dll::AzStyleLetterSpacing as StyleLetterSpacing;
+    /// `StyleLineHeight` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleLineHeight as StyleLineHeight;    /// `StyleTabWidth` struct
+#[doc(inline)] pub use crate::dll::AzStyleLineHeight as StyleLineHeight;
+    /// `StyleTabWidth` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTabWidth as StyleTabWidth;    /// `StyleOpacity` struct
+#[doc(inline)] pub use crate::dll::AzStyleTabWidth as StyleTabWidth;
+    /// `StyleOpacity` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleOpacity as StyleOpacity;    /// `StyleTransformOrigin` struct
+#[doc(inline)] pub use crate::dll::AzStyleOpacity as StyleOpacity;
+    /// `StyleTransformOrigin` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformOrigin as StyleTransformOrigin;    /// `StylePerspectiveOrigin` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformOrigin as StyleTransformOrigin;
+    /// `StylePerspectiveOrigin` struct
     
-#[doc(inline)] pub use crate::dll::AzStylePerspectiveOrigin as StylePerspectiveOrigin;    /// `StyleBackfaceVisibility` struct
+#[doc(inline)] pub use crate::dll::AzStylePerspectiveOrigin as StylePerspectiveOrigin;
+    /// `StyleBackfaceVisibility` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackfaceVisibility as StyleBackfaceVisibility;    /// `StyleTransform` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackfaceVisibility as StyleBackfaceVisibility;
+    /// `StyleTransform` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransform as StyleTransform;    /// `StyleTransformMatrix2D` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransform as StyleTransform;
+    /// `StyleTransformMatrix2D` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformMatrix2D as StyleTransformMatrix2D;    /// `StyleTransformMatrix3D` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformMatrix2D as StyleTransformMatrix2D;
+    /// `StyleTransformMatrix3D` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformMatrix3D as StyleTransformMatrix3D;    /// `StyleTransformTranslate2D` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformMatrix3D as StyleTransformMatrix3D;
+    /// `StyleTransformTranslate2D` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformTranslate2D as StyleTransformTranslate2D;    /// `StyleTransformTranslate3D` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformTranslate2D as StyleTransformTranslate2D;
+    /// `StyleTransformTranslate3D` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformTranslate3D as StyleTransformTranslate3D;    /// `StyleTransformRotate3D` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformTranslate3D as StyleTransformTranslate3D;
+    /// `StyleTransformRotate3D` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformRotate3D as StyleTransformRotate3D;    /// `StyleTransformScale2D` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformRotate3D as StyleTransformRotate3D;
+    /// `StyleTransformScale2D` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformScale2D as StyleTransformScale2D;    /// `StyleTransformScale3D` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformScale2D as StyleTransformScale2D;
+    /// `StyleTransformScale3D` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformScale3D as StyleTransformScale3D;    /// `StyleTransformSkew2D` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformScale3D as StyleTransformScale3D;
+    /// `StyleTransformSkew2D` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformSkew2D as StyleTransformSkew2D;    /// `StyleTextAlignmentHorz` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformSkew2D as StyleTransformSkew2D;
+    /// `StyleTextAlignmentHorz` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTextAlignmentHorz as StyleTextAlignmentHorz;    /// `StyleTextColor` struct
+#[doc(inline)] pub use crate::dll::AzStyleTextAlignmentHorz as StyleTextAlignmentHorz;
+    /// `StyleTextColor` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTextColor as StyleTextColor;    /// `StyleWordSpacing` struct
+#[doc(inline)] pub use crate::dll::AzStyleTextColor as StyleTextColor;
+    /// `StyleWordSpacing` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleWordSpacing as StyleWordSpacing;    /// `StyleBoxShadowValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleWordSpacing as StyleWordSpacing;
+    /// `StyleBoxShadowValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBoxShadowValue as StyleBoxShadowValue;    /// `LayoutAlignContentValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBoxShadowValue as StyleBoxShadowValue;
+    /// `LayoutAlignContentValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutAlignContentValue as LayoutAlignContentValue;    /// `LayoutAlignItemsValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutAlignContentValue as LayoutAlignContentValue;
+    /// `LayoutAlignItemsValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutAlignItemsValue as LayoutAlignItemsValue;    /// `LayoutBottomValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutAlignItemsValue as LayoutAlignItemsValue;
+    /// `LayoutBottomValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutBottomValue as LayoutBottomValue;    /// `LayoutBoxSizingValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutBottomValue as LayoutBottomValue;
+    /// `LayoutBoxSizingValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutBoxSizingValue as LayoutBoxSizingValue;    /// `LayoutFlexDirectionValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutBoxSizingValue as LayoutBoxSizingValue;
+    /// `LayoutFlexDirectionValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutFlexDirectionValue as LayoutFlexDirectionValue;    /// `LayoutDisplayValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutFlexDirectionValue as LayoutFlexDirectionValue;
+    /// `LayoutDisplayValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutDisplayValue as LayoutDisplayValue;    /// `LayoutFlexGrowValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutDisplayValue as LayoutDisplayValue;
+    /// `LayoutFlexGrowValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutFlexGrowValue as LayoutFlexGrowValue;    /// `LayoutFlexShrinkValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutFlexGrowValue as LayoutFlexGrowValue;
+    /// `LayoutFlexShrinkValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutFlexShrinkValue as LayoutFlexShrinkValue;    /// `LayoutFloatValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutFlexShrinkValue as LayoutFlexShrinkValue;
+    /// `LayoutFloatValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutFloatValue as LayoutFloatValue;    /// `LayoutHeightValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutFloatValue as LayoutFloatValue;
+    /// `LayoutHeightValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutHeightValue as LayoutHeightValue;    /// `LayoutJustifyContentValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutHeightValue as LayoutHeightValue;
+    /// `LayoutJustifyContentValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutJustifyContentValue as LayoutJustifyContentValue;    /// `LayoutLeftValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutJustifyContentValue as LayoutJustifyContentValue;
+    /// `LayoutLeftValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutLeftValue as LayoutLeftValue;    /// `LayoutMarginBottomValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutLeftValue as LayoutLeftValue;
+    /// `LayoutMarginBottomValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMarginBottomValue as LayoutMarginBottomValue;    /// `LayoutMarginLeftValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMarginBottomValue as LayoutMarginBottomValue;
+    /// `LayoutMarginLeftValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMarginLeftValue as LayoutMarginLeftValue;    /// `LayoutMarginRightValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMarginLeftValue as LayoutMarginLeftValue;
+    /// `LayoutMarginRightValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMarginRightValue as LayoutMarginRightValue;    /// `LayoutMarginTopValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMarginRightValue as LayoutMarginRightValue;
+    /// `LayoutMarginTopValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMarginTopValue as LayoutMarginTopValue;    /// `LayoutMaxHeightValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMarginTopValue as LayoutMarginTopValue;
+    /// `LayoutMaxHeightValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMaxHeightValue as LayoutMaxHeightValue;    /// `LayoutMaxWidthValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMaxHeightValue as LayoutMaxHeightValue;
+    /// `LayoutMaxWidthValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMaxWidthValue as LayoutMaxWidthValue;    /// `LayoutMinHeightValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMaxWidthValue as LayoutMaxWidthValue;
+    /// `LayoutMinHeightValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMinHeightValue as LayoutMinHeightValue;    /// `LayoutMinWidthValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMinHeightValue as LayoutMinHeightValue;
+    /// `LayoutMinWidthValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutMinWidthValue as LayoutMinWidthValue;    /// `LayoutPaddingBottomValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutMinWidthValue as LayoutMinWidthValue;
+    /// `LayoutPaddingBottomValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutPaddingBottomValue as LayoutPaddingBottomValue;    /// `LayoutPaddingLeftValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutPaddingBottomValue as LayoutPaddingBottomValue;
+    /// `LayoutPaddingLeftValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutPaddingLeftValue as LayoutPaddingLeftValue;    /// `LayoutPaddingRightValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutPaddingLeftValue as LayoutPaddingLeftValue;
+    /// `LayoutPaddingRightValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutPaddingRightValue as LayoutPaddingRightValue;    /// `LayoutPaddingTopValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutPaddingRightValue as LayoutPaddingRightValue;
+    /// `LayoutPaddingTopValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutPaddingTopValue as LayoutPaddingTopValue;    /// `LayoutPositionValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutPaddingTopValue as LayoutPaddingTopValue;
+    /// `LayoutPositionValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutPositionValue as LayoutPositionValue;    /// `LayoutRightValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutPositionValue as LayoutPositionValue;
+    /// `LayoutRightValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutRightValue as LayoutRightValue;    /// `LayoutTopValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutRightValue as LayoutRightValue;
+    /// `LayoutTopValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutTopValue as LayoutTopValue;    /// `LayoutWidthValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutTopValue as LayoutTopValue;
+    /// `LayoutWidthValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutWidthValue as LayoutWidthValue;    /// `LayoutFlexWrapValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutWidthValue as LayoutWidthValue;
+    /// `LayoutFlexWrapValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutFlexWrapValue as LayoutFlexWrapValue;    /// `LayoutOverflowValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutFlexWrapValue as LayoutFlexWrapValue;
+    /// `LayoutOverflowValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutOverflowValue as LayoutOverflowValue;    /// `ScrollbarStyleValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutOverflowValue as LayoutOverflowValue;
+    /// `ScrollbarStyleValue` struct
     
-#[doc(inline)] pub use crate::dll::AzScrollbarStyleValue as ScrollbarStyleValue;    /// `StyleBackgroundContentVecValue` struct
+#[doc(inline)] pub use crate::dll::AzScrollbarStyleValue as ScrollbarStyleValue;
+    /// `StyleBackgroundContentVecValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecValue as StyleBackgroundContentVecValue;    /// `StyleBackgroundPositionVecValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecValue as StyleBackgroundContentVecValue;
+    /// `StyleBackgroundPositionVecValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecValue as StyleBackgroundPositionVecValue;    /// `StyleBackgroundRepeatVecValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecValue as StyleBackgroundPositionVecValue;
+    /// `StyleBackgroundRepeatVecValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecValue as StyleBackgroundRepeatVecValue;    /// `StyleBackgroundSizeVecValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecValue as StyleBackgroundRepeatVecValue;
+    /// `StyleBackgroundSizeVecValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecValue as StyleBackgroundSizeVecValue;    /// `StyleBorderBottomColorValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecValue as StyleBackgroundSizeVecValue;
+    /// `StyleBorderBottomColorValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderBottomColorValue as StyleBorderBottomColorValue;    /// `StyleBorderBottomLeftRadiusValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderBottomColorValue as StyleBorderBottomColorValue;
+    /// `StyleBorderBottomLeftRadiusValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderBottomLeftRadiusValue as StyleBorderBottomLeftRadiusValue;    /// `StyleBorderBottomRightRadiusValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderBottomLeftRadiusValue as StyleBorderBottomLeftRadiusValue;
+    /// `StyleBorderBottomRightRadiusValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderBottomRightRadiusValue as StyleBorderBottomRightRadiusValue;    /// `StyleBorderBottomStyleValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderBottomRightRadiusValue as StyleBorderBottomRightRadiusValue;
+    /// `StyleBorderBottomStyleValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderBottomStyleValue as StyleBorderBottomStyleValue;    /// `LayoutBorderBottomWidthValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderBottomStyleValue as StyleBorderBottomStyleValue;
+    /// `LayoutBorderBottomWidthValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutBorderBottomWidthValue as LayoutBorderBottomWidthValue;    /// `StyleBorderLeftColorValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutBorderBottomWidthValue as LayoutBorderBottomWidthValue;
+    /// `StyleBorderLeftColorValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderLeftColorValue as StyleBorderLeftColorValue;    /// `StyleBorderLeftStyleValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderLeftColorValue as StyleBorderLeftColorValue;
+    /// `StyleBorderLeftStyleValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderLeftStyleValue as StyleBorderLeftStyleValue;    /// `LayoutBorderLeftWidthValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderLeftStyleValue as StyleBorderLeftStyleValue;
+    /// `LayoutBorderLeftWidthValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutBorderLeftWidthValue as LayoutBorderLeftWidthValue;    /// `StyleBorderRightColorValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutBorderLeftWidthValue as LayoutBorderLeftWidthValue;
+    /// `StyleBorderRightColorValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderRightColorValue as StyleBorderRightColorValue;    /// `StyleBorderRightStyleValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderRightColorValue as StyleBorderRightColorValue;
+    /// `StyleBorderRightStyleValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderRightStyleValue as StyleBorderRightStyleValue;    /// `LayoutBorderRightWidthValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderRightStyleValue as StyleBorderRightStyleValue;
+    /// `LayoutBorderRightWidthValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutBorderRightWidthValue as LayoutBorderRightWidthValue;    /// `StyleBorderTopColorValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutBorderRightWidthValue as LayoutBorderRightWidthValue;
+    /// `StyleBorderTopColorValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderTopColorValue as StyleBorderTopColorValue;    /// `StyleBorderTopLeftRadiusValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderTopColorValue as StyleBorderTopColorValue;
+    /// `StyleBorderTopLeftRadiusValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderTopLeftRadiusValue as StyleBorderTopLeftRadiusValue;    /// `StyleBorderTopRightRadiusValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderTopLeftRadiusValue as StyleBorderTopLeftRadiusValue;
+    /// `StyleBorderTopRightRadiusValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderTopRightRadiusValue as StyleBorderTopRightRadiusValue;    /// `StyleBorderTopStyleValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderTopRightRadiusValue as StyleBorderTopRightRadiusValue;
+    /// `StyleBorderTopStyleValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBorderTopStyleValue as StyleBorderTopStyleValue;    /// `LayoutBorderTopWidthValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleBorderTopStyleValue as StyleBorderTopStyleValue;
+    /// `LayoutBorderTopWidthValue` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutBorderTopWidthValue as LayoutBorderTopWidthValue;    /// `StyleCursorValue` struct
+#[doc(inline)] pub use crate::dll::AzLayoutBorderTopWidthValue as LayoutBorderTopWidthValue;
+    /// `StyleCursorValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleCursorValue as StyleCursorValue;    /// `StyleFontFamilyValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleCursorValue as StyleCursorValue;
+    /// `StyleFontFamilyValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleFontFamilyValue as StyleFontFamilyValue;    /// `StyleFontSizeValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleFontFamilyValue as StyleFontFamilyValue;
+    /// `StyleFontSizeValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleFontSizeValue as StyleFontSizeValue;    /// `StyleLetterSpacingValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleFontSizeValue as StyleFontSizeValue;
+    /// `StyleLetterSpacingValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleLetterSpacingValue as StyleLetterSpacingValue;    /// `StyleLineHeightValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleLetterSpacingValue as StyleLetterSpacingValue;
+    /// `StyleLineHeightValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleLineHeightValue as StyleLineHeightValue;    /// `StyleTabWidthValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleLineHeightValue as StyleLineHeightValue;
+    /// `StyleTabWidthValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTabWidthValue as StyleTabWidthValue;    /// `StyleTextAlignmentHorzValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleTabWidthValue as StyleTabWidthValue;
+    /// `StyleTextAlignmentHorzValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTextAlignmentHorzValue as StyleTextAlignmentHorzValue;    /// `StyleTextColorValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleTextAlignmentHorzValue as StyleTextAlignmentHorzValue;
+    /// `StyleTextColorValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTextColorValue as StyleTextColorValue;    /// `StyleWordSpacingValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleTextColorValue as StyleTextColorValue;
+    /// `StyleWordSpacingValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleWordSpacingValue as StyleWordSpacingValue;    /// `StyleOpacityValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleWordSpacingValue as StyleWordSpacingValue;
+    /// `StyleOpacityValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleOpacityValue as StyleOpacityValue;    /// `StyleTransformVecValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleOpacityValue as StyleOpacityValue;
+    /// `StyleTransformVecValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformVecValue as StyleTransformVecValue;    /// `StyleTransformOriginValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformVecValue as StyleTransformVecValue;
+    /// `StyleTransformOriginValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTransformOriginValue as StyleTransformOriginValue;    /// `StylePerspectiveOriginValue` struct
+#[doc(inline)] pub use crate::dll::AzStyleTransformOriginValue as StyleTransformOriginValue;
+    /// `StylePerspectiveOriginValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStylePerspectiveOriginValue as StylePerspectiveOriginValue;    /// `StyleBackfaceVisibilityValue` struct
+#[doc(inline)] pub use crate::dll::AzStylePerspectiveOriginValue as StylePerspectiveOriginValue;
+    /// `StyleBackfaceVisibilityValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleBackfaceVisibilityValue as StyleBackfaceVisibilityValue;    /// Parsed CSS key-value pair
+#[doc(inline)] pub use crate::dll::AzStyleBackfaceVisibilityValue as StyleBackfaceVisibilityValue;
+    /// Parsed CSS key-value pair
     
-#[doc(inline)] pub use crate::dll::AzCssProperty as CssProperty;}
+#[doc(inline)] pub use crate::dll::AzCssProperty as CssProperty;
+}
 
 pub mod style {
     #![allow(dead_code, unused_imports)]
@@ -6292,27 +6763,37 @@ pub mod style {
     use crate::css::Css;
     /// `Node` struct
     
-#[doc(inline)] pub use crate::dll::AzNode as Node;    /// `CascadeInfo` struct
+#[doc(inline)] pub use crate::dll::AzNode as Node;
+    /// `CascadeInfo` struct
     
-#[doc(inline)] pub use crate::dll::AzCascadeInfo as CascadeInfo;    /// `CssPropertySource` struct
+#[doc(inline)] pub use crate::dll::AzCascadeInfo as CascadeInfo;
+    /// `CssPropertySource` struct
     
-#[doc(inline)] pub use crate::dll::AzCssPropertySource as CssPropertySource;    /// `StyledNodeState` struct
+#[doc(inline)] pub use crate::dll::AzCssPropertySource as CssPropertySource;
+    /// `StyledNodeState` struct
     
-#[doc(inline)] pub use crate::dll::AzStyledNodeState as StyledNodeState;    /// `StyledNode` struct
+#[doc(inline)] pub use crate::dll::AzStyledNodeState as StyledNodeState;
+    /// `StyledNode` struct
     
-#[doc(inline)] pub use crate::dll::AzStyledNode as StyledNode;    /// `TagId` struct
+#[doc(inline)] pub use crate::dll::AzStyledNode as StyledNode;
+    /// `TagId` struct
     
-#[doc(inline)] pub use crate::dll::AzTagId as TagId;    /// `TagIdToNodeIdMapping` struct
+#[doc(inline)] pub use crate::dll::AzTagId as TagId;
+    /// `TagIdToNodeIdMapping` struct
     
-#[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMapping as TagIdToNodeIdMapping;    /// `ParentWithNodeDepth` struct
+#[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMapping as TagIdToNodeIdMapping;
+    /// `ParentWithNodeDepth` struct
     
-#[doc(inline)] pub use crate::dll::AzParentWithNodeDepth as ParentWithNodeDepth;    /// `CssPropertyCache` struct
+#[doc(inline)] pub use crate::dll::AzParentWithNodeDepth as ParentWithNodeDepth;
+    /// `CssPropertyCache` struct
     
-#[doc(inline)] pub use crate::dll::AzCssPropertyCache as CssPropertyCache;    impl Clone for CssPropertyCache { fn clone(&self) -> Self { unsafe { crate::dll::az_css_property_cache_deep_copy(self) } } }
+#[doc(inline)] pub use crate::dll::AzCssPropertyCache as CssPropertyCache;
+    impl Clone for CssPropertyCache { fn clone(&self) -> Self { unsafe { crate::dll::az_css_property_cache_deep_copy(self) } } }
     impl Drop for CssPropertyCache { fn drop(&mut self) { unsafe { crate::dll::az_css_property_cache_delete(self) } } }
     /// `StyledDom` struct
     
-#[doc(inline)] pub use crate::dll::AzStyledDom as StyledDom;    impl StyledDom {
+#[doc(inline)] pub use crate::dll::AzStyledDom as StyledDom;
+    impl StyledDom {
         /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
         pub fn new(dom: Dom, css: Css) -> Self { unsafe { crate::dll::az_styled_dom_new(dom, css) } }
         /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
@@ -6599,51 +7080,69 @@ pub mod dom {
         }
     }    /// `IdOrClass` struct
     
-#[doc(inline)] pub use crate::dll::AzIdOrClass as IdOrClass;    /// `NodeDataInlineCssProperty` struct
+#[doc(inline)] pub use crate::dll::AzIdOrClass as IdOrClass;
+    /// `NodeDataInlineCssProperty` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeDataInlineCssProperty as NodeDataInlineCssProperty;    /// `Dom` struct
+#[doc(inline)] pub use crate::dll::AzNodeDataInlineCssProperty as NodeDataInlineCssProperty;
+    /// `Dom` struct
     
-#[doc(inline)] pub use crate::dll::AzDom as Dom;    impl Dom {
+#[doc(inline)] pub use crate::dll::AzDom as Dom;
+    impl Dom {
         /// Returns the number of nodes in the DOM
         pub fn node_count(&self)  -> usize { unsafe { crate::dll::az_dom_node_count(self) } }
     }
 
     /// `GlTextureNode` struct
     
-#[doc(inline)] pub use crate::dll::AzGlTextureNode as GlTextureNode;    /// `IFrameNode` struct
+#[doc(inline)] pub use crate::dll::AzGlTextureNode as GlTextureNode;
+    /// `IFrameNode` struct
     
-#[doc(inline)] pub use crate::dll::AzIFrameNode as IFrameNode;    /// `CallbackData` struct
+#[doc(inline)] pub use crate::dll::AzIFrameNode as IFrameNode;
+    /// `CallbackData` struct
     
-#[doc(inline)] pub use crate::dll::AzCallbackData as CallbackData;    /// `ImageMask` struct
+#[doc(inline)] pub use crate::dll::AzCallbackData as CallbackData;
+    /// `ImageMask` struct
     
-#[doc(inline)] pub use crate::dll::AzImageMask as ImageMask;    /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
+#[doc(inline)] pub use crate::dll::AzImageMask as ImageMask;
+    /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
     
-#[doc(inline)] pub use crate::dll::AzNodeData as NodeData;    /// List of core DOM node types built-into by `azul`
+#[doc(inline)] pub use crate::dll::AzNodeData as NodeData;
+    /// List of core DOM node types built-into by `azul`
     
-#[doc(inline)] pub use crate::dll::AzNodeType as NodeType;    /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
+#[doc(inline)] pub use crate::dll::AzNodeType as NodeType;
+    /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
     
-#[doc(inline)] pub use crate::dll::AzOn as On;    impl On {
+#[doc(inline)] pub use crate::dll::AzOn as On;
+    impl On {
         /// Converts the `On` shorthand into a `EventFilter`
         pub fn into_event_filter(self)  -> crate::dom::EventFilter { unsafe { crate::dll::az_on_into_event_filter(self) } }
     }
 
     /// `EventFilter` struct
     
-#[doc(inline)] pub use crate::dll::AzEventFilter as EventFilter;    /// `HoverEventFilter` struct
+#[doc(inline)] pub use crate::dll::AzEventFilter as EventFilter;
+    /// `HoverEventFilter` struct
     
-#[doc(inline)] pub use crate::dll::AzHoverEventFilter as HoverEventFilter;    /// `FocusEventFilter` struct
+#[doc(inline)] pub use crate::dll::AzHoverEventFilter as HoverEventFilter;
+    /// `FocusEventFilter` struct
     
-#[doc(inline)] pub use crate::dll::AzFocusEventFilter as FocusEventFilter;    /// `NotEventFilter` struct
+#[doc(inline)] pub use crate::dll::AzFocusEventFilter as FocusEventFilter;
+    /// `NotEventFilter` struct
     
-#[doc(inline)] pub use crate::dll::AzNotEventFilter as NotEventFilter;    /// `WindowEventFilter` struct
+#[doc(inline)] pub use crate::dll::AzNotEventFilter as NotEventFilter;
+    /// `WindowEventFilter` struct
     
-#[doc(inline)] pub use crate::dll::AzWindowEventFilter as WindowEventFilter;    /// `ComponentEventFilter` struct
+#[doc(inline)] pub use crate::dll::AzWindowEventFilter as WindowEventFilter;
+    /// `ComponentEventFilter` struct
     
-#[doc(inline)] pub use crate::dll::AzComponentEventFilter as ComponentEventFilter;    /// `ApplicationEventFilter` struct
+#[doc(inline)] pub use crate::dll::AzComponentEventFilter as ComponentEventFilter;
+    /// `ApplicationEventFilter` struct
     
-#[doc(inline)] pub use crate::dll::AzApplicationEventFilter as ApplicationEventFilter;    /// `TabIndex` struct
+#[doc(inline)] pub use crate::dll::AzApplicationEventFilter as ApplicationEventFilter;
+    /// `TabIndex` struct
     
-#[doc(inline)] pub use crate::dll::AzTabIndex as TabIndex;}
+#[doc(inline)] pub use crate::dll::AzTabIndex as TabIndex;
+}
 
 pub mod gl {
     #![allow(dead_code, unused_imports)]
@@ -8333,58 +8832,84 @@ pub mod gl {
     use crate::option::OptionU8VecRef;
     /// `GlShaderPrecisionFormatReturn` struct
     
-#[doc(inline)] pub use crate::dll::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;    /// `VertexAttributeType` struct
+#[doc(inline)] pub use crate::dll::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;
+    /// `VertexAttributeType` struct
     
-#[doc(inline)] pub use crate::dll::AzVertexAttributeType as VertexAttributeType;    /// `VertexAttribute` struct
+#[doc(inline)] pub use crate::dll::AzVertexAttributeType as VertexAttributeType;
+    /// `VertexAttribute` struct
     
-#[doc(inline)] pub use crate::dll::AzVertexAttribute as VertexAttribute;    /// `VertexLayout` struct
+#[doc(inline)] pub use crate::dll::AzVertexAttribute as VertexAttribute;
+    /// `VertexLayout` struct
     
-#[doc(inline)] pub use crate::dll::AzVertexLayout as VertexLayout;    /// `VertexArrayObject` struct
+#[doc(inline)] pub use crate::dll::AzVertexLayout as VertexLayout;
+    /// `VertexArrayObject` struct
     
-#[doc(inline)] pub use crate::dll::AzVertexArrayObject as VertexArrayObject;    /// `IndexBufferFormat` struct
+#[doc(inline)] pub use crate::dll::AzVertexArrayObject as VertexArrayObject;
+    /// `IndexBufferFormat` struct
     
-#[doc(inline)] pub use crate::dll::AzIndexBufferFormat as IndexBufferFormat;    /// `VertexBuffer` struct
+#[doc(inline)] pub use crate::dll::AzIndexBufferFormat as IndexBufferFormat;
+    /// `VertexBuffer` struct
     
-#[doc(inline)] pub use crate::dll::AzVertexBuffer as VertexBuffer;    /// `GlType` struct
+#[doc(inline)] pub use crate::dll::AzVertexBuffer as VertexBuffer;
+    /// `GlType` struct
     
-#[doc(inline)] pub use crate::dll::AzGlType as GlType;    /// `DebugMessage` struct
+#[doc(inline)] pub use crate::dll::AzGlType as GlType;
+    /// `DebugMessage` struct
     
-#[doc(inline)] pub use crate::dll::AzDebugMessage as DebugMessage;    /// C-ABI stable reexport of `&[u8]`
+#[doc(inline)] pub use crate::dll::AzDebugMessage as DebugMessage;
+    /// C-ABI stable reexport of `&[u8]`
     
-#[doc(inline)] pub use crate::dll::AzU8VecRef as U8VecRef;    /// C-ABI stable reexport of `&mut [u8]`
+#[doc(inline)] pub use crate::dll::AzU8VecRef as U8VecRef;
+    /// C-ABI stable reexport of `&mut [u8]`
     
-#[doc(inline)] pub use crate::dll::AzU8VecRefMut as U8VecRefMut;    /// C-ABI stable reexport of `&[f32]`
+#[doc(inline)] pub use crate::dll::AzU8VecRefMut as U8VecRefMut;
+    /// C-ABI stable reexport of `&[f32]`
     
-#[doc(inline)] pub use crate::dll::AzF32VecRef as F32VecRef;    /// C-ABI stable reexport of `&[i32]`
+#[doc(inline)] pub use crate::dll::AzF32VecRef as F32VecRef;
+    /// C-ABI stable reexport of `&[i32]`
     
-#[doc(inline)] pub use crate::dll::AzI32VecRef as I32VecRef;    /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
+#[doc(inline)] pub use crate::dll::AzI32VecRef as I32VecRef;
+    /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
     
-#[doc(inline)] pub use crate::dll::AzGLuintVecRef as GLuintVecRef;    /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
+#[doc(inline)] pub use crate::dll::AzGLuintVecRef as GLuintVecRef;
+    /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
     
-#[doc(inline)] pub use crate::dll::AzGLenumVecRef as GLenumVecRef;    /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
+#[doc(inline)] pub use crate::dll::AzGLenumVecRef as GLenumVecRef;
+    /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
     
-#[doc(inline)] pub use crate::dll::AzGLintVecRefMut as GLintVecRefMut;    /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
+#[doc(inline)] pub use crate::dll::AzGLintVecRefMut as GLintVecRefMut;
+    /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
     
-#[doc(inline)] pub use crate::dll::AzGLint64VecRefMut as GLint64VecRefMut;    /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
+#[doc(inline)] pub use crate::dll::AzGLint64VecRefMut as GLint64VecRefMut;
+    /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
     
-#[doc(inline)] pub use crate::dll::AzGLbooleanVecRefMut as GLbooleanVecRefMut;    /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
+#[doc(inline)] pub use crate::dll::AzGLbooleanVecRefMut as GLbooleanVecRefMut;
+    /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
     
-#[doc(inline)] pub use crate::dll::AzGLfloatVecRefMut as GLfloatVecRefMut;    /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
+#[doc(inline)] pub use crate::dll::AzGLfloatVecRefMut as GLfloatVecRefMut;
+    /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
     
-#[doc(inline)] pub use crate::dll::AzRefstrVecRef as RefstrVecRef;    /// C-ABI stable reexport of `&str`
+#[doc(inline)] pub use crate::dll::AzRefstrVecRef as RefstrVecRef;
+    /// C-ABI stable reexport of `&str`
     
-#[doc(inline)] pub use crate::dll::AzRefstr as Refstr;    /// C-ABI stable reexport of `(U8Vec, u32)`
+#[doc(inline)] pub use crate::dll::AzRefstr as Refstr;
+    /// C-ABI stable reexport of `(U8Vec, u32)`
     
-#[doc(inline)] pub use crate::dll::AzGetProgramBinaryReturn as GetProgramBinaryReturn;    /// C-ABI stable reexport of `(i32, u32, AzString)`
-    
-#[doc(inline)] pub use crate::dll::AzGetActiveAttribReturn as GetActiveAttribReturn;    /// C-ABI stable reexport of `*const gleam::gl::GLsync`
-    
-#[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;    impl Drop for GLsyncPtr { fn drop(&mut self) { unsafe { crate::dll::az_g_lsync_ptr_delete(self) } } }
+#[doc(inline)] pub use crate::dll::AzGetProgramBinaryReturn as GetProgramBinaryReturn;
     /// C-ABI stable reexport of `(i32, u32, AzString)`
     
-#[doc(inline)] pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;    /// `GlContextPtr` struct
+#[doc(inline)] pub use crate::dll::AzGetActiveAttribReturn as GetActiveAttribReturn;
+    /// C-ABI stable reexport of `*const gleam::gl::GLsync`
     
-#[doc(inline)] pub use crate::dll::AzGlContextPtr as GlContextPtr;    impl GlContextPtr {
+#[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
+    impl Drop for GLsyncPtr { fn drop(&mut self) { unsafe { crate::dll::az_g_lsync_ptr_delete(self) } } }
+    /// C-ABI stable reexport of `(i32, u32, AzString)`
+    
+#[doc(inline)] pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;
+    /// `GlContextPtr` struct
+    
+#[doc(inline)] pub use crate::dll::AzGlContextPtr as GlContextPtr;
+    impl GlContextPtr {
         /// Calls the `GlContextPtr::get_type` function.
         pub fn get_type(&self)  -> crate::gl::GlType { unsafe { crate::dll::az_gl_context_ptr_get_type(self) } }
         /// Calls the `GlContextPtr::buffer_data_untyped` function.
@@ -8833,10 +9358,12 @@ pub mod gl {
     impl Drop for GlContextPtr { fn drop(&mut self) { unsafe { crate::dll::az_gl_context_ptr_delete(self) } } }
     /// `Texture` struct
     
-#[doc(inline)] pub use crate::dll::AzTexture as Texture;    impl Drop for Texture { fn drop(&mut self) { unsafe { crate::dll::az_texture_delete(self) } } }
+#[doc(inline)] pub use crate::dll::AzTexture as Texture;
+    impl Drop for Texture { fn drop(&mut self) { unsafe { crate::dll::az_texture_delete(self) } } }
     /// `TextureFlags` struct
     
-#[doc(inline)] pub use crate::dll::AzTextureFlags as TextureFlags;    impl TextureFlags {
+#[doc(inline)] pub use crate::dll::AzTextureFlags as TextureFlags;
+    impl TextureFlags {
         /// Default texture flags (not opaque, not a video texture)
         pub fn default() -> Self { unsafe { crate::dll::az_texture_flags_default() } }
     }
@@ -8851,27 +9378,33 @@ pub mod resources {
     use crate::vec::U8Vec;
     /// `RawImageFormat` struct
     
-#[doc(inline)] pub use crate::dll::AzRawImageFormat as RawImageFormat;    /// `ImageId` struct
+#[doc(inline)] pub use crate::dll::AzRawImageFormat as RawImageFormat;
+    /// `ImageId` struct
     
-#[doc(inline)] pub use crate::dll::AzImageId as ImageId;    impl ImageId {
+#[doc(inline)] pub use crate::dll::AzImageId as ImageId;
+    impl ImageId {
         /// Creates a new, unique `ImageId`
         pub fn new() -> Self { unsafe { crate::dll::az_image_id_new() } }
     }
 
     /// `FontId` struct
     
-#[doc(inline)] pub use crate::dll::AzFontId as FontId;    impl FontId {
+#[doc(inline)] pub use crate::dll::AzFontId as FontId;
+    impl FontId {
         /// Creates a new, unique `FontId`
         pub fn new() -> Self { unsafe { crate::dll::az_font_id_new() } }
     }
 
     /// `ImageSource` struct
     
-#[doc(inline)] pub use crate::dll::AzImageSource as ImageSource;    /// `FontSource` struct
+#[doc(inline)] pub use crate::dll::AzImageSource as ImageSource;
+    /// `FontSource` struct
     
-#[doc(inline)] pub use crate::dll::AzFontSource as FontSource;    /// `RawImage` struct
+#[doc(inline)] pub use crate::dll::AzFontSource as FontSource;
+    /// `RawImage` struct
     
-#[doc(inline)] pub use crate::dll::AzRawImage as RawImage;    impl RawImage {
+#[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
+    impl RawImage {
         /// Creates a new `RawImage` by loading the decoded bytes
         pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { unsafe { crate::dll::az_raw_image_new(decoded_pixels, width, height, data_format) } }
     }
@@ -8886,59 +9419,81 @@ pub mod svg {
     use crate::gl::U8VecRef;
     /// `SvgMultiPolygon` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgMultiPolygon as SvgMultiPolygon;    /// `SvgNode` struct
+#[doc(inline)] pub use crate::dll::AzSvgMultiPolygon as SvgMultiPolygon;
+    /// `SvgNode` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgNode as SvgNode;    /// `SvgStyledNode` struct
+#[doc(inline)] pub use crate::dll::AzSvgNode as SvgNode;
+    /// `SvgStyledNode` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgStyledNode as SvgStyledNode;    /// `SvgCircle` struct
+#[doc(inline)] pub use crate::dll::AzSvgStyledNode as SvgStyledNode;
+    /// `SvgCircle` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgCircle as SvgCircle;    /// `SvgPath` struct
+#[doc(inline)] pub use crate::dll::AzSvgCircle as SvgCircle;
+    /// `SvgPath` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgPath as SvgPath;    /// `SvgPathElement` struct
+#[doc(inline)] pub use crate::dll::AzSvgPath as SvgPath;
+    /// `SvgPathElement` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgPathElement as SvgPathElement;    /// `SvgLine` struct
+#[doc(inline)] pub use crate::dll::AzSvgPathElement as SvgPathElement;
+    /// `SvgLine` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgLine as SvgLine;    /// `SvgPoint` struct
+#[doc(inline)] pub use crate::dll::AzSvgLine as SvgLine;
+    /// `SvgPoint` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgPoint as SvgPoint;    /// `SvgVertex` struct
+#[doc(inline)] pub use crate::dll::AzSvgPoint as SvgPoint;
+    /// `SvgVertex` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgVertex as SvgVertex;    /// `SvgQuadraticCurve` struct
+#[doc(inline)] pub use crate::dll::AzSvgVertex as SvgVertex;
+    /// `SvgQuadraticCurve` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgQuadraticCurve as SvgQuadraticCurve;    /// `SvgCubicCurve` struct
+#[doc(inline)] pub use crate::dll::AzSvgQuadraticCurve as SvgQuadraticCurve;
+    /// `SvgCubicCurve` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgCubicCurve as SvgCubicCurve;    /// `SvgRect` struct
+#[doc(inline)] pub use crate::dll::AzSvgCubicCurve as SvgCubicCurve;
+    /// `SvgRect` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgRect as SvgRect;    /// `TesselatedCPUSvgNode` struct
+#[doc(inline)] pub use crate::dll::AzSvgRect as SvgRect;
+    /// `TesselatedCPUSvgNode` struct
     
-#[doc(inline)] pub use crate::dll::AzTesselatedCPUSvgNode as TesselatedCPUSvgNode;    /// `SvgLineCap` struct
+#[doc(inline)] pub use crate::dll::AzTesselatedCPUSvgNode as TesselatedCPUSvgNode;
+    /// `SvgLineCap` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgLineCap as SvgLineCap;    /// `SvgParseOptions` struct
+#[doc(inline)] pub use crate::dll::AzSvgLineCap as SvgLineCap;
+    /// `SvgParseOptions` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgParseOptions as SvgParseOptions;    impl SvgParseOptions {
+#[doc(inline)] pub use crate::dll::AzSvgParseOptions as SvgParseOptions;
+    impl SvgParseOptions {
         /// Creates a new `SvgParseOptions` instance.
         pub fn default() -> Self { unsafe { crate::dll::az_svg_parse_options_default() } }
     }
 
     /// `ShapeRendering` struct
     
-#[doc(inline)] pub use crate::dll::AzShapeRendering as ShapeRendering;    /// `TextRendering` struct
+#[doc(inline)] pub use crate::dll::AzShapeRendering as ShapeRendering;
+    /// `TextRendering` struct
     
-#[doc(inline)] pub use crate::dll::AzTextRendering as TextRendering;    /// `ImageRendering` struct
+#[doc(inline)] pub use crate::dll::AzTextRendering as TextRendering;
+    /// `ImageRendering` struct
     
-#[doc(inline)] pub use crate::dll::AzImageRendering as ImageRendering;    /// `FontDatabase` struct
+#[doc(inline)] pub use crate::dll::AzImageRendering as ImageRendering;
+    /// `FontDatabase` struct
     
-#[doc(inline)] pub use crate::dll::AzFontDatabase as FontDatabase;    /// `SvgRenderOptions` struct
+#[doc(inline)] pub use crate::dll::AzFontDatabase as FontDatabase;
+    /// `SvgRenderOptions` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgRenderOptions as SvgRenderOptions;    impl SvgRenderOptions {
+#[doc(inline)] pub use crate::dll::AzSvgRenderOptions as SvgRenderOptions;
+    impl SvgRenderOptions {
         /// Creates a new `SvgRenderOptions` instance.
         pub fn default() -> Self { unsafe { crate::dll::az_svg_render_options_default() } }
     }
 
     /// `SvgFitTo` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgFitTo as SvgFitTo;    /// `Svg` struct
+#[doc(inline)] pub use crate::dll::AzSvgFitTo as SvgFitTo;
+    /// `Svg` struct
     
-#[doc(inline)] pub use crate::dll::AzSvg as Svg;    impl Svg {
+#[doc(inline)] pub use crate::dll::AzSvg as Svg;
+    impl Svg {
         /// Creates a new `Svg` instance.
         pub fn parse(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::result::ResultSvgSvgParseError { unsafe { crate::dll::az_svg_parse(svg_bytes, parse_options) } }
     }
@@ -8947,19 +9502,25 @@ pub mod svg {
     impl Drop for Svg { fn drop(&mut self) { unsafe { crate::dll::az_svg_delete(self) } } }
     /// `SvgXmlNode` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgXmlNode as SvgXmlNode;    impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::az_svg_xml_node_deep_copy(self) } } }
+#[doc(inline)] pub use crate::dll::AzSvgXmlNode as SvgXmlNode;
+    impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::az_svg_xml_node_deep_copy(self) } } }
     impl Drop for SvgXmlNode { fn drop(&mut self) { unsafe { crate::dll::az_svg_xml_node_delete(self) } } }
     /// `SvgLineJoin` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgLineJoin as SvgLineJoin;    /// `SvgDashPattern` struct
+#[doc(inline)] pub use crate::dll::AzSvgLineJoin as SvgLineJoin;
+    /// `SvgDashPattern` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgDashPattern as SvgDashPattern;    /// `SvgStyle` struct
+#[doc(inline)] pub use crate::dll::AzSvgDashPattern as SvgDashPattern;
+    /// `SvgStyle` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgStyle as SvgStyle;    /// `SvgFillStyle` struct
+#[doc(inline)] pub use crate::dll::AzSvgStyle as SvgStyle;
+    /// `SvgFillStyle` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgFillStyle as SvgFillStyle;    /// `SvgStrokeStyle` struct
+#[doc(inline)] pub use crate::dll::AzSvgFillStyle as SvgFillStyle;
+    /// `SvgStrokeStyle` struct
     
-#[doc(inline)] pub use crate::dll::AzSvgStrokeStyle as SvgStrokeStyle;}
+#[doc(inline)] pub use crate::dll::AzSvgStrokeStyle as SvgStrokeStyle;
+}
 
 pub mod task {
     #![allow(dead_code, unused_imports)]
@@ -8970,16 +9531,18 @@ pub mod task {
     use crate::time::Duration;
     /// `TimerId` struct
     
-#[doc(inline)] pub use crate::dll::AzTimerId as TimerId;    impl TimerId {
+#[doc(inline)] pub use crate::dll::AzTimerId as TimerId;
+    impl TimerId {
         /// Creates a new `TimerId` instance.
         pub fn unique() -> Self { unsafe { crate::dll::az_timer_id_unique() } }
     }
 
     /// `Timer` struct
     
-#[doc(inline)] pub use crate::dll::AzTimer as Timer;    impl Timer {
+#[doc(inline)] pub use crate::dll::AzTimer as Timer;
+    impl Timer {
         /// Creates a new `Timer` instance.
-        pub fn new(timer_data: RefAny, callback: TimerCallbackType) -> Self { unsafe { crate::dll::az_timer_new(timer_data, callback) } }
+        pub fn new(timer_data: RefAny, callback: TimerCallbackType, get_system_time_fn: GetSystemTimeFn) -> Self { unsafe { crate::dll::az_timer_new(timer_data, callback, get_system_time_fn) } }
         /// Calls the `Timer::with_delay` function.
         pub fn with_delay(self, delay: Duration)  -> crate::task::Timer { unsafe { crate::dll::az_timer_with_delay(self, delay) } }
         /// Calls the `Timer::with_interval` function.
@@ -8990,9 +9553,17 @@ pub mod task {
 
     /// Should a timer terminate or not - used to remove active timers
     
-#[doc(inline)] pub use crate::dll::AzTerminateTimer as TerminateTimer;    /// `ThreadSender` struct
+#[doc(inline)] pub use crate::dll::AzTerminateTimer as TerminateTimer;
+    /// `ThreadId` struct
     
-#[doc(inline)] pub use crate::dll::AzThreadSender as ThreadSender;    impl ThreadSender {
+#[doc(inline)] pub use crate::dll::AzThreadId as ThreadId;
+    /// `Thread` struct
+    
+#[doc(inline)] pub use crate::dll::AzThread as Thread;
+    /// `ThreadSender` struct
+    
+#[doc(inline)] pub use crate::dll::AzThreadSender as ThreadSender;
+    impl ThreadSender {
         /// Calls the `ThreadSender::send` function.
         pub fn send(&mut self, msg: ThreadReceiveMsg)  -> bool { unsafe { crate::dll::az_thread_sender_send(self, msg) } }
     }
@@ -9000,7 +9571,8 @@ pub mod task {
     impl Drop for ThreadSender { fn drop(&mut self) { unsafe { crate::dll::az_thread_sender_delete(self) } } }
     /// `ThreadReceiver` struct
     
-#[doc(inline)] pub use crate::dll::AzThreadReceiver as ThreadReceiver;    impl ThreadReceiver {
+#[doc(inline)] pub use crate::dll::AzThreadReceiver as ThreadReceiver;
+    impl ThreadReceiver {
         /// Calls the `ThreadReceiver::receive` function.
         pub fn receive(&mut self)  -> crate::option::OptionThreadSendMsg { unsafe { crate::dll::az_thread_receiver_receive(self) } }
     }
@@ -9008,13 +9580,74 @@ pub mod task {
     impl Drop for ThreadReceiver { fn drop(&mut self) { unsafe { crate::dll::az_thread_receiver_delete(self) } } }
     /// `ThreadSendMsg` struct
     
-#[doc(inline)] pub use crate::dll::AzThreadSendMsg as ThreadSendMsg;    /// `ThreadReceiveMsg` struct
+#[doc(inline)] pub use crate::dll::AzThreadSendMsg as ThreadSendMsg;
+    /// `ThreadReceiveMsg` struct
     
-#[doc(inline)] pub use crate::dll::AzThreadReceiveMsg as ThreadReceiveMsg;    /// `ThreadWriteBackMsg` struct
+#[doc(inline)] pub use crate::dll::AzThreadReceiveMsg as ThreadReceiveMsg;
+    /// `ThreadWriteBackMsg` struct
     
-#[doc(inline)] pub use crate::dll::AzThreadWriteBackMsg as ThreadWriteBackMsg;    /// `ThreadId` struct
+#[doc(inline)] pub use crate::dll::AzThreadWriteBackMsg as ThreadWriteBackMsg;
+    /// `CreateThreadFnType` struct
     
-#[doc(inline)] pub use crate::dll::AzThreadId as ThreadId;}
+#[doc(inline)] pub use crate::dll::AzCreateThreadFnType as CreateThreadFnType;
+    /// `CreateThreadFn` struct
+    
+#[doc(inline)] pub use crate::dll::AzCreateThreadFn as CreateThreadFn;
+    /// `GetSystemTimeFnType` struct
+    
+#[doc(inline)] pub use crate::dll::AzGetSystemTimeFnType as GetSystemTimeFnType;
+    /// Get the current system time, equivalent to `std::time::Instant::now()`, except it also works on systems that work with "ticks" instead of timers
+    
+#[doc(inline)] pub use crate::dll::AzGetSystemTimeFn as GetSystemTimeFn;
+    /// `CheckThreadFinishedFnType` struct
+    
+#[doc(inline)] pub use crate::dll::AzCheckThreadFinishedFnType as CheckThreadFinishedFnType;
+    /// Function called to check if the thread has finished
+    
+#[doc(inline)] pub use crate::dll::AzCheckThreadFinishedFn as CheckThreadFinishedFn;
+    /// `LibrarySendThreadMsgFnType` struct
+    
+#[doc(inline)] pub use crate::dll::AzLibrarySendThreadMsgFnType as LibrarySendThreadMsgFnType;
+    /// Function to send a message to the thread
+    
+#[doc(inline)] pub use crate::dll::AzLibrarySendThreadMsgFn as LibrarySendThreadMsgFn;
+    /// `LibraryReceiveThreadMsgFnType` struct
+    
+#[doc(inline)] pub use crate::dll::AzLibraryReceiveThreadMsgFnType as LibraryReceiveThreadMsgFnType;
+    /// Function to receive a message from the thread
+    
+#[doc(inline)] pub use crate::dll::AzLibraryReceiveThreadMsgFn as LibraryReceiveThreadMsgFn;
+    /// `ThreadRecvFnType` struct
+    
+#[doc(inline)] pub use crate::dll::AzThreadRecvFnType as ThreadRecvFnType;
+    /// Function that the running `Thread` can call to receive messages from the main UI thread
+    
+#[doc(inline)] pub use crate::dll::AzThreadRecvFn as ThreadRecvFn;
+    /// `ThreadSendFnType` struct
+    
+#[doc(inline)] pub use crate::dll::AzThreadSendFnType as ThreadSendFnType;
+    /// Function that the running `Thread` can call to receive messages from the main UI thread
+    
+#[doc(inline)] pub use crate::dll::AzThreadSendFn as ThreadSendFn;
+    /// `ThreadDestructorFnType` struct
+    
+#[doc(inline)] pub use crate::dll::AzThreadDestructorFnType as ThreadDestructorFnType;
+    /// Destructor of the `Thread`
+    
+#[doc(inline)] pub use crate::dll::AzThreadDestructorFn as ThreadDestructorFn;
+    /// `ThreadReceiverDestructorFnType` struct
+    
+#[doc(inline)] pub use crate::dll::AzThreadReceiverDestructorFnType as ThreadReceiverDestructorFnType;
+    /// Destructor of the `ThreadReceiver`
+    
+#[doc(inline)] pub use crate::dll::AzThreadReceiverDestructorFn as ThreadReceiverDestructorFn;
+    /// `ThreadSenderDestructorFnType` struct
+    
+#[doc(inline)] pub use crate::dll::AzThreadSenderDestructorFnType as ThreadSenderDestructorFnType;
+    /// Destructor of the `ThreadSender`
+    
+#[doc(inline)] pub use crate::dll::AzThreadSenderDestructorFn as ThreadSenderDestructorFn;
+}
 
 pub mod window {
     #![allow(dead_code, unused_imports)]
@@ -9104,103 +9737,152 @@ pub mod window {
     }    use crate::callbacks::LayoutCallbackType;
     /// `RendererOptions` struct
     
-#[doc(inline)] pub use crate::dll::AzRendererOptions as RendererOptions;    /// `Vsync` struct
+#[doc(inline)] pub use crate::dll::AzRendererOptions as RendererOptions;
+    /// `Vsync` struct
     
-#[doc(inline)] pub use crate::dll::AzVsync as Vsync;    /// `Srgb` struct
+#[doc(inline)] pub use crate::dll::AzVsync as Vsync;
+    /// `Srgb` struct
     
-#[doc(inline)] pub use crate::dll::AzSrgb as Srgb;    /// `HwAcceleration` struct
+#[doc(inline)] pub use crate::dll::AzSrgb as Srgb;
+    /// `HwAcceleration` struct
     
-#[doc(inline)] pub use crate::dll::AzHwAcceleration as HwAcceleration;    /// `LayoutPoint` struct
+#[doc(inline)] pub use crate::dll::AzHwAcceleration as HwAcceleration;
+    /// `LayoutPoint` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutPoint as LayoutPoint;    /// `LayoutSize` struct
+#[doc(inline)] pub use crate::dll::AzLayoutPoint as LayoutPoint;
+    /// `LayoutSize` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutSize as LayoutSize;    /// `LayoutRect` struct
+#[doc(inline)] pub use crate::dll::AzLayoutSize as LayoutSize;
+    /// `LayoutRect` struct
     
-#[doc(inline)] pub use crate::dll::AzLayoutRect as LayoutRect;    /// `RawWindowHandle` struct
+#[doc(inline)] pub use crate::dll::AzLayoutRect as LayoutRect;
+    /// `RawWindowHandle` struct
     
-#[doc(inline)] pub use crate::dll::AzRawWindowHandle as RawWindowHandle;    /// `IOSHandle` struct
+#[doc(inline)] pub use crate::dll::AzRawWindowHandle as RawWindowHandle;
+    /// `IOSHandle` struct
     
-#[doc(inline)] pub use crate::dll::AzIOSHandle as IOSHandle;    /// `MacOSHandle` struct
+#[doc(inline)] pub use crate::dll::AzIOSHandle as IOSHandle;
+    /// `MacOSHandle` struct
     
-#[doc(inline)] pub use crate::dll::AzMacOSHandle as MacOSHandle;    /// `XlibHandle` struct
+#[doc(inline)] pub use crate::dll::AzMacOSHandle as MacOSHandle;
+    /// `XlibHandle` struct
     
-#[doc(inline)] pub use crate::dll::AzXlibHandle as XlibHandle;    /// `XcbHandle` struct
+#[doc(inline)] pub use crate::dll::AzXlibHandle as XlibHandle;
+    /// `XcbHandle` struct
     
-#[doc(inline)] pub use crate::dll::AzXcbHandle as XcbHandle;    /// `WaylandHandle` struct
+#[doc(inline)] pub use crate::dll::AzXcbHandle as XcbHandle;
+    /// `WaylandHandle` struct
     
-#[doc(inline)] pub use crate::dll::AzWaylandHandle as WaylandHandle;    /// `WindowsHandle` struct
+#[doc(inline)] pub use crate::dll::AzWaylandHandle as WaylandHandle;
+    /// `WindowsHandle` struct
     
-#[doc(inline)] pub use crate::dll::AzWindowsHandle as WindowsHandle;    /// `WebHandle` struct
+#[doc(inline)] pub use crate::dll::AzWindowsHandle as WindowsHandle;
+    /// `WebHandle` struct
     
-#[doc(inline)] pub use crate::dll::AzWebHandle as WebHandle;    /// `AndroidHandle` struct
+#[doc(inline)] pub use crate::dll::AzWebHandle as WebHandle;
+    /// `AndroidHandle` struct
     
-#[doc(inline)] pub use crate::dll::AzAndroidHandle as AndroidHandle;    /// `TaskBarIcon` struct
+#[doc(inline)] pub use crate::dll::AzAndroidHandle as AndroidHandle;
+    /// `TaskBarIcon` struct
     
-#[doc(inline)] pub use crate::dll::AzTaskBarIcon as TaskBarIcon;    /// `XWindowType` struct
+#[doc(inline)] pub use crate::dll::AzTaskBarIcon as TaskBarIcon;
+    /// `XWindowType` struct
     
-#[doc(inline)] pub use crate::dll::AzXWindowType as XWindowType;    /// `PhysicalPositionI32` struct
+#[doc(inline)] pub use crate::dll::AzXWindowType as XWindowType;
+    /// `PhysicalPositionI32` struct
     
-#[doc(inline)] pub use crate::dll::AzPhysicalPositionI32 as PhysicalPositionI32;    /// `PhysicalSizeU32` struct
+#[doc(inline)] pub use crate::dll::AzPhysicalPositionI32 as PhysicalPositionI32;
+    /// `PhysicalSizeU32` struct
     
-#[doc(inline)] pub use crate::dll::AzPhysicalSizeU32 as PhysicalSizeU32;    /// `LogicalPosition` struct
+#[doc(inline)] pub use crate::dll::AzPhysicalSizeU32 as PhysicalSizeU32;
+    /// `LogicalPosition` struct
     
-#[doc(inline)] pub use crate::dll::AzLogicalPosition as LogicalPosition;    /// `LogicalRect` struct
+#[doc(inline)] pub use crate::dll::AzLogicalPosition as LogicalPosition;
+    /// `LogicalRect` struct
     
-#[doc(inline)] pub use crate::dll::AzLogicalRect as LogicalRect;    /// `IconKey` struct
+#[doc(inline)] pub use crate::dll::AzLogicalRect as LogicalRect;
+    /// `IconKey` struct
     
-#[doc(inline)] pub use crate::dll::AzIconKey as IconKey;    /// `SmallWindowIconBytes` struct
+#[doc(inline)] pub use crate::dll::AzIconKey as IconKey;
+    /// `SmallWindowIconBytes` struct
     
-#[doc(inline)] pub use crate::dll::AzSmallWindowIconBytes as SmallWindowIconBytes;    /// `LargeWindowIconBytes` struct
+#[doc(inline)] pub use crate::dll::AzSmallWindowIconBytes as SmallWindowIconBytes;
+    /// `LargeWindowIconBytes` struct
     
-#[doc(inline)] pub use crate::dll::AzLargeWindowIconBytes as LargeWindowIconBytes;    /// `WindowIcon` struct
+#[doc(inline)] pub use crate::dll::AzLargeWindowIconBytes as LargeWindowIconBytes;
+    /// `WindowIcon` struct
     
-#[doc(inline)] pub use crate::dll::AzWindowIcon as WindowIcon;    /// `VirtualKeyCode` struct
+#[doc(inline)] pub use crate::dll::AzWindowIcon as WindowIcon;
+    /// `VirtualKeyCode` struct
     
-#[doc(inline)] pub use crate::dll::AzVirtualKeyCode as VirtualKeyCode;    /// `AcceleratorKey` struct
+#[doc(inline)] pub use crate::dll::AzVirtualKeyCode as VirtualKeyCode;
+    /// `AcceleratorKey` struct
     
-#[doc(inline)] pub use crate::dll::AzAcceleratorKey as AcceleratorKey;    /// `WindowSize` struct
+#[doc(inline)] pub use crate::dll::AzAcceleratorKey as AcceleratorKey;
+    /// `WindowSize` struct
     
-#[doc(inline)] pub use crate::dll::AzWindowSize as WindowSize;    /// `WindowFlags` struct
+#[doc(inline)] pub use crate::dll::AzWindowSize as WindowSize;
+    /// `WindowFlags` struct
     
-#[doc(inline)] pub use crate::dll::AzWindowFlags as WindowFlags;    /// `DebugState` struct
+#[doc(inline)] pub use crate::dll::AzWindowFlags as WindowFlags;
+    /// `DebugState` struct
     
-#[doc(inline)] pub use crate::dll::AzDebugState as DebugState;    /// `KeyboardState` struct
+#[doc(inline)] pub use crate::dll::AzDebugState as DebugState;
+    /// `KeyboardState` struct
     
-#[doc(inline)] pub use crate::dll::AzKeyboardState as KeyboardState;    /// `MouseCursorType` struct
+#[doc(inline)] pub use crate::dll::AzKeyboardState as KeyboardState;
+    /// `MouseCursorType` struct
     
-#[doc(inline)] pub use crate::dll::AzMouseCursorType as MouseCursorType;    /// `CursorPosition` struct
+#[doc(inline)] pub use crate::dll::AzMouseCursorType as MouseCursorType;
+    /// `CursorPosition` struct
     
-#[doc(inline)] pub use crate::dll::AzCursorPosition as CursorPosition;    /// `MouseState` struct
+#[doc(inline)] pub use crate::dll::AzCursorPosition as CursorPosition;
+    /// `MouseState` struct
     
-#[doc(inline)] pub use crate::dll::AzMouseState as MouseState;    /// `PlatformSpecificOptions` struct
+#[doc(inline)] pub use crate::dll::AzMouseState as MouseState;
+    /// `PlatformSpecificOptions` struct
     
-#[doc(inline)] pub use crate::dll::AzPlatformSpecificOptions as PlatformSpecificOptions;    /// `WindowsWindowOptions` struct
+#[doc(inline)] pub use crate::dll::AzPlatformSpecificOptions as PlatformSpecificOptions;
+    /// `WindowsWindowOptions` struct
     
-#[doc(inline)] pub use crate::dll::AzWindowsWindowOptions as WindowsWindowOptions;    /// `WaylandTheme` struct
+#[doc(inline)] pub use crate::dll::AzWindowsWindowOptions as WindowsWindowOptions;
+    /// `WaylandTheme` struct
     
-#[doc(inline)] pub use crate::dll::AzWaylandTheme as WaylandTheme;    /// `RendererType` struct
+#[doc(inline)] pub use crate::dll::AzWaylandTheme as WaylandTheme;
+    /// `RendererType` struct
     
-#[doc(inline)] pub use crate::dll::AzRendererType as RendererType;    /// `StringPair` struct
+#[doc(inline)] pub use crate::dll::AzRendererType as RendererType;
+    /// `StringPair` struct
     
-#[doc(inline)] pub use crate::dll::AzStringPair as StringPair;    /// `LinuxWindowOptions` struct
+#[doc(inline)] pub use crate::dll::AzStringPair as StringPair;
+    /// `LinuxWindowOptions` struct
     
-#[doc(inline)] pub use crate::dll::AzLinuxWindowOptions as LinuxWindowOptions;    /// `MacWindowOptions` struct
+#[doc(inline)] pub use crate::dll::AzLinuxWindowOptions as LinuxWindowOptions;
+    /// `MacWindowOptions` struct
     
-#[doc(inline)] pub use crate::dll::AzMacWindowOptions as MacWindowOptions;    /// `WasmWindowOptions` struct
+#[doc(inline)] pub use crate::dll::AzMacWindowOptions as MacWindowOptions;
+    /// `WasmWindowOptions` struct
     
-#[doc(inline)] pub use crate::dll::AzWasmWindowOptions as WasmWindowOptions;    /// `FullScreenMode` struct
+#[doc(inline)] pub use crate::dll::AzWasmWindowOptions as WasmWindowOptions;
+    /// `FullScreenMode` struct
     
-#[doc(inline)] pub use crate::dll::AzFullScreenMode as FullScreenMode;    /// `WindowTheme` struct
+#[doc(inline)] pub use crate::dll::AzFullScreenMode as FullScreenMode;
+    /// `WindowTheme` struct
     
-#[doc(inline)] pub use crate::dll::AzWindowTheme as WindowTheme;    /// `WindowPosition` struct
+#[doc(inline)] pub use crate::dll::AzWindowTheme as WindowTheme;
+    /// `WindowPosition` struct
     
-#[doc(inline)] pub use crate::dll::AzWindowPosition as WindowPosition;    /// `ImePosition` struct
+#[doc(inline)] pub use crate::dll::AzWindowPosition as WindowPosition;
+    /// `ImePosition` struct
     
-#[doc(inline)] pub use crate::dll::AzImePosition as ImePosition;    /// `TouchState` struct
+#[doc(inline)] pub use crate::dll::AzImePosition as ImePosition;
+    /// `TouchState` struct
     
-#[doc(inline)] pub use crate::dll::AzTouchState as TouchState;    /// `WindowState` struct
+#[doc(inline)] pub use crate::dll::AzTouchState as TouchState;
+    /// `WindowState` struct
     
-#[doc(inline)] pub use crate::dll::AzWindowState as WindowState;    impl WindowState {
+#[doc(inline)] pub use crate::dll::AzWindowState as WindowState;
+    impl WindowState {
         /// Creates a new `WindowState` instance.
         pub fn new(layout_callback: LayoutCallbackType) -> Self { unsafe { crate::dll::az_window_state_new(layout_callback) } }
         /// Creates a new `WindowState` instance.
@@ -9209,9 +9891,11 @@ pub mod window {
 
     /// `LogicalSize` struct
     
-#[doc(inline)] pub use crate::dll::AzLogicalSize as LogicalSize;    /// `WindowCreateOptions` struct
+#[doc(inline)] pub use crate::dll::AzLogicalSize as LogicalSize;
+    /// `WindowCreateOptions` struct
     
-#[doc(inline)] pub use crate::dll::AzWindowCreateOptions as WindowCreateOptions;    impl WindowCreateOptions {
+#[doc(inline)] pub use crate::dll::AzWindowCreateOptions as WindowCreateOptions;
+    impl WindowCreateOptions {
         /// Creates a new `WindowCreateOptions` instance.
         pub fn new(layout_callback: LayoutCallbackType) -> Self { unsafe { crate::dll::az_window_create_options_new(layout_callback) } }
         /// Creates a new `WindowCreateOptions` instance.

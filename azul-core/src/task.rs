@@ -1,4 +1,5 @@
 use core::{
+    fmt,
     ffi::c_void,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -81,6 +82,13 @@ pub enum Instant {
     Tick(SystemTick),
 }
 
+#[cfg(feature = "std")]
+impl From<StdInstant> for Instant {
+    fn from(s: StdInstant) -> Instant {
+        Instant::System(s.into())
+    }
+}
+
 impl Instant {
     /// Adds a duration to the instant, does nothing in undefined cases
     /// (i.e. trying to add a Duration::Tick to an Instant::System)
@@ -104,6 +112,14 @@ impl Instant {
                 _ => { panic!("invalid: trying to add a duration {:?} to an instant {:?}", d, self); },
             },
             None => self.clone()
+        }
+    }
+
+    #[cfg(feature = "std")]
+    pub fn into_std_instant(self) -> StdInstant {
+        match self {
+            Instant::System(s) => s.into(),
+            Instant::Tick(_) => unreachable!(),
         }
     }
 
@@ -279,7 +295,23 @@ pub enum Duration {
     Tick(SystemTickDiff),
 }
 
+#[cfg(feature = "std")]
+impl From<StdDuration> for Duration {
+    fn from(s: StdDuration) -> Self {
+        Duration::System(s.into())
+    }
+}
+
 impl Duration {
+
+    pub fn max() -> Self {
+        #[cfg(feature = "std")] { Duration::System(StdDuration::new(core::u64::MAX, NANOS_PER_SEC - 1).into()) }
+        #[cfg(not(feature = "std"))] { Duration::Tick(SystemTickDiff { tick_diff: u64::MAX }) }
+    }
+
+    pub fn min(self, other: Self) -> Self {
+        if self.smaller_than(&other) { self } else { other }
+    }
 
     #[allow(unused_variables)]
     pub fn greater_than(&self, other: &Self) -> bool {
@@ -433,10 +465,10 @@ pub struct Timer {
 impl Timer {
 
     /// Create a new timer
-    pub fn new(mut data: RefAny, callback: TimerCallbackType, get_system_time_fn: GetSystemTimeFn) -> Self {
+    pub fn new(mut data: RefAny, callback: TimerCallbackType, get_system_time_fn: GetSystemTimeCallback) -> Self {
         Timer {
             data: data.clone_into_library_memory(),
-            created: (get_system_time_fn)(),
+            created: (get_system_time_fn.cb)(),
             run_count: 0,
             last_run: OptionInstant::None,
             delay: OptionDuration::None,
@@ -444,6 +476,18 @@ impl Timer {
             timeout: OptionDuration::None,
             callback: TimerCallback { cb: callback },
         }
+    }
+
+    /// Returns true ONCE on the LAST invocation of the timer
+    /// This is useful if you want to run some animation and then
+    /// when the timer finishes (i.e. all animations finish),
+    /// rebuild the UI / DOM (so that the user does not notice any dropped frames).
+    pub fn is_about_to_finish(&self, instant_now: &Instant) -> bool {
+        let mut finish = false;
+        if let OptionDuration::Some(timeout) = self.timeout {
+            finish = instant_now.duration_since(&self.created).greater_than(&timeout);
+        }
+        finish
     }
 
     /// Returns when the timer needs to run again
@@ -483,9 +527,9 @@ impl Timer {
     }
 
     /// Crate-internal: Invokes the timer if the timer should run. Otherwise returns `UpdateScreen::DoNothing`
-    pub fn invoke(&mut self, data: &mut RefAny, callback_info: CallbackInfo, frame_start: Instant, get_system_time_fn: GetSystemTimeFn) -> TimerCallbackReturn {
+    pub fn invoke(&mut self, data: &mut RefAny, callback_info: CallbackInfo, frame_start: Instant, get_system_time_fn: GetSystemTimeCallback) -> TimerCallbackReturn {
 
-        let instant_now = (get_system_time_fn)();
+        let instant_now = (get_system_time_fn.cb)();
 
         if let OptionDuration::Some(interval) = self.interval {
 
@@ -503,18 +547,18 @@ impl Timer {
         }
 
         let run_count = self.run_count;
+        let is_about_to_finish = self.is_about_to_finish(&instant_now);
         let timer_callback_info = TimerCallbackInfo {
             callback_info,
             frame_start,
             call_count: run_count,
+            is_about_to_finish,
         };
         let mut res = (self.callback.cb)(data, &mut self.data, timer_callback_info);
 
         // Check if the timers timeout is reached
-        if let OptionDuration::Some(timeout) = self.timeout {
-            if instant_now.duration_since(&self.created).greater_than(&timeout) {
-                res = TimerCallbackReturn { should_update: UpdateScreen::DoNothing, should_terminate: TerminateTimer::Terminate };
-            }
+        if is_about_to_finish {
+            res.should_terminate = TerminateTimer::Terminate;
         }
 
         self.last_run = OptionInstant::Some(instant_now);
@@ -567,8 +611,8 @@ impl ThreadWriteBackMsg {
 #[repr(C)]
 pub struct ThreadSender {
     pub ptr: *mut c_void, // *const Box<Sender<ThreadReceiveMsg>>
-    pub send_fn: ThreadSendFn,
-    pub destructor: ThreadSenderDestructorFn,
+    pub send_fn: ThreadSendCallback,
+    pub destructor: ThreadSenderDestructorCallback,
 }
 
 unsafe impl Send for ThreadSender { }
@@ -576,13 +620,13 @@ unsafe impl Send for ThreadSender { }
 impl ThreadSender {
     // send data from the user thread to the main thread
     pub fn send(&mut self, msg: ThreadReceiveMsg) -> bool {
-        (self.send_fn)(self.ptr, msg)
+        (self.send_fn.cb)(self.ptr, msg)
     }
 }
 
 impl Drop for ThreadSender {
     fn drop(&mut self) {
-        (self.destructor)(self)
+        (self.destructor.cb)(self)
     }
 }
 
@@ -590,8 +634,8 @@ impl Drop for ThreadSender {
 #[repr(C)]
 pub struct ThreadReceiver {
     pub ptr: *mut c_void, // *mut Box<Receiver<ThreadSendMsg>>
-    pub recv_fn: ThreadRecvFn,
-    pub destructor: ThreadReceiverDestructorFn,
+    pub recv_fn: ThreadRecvCallback,
+    pub destructor: ThreadReceiverDestructorCallback,
 }
 
 unsafe impl Send for ThreadReceiver { }
@@ -599,13 +643,13 @@ unsafe impl Send for ThreadReceiver { }
 impl ThreadReceiver {
     // receive data from the main thread
     pub fn recv(&mut self) -> OptionThreadSendMsg {
-        (self.recv_fn)(self.ptr)
+        (self.recv_fn.cb)(self.ptr)
     }
 }
 
 impl Drop for ThreadReceiver {
     fn drop(&mut self) {
-        (self.destructor)(self)
+        (self.destructor.cb)(self)
     }
 }
 
@@ -613,36 +657,73 @@ impl Drop for ThreadReceiver {
 ///
 /// See the `default` implementations in this module for an example on how to
 /// create a thread
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ExternalSystemCallbacks {
-    pub create_thread_fn: CreateThreadFn,
-    pub get_system_time_fn: GetSystemTimeFn,
+    pub create_thread_fn: CreateThreadCallback,
+    pub get_system_time_fn: GetSystemTimeCallback,
+}
+
+#[cfg(feature = "std")]
+impl ExternalSystemCallbacks {
+    pub fn rust_internal() -> Self {
+        Self {
+            create_thread_fn: CreateThreadCallback { cb: create_thread_libstd },
+            get_system_time_fn: GetSystemTimeCallback { cb: get_system_time_libstd },
+        }
+    }
 }
 
 /// Function that creates a new `Thread` object
-pub type CreateThreadFn = extern "C" fn(RefAny, RefAny, ThreadCallbackType) -> Thread;
+pub type CreateThreadCallbackType = extern "C" fn(RefAny, RefAny, ThreadCallbackType) -> Thread;
+#[repr(C)] pub struct CreateThreadCallback { pub cb: CreateThreadCallbackType }
+impl_callback!(CreateThreadCallback);
+
 /// Get the current system type, equivalent to `std::time::Instant::now()`, except it
 /// also works on systems that don't have a clock (such as embedded timers)
-pub type GetSystemTimeFn = extern "C" fn() -> Instant;
+pub type GetSystemTimeCallbackType = extern "C" fn() -> Instant;
+#[repr(C)] pub struct GetSystemTimeCallback { pub cb: GetSystemTimeCallbackType }
+impl_callback!(GetSystemTimeCallback);
 
 // function called to check if the thread has finished
-pub type CheckThreadFinishedFn = extern "C" fn(/* dropcheck */ *const c_void) -> bool;
+pub type CheckThreadFinishedCallbackType = extern "C" fn(/* dropcheck */ *const c_void) -> bool;
+#[repr(C)] pub struct CheckThreadFinishedCallback { pub cb: CheckThreadFinishedCallbackType }
+impl_callback!(CheckThreadFinishedCallback);
+
 // function to send a message to the thread
-pub type LibrarySendThreadMsgFn = extern "C" fn(/* Sender<ThreadSendMsg> */ *mut c_void, ThreadSendMsg) -> bool; // return true / false on success / failure
+pub type LibrarySendThreadMsgCallbackType = extern "C" fn(/* Sender<ThreadSendMsg> */ *mut c_void, ThreadSendMsg) -> bool; // return true / false on success / failure
+#[repr(C)] pub struct LibrarySendThreadMsgCallback { pub cb: LibrarySendThreadMsgCallbackType }
+impl_callback!(LibrarySendThreadMsgCallback);
+
 // function to receive a message from the thread
-pub type LibraryReceiveThreadMsg = extern "C" fn(/* Receiver<ThreadReceiveMsg> */ *mut c_void) -> OptionThreadReceiveMsg;
+pub type LibraryReceiveThreadMsgCallbackType = extern "C" fn(/* Receiver<ThreadReceiveMsg> */ *mut c_void) -> OptionThreadReceiveMsg;
+#[repr(C)] pub struct LibraryReceiveThreadMsgCallback { pub cb: LibraryReceiveThreadMsgCallbackType }
+impl_callback!(LibraryReceiveThreadMsgCallback);
+
 // function that the RUNNING THREAD can call to receive messages from the main thread
-pub type ThreadRecvFn = extern "C" fn(/* receiver.ptr */ *mut c_void) -> OptionThreadSendMsg;
+pub type ThreadRecvCallbackType = extern "C" fn(/* receiver.ptr */ *mut c_void) -> OptionThreadSendMsg;
+#[repr(C)] pub struct ThreadRecvCallback { pub cb: ThreadRecvCallbackType }
+impl_callback!(ThreadRecvCallback);
+
 // function that the RUNNING THREAD can call to send messages to the main thread
-pub type ThreadSendFn = extern "C" fn(/* sender.ptr */*mut c_void, ThreadReceiveMsg) -> bool; // return false on error
+pub type ThreadSendCallbackType = extern "C" fn(/* sender.ptr */*mut c_void, ThreadReceiveMsg) -> bool; // return false on error
+#[repr(C)] pub struct ThreadSendCallback { pub cb: ThreadSendCallbackType }
+impl_callback!(ThreadSendCallback);
 
 // function called on Thread::drop()
-pub type ThreadDestructorFn = extern "C" fn(/* thread handle */ *mut c_void, /* sender */ *mut c_void, /* receiver */ *mut c_void, /* dropcheck */ *mut c_void);
+pub type ThreadDestructorCallbackType = extern "C" fn(/* thread handle */ *mut c_void, /* sender */ *mut c_void, /* receiver */ *mut c_void, /* dropcheck */ *mut c_void);
+#[repr(C)] pub struct ThreadDestructorCallback { pub cb: ThreadDestructorCallbackType }
+impl_callback!(ThreadDestructorCallback);
+
 // destructor of the ThreadReceiver
-pub type ThreadReceiverDestructorFn = extern "C" fn(*mut ThreadReceiver);
+pub type ThreadReceiverDestructorCallbackType = extern "C" fn(*mut ThreadReceiver);
+#[repr(C)] pub struct ThreadReceiverDestructorCallback { pub cb: ThreadReceiverDestructorCallbackType }
+impl_callback!(ThreadReceiverDestructorCallback);
+
 // destructor of the ThreadSender
-pub type ThreadSenderDestructorFn = extern "C" fn(*mut ThreadSender);
+pub type ThreadSenderDestructorCallbackType = extern "C" fn(*mut ThreadSender);
+#[repr(C)] pub struct ThreadSenderDestructorCallback { pub cb: ThreadSenderDestructorCallbackType }
+impl_callback!(ThreadSenderDestructorCallback);
 
 /// A `Thread` is a seperate thread that is owned by the framework.
 ///
@@ -661,11 +742,14 @@ pub struct Thread {
     pub receiver: *mut c_void, // *mut Receiver<ThreadReceiveMsg>,
     pub writeback_data: RefAny,
     pub dropcheck: *mut c_void, // *mut Weak<()>,
-    pub check_thread_finished_fn: CheckThreadFinishedFn, //
-    pub send_thread_msg_fn: LibrarySendThreadMsgFn,
-    pub receive_thread_msg_fn: LibraryReceiveThreadMsg,
-    pub thread_destructor_fn: ThreadDestructorFn,
+    pub check_thread_finished_fn: CheckThreadFinishedCallback, //
+    pub send_thread_msg_fn: LibrarySendThreadMsgCallback,
+    pub receive_thread_msg_fn: LibraryReceiveThreadMsgCallback,
+    pub thread_destructor_fn: ThreadDestructorCallback,
 }
+
+#[cfg(feature = "std")]
+pub extern "C" fn get_system_time_libstd() -> Instant { StdInstant::now().into() }
 
 #[cfg(feature = "std")]
 pub extern "C" fn create_thread_libstd(mut thread_initialize_data: RefAny, mut writeback_data: RefAny, callback: ThreadCallbackType) -> Thread {
@@ -673,15 +757,15 @@ pub extern "C" fn create_thread_libstd(mut thread_initialize_data: RefAny, mut w
     let (sender_receiver, receiver_receiver) = std::sync::mpsc::channel::<ThreadReceiveMsg>();
     let sender_receiver = ThreadSender {
         ptr: Box::into_raw(Box::new(sender_receiver)) as *mut c_void,
-        send_fn: default_send_thread_msg_fn,
-        destructor: thread_sender_drop,
+        send_fn: ThreadSendCallback { cb: default_send_thread_msg_fn },
+        destructor: ThreadSenderDestructorCallback { cb: thread_sender_drop },
     };
 
     let (sender_sender, receiver_sender) = std::sync::mpsc::channel::<ThreadSendMsg>();
     let receiver_sender = ThreadReceiver {
         ptr: Box::into_raw(Box::new(receiver_sender)) as *mut c_void,
-        recv_fn: default_receive_thread_msg_fn,
-        destructor: thread_receiver_drop,
+        recv_fn: ThreadRecvCallback { cb: default_receive_thread_msg_fn },
+        destructor: ThreadReceiverDestructorCallback { cb: thread_receiver_drop },
     };
 
     let thread_check = Arc::new(());
@@ -704,31 +788,31 @@ pub extern "C" fn create_thread_libstd(mut thread_initialize_data: RefAny, mut w
         receiver: Box::into_raw(sender) as *mut c_void,
         writeback_data: writeback_data.clone_into_library_memory(),
         dropcheck: Box::into_raw(dropcheck) as *mut c_void,
-        thread_destructor_fn: default_thread_destructor_fn,
-        check_thread_finished_fn: default_check_thread_finished,
-        send_thread_msg_fn: library_send_thread_msg_fn,
-        receive_thread_msg_fn: library_receive_thread_msg_fn,
+        thread_destructor_fn: ThreadDestructorCallback { cb: default_thread_destructor_fn },
+        check_thread_finished_fn: CheckThreadFinishedCallback { cb: default_check_thread_finished },
+        send_thread_msg_fn: LibrarySendThreadMsgCallback { cb: library_send_thread_msg_fn },
+        receive_thread_msg_fn: LibraryReceiveThreadMsgCallback { cb: library_receive_thread_msg_fn },
     }
 }
 
 impl Thread {
     /// Returns true if the Thread has been finished, false otherwise
     pub(crate) fn is_finished(&self) -> bool {
-        (self.check_thread_finished_fn)(self.dropcheck)
+        (self.check_thread_finished_fn.cb)(self.dropcheck)
     }
 
     pub(crate) fn sender_send(&mut self, msg: ThreadSendMsg) -> bool {
-        (self.send_thread_msg_fn)(self.sender, msg)
+        (self.send_thread_msg_fn.cb)(self.sender, msg)
     }
 
     pub(crate) fn receiver_try_recv(&mut self) -> OptionThreadReceiveMsg {
-        (self.receive_thread_msg_fn)(self.receiver)
+        (self.receive_thread_msg_fn.cb)(self.receiver)
     }
 }
 
 impl Drop for Thread {
     fn drop(&mut self) {
-        (self.thread_destructor_fn)(self.thread_handle, self.sender, self.receiver, self.dropcheck);
+        (self.thread_destructor_fn.cb)(self.thread_handle, self.sender, self.receiver, self.dropcheck);
     }
 }
 
@@ -788,13 +872,12 @@ pub fn run_all_timers<'a, 'b>(
     data: &mut RefAny,
     current_timers: &mut FastHashMap<TimerId, Timer>,
     frame_start: Instant,
-    get_system_time_fn: GetSystemTimeFn,
 
     current_window_state: &FullWindowState,
     modifiable_window_state: &mut WindowState,
     gl_context: &GlContextPtr,
     resources : &mut AppResources,
-    system_callbacks: ExternalSystemCallbacks,
+    system_callbacks: &ExternalSystemCallbacks,
     timers: &mut FastHashMap<TimerId, Timer>,
     threads: &mut FastHashMap<ThreadId, Thread>,
     new_windows: &mut Vec<WindowCreateOptions>,
@@ -841,7 +924,7 @@ pub fn run_all_timers<'a, 'b>(
             cursor_in_viewport,
         );
 
-        let TimerCallbackReturn { should_update, should_terminate } = timer.invoke(data, callback_info, frame_start.clone(), get_system_time_fn);
+        let TimerCallbackReturn { should_update, should_terminate } = timer.invoke(data, callback_info, frame_start.clone(), system_callbacks.get_system_time_fn);
 
         match should_update {
             UpdateScreen::RegenerateStyledDomForCurrentWindow => {
@@ -879,7 +962,7 @@ pub fn clean_up_finished_threads<'a, 'b>(
     modifiable_window_state: &mut WindowState,
     gl_context: &GlContextPtr,
     resources : &mut AppResources,
-    system_callbacks: ExternalSystemCallbacks,
+    system_callbacks: &ExternalSystemCallbacks,
     timers: &mut FastHashMap<TimerId, Timer>,
     threads: &mut FastHashMap<ThreadId, Thread>,
     new_windows: &mut Vec<WindowCreateOptions>,

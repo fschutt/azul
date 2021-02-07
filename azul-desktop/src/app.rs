@@ -1,8 +1,5 @@
 use core::ffi::c_void;
-use std::{
-    time::Duration,
-    collections::BTreeMap,
-};
+use alloc::collections::btree_map::BTreeMap;
 use glutin::{
     window::{
         Window as GlutinWindow,
@@ -22,18 +19,14 @@ use webrender::render_api::RenderApi as WrRenderApi;
 use webrender::Transaction as WrTransaction;
 use crate::{
     display_shader::DisplayShader,
-    window::{Window, UserEvent}
+    window::{Window, UserEvent, Monitor, MonitorVec, MonitorHandle},
 };
 use azul_core::{
-    FastHashMap,
     window::{WindowCreateOptions, FullWindowState},
     gl::GlContextPtr,
     callbacks::{RefAny, UpdateScreen},
     app_resources::{AppConfig, AppResources},
 };
-
-#[cfg(test)]
-use azul_core::app_resources::FakeRenderApi;
 
 /// Graphical application that maintains some kind of application state
 #[derive(Debug)]
@@ -63,6 +56,13 @@ impl AzAppPtr {
     }
 }
 
+impl core::ops::Deref for AzAppPtr {
+    type Target = App;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*(self.ptr as *const App) }
+    }
+}
+
 impl Drop for AzAppPtr {
     fn drop(&mut self) {
         let _ = unsafe { Box::<App>::from_raw(self.ptr as *mut App) };
@@ -73,7 +73,10 @@ impl App {
 
     #[cfg(not(test))]
     #[allow(unused_variables)]
-    /// Creates a new, empty application using a specified callback. This does not open any windows.
+    /// Creates a new, empty application using a specified callback.
+    ///
+    /// This does not open any windows, but it starts the event loop
+    /// to the display server
     pub fn new(mut initial_data: RefAny, app_config: AppConfig) -> Self {
 
         #[cfg(feature = "logging")] {
@@ -141,6 +144,17 @@ impl App {
         }
     }
 
+    /// Returns a list of monitors available on the system
+    pub fn list_monitors(&self) -> MonitorVec {
+        let mut monitors = self.event_loop.available_monitors().map(|mh| Monitor::new(mh, false)).collect::<Vec<Monitor>>();
+        if let Some(primary) = self.event_loop.primary_monitor().map(|p| MonitorHandle::new(p)) {
+            if let Some(pm) = monitors.iter_mut().find(|i| i.handle == primary) {
+                pm.is_primary_monitor = true;
+            }
+        }
+        monitors.into()
+    }
+
     /// Spawn a new window on the screen. Note that this should only be used to
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
@@ -151,7 +165,7 @@ impl App {
     /// Start the rendering loop for the currently added windows. The run() function
     /// takes one `WindowCreateOptions` as an argument, which is the "root" window, i.e.
     /// the main application window.
-    #[cfg(not(test))]
+    #[cfg(all(not(test), feature = "std"))]
     pub fn run(mut self, root_window: WindowCreateOptions) -> ! {
 
         #[cfg(target_os = "macos")]
@@ -170,17 +184,10 @@ impl App {
     }
 }
 
-/// Necessary to tell azul-core what the current system time is (for animation timing)
-#[cfg(not(feature = "no_std"))]
-extern "C" fn get_current_time() -> Instant {
-    Instant::SystemInstant(std::time::Instant::now().into())
-}
-
-#[cfg(not(test))]
+#[cfg(all(not(test), feature = "std"))]
 #[allow(unused_variables)]
 fn run_inner(app: App) -> ! {
 
-    use std::time::Instant;
     use azul_core::styled_dom::DomId;
 
     let App {
@@ -194,8 +201,6 @@ fn run_inner(app: App) -> ! {
     let mut threads = BTreeMap::new();
     let mut resources = AppResources::default();
     let mut active_windows = BTreeMap::new();
-
-    let window_created_instant = Instant::now();
 
     let proxy = event_loop.create_proxy();
 
@@ -234,8 +239,8 @@ fn run_inner(app: App) -> ! {
                 let mut css_properties_changed = BTreeMap::new();
                 let mut nodes_scrolled_in_callback = BTreeMap::new();
 
-                let mut new_timers = FastHashMap::new();
-                let mut new_threads = FastHashMap::new();
+                let mut new_timers = BTreeMap::new();
+                let mut new_threads = BTreeMap::new();
 
                 let gl_context_ptr = window.get_gl_context_ptr();
                 let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
@@ -251,6 +256,7 @@ fn run_inner(app: App) -> ! {
                     &mut new_windows,
                     &window_handle,
                     &layout_result.styled_dom.node_hierarchy,
+                    &config.system_callbacks,
                     &mut datasets.1,
                     &mut stop_propagation,
                     &mut focus_target,
@@ -264,8 +270,12 @@ fn run_inner(app: App) -> ! {
 
                 let _ = (init_callback.cb)(&mut data, callback_info);
 
-                timers.entry(*window_id).or_insert_with(|| FastHashMap::new()).extend(new_timers.drain());
-                threads.entry(*window_id).or_insert_with(|| FastHashMap::new()).extend(new_threads.drain());
+                for (timer_id, timer) in new_timers {
+                    timers.entry(*window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
+                }
+                for (thread_id, thread) in new_threads {
+                    threads.entry(*window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
+                }
             }
         }
     };
@@ -274,15 +284,15 @@ fn run_inner(app: App) -> ! {
 
         use glutin::event::{Event, StartCause};
         use glutin::event_loop::ControlFlow;
-        use std::collections::HashSet;
+        use alloc::collections::btree_set::BTreeSet;
         use azul_core::task::{run_all_timers, clean_up_finished_threads};
         use azul_core::window_state::StyleAndLayoutChanges;
         use azul_core::window_state::{Events, NodesToCheck};
         use azul_core::window::{FullHitTest, CursorTypeHitTest};
 
-        let frame_start = Instant::now();
+        let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
 
-        let mut windows_that_need_to_redraw = HashSet::new();
+        let mut windows_that_need_to_redraw = BTreeSet::new();
         let mut windows_created = Vec::<WindowCreateOptions>::new();
 
         match event {
@@ -313,7 +323,7 @@ fn run_inner(app: App) -> ! {
                     let mut css_properties_changed_in_timers = BTreeMap::new();
                     let mut nodes_scrolled_in_timers = BTreeMap::new();
                     let mut new_focus_node = None;
-                    let mut new_timers = FastHashMap::new();
+                    let mut new_timers = BTreeMap::new();
                     let mut modifiable_window_state = window.internal.current_window_state.clone().into();
                     let mut cur_threads = threads.get_mut(window_id).unwrap();
                     let current_scroll_states = window.internal.get_current_scroll_states();
@@ -322,12 +332,13 @@ fn run_inner(app: App) -> ! {
                     let update_screen_timers = run_all_timers(
                         &mut data,
                         &mut timer_map,
-                        frame_start,
+                        frame_start.clone(),
 
                         &window.internal.current_window_state,
                         &mut modifiable_window_state,
                         &window.get_gl_context_ptr(),
                         &mut resources,
+                        &config.system_callbacks,
                         &mut new_timers,
                         &mut cur_threads,
                         &mut windows_created,
@@ -389,8 +400,8 @@ fn run_inner(app: App) -> ! {
                         }
                     }
 
-                    if !new_timers.is_empty() {
-                        all_new_current_timers.insert(window_id, new_timers);
+                    for (timer_id, timer) in new_timers {
+                        all_new_current_timers.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
                     }
 
                     let current_window_save_state = window.internal.current_window_state.clone();
@@ -400,7 +411,7 @@ fn run_inner(app: App) -> ! {
 
                 // -- doesn't work somehow???
                 // for (window_id, mut nct) in all_new_current_timers.into_iter() {
-                //     timers.entry(*window_id).or_insert_with(|| FastHashMap::default()).extend(nct.drain());
+                //     timers.entry(*window_id).or_insert_with(|| BTreeMap::default()).extend(nct.drain());
                 // }
 
                 // run threads
@@ -417,7 +428,7 @@ fn run_inner(app: App) -> ! {
                     let mut new_focus_node = None;
                     let mut modifiable_window_state = window.internal.current_window_state.clone().into();
                     let mut cur_timers = timers.get_mut(window_id).unwrap();
-                    let mut new_threads = FastHashMap::new();
+                    let mut new_threads = BTreeMap::new();
 
                     let current_scroll_states = window.internal.get_current_scroll_states();
                     let raw_window_handle = window.get_raw_window_handle();
@@ -428,6 +439,7 @@ fn run_inner(app: App) -> ! {
                         &mut modifiable_window_state,
                         &window.get_gl_context_ptr(),
                         &mut resources,
+                        &config.system_callbacks,
                         &mut cur_timers,
                         &mut new_threads,
                         &mut windows_created,
@@ -488,8 +500,8 @@ fn run_inner(app: App) -> ! {
                         }
                     }
 
-                    if !new_threads.is_empty() {
-                        all_new_current_threads.entry(*window_id).or_insert_with(|| FastHashMap::new()).extend(new_threads.drain());
+                    for (thread_id, thread) in new_threads {
+                        all_new_current_threads.entry(*window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
                     }
 
                     let current_window_save_state = window.internal.current_window_state.clone();
@@ -497,8 +509,10 @@ fn run_inner(app: App) -> ! {
                     window.internal.previous_window_state = Some(current_window_save_state);
                 }
 
-                for (window_id, mut new_current_threads) in all_new_current_threads {
-                    threads.entry(window_id).or_insert_with(|| FastHashMap::default()).extend(new_current_threads.drain());
+                for (window_id, new_current_threads) in all_new_current_threads {
+                    for (thread_id, thread) in new_current_threads {
+                        threads.entry(window_id).or_insert_with(|| BTreeMap::default()).insert(thread_id, thread);
+                    }
                 }
 
                 if update_screen_timers_tasks == UpdateScreen::RegenerateStyledDomForAllWindows {
@@ -521,7 +535,7 @@ fn run_inner(app: App) -> ! {
                 // If we redraw here, the screen will flicker because the
                 // screen may not be finished painting
 
-                let mut window = match active_windows.get_mut(&window_id) {
+                let window = match active_windows.get_mut(&window_id) {
                     Some(s) => s,
                     None => {return; },
                 };
@@ -535,7 +549,7 @@ fn run_inner(app: App) -> ! {
                     None => {return; },
                 };
 
-                let window_event_start = Instant::now();
+                let window_event_start = (config.system_callbacks.get_system_time_fn.cb)();
 
                 // ONLY update the window_state of the window, don't do anything else
                 // everything is then
@@ -562,7 +576,7 @@ fn run_inner(app: App) -> ! {
 
                     let scroll_event = window.internal.current_window_state.get_scroll_amount();
                     let nodes_to_check = NodesToCheck::new(&hit_test, &events);
-                    let mut callback_results = window.call_callbacks(&nodes_to_check, &events, &window.get_gl_context_ptr(), &mut resources);
+                    let mut callback_results = window.call_callbacks(&nodes_to_check, &events, &window.get_gl_context_ptr(), &mut resources, &config.system_callbacks);
 
                     let cur_should_callback_render = callback_results.should_scroll_render;
                     if cur_should_callback_render { should_callback_render = true; }
@@ -614,12 +628,17 @@ fn run_inner(app: App) -> ! {
 
                     windows_created.extend(callback_results.windows_created.drain(..));
 
-                    timers.entry(window_id).or_insert_with(|| FastHashMap::new()).extend(callback_results.timers.drain());
-                    threads.entry(window_id).or_insert_with(|| FastHashMap::new()).extend(callback_results.threads.drain());
+                    let callbacks_changed_cursor = callback_results.cursor_changed();
+
+                    for (timer_id, timer) in callback_results.timers {
+                        timers.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
+                    }
+                    for (thread_id, thread) in callback_results.threads {
+                        threads.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
+                    }
 
                     // see if the callbacks modified the WindowState - if yes, re-determine the events
                     let current_window_save_state = window.internal.current_window_state.clone();
-                    let callbacks_changed_cursor = callback_results.cursor_changed();
                     if !callbacks_changed_cursor {
                         let ht = FullHitTest::new(&window.internal.layout_results, &window.internal.current_window_state.mouse_state.cursor_position, &window.internal.scroll_states);
                         let cht = CursorTypeHitTest::new(&ht, &window.internal.layout_results);
@@ -644,7 +663,7 @@ fn run_inner(app: App) -> ! {
                     window.render_async(transaction, need_regenerate_display_list);
                     windows_that_need_to_redraw.insert(window_id);
                 } else if should_scroll_render || should_callback_render {
-                    let mut transaction = WrTransaction::new();
+                    let transaction = WrTransaction::new();
                     window.render_async(transaction, need_regenerate_display_list);
                     windows_that_need_to_redraw.insert(window_id);
                 }
@@ -693,8 +712,8 @@ fn run_inner(app: App) -> ! {
                     let mut css_properties_changed = BTreeMap::new();
                     let mut nodes_scrolled_in_callback = BTreeMap::new();
 
-                    let mut new_timers = FastHashMap::new();
-                    let mut new_threads = FastHashMap::new();
+                    let mut new_timers = BTreeMap::new();
+                    let mut new_threads = BTreeMap::new();
                     let gl_context_ptr = window.get_gl_context_ptr();
 
                     let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
@@ -710,6 +729,7 @@ fn run_inner(app: App) -> ! {
                         &mut new_windows,
                         &window_handle,
                         &layout_result.styled_dom.node_hierarchy,
+                        &config.system_callbacks,
                         &mut datasets.1,
                         &mut stop_propagation,
                         &mut focus_target,
@@ -723,8 +743,12 @@ fn run_inner(app: App) -> ! {
 
                     let result = (close_callback.cb)(&mut data, callback_info);
 
-                    timers.entry(window_id).or_insert_with(|| FastHashMap::new()).extend(new_timers.drain());
-                    threads.entry(window_id).or_insert_with(|| FastHashMap::new()).extend(new_threads.drain());
+                    for (timer_id, timer) in new_timers {
+                        timers.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
+                    }
+                    for (thread_id, thread) in new_threads {
+                        threads.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
+                    }
                     if result == UpdateScreen::DoNothing {
                         window_should_close = false;
                     }
@@ -777,8 +801,8 @@ fn run_inner(app: App) -> ! {
                     let mut css_properties_changed = BTreeMap::new();
                     let mut nodes_scrolled_in_callback = BTreeMap::new();
 
-                    let mut new_timers = FastHashMap::new();
-                    let mut new_threads = FastHashMap::new();
+                    let mut new_timers = BTreeMap::new();
+                    let mut new_threads = BTreeMap::new();
 
                     let gl_context_ptr = window.get_gl_context_ptr();
                     let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
@@ -794,6 +818,7 @@ fn run_inner(app: App) -> ! {
                         &mut new_windows,
                         &window_handle,
                         &layout_result.styled_dom.node_hierarchy,
+                        &config.system_callbacks,
                         &mut datasets.1,
                         &mut stop_propagation,
                         &mut focus_target,
@@ -807,52 +832,63 @@ fn run_inner(app: App) -> ! {
 
                     let _ = (init_callback.cb)(&mut data, callback_info);
 
-                    timers.entry(*window_id).or_insert_with(|| FastHashMap::new()).extend(new_timers.drain());
-                    threads.entry(*window_id).or_insert_with(|| FastHashMap::new()).extend(new_threads.drain());
+                    for (timer_id, timer) in new_timers {
+                        timers.entry(*window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
+                    }
+                    for (thread_id, thread) in new_threads {
+                        threads.entry(*window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
+                    }
                 }
             }
         }
-/*
-        for window_id in windows_that_need_to_redraw.into_iter() {
-            let window = match active_windows.get_mut(&window_id) {
-                Some(s) => s,
-                None => continue,
-            };
-            window.display.window().request_redraw();
-        }
-*/
+
         // end: handle control flow and app shutdown
         *control_flow = if !active_windows.is_empty() {
+
+            use std::time::Duration as StdDuration;
+            use azul_core::task::Duration;
+
             // If no timers / threads are running, wait until next user event
-            if timers.is_empty() && threads.is_empty() {
-                 ControlFlow::Wait
+            if threads.is_empty() && timers.is_empty() {
+                ControlFlow::Wait
             } else {
-                if timers.is_empty() {
-                    // minimum time to re-poll for threads = 16ms
-                    ControlFlow::WaitUntil(frame_start + Duration::from_millis(16))
-                } else if timers.values().any(|timer_map| timer_map.values().any(|t| t.interval.as_ref().is_none())) {
-                    ControlFlow::Poll
-                } else {
-                    // timers are not empty, select the minimum time that the next timer needs to run
-                    // ex. if one timer is set to run every 2 seconds, then we only need
-                    // to poll in 2 seconds, not every 16ms
-                    let mut min_time = Duration::from_secs(1000); // really long time
 
-                    for timer_map in timers.values() {
-                        for timer in timer_map.values() {
-                            if let Some(new_min) = timer.instant_of_next_run().checked_duration_since(frame_start) {
-                                min_time = min_time.min(new_min);
-                            }
-                        }
+                // determine minimum refresh rate from monitor
+                let minimum_refresh_rate = active_windows
+                    .values()
+                    .filter_map(|w| w.get_current_monitor().and_then(|mon| mon.get_max_supported_framerate()))
+                    .min()
+                    .map(|d| Duration::System(d.into()));
+
+                // in case the callback is handled slower than 16ms, this would panic
+                let current_time_instant = (config.system_callbacks.get_system_time_fn.cb)().add_optional_duration(Some(&(StdDuration::from_millis(1).into())));
+
+                if threads.is_empty() {
+                    // timers running
+                    if timers.values().any(|timer_map| timer_map.values().any(|t| t.interval.as_ref().is_none())) {
+                        ControlFlow::Poll
+                    } else {
+                        // timers are not empty, select the minimum time that the next timer needs to run
+                        // ex. if one timer is set to run every 2 seconds, then we only need
+                        // to poll in 2 seconds, not every 16ms
+                        let min_timer_time = timers.values().filter_map(|t| {
+                            t.values().map(|t| t.instant_of_next_run().duration_since(&frame_start)).min()
+                        }).min();
+
+                        ControlFlow::WaitUntil(current_time_instant.max(
+                            frame_start.add_optional_duration(min_timer_time.as_ref())
+                            .min(frame_start.add_optional_duration(minimum_refresh_rate.as_ref()))
+                        ).into_std_instant())
                     }
-
-                    ControlFlow::WaitUntil(frame_start + min_time)
+                } else {
+                    // threads running
+                    ControlFlow::WaitUntil(current_time_instant.max(frame_start.add_optional_duration(minimum_refresh_rate.as_ref())).into_std_instant())
                 }
             }
         } else {
+            // Application shutdown
             timers = BTreeMap::new();
             threads = BTreeMap::new();
-            // Application shutdown
             ControlFlow::Exit
         };
     })
@@ -966,7 +1002,7 @@ fn process_window_event(window: &mut Window, event_loop: &GlutinEventLoopWindowT
             current_window_state.mouse_state.scroll_y = Some(-scroll_y_px).into();
         },
         GlutinWindowEvent::HoveredFile(file_path) => {
-            current_window_state.hovered_file = Some(file_path.clone());
+            current_window_state.hovered_file = Some(file_path.clone().into_os_string().to_string_lossy().into_owned().into());
             current_window_state.dropped_file = None;
         },
         GlutinWindowEvent::HoveredFileCancelled => {
@@ -975,7 +1011,7 @@ fn process_window_event(window: &mut Window, event_loop: &GlutinEventLoopWindowT
         },
         GlutinWindowEvent::DroppedFile(file_path) => {
             current_window_state.hovered_file = None;
-            current_window_state.dropped_file = Some(file_path.clone());
+            current_window_state.dropped_file = Some(file_path.clone().into_os_string().to_string_lossy().into_owned().into());
         },
         GlutinWindowEvent::Focused(f) => {
             current_window_state.flags.has_focus = *f;

@@ -570,7 +570,7 @@ impl CallbacksOfHitTest {
         layout_results: &mut Vec<LayoutResult>,
         modifiable_scroll_states: &mut ScrollStates,
         resources: &mut AppResources,
-        system_callbacks: ExternalSystemCallbacks,
+        system_callbacks: &ExternalSystemCallbacks,
     ) -> CallCallbacksResult {
 
         use crate::styled_dom::ParentWithNodeDepth;

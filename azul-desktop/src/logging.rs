@@ -1,4 +1,4 @@
-use std::sync::atomic::{Ordering, AtomicBool};
+use core::sync::atomic::{Ordering, AtomicBool};
 use log::LevelFilter;
 use crate::dialogs::msg_box_ok;
 

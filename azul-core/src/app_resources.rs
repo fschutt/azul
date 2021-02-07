@@ -15,6 +15,7 @@ use crate::{
     display_list::GlyphInstance,
     styled_dom::StyledDom,
     callbacks::PipelineId,
+    task::ExternalSystemCallbacks,
     window::{DebugState, LogicalPosition, LogicalSize, OptionI32},
 };
 
@@ -37,8 +38,11 @@ pub struct AppConfig {
     pub enable_tab_navigation: bool,
     /// Debug state for all windows
     pub debug_state: DebugState,
+    /// External callbacks to create a thread or get the curent time
+    pub system_callbacks: ExternalSystemCallbacks,
 }
 
+#[cfg(feature = "std")]
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -47,6 +51,7 @@ impl Default for AppConfig {
             enable_logging_on_panic: true,
             enable_tab_navigation: true,
             debug_state: DebugState::default(),
+            system_callbacks: ExternalSystemCallbacks::rust_internal(),
         }
     }
 }

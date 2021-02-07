@@ -849,11 +849,18 @@ def generate_rust_dll_bindings(api_data, structs_map, functions_map):
 
     code += read_file(root_folder + "/api/_patches/azul.rs/dll.rs")
 
+    code += "    #[cfg(not(feature = \"link_static\"))]"
+    code += "    mod __structs {\r\n"
     code += generate_structs(api_data, structs_map, True)
+    code += "    }\r\n\r\n"
+    code += "    #[cfg(not(feature = \"link_static\"))]"
+    code += "    pub use self::structs::*;\r\n"
+
 
     code += "\r\n"
     code += "\r\n"
 
+    code += "    #[cfg(not(feature = \"link_static\"))]\r\n"
     code += "    #[cfg_attr(target_os = \"windows\", link(name=\"azul.dll\"))] // https://github.com/rust-lang/cargo/issues/9082\r\n"
     code += "    #[cfg_attr(not(target_os = \"windows\"), link(name=\"azul\"))] // https://github.com/rust-lang/cargo/issues/9082\r\n"
     code += "    extern \"C\" {\r\n"
@@ -865,6 +872,11 @@ def generate_rust_dll_bindings(api_data, structs_map, functions_map):
         return_arrow = "" if fn_return == "" else " -> "
         code += "        pub(crate) fn " + fn_name + "(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ";\r\n"
 
+    code += "    }\r\n\r\n"
+
+    code += "    #[cfg(not(feature = \"link_static\"))] {\r\n"
+    code += "        extern crate azul_dll;\r\n"
+    code += "        use azul_dll::*;\r\n"
     code += "    }\r\n\r\n"
 
     return code
@@ -927,7 +939,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
             else:
                 code += "    /// `" + class_name + "` struct\r\n    "
 
-            code += "\r\n#[doc(inline)] pub use crate::dll::" + class_ptr_name + " as " + class_name + ";"
+            code += "\r\n#[doc(inline)] pub use crate::dll::" + class_ptr_name + " as " + class_name + ";\r\n"
 
             should_emit_impl = not(class_is_const or class_is_callback_typedef) and (("constructors" in c.keys() and len(c["constructors"]) > 0) or ("functions" in c.keys() and len(c["functions"]) > 0))
             if should_emit_impl:
@@ -1081,18 +1093,21 @@ def generate_rust_callback_fn_type(api_data, callback_typedef):
 
             fn_string += ", "
 
-        fn_string = fn_string[:-2] # trim last comma
+        if len(fn_args) > 0:
+            fn_string = fn_string[:-2] # trim last comma
 
     fn_string += ")"
 
     if "returns" in callback_typedef.keys():
         fn_string += " -> "
-        search_result = search_for_class_by_class_name(api_data, callback_typedef["returns"])
+        fn_arg_type = callback_typedef["returns"]
+        search_result = search_for_class_by_class_name(api_data, fn_arg_type)
         fn_arg_class = fn_arg_type
 
         if not(is_primitive_arg(fn_arg_type)):
             if search_result is None:
                 print("fn_arg_type " + fn_arg_type + " not found!")
+                raise Exception("fn_arg_type " + fn_arg_type + " not found!")
             fn_arg_class = search_result[1]
 
         if not(is_primitive_arg(fn_arg_type)):
@@ -1134,7 +1149,7 @@ def generate_size_test(api_data, structs_map):
         struct = structs_map[struct_name]
         if "external" in struct.keys():
             external_path = struct["external"]
-            test_str += "        assert_eq!(Layout::new::<" + external_path + ">(), Layout::new::<" + struct_name + ">());\r\n"
+            test_str += "        assert_eq!((Layout::new::<" + external_path + ">(), \"" + struct_name +  "\"), (Layout::new::<" + struct_name + ">(), \"" + struct_name +  "\"));\r\n"
 
     test_str += "    }\r\n"
     test_str += "}\r\n"

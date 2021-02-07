@@ -15,6 +15,7 @@ extern crate gleam;
 extern crate xmlparser;
 #[macro_use(impl_display)]
 extern crate azul_core;
+#[macro_use]
 extern crate azul_css;
 extern crate azul_layout;
 #[cfg(feature = "font_loading")]

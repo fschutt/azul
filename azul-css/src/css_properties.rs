@@ -239,7 +239,7 @@ impl LayoutRect {
 }
 
 /// Only used for calculations: Size (width, height) in layout space.
-#[derive(Copy, Default, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Default, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 #[repr(C)]
 pub struct LayoutSize { pub width: isize, pub height: isize }
 
@@ -263,7 +263,7 @@ impl LayoutSize {
 }
 
 /// Only used for calculations: Point coordinate (x, y) in layout space.
-#[derive(Copy, Default, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Default, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 #[repr(C)]
 pub struct LayoutPoint { pub x: isize, pub y: isize }
 

@@ -478,6 +478,10 @@ pub use AzNodeDataVecTT as AzNodeDataVec;
 /// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_node_data_vec_delete(object: &mut AzNodeDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
+pub type AzOptionThreadReceiveMsgTT = azul_impl::task::OptionThreadReceiveMsg;
+pub use AzOptionThreadReceiveMsgTT as AzOptionThreadReceiveMsg;
+
 /// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
 pub type AzOptionPercentageValueTT = azul_impl::css::OptionPercentageValue;
 pub use AzOptionPercentageValueTT as AzOptionPercentageValue;
@@ -615,7 +619,7 @@ pub type AzOptionDurationTT = azul_impl::task::OptionDuration;
 pub use AzOptionDurationTT as AzOptionDuration;
 
 /// Re-export of rust-allocated (stack based) `OptionInstant` struct
-pub type AzOptionInstantTT = azul_impl::task::OptionInstantPtr;
+pub type AzOptionInstantTT = azul_impl::task::OptionInstant;
 pub use AzOptionInstantTT as AzOptionInstant;
 
 /// Re-export of rust-allocated (stack based) `OptionUsize` struct
@@ -699,18 +703,15 @@ pub type AzSvgParseErrorPositionTT = azul_impl::xml::XmlTextPos;
 pub use AzSvgParseErrorPositionTT as AzSvgParseErrorPosition;
 
 /// Re-export of rust-allocated (stack based) `Instant` struct
-pub type AzInstantTT = azul_impl::task::AzInstantPtr;
+pub type AzInstantTT = azul_impl::task::Instant;
 pub use AzInstantTT as AzInstant;
-/// Creates a new `Instant` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `Instant::now()` constructor.
-#[no_mangle] pub extern "C" fn az_instant_now() -> AzInstant { azul_impl::task::AzInstantPtr::now() }
 /// Destructor: Takes ownership of the `Instant` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_instant_delete(object: &mut AzInstant) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_instant_deep_copy(object: &AzInstant) -> AzInstant { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `Duration` struct
-pub type AzDurationTT = azul_impl::task::AzDuration;
+pub type AzDurationTT = azul_impl::task::Duration;
 pub use AzDurationTT as AzDuration;
 /// Creates a new `Duration` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `Duration::milliseconds()` constructor.
@@ -2512,7 +2513,7 @@ pub type AzTimerTT = azul_impl::task::Timer;
 pub use AzTimerTT as AzTimer;
 /// Creates a new `Timer` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `Timer::new()` constructor.
-#[no_mangle] pub extern "C" fn az_timer_new(timer_data: AzRefAny, callback: AzTimerCallbackType) -> AzTimer { Timer::new(timer_data, callback) }
+#[no_mangle] pub extern "C" fn az_timer_new(timer_data: AzRefAny, callback: AzTimerCallbackType, get_system_time_fn: AzGetSystemTimeFn) -> AzTimer { Timer::new(timer_data, callback, get_system_time_fn) }
 /// Equivalent to the Rust `Timer::with_delay()` function.
 #[no_mangle] pub extern "C" fn az_timer_with_delay(timer: AzTimer, delay: AzDuration) -> AzTimer { timer.with_delay(delay) }
 /// Equivalent to the Rust `Timer::with_interval()` function.
@@ -2523,6 +2524,14 @@ pub use AzTimerTT as AzTimer;
 /// Should a timer terminate or not - used to remove active timers
 pub type AzTerminateTimerTT = azul_impl::task::TerminateTimer;
 pub use AzTerminateTimerTT as AzTerminateTimer;
+
+/// Re-export of rust-allocated (stack based) `ThreadId` struct
+pub type AzThreadIdTT = azul_impl::task::ThreadId;
+pub use AzThreadIdTT as AzThreadId;
+
+/// Re-export of rust-allocated (stack based) `Thread` struct
+pub type AzThreadTT = azul_impl::task::Thread;
+pub use AzThreadTT as AzThread;
 
 /// Re-export of rust-allocated (stack based) `ThreadSender` struct
 pub type AzThreadSenderTT = azul_impl::task::ThreadSender;
@@ -2552,9 +2561,55 @@ pub use AzThreadReceiveMsgTT as AzThreadReceiveMsg;
 pub type AzThreadWriteBackMsgTT = azul_impl::task::ThreadWriteBackMsg;
 pub use AzThreadWriteBackMsgTT as AzThreadWriteBackMsg;
 
-/// Re-export of rust-allocated (stack based) `ThreadId` struct
-pub type AzThreadIdTT = azul_impl::task::ThreadId;
-pub use AzThreadIdTT as AzThreadId;
+pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallbackType) -> AzThread;
+/// Re-export of rust-allocated (stack based) `CreateThreadFn` struct
+pub type AzCreateThreadFnTT = azul_impl::task::CreateThreadCallback;
+pub use AzCreateThreadFnTT as AzCreateThreadFn;
+
+pub type AzGetSystemTimeFnType = extern "C" fn() -> AzInstant;
+/// Get the current system time, equivalent to `std::time::Instant::now()`, except it also works on systems that work with "ticks" instead of timers
+pub type AzGetSystemTimeFnTT = azul_impl::task::GetSystemTimeCallback;
+pub use AzGetSystemTimeFnTT as AzGetSystemTimeFn;
+
+pub type AzCheckThreadFinishedFnType = extern "C" fn(&c_void) -> bool;
+/// Function called to check if the thread has finished
+pub type AzCheckThreadFinishedFnTT = azul_impl::task::CheckThreadFinishedCallback;
+pub use AzCheckThreadFinishedFnTT as AzCheckThreadFinishedFn;
+
+pub type AzLibrarySendThreadMsgFnType = extern "C" fn(&mut c_void, AzThreadSendMsg) -> bool;
+/// Function to send a message to the thread
+pub type AzLibrarySendThreadMsgFnTT = azul_impl::task::LibrarySendThreadMsgCallback;
+pub use AzLibrarySendThreadMsgFnTT as AzLibrarySendThreadMsgFn;
+
+pub type AzLibraryReceiveThreadMsgFnType = extern "C" fn(&mut c_void) -> AzOptionThreadReceiveMsg;
+/// Function to receive a message from the thread
+pub type AzLibraryReceiveThreadMsgFnTT = azul_impl::task::LibraryReceiveThreadMsgCallback;
+pub use AzLibraryReceiveThreadMsgFnTT as AzLibraryReceiveThreadMsgFn;
+
+pub type AzThreadRecvFnType = extern "C" fn(&mut c_void) -> AzOptionThreadSendMsg;
+/// Function that the running `Thread` can call to receive messages from the main UI thread
+pub type AzThreadRecvFnTT = azul_impl::task::ThreadRecvCallback;
+pub use AzThreadRecvFnTT as AzThreadRecvFn;
+
+pub type AzThreadSendFnType = extern "C" fn(&mut c_void, AzThreadReceiveMsg) -> bool;
+/// Function that the running `Thread` can call to receive messages from the main UI thread
+pub type AzThreadSendFnTT = azul_impl::task::ThreadSendCallback;
+pub use AzThreadSendFnTT as AzThreadSendFn;
+
+pub type AzThreadDestructorFnType = extern "C" fn(&mut c_void, &mut c_void, &mut c_void, &mut c_void);
+/// Destructor of the `Thread`
+pub type AzThreadDestructorFnTT = azul_impl::task::ThreadDestructorCallback;
+pub use AzThreadDestructorFnTT as AzThreadDestructorFn;
+
+pub type AzThreadReceiverDestructorFnType = extern "C" fn(&mut AzThreadReceiver);
+/// Destructor of the `ThreadReceiver`
+pub type AzThreadReceiverDestructorFnTT = azul_impl::task::ThreadReceiverDestructorCallback;
+pub use AzThreadReceiverDestructorFnTT as AzThreadReceiverDestructorFn;
+
+pub type AzThreadSenderDestructorFnType = extern "C" fn(&mut AzThreadSender);
+/// Destructor of the `ThreadSender`
+pub type AzThreadSenderDestructorFnTT = azul_impl::task::ThreadSenderDestructorCallback;
+pub use AzThreadSenderDestructorFnTT as AzThreadSenderDestructorFn;
 
 /// Re-export of rust-allocated (stack based) `RendererOptions` struct
 pub type AzRendererOptionsTT = azul_impl::window::RendererOptions;
@@ -3469,6 +3524,8 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `ThreadSender` struct
     #[repr(C)]     pub struct AzThreadSender {
         pub(crate) ptr: *mut c_void,
+        pub send_fn: AzThreadSendFn,
+        pub destructor: AzThreadSenderDestructorFn,
     }
     /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
     #[repr(C)]     pub struct AzThreadReceiver {
@@ -3479,6 +3536,26 @@ mod test_sizes {
         TerminateThread,
         Tick,
     }
+    /// `AzCreateThreadFnType` struct
+    pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallbackType) -> AzThread;
+    /// `AzGetSystemTimeFnType` struct
+    pub type AzGetSystemTimeFnType = extern "C" fn() -> AzInstant;
+    /// `AzCheckThreadFinishedFnType` struct
+    pub type AzCheckThreadFinishedFnType = extern "C" fn(&c_void) -> bool;
+    /// `AzLibrarySendThreadMsgFnType` struct
+    pub type AzLibrarySendThreadMsgFnType = extern "C" fn(&mut c_void, AzThreadSendMsg) -> bool;
+    /// `AzLibraryReceiveThreadMsgFnType` struct
+    pub type AzLibraryReceiveThreadMsgFnType = extern "C" fn(&mut c_void) -> AzOptionThreadReceiveMsg;
+    /// `AzThreadRecvFnType` struct
+    pub type AzThreadRecvFnType = extern "C" fn(&mut c_void) -> AzOptionThreadSendMsg;
+    /// `AzThreadSendFnType` struct
+    pub type AzThreadSendFnType = extern "C" fn(&mut c_void, AzThreadReceiveMsg) -> bool;
+    /// `AzThreadDestructorFnType` struct
+    pub type AzThreadDestructorFnType = extern "C" fn(&mut c_void, &mut c_void, &mut c_void, &mut c_void);
+    /// `AzThreadReceiverDestructorFnType` struct
+    pub type AzThreadReceiverDestructorFnType = extern "C" fn(&mut AzThreadReceiver);
+    /// `AzThreadSenderDestructorFnType` struct
+    pub type AzThreadSenderDestructorFnType = extern "C" fn(&mut AzThreadSender);
     /// Re-export of rust-allocated (stack based) `Vsync` struct
     #[repr(C)]     pub enum AzVsync {
         Enabled,
@@ -5146,14 +5223,54 @@ mod test_sizes {
     #[repr(C)]     pub struct AzTimerId {
         pub id: usize,
     }
+    /// Re-export of rust-allocated (stack based) `ThreadId` struct
+    #[repr(C)]     pub struct AzThreadId {
+        pub id: usize,
+    }
     /// Re-export of rust-allocated (stack based) `ThreadWriteBackMsg` struct
     #[repr(C)]     pub struct AzThreadWriteBackMsg {
         pub data: AzRefAny,
         pub callback: AzWriteBackCallback,
     }
-    /// Re-export of rust-allocated (stack based) `ThreadId` struct
-    #[repr(C)]     pub struct AzThreadId {
-        pub id: usize,
+    /// Re-export of rust-allocated (stack based) `CreateThreadFn` struct
+    #[repr(C)]     pub struct AzCreateThreadFn {
+        pub cb: AzCreateThreadFnType,
+    }
+    /// Get the current system time, equivalent to `std::time::Instant::now()`, except it also works on systems that work with "ticks" instead of timers
+    #[repr(C)]     pub struct AzGetSystemTimeFn {
+        pub cb: AzGetSystemTimeFnType,
+    }
+    /// Function called to check if the thread has finished
+    #[repr(C)]     pub struct AzCheckThreadFinishedFn {
+        pub cb: AzCheckThreadFinishedFnType,
+    }
+    /// Function to send a message to the thread
+    #[repr(C)]     pub struct AzLibrarySendThreadMsgFn {
+        pub cb: AzLibrarySendThreadMsgFnType,
+    }
+    /// Function to receive a message from the thread
+    #[repr(C)]     pub struct AzLibraryReceiveThreadMsgFn {
+        pub cb: AzLibraryReceiveThreadMsgFnType,
+    }
+    /// Function that the running `Thread` can call to receive messages from the main UI thread
+    #[repr(C)]     pub struct AzThreadRecvFn {
+        pub cb: AzThreadRecvFnType,
+    }
+    /// Function that the running `Thread` can call to receive messages from the main UI thread
+    #[repr(C)]     pub struct AzThreadSendFn {
+        pub cb: AzThreadSendFnType,
+    }
+    /// Destructor of the `Thread`
+    #[repr(C)]     pub struct AzThreadDestructorFn {
+        pub cb: AzThreadDestructorFnType,
+    }
+    /// Destructor of the `ThreadReceiver`
+    #[repr(C)]     pub struct AzThreadReceiverDestructorFn {
+        pub cb: AzThreadReceiverDestructorFnType,
+    }
+    /// Destructor of the `ThreadSender`
+    #[repr(C)]     pub struct AzThreadSenderDestructorFn {
+        pub cb: AzThreadSenderDestructorFnType,
     }
     /// Re-export of rust-allocated (stack based) `RendererOptions` struct
     #[repr(C)]     pub struct AzRendererOptions {
@@ -5819,6 +5936,18 @@ mod test_sizes {
         pub timeout: AzOptionDuration,
         pub callback: AzTimerCallback,
     }
+    /// Re-export of rust-allocated (stack based) `Thread` struct
+    #[repr(C)]     pub struct AzThread {
+        pub thread_handle: *mut c_void,
+        pub sender: *mut c_void,
+        pub receiver: *mut c_void,
+        pub writeback_data: AzRefAny,
+        pub dropcheck: *mut c_void,
+        pub check_thread_finished_fn: AzCheckThreadFinishedFn,
+        pub send_thread_msg_fn: AzLibrarySendThreadMsgFn,
+        pub receive_thread_msg_fn: AzLibraryReceiveThreadMsgFn,
+        pub thread_destructor_fn: AzThreadDestructorFn,
+    }
     /// Re-export of rust-allocated (stack based) `ThreadReceiveMsg` struct
     #[repr(C, u8)]     pub enum AzThreadReceiveMsg {
         WriteBack(AzThreadWriteBackMsg),
@@ -5921,6 +6050,11 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
+    #[repr(C, u8)]     pub enum AzOptionThreadReceiveMsg {
+        None,
+        Some(AzThreadReceiveMsg),
     }
     /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
     #[repr(C, u8)]     pub enum AzOptionTaskBarIcon {
@@ -6499,494 +6633,506 @@ mod test_sizes {
     #[test]
     fn test_size() {
          use core::alloc::Layout;
-        assert_eq!(Layout::new::<azul_impl::task::AzInstantPtr>(), Layout::new::<AzInstant>());
-        assert_eq!(Layout::new::<azul_impl::resources::AppLogLevel>(), Layout::new::<AzAppLogLevel>());
-        assert_eq!(Layout::new::<azul_impl::app::AzAppPtr>(), Layout::new::<AzApp>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::UpdateScreen>(), Layout::new::<AzUpdateScreen>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::RefCount>(), Layout::new::<AzRefCount>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::RefAny>(), Layout::new::<AzRefAny>());
-        assert_eq!(Layout::new::<azul_impl::css::NodeTypePath>(), Layout::new::<AzNodeTypePath>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyType>(), Layout::new::<AzCssPropertyType>());
-        assert_eq!(Layout::new::<azul_impl::css::SizeMetric>(), Layout::new::<AzSizeMetric>());
-        assert_eq!(Layout::new::<azul_impl::css::BoxShadowClipMode>(), Layout::new::<AzBoxShadowClipMode>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutAlignContent>(), Layout::new::<AzLayoutAlignContent>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutAlignItems>(), Layout::new::<AzLayoutAlignItems>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutBoxSizing>(), Layout::new::<AzLayoutBoxSizing>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutFlexDirection>(), Layout::new::<AzLayoutFlexDirection>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutDisplay>(), Layout::new::<AzLayoutDisplay>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutFloat>(), Layout::new::<AzLayoutFloat>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutJustifyContent>(), Layout::new::<AzLayoutJustifyContent>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutPosition>(), Layout::new::<AzLayoutPosition>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutFlexWrap>(), Layout::new::<AzLayoutFlexWrap>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutOverflow>(), Layout::new::<AzLayoutOverflow>());
-        assert_eq!(Layout::new::<azul_impl::css::AngleMetric>(), Layout::new::<AzAngleMetric>());
-        assert_eq!(Layout::new::<azul_impl::css::DirectionCorner>(), Layout::new::<AzDirectionCorner>());
-        assert_eq!(Layout::new::<azul_impl::css::ExtendMode>(), Layout::new::<AzExtendMode>());
-        assert_eq!(Layout::new::<azul_impl::css::Shape>(), Layout::new::<AzShape>());
-        assert_eq!(Layout::new::<azul_impl::css::RadialGradientSize>(), Layout::new::<AzRadialGradientSize>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundRepeat>(), Layout::new::<AzStyleBackgroundRepeat>());
-        assert_eq!(Layout::new::<azul_impl::css::BorderStyle>(), Layout::new::<AzBorderStyle>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleCursor>(), Layout::new::<AzStyleCursor>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackfaceVisibility>(), Layout::new::<AzStyleBackfaceVisibility>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTextAlignmentHorz>(), Layout::new::<AzStyleTextAlignmentHorz>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::CssPropertyCachePtr>(), Layout::new::<AzCssPropertyCache>());
-        assert_eq!(Layout::new::<azul_impl::dom::On>(), Layout::new::<AzOn>());
-        assert_eq!(Layout::new::<azul_impl::dom::HoverEventFilter>(), Layout::new::<AzHoverEventFilter>());
-        assert_eq!(Layout::new::<azul_impl::dom::FocusEventFilter>(), Layout::new::<AzFocusEventFilter>());
-        assert_eq!(Layout::new::<azul_impl::dom::WindowEventFilter>(), Layout::new::<AzWindowEventFilter>());
-        assert_eq!(Layout::new::<azul_impl::dom::ComponentEventFilter>(), Layout::new::<AzComponentEventFilter>());
-        assert_eq!(Layout::new::<azul_impl::dom::ApplicationEventFilter>(), Layout::new::<AzApplicationEventFilter>());
-        assert_eq!(Layout::new::<azul_impl::gl::VertexAttributeType>(), Layout::new::<AzVertexAttributeType>());
-        assert_eq!(Layout::new::<azul_impl::gl::IndexBufferFormat>(), Layout::new::<AzIndexBufferFormat>());
-        assert_eq!(Layout::new::<azul_impl::gl::AzGlType>(), Layout::new::<AzGlType>());
-        assert_eq!(Layout::new::<azul_impl::gl::GLsyncPtr>(), Layout::new::<AzGLsyncPtr>());
-        assert_eq!(Layout::new::<azul_impl::gl::GlContextPtr>(), Layout::new::<AzGlContextPtr>());
-        assert_eq!(Layout::new::<azul_impl::gl::Texture>(), Layout::new::<AzTexture>());
-        assert_eq!(Layout::new::<azul_impl::resources::RawImageFormat>(), Layout::new::<AzRawImageFormat>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgLineCap>(), Layout::new::<AzSvgLineCap>());
-        assert_eq!(Layout::new::<azul_impl::svg::ShapeRendering>(), Layout::new::<AzShapeRendering>());
-        assert_eq!(Layout::new::<azul_impl::svg::TextRendering>(), Layout::new::<AzTextRendering>());
-        assert_eq!(Layout::new::<azul_impl::svg::ImageRendering>(), Layout::new::<AzImageRendering>());
-        assert_eq!(Layout::new::<azul_impl::svg::FontDatabase>(), Layout::new::<AzFontDatabase>());
-        assert_eq!(Layout::new::<azul_impl::svg::Svg>(), Layout::new::<AzSvg>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgXmlNode>(), Layout::new::<AzSvgXmlNode>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgLineJoin>(), Layout::new::<AzSvgLineJoin>());
-        assert_eq!(Layout::new::<azul_impl::task::TerminateTimer>(), Layout::new::<AzTerminateTimer>());
-        assert_eq!(Layout::new::<azul_impl::task::ThreadSender>(), Layout::new::<AzThreadSender>());
-        assert_eq!(Layout::new::<azul_impl::task::ThreadReceiver>(), Layout::new::<AzThreadReceiver>());
-        assert_eq!(Layout::new::<azul_impl::task::ThreadSendMsg>(), Layout::new::<AzThreadSendMsg>());
-        assert_eq!(Layout::new::<azul_impl::window::Vsync>(), Layout::new::<AzVsync>());
-        assert_eq!(Layout::new::<azul_impl::window::Srgb>(), Layout::new::<AzSrgb>());
-        assert_eq!(Layout::new::<azul_impl::window::HwAcceleration>(), Layout::new::<AzHwAcceleration>());
-        assert_eq!(Layout::new::<azul_impl::window::XWindowType>(), Layout::new::<AzXWindowType>());
-        assert_eq!(Layout::new::<azul_impl::window::VirtualKeyCode>(), Layout::new::<AzVirtualKeyCode>());
-        assert_eq!(Layout::new::<azul_impl::window::MouseCursorType>(), Layout::new::<AzMouseCursorType>());
-        assert_eq!(Layout::new::<azul_impl::window::RendererType>(), Layout::new::<AzRendererType>());
-        assert_eq!(Layout::new::<azul_impl::window::FullScreenMode>(), Layout::new::<AzFullScreenMode>());
-        assert_eq!(Layout::new::<azul_impl::window::WindowTheme>(), Layout::new::<AzWindowTheme>());
-        assert_eq!(Layout::new::<azul_impl::dom::DomVecDestructor>(), Layout::new::<AzDomVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::dom::IdOrClassVecDestructor>(), Layout::new::<AzIdOrClassVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVecDestructor>(), Layout::new::<AzNodeDataInlineCssPropertyVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundContentVecDestructor>(), Layout::new::<AzStyleBackgroundContentVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundPositionVecDestructor>(), Layout::new::<AzStyleBackgroundPositionVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundRepeatVecDestructor>(), Layout::new::<AzStyleBackgroundRepeatVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundSizeVecDestructor>(), Layout::new::<AzStyleBackgroundSizeVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransformVecDestructor>(), Layout::new::<AzStyleTransformVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyVecDestructor>(), Layout::new::<AzCssPropertyVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgMultiPolygonVecDestructor>(), Layout::new::<AzSvgMultiPolygonVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgPathVecDestructor>(), Layout::new::<AzSvgPathVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::gl::VertexAttributeVecDestructor>(), Layout::new::<AzVertexAttributeVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgPathElementVecDestructor>(), Layout::new::<AzSvgPathElementVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgVertexVecDestructor>(), Layout::new::<AzSvgVertexVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::svg::U32VecDestructor>(), Layout::new::<AzU32VecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::window::XWindowTypeVecDestructor>(), Layout::new::<AzXWindowTypeVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::window::VirtualKeyCodeVecDestructor>(), Layout::new::<AzVirtualKeyCodeVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::style::CascadeInfoVecDestructor>(), Layout::new::<AzCascadeInfoVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::window::ScanCodeVecDestructor>(), Layout::new::<AzScanCodeVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::CssDeclarationVecDestructor>(), Layout::new::<AzCssDeclarationVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPathSelectorVecDestructor>(), Layout::new::<AzCssPathSelectorVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::StylesheetVecDestructor>(), Layout::new::<AzStylesheetVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::CssRuleBlockVecDestructor>(), Layout::new::<AzCssRuleBlockVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::U8VecDestructor>(), Layout::new::<AzU8VecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::dom::CallbackDataVecDestructor>(), Layout::new::<AzCallbackDataVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::gl::AzDebugMessageVecDestructor>(), Layout::new::<AzDebugMessageVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::gl::GLuintVecDestructor>(), Layout::new::<AzGLuintVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::gl::GLintVecDestructor>(), Layout::new::<AzGLintVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::StringVecDestructor>(), Layout::new::<AzStringVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::window::StringPairVecDestructor>(), Layout::new::<AzStringPairVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::LinearColorStopVecDestructor>(), Layout::new::<AzLinearColorStopVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::RadialColorStopVecDestructor>(), Layout::new::<AzRadialColorStopVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::NodeIdVecDestructor>(), Layout::new::<AzNodeIdVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::AzNodeVecDestructor>(), Layout::new::<AzNodeVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::StyledNodeVecDestructor>(), Layout::new::<AzStyledNodeVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor>(), Layout::new::<AzTagIdsToNodeIdsMappingVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVecDestructor>(), Layout::new::<AzParentWithNodeDepthVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::dom::NodeDataVecDestructor>(), Layout::new::<AzNodeDataVecDestructor>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundRepeatVec>(), Layout::new::<AzStyleBackgroundRepeatVec>());
-        assert_eq!(Layout::new::<azul_impl::svg::U32Vec>(), Layout::new::<AzU32Vec>());
-        assert_eq!(Layout::new::<azul_impl::window::XWindowTypeVec>(), Layout::new::<AzXWindowTypeVec>());
-        assert_eq!(Layout::new::<azul_impl::window::VirtualKeyCodeVec>(), Layout::new::<AzVirtualKeyCodeVec>());
-        assert_eq!(Layout::new::<azul_impl::window::ScanCodeVec>(), Layout::new::<AzScanCodeVec>());
-        assert_eq!(Layout::new::<azul_impl::css::U8Vec>(), Layout::new::<AzU8Vec>());
-        assert_eq!(Layout::new::<azul_impl::gl::GLuintVec>(), Layout::new::<AzGLuintVec>());
-        assert_eq!(Layout::new::<azul_impl::gl::GLintVec>(), Layout::new::<AzGLintVec>());
-        assert_eq!(Layout::new::<azul_impl::task::OptionThreadSendMsg>(), Layout::new::<AzOptionThreadSendMsg>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::OptionRefAny>(), Layout::new::<AzOptionRefAny>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionWindowTheme>(), Layout::new::<AzOptionWindowTheme>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionHwndHandle>(), Layout::new::<AzOptionHwndHandle>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionX11Visual>(), Layout::new::<AzOptionX11Visual>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionI32>(), Layout::new::<AzOptionI32>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionF32>(), Layout::new::<AzOptionF32>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionMouseCursorType>(), Layout::new::<AzOptionMouseCursorType>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionChar>(), Layout::new::<AzOptionChar>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionVirtualKeyCode>(), Layout::new::<AzOptionVirtualKeyCode>());
-        assert_eq!(Layout::new::<azul_impl::gl::OptionTexture>(), Layout::new::<AzOptionTexture>());
-        assert_eq!(Layout::new::<azul_impl::task::OptionInstantPtr>(), Layout::new::<AzOptionInstant>());
-        assert_eq!(Layout::new::<azul_impl::gl::OptionUsize>(), Layout::new::<AzOptionUsize>());
-        assert_eq!(Layout::new::<azul_impl::xml::XmlTextPos>(), Layout::new::<AzSvgParseErrorPosition>());
-        assert_eq!(Layout::new::<azul_impl::task::AzDuration>(), Layout::new::<AzDuration>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::AzNodeId>(), Layout::new::<AzNodeId>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::DomId>(), Layout::new::<AzDomId>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::DomNodeId>(), Layout::new::<AzDomNodeId>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::LayoutCallback>(), Layout::new::<AzLayoutCallback>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::Callback>(), Layout::new::<AzCallback>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::IFrameCallback>(), Layout::new::<AzIFrameCallback>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::GlCallback>(), Layout::new::<AzGlCallback>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::GlCallbackReturn>(), Layout::new::<AzGlCallbackReturn>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::TimerCallback>(), Layout::new::<AzTimerCallback>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::TimerCallbackReturn>(), Layout::new::<AzTimerCallbackReturn>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::WriteBackCallback>(), Layout::new::<AzWriteBackCallback>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::RefCountInner>(), Layout::new::<AzRefCountInner>());
-        assert_eq!(Layout::new::<azul_impl::css::CssNthChildPattern>(), Layout::new::<AzCssNthChildPattern>());
-        assert_eq!(Layout::new::<azul_impl::css::ColorU>(), Layout::new::<AzColorU>());
-        assert_eq!(Layout::new::<azul_impl::css::FloatValue>(), Layout::new::<AzFloatValue>());
-        assert_eq!(Layout::new::<azul_impl::css::PixelValue>(), Layout::new::<AzPixelValue>());
-        assert_eq!(Layout::new::<azul_impl::css::PixelValueNoPercent>(), Layout::new::<AzPixelValueNoPercent>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBoxShadow>(), Layout::new::<AzStyleBoxShadow>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutBottom>(), Layout::new::<AzLayoutBottom>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutFlexGrow>(), Layout::new::<AzLayoutFlexGrow>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutFlexShrink>(), Layout::new::<AzLayoutFlexShrink>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutHeight>(), Layout::new::<AzLayoutHeight>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutLeft>(), Layout::new::<AzLayoutLeft>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutMarginBottom>(), Layout::new::<AzLayoutMarginBottom>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutMarginLeft>(), Layout::new::<AzLayoutMarginLeft>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutMarginRight>(), Layout::new::<AzLayoutMarginRight>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutMarginTop>(), Layout::new::<AzLayoutMarginTop>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutMaxHeight>(), Layout::new::<AzLayoutMaxHeight>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutMaxWidth>(), Layout::new::<AzLayoutMaxWidth>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutMinHeight>(), Layout::new::<AzLayoutMinHeight>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutMinWidth>(), Layout::new::<AzLayoutMinWidth>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutPaddingBottom>(), Layout::new::<AzLayoutPaddingBottom>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutPaddingLeft>(), Layout::new::<AzLayoutPaddingLeft>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutPaddingRight>(), Layout::new::<AzLayoutPaddingRight>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutPaddingTop>(), Layout::new::<AzLayoutPaddingTop>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutRight>(), Layout::new::<AzLayoutRight>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutTop>(), Layout::new::<AzLayoutTop>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutWidth>(), Layout::new::<AzLayoutWidth>());
-        assert_eq!(Layout::new::<azul_impl::css::PercentageValue>(), Layout::new::<AzPercentageValue>());
-        assert_eq!(Layout::new::<azul_impl::css::AngleValue>(), Layout::new::<AzAngleValue>());
-        assert_eq!(Layout::new::<azul_impl::css::DirectionCorners>(), Layout::new::<AzDirectionCorners>());
-        assert_eq!(Layout::new::<azul_impl::css::Direction>(), Layout::new::<AzDirection>());
-        assert_eq!(Layout::new::<azul_impl::css::BackgroundPositionHorizontal>(), Layout::new::<AzBackgroundPositionHorizontal>());
-        assert_eq!(Layout::new::<azul_impl::css::BackgroundPositionVertical>(), Layout::new::<AzBackgroundPositionVertical>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundPosition>(), Layout::new::<AzStyleBackgroundPosition>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundSize>(), Layout::new::<AzStyleBackgroundSize>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBorderBottomColor>(), Layout::new::<AzStyleBorderBottomColor>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBorderBottomLeftRadius>(), Layout::new::<AzStyleBorderBottomLeftRadius>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBorderBottomRightRadius>(), Layout::new::<AzStyleBorderBottomRightRadius>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBorderBottomStyle>(), Layout::new::<AzStyleBorderBottomStyle>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutBorderBottomWidth>(), Layout::new::<AzLayoutBorderBottomWidth>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBorderLeftColor>(), Layout::new::<AzStyleBorderLeftColor>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBorderLeftStyle>(), Layout::new::<AzStyleBorderLeftStyle>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutBorderLeftWidth>(), Layout::new::<AzLayoutBorderLeftWidth>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBorderRightColor>(), Layout::new::<AzStyleBorderRightColor>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBorderRightStyle>(), Layout::new::<AzStyleBorderRightStyle>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutBorderRightWidth>(), Layout::new::<AzLayoutBorderRightWidth>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBorderTopColor>(), Layout::new::<AzStyleBorderTopColor>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBorderTopLeftRadius>(), Layout::new::<AzStyleBorderTopLeftRadius>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBorderTopRightRadius>(), Layout::new::<AzStyleBorderTopRightRadius>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBorderTopStyle>(), Layout::new::<AzStyleBorderTopStyle>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutBorderTopWidth>(), Layout::new::<AzLayoutBorderTopWidth>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleFontSize>(), Layout::new::<AzStyleFontSize>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleLetterSpacing>(), Layout::new::<AzStyleLetterSpacing>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleLineHeight>(), Layout::new::<AzStyleLineHeight>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTabWidth>(), Layout::new::<AzStyleTabWidth>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleOpacity>(), Layout::new::<AzStyleOpacity>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransformOrigin>(), Layout::new::<AzStyleTransformOrigin>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransformOrigin>(), Layout::new::<AzStylePerspectiveOrigin>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransformMatrix2D>(), Layout::new::<AzStyleTransformMatrix2D>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransformMatrix3D>(), Layout::new::<AzStyleTransformMatrix3D>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransformTranslate2D>(), Layout::new::<AzStyleTransformTranslate2D>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransformTranslate3D>(), Layout::new::<AzStyleTransformTranslate3D>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransformRotate3D>(), Layout::new::<AzStyleTransformRotate3D>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransformScale2D>(), Layout::new::<AzStyleTransformScale2D>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransformScale3D>(), Layout::new::<AzStyleTransformScale3D>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransformSkew2D>(), Layout::new::<AzStyleTransformSkew2D>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTextColor>(), Layout::new::<AzStyleTextColor>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleWordSpacing>(), Layout::new::<AzStyleWordSpacing>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBoxShadow>>(), Layout::new::<AzStyleBoxShadowValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutAlignContent>>(), Layout::new::<AzLayoutAlignContentValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutAlignItems>>(), Layout::new::<AzLayoutAlignItemsValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBottom>>(), Layout::new::<AzLayoutBottomValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBoxSizing>>(), Layout::new::<AzLayoutBoxSizingValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexDirection>>(), Layout::new::<AzLayoutFlexDirectionValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutDisplay>>(), Layout::new::<AzLayoutDisplayValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexGrow>>(), Layout::new::<AzLayoutFlexGrowValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexShrink>>(), Layout::new::<AzLayoutFlexShrinkValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFloat>>(), Layout::new::<AzLayoutFloatValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutHeight>>(), Layout::new::<AzLayoutHeightValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutJustifyContent>>(), Layout::new::<AzLayoutJustifyContentValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutLeft>>(), Layout::new::<AzLayoutLeftValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMarginBottom>>(), Layout::new::<AzLayoutMarginBottomValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMarginLeft>>(), Layout::new::<AzLayoutMarginLeftValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMarginRight>>(), Layout::new::<AzLayoutMarginRightValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMarginTop>>(), Layout::new::<AzLayoutMarginTopValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMaxHeight>>(), Layout::new::<AzLayoutMaxHeightValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMaxWidth>>(), Layout::new::<AzLayoutMaxWidthValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMinHeight>>(), Layout::new::<AzLayoutMinHeightValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMinWidth>>(), Layout::new::<AzLayoutMinWidthValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPaddingBottom>>(), Layout::new::<AzLayoutPaddingBottomValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPaddingLeft>>(), Layout::new::<AzLayoutPaddingLeftValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPaddingRight>>(), Layout::new::<AzLayoutPaddingRightValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPaddingTop>>(), Layout::new::<AzLayoutPaddingTopValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPosition>>(), Layout::new::<AzLayoutPositionValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutRight>>(), Layout::new::<AzLayoutRightValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutTop>>(), Layout::new::<AzLayoutTopValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutWidth>>(), Layout::new::<AzLayoutWidthValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexWrap>>(), Layout::new::<AzLayoutFlexWrapValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutOverflow>>(), Layout::new::<AzLayoutOverflowValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>>(), Layout::new::<AzStyleBackgroundRepeatVecValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>>(), Layout::new::<AzStyleBorderBottomColorValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>>(), Layout::new::<AzStyleBorderBottomLeftRadiusValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>>(), Layout::new::<AzStyleBorderBottomRightRadiusValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>>(), Layout::new::<AzStyleBorderBottomStyleValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBorderBottomWidth>>(), Layout::new::<AzLayoutBorderBottomWidthValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>>(), Layout::new::<AzStyleBorderLeftColorValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>>(), Layout::new::<AzStyleBorderLeftStyleValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBorderLeftWidth>>(), Layout::new::<AzLayoutBorderLeftWidthValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderRightColor>>(), Layout::new::<AzStyleBorderRightColorValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>>(), Layout::new::<AzStyleBorderRightStyleValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBorderRightWidth>>(), Layout::new::<AzLayoutBorderRightWidthValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderTopColor>>(), Layout::new::<AzStyleBorderTopColorValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>>(), Layout::new::<AzStyleBorderTopLeftRadiusValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>>(), Layout::new::<AzStyleBorderTopRightRadiusValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>>(), Layout::new::<AzStyleBorderTopStyleValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBorderTopWidth>>(), Layout::new::<AzLayoutBorderTopWidthValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleCursor>>(), Layout::new::<AzStyleCursorValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleFontSize>>(), Layout::new::<AzStyleFontSizeValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleLetterSpacing>>(), Layout::new::<AzStyleLetterSpacingValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleLineHeight>>(), Layout::new::<AzStyleLineHeightValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleTabWidth>>(), Layout::new::<AzStyleTabWidthValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>>(), Layout::new::<AzStyleTextAlignmentHorzValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleTextColor>>(), Layout::new::<AzStyleTextColorValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleWordSpacing>>(), Layout::new::<AzStyleWordSpacingValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleOpacity>>(), Layout::new::<AzStyleOpacityValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleTransformOrigin>>(), Layout::new::<AzStyleTransformOriginValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StylePerspectiveOrigin>>(), Layout::new::<AzStylePerspectiveOriginValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackfaceVisibility>>(), Layout::new::<AzStyleBackfaceVisibilityValue>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::AzNode>(), Layout::new::<AzNode>());
-        assert_eq!(Layout::new::<azul_impl::style::CascadeInfo>(), Layout::new::<AzCascadeInfo>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::StyledNodeState>(), Layout::new::<AzStyledNodeState>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::AzTagId>(), Layout::new::<AzTagId>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::ParentWithNodeDepth>(), Layout::new::<AzParentWithNodeDepth>());
-        assert_eq!(Layout::new::<azul_impl::dom::GlTextureNode>(), Layout::new::<AzGlTextureNode>());
-        assert_eq!(Layout::new::<azul_impl::dom::IFrameNode>(), Layout::new::<AzIFrameNode>());
-        assert_eq!(Layout::new::<azul_impl::dom::NotEventFilter>(), Layout::new::<AzNotEventFilter>());
-        assert_eq!(Layout::new::<azul_impl::dom::TabIndex>(), Layout::new::<AzTabIndex>());
-        assert_eq!(Layout::new::<azul_impl::gl::GlShaderPrecisionFormatReturn>(), Layout::new::<AzGlShaderPrecisionFormatReturn>());
-        assert_eq!(Layout::new::<azul_impl::gl::U8VecRef>(), Layout::new::<AzU8VecRef>());
-        assert_eq!(Layout::new::<azul_impl::gl::U8VecRefMut>(), Layout::new::<AzU8VecRefMut>());
-        assert_eq!(Layout::new::<azul_impl::gl::F32VecRef>(), Layout::new::<AzF32VecRef>());
-        assert_eq!(Layout::new::<azul_impl::gl::I32VecRef>(), Layout::new::<AzI32VecRef>());
-        assert_eq!(Layout::new::<azul_impl::gl::GLuintVecRef>(), Layout::new::<AzGLuintVecRef>());
-        assert_eq!(Layout::new::<azul_impl::gl::GLenumVecRef>(), Layout::new::<AzGLenumVecRef>());
-        assert_eq!(Layout::new::<azul_impl::gl::GLintVecRefMut>(), Layout::new::<AzGLintVecRefMut>());
-        assert_eq!(Layout::new::<azul_impl::gl::GLint64VecRefMut>(), Layout::new::<AzGLint64VecRefMut>());
-        assert_eq!(Layout::new::<azul_impl::gl::GLbooleanVecRefMut>(), Layout::new::<AzGLbooleanVecRefMut>());
-        assert_eq!(Layout::new::<azul_impl::gl::GLfloatVecRefMut>(), Layout::new::<AzGLfloatVecRefMut>());
-        assert_eq!(Layout::new::<azul_impl::gl::Refstr>(), Layout::new::<AzRefstr>());
-        assert_eq!(Layout::new::<azul_impl::gl::GetProgramBinaryReturn>(), Layout::new::<AzGetProgramBinaryReturn>());
-        assert_eq!(Layout::new::<azul_impl::gl::TextureFlags>(), Layout::new::<AzTextureFlags>());
-        assert_eq!(Layout::new::<azul_impl::resources::ImageId>(), Layout::new::<AzImageId>());
-        assert_eq!(Layout::new::<azul_impl::resources::FontId>(), Layout::new::<AzFontId>());
-        assert_eq!(Layout::new::<azul_impl::resources::RawImage>(), Layout::new::<AzRawImage>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgCircle>(), Layout::new::<AzSvgCircle>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgPoint>(), Layout::new::<AzSvgPoint>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgVertex>(), Layout::new::<AzSvgVertex>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgQuadraticCurve>(), Layout::new::<AzSvgQuadraticCurve>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgCubicCurve>(), Layout::new::<AzSvgCubicCurve>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgRect>(), Layout::new::<AzSvgRect>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgFitTo>(), Layout::new::<AzSvgFitTo>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgDashPattern>(), Layout::new::<AzSvgDashPattern>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgFillStyle>(), Layout::new::<AzSvgFillStyle>());
-        assert_eq!(Layout::new::<azul_impl::task::TimerId>(), Layout::new::<AzTimerId>());
-        assert_eq!(Layout::new::<azul_impl::task::ThreadWriteBackMsg>(), Layout::new::<AzThreadWriteBackMsg>());
-        assert_eq!(Layout::new::<azul_impl::task::ThreadId>(), Layout::new::<AzThreadId>());
-        assert_eq!(Layout::new::<azul_impl::window::RendererOptions>(), Layout::new::<AzRendererOptions>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutPoint>(), Layout::new::<AzLayoutPoint>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutSize>(), Layout::new::<AzLayoutSize>());
-        assert_eq!(Layout::new::<azul_impl::css::LayoutRect>(), Layout::new::<AzLayoutRect>());
-        assert_eq!(Layout::new::<azul_impl::window::IOSHandle>(), Layout::new::<AzIOSHandle>());
-        assert_eq!(Layout::new::<azul_impl::window::MacOSHandle>(), Layout::new::<AzMacOSHandle>());
-        assert_eq!(Layout::new::<azul_impl::window::XlibHandle>(), Layout::new::<AzXlibHandle>());
-        assert_eq!(Layout::new::<azul_impl::window::XcbHandle>(), Layout::new::<AzXcbHandle>());
-        assert_eq!(Layout::new::<azul_impl::window::WaylandHandle>(), Layout::new::<AzWaylandHandle>());
-        assert_eq!(Layout::new::<azul_impl::window::WindowsHandle>(), Layout::new::<AzWindowsHandle>());
-        assert_eq!(Layout::new::<azul_impl::window::WebHandle>(), Layout::new::<AzWebHandle>());
-        assert_eq!(Layout::new::<azul_impl::window::AndroidHandle>(), Layout::new::<AzAndroidHandle>());
-        assert_eq!(Layout::new::<azul_impl::window::PhysicalPosition<i32>>(), Layout::new::<AzPhysicalPositionI32>());
-        assert_eq!(Layout::new::<azul_impl::window::PhysicalSize<u32>>(), Layout::new::<AzPhysicalSizeU32>());
-        assert_eq!(Layout::new::<azul_impl::window::LogicalPosition>(), Layout::new::<AzLogicalPosition>());
-        assert_eq!(Layout::new::<azul_impl::window::IconKey>(), Layout::new::<AzIconKey>());
-        assert_eq!(Layout::new::<azul_impl::window::SmallWindowIconBytes>(), Layout::new::<AzSmallWindowIconBytes>());
-        assert_eq!(Layout::new::<azul_impl::window::LargeWindowIconBytes>(), Layout::new::<AzLargeWindowIconBytes>());
-        assert_eq!(Layout::new::<azul_impl::window::WindowIcon>(), Layout::new::<AzWindowIcon>());
-        assert_eq!(Layout::new::<azul_impl::window::AcceleratorKey>(), Layout::new::<AzAcceleratorKey>());
-        assert_eq!(Layout::new::<azul_impl::window::WindowFlags>(), Layout::new::<AzWindowFlags>());
-        assert_eq!(Layout::new::<azul_impl::window::DebugState>(), Layout::new::<AzDebugState>());
-        assert_eq!(Layout::new::<azul_impl::window::KeyboardState>(), Layout::new::<AzKeyboardState>());
-        assert_eq!(Layout::new::<azul_impl::window::CursorPosition>(), Layout::new::<AzCursorPosition>());
-        assert_eq!(Layout::new::<azul_impl::window::MouseState>(), Layout::new::<AzMouseState>());
-        assert_eq!(Layout::new::<azul_impl::window::WaylandTheme>(), Layout::new::<AzWaylandTheme>());
-        assert_eq!(Layout::new::<azul_impl::window::MacWindowOptions>(), Layout::new::<AzMacWindowOptions>());
-        assert_eq!(Layout::new::<azul_impl::window::WasmWindowOptions>(), Layout::new::<AzWasmWindowOptions>());
-        assert_eq!(Layout::new::<azul_impl::window::WindowPosition>(), Layout::new::<AzWindowPosition>());
-        assert_eq!(Layout::new::<azul_impl::window::ImePosition>(), Layout::new::<AzImePosition>());
-        assert_eq!(Layout::new::<azul_impl::window::TouchState>(), Layout::new::<AzTouchState>());
-        assert_eq!(Layout::new::<azul_impl::window::LogicalSize>(), Layout::new::<AzLogicalSize>());
-        assert_eq!(Layout::new::<azul_impl::css::AzString>(), Layout::new::<AzString>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundPositionVec>(), Layout::new::<AzStyleBackgroundPositionVec>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundSizeVec>(), Layout::new::<AzStyleBackgroundSizeVec>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgVertexVec>(), Layout::new::<AzSvgVertexVec>());
-        assert_eq!(Layout::new::<azul_impl::style::CascadeInfoVec>(), Layout::new::<AzCascadeInfoVec>());
-        assert_eq!(Layout::new::<azul_impl::css::StringVec>(), Layout::new::<AzStringVec>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::NodeIdVec>(), Layout::new::<AzNodeIdVec>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::AzNodeVec>(), Layout::new::<AzNodeVec>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), Layout::new::<AzParentWithNodeDepthVec>());
-        assert_eq!(Layout::new::<azul_impl::css::OptionPercentageValue>(), Layout::new::<AzOptionPercentageValue>());
-        assert_eq!(Layout::new::<azul_impl::css::OptionAngleValue>(), Layout::new::<AzOptionAngleValue>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionRendererOptions>(), Layout::new::<AzOptionRendererOptions>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::OptionCallback>(), Layout::new::<AzOptionCallback>());
-        assert_eq!(Layout::new::<azul_impl::css::OptionLayoutRect>(), Layout::new::<AzOptionLayoutRect>());
-        assert_eq!(Layout::new::<azul_impl::css::OptionLayoutPoint>(), Layout::new::<AzOptionLayoutPoint>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::OptionNodeId>(), Layout::new::<AzOptionNodeId>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::OptionDomNodeId>(), Layout::new::<AzOptionDomNodeId>());
-        assert_eq!(Layout::new::<azul_impl::css::OptionColorU>(), Layout::new::<AzOptionColorU>());
-        assert_eq!(Layout::new::<azul_impl::resources::OptionRawImage>(), Layout::new::<AzOptionRawImage>());
-        assert_eq!(Layout::new::<azul_impl::svg::OptionSvgDashPattern>(), Layout::new::<AzOptionSvgDashPattern>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionWaylandTheme>(), Layout::new::<AzOptionWaylandTheme>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionLogicalPosition>(), Layout::new::<AzOptionLogicalPosition>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionPhysicalPositionI32>(), Layout::new::<AzOptionPhysicalPositionI32>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionWindowIcon>(), Layout::new::<AzOptionWindowIcon>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionAzString>(), Layout::new::<AzOptionString>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionLogicalSize>(), Layout::new::<AzOptionLogicalSize>());
-        assert_eq!(Layout::new::<azul_impl::dom::OptionTabIndex>(), Layout::new::<AzOptionTabIndex>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::OptionTagId>(), Layout::new::<AzOptionTagId>());
-        assert_eq!(Layout::new::<azul_impl::task::OptionDuration>(), Layout::new::<AzOptionDuration>());
-        assert_eq!(Layout::new::<azul_impl::gl::OptionU8VecRef>(), Layout::new::<AzOptionU8VecRef>());
-        assert_eq!(Layout::new::<azul_impl::xml::DuplicatedNamespaceError>(), Layout::new::<AzDuplicatedNamespaceError>());
-        assert_eq!(Layout::new::<azul_impl::xml::UnknownNamespaceError>(), Layout::new::<AzUnknownNamespaceError>());
-        assert_eq!(Layout::new::<azul_impl::xml::UnexpectedCloseTagError>(), Layout::new::<AzUnexpectedCloseTagError>());
-        assert_eq!(Layout::new::<azul_impl::xml::UnknownEntityReferenceError>(), Layout::new::<AzUnknownEntityReferenceError>());
-        assert_eq!(Layout::new::<azul_impl::xml::DuplicatedAttributeError>(), Layout::new::<AzDuplicatedAttributeError>());
-        assert_eq!(Layout::new::<azul_impl::xml::NonXmlCharError>(), Layout::new::<AzNonXmlCharError>());
-        assert_eq!(Layout::new::<azul_impl::xml::InvalidCharError>(), Layout::new::<AzInvalidCharError>());
-        assert_eq!(Layout::new::<azul_impl::xml::InvalidCharMultipleError>(), Layout::new::<AzInvalidCharMultipleError>());
-        assert_eq!(Layout::new::<azul_impl::xml::InvalidQuoteError>(), Layout::new::<AzInvalidQuoteError>());
-        assert_eq!(Layout::new::<azul_impl::xml::InvalidSpaceError>(), Layout::new::<AzInvalidSpaceError>());
-        assert_eq!(Layout::new::<azul_impl::xml::InvalidStringError>(), Layout::new::<AzInvalidStringError>());
-        assert_eq!(Layout::new::<azul_impl::resources::AppConfig>(), Layout::new::<AzAppConfig>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::HidpiAdjustedBounds>(), Layout::new::<AzHidpiAdjustedBounds>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::IFrameCallbackInfo>(), Layout::new::<AzIFrameCallbackInfo>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::GlCallbackInfo>(), Layout::new::<AzGlCallbackInfo>());
-        assert_eq!(Layout::new::<azul_impl::css::CssNthChildSelector>(), Layout::new::<AzCssNthChildSelector>());
-        assert_eq!(Layout::new::<azul_impl::css::LinearColorStop>(), Layout::new::<AzLinearColorStop>());
-        assert_eq!(Layout::new::<azul_impl::css::RadialColorStop>(), Layout::new::<AzRadialColorStop>());
-        assert_eq!(Layout::new::<azul_impl::css::CssImageId>(), Layout::new::<AzCssImageId>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleFontFamily>(), Layout::new::<AzStyleFontFamily>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransform>(), Layout::new::<AzStyleTransform>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>>(), Layout::new::<AzStyleBackgroundPositionVecValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>>(), Layout::new::<AzStyleBackgroundSizeVecValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleFontFamily>>(), Layout::new::<AzStyleFontFamilyValue>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::StyledNode>(), Layout::new::<AzStyledNode>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMapping>(), Layout::new::<AzTagIdToNodeIdMapping>());
-        assert_eq!(Layout::new::<azul_impl::dom::IdOrClass>(), Layout::new::<AzIdOrClass>());
-        assert_eq!(Layout::new::<azul_impl::dom::NodeType>(), Layout::new::<AzNodeType>());
-        assert_eq!(Layout::new::<azul_impl::dom::EventFilter>(), Layout::new::<AzEventFilter>());
-        assert_eq!(Layout::new::<azul_impl::gl::VertexAttribute>(), Layout::new::<AzVertexAttribute>());
-        assert_eq!(Layout::new::<azul_impl::gl::AzDebugMessage>(), Layout::new::<AzDebugMessage>());
-        assert_eq!(Layout::new::<azul_impl::gl::RefstrVecRef>(), Layout::new::<AzRefstrVecRef>());
-        assert_eq!(Layout::new::<azul_impl::gl::GetActiveAttribReturn>(), Layout::new::<AzGetActiveAttribReturn>());
-        assert_eq!(Layout::new::<azul_impl::gl::GetActiveUniformReturn>(), Layout::new::<AzGetActiveUniformReturn>());
-        assert_eq!(Layout::new::<azul_impl::resources::ImageSource>(), Layout::new::<AzImageSource>());
-        assert_eq!(Layout::new::<azul_impl::resources::FontSource>(), Layout::new::<AzFontSource>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgLine>(), Layout::new::<AzSvgLine>());
-        assert_eq!(Layout::new::<azul_impl::svg::TesselatedCPUSvgNode>(), Layout::new::<AzTesselatedCPUSvgNode>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgParseOptions>(), Layout::new::<AzSvgParseOptions>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgRenderOptions>(), Layout::new::<AzSvgRenderOptions>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgStrokeStyle>(), Layout::new::<AzSvgStrokeStyle>());
-        assert_eq!(Layout::new::<azul_impl::task::Timer>(), Layout::new::<AzTimer>());
-        assert_eq!(Layout::new::<azul_impl::task::ThreadReceiveMsg>(), Layout::new::<AzThreadReceiveMsg>());
-        assert_eq!(Layout::new::<azul_impl::window::RawWindowHandle>(), Layout::new::<AzRawWindowHandle>());
-        assert_eq!(Layout::new::<azul_impl::window::TaskBarIcon>(), Layout::new::<AzTaskBarIcon>());
-        assert_eq!(Layout::new::<azul_impl::window::LogicalRect>(), Layout::new::<AzLogicalRect>());
-        assert_eq!(Layout::new::<azul_impl::window::WindowSize>(), Layout::new::<AzWindowSize>());
-        assert_eq!(Layout::new::<azul_impl::window::AzStringPair>(), Layout::new::<AzStringPair>());
-        assert_eq!(Layout::new::<azul_impl::dom::IdOrClassVec>(), Layout::new::<AzIdOrClassVec>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleTransformVec>(), Layout::new::<AzStyleTransformVec>());
-        assert_eq!(Layout::new::<azul_impl::gl::VertexAttributeVec>(), Layout::new::<AzVertexAttributeVec>());
-        assert_eq!(Layout::new::<azul_impl::gl::AzDebugMessageVec>(), Layout::new::<AzDebugMessageVec>());
-        assert_eq!(Layout::new::<azul_impl::window::StringPairVec>(), Layout::new::<AzStringPairVec>());
-        assert_eq!(Layout::new::<azul_impl::css::LinearColorStopVec>(), Layout::new::<AzLinearColorStopVec>());
-        assert_eq!(Layout::new::<azul_impl::css::RadialColorStopVec>(), Layout::new::<AzRadialColorStopVec>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::StyledNodeVec>(), Layout::new::<AzStyledNodeVec>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::TagIdsToNodeIdsMappingVec>(), Layout::new::<AzTagIdsToNodeIdsMappingVec>());
-        assert_eq!(Layout::new::<azul_impl::window::OptionTaskBarIcon>(), Layout::new::<AzOptionTaskBarIcon>());
-        assert_eq!(Layout::new::<azul_impl::xml::XmlStreamError>(), Layout::new::<AzXmlStreamError>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::LayoutInfo>(), Layout::new::<AzLayoutInfo>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPathPseudoSelector>(), Layout::new::<AzCssPathPseudoSelector>());
-        assert_eq!(Layout::new::<azul_impl::css::LinearGradient>(), Layout::new::<AzLinearGradient>());
-        assert_eq!(Layout::new::<azul_impl::css::RadialGradient>(), Layout::new::<AzRadialGradient>());
-        assert_eq!(Layout::new::<azul_impl::css::ConicGradient>(), Layout::new::<AzConicGradient>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundContent>(), Layout::new::<AzStyleBackgroundContent>());
-        assert_eq!(Layout::new::<azul_impl::css::ScrollbarInfo>(), Layout::new::<AzScrollbarInfo>());
-        assert_eq!(Layout::new::<azul_impl::css::ScrollbarStyle>(), Layout::new::<AzScrollbarStyle>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<ScrollbarStyle>>(), Layout::new::<AzScrollbarStyleValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleTransformVec>>(), Layout::new::<AzStyleTransformVecValue>());
-        assert_eq!(Layout::new::<azul_impl::dom::CallbackData>(), Layout::new::<AzCallbackData>());
-        assert_eq!(Layout::new::<azul_impl::dom::ImageMask>(), Layout::new::<AzImageMask>());
-        assert_eq!(Layout::new::<azul_impl::gl::VertexLayout>(), Layout::new::<AzVertexLayout>());
-        assert_eq!(Layout::new::<azul_impl::gl::VertexArrayObject>(), Layout::new::<AzVertexArrayObject>());
-        assert_eq!(Layout::new::<azul_impl::gl::VertexBuffer>(), Layout::new::<AzVertexBuffer>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgPathElement>(), Layout::new::<AzSvgPathElement>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgStyle>(), Layout::new::<AzSvgStyle>());
-        assert_eq!(Layout::new::<azul_impl::window::WindowsWindowOptions>(), Layout::new::<AzWindowsWindowOptions>());
-        assert_eq!(Layout::new::<azul_impl::window::LinuxWindowOptions>(), Layout::new::<AzLinuxWindowOptions>());
-        assert_eq!(Layout::new::<azul_impl::css::StyleBackgroundContentVec>(), Layout::new::<AzStyleBackgroundContentVec>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgPathElementVec>(), Layout::new::<AzSvgPathElementVec>());
-        assert_eq!(Layout::new::<azul_impl::dom::CallbackDataVec>(), Layout::new::<AzCallbackDataVec>());
-        assert_eq!(Layout::new::<azul_impl::dom::OptionImageMask>(), Layout::new::<AzOptionImageMask>());
-        assert_eq!(Layout::new::<azul_impl::xml::XmlTextError>(), Layout::new::<AzXmlTextError>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPathSelector>(), Layout::new::<AzCssPathSelector>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundContentVec>>(), Layout::new::<AzStyleBackgroundContentVecValue>());
-        assert_eq!(Layout::new::<azul_impl::css::CssProperty>(), Layout::new::<AzCssProperty>());
-        assert_eq!(Layout::new::<azul_impl::dom::NodeDataInlineCssProperty>(), Layout::new::<AzNodeDataInlineCssProperty>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgPath>(), Layout::new::<AzSvgPath>());
-        assert_eq!(Layout::new::<azul_impl::window::PlatformSpecificOptions>(), Layout::new::<AzPlatformSpecificOptions>());
-        assert_eq!(Layout::new::<azul_impl::window::WindowState>(), Layout::new::<AzWindowState>());
-        assert_eq!(Layout::new::<azul_impl::window::WindowCreateOptions>(), Layout::new::<AzWindowCreateOptions>());
-        assert_eq!(Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVec>(), Layout::new::<AzNodeDataInlineCssPropertyVec>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPropertyVec>(), Layout::new::<AzCssPropertyVec>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgPathVec>(), Layout::new::<AzSvgPathVec>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPathSelectorVec>(), Layout::new::<AzCssPathSelectorVec>());
-        assert_eq!(Layout::new::<azul_impl::xml::XmlParseError>(), Layout::new::<AzXmlParseError>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::CallbackInfo>(), Layout::new::<AzCallbackInfo>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::TimerCallbackInfo>(), Layout::new::<AzTimerCallbackInfo>());
-        assert_eq!(Layout::new::<azul_impl::css::DynamicCssProperty>(), Layout::new::<AzDynamicCssProperty>());
-        assert_eq!(Layout::new::<azul_impl::css::CssPath>(), Layout::new::<AzCssPath>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::CssPropertySource>(), Layout::new::<AzCssPropertySource>());
-        assert_eq!(Layout::new::<azul_impl::dom::NodeData>(), Layout::new::<AzNodeData>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgMultiPolygon>(), Layout::new::<AzSvgMultiPolygon>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgMultiPolygonVec>(), Layout::new::<AzSvgMultiPolygonVec>());
-        assert_eq!(Layout::new::<azul_impl::dom::NodeDataVec>(), Layout::new::<AzNodeDataVec>());
-        assert_eq!(Layout::new::<azul_impl::xml::XmlError>(), Layout::new::<AzXmlError>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::FocusTargetPath>(), Layout::new::<AzFocusTargetPath>());
-        assert_eq!(Layout::new::<azul_impl::css::CssDeclaration>(), Layout::new::<AzCssDeclaration>());
-        assert_eq!(Layout::new::<azul_impl::styled_dom::StyledDom>(), Layout::new::<AzStyledDom>());
-        assert_eq!(Layout::new::<azul_impl::dom::Dom>(), Layout::new::<AzDom>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgNode>(), Layout::new::<AzSvgNode>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgStyledNode>(), Layout::new::<AzSvgStyledNode>());
-        assert_eq!(Layout::new::<azul_impl::dom::DomVec>(), Layout::new::<AzDomVec>());
-        assert_eq!(Layout::new::<azul_impl::css::CssDeclarationVec>(), Layout::new::<AzCssDeclarationVec>());
-        assert_eq!(Layout::new::<azul_impl::dom::OptionDom>(), Layout::new::<AzOptionDom>());
-        assert_eq!(Layout::new::<azul_impl::svg::SvgParseError>(), Layout::new::<AzSvgParseError>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::FocusTarget>(), Layout::new::<AzFocusTarget>());
-        assert_eq!(Layout::new::<azul_impl::callbacks::IFrameCallbackReturn>(), Layout::new::<AzIFrameCallbackReturn>());
-        assert_eq!(Layout::new::<azul_impl::css::CssRuleBlock>(), Layout::new::<AzCssRuleBlock>());
-        assert_eq!(Layout::new::<azul_impl::css::CssRuleBlockVec>(), Layout::new::<AzCssRuleBlockVec>());
-        assert_eq!(Layout::new::<azul_impl::svg::ResultSvgSvgParseError>(), Layout::new::<AzResultSvgSvgParseError>());
-        assert_eq!(Layout::new::<azul_impl::css::Stylesheet>(), Layout::new::<AzStylesheet>());
-        assert_eq!(Layout::new::<azul_impl::css::StylesheetVec>(), Layout::new::<AzStylesheetVec>());
-        assert_eq!(Layout::new::<azul_impl::css::Css>(), Layout::new::<AzCss>());
+        assert_eq!((Layout::new::<azul_impl::task::Instant>(), "AzInstant"), (Layout::new::<AzInstant>(), "AzInstant"));
+        assert_eq!((Layout::new::<azul_impl::resources::AppLogLevel>(), "AzAppLogLevel"), (Layout::new::<AzAppLogLevel>(), "AzAppLogLevel"));
+        assert_eq!((Layout::new::<azul_impl::app::AzAppPtr>(), "AzApp"), (Layout::new::<AzApp>(), "AzApp"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::UpdateScreen>(), "AzUpdateScreen"), (Layout::new::<AzUpdateScreen>(), "AzUpdateScreen"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::RefCount>(), "AzRefCount"), (Layout::new::<AzRefCount>(), "AzRefCount"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::RefAny>(), "AzRefAny"), (Layout::new::<AzRefAny>(), "AzRefAny"));
+        assert_eq!((Layout::new::<azul_impl::css::NodeTypePath>(), "AzNodeTypePath"), (Layout::new::<AzNodeTypePath>(), "AzNodeTypePath"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyType>(), "AzCssPropertyType"), (Layout::new::<AzCssPropertyType>(), "AzCssPropertyType"));
+        assert_eq!((Layout::new::<azul_impl::css::SizeMetric>(), "AzSizeMetric"), (Layout::new::<AzSizeMetric>(), "AzSizeMetric"));
+        assert_eq!((Layout::new::<azul_impl::css::BoxShadowClipMode>(), "AzBoxShadowClipMode"), (Layout::new::<AzBoxShadowClipMode>(), "AzBoxShadowClipMode"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutAlignContent>(), "AzLayoutAlignContent"), (Layout::new::<AzLayoutAlignContent>(), "AzLayoutAlignContent"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutAlignItems>(), "AzLayoutAlignItems"), (Layout::new::<AzLayoutAlignItems>(), "AzLayoutAlignItems"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutBoxSizing>(), "AzLayoutBoxSizing"), (Layout::new::<AzLayoutBoxSizing>(), "AzLayoutBoxSizing"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutFlexDirection>(), "AzLayoutFlexDirection"), (Layout::new::<AzLayoutFlexDirection>(), "AzLayoutFlexDirection"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutDisplay>(), "AzLayoutDisplay"), (Layout::new::<AzLayoutDisplay>(), "AzLayoutDisplay"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutFloat>(), "AzLayoutFloat"), (Layout::new::<AzLayoutFloat>(), "AzLayoutFloat"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutJustifyContent>(), "AzLayoutJustifyContent"), (Layout::new::<AzLayoutJustifyContent>(), "AzLayoutJustifyContent"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutPosition>(), "AzLayoutPosition"), (Layout::new::<AzLayoutPosition>(), "AzLayoutPosition"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutFlexWrap>(), "AzLayoutFlexWrap"), (Layout::new::<AzLayoutFlexWrap>(), "AzLayoutFlexWrap"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutOverflow>(), "AzLayoutOverflow"), (Layout::new::<AzLayoutOverflow>(), "AzLayoutOverflow"));
+        assert_eq!((Layout::new::<azul_impl::css::AngleMetric>(), "AzAngleMetric"), (Layout::new::<AzAngleMetric>(), "AzAngleMetric"));
+        assert_eq!((Layout::new::<azul_impl::css::DirectionCorner>(), "AzDirectionCorner"), (Layout::new::<AzDirectionCorner>(), "AzDirectionCorner"));
+        assert_eq!((Layout::new::<azul_impl::css::ExtendMode>(), "AzExtendMode"), (Layout::new::<AzExtendMode>(), "AzExtendMode"));
+        assert_eq!((Layout::new::<azul_impl::css::Shape>(), "AzShape"), (Layout::new::<AzShape>(), "AzShape"));
+        assert_eq!((Layout::new::<azul_impl::css::RadialGradientSize>(), "AzRadialGradientSize"), (Layout::new::<AzRadialGradientSize>(), "AzRadialGradientSize"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeat>(), "AzStyleBackgroundRepeat"), (Layout::new::<AzStyleBackgroundRepeat>(), "AzStyleBackgroundRepeat"));
+        assert_eq!((Layout::new::<azul_impl::css::BorderStyle>(), "AzBorderStyle"), (Layout::new::<AzBorderStyle>(), "AzBorderStyle"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleCursor>(), "AzStyleCursor"), (Layout::new::<AzStyleCursor>(), "AzStyleCursor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"), (Layout::new::<AzStyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTextAlignmentHorz>(), "AzStyleTextAlignmentHorz"), (Layout::new::<AzStyleTextAlignmentHorz>(), "AzStyleTextAlignmentHorz"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::CssPropertyCachePtr>(), "AzCssPropertyCache"), (Layout::new::<AzCssPropertyCache>(), "AzCssPropertyCache"));
+        assert_eq!((Layout::new::<azul_impl::dom::On>(), "AzOn"), (Layout::new::<AzOn>(), "AzOn"));
+        assert_eq!((Layout::new::<azul_impl::dom::HoverEventFilter>(), "AzHoverEventFilter"), (Layout::new::<AzHoverEventFilter>(), "AzHoverEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::dom::FocusEventFilter>(), "AzFocusEventFilter"), (Layout::new::<AzFocusEventFilter>(), "AzFocusEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::dom::WindowEventFilter>(), "AzWindowEventFilter"), (Layout::new::<AzWindowEventFilter>(), "AzWindowEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::dom::ComponentEventFilter>(), "AzComponentEventFilter"), (Layout::new::<AzComponentEventFilter>(), "AzComponentEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::dom::ApplicationEventFilter>(), "AzApplicationEventFilter"), (Layout::new::<AzApplicationEventFilter>(), "AzApplicationEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::gl::VertexAttributeType>(), "AzVertexAttributeType"), (Layout::new::<AzVertexAttributeType>(), "AzVertexAttributeType"));
+        assert_eq!((Layout::new::<azul_impl::gl::IndexBufferFormat>(), "AzIndexBufferFormat"), (Layout::new::<AzIndexBufferFormat>(), "AzIndexBufferFormat"));
+        assert_eq!((Layout::new::<azul_impl::gl::AzGlType>(), "AzGlType"), (Layout::new::<AzGlType>(), "AzGlType"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLsyncPtr>(), "AzGLsyncPtr"), (Layout::new::<AzGLsyncPtr>(), "AzGLsyncPtr"));
+        assert_eq!((Layout::new::<azul_impl::gl::GlContextPtr>(), "AzGlContextPtr"), (Layout::new::<AzGlContextPtr>(), "AzGlContextPtr"));
+        assert_eq!((Layout::new::<azul_impl::gl::Texture>(), "AzTexture"), (Layout::new::<AzTexture>(), "AzTexture"));
+        assert_eq!((Layout::new::<azul_impl::resources::RawImageFormat>(), "AzRawImageFormat"), (Layout::new::<AzRawImageFormat>(), "AzRawImageFormat"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgLineCap>(), "AzSvgLineCap"), (Layout::new::<AzSvgLineCap>(), "AzSvgLineCap"));
+        assert_eq!((Layout::new::<azul_impl::svg::ShapeRendering>(), "AzShapeRendering"), (Layout::new::<AzShapeRendering>(), "AzShapeRendering"));
+        assert_eq!((Layout::new::<azul_impl::svg::TextRendering>(), "AzTextRendering"), (Layout::new::<AzTextRendering>(), "AzTextRendering"));
+        assert_eq!((Layout::new::<azul_impl::svg::ImageRendering>(), "AzImageRendering"), (Layout::new::<AzImageRendering>(), "AzImageRendering"));
+        assert_eq!((Layout::new::<azul_impl::svg::FontDatabase>(), "AzFontDatabase"), (Layout::new::<AzFontDatabase>(), "AzFontDatabase"));
+        assert_eq!((Layout::new::<azul_impl::svg::Svg>(), "AzSvg"), (Layout::new::<AzSvg>(), "AzSvg"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgXmlNode>(), "AzSvgXmlNode"), (Layout::new::<AzSvgXmlNode>(), "AzSvgXmlNode"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgLineJoin>(), "AzSvgLineJoin"), (Layout::new::<AzSvgLineJoin>(), "AzSvgLineJoin"));
+        assert_eq!((Layout::new::<azul_impl::task::TerminateTimer>(), "AzTerminateTimer"), (Layout::new::<AzTerminateTimer>(), "AzTerminateTimer"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadSender>(), "AzThreadSender"), (Layout::new::<AzThreadSender>(), "AzThreadSender"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadReceiver>(), "AzThreadReceiver"), (Layout::new::<AzThreadReceiver>(), "AzThreadReceiver"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadSendMsg>(), "AzThreadSendMsg"), (Layout::new::<AzThreadSendMsg>(), "AzThreadSendMsg"));
+        assert_eq!((Layout::new::<azul_impl::window::Vsync>(), "AzVsync"), (Layout::new::<AzVsync>(), "AzVsync"));
+        assert_eq!((Layout::new::<azul_impl::window::Srgb>(), "AzSrgb"), (Layout::new::<AzSrgb>(), "AzSrgb"));
+        assert_eq!((Layout::new::<azul_impl::window::HwAcceleration>(), "AzHwAcceleration"), (Layout::new::<AzHwAcceleration>(), "AzHwAcceleration"));
+        assert_eq!((Layout::new::<azul_impl::window::XWindowType>(), "AzXWindowType"), (Layout::new::<AzXWindowType>(), "AzXWindowType"));
+        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCode>(), "AzVirtualKeyCode"), (Layout::new::<AzVirtualKeyCode>(), "AzVirtualKeyCode"));
+        assert_eq!((Layout::new::<azul_impl::window::MouseCursorType>(), "AzMouseCursorType"), (Layout::new::<AzMouseCursorType>(), "AzMouseCursorType"));
+        assert_eq!((Layout::new::<azul_impl::window::RendererType>(), "AzRendererType"), (Layout::new::<AzRendererType>(), "AzRendererType"));
+        assert_eq!((Layout::new::<azul_impl::window::FullScreenMode>(), "AzFullScreenMode"), (Layout::new::<AzFullScreenMode>(), "AzFullScreenMode"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowTheme>(), "AzWindowTheme"), (Layout::new::<AzWindowTheme>(), "AzWindowTheme"));
+        assert_eq!((Layout::new::<azul_impl::dom::DomVecDestructor>(), "AzDomVecDestructor"), (Layout::new::<AzDomVecDestructor>(), "AzDomVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::dom::IdOrClassVecDestructor>(), "AzIdOrClassVecDestructor"), (Layout::new::<AzIdOrClassVecDestructor>(), "AzIdOrClassVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVecDestructor>(), "AzNodeDataInlineCssPropertyVecDestructor"), (Layout::new::<AzNodeDataInlineCssPropertyVecDestructor>(), "AzNodeDataInlineCssPropertyVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVecDestructor>(), "AzStyleBackgroundContentVecDestructor"), (Layout::new::<AzStyleBackgroundContentVecDestructor>(), "AzStyleBackgroundContentVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPositionVecDestructor>(), "AzStyleBackgroundPositionVecDestructor"), (Layout::new::<AzStyleBackgroundPositionVecDestructor>(), "AzStyleBackgroundPositionVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVecDestructor>(), "AzStyleBackgroundRepeatVecDestructor"), (Layout::new::<AzStyleBackgroundRepeatVecDestructor>(), "AzStyleBackgroundRepeatVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVecDestructor>(), "AzStyleBackgroundSizeVecDestructor"), (Layout::new::<AzStyleBackgroundSizeVecDestructor>(), "AzStyleBackgroundSizeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformVecDestructor>(), "AzStyleTransformVecDestructor"), (Layout::new::<AzStyleTransformVecDestructor>(), "AzStyleTransformVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyVecDestructor>(), "AzCssPropertyVecDestructor"), (Layout::new::<AzCssPropertyVecDestructor>(), "AzCssPropertyVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygonVecDestructor>(), "AzSvgMultiPolygonVecDestructor"), (Layout::new::<AzSvgMultiPolygonVecDestructor>(), "AzSvgMultiPolygonVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPathVecDestructor>(), "AzSvgPathVecDestructor"), (Layout::new::<AzSvgPathVecDestructor>(), "AzSvgPathVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::gl::VertexAttributeVecDestructor>(), "AzVertexAttributeVecDestructor"), (Layout::new::<AzVertexAttributeVecDestructor>(), "AzVertexAttributeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"), (Layout::new::<AzSvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgVertexVecDestructor>(), "AzSvgVertexVecDestructor"), (Layout::new::<AzSvgVertexVecDestructor>(), "AzSvgVertexVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::svg::U32VecDestructor>(), "AzU32VecDestructor"), (Layout::new::<AzU32VecDestructor>(), "AzU32VecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::window::XWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"), (Layout::new::<AzXWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"), (Layout::new::<AzVirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::style::CascadeInfoVecDestructor>(), "AzCascadeInfoVecDestructor"), (Layout::new::<AzCascadeInfoVecDestructor>(), "AzCascadeInfoVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::window::ScanCodeVecDestructor>(), "AzScanCodeVecDestructor"), (Layout::new::<AzScanCodeVecDestructor>(), "AzScanCodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::CssDeclarationVecDestructor>(), "AzCssDeclarationVecDestructor"), (Layout::new::<AzCssDeclarationVecDestructor>(), "AzCssDeclarationVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPathSelectorVecDestructor>(), "AzCssPathSelectorVecDestructor"), (Layout::new::<AzCssPathSelectorVecDestructor>(), "AzCssPathSelectorVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StylesheetVecDestructor>(), "AzStylesheetVecDestructor"), (Layout::new::<AzStylesheetVecDestructor>(), "AzStylesheetVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVecDestructor>(), "AzCssRuleBlockVecDestructor"), (Layout::new::<AzCssRuleBlockVecDestructor>(), "AzCssRuleBlockVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::U8VecDestructor>(), "AzU8VecDestructor"), (Layout::new::<AzU8VecDestructor>(), "AzU8VecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::dom::CallbackDataVecDestructor>(), "AzCallbackDataVecDestructor"), (Layout::new::<AzCallbackDataVecDestructor>(), "AzCallbackDataVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessageVecDestructor>(), "AzDebugMessageVecDestructor"), (Layout::new::<AzDebugMessageVecDestructor>(), "AzDebugMessageVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLuintVecDestructor>(), "AzGLuintVecDestructor"), (Layout::new::<AzGLuintVecDestructor>(), "AzGLuintVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLintVecDestructor>(), "AzGLintVecDestructor"), (Layout::new::<AzGLintVecDestructor>(), "AzGLintVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StringVecDestructor>(), "AzStringVecDestructor"), (Layout::new::<AzStringVecDestructor>(), "AzStringVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::window::StringPairVecDestructor>(), "AzStringPairVecDestructor"), (Layout::new::<AzStringPairVecDestructor>(), "AzStringPairVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::LinearColorStopVecDestructor>(), "AzLinearColorStopVecDestructor"), (Layout::new::<AzLinearColorStopVecDestructor>(), "AzLinearColorStopVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::RadialColorStopVecDestructor>(), "AzRadialColorStopVecDestructor"), (Layout::new::<AzRadialColorStopVecDestructor>(), "AzRadialColorStopVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVecDestructor>(), "AzNodeIdVecDestructor"), (Layout::new::<AzNodeIdVecDestructor>(), "AzNodeIdVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVecDestructor>(), "AzNodeVecDestructor"), (Layout::new::<AzNodeVecDestructor>(), "AzNodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVecDestructor>(), "AzStyledNodeVecDestructor"), (Layout::new::<AzStyledNodeVecDestructor>(), "AzStyledNodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor>(), "AzTagIdsToNodeIdsMappingVecDestructor"), (Layout::new::<AzTagIdsToNodeIdsMappingVecDestructor>(), "AzTagIdsToNodeIdsMappingVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVecDestructor>(), "AzParentWithNodeDepthVecDestructor"), (Layout::new::<AzParentWithNodeDepthVecDestructor>(), "AzParentWithNodeDepthVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeDataVecDestructor>(), "AzNodeDataVecDestructor"), (Layout::new::<AzNodeDataVecDestructor>(), "AzNodeDataVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"), (Layout::new::<AzStyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"));
+        assert_eq!((Layout::new::<azul_impl::svg::U32Vec>(), "AzU32Vec"), (Layout::new::<AzU32Vec>(), "AzU32Vec"));
+        assert_eq!((Layout::new::<azul_impl::window::XWindowTypeVec>(), "AzXWindowTypeVec"), (Layout::new::<AzXWindowTypeVec>(), "AzXWindowTypeVec"));
+        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"), (Layout::new::<AzVirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"));
+        assert_eq!((Layout::new::<azul_impl::window::ScanCodeVec>(), "AzScanCodeVec"), (Layout::new::<AzScanCodeVec>(), "AzScanCodeVec"));
+        assert_eq!((Layout::new::<azul_impl::css::U8Vec>(), "AzU8Vec"), (Layout::new::<AzU8Vec>(), "AzU8Vec"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLuintVec>(), "AzGLuintVec"), (Layout::new::<AzGLuintVec>(), "AzGLuintVec"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLintVec>(), "AzGLintVec"), (Layout::new::<AzGLintVec>(), "AzGLintVec"));
+        assert_eq!((Layout::new::<azul_impl::task::OptionThreadSendMsg>(), "AzOptionThreadSendMsg"), (Layout::new::<AzOptionThreadSendMsg>(), "AzOptionThreadSendMsg"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::OptionRefAny>(), "AzOptionRefAny"), (Layout::new::<AzOptionRefAny>(), "AzOptionRefAny"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionWindowTheme>(), "AzOptionWindowTheme"), (Layout::new::<AzOptionWindowTheme>(), "AzOptionWindowTheme"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionHwndHandle>(), "AzOptionHwndHandle"), (Layout::new::<AzOptionHwndHandle>(), "AzOptionHwndHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionX11Visual>(), "AzOptionX11Visual"), (Layout::new::<AzOptionX11Visual>(), "AzOptionX11Visual"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionI32>(), "AzOptionI32"), (Layout::new::<AzOptionI32>(), "AzOptionI32"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionF32>(), "AzOptionF32"), (Layout::new::<AzOptionF32>(), "AzOptionF32"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionMouseCursorType>(), "AzOptionMouseCursorType"), (Layout::new::<AzOptionMouseCursorType>(), "AzOptionMouseCursorType"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionChar>(), "AzOptionChar"), (Layout::new::<AzOptionChar>(), "AzOptionChar"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"), (Layout::new::<AzOptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"));
+        assert_eq!((Layout::new::<azul_impl::gl::OptionTexture>(), "AzOptionTexture"), (Layout::new::<AzOptionTexture>(), "AzOptionTexture"));
+        assert_eq!((Layout::new::<azul_impl::task::OptionInstant>(), "AzOptionInstant"), (Layout::new::<AzOptionInstant>(), "AzOptionInstant"));
+        assert_eq!((Layout::new::<azul_impl::gl::OptionUsize>(), "AzOptionUsize"), (Layout::new::<AzOptionUsize>(), "AzOptionUsize"));
+        assert_eq!((Layout::new::<azul_impl::xml::XmlTextPos>(), "AzSvgParseErrorPosition"), (Layout::new::<AzSvgParseErrorPosition>(), "AzSvgParseErrorPosition"));
+        assert_eq!((Layout::new::<azul_impl::task::Duration>(), "AzDuration"), (Layout::new::<AzDuration>(), "AzDuration"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeId>(), "AzNodeId"), (Layout::new::<AzNodeId>(), "AzNodeId"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::DomId>(), "AzDomId"), (Layout::new::<AzDomId>(), "AzDomId"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::DomNodeId>(), "AzDomNodeId"), (Layout::new::<AzDomNodeId>(), "AzDomNodeId"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallback>(), "AzLayoutCallback"), (Layout::new::<AzLayoutCallback>(), "AzLayoutCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::Callback>(), "AzCallback"), (Layout::new::<AzCallback>(), "AzCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallback>(), "AzIFrameCallback"), (Layout::new::<AzIFrameCallback>(), "AzIFrameCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::GlCallback>(), "AzGlCallback"), (Layout::new::<AzGlCallback>(), "AzGlCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackReturn>(), "AzGlCallbackReturn"), (Layout::new::<AzGlCallbackReturn>(), "AzGlCallbackReturn"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallback>(), "AzTimerCallback"), (Layout::new::<AzTimerCallback>(), "AzTimerCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackReturn>(), "AzTimerCallbackReturn"), (Layout::new::<AzTimerCallbackReturn>(), "AzTimerCallbackReturn"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::WriteBackCallback>(), "AzWriteBackCallback"), (Layout::new::<AzWriteBackCallback>(), "AzWriteBackCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::RefCountInner>(), "AzRefCountInner"), (Layout::new::<AzRefCountInner>(), "AzRefCountInner"));
+        assert_eq!((Layout::new::<azul_impl::css::CssNthChildPattern>(), "AzCssNthChildPattern"), (Layout::new::<AzCssNthChildPattern>(), "AzCssNthChildPattern"));
+        assert_eq!((Layout::new::<azul_impl::css::ColorU>(), "AzColorU"), (Layout::new::<AzColorU>(), "AzColorU"));
+        assert_eq!((Layout::new::<azul_impl::css::FloatValue>(), "AzFloatValue"), (Layout::new::<AzFloatValue>(), "AzFloatValue"));
+        assert_eq!((Layout::new::<azul_impl::css::PixelValue>(), "AzPixelValue"), (Layout::new::<AzPixelValue>(), "AzPixelValue"));
+        assert_eq!((Layout::new::<azul_impl::css::PixelValueNoPercent>(), "AzPixelValueNoPercent"), (Layout::new::<AzPixelValueNoPercent>(), "AzPixelValueNoPercent"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBoxShadow>(), "AzStyleBoxShadow"), (Layout::new::<AzStyleBoxShadow>(), "AzStyleBoxShadow"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutBottom>(), "AzLayoutBottom"), (Layout::new::<AzLayoutBottom>(), "AzLayoutBottom"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutFlexGrow>(), "AzLayoutFlexGrow"), (Layout::new::<AzLayoutFlexGrow>(), "AzLayoutFlexGrow"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutFlexShrink>(), "AzLayoutFlexShrink"), (Layout::new::<AzLayoutFlexShrink>(), "AzLayoutFlexShrink"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutHeight>(), "AzLayoutHeight"), (Layout::new::<AzLayoutHeight>(), "AzLayoutHeight"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutLeft>(), "AzLayoutLeft"), (Layout::new::<AzLayoutLeft>(), "AzLayoutLeft"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutMarginBottom>(), "AzLayoutMarginBottom"), (Layout::new::<AzLayoutMarginBottom>(), "AzLayoutMarginBottom"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutMarginLeft>(), "AzLayoutMarginLeft"), (Layout::new::<AzLayoutMarginLeft>(), "AzLayoutMarginLeft"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutMarginRight>(), "AzLayoutMarginRight"), (Layout::new::<AzLayoutMarginRight>(), "AzLayoutMarginRight"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutMarginTop>(), "AzLayoutMarginTop"), (Layout::new::<AzLayoutMarginTop>(), "AzLayoutMarginTop"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutMaxHeight>(), "AzLayoutMaxHeight"), (Layout::new::<AzLayoutMaxHeight>(), "AzLayoutMaxHeight"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutMaxWidth>(), "AzLayoutMaxWidth"), (Layout::new::<AzLayoutMaxWidth>(), "AzLayoutMaxWidth"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutMinHeight>(), "AzLayoutMinHeight"), (Layout::new::<AzLayoutMinHeight>(), "AzLayoutMinHeight"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutMinWidth>(), "AzLayoutMinWidth"), (Layout::new::<AzLayoutMinWidth>(), "AzLayoutMinWidth"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutPaddingBottom>(), "AzLayoutPaddingBottom"), (Layout::new::<AzLayoutPaddingBottom>(), "AzLayoutPaddingBottom"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutPaddingLeft>(), "AzLayoutPaddingLeft"), (Layout::new::<AzLayoutPaddingLeft>(), "AzLayoutPaddingLeft"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutPaddingRight>(), "AzLayoutPaddingRight"), (Layout::new::<AzLayoutPaddingRight>(), "AzLayoutPaddingRight"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutPaddingTop>(), "AzLayoutPaddingTop"), (Layout::new::<AzLayoutPaddingTop>(), "AzLayoutPaddingTop"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutRight>(), "AzLayoutRight"), (Layout::new::<AzLayoutRight>(), "AzLayoutRight"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutTop>(), "AzLayoutTop"), (Layout::new::<AzLayoutTop>(), "AzLayoutTop"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutWidth>(), "AzLayoutWidth"), (Layout::new::<AzLayoutWidth>(), "AzLayoutWidth"));
+        assert_eq!((Layout::new::<azul_impl::css::PercentageValue>(), "AzPercentageValue"), (Layout::new::<AzPercentageValue>(), "AzPercentageValue"));
+        assert_eq!((Layout::new::<azul_impl::css::AngleValue>(), "AzAngleValue"), (Layout::new::<AzAngleValue>(), "AzAngleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::DirectionCorners>(), "AzDirectionCorners"), (Layout::new::<AzDirectionCorners>(), "AzDirectionCorners"));
+        assert_eq!((Layout::new::<azul_impl::css::Direction>(), "AzDirection"), (Layout::new::<AzDirection>(), "AzDirection"));
+        assert_eq!((Layout::new::<azul_impl::css::BackgroundPositionHorizontal>(), "AzBackgroundPositionHorizontal"), (Layout::new::<AzBackgroundPositionHorizontal>(), "AzBackgroundPositionHorizontal"));
+        assert_eq!((Layout::new::<azul_impl::css::BackgroundPositionVertical>(), "AzBackgroundPositionVertical"), (Layout::new::<AzBackgroundPositionVertical>(), "AzBackgroundPositionVertical"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPosition>(), "AzStyleBackgroundPosition"), (Layout::new::<AzStyleBackgroundPosition>(), "AzStyleBackgroundPosition"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSize>(), "AzStyleBackgroundSize"), (Layout::new::<AzStyleBackgroundSize>(), "AzStyleBackgroundSize"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBorderBottomColor>(), "AzStyleBorderBottomColor"), (Layout::new::<AzStyleBorderBottomColor>(), "AzStyleBorderBottomColor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBorderBottomLeftRadius>(), "AzStyleBorderBottomLeftRadius"), (Layout::new::<AzStyleBorderBottomLeftRadius>(), "AzStyleBorderBottomLeftRadius"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBorderBottomRightRadius>(), "AzStyleBorderBottomRightRadius"), (Layout::new::<AzStyleBorderBottomRightRadius>(), "AzStyleBorderBottomRightRadius"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBorderBottomStyle>(), "AzStyleBorderBottomStyle"), (Layout::new::<AzStyleBorderBottomStyle>(), "AzStyleBorderBottomStyle"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutBorderBottomWidth>(), "AzLayoutBorderBottomWidth"), (Layout::new::<AzLayoutBorderBottomWidth>(), "AzLayoutBorderBottomWidth"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBorderLeftColor>(), "AzStyleBorderLeftColor"), (Layout::new::<AzStyleBorderLeftColor>(), "AzStyleBorderLeftColor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBorderLeftStyle>(), "AzStyleBorderLeftStyle"), (Layout::new::<AzStyleBorderLeftStyle>(), "AzStyleBorderLeftStyle"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutBorderLeftWidth>(), "AzLayoutBorderLeftWidth"), (Layout::new::<AzLayoutBorderLeftWidth>(), "AzLayoutBorderLeftWidth"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBorderRightColor>(), "AzStyleBorderRightColor"), (Layout::new::<AzStyleBorderRightColor>(), "AzStyleBorderRightColor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBorderRightStyle>(), "AzStyleBorderRightStyle"), (Layout::new::<AzStyleBorderRightStyle>(), "AzStyleBorderRightStyle"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutBorderRightWidth>(), "AzLayoutBorderRightWidth"), (Layout::new::<AzLayoutBorderRightWidth>(), "AzLayoutBorderRightWidth"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBorderTopColor>(), "AzStyleBorderTopColor"), (Layout::new::<AzStyleBorderTopColor>(), "AzStyleBorderTopColor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBorderTopLeftRadius>(), "AzStyleBorderTopLeftRadius"), (Layout::new::<AzStyleBorderTopLeftRadius>(), "AzStyleBorderTopLeftRadius"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBorderTopRightRadius>(), "AzStyleBorderTopRightRadius"), (Layout::new::<AzStyleBorderTopRightRadius>(), "AzStyleBorderTopRightRadius"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBorderTopStyle>(), "AzStyleBorderTopStyle"), (Layout::new::<AzStyleBorderTopStyle>(), "AzStyleBorderTopStyle"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutBorderTopWidth>(), "AzLayoutBorderTopWidth"), (Layout::new::<AzLayoutBorderTopWidth>(), "AzLayoutBorderTopWidth"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleFontSize>(), "AzStyleFontSize"), (Layout::new::<AzStyleFontSize>(), "AzStyleFontSize"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleLetterSpacing>(), "AzStyleLetterSpacing"), (Layout::new::<AzStyleLetterSpacing>(), "AzStyleLetterSpacing"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleLineHeight>(), "AzStyleLineHeight"), (Layout::new::<AzStyleLineHeight>(), "AzStyleLineHeight"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTabWidth>(), "AzStyleTabWidth"), (Layout::new::<AzStyleTabWidth>(), "AzStyleTabWidth"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleOpacity>(), "AzStyleOpacity"), (Layout::new::<AzStyleOpacity>(), "AzStyleOpacity"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformOrigin>(), "AzStyleTransformOrigin"), (Layout::new::<AzStyleTransformOrigin>(), "AzStyleTransformOrigin"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformOrigin>(), "AzStylePerspectiveOrigin"), (Layout::new::<AzStylePerspectiveOrigin>(), "AzStylePerspectiveOrigin"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformMatrix2D>(), "AzStyleTransformMatrix2D"), (Layout::new::<AzStyleTransformMatrix2D>(), "AzStyleTransformMatrix2D"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformMatrix3D>(), "AzStyleTransformMatrix3D"), (Layout::new::<AzStyleTransformMatrix3D>(), "AzStyleTransformMatrix3D"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformTranslate2D>(), "AzStyleTransformTranslate2D"), (Layout::new::<AzStyleTransformTranslate2D>(), "AzStyleTransformTranslate2D"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformTranslate3D>(), "AzStyleTransformTranslate3D"), (Layout::new::<AzStyleTransformTranslate3D>(), "AzStyleTransformTranslate3D"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformRotate3D>(), "AzStyleTransformRotate3D"), (Layout::new::<AzStyleTransformRotate3D>(), "AzStyleTransformRotate3D"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformScale2D>(), "AzStyleTransformScale2D"), (Layout::new::<AzStyleTransformScale2D>(), "AzStyleTransformScale2D"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformScale3D>(), "AzStyleTransformScale3D"), (Layout::new::<AzStyleTransformScale3D>(), "AzStyleTransformScale3D"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformSkew2D>(), "AzStyleTransformSkew2D"), (Layout::new::<AzStyleTransformSkew2D>(), "AzStyleTransformSkew2D"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTextColor>(), "AzStyleTextColor"), (Layout::new::<AzStyleTextColor>(), "AzStyleTextColor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleWordSpacing>(), "AzStyleWordSpacing"), (Layout::new::<AzStyleWordSpacing>(), "AzStyleWordSpacing"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBoxShadow>>(), "AzStyleBoxShadowValue"), (Layout::new::<AzStyleBoxShadowValue>(), "AzStyleBoxShadowValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutAlignContent>>(), "AzLayoutAlignContentValue"), (Layout::new::<AzLayoutAlignContentValue>(), "AzLayoutAlignContentValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutAlignItems>>(), "AzLayoutAlignItemsValue"), (Layout::new::<AzLayoutAlignItemsValue>(), "AzLayoutAlignItemsValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBottom>>(), "AzLayoutBottomValue"), (Layout::new::<AzLayoutBottomValue>(), "AzLayoutBottomValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBoxSizing>>(), "AzLayoutBoxSizingValue"), (Layout::new::<AzLayoutBoxSizingValue>(), "AzLayoutBoxSizingValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexDirection>>(), "AzLayoutFlexDirectionValue"), (Layout::new::<AzLayoutFlexDirectionValue>(), "AzLayoutFlexDirectionValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutDisplay>>(), "AzLayoutDisplayValue"), (Layout::new::<AzLayoutDisplayValue>(), "AzLayoutDisplayValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexGrow>>(), "AzLayoutFlexGrowValue"), (Layout::new::<AzLayoutFlexGrowValue>(), "AzLayoutFlexGrowValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexShrink>>(), "AzLayoutFlexShrinkValue"), (Layout::new::<AzLayoutFlexShrinkValue>(), "AzLayoutFlexShrinkValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFloat>>(), "AzLayoutFloatValue"), (Layout::new::<AzLayoutFloatValue>(), "AzLayoutFloatValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutHeight>>(), "AzLayoutHeightValue"), (Layout::new::<AzLayoutHeightValue>(), "AzLayoutHeightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutJustifyContent>>(), "AzLayoutJustifyContentValue"), (Layout::new::<AzLayoutJustifyContentValue>(), "AzLayoutJustifyContentValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutLeft>>(), "AzLayoutLeftValue"), (Layout::new::<AzLayoutLeftValue>(), "AzLayoutLeftValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMarginBottom>>(), "AzLayoutMarginBottomValue"), (Layout::new::<AzLayoutMarginBottomValue>(), "AzLayoutMarginBottomValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMarginLeft>>(), "AzLayoutMarginLeftValue"), (Layout::new::<AzLayoutMarginLeftValue>(), "AzLayoutMarginLeftValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMarginRight>>(), "AzLayoutMarginRightValue"), (Layout::new::<AzLayoutMarginRightValue>(), "AzLayoutMarginRightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMarginTop>>(), "AzLayoutMarginTopValue"), (Layout::new::<AzLayoutMarginTopValue>(), "AzLayoutMarginTopValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMaxHeight>>(), "AzLayoutMaxHeightValue"), (Layout::new::<AzLayoutMaxHeightValue>(), "AzLayoutMaxHeightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMaxWidth>>(), "AzLayoutMaxWidthValue"), (Layout::new::<AzLayoutMaxWidthValue>(), "AzLayoutMaxWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMinHeight>>(), "AzLayoutMinHeightValue"), (Layout::new::<AzLayoutMinHeightValue>(), "AzLayoutMinHeightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMinWidth>>(), "AzLayoutMinWidthValue"), (Layout::new::<AzLayoutMinWidthValue>(), "AzLayoutMinWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPaddingBottom>>(), "AzLayoutPaddingBottomValue"), (Layout::new::<AzLayoutPaddingBottomValue>(), "AzLayoutPaddingBottomValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPaddingLeft>>(), "AzLayoutPaddingLeftValue"), (Layout::new::<AzLayoutPaddingLeftValue>(), "AzLayoutPaddingLeftValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPaddingRight>>(), "AzLayoutPaddingRightValue"), (Layout::new::<AzLayoutPaddingRightValue>(), "AzLayoutPaddingRightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPaddingTop>>(), "AzLayoutPaddingTopValue"), (Layout::new::<AzLayoutPaddingTopValue>(), "AzLayoutPaddingTopValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPosition>>(), "AzLayoutPositionValue"), (Layout::new::<AzLayoutPositionValue>(), "AzLayoutPositionValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutRight>>(), "AzLayoutRightValue"), (Layout::new::<AzLayoutRightValue>(), "AzLayoutRightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutTop>>(), "AzLayoutTopValue"), (Layout::new::<AzLayoutTopValue>(), "AzLayoutTopValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutWidth>>(), "AzLayoutWidthValue"), (Layout::new::<AzLayoutWidthValue>(), "AzLayoutWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexWrap>>(), "AzLayoutFlexWrapValue"), (Layout::new::<AzLayoutFlexWrapValue>(), "AzLayoutFlexWrapValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutOverflow>>(), "AzLayoutOverflowValue"), (Layout::new::<AzLayoutOverflowValue>(), "AzLayoutOverflowValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>>(), "AzStyleBackgroundRepeatVecValue"), (Layout::new::<AzStyleBackgroundRepeatVecValue>(), "AzStyleBackgroundRepeatVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>>(), "AzStyleBorderBottomColorValue"), (Layout::new::<AzStyleBorderBottomColorValue>(), "AzStyleBorderBottomColorValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>>(), "AzStyleBorderBottomLeftRadiusValue"), (Layout::new::<AzStyleBorderBottomLeftRadiusValue>(), "AzStyleBorderBottomLeftRadiusValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>>(), "AzStyleBorderBottomRightRadiusValue"), (Layout::new::<AzStyleBorderBottomRightRadiusValue>(), "AzStyleBorderBottomRightRadiusValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>>(), "AzStyleBorderBottomStyleValue"), (Layout::new::<AzStyleBorderBottomStyleValue>(), "AzStyleBorderBottomStyleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBorderBottomWidth>>(), "AzLayoutBorderBottomWidthValue"), (Layout::new::<AzLayoutBorderBottomWidthValue>(), "AzLayoutBorderBottomWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>>(), "AzStyleBorderLeftColorValue"), (Layout::new::<AzStyleBorderLeftColorValue>(), "AzStyleBorderLeftColorValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>>(), "AzStyleBorderLeftStyleValue"), (Layout::new::<AzStyleBorderLeftStyleValue>(), "AzStyleBorderLeftStyleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBorderLeftWidth>>(), "AzLayoutBorderLeftWidthValue"), (Layout::new::<AzLayoutBorderLeftWidthValue>(), "AzLayoutBorderLeftWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderRightColor>>(), "AzStyleBorderRightColorValue"), (Layout::new::<AzStyleBorderRightColorValue>(), "AzStyleBorderRightColorValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>>(), "AzStyleBorderRightStyleValue"), (Layout::new::<AzStyleBorderRightStyleValue>(), "AzStyleBorderRightStyleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBorderRightWidth>>(), "AzLayoutBorderRightWidthValue"), (Layout::new::<AzLayoutBorderRightWidthValue>(), "AzLayoutBorderRightWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderTopColor>>(), "AzStyleBorderTopColorValue"), (Layout::new::<AzStyleBorderTopColorValue>(), "AzStyleBorderTopColorValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>>(), "AzStyleBorderTopLeftRadiusValue"), (Layout::new::<AzStyleBorderTopLeftRadiusValue>(), "AzStyleBorderTopLeftRadiusValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>>(), "AzStyleBorderTopRightRadiusValue"), (Layout::new::<AzStyleBorderTopRightRadiusValue>(), "AzStyleBorderTopRightRadiusValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>>(), "AzStyleBorderTopStyleValue"), (Layout::new::<AzStyleBorderTopStyleValue>(), "AzStyleBorderTopStyleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBorderTopWidth>>(), "AzLayoutBorderTopWidthValue"), (Layout::new::<AzLayoutBorderTopWidthValue>(), "AzLayoutBorderTopWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleCursor>>(), "AzStyleCursorValue"), (Layout::new::<AzStyleCursorValue>(), "AzStyleCursorValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleFontSize>>(), "AzStyleFontSizeValue"), (Layout::new::<AzStyleFontSizeValue>(), "AzStyleFontSizeValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleLetterSpacing>>(), "AzStyleLetterSpacingValue"), (Layout::new::<AzStyleLetterSpacingValue>(), "AzStyleLetterSpacingValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleLineHeight>>(), "AzStyleLineHeightValue"), (Layout::new::<AzStyleLineHeightValue>(), "AzStyleLineHeightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTabWidth>>(), "AzStyleTabWidthValue"), (Layout::new::<AzStyleTabWidthValue>(), "AzStyleTabWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>>(), "AzStyleTextAlignmentHorzValue"), (Layout::new::<AzStyleTextAlignmentHorzValue>(), "AzStyleTextAlignmentHorzValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTextColor>>(), "AzStyleTextColorValue"), (Layout::new::<AzStyleTextColorValue>(), "AzStyleTextColorValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleWordSpacing>>(), "AzStyleWordSpacingValue"), (Layout::new::<AzStyleWordSpacingValue>(), "AzStyleWordSpacingValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleOpacity>>(), "AzStyleOpacityValue"), (Layout::new::<AzStyleOpacityValue>(), "AzStyleOpacityValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTransformOrigin>>(), "AzStyleTransformOriginValue"), (Layout::new::<AzStyleTransformOriginValue>(), "AzStyleTransformOriginValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StylePerspectiveOrigin>>(), "AzStylePerspectiveOriginValue"), (Layout::new::<AzStylePerspectiveOriginValue>(), "AzStylePerspectiveOriginValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackfaceVisibility>>(), "AzStyleBackfaceVisibilityValue"), (Layout::new::<AzStyleBackfaceVisibilityValue>(), "AzStyleBackfaceVisibilityValue"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNode>(), "AzNode"), (Layout::new::<AzNode>(), "AzNode"));
+        assert_eq!((Layout::new::<azul_impl::style::CascadeInfo>(), "AzCascadeInfo"), (Layout::new::<AzCascadeInfo>(), "AzCascadeInfo"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeState>(), "AzStyledNodeState"), (Layout::new::<AzStyledNodeState>(), "AzStyledNodeState"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::AzTagId>(), "AzTagId"), (Layout::new::<AzTagId>(), "AzTagId"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepth>(), "AzParentWithNodeDepth"), (Layout::new::<AzParentWithNodeDepth>(), "AzParentWithNodeDepth"));
+        assert_eq!((Layout::new::<azul_impl::dom::GlTextureNode>(), "AzGlTextureNode"), (Layout::new::<AzGlTextureNode>(), "AzGlTextureNode"));
+        assert_eq!((Layout::new::<azul_impl::dom::IFrameNode>(), "AzIFrameNode"), (Layout::new::<AzIFrameNode>(), "AzIFrameNode"));
+        assert_eq!((Layout::new::<azul_impl::dom::NotEventFilter>(), "AzNotEventFilter"), (Layout::new::<AzNotEventFilter>(), "AzNotEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::dom::TabIndex>(), "AzTabIndex"), (Layout::new::<AzTabIndex>(), "AzTabIndex"));
+        assert_eq!((Layout::new::<azul_impl::gl::GlShaderPrecisionFormatReturn>(), "AzGlShaderPrecisionFormatReturn"), (Layout::new::<AzGlShaderPrecisionFormatReturn>(), "AzGlShaderPrecisionFormatReturn"));
+        assert_eq!((Layout::new::<azul_impl::gl::U8VecRef>(), "AzU8VecRef"), (Layout::new::<AzU8VecRef>(), "AzU8VecRef"));
+        assert_eq!((Layout::new::<azul_impl::gl::U8VecRefMut>(), "AzU8VecRefMut"), (Layout::new::<AzU8VecRefMut>(), "AzU8VecRefMut"));
+        assert_eq!((Layout::new::<azul_impl::gl::F32VecRef>(), "AzF32VecRef"), (Layout::new::<AzF32VecRef>(), "AzF32VecRef"));
+        assert_eq!((Layout::new::<azul_impl::gl::I32VecRef>(), "AzI32VecRef"), (Layout::new::<AzI32VecRef>(), "AzI32VecRef"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLuintVecRef>(), "AzGLuintVecRef"), (Layout::new::<AzGLuintVecRef>(), "AzGLuintVecRef"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLenumVecRef>(), "AzGLenumVecRef"), (Layout::new::<AzGLenumVecRef>(), "AzGLenumVecRef"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLintVecRefMut>(), "AzGLintVecRefMut"), (Layout::new::<AzGLintVecRefMut>(), "AzGLintVecRefMut"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLint64VecRefMut>(), "AzGLint64VecRefMut"), (Layout::new::<AzGLint64VecRefMut>(), "AzGLint64VecRefMut"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLbooleanVecRefMut>(), "AzGLbooleanVecRefMut"), (Layout::new::<AzGLbooleanVecRefMut>(), "AzGLbooleanVecRefMut"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLfloatVecRefMut>(), "AzGLfloatVecRefMut"), (Layout::new::<AzGLfloatVecRefMut>(), "AzGLfloatVecRefMut"));
+        assert_eq!((Layout::new::<azul_impl::gl::Refstr>(), "AzRefstr"), (Layout::new::<AzRefstr>(), "AzRefstr"));
+        assert_eq!((Layout::new::<azul_impl::gl::GetProgramBinaryReturn>(), "AzGetProgramBinaryReturn"), (Layout::new::<AzGetProgramBinaryReturn>(), "AzGetProgramBinaryReturn"));
+        assert_eq!((Layout::new::<azul_impl::gl::TextureFlags>(), "AzTextureFlags"), (Layout::new::<AzTextureFlags>(), "AzTextureFlags"));
+        assert_eq!((Layout::new::<azul_impl::resources::ImageId>(), "AzImageId"), (Layout::new::<AzImageId>(), "AzImageId"));
+        assert_eq!((Layout::new::<azul_impl::resources::FontId>(), "AzFontId"), (Layout::new::<AzFontId>(), "AzFontId"));
+        assert_eq!((Layout::new::<azul_impl::resources::RawImage>(), "AzRawImage"), (Layout::new::<AzRawImage>(), "AzRawImage"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgCircle>(), "AzSvgCircle"), (Layout::new::<AzSvgCircle>(), "AzSvgCircle"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPoint>(), "AzSvgPoint"), (Layout::new::<AzSvgPoint>(), "AzSvgPoint"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgVertex>(), "AzSvgVertex"), (Layout::new::<AzSvgVertex>(), "AzSvgVertex"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgQuadraticCurve>(), "AzSvgQuadraticCurve"), (Layout::new::<AzSvgQuadraticCurve>(), "AzSvgQuadraticCurve"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgCubicCurve>(), "AzSvgCubicCurve"), (Layout::new::<AzSvgCubicCurve>(), "AzSvgCubicCurve"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgRect>(), "AzSvgRect"), (Layout::new::<AzSvgRect>(), "AzSvgRect"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgFitTo>(), "AzSvgFitTo"), (Layout::new::<AzSvgFitTo>(), "AzSvgFitTo"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgDashPattern>(), "AzSvgDashPattern"), (Layout::new::<AzSvgDashPattern>(), "AzSvgDashPattern"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgFillStyle>(), "AzSvgFillStyle"), (Layout::new::<AzSvgFillStyle>(), "AzSvgFillStyle"));
+        assert_eq!((Layout::new::<azul_impl::task::TimerId>(), "AzTimerId"), (Layout::new::<AzTimerId>(), "AzTimerId"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadId>(), "AzThreadId"), (Layout::new::<AzThreadId>(), "AzThreadId"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadWriteBackMsg>(), "AzThreadWriteBackMsg"), (Layout::new::<AzThreadWriteBackMsg>(), "AzThreadWriteBackMsg"));
+        assert_eq!((Layout::new::<azul_impl::task::CreateThreadCallback>(), "AzCreateThreadFn"), (Layout::new::<AzCreateThreadFn>(), "AzCreateThreadFn"));
+        assert_eq!((Layout::new::<azul_impl::task::GetSystemTimeCallback>(), "AzGetSystemTimeFn"), (Layout::new::<AzGetSystemTimeFn>(), "AzGetSystemTimeFn"));
+        assert_eq!((Layout::new::<azul_impl::task::CheckThreadFinishedCallback>(), "AzCheckThreadFinishedFn"), (Layout::new::<AzCheckThreadFinishedFn>(), "AzCheckThreadFinishedFn"));
+        assert_eq!((Layout::new::<azul_impl::task::LibrarySendThreadMsgCallback>(), "AzLibrarySendThreadMsgFn"), (Layout::new::<AzLibrarySendThreadMsgFn>(), "AzLibrarySendThreadMsgFn"));
+        assert_eq!((Layout::new::<azul_impl::task::LibraryReceiveThreadMsgCallback>(), "AzLibraryReceiveThreadMsgFn"), (Layout::new::<AzLibraryReceiveThreadMsgFn>(), "AzLibraryReceiveThreadMsgFn"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadRecvCallback>(), "AzThreadRecvFn"), (Layout::new::<AzThreadRecvFn>(), "AzThreadRecvFn"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadSendCallback>(), "AzThreadSendFn"), (Layout::new::<AzThreadSendFn>(), "AzThreadSendFn"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadDestructorCallback>(), "AzThreadDestructorFn"), (Layout::new::<AzThreadDestructorFn>(), "AzThreadDestructorFn"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
+        assert_eq!((Layout::new::<azul_impl::window::RendererOptions>(), "AzRendererOptions"), (Layout::new::<AzRendererOptions>(), "AzRendererOptions"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutPoint>(), "AzLayoutPoint"), (Layout::new::<AzLayoutPoint>(), "AzLayoutPoint"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutSize>(), "AzLayoutSize"), (Layout::new::<AzLayoutSize>(), "AzLayoutSize"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutRect>(), "AzLayoutRect"), (Layout::new::<AzLayoutRect>(), "AzLayoutRect"));
+        assert_eq!((Layout::new::<azul_impl::window::IOSHandle>(), "AzIOSHandle"), (Layout::new::<AzIOSHandle>(), "AzIOSHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::MacOSHandle>(), "AzMacOSHandle"), (Layout::new::<AzMacOSHandle>(), "AzMacOSHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::XlibHandle>(), "AzXlibHandle"), (Layout::new::<AzXlibHandle>(), "AzXlibHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::XcbHandle>(), "AzXcbHandle"), (Layout::new::<AzXcbHandle>(), "AzXcbHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::WaylandHandle>(), "AzWaylandHandle"), (Layout::new::<AzWaylandHandle>(), "AzWaylandHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowsHandle>(), "AzWindowsHandle"), (Layout::new::<AzWindowsHandle>(), "AzWindowsHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::WebHandle>(), "AzWebHandle"), (Layout::new::<AzWebHandle>(), "AzWebHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::AndroidHandle>(), "AzAndroidHandle"), (Layout::new::<AzAndroidHandle>(), "AzAndroidHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::PhysicalPosition<i32>>(), "AzPhysicalPositionI32"), (Layout::new::<AzPhysicalPositionI32>(), "AzPhysicalPositionI32"));
+        assert_eq!((Layout::new::<azul_impl::window::PhysicalSize<u32>>(), "AzPhysicalSizeU32"), (Layout::new::<AzPhysicalSizeU32>(), "AzPhysicalSizeU32"));
+        assert_eq!((Layout::new::<azul_impl::window::LogicalPosition>(), "AzLogicalPosition"), (Layout::new::<AzLogicalPosition>(), "AzLogicalPosition"));
+        assert_eq!((Layout::new::<azul_impl::window::IconKey>(), "AzIconKey"), (Layout::new::<AzIconKey>(), "AzIconKey"));
+        assert_eq!((Layout::new::<azul_impl::window::SmallWindowIconBytes>(), "AzSmallWindowIconBytes"), (Layout::new::<AzSmallWindowIconBytes>(), "AzSmallWindowIconBytes"));
+        assert_eq!((Layout::new::<azul_impl::window::LargeWindowIconBytes>(), "AzLargeWindowIconBytes"), (Layout::new::<AzLargeWindowIconBytes>(), "AzLargeWindowIconBytes"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowIcon>(), "AzWindowIcon"), (Layout::new::<AzWindowIcon>(), "AzWindowIcon"));
+        assert_eq!((Layout::new::<azul_impl::window::AcceleratorKey>(), "AzAcceleratorKey"), (Layout::new::<AzAcceleratorKey>(), "AzAcceleratorKey"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowFlags>(), "AzWindowFlags"), (Layout::new::<AzWindowFlags>(), "AzWindowFlags"));
+        assert_eq!((Layout::new::<azul_impl::window::DebugState>(), "AzDebugState"), (Layout::new::<AzDebugState>(), "AzDebugState"));
+        assert_eq!((Layout::new::<azul_impl::window::KeyboardState>(), "AzKeyboardState"), (Layout::new::<AzKeyboardState>(), "AzKeyboardState"));
+        assert_eq!((Layout::new::<azul_impl::window::CursorPosition>(), "AzCursorPosition"), (Layout::new::<AzCursorPosition>(), "AzCursorPosition"));
+        assert_eq!((Layout::new::<azul_impl::window::MouseState>(), "AzMouseState"), (Layout::new::<AzMouseState>(), "AzMouseState"));
+        assert_eq!((Layout::new::<azul_impl::window::WaylandTheme>(), "AzWaylandTheme"), (Layout::new::<AzWaylandTheme>(), "AzWaylandTheme"));
+        assert_eq!((Layout::new::<azul_impl::window::MacWindowOptions>(), "AzMacWindowOptions"), (Layout::new::<AzMacWindowOptions>(), "AzMacWindowOptions"));
+        assert_eq!((Layout::new::<azul_impl::window::WasmWindowOptions>(), "AzWasmWindowOptions"), (Layout::new::<AzWasmWindowOptions>(), "AzWasmWindowOptions"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowPosition>(), "AzWindowPosition"), (Layout::new::<AzWindowPosition>(), "AzWindowPosition"));
+        assert_eq!((Layout::new::<azul_impl::window::ImePosition>(), "AzImePosition"), (Layout::new::<AzImePosition>(), "AzImePosition"));
+        assert_eq!((Layout::new::<azul_impl::window::TouchState>(), "AzTouchState"), (Layout::new::<AzTouchState>(), "AzTouchState"));
+        assert_eq!((Layout::new::<azul_impl::window::LogicalSize>(), "AzLogicalSize"), (Layout::new::<AzLogicalSize>(), "AzLogicalSize"));
+        assert_eq!((Layout::new::<azul_impl::css::AzString>(), "AzString"), (Layout::new::<AzString>(), "AzString"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"), (Layout::new::<AzStyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"), (Layout::new::<AzStyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgVertexVec>(), "AzSvgVertexVec"), (Layout::new::<AzSvgVertexVec>(), "AzSvgVertexVec"));
+        assert_eq!((Layout::new::<azul_impl::style::CascadeInfoVec>(), "AzCascadeInfoVec"), (Layout::new::<AzCascadeInfoVec>(), "AzCascadeInfoVec"));
+        assert_eq!((Layout::new::<azul_impl::css::StringVec>(), "AzStringVec"), (Layout::new::<AzStringVec>(), "AzStringVec"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionPercentageValue>(), "AzOptionPercentageValue"), (Layout::new::<AzOptionPercentageValue>(), "AzOptionPercentageValue"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionAngleValue>(), "AzOptionAngleValue"), (Layout::new::<AzOptionAngleValue>(), "AzOptionAngleValue"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionRendererOptions>(), "AzOptionRendererOptions"), (Layout::new::<AzOptionRendererOptions>(), "AzOptionRendererOptions"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::OptionCallback>(), "AzOptionCallback"), (Layout::new::<AzOptionCallback>(), "AzOptionCallback"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionLayoutRect>(), "AzOptionLayoutRect"), (Layout::new::<AzOptionLayoutRect>(), "AzOptionLayoutRect"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionLayoutPoint>(), "AzOptionLayoutPoint"), (Layout::new::<AzOptionLayoutPoint>(), "AzOptionLayoutPoint"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::OptionNodeId>(), "AzOptionNodeId"), (Layout::new::<AzOptionNodeId>(), "AzOptionNodeId"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::OptionDomNodeId>(), "AzOptionDomNodeId"), (Layout::new::<AzOptionDomNodeId>(), "AzOptionDomNodeId"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionColorU>(), "AzOptionColorU"), (Layout::new::<AzOptionColorU>(), "AzOptionColorU"));
+        assert_eq!((Layout::new::<azul_impl::resources::OptionRawImage>(), "AzOptionRawImage"), (Layout::new::<AzOptionRawImage>(), "AzOptionRawImage"));
+        assert_eq!((Layout::new::<azul_impl::svg::OptionSvgDashPattern>(), "AzOptionSvgDashPattern"), (Layout::new::<AzOptionSvgDashPattern>(), "AzOptionSvgDashPattern"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionWaylandTheme>(), "AzOptionWaylandTheme"), (Layout::new::<AzOptionWaylandTheme>(), "AzOptionWaylandTheme"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionLogicalPosition>(), "AzOptionLogicalPosition"), (Layout::new::<AzOptionLogicalPosition>(), "AzOptionLogicalPosition"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionPhysicalPositionI32>(), "AzOptionPhysicalPositionI32"), (Layout::new::<AzOptionPhysicalPositionI32>(), "AzOptionPhysicalPositionI32"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionWindowIcon>(), "AzOptionWindowIcon"), (Layout::new::<AzOptionWindowIcon>(), "AzOptionWindowIcon"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionAzString>(), "AzOptionString"), (Layout::new::<AzOptionString>(), "AzOptionString"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionLogicalSize>(), "AzOptionLogicalSize"), (Layout::new::<AzOptionLogicalSize>(), "AzOptionLogicalSize"));
+        assert_eq!((Layout::new::<azul_impl::dom::OptionTabIndex>(), "AzOptionTabIndex"), (Layout::new::<AzOptionTabIndex>(), "AzOptionTabIndex"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::OptionTagId>(), "AzOptionTagId"), (Layout::new::<AzOptionTagId>(), "AzOptionTagId"));
+        assert_eq!((Layout::new::<azul_impl::task::OptionDuration>(), "AzOptionDuration"), (Layout::new::<AzOptionDuration>(), "AzOptionDuration"));
+        assert_eq!((Layout::new::<azul_impl::gl::OptionU8VecRef>(), "AzOptionU8VecRef"), (Layout::new::<AzOptionU8VecRef>(), "AzOptionU8VecRef"));
+        assert_eq!((Layout::new::<azul_impl::xml::DuplicatedNamespaceError>(), "AzDuplicatedNamespaceError"), (Layout::new::<AzDuplicatedNamespaceError>(), "AzDuplicatedNamespaceError"));
+        assert_eq!((Layout::new::<azul_impl::xml::UnknownNamespaceError>(), "AzUnknownNamespaceError"), (Layout::new::<AzUnknownNamespaceError>(), "AzUnknownNamespaceError"));
+        assert_eq!((Layout::new::<azul_impl::xml::UnexpectedCloseTagError>(), "AzUnexpectedCloseTagError"), (Layout::new::<AzUnexpectedCloseTagError>(), "AzUnexpectedCloseTagError"));
+        assert_eq!((Layout::new::<azul_impl::xml::UnknownEntityReferenceError>(), "AzUnknownEntityReferenceError"), (Layout::new::<AzUnknownEntityReferenceError>(), "AzUnknownEntityReferenceError"));
+        assert_eq!((Layout::new::<azul_impl::xml::DuplicatedAttributeError>(), "AzDuplicatedAttributeError"), (Layout::new::<AzDuplicatedAttributeError>(), "AzDuplicatedAttributeError"));
+        assert_eq!((Layout::new::<azul_impl::xml::NonXmlCharError>(), "AzNonXmlCharError"), (Layout::new::<AzNonXmlCharError>(), "AzNonXmlCharError"));
+        assert_eq!((Layout::new::<azul_impl::xml::InvalidCharError>(), "AzInvalidCharError"), (Layout::new::<AzInvalidCharError>(), "AzInvalidCharError"));
+        assert_eq!((Layout::new::<azul_impl::xml::InvalidCharMultipleError>(), "AzInvalidCharMultipleError"), (Layout::new::<AzInvalidCharMultipleError>(), "AzInvalidCharMultipleError"));
+        assert_eq!((Layout::new::<azul_impl::xml::InvalidQuoteError>(), "AzInvalidQuoteError"), (Layout::new::<AzInvalidQuoteError>(), "AzInvalidQuoteError"));
+        assert_eq!((Layout::new::<azul_impl::xml::InvalidSpaceError>(), "AzInvalidSpaceError"), (Layout::new::<AzInvalidSpaceError>(), "AzInvalidSpaceError"));
+        assert_eq!((Layout::new::<azul_impl::xml::InvalidStringError>(), "AzInvalidStringError"), (Layout::new::<AzInvalidStringError>(), "AzInvalidStringError"));
+        assert_eq!((Layout::new::<azul_impl::resources::AppConfig>(), "AzAppConfig"), (Layout::new::<AzAppConfig>(), "AzAppConfig"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::HidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"), (Layout::new::<AzHidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackInfo>(), "AzIFrameCallbackInfo"), (Layout::new::<AzIFrameCallbackInfo>(), "AzIFrameCallbackInfo"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackInfo>(), "AzGlCallbackInfo"), (Layout::new::<AzGlCallbackInfo>(), "AzGlCallbackInfo"));
+        assert_eq!((Layout::new::<azul_impl::css::CssNthChildSelector>(), "AzCssNthChildSelector"), (Layout::new::<AzCssNthChildSelector>(), "AzCssNthChildSelector"));
+        assert_eq!((Layout::new::<azul_impl::css::LinearColorStop>(), "AzLinearColorStop"), (Layout::new::<AzLinearColorStop>(), "AzLinearColorStop"));
+        assert_eq!((Layout::new::<azul_impl::css::RadialColorStop>(), "AzRadialColorStop"), (Layout::new::<AzRadialColorStop>(), "AzRadialColorStop"));
+        assert_eq!((Layout::new::<azul_impl::css::CssImageId>(), "AzCssImageId"), (Layout::new::<AzCssImageId>(), "AzCssImageId"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleFontFamily>(), "AzStyleFontFamily"), (Layout::new::<AzStyleFontFamily>(), "AzStyleFontFamily"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransform>(), "AzStyleTransform"), (Layout::new::<AzStyleTransform>(), "AzStyleTransform"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>>(), "AzStyleBackgroundPositionVecValue"), (Layout::new::<AzStyleBackgroundPositionVecValue>(), "AzStyleBackgroundPositionVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>>(), "AzStyleBackgroundSizeVecValue"), (Layout::new::<AzStyleBackgroundSizeVecValue>(), "AzStyleBackgroundSizeVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleFontFamily>>(), "AzStyleFontFamilyValue"), (Layout::new::<AzStyleFontFamilyValue>(), "AzStyleFontFamilyValue"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNode>(), "AzStyledNode"), (Layout::new::<AzStyledNode>(), "AzStyledNode"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"), (Layout::new::<AzTagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"));
+        assert_eq!((Layout::new::<azul_impl::dom::IdOrClass>(), "AzIdOrClass"), (Layout::new::<AzIdOrClass>(), "AzIdOrClass"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeType>(), "AzNodeType"), (Layout::new::<AzNodeType>(), "AzNodeType"));
+        assert_eq!((Layout::new::<azul_impl::dom::EventFilter>(), "AzEventFilter"), (Layout::new::<AzEventFilter>(), "AzEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::gl::VertexAttribute>(), "AzVertexAttribute"), (Layout::new::<AzVertexAttribute>(), "AzVertexAttribute"));
+        assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessage>(), "AzDebugMessage"), (Layout::new::<AzDebugMessage>(), "AzDebugMessage"));
+        assert_eq!((Layout::new::<azul_impl::gl::RefstrVecRef>(), "AzRefstrVecRef"), (Layout::new::<AzRefstrVecRef>(), "AzRefstrVecRef"));
+        assert_eq!((Layout::new::<azul_impl::gl::GetActiveAttribReturn>(), "AzGetActiveAttribReturn"), (Layout::new::<AzGetActiveAttribReturn>(), "AzGetActiveAttribReturn"));
+        assert_eq!((Layout::new::<azul_impl::gl::GetActiveUniformReturn>(), "AzGetActiveUniformReturn"), (Layout::new::<AzGetActiveUniformReturn>(), "AzGetActiveUniformReturn"));
+        assert_eq!((Layout::new::<azul_impl::resources::ImageSource>(), "AzImageSource"), (Layout::new::<AzImageSource>(), "AzImageSource"));
+        assert_eq!((Layout::new::<azul_impl::resources::FontSource>(), "AzFontSource"), (Layout::new::<AzFontSource>(), "AzFontSource"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgLine>(), "AzSvgLine"), (Layout::new::<AzSvgLine>(), "AzSvgLine"));
+        assert_eq!((Layout::new::<azul_impl::svg::TesselatedCPUSvgNode>(), "AzTesselatedCPUSvgNode"), (Layout::new::<AzTesselatedCPUSvgNode>(), "AzTesselatedCPUSvgNode"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgParseOptions>(), "AzSvgParseOptions"), (Layout::new::<AzSvgParseOptions>(), "AzSvgParseOptions"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgRenderOptions>(), "AzSvgRenderOptions"), (Layout::new::<AzSvgRenderOptions>(), "AzSvgRenderOptions"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgStrokeStyle>(), "AzSvgStrokeStyle"), (Layout::new::<AzSvgStrokeStyle>(), "AzSvgStrokeStyle"));
+        assert_eq!((Layout::new::<azul_impl::task::Timer>(), "AzTimer"), (Layout::new::<AzTimer>(), "AzTimer"));
+        assert_eq!((Layout::new::<azul_impl::task::Thread>(), "AzThread"), (Layout::new::<AzThread>(), "AzThread"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadReceiveMsg>(), "AzThreadReceiveMsg"), (Layout::new::<AzThreadReceiveMsg>(), "AzThreadReceiveMsg"));
+        assert_eq!((Layout::new::<azul_impl::window::RawWindowHandle>(), "AzRawWindowHandle"), (Layout::new::<AzRawWindowHandle>(), "AzRawWindowHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::TaskBarIcon>(), "AzTaskBarIcon"), (Layout::new::<AzTaskBarIcon>(), "AzTaskBarIcon"));
+        assert_eq!((Layout::new::<azul_impl::window::LogicalRect>(), "AzLogicalRect"), (Layout::new::<AzLogicalRect>(), "AzLogicalRect"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowSize>(), "AzWindowSize"), (Layout::new::<AzWindowSize>(), "AzWindowSize"));
+        assert_eq!((Layout::new::<azul_impl::window::AzStringPair>(), "AzStringPair"), (Layout::new::<AzStringPair>(), "AzStringPair"));
+        assert_eq!((Layout::new::<azul_impl::dom::IdOrClassVec>(), "AzIdOrClassVec"), (Layout::new::<AzIdOrClassVec>(), "AzIdOrClassVec"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformVec>(), "AzStyleTransformVec"), (Layout::new::<AzStyleTransformVec>(), "AzStyleTransformVec"));
+        assert_eq!((Layout::new::<azul_impl::gl::VertexAttributeVec>(), "AzVertexAttributeVec"), (Layout::new::<AzVertexAttributeVec>(), "AzVertexAttributeVec"));
+        assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessageVec>(), "AzDebugMessageVec"), (Layout::new::<AzDebugMessageVec>(), "AzDebugMessageVec"));
+        assert_eq!((Layout::new::<azul_impl::window::StringPairVec>(), "AzStringPairVec"), (Layout::new::<AzStringPairVec>(), "AzStringPairVec"));
+        assert_eq!((Layout::new::<azul_impl::css::LinearColorStopVec>(), "AzLinearColorStopVec"), (Layout::new::<AzLinearColorStopVec>(), "AzLinearColorStopVec"));
+        assert_eq!((Layout::new::<azul_impl::css::RadialColorStopVec>(), "AzRadialColorStopVec"), (Layout::new::<AzRadialColorStopVec>(), "AzRadialColorStopVec"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVec>(), "AzStyledNodeVec"), (Layout::new::<AzStyledNodeVec>(), "AzStyledNodeVec"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"), (Layout::new::<AzTagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"));
+        assert_eq!((Layout::new::<azul_impl::task::OptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"), (Layout::new::<AzOptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionTaskBarIcon>(), "AzOptionTaskBarIcon"), (Layout::new::<AzOptionTaskBarIcon>(), "AzOptionTaskBarIcon"));
+        assert_eq!((Layout::new::<azul_impl::xml::XmlStreamError>(), "AzXmlStreamError"), (Layout::new::<AzXmlStreamError>(), "AzXmlStreamError"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutInfo>(), "AzLayoutInfo"), (Layout::new::<AzLayoutInfo>(), "AzLayoutInfo"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPathPseudoSelector>(), "AzCssPathPseudoSelector"), (Layout::new::<AzCssPathPseudoSelector>(), "AzCssPathPseudoSelector"));
+        assert_eq!((Layout::new::<azul_impl::css::LinearGradient>(), "AzLinearGradient"), (Layout::new::<AzLinearGradient>(), "AzLinearGradient"));
+        assert_eq!((Layout::new::<azul_impl::css::RadialGradient>(), "AzRadialGradient"), (Layout::new::<AzRadialGradient>(), "AzRadialGradient"));
+        assert_eq!((Layout::new::<azul_impl::css::ConicGradient>(), "AzConicGradient"), (Layout::new::<AzConicGradient>(), "AzConicGradient"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContent>(), "AzStyleBackgroundContent"), (Layout::new::<AzStyleBackgroundContent>(), "AzStyleBackgroundContent"));
+        assert_eq!((Layout::new::<azul_impl::css::ScrollbarInfo>(), "AzScrollbarInfo"), (Layout::new::<AzScrollbarInfo>(), "AzScrollbarInfo"));
+        assert_eq!((Layout::new::<azul_impl::css::ScrollbarStyle>(), "AzScrollbarStyle"), (Layout::new::<AzScrollbarStyle>(), "AzScrollbarStyle"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<ScrollbarStyle>>(), "AzScrollbarStyleValue"), (Layout::new::<AzScrollbarStyleValue>(), "AzScrollbarStyleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTransformVec>>(), "AzStyleTransformVecValue"), (Layout::new::<AzStyleTransformVecValue>(), "AzStyleTransformVecValue"));
+        assert_eq!((Layout::new::<azul_impl::dom::CallbackData>(), "AzCallbackData"), (Layout::new::<AzCallbackData>(), "AzCallbackData"));
+        assert_eq!((Layout::new::<azul_impl::dom::ImageMask>(), "AzImageMask"), (Layout::new::<AzImageMask>(), "AzImageMask"));
+        assert_eq!((Layout::new::<azul_impl::gl::VertexLayout>(), "AzVertexLayout"), (Layout::new::<AzVertexLayout>(), "AzVertexLayout"));
+        assert_eq!((Layout::new::<azul_impl::gl::VertexArrayObject>(), "AzVertexArrayObject"), (Layout::new::<AzVertexArrayObject>(), "AzVertexArrayObject"));
+        assert_eq!((Layout::new::<azul_impl::gl::VertexBuffer>(), "AzVertexBuffer"), (Layout::new::<AzVertexBuffer>(), "AzVertexBuffer"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPathElement>(), "AzSvgPathElement"), (Layout::new::<AzSvgPathElement>(), "AzSvgPathElement"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgStyle>(), "AzSvgStyle"), (Layout::new::<AzSvgStyle>(), "AzSvgStyle"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowsWindowOptions>(), "AzWindowsWindowOptions"), (Layout::new::<AzWindowsWindowOptions>(), "AzWindowsWindowOptions"));
+        assert_eq!((Layout::new::<azul_impl::window::LinuxWindowOptions>(), "AzLinuxWindowOptions"), (Layout::new::<AzLinuxWindowOptions>(), "AzLinuxWindowOptions"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"), (Layout::new::<AzStyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVec>(), "AzSvgPathElementVec"), (Layout::new::<AzSvgPathElementVec>(), "AzSvgPathElementVec"));
+        assert_eq!((Layout::new::<azul_impl::dom::CallbackDataVec>(), "AzCallbackDataVec"), (Layout::new::<AzCallbackDataVec>(), "AzCallbackDataVec"));
+        assert_eq!((Layout::new::<azul_impl::dom::OptionImageMask>(), "AzOptionImageMask"), (Layout::new::<AzOptionImageMask>(), "AzOptionImageMask"));
+        assert_eq!((Layout::new::<azul_impl::xml::XmlTextError>(), "AzXmlTextError"), (Layout::new::<AzXmlTextError>(), "AzXmlTextError"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPathSelector>(), "AzCssPathSelector"), (Layout::new::<AzCssPathSelector>(), "AzCssPathSelector"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundContentVec>>(), "AzStyleBackgroundContentVecValue"), (Layout::new::<AzStyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssProperty>(), "AzCssProperty"), (Layout::new::<AzCssProperty>(), "AzCssProperty"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssProperty>(), "AzNodeDataInlineCssProperty"), (Layout::new::<AzNodeDataInlineCssProperty>(), "AzNodeDataInlineCssProperty"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPath>(), "AzSvgPath"), (Layout::new::<AzSvgPath>(), "AzSvgPath"));
+        assert_eq!((Layout::new::<azul_impl::window::PlatformSpecificOptions>(), "AzPlatformSpecificOptions"), (Layout::new::<AzPlatformSpecificOptions>(), "AzPlatformSpecificOptions"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowState>(), "AzWindowState"), (Layout::new::<AzWindowState>(), "AzWindowState"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowCreateOptions>(), "AzWindowCreateOptions"), (Layout::new::<AzWindowCreateOptions>(), "AzWindowCreateOptions"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"), (Layout::new::<AzNodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyVec>(), "AzCssPropertyVec"), (Layout::new::<AzCssPropertyVec>(), "AzCssPropertyVec"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPathVec>(), "AzSvgPathVec"), (Layout::new::<AzSvgPathVec>(), "AzSvgPathVec"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPathSelectorVec>(), "AzCssPathSelectorVec"), (Layout::new::<AzCssPathSelectorVec>(), "AzCssPathSelectorVec"));
+        assert_eq!((Layout::new::<azul_impl::xml::XmlParseError>(), "AzXmlParseError"), (Layout::new::<AzXmlParseError>(), "AzXmlParseError"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::CallbackInfo>(), "AzCallbackInfo"), (Layout::new::<AzCallbackInfo>(), "AzCallbackInfo"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackInfo>(), "AzTimerCallbackInfo"), (Layout::new::<AzTimerCallbackInfo>(), "AzTimerCallbackInfo"));
+        assert_eq!((Layout::new::<azul_impl::css::DynamicCssProperty>(), "AzDynamicCssProperty"), (Layout::new::<AzDynamicCssProperty>(), "AzDynamicCssProperty"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPath>(), "AzCssPath"), (Layout::new::<AzCssPath>(), "AzCssPath"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::CssPropertySource>(), "AzCssPropertySource"), (Layout::new::<AzCssPropertySource>(), "AzCssPropertySource"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeData>(), "AzNodeData"), (Layout::new::<AzNodeData>(), "AzNodeData"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygon>(), "AzSvgMultiPolygon"), (Layout::new::<AzSvgMultiPolygon>(), "AzSvgMultiPolygon"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"), (Layout::new::<AzSvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeDataVec>(), "AzNodeDataVec"), (Layout::new::<AzNodeDataVec>(), "AzNodeDataVec"));
+        assert_eq!((Layout::new::<azul_impl::xml::XmlError>(), "AzXmlError"), (Layout::new::<AzXmlError>(), "AzXmlError"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::FocusTargetPath>(), "AzFocusTargetPath"), (Layout::new::<AzFocusTargetPath>(), "AzFocusTargetPath"));
+        assert_eq!((Layout::new::<azul_impl::css::CssDeclaration>(), "AzCssDeclaration"), (Layout::new::<AzCssDeclaration>(), "AzCssDeclaration"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledDom>(), "AzStyledDom"), (Layout::new::<AzStyledDom>(), "AzStyledDom"));
+        assert_eq!((Layout::new::<azul_impl::dom::Dom>(), "AzDom"), (Layout::new::<AzDom>(), "AzDom"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgNode>(), "AzSvgNode"), (Layout::new::<AzSvgNode>(), "AzSvgNode"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgStyledNode>(), "AzSvgStyledNode"), (Layout::new::<AzSvgStyledNode>(), "AzSvgStyledNode"));
+        assert_eq!((Layout::new::<azul_impl::dom::DomVec>(), "AzDomVec"), (Layout::new::<AzDomVec>(), "AzDomVec"));
+        assert_eq!((Layout::new::<azul_impl::css::CssDeclarationVec>(), "AzCssDeclarationVec"), (Layout::new::<AzCssDeclarationVec>(), "AzCssDeclarationVec"));
+        assert_eq!((Layout::new::<azul_impl::dom::OptionDom>(), "AzOptionDom"), (Layout::new::<AzOptionDom>(), "AzOptionDom"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgParseError>(), "AzSvgParseError"), (Layout::new::<AzSvgParseError>(), "AzSvgParseError"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::FocusTarget>(), "AzFocusTarget"), (Layout::new::<AzFocusTarget>(), "AzFocusTarget"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackReturn>(), "AzIFrameCallbackReturn"), (Layout::new::<AzIFrameCallbackReturn>(), "AzIFrameCallbackReturn"));
+        assert_eq!((Layout::new::<azul_impl::css::CssRuleBlock>(), "AzCssRuleBlock"), (Layout::new::<AzCssRuleBlock>(), "AzCssRuleBlock"));
+        assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVec>(), "AzCssRuleBlockVec"), (Layout::new::<AzCssRuleBlockVec>(), "AzCssRuleBlockVec"));
+        assert_eq!((Layout::new::<azul_impl::svg::ResultSvgSvgParseError>(), "AzResultSvgSvgParseError"), (Layout::new::<AzResultSvgSvgParseError>(), "AzResultSvgSvgParseError"));
+        assert_eq!((Layout::new::<azul_impl::css::Stylesheet>(), "AzStylesheet"), (Layout::new::<AzStylesheet>(), "AzStylesheet"));
+        assert_eq!((Layout::new::<azul_impl::css::StylesheetVec>(), "AzStylesheetVec"), (Layout::new::<AzStylesheetVec>(), "AzStylesheetVec"));
+        assert_eq!((Layout::new::<azul_impl::css::Css>(), "AzCss"), (Layout::new::<AzCss>(), "AzCss"));
     }
 }

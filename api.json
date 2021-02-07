@@ -1046,6 +1046,14 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionThreadReceiveMsg": {
+				    "external": "azul_impl::task::OptionThreadReceiveMsg",
+				    "clone": false,
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": { "type": "ThreadReceiveMsg" }}
+				    ]
+				},
 				"OptionPercentageValue": {
 				    "external": "azul_impl::css::OptionPercentageValue",
 				    "derive": ["Copy"],
@@ -1314,7 +1322,7 @@
 					]
 				},
 				"OptionInstant": {
-					"external": "azul_impl::task::OptionInstantPtr",
+					"external": "azul_impl::task::OptionInstant",
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "Instant" }}
@@ -1523,19 +1531,14 @@
 			"doc": "Rust wrappers for `Instant` / `Duration` classes",
 			"classes": {
 				"Instant": {
-					"external": "azul_impl::task::AzInstantPtr",
+					"external": "azul_impl::task::Instant",
 					"is_boxed_object": true,
 					"struct_fields": [
 						{"ptr": {"type": "*const c_void"}}
-					],
-					"constructors": {
-						"now": {
-							"fn_body": "azul_impl::task::AzInstantPtr::now()"
-						}
-					}
+					]
 				},
 				"Duration": {
-					"external": "azul_impl::task::AzDuration",
+					"external": "azul_impl::task::Duration",
 					"derive": ["Copy"],
 					"struct_fields": [
 						{"secs": {"type": "u64"}},
@@ -6995,9 +6998,10 @@
 						"new": {
 							"fn_args": [
 								{"timer_data": "RefAny"},
-								{"callback": "TimerCallbackType"}
+								{"callback": "TimerCallbackType"},
+								{"get_system_time_fn": "GetSystemTimeFn"}
 							],
-							"fn_body": "Timer::new(timer_data, callback)"
+							"fn_body": "Timer::new(timer_data, callback, get_system_time_fn)"
 						}
 					},
 					"functions": {
@@ -7036,12 +7040,36 @@
 						{"Continue": {"doc": "Do nothing and let the timers continue to run"}}
 					]
 				},
+				"ThreadId": {
+					"external": "azul_impl::task::ThreadId",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"id": {"type": "usize"}}
+					]
+				},
+				"Thread": {
+					"external": "azul_impl::task::Thread",
+					"clone": false,
+					"struct_fields": [
+						{"thread_handle": {"type": "*mut c_void" }},
+						{"sender": {"type": "*mut c_void" }},
+						{"receiver": {"type": "*mut c_void" }},
+						{"writeback_data": {"type": "RefAny" }},
+						{"dropcheck": {"type": "*mut c_void" }},
+						{"check_thread_finished_fn": {"type": "CheckThreadFinishedFn" }},
+						{"send_thread_msg_fn": {"type": "LibrarySendThreadMsgFn" }},
+						{"receive_thread_msg_fn": {"type": "LibraryReceiveThreadMsgFn" }},
+						{"thread_destructor_fn": {"type": "ThreadDestructorFn" }}
+					]
+				},
 				"ThreadSender": {
 					"external": "azul_impl::task::ThreadSender",
 					"clone": false,
 					"is_boxed_object": true,
 					"struct_fields": [
-						{"ptr": {"type": "*mut c_void"}}
+						{"ptr": {"type": "*mut c_void"}},
+						{"send_fn": {"type": "ThreadSendFn"}},
+						{"destructor": {"type": "ThreadSenderDestructorFn"}}
 					],
 					"functions": {
 						"send": {
@@ -7095,11 +7123,155 @@
 						{"callback": {"type": "WriteBackCallback"}}
 					]
 				},
-				"ThreadId": {
-					"external": "azul_impl::task::ThreadId",
-					"derive": ["Copy"],
+				"CreateThreadFnType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "RefAny", "ref": "value"},
+							{"type": "RefAny", "ref": "value"},
+							{"type": "ThreadCallbackType", "ref": "value"}
+						],
+						"returns": "Thread"
+					}
+				},
+				"CreateThreadFn": {
+					"external": "azul_impl::task::CreateThreadCallback",
 					"struct_fields": [
-						{"id": {"type": "usize"}}
+						{"cb": {"type": "CreateThreadFnType"}}
+					]
+				},
+				"GetSystemTimeFnType": {
+					"callback_typedef": {
+						"fn_args": [],
+						"returns": "Instant"
+					}
+				},
+				"GetSystemTimeFn": {
+					"doc": "Get the current system time, equivalent to `std::time::Instant::now()`, except it also works on systems that work with \"ticks\" instead of timers",
+					"external": "azul_impl::task::GetSystemTimeCallback",
+					"struct_fields": [
+						{"cb": {"type": "GetSystemTimeFnType"}}
+					]
+				},
+				"CheckThreadFinishedFnType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "c_void", "ref": "ref"}
+						],
+						"returns": "bool"
+					}
+				},
+				"CheckThreadFinishedFn": {
+					"doc": "Function called to check if the thread has finished",
+					"external": "azul_impl::task::CheckThreadFinishedCallback",
+					"struct_fields": [
+						{"cb": {"type": "CheckThreadFinishedFnType"}}
+					]
+				},
+				"LibrarySendThreadMsgFnType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "c_void", "ref": "refmut"},
+							{"type": "ThreadSendMsg", "ref": "value"}
+						],
+						"returns": "bool"
+					}
+				},
+				"LibrarySendThreadMsgFn": {
+					"doc": "Function to send a message to the thread",
+					"external": "azul_impl::task::LibrarySendThreadMsgCallback",
+					"struct_fields": [
+						{"cb": {"type": "LibrarySendThreadMsgFnType"}}
+					]
+				},
+				"LibraryReceiveThreadMsgFnType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "c_void", "ref": "refmut"}
+						],
+						"returns": "OptionThreadReceiveMsg"
+					}
+				},
+				"LibraryReceiveThreadMsgFn": {
+					"doc": "Function to receive a message from the thread",
+					"external": "azul_impl::task::LibraryReceiveThreadMsgCallback",
+					"struct_fields": [
+						{"cb": {"type": "LibraryReceiveThreadMsgFnType"}}
+					]
+				},
+				"ThreadRecvFnType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "c_void", "ref": "refmut"}
+						],
+						"returns": "OptionThreadSendMsg"
+					}
+				},
+				"ThreadRecvFn": {
+					"doc": "Function that the running `Thread` can call to receive messages from the main UI thread",
+					"external": "azul_impl::task::ThreadRecvCallback",
+					"struct_fields": [
+						{"cb": {"type": "ThreadRecvFnType"}}
+					]
+				},
+				"ThreadSendFnType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "c_void", "ref": "refmut"},
+							{"type": "ThreadReceiveMsg", "ref": "value"}
+						],
+						"returns": "bool"
+					}
+				},
+				"ThreadSendFn": {
+					"doc": "Function that the running `Thread` can call to receive messages from the main UI thread",
+					"external": "azul_impl::task::ThreadSendCallback",
+					"struct_fields": [
+						{"cb": {"type": "ThreadSendFnType"}}
+					]
+				},
+				"ThreadDestructorFnType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "c_void", "ref": "refmut"},
+							{"type": "c_void", "ref": "refmut"},
+							{"type": "c_void", "ref": "refmut"},
+							{"type": "c_void", "ref": "refmut"}
+						]
+					}
+				},
+				"ThreadDestructorFn": {
+					"doc": "Destructor of the `Thread`",
+					"external": "azul_impl::task::ThreadDestructorCallback",
+					"struct_fields": [
+						{"cb": {"type": "ThreadDestructorFnType"}}
+					]
+				},
+				"ThreadReceiverDestructorFnType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "ThreadReceiver", "ref": "refmut"}
+						]
+					}
+				},
+				"ThreadReceiverDestructorFn": {
+					"doc": "Destructor of the `ThreadReceiver`",
+					"external": "azul_impl::task::ThreadReceiverDestructorCallback",
+					"struct_fields": [
+						{"cb": {"type": "ThreadReceiverDestructorFnType"}}
+					]
+				},
+				"ThreadSenderDestructorFnType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "ThreadSender", "ref": "refmut"}
+						]
+					}
+				},
+				"ThreadSenderDestructorFn": {
+					"doc": "Destructor of the `ThreadSender`",
+					"external": "azul_impl::task::ThreadSenderDestructorCallback",
+					"struct_fields": [
+						{"cb": {"type": "ThreadSenderDestructorFnType"}}
 					]
 				}
 			}

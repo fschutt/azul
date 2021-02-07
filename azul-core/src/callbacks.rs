@@ -29,7 +29,7 @@ use crate::{
     },
     task::{
         Timer, Thread, TimerId, ThreadId, Instant, ExternalSystemCallbacks,
-        TerminateTimer, ThreadSender, ThreadReceiver,
+        TerminateTimer, ThreadSender, ThreadReceiver, GetSystemTimeCallback,
     },
 };
 #[cfg(feature = "opengl")]
@@ -518,7 +518,7 @@ pub struct CallbackInfo {
     /// Currently active, layouted rectangles
     node_hierarchy: *const AzNodeVec,
     /// Callbacks for creating threads and getting the system time (since this crate uses no_std)
-    system_callbacks: ExternalSystemCallbacks,
+    system_callbacks: *const ExternalSystemCallbacks,
     /// Current datasets in the DOM
     dataset_map: *mut BTreeMap<NodeId, *mut RefAny>, // &'a BTreeMap<NodeId, &'b mut RefAny>
     /// Sets whether the event should be propagated to the parent hit node or not
@@ -559,7 +559,7 @@ impl CallbackInfo {
        new_windows: &'a mut Vec<WindowCreateOptions>,
        current_window_handle: &'a RawWindowHandle,
        node_hierarchy: &'a AzNodeVec,
-       system_callbacks: ExternalSystemCallbacks,
+       system_callbacks: &'a ExternalSystemCallbacks,
        dataset_map: &'a mut BTreeMap<NodeId, &'b mut RefAny>,
        stop_propagation: &'a mut bool,
        focus_target: &'a mut Option<FocusTarget>,
@@ -579,7 +579,7 @@ impl CallbackInfo {
             threads: threads as *mut FastHashMap<ThreadId, Thread>,
             new_windows: new_windows as *mut Vec<WindowCreateOptions>,
             current_window_handle: current_window_handle as *const RawWindowHandle,
-            system_callbacks: system_callbacks,
+            system_callbacks: system_callbacks as *const ExternalSystemCallbacks,
             node_hierarchy: node_hierarchy as *const AzNodeVec,
             dataset_map: dataset_map as *mut BTreeMap<NodeId, &'b mut RefAny> as *mut BTreeMap<NodeId, *mut RefAny>,
             stop_propagation: stop_propagation as *mut bool,
@@ -603,6 +603,7 @@ impl CallbackInfo {
     fn internal_get_new_windows<'a>(&'a self) -> &'a mut Vec<WindowCreateOptions> { unsafe { &mut *self.new_windows } }
     fn internal_get_current_window_handle<'a>(&'a self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
     fn internal_get_node_hierarchy<'a>(&'a self) -> &'a AzNodeVec { unsafe { &*self.node_hierarchy } }
+    fn internal_get_extern_system_callbacks<'a>(&'a self) -> &'a ExternalSystemCallbacks { unsafe { &*self.system_callbacks } }
     fn internal_get_dataset_map<'a>(&'a self) -> &'a mut BTreeMap<NodeId, *mut RefAny> { unsafe { &mut *self.dataset_map } }
     fn internal_get_stop_propagation<'a>(&'a self) -> &'a mut bool { unsafe { &mut *self.stop_propagation } }
     fn internal_get_focus_target<'a>(&'a self) -> &'a mut Option<FocusTarget> { unsafe { &mut *self.focus_target } }
@@ -614,21 +615,28 @@ impl CallbackInfo {
     fn internal_get_cursor_in_viewport<'a>(&'a self) -> OptionLayoutPoint { self.cursor_in_viewport }
 
     pub fn get_hit_node(&self) -> DomNodeId { self.internal_get_hit_dom_node() }
-
     pub fn get_cursor_relative_to_node(&self) -> OptionLayoutPoint { self.internal_get_cursor_relative_to_item() }
-
     pub fn get_cursor_relative_to_viewport(&self) -> OptionLayoutPoint { self.internal_get_cursor_in_viewport() }
-
     pub fn get_window_state(&self) -> WindowState { self.internal_get_current_window_state().clone().into() }
-
     pub fn get_keyboard_state(&self) -> KeyboardState { self.internal_get_current_window_state().keyboard_state.clone() }
-
     pub fn get_mouse_state(&self) -> MouseState { self.internal_get_current_window_state().mouse_state.clone() }
-
     pub fn get_current_window_handle(&self) -> RawWindowHandle { self.internal_get_current_window_handle().clone() }
 
     #[cfg(feature = "opengl")]
     pub fn get_gl_context(&self) -> GlContextPtr { self.internal_get_gl_context().clone() }
+
+    pub fn get_scroll_amount(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
+        self.internal_get_current_scroll_states()
+        .get(&node_id.dom)?
+        .get(&node_id.node)
+        .map(|sp| sp.scroll_location)
+    }
+
+    pub fn set_scroll_amount(&mut self, node_id: DomNodeId, scroll_position: LogicalPosition) {
+        self.internal_get_nodes_scrolled_in_callback()
+        .entry(node_id.dom).or_insert_with(|| BTreeMap::new())
+        .insert(node_id.node, scroll_position);
+    }
 
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         if node_id.dom != self.get_hit_node().dom {
@@ -716,8 +724,12 @@ impl CallbackInfo {
     }
 
     pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType) {
-        let thread = (self.system_callbacks.create_thread_fn)(thread_initialize_data, writeback_data, callback);
+        let thread = (self.internal_get_extern_system_callbacks().create_thread_fn.cb)(thread_initialize_data, writeback_data, callback);
         self.internal_get_threads().insert(id, thread);
+    }
+
+    pub fn get_system_time_callback(&self) -> GetSystemTimeCallback {
+        self.internal_get_extern_system_callbacks().get_system_time_fn
     }
 
     pub fn start_timer(&mut self, id: TimerId, timer: Timer) {
@@ -869,6 +881,9 @@ pub struct TimerCallbackInfo {
     pub frame_start: Instant,
     /// How many times this callback has been called
     pub call_count: usize,
+    /// Set to true ONCE on the LAST invocation of the timer (if the timer has a timeout set)
+    /// This is useful to rebuild the DOM once the timer (usually an animation) has finished.
+    pub is_about_to_finish: bool,
 }
 
 pub type WriteBackCallbackType = extern "C" fn(/* original data */ &mut RefAny, /*data to write back*/ RefAny, CallbackInfo) -> UpdateScreen;

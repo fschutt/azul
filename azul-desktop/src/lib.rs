@@ -11,6 +11,11 @@
 #![deny(missing_copy_implementations)]
 #![deny(clippy::all)]
 
+extern crate core;
+#[macro_use]
+extern crate alloc;
+
+#[macro_use]
 extern crate azul_css;
 #[macro_use(impl_from, impl_display)]
 extern crate azul_core;
@@ -57,8 +62,6 @@ mod compositor;
 mod logging;
 mod wr_translate;
 mod display_shader;
-
-pub use azul_core::{FastHashMap, FastHashSet};
 
 /// `GetTextLayout` trait definition
 pub mod traits {

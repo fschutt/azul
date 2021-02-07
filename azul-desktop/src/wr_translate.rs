@@ -1154,7 +1154,7 @@ fn push_display_list_msg(
     use azul_core::ui_solver::PositionInfo::*;
 
     let (spatial_id, clip_id) = match msg.get_position() {
-        Static { x_offset, y_offset, .. } | Relative { x_offset, y_offset, .. } => {
+        Static { x_offset: _, y_offset: _, .. } | Relative { x_offset: _, y_offset: _, .. } => {
             /*
             builder.push_simple_stacking_context(
                 WrLayoutPoint::new(x_offset as f32, y_offset as f32),
@@ -1164,7 +1164,7 @@ fn push_display_list_msg(
             */
             (parent_spatial_id, parent_clip_id)
         },
-        Absolute { x_offset, y_offset, .. } => {
+        Absolute { x_offset: _, y_offset: _, .. } => {
             let (last_positioned_spatial_id, last_positioned_clip_id) = positioned_items
             .last().copied().unwrap_or((WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id)));
             /*
@@ -1176,7 +1176,7 @@ fn push_display_list_msg(
             */
             (last_positioned_spatial_id, last_positioned_clip_id)
         },
-        Fixed { x_offset, y_offset, .. } => {
+        Fixed { x_offset: _, y_offset: _, .. } => {
             /*
             builder.push_simple_stacking_context(
                 WrLayoutPoint::new(x_offset as f32, y_offset as f32),
