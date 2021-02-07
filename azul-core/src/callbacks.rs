@@ -17,7 +17,7 @@ use azul_css::{
 };
 use crate::{
     FastHashMap,
-    app_resources::{AppResources, IdNamespace},
+    app_resources::{AppResources, IdNamespace, ImageId, Words, ShapedWords, WordPositions, FontInstanceKey},
     styled_dom::StyledDom,
     ui_solver::{OverflowingScrollNode, LayoutedRectangle, LayoutResult},
     styled_dom::{DomId, AzNodeId, AzNodeVec},
@@ -33,7 +33,7 @@ use crate::{
     },
 };
 #[cfg(feature = "opengl")]
-use crate::gl::{OptionTexture, GlContextPtr};
+use crate::gl::{OptionTexture, GlContextPtr, OptionGlContextPtr};
 
 /// Specifies if the screen should be updated after the callback function has returned
 #[repr(C)]
@@ -430,9 +430,13 @@ macro_rules! impl_callback {($callback_value:ident) => (
 #[allow(unused_macros)]
 macro_rules! impl_get_gl_context {() => {
     /// Returns a reference-counted pointer to the OpenGL context
-    #[cfg(feature = "opengl")]
-    pub fn get_gl_context(&self) -> GlContextPtr {
-        self.gl_context.clone()
+    pub fn get_gl_context(&self) -> OptionGlContextPtr {
+        #[cfg(feature = "opengl")] {
+            Some(self.gl_context.clone())
+        }
+        #[cfg(not(feature = "opengl"))] {
+            OptionGlContextPtr::None
+        }
     }
 };}
 
@@ -526,10 +530,17 @@ pub struct CallbackInfo {
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     focus_target: *mut Option<FocusTarget>,
-    /// Immutable (!) reference to where the nodes are currently scrolled (current position)
-    current_scroll_states: *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+    words_cache: *const BTreeMap<NodeId, Words>,
+    shaped_words_cache: *const BTreeMap<NodeId, ShapedWords>,
+    positioned_words_cache: *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+    /// Mutable reference to a list of words / text items that were changed in the callback
+    words_changed_in_callbacks: *mut BTreeMap<NodeId, *mut AzString>,
+    /// Mutable reference to a list of images that were changed in the callback
+    images_changed_in_callbacks: *mut BTreeMap<NodeId, ImageId>,
     /// Mutable reference to a list of CSS property changes, so that the callbacks can change CSS properties
     css_properties_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+    /// Immutable (!) reference to where the nodes are currently scrolled (current position)
+    current_scroll_states: *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
     /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
     nodes_scrolled_in_callback: *mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
     /// The ID of the DOM + the node that was hit. You can use this to query
@@ -563,8 +574,10 @@ impl CallbackInfo {
        dataset_map: &'a mut BTreeMap<NodeId, &'b mut RefAny>,
        stop_propagation: &'a mut bool,
        focus_target: &'a mut Option<FocusTarget>,
-       current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+       words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, String>>,
+       images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageId>>,
        css_properties_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+       current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
        nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
        hit_dom_node: DomNodeId,
        cursor_relative_to_item: OptionLayoutPoint,
@@ -584,8 +597,10 @@ impl CallbackInfo {
             dataset_map: dataset_map as *mut BTreeMap<NodeId, &'b mut RefAny> as *mut BTreeMap<NodeId, *mut RefAny>,
             stop_propagation: stop_propagation as *mut bool,
             focus_target: focus_target as *mut Option<FocusTarget>,
-            current_scroll_states: current_scroll_states as *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+            words_changed_in_callbacks: words_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, String>>,
+            images_changed_in_callbacks: images_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageId>>,
             css_properties_changed_in_callbacks: css_properties_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+            current_scroll_states: current_scroll_states as *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
             nodes_scrolled_in_callback: nodes_scrolled_in_callback as *mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
             hit_dom_node: hit_dom_node,
             cursor_relative_to_item: cursor_relative_to_item,
@@ -623,7 +638,7 @@ impl CallbackInfo {
     pub fn get_current_window_handle(&self) -> RawWindowHandle { self.internal_get_current_window_handle().clone() }
 
     #[cfg(feature = "opengl")]
-    pub fn get_gl_context(&self) -> GlContextPtr { self.internal_get_gl_context().clone() }
+    pub fn get_gl_context(&self) -> OptionGlContextPtr { Some(self.internal_get_gl_context().clone()).into() }
 
     pub fn get_scroll_amount(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
         self.internal_get_current_scroll_states()
@@ -713,6 +728,18 @@ impl CallbackInfo {
 
     pub fn set_focus(&mut self, target: FocusTarget) {
         *self.internal_get_focus_target() = Some(target);
+    }
+
+    pub fn get_string_contents(&self) -> Option<AzString> {
+
+    }
+
+    pub fn set_string_contents() -> Option<AzString> {
+
+    }
+
+    pub fn get_inline_text_layout(&self, node_id: DomNodeId) -> Option<InlineTextLayout> {
+
     }
 
     pub fn stop_propagation(&mut self) {
@@ -1037,6 +1064,8 @@ pub enum FocusTarget {
     Path(FocusTargetPath),
     PreviousFocusItem,
     NextFocusItem,
+    FirstFocusItem,
+    LastFocusItem,
     NoFocus,
 }
 
@@ -1048,7 +1077,7 @@ pub struct FocusTargetPath {
 }
 
 impl FocusTarget {
-    pub fn resolve(&self, layout_results: &[LayoutResult]) -> Result<Option<DomNodeId>, UpdateFocusWarning> {
+    pub fn resolve(&self, layout_results: &[LayoutResult], current_focus: Option<DomNodeId>) -> Result<Option<DomNodeId>, UpdateFocusWarning> {
 
         use crate::callbacks::FocusTarget::*;
         use crate::style::matches_html_element;
@@ -1067,9 +1096,10 @@ impl FocusTarget {
                     Ok(Some(dom_node_id.clone()))
                 }
             },
-            NoFocus => Ok(None),
             PreviousFocusItem => Ok(None), // TODO - select the next focusable element or `None` if this was the first focusable element in the DOM
             NextFocusItem => Ok(None), // TODO - select the previous focusable element or `None` if this was the last focusable element in the DOM
+            FirstFocusItem => Ok(None), // TODO
+            LastFocusItem => Ok(None), // TODO
             Path(FocusTargetPath { dom, css_path }) => {
                 let layout_result = layout_results.get(dom.inner).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom.clone()))?;
                 let html_node_tree = &layout_result.styled_dom.cascade_info;
@@ -1082,6 +1112,7 @@ impl FocusTarget {
                     .ok_or(UpdateFocusWarning::CouldNotFindFocusNode(css_path.clone()))?;
                 Ok(Some(DomNodeId { dom: dom.clone(), node: AzNodeId::from_crate_internal(Some(resolved_node_id)) }))
             },
+            NoFocus => Ok(None),
         }
     }
 }

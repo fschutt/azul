@@ -602,38 +602,48 @@ impl LoadedFont {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Words {
     /// Words (and spaces), broken up into semantic items
-    pub items: Vec<Word>,
+    pub items: WordVec,
     /// String that makes up this paragraph of words
-    pub internal_str: String,
+    pub internal_str: AzString,
     /// `internal_chars` is used in order to enable copy-paste (since taking a sub-string isn't possible using UTF-8)
-    pub internal_chars: Vec<char>,
+    pub internal_chars: CharVec,
 }
 
 impl Words {
 
     pub fn get_substr(&self, word: &Word) -> String {
-        self.internal_chars[word.start..word.end].iter().collect()
+        self.internal_chars.as_ref()[word.start..word.end].iter().collect()
     }
 
     pub fn get_str(&self) -> &str {
-        &self.internal_str
+        &self.internal_str.as_str()
     }
 
     pub fn get_char(&self, idx: usize) -> Option<char> {
-        self.internal_chars.get(idx).cloned()
+        self.internal_chars.as_ref().get(idx).cloned()
     }
 }
 
 /// Section of a certain type
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct Word {
     pub start: usize,
     pub end: usize,
     pub word_type: WordType,
 }
 
+impl_vec!(Word, WordVec, WordVecDestructor);
+impl_vec_clone!(Word, WordVec, WordVecDestructor);
+impl_vec_partialeq!(Word, WordVec);
+impl_vec_eq!(Word, WordVec);
+impl_vec_ord!(Word, WordVec);
+impl_vec_partialord!(Word, WordVec);
+impl_vec_hash!(Word, WordVec);
+
 /// Either a white-space delimited word, tab or return character
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum WordType {
     /// Encountered a word (delimited by spaces)
     Word,
@@ -648,16 +658,17 @@ pub enum WordType {
 /// A paragraph of words that are shaped and scaled (* but not yet layouted / positioned*!)
 /// according to their final size in pixels.
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct ShapedWords {
     /// Words scaled to their appropriate font size, but not yet positioned on the screen
-    pub items: Vec<ShapedWord>,
+    pub items: ShapedWordVec,
     /// Longest word in the `self.scaled_words`, necessary for
     /// calculating overflow rectangles.
     pub longest_word_width: usize,
     /// Horizontal advance of the space glyph
     pub space_advance: usize,
     /// Units per EM square
-    pub font_metrics_units_per_em: NonZeroU16,
+    pub font_metrics_units_per_em: u16,
     /// Descender of the font
     pub font_metrics_ascender: i16,
     pub font_metrics_descender: i16,
@@ -697,6 +708,7 @@ impl ShapedWords {
 ///
 /// VS04-VS14 are omitted as they aren't currently used.
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+#[repr(C)]
 pub enum VariationSelector {
     /// VARIATION SELECTOR-1
     VS01 = 1,
@@ -710,17 +722,35 @@ pub enum VariationSelector {
     VS16 = 16,
 }
 
+impl_option!(VariationSelector, OptionVariationSelector, [Debug, Copy, PartialEq, PartialOrd, Clone, Hash]);
+
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+#[repr(C, u8)]
 pub enum GlyphOrigin {
     Char(char),
     Direct,
 }
 
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+#[repr(C)]
 pub enum Placement {
     None,
-    Distance(i32, i32),
-    Anchor(Anchor, Anchor),
+    Distance(PlacementDistance),
+    Anchor(AnchorPlacement),
+}
+
+#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+#[repr(C)]
+pub struct AnchorPlacement {
+    pub x: Anchor,
+    pub y: Anchor,
+}
+
+#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+#[repr(C)]
+pub struct PlacementDistance {
+    pub x: i32,
+    pub y: i32,
 }
 
 impl Placement {
@@ -735,10 +765,19 @@ impl Placement {
 }
 
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+#[repr(C, u8)]
 pub enum MarkPlacement {
     None,
-    MarkAnchor(usize, Anchor, Anchor),
+    MarkAnchor(MarkAnchorPlacement),
     MarkOverprint(usize),
+}
+
+#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+#[repr(C)]
+pub struct MarkAnchorPlacement {
+    pub size: usize,
+    pub x: Anchor,
+    pub y: Anchor,
 }
 
 impl MarkPlacement {
@@ -756,12 +795,14 @@ impl MarkPlacement {
 }
 
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+#[repr(C)]
 pub struct Anchor {
     pub x: i16,
     pub y: i16,
 }
 
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+#[repr(C)]
 pub struct RawGlyph {
     pub unicodes: [char; 1],
     pub glyph_index: u16,
@@ -772,11 +813,11 @@ pub struct RawGlyph {
     pub is_vert_alt: bool,
     pub fake_bold: bool,
     pub fake_italic: bool,
-    pub variation: Option<VariationSelector>,
-    pub extra_data: (),
+    pub variation: OptionVariationSelector,
 }
 
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+#[repr(C)]
 pub struct Info {
     pub glyph: RawGlyph,
     pub size: Advance,
@@ -785,6 +826,7 @@ pub struct Info {
 }
 
 #[derive(Debug, Default, Copy, PartialEq, PartialOrd, Clone, Hash)]
+#[repr(C)]
 pub struct Advance {
     pub advance_x: u16,
     pub size_x: i32,
@@ -829,12 +871,19 @@ impl Advance {
 
 /// Word that is scaled (to a font / font instance), but not yet positioned
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
 pub struct ShapedWord {
     /// Glyph codepoint, glyph ID + kerning data
-    pub glyph_infos: Vec<Info>,
+    pub glyph_infos: InfoVec,
     /// The sum of the width of all the characters in this word
     pub word_width: usize,
 }
+
+impl_vec!(ShapedWord, ShapedWordVec, ShapedWordVecDestructor);
+impl_vec_clone!(ShapedWord, ShapedWordVec, ShapedWordVecDestructor);
+impl_vec_partialeq!(ShapedWord, ShapedWordVec);
+impl_vec_partialord!(ShapedWord, ShapedWordVec);
+impl_vec_debug!(ShapedWord, ShapedWordVec);
 
 impl ShapedWord {
     pub fn get_word_width(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {

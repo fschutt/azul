@@ -40,7 +40,7 @@ overflow-checks = false
 azul-core = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-azul-desktop = { path = "../azul-desktop", version = "0.0.5", default-features = false, features = ["std"] }
+azul-desktop = { path = "../azul-desktop", version = "0.0.5", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 azul-web = { path = "../azul-web", version = "0.0.5", default-features = false }

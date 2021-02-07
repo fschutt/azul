@@ -18,7 +18,7 @@ path = "src/old/lib.rs"
 
 [dependencies]
 azul-css            = { path = "../azul-css", version = "0.0.1", default-features = false }
-azul-core           = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl", "multithreading"] }
+azul-core           = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }
 azul-text-layout    = { path = "../azul-text-layout", version = "0.0.5", default-features = false, optional = true }
 rayon               = { version = "1.5.0", default-features = false }
 
@@ -27,7 +27,8 @@ azul-css-parser             = { path = "../azul-css-parser", version = "0.0.1"  
 azulc                       = { path = "../azulc", version = "0.0.3"  }
 
 [features]
-default = []
+default = ["std"]
+std = ["azul-core/multithreading"]
 text_layout = ["azul-text-layout"]
 
 # [[example]]

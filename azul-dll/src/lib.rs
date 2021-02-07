@@ -478,6 +478,10 @@ pub use AzNodeDataVecTT as AzNodeDataVec;
 /// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_node_data_vec_delete(object: &mut AzNodeDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `OptionGlContextPtr` struct
+pub type AzOptionGlContextPtrTT = azul_impl::gl::OptionGlContextPtr;
+pub use AzOptionGlContextPtrTT as AzOptionGlContextPtr;
+
 /// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
 pub type AzOptionThreadReceiveMsgTT = azul_impl::task::OptionThreadReceiveMsg;
 pub use AzOptionThreadReceiveMsgTT as AzOptionThreadReceiveMsg;
@@ -705,24 +709,48 @@ pub use AzSvgParseErrorPositionTT as AzSvgParseErrorPosition;
 /// Re-export of rust-allocated (stack based) `Instant` struct
 pub type AzInstantTT = azul_impl::task::Instant;
 pub use AzInstantTT as AzInstant;
-/// Destructor: Takes ownership of the `Instant` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_instant_delete(object: &mut AzInstant) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `InstantPtr` struct
+pub type AzInstantPtrTT = azul_impl::task::AzInstantPtr;
+pub use AzInstantPtrTT as AzInstantPtr;
+/// Destructor: Takes ownership of the `InstantPtr` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_instant_ptr_delete(object: &mut AzInstantPtr) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
-#[no_mangle] pub extern "C" fn az_instant_deep_copy(object: &AzInstant) -> AzInstant { object.clone() }
+#[no_mangle] pub extern "C" fn az_instant_ptr_deep_copy(object: &AzInstantPtr) -> AzInstantPtr { object.clone() }
+
+pub type AzInstantPtrCloneFnType = extern "C" fn(&c_void) -> AzInstantPtr;
+/// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
+pub type AzInstantPtrCloneFnTT = azul_impl::task::InstantPtrCloneCallback;
+pub use AzInstantPtrCloneFnTT as AzInstantPtrCloneFn;
+
+pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut c_void);
+/// Re-export of rust-allocated (stack based) `InstantPtrDestructorFn` struct
+pub type AzInstantPtrDestructorFnTT = azul_impl::task::InstantPtrDestructorCallback;
+pub use AzInstantPtrDestructorFnTT as AzInstantPtrDestructorFn;
+
+/// Re-export of rust-allocated (stack based) `SystemTick` struct
+pub type AzSystemTickTT = azul_impl::task::SystemTick;
+pub use AzSystemTickTT as AzSystemTick;
 
 /// Re-export of rust-allocated (stack based) `Duration` struct
 pub type AzDurationTT = azul_impl::task::Duration;
 pub use AzDurationTT as AzDuration;
-/// Creates a new `Duration` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `Duration::milliseconds()` constructor.
-#[no_mangle] pub extern "C" fn az_duration_milliseconds(milliseconds: usize) -> AzDuration { std::time::Duration::from_millis(milliseconds as u64).into() }
-/// Creates a new `Duration` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `Duration::seconds()` constructor.
-#[no_mangle] pub extern "C" fn az_duration_seconds(seconds: usize) -> AzDuration { std::time::Duration::from_secs(seconds as u64).into() }
+
+/// Re-export of rust-allocated (stack based) `SystemTimeDiff` struct
+pub type AzSystemTimeDiffTT = azul_impl::task::SystemTimeDiff;
+pub use AzSystemTimeDiffTT as AzSystemTimeDiff;
+
+/// Re-export of rust-allocated (stack based) `SystemTickDiff` struct
+pub type AzSystemTickDiffTT = azul_impl::task::SystemTickDiff;
+pub use AzSystemTickDiffTT as AzSystemTickDiff;
 
 /// Re-export of rust-allocated (stack based) `AppLogLevel` struct
 pub type AzAppLogLevelTT = azul_impl::resources::AppLogLevel;
 pub use AzAppLogLevelTT as AzAppLogLevel;
+
+/// External system callbacks to get the system time or create / manage threads
+pub type AzSystemCallbacksTT = azul_impl::task::ExternalSystemCallbacks;
+pub use AzSystemCallbacksTT as AzSystemCallbacks;
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 pub type AzAppConfigTT = azul_impl::resources::AppConfig;
@@ -810,7 +838,7 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Returns a copy of the current windows `RawWindowHandle`.
 #[no_mangle] pub extern "C" fn az_callback_info_get_current_window_handle(callbackinfo: &AzCallbackInfo) -> AzRawWindowHandle { callbackinfo.get_current_window_handle() }
 /// Returns a **reference-counted copy** of the current windows `GlContextPtr`. You can use this to render OpenGL textures.
-#[no_mangle] pub extern "C" fn az_callback_info_get_gl_context(callbackinfo: &AzCallbackInfo) -> AzGlContextPtr { callbackinfo.get_gl_context() }
+#[no_mangle] pub extern "C" fn az_callback_info_get_gl_context(callbackinfo: &AzCallbackInfo) -> AzOptionGlContextPtr { callbackinfo.get_gl_context() }
 /// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
 #[no_mangle] pub extern "C" fn az_callback_info_set_window_state(callbackinfo: &mut AzCallbackInfo, new_state: AzWindowState) { callbackinfo.set_window_state(new_state); }
 /// Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.
@@ -2984,10 +3012,16 @@ mod test_sizes {
     pub type AzParentWithNodeDepthVecDestructorType = extern "C" fn(&mut AzParentWithNodeDepthVec);
     /// `AzNodeDataVecDestructorType` struct
     pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
-    /// Re-export of rust-allocated (stack based) `Instant` struct
-    #[repr(C)]     pub struct AzInstant {
+    /// Re-export of rust-allocated (stack based) `InstantPtr` struct
+    #[repr(C)]     pub struct AzInstantPtr {
         pub(crate) ptr: *const c_void,
+        pub clone_fn: AzInstantPtrCloneFn,
+        pub destructor: AzInstantPtrDestructorFn,
     }
+    /// `AzInstantPtrCloneFnType` struct
+    pub type AzInstantPtrCloneFnType = extern "C" fn(&c_void) -> AzInstantPtr;
+    /// `AzInstantPtrDestructorFnType` struct
+    pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut c_void);
     /// Re-export of rust-allocated (stack based) `AppLogLevel` struct
     #[repr(C)]     pub enum AzAppLogLevel {
         Off,
@@ -3530,6 +3564,8 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
     #[repr(C)]     pub struct AzThreadReceiver {
         pub(crate) ptr: *mut c_void,
+        pub recv_fn: AzThreadRecvFn,
+        pub destructor: AzThreadReceiverDestructorFn,
     }
     /// Re-export of rust-allocated (stack based) `ThreadSendMsg` struct
     #[repr(C)]     pub enum AzThreadSendMsg {
@@ -4093,6 +4129,11 @@ mod test_sizes {
         pub cap: usize,
         pub destructor: AzGLintVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `OptionGlContextPtr` struct
+    #[repr(C, u8)]     pub enum AzOptionGlContextPtr {
+        None,
+        Some(AzGlContextPtr),
+    }
     /// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
     #[repr(C, u8)]     pub enum AzOptionThreadSendMsg {
         None,
@@ -4148,11 +4189,6 @@ mod test_sizes {
         None,
         Some(AzTexture),
     }
-    /// Re-export of rust-allocated (stack based) `OptionInstant` struct
-    #[repr(C, u8)]     pub enum AzOptionInstant {
-        None,
-        Some(AzInstant),
-    }
     /// Re-export of rust-allocated (stack based) `OptionUsize` struct
     #[repr(C, u8)]     pub enum AzOptionUsize {
         None,
@@ -4163,10 +4199,26 @@ mod test_sizes {
         pub row: u32,
         pub col: u32,
     }
-    /// Re-export of rust-allocated (stack based) `Duration` struct
-    #[repr(C)]     pub struct AzDuration {
+    /// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
+    #[repr(C)]     pub struct AzInstantPtrCloneFn {
+        pub cb: AzInstantPtrCloneFnType,
+    }
+    /// Re-export of rust-allocated (stack based) `InstantPtrDestructorFn` struct
+    #[repr(C)]     pub struct AzInstantPtrDestructorFn {
+        pub cb: AzInstantPtrDestructorFnType,
+    }
+    /// Re-export of rust-allocated (stack based) `SystemTick` struct
+    #[repr(C)]     pub struct AzSystemTick {
+        pub tick_counter: u64,
+    }
+    /// Re-export of rust-allocated (stack based) `SystemTimeDiff` struct
+    #[repr(C)]     pub struct AzSystemTimeDiff {
         pub secs: u64,
         pub nanos: u32,
+    }
+    /// Re-export of rust-allocated (stack based) `SystemTickDiff` struct
+    #[repr(C)]     pub struct AzSystemTickDiff {
+        pub tick_diff: u64,
     }
     /// Re-export of rust-allocated (stack based) `NodeId` struct
     #[repr(C)]     pub struct AzNodeId {
@@ -5642,11 +5694,6 @@ mod test_sizes {
         None,
         Some(AzTagId),
     }
-    /// Re-export of rust-allocated (stack based) `OptionDuration` struct
-    #[repr(C, u8)]     pub enum AzOptionDuration {
-        None,
-        Some(AzDuration),
-    }
     /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
     #[repr(C, u8)]     pub enum AzOptionU8VecRef {
         None,
@@ -5710,6 +5757,21 @@ mod test_sizes {
         pub got: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+    /// Re-export of rust-allocated (stack based) `Instant` struct
+    #[repr(C, u8)]     pub enum AzInstant {
+        System(AzInstantPtr),
+        Tick(AzSystemTick),
+    }
+    /// Re-export of rust-allocated (stack based) `Duration` struct
+    #[repr(C, u8)]     pub enum AzDuration {
+        System(AzSystemTimeDiff),
+        Tick(AzSystemTickDiff),
+    }
+    /// External system callbacks to get the system time or create / manage threads
+    #[repr(C)]     pub struct AzSystemCallbacks {
+        pub create_thread_fn: AzCreateThreadFn,
+        pub get_system_time_fn: AzGetSystemTimeFn,
+    }
     /// Configuration for optional features, such as whether to enable logging or panic hooks
     #[repr(C)]     pub struct AzAppConfig {
         pub log_level: AzAppLogLevel,
@@ -5717,6 +5779,7 @@ mod test_sizes {
         pub enable_logging_on_panic: bool,
         pub enable_tab_navigation: bool,
         pub debug_state: AzDebugState,
+        pub system_callbacks: AzSystemCallbacks,
     }
     /// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
     #[repr(C)]     pub struct AzHidpiAdjustedBounds {
@@ -5925,17 +5988,6 @@ mod test_sizes {
         pub tolerance: usize,
         pub apply_line_width: bool,
     }
-    /// Re-export of rust-allocated (stack based) `Timer` struct
-    #[repr(C)]     pub struct AzTimer {
-        pub data: AzRefAny,
-        pub created: AzInstant,
-        pub last_run: AzOptionInstant,
-        pub run_count: usize,
-        pub delay: AzOptionDuration,
-        pub interval: AzOptionDuration,
-        pub timeout: AzOptionDuration,
-        pub callback: AzTimerCallback,
-    }
     /// Re-export of rust-allocated (stack based) `Thread` struct
     #[repr(C)]     pub struct AzThread {
         pub thread_handle: *mut c_void,
@@ -6060,6 +6112,16 @@ mod test_sizes {
     #[repr(C, u8)]     pub enum AzOptionTaskBarIcon {
         None,
         Some(AzTaskBarIcon),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionDuration` struct
+    #[repr(C, u8)]     pub enum AzOptionDuration {
+        None,
+        Some(AzDuration),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionInstant` struct
+    #[repr(C, u8)]     pub enum AzOptionInstant {
+        None,
+        Some(AzInstant),
     }
     /// Re-export of rust-allocated (stack based) `XmlStreamError` struct
     #[repr(C, u8)]     pub enum AzXmlStreamError {
@@ -6195,6 +6257,17 @@ mod test_sizes {
     #[repr(C, u8)]     pub enum AzSvgStyle {
         Fill(AzSvgFillStyle),
         Stroke(AzSvgStrokeStyle),
+    }
+    /// Re-export of rust-allocated (stack based) `Timer` struct
+    #[repr(C)]     pub struct AzTimer {
+        pub data: AzRefAny,
+        pub created: AzInstant,
+        pub last_run: AzOptionInstant,
+        pub run_count: usize,
+        pub delay: AzOptionDuration,
+        pub interval: AzOptionDuration,
+        pub timeout: AzOptionDuration,
+        pub callback: AzTimerCallback,
     }
     /// Re-export of rust-allocated (stack based) `WindowsWindowOptions` struct
     #[repr(C)]     pub struct AzWindowsWindowOptions {
@@ -6436,11 +6509,12 @@ mod test_sizes {
         pub new_windows: *mut c_void,
         pub current_window_handle: *const AzRawWindowHandle,
         pub node_hierarchy: *const c_void,
+        pub system_callbacks: *const AzSystemCallbacks,
         pub datasets: *mut c_void,
         pub stop_propagation: *mut bool,
         pub focus_target: *const c_void,
-        pub current_scroll_states: *const c_void,
         pub css_properties_changed_in_callbacks: *const c_void,
+        pub current_scroll_states: *const c_void,
         pub nodes_scrolled_in_callback: *const c_void,
         pub hit_dom_node: AzDomNodeId,
         pub cursor_relative_to_item: AzOptionLayoutPoint,
@@ -6587,6 +6661,8 @@ mod test_sizes {
         Path(AzFocusTargetPath),
         PreviousFocusItem,
         NextFocusItem,
+        FirstFocusItem,
+        LastFocusItem,
         NoFocus,
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallbackReturn` struct
@@ -6633,7 +6709,7 @@ mod test_sizes {
     #[test]
     fn test_size() {
          use core::alloc::Layout;
-        assert_eq!((Layout::new::<azul_impl::task::Instant>(), "AzInstant"), (Layout::new::<AzInstant>(), "AzInstant"));
+        assert_eq!((Layout::new::<azul_impl::task::AzInstantPtr>(), "AzInstantPtr"), (Layout::new::<AzInstantPtr>(), "AzInstantPtr"));
         assert_eq!((Layout::new::<azul_impl::resources::AppLogLevel>(), "AzAppLogLevel"), (Layout::new::<AzAppLogLevel>(), "AzAppLogLevel"));
         assert_eq!((Layout::new::<azul_impl::app::AzAppPtr>(), "AzApp"), (Layout::new::<AzApp>(), "AzApp"));
         assert_eq!((Layout::new::<azul_impl::callbacks::UpdateScreen>(), "AzUpdateScreen"), (Layout::new::<AzUpdateScreen>(), "AzUpdateScreen"));
@@ -6744,6 +6820,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::U8Vec>(), "AzU8Vec"), (Layout::new::<AzU8Vec>(), "AzU8Vec"));
         assert_eq!((Layout::new::<azul_impl::gl::GLuintVec>(), "AzGLuintVec"), (Layout::new::<AzGLuintVec>(), "AzGLuintVec"));
         assert_eq!((Layout::new::<azul_impl::gl::GLintVec>(), "AzGLintVec"), (Layout::new::<AzGLintVec>(), "AzGLintVec"));
+        assert_eq!((Layout::new::<azul_impl::gl::OptionGlContextPtr>(), "AzOptionGlContextPtr"), (Layout::new::<AzOptionGlContextPtr>(), "AzOptionGlContextPtr"));
         assert_eq!((Layout::new::<azul_impl::task::OptionThreadSendMsg>(), "AzOptionThreadSendMsg"), (Layout::new::<AzOptionThreadSendMsg>(), "AzOptionThreadSendMsg"));
         assert_eq!((Layout::new::<azul_impl::callbacks::OptionRefAny>(), "AzOptionRefAny"), (Layout::new::<AzOptionRefAny>(), "AzOptionRefAny"));
         assert_eq!((Layout::new::<azul_impl::window::OptionWindowTheme>(), "AzOptionWindowTheme"), (Layout::new::<AzOptionWindowTheme>(), "AzOptionWindowTheme"));
@@ -6755,10 +6832,13 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::OptionChar>(), "AzOptionChar"), (Layout::new::<AzOptionChar>(), "AzOptionChar"));
         assert_eq!((Layout::new::<azul_impl::window::OptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"), (Layout::new::<AzOptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionTexture>(), "AzOptionTexture"), (Layout::new::<AzOptionTexture>(), "AzOptionTexture"));
-        assert_eq!((Layout::new::<azul_impl::task::OptionInstant>(), "AzOptionInstant"), (Layout::new::<AzOptionInstant>(), "AzOptionInstant"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionUsize>(), "AzOptionUsize"), (Layout::new::<AzOptionUsize>(), "AzOptionUsize"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlTextPos>(), "AzSvgParseErrorPosition"), (Layout::new::<AzSvgParseErrorPosition>(), "AzSvgParseErrorPosition"));
-        assert_eq!((Layout::new::<azul_impl::task::Duration>(), "AzDuration"), (Layout::new::<AzDuration>(), "AzDuration"));
+        assert_eq!((Layout::new::<azul_impl::task::InstantPtrCloneCallback>(), "AzInstantPtrCloneFn"), (Layout::new::<AzInstantPtrCloneFn>(), "AzInstantPtrCloneFn"));
+        assert_eq!((Layout::new::<azul_impl::task::InstantPtrDestructorCallback>(), "AzInstantPtrDestructorFn"), (Layout::new::<AzInstantPtrDestructorFn>(), "AzInstantPtrDestructorFn"));
+        assert_eq!((Layout::new::<azul_impl::task::SystemTick>(), "AzSystemTick"), (Layout::new::<AzSystemTick>(), "AzSystemTick"));
+        assert_eq!((Layout::new::<azul_impl::task::SystemTimeDiff>(), "AzSystemTimeDiff"), (Layout::new::<AzSystemTimeDiff>(), "AzSystemTimeDiff"));
+        assert_eq!((Layout::new::<azul_impl::task::SystemTickDiff>(), "AzSystemTickDiff"), (Layout::new::<AzSystemTickDiff>(), "AzSystemTickDiff"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeId>(), "AzNodeId"), (Layout::new::<AzNodeId>(), "AzNodeId"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::DomId>(), "AzDomId"), (Layout::new::<AzDomId>(), "AzDomId"));
         assert_eq!((Layout::new::<azul_impl::callbacks::DomNodeId>(), "AzDomNodeId"), (Layout::new::<AzDomNodeId>(), "AzDomNodeId"));
@@ -7006,7 +7086,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::OptionLogicalSize>(), "AzOptionLogicalSize"), (Layout::new::<AzOptionLogicalSize>(), "AzOptionLogicalSize"));
         assert_eq!((Layout::new::<azul_impl::dom::OptionTabIndex>(), "AzOptionTabIndex"), (Layout::new::<AzOptionTabIndex>(), "AzOptionTabIndex"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::OptionTagId>(), "AzOptionTagId"), (Layout::new::<AzOptionTagId>(), "AzOptionTagId"));
-        assert_eq!((Layout::new::<azul_impl::task::OptionDuration>(), "AzOptionDuration"), (Layout::new::<AzOptionDuration>(), "AzOptionDuration"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionU8VecRef>(), "AzOptionU8VecRef"), (Layout::new::<AzOptionU8VecRef>(), "AzOptionU8VecRef"));
         assert_eq!((Layout::new::<azul_impl::xml::DuplicatedNamespaceError>(), "AzDuplicatedNamespaceError"), (Layout::new::<AzDuplicatedNamespaceError>(), "AzDuplicatedNamespaceError"));
         assert_eq!((Layout::new::<azul_impl::xml::UnknownNamespaceError>(), "AzUnknownNamespaceError"), (Layout::new::<AzUnknownNamespaceError>(), "AzUnknownNamespaceError"));
@@ -7019,6 +7098,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::xml::InvalidQuoteError>(), "AzInvalidQuoteError"), (Layout::new::<AzInvalidQuoteError>(), "AzInvalidQuoteError"));
         assert_eq!((Layout::new::<azul_impl::xml::InvalidSpaceError>(), "AzInvalidSpaceError"), (Layout::new::<AzInvalidSpaceError>(), "AzInvalidSpaceError"));
         assert_eq!((Layout::new::<azul_impl::xml::InvalidStringError>(), "AzInvalidStringError"), (Layout::new::<AzInvalidStringError>(), "AzInvalidStringError"));
+        assert_eq!((Layout::new::<azul_impl::task::Instant>(), "AzInstant"), (Layout::new::<AzInstant>(), "AzInstant"));
+        assert_eq!((Layout::new::<azul_impl::task::Duration>(), "AzDuration"), (Layout::new::<AzDuration>(), "AzDuration"));
+        assert_eq!((Layout::new::<azul_impl::task::ExternalSystemCallbacks>(), "AzSystemCallbacks"), (Layout::new::<AzSystemCallbacks>(), "AzSystemCallbacks"));
         assert_eq!((Layout::new::<azul_impl::resources::AppConfig>(), "AzAppConfig"), (Layout::new::<AzAppConfig>(), "AzAppConfig"));
         assert_eq!((Layout::new::<azul_impl::callbacks::HidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"), (Layout::new::<AzHidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"));
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackInfo>(), "AzIFrameCallbackInfo"), (Layout::new::<AzIFrameCallbackInfo>(), "AzIFrameCallbackInfo"));
@@ -7049,7 +7131,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgParseOptions>(), "AzSvgParseOptions"), (Layout::new::<AzSvgParseOptions>(), "AzSvgParseOptions"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgRenderOptions>(), "AzSvgRenderOptions"), (Layout::new::<AzSvgRenderOptions>(), "AzSvgRenderOptions"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStrokeStyle>(), "AzSvgStrokeStyle"), (Layout::new::<AzSvgStrokeStyle>(), "AzSvgStrokeStyle"));
-        assert_eq!((Layout::new::<azul_impl::task::Timer>(), "AzTimer"), (Layout::new::<AzTimer>(), "AzTimer"));
         assert_eq!((Layout::new::<azul_impl::task::Thread>(), "AzThread"), (Layout::new::<AzThread>(), "AzThread"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiveMsg>(), "AzThreadReceiveMsg"), (Layout::new::<AzThreadReceiveMsg>(), "AzThreadReceiveMsg"));
         assert_eq!((Layout::new::<azul_impl::window::RawWindowHandle>(), "AzRawWindowHandle"), (Layout::new::<AzRawWindowHandle>(), "AzRawWindowHandle"));
@@ -7068,6 +7149,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"), (Layout::new::<AzTagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"));
         assert_eq!((Layout::new::<azul_impl::task::OptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"), (Layout::new::<AzOptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"));
         assert_eq!((Layout::new::<azul_impl::window::OptionTaskBarIcon>(), "AzOptionTaskBarIcon"), (Layout::new::<AzOptionTaskBarIcon>(), "AzOptionTaskBarIcon"));
+        assert_eq!((Layout::new::<azul_impl::task::OptionDuration>(), "AzOptionDuration"), (Layout::new::<AzOptionDuration>(), "AzOptionDuration"));
+        assert_eq!((Layout::new::<azul_impl::task::OptionInstant>(), "AzOptionInstant"), (Layout::new::<AzOptionInstant>(), "AzOptionInstant"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlStreamError>(), "AzXmlStreamError"), (Layout::new::<AzXmlStreamError>(), "AzXmlStreamError"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutInfo>(), "AzLayoutInfo"), (Layout::new::<AzLayoutInfo>(), "AzLayoutInfo"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathPseudoSelector>(), "AzCssPathPseudoSelector"), (Layout::new::<AzCssPathPseudoSelector>(), "AzCssPathPseudoSelector"));
@@ -7086,6 +7169,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::VertexBuffer>(), "AzVertexBuffer"), (Layout::new::<AzVertexBuffer>(), "AzVertexBuffer"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElement>(), "AzSvgPathElement"), (Layout::new::<AzSvgPathElement>(), "AzSvgPathElement"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStyle>(), "AzSvgStyle"), (Layout::new::<AzSvgStyle>(), "AzSvgStyle"));
+        assert_eq!((Layout::new::<azul_impl::task::Timer>(), "AzTimer"), (Layout::new::<AzTimer>(), "AzTimer"));
         assert_eq!((Layout::new::<azul_impl::window::WindowsWindowOptions>(), "AzWindowsWindowOptions"), (Layout::new::<AzWindowsWindowOptions>(), "AzWindowsWindowOptions"));
         assert_eq!((Layout::new::<azul_impl::window::LinuxWindowOptions>(), "AzLinuxWindowOptions"), (Layout::new::<AzLinuxWindowOptions>(), "AzLinuxWindowOptions"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"), (Layout::new::<AzStyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"));

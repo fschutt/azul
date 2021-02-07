@@ -37,7 +37,7 @@ default = ["std", "logging", "css_parser", "image_loading", "font_loading", "tex
 # If you do not use libstd, the only thing you can do is to draw to a
 # linux framebuffer via software rendering. Note that if you disable this,
 # multithreading, image_loading, font_loading, etc. have to be disabled, too!
-std = ["azul-core/multithreading", "azul-core/std"]
+std = ["azul-core/multithreading", "azul-core/std", "backtrace"]
 # Enable this feature to enable crash logging & reporting.
 # Azul will insert custom panic handlers to pop up a message and log
 # crashes to an "error.log" file, see AppConfig for more details

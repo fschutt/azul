@@ -1046,6 +1046,13 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionGlContextPtr": {
+				    "external": "azul_impl::gl::OptionGlContextPtr",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": { "type": "GlContextPtr" }}
+				    ]
+				},
 				"OptionThreadReceiveMsg": {
 				    "external": "azul_impl::task::OptionThreadReceiveMsg",
 				    "clone": false,
@@ -1532,32 +1539,78 @@
 			"classes": {
 				"Instant": {
 					"external": "azul_impl::task::Instant",
+					"enum_fields": [
+						{"System": {"type": "InstantPtr"}},
+						{"Tick": {"type": "SystemTick"}}
+					]
+				},
+				"InstantPtr": {
+					"external": "azul_impl::task::AzInstantPtr",
 					"is_boxed_object": true,
 					"struct_fields": [
-						{"ptr": {"type": "*const c_void"}}
+						{"ptr": {"type": "*const c_void"}},
+						{"clone_fn": {"type": "InstantPtrCloneFn"}},
+						{"destructor": {"type": "InstantPtrDestructorFn"}}
+					]
+				},
+				"InstantPtrCloneFnType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "c_void", "ref": "ref"}
+						],
+						"returns": "InstantPtr"
+					}
+				},
+				"InstantPtrCloneFn": {
+					"external": "azul_impl::task::InstantPtrCloneCallback",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"cb": {"type": "InstantPtrCloneFnType"}}
+					]
+				},
+				"InstantPtrDestructorFnType": {
+					"callback_typedef": {
+						"fn_args": [
+							{"type": "c_void", "ref": "refmut"}
+						]
+					}
+				},
+				"InstantPtrDestructorFn": {
+					"external": "azul_impl::task::InstantPtrDestructorCallback",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"cb": {"type": "InstantPtrDestructorFnType"}}
+					]
+				},
+				"SystemTick": {
+					"external": "azul_impl::task::SystemTick",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"tick_counter": {"type": "u64"}}
 					]
 				},
 				"Duration": {
 					"external": "azul_impl::task::Duration",
 					"derive": ["Copy"],
+					"enum_fields": [
+						{"System": {"type": "SystemTimeDiff"}},
+						{"Tick": {"type": "SystemTickDiff"}}
+					]
+				},
+				"SystemTimeDiff": {
+					"external": "azul_impl::task::SystemTimeDiff",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"secs": {"type": "u64"}},
 						{"nanos": {"type": "u32"}}
-					],
-					"constructors": {
-						"milliseconds": {
-							"fn_args": [
-								{"milliseconds": "usize"}
-							],
-							"fn_body": "std::time::Duration::from_millis(milliseconds as u64).into()"
-						},
-						"seconds": {
-							"fn_args": [
-								{"seconds": "usize"}
-							],
-							"fn_body": "std::time::Duration::from_secs(seconds as u64).into()"
-						}
-					}
+					]
+				},
+				"SystemTickDiff": {
+					"external": "azul_impl::task::SystemTickDiff",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"tick_diff": {"type": "u64"}}
+					]
 				}
 			}
 		},
@@ -1576,6 +1629,14 @@
 						{"Trace": {}}
 					]
 				},
+				"SystemCallbacks": {
+					"external": "azul_impl::task::ExternalSystemCallbacks",
+					"doc": "External system callbacks to get the system time or create / manage threads",
+					"struct_fields": [
+						{"create_thread_fn": {"type": "CreateThreadFn"}},
+						{"get_system_time_fn": {"type": "GetSystemTimeFn"}}
+					]
+				},
 				"AppConfig": {
 					"external": "azul_impl::resources::AppConfig",
 					"doc": "Configuration for optional features, such as whether to enable logging or panic hooks",
@@ -1584,7 +1645,8 @@
 						{"enable_visual_panic_hook": {"type": "bool", "doc": "If the app crashes / panics, a window with a message box pops up"}},
 						{"enable_logging_on_panic": {"type": "bool", "doc": "If set, a backtrace + error information gets logged to stdout (if the log_level is not `LogLevel::Off`)"}},
 						{"enable_tab_navigation": {"type": "bool", "doc": "Whether keyboard navigation should be enabled"}},
-						{"debug_state": {"type": "DebugState", "doc": "WebRender debug state for all windows (draws overdraw / frame time info on the screen)"}}
+						{"debug_state": {"type": "DebugState", "doc": "WebRender debug state for all windows (draws overdraw / frame time info on the screen)"}},
+						{"system_callbacks": {"type": "SystemCallbacks", "doc": "External callbacks to create a thread or get the curent time"}}
 					],
 					"constructors": {
 						"default": {
@@ -1722,6 +1784,8 @@
 						{"Path": {"type": "FocusTargetPath"}},
 						{"PreviousFocusItem": {}},
 						{"NextFocusItem": {}},
+						{"FirstFocusItem": {}},
+						{"LastFocusItem": {}},
 						{"NoFocus": {}}
 					]
 				},
@@ -1754,11 +1818,12 @@
 						{"new_windows": {"type": "*mut c_void"}},
 						{"current_window_handle": {"type": "*const RawWindowHandle"}},
 						{"node_hierarchy": {"type": "*const c_void"}},
+						{"system_callbacks": {"type": "*const SystemCallbacks"}},
 						{"datasets": {"type": "*mut c_void"}},
 						{"stop_propagation": {"type": "*mut bool"}},
 						{"focus_target": {"type": "*const c_void"}},
-						{"current_scroll_states": {"type": "*const c_void"}},
 						{"css_properties_changed_in_callbacks": {"type": "*const c_void"}},
+						{"current_scroll_states": {"type": "*const c_void"}},
 						{"nodes_scrolled_in_callback": {"type": "*const c_void"}},
 						{"hit_dom_node": {"type": "DomNodeId"}},
 						{"cursor_relative_to_item": {"type": "OptionLayoutPoint"}},
@@ -1871,7 +1936,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "GlContextPtr",
+							"returns": "OptionGlContextPtr",
 							"fn_body": "callbackinfo.get_gl_context()"
 						},
 						"set_window_state": {
@@ -7087,7 +7152,9 @@
 					"clone": false,
 					"is_boxed_object": true,
 					"struct_fields": [
-						{"ptr": {"type": "*mut c_void"}}
+						{"ptr": {"type": "*mut c_void"}},
+						{"recv_fn": {"type": "ThreadRecvFn"}},
+						{"destructor": {"type": "ThreadReceiverDestructorFn"}}
 					],
 					"functions": {
 						"receive": {

@@ -1505,6 +1505,9 @@ pub struct GlContextPtr {
 }
 
 #[cfg(feature = "opengl")]
+impl_option!(GlContextPtr, OptionGlContextPtr, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord]);
+
+#[cfg(feature = "opengl")]
 impl core::fmt::Debug for GlContextPtr {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "0x{:0x}", self.ptr as usize)

@@ -679,6 +679,11 @@ impl NodeData {
         }
     }
 
+    pub fn is_focusable(&self) -> bool {
+        // TODO: do some better analysis of next / first / item
+        self.tab_index.is_some() || self.get_callbacks().iter().any(|cb| cb.event.is_focus_callback())
+    }
+
     pub fn get_iframe_node(&mut self) -> Option<&mut IFrameNode> {
         match &mut self.node_type {
             NodeType::IFrame(i) => Some(i),

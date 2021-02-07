@@ -177,10 +177,16 @@ mod dll {
     pub type AzParentWithNodeDepthVecDestructorType = extern "C" fn(&mut AzParentWithNodeDepthVec);
     /// `AzNodeDataVecDestructorType` struct
     pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
-    /// Re-export of rust-allocated (stack based) `Instant` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzInstant {
+    /// Re-export of rust-allocated (stack based) `InstantPtr` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzInstantPtr {
         pub(crate) ptr: *const c_void,
+        pub clone_fn: AzInstantPtrCloneFn,
+        pub destructor: AzInstantPtrDestructorFn,
     }
+    /// `AzInstantPtrCloneFnType` struct
+    pub type AzInstantPtrCloneFnType = extern "C" fn(&c_void) -> AzInstantPtr;
+    /// `AzInstantPtrDestructorFnType` struct
+    pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut c_void);
     /// Re-export of rust-allocated (stack based) `AppLogLevel` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzAppLogLevel {
         Off,
@@ -723,6 +729,8 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadReceiver {
         pub(crate) ptr: *mut c_void,
+        pub recv_fn: AzThreadRecvFn,
+        pub destructor: AzThreadReceiverDestructorFn,
     }
     /// Re-export of rust-allocated (stack based) `ThreadSendMsg` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzThreadSendMsg {
@@ -1286,6 +1294,11 @@ mod dll {
         pub cap: usize,
         pub destructor: AzGLintVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `OptionGlContextPtr` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionGlContextPtr {
+        None,
+        Some(AzGlContextPtr),
+    }
     /// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionThreadSendMsg {
         None,
@@ -1341,11 +1354,6 @@ mod dll {
         None,
         Some(AzTexture),
     }
-    /// Re-export of rust-allocated (stack based) `OptionInstant` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionInstant {
-        None,
-        Some(AzInstant),
-    }
     /// Re-export of rust-allocated (stack based) `OptionUsize` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionUsize {
         None,
@@ -1356,10 +1364,26 @@ mod dll {
         pub row: u32,
         pub col: u32,
     }
-    /// Re-export of rust-allocated (stack based) `Duration` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzDuration {
+    /// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
+    #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzInstantPtrCloneFn {
+        pub cb: AzInstantPtrCloneFnType,
+    }
+    /// Re-export of rust-allocated (stack based) `InstantPtrDestructorFn` struct
+    #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzInstantPtrDestructorFn {
+        pub cb: AzInstantPtrDestructorFnType,
+    }
+    /// Re-export of rust-allocated (stack based) `SystemTick` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSystemTick {
+        pub tick_counter: u64,
+    }
+    /// Re-export of rust-allocated (stack based) `SystemTimeDiff` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSystemTimeDiff {
         pub secs: u64,
         pub nanos: u32,
+    }
+    /// Re-export of rust-allocated (stack based) `SystemTickDiff` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSystemTickDiff {
+        pub tick_diff: u64,
     }
     /// Re-export of rust-allocated (stack based) `NodeId` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzNodeId {
@@ -2835,11 +2859,6 @@ mod dll {
         None,
         Some(AzTagId),
     }
-    /// Re-export of rust-allocated (stack based) `OptionDuration` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionDuration {
-        None,
-        Some(AzDuration),
-    }
     /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
     #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionU8VecRef {
         None,
@@ -2903,6 +2922,21 @@ mod dll {
         pub got: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+    /// Re-export of rust-allocated (stack based) `Instant` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzInstant {
+        System(AzInstantPtr),
+        Tick(AzSystemTick),
+    }
+    /// Re-export of rust-allocated (stack based) `Duration` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzDuration {
+        System(AzSystemTimeDiff),
+        Tick(AzSystemTickDiff),
+    }
+    /// External system callbacks to get the system time or create / manage threads
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSystemCallbacks {
+        pub create_thread_fn: AzCreateThreadFn,
+        pub get_system_time_fn: AzGetSystemTimeFn,
+    }
     /// Configuration for optional features, such as whether to enable logging or panic hooks
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzAppConfig {
         pub log_level: AzAppLogLevel,
@@ -2910,6 +2944,7 @@ mod dll {
         pub enable_logging_on_panic: bool,
         pub enable_tab_navigation: bool,
         pub debug_state: AzDebugState,
+        pub system_callbacks: AzSystemCallbacks,
     }
     /// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzHidpiAdjustedBounds {
@@ -3118,17 +3153,6 @@ mod dll {
         pub tolerance: usize,
         pub apply_line_width: bool,
     }
-    /// Re-export of rust-allocated (stack based) `Timer` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTimer {
-        pub data: AzRefAny,
-        pub created: AzInstant,
-        pub last_run: AzOptionInstant,
-        pub run_count: usize,
-        pub delay: AzOptionDuration,
-        pub interval: AzOptionDuration,
-        pub timeout: AzOptionDuration,
-        pub callback: AzTimerCallback,
-    }
     /// Re-export of rust-allocated (stack based) `Thread` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThread {
         pub thread_handle: *mut c_void,
@@ -3253,6 +3277,16 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTaskBarIcon {
         None,
         Some(AzTaskBarIcon),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionDuration` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionDuration {
+        None,
+        Some(AzDuration),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionInstant` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionInstant {
+        None,
+        Some(AzInstant),
     }
     /// Re-export of rust-allocated (stack based) `XmlStreamError` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzXmlStreamError {
@@ -3388,6 +3422,17 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgStyle {
         Fill(AzSvgFillStyle),
         Stroke(AzSvgStrokeStyle),
+    }
+    /// Re-export of rust-allocated (stack based) `Timer` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTimer {
+        pub data: AzRefAny,
+        pub created: AzInstant,
+        pub last_run: AzOptionInstant,
+        pub run_count: usize,
+        pub delay: AzOptionDuration,
+        pub interval: AzOptionDuration,
+        pub timeout: AzOptionDuration,
+        pub callback: AzTimerCallback,
     }
     /// Re-export of rust-allocated (stack based) `WindowsWindowOptions` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzWindowsWindowOptions {
@@ -3629,11 +3674,12 @@ mod dll {
         pub new_windows: *mut c_void,
         pub current_window_handle: *const AzRawWindowHandle,
         pub node_hierarchy: *const c_void,
+        pub system_callbacks: *const AzSystemCallbacks,
         pub datasets: *mut c_void,
         pub stop_propagation: *mut bool,
         pub focus_target: *const c_void,
-        pub current_scroll_states: *const c_void,
         pub css_properties_changed_in_callbacks: *const c_void,
+        pub current_scroll_states: *const c_void,
         pub nodes_scrolled_in_callback: *const c_void,
         pub hit_dom_node: AzDomNodeId,
         pub cursor_relative_to_item: AzOptionLayoutPoint,
@@ -3780,6 +3826,8 @@ mod dll {
         Path(AzFocusTargetPath),
         PreviousFocusItem,
         NextFocusItem,
+        FirstFocusItem,
+        LastFocusItem,
         NoFocus,
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallbackReturn` struct
@@ -3867,10 +3915,8 @@ mod dll {
         pub(crate) fn az_tag_ids_to_node_ids_mapping_vec_delete(_:  &mut AzTagIdsToNodeIdsMappingVec);
         pub(crate) fn az_parent_with_node_depth_vec_delete(_:  &mut AzParentWithNodeDepthVec);
         pub(crate) fn az_node_data_vec_delete(_:  &mut AzNodeDataVec);
-        pub(crate) fn az_instant_delete(_:  &mut AzInstant);
-        pub(crate) fn az_instant_deep_copy(_:  &AzInstant) -> AzInstant;
-        pub(crate) fn az_duration_milliseconds(_:  usize) -> AzDuration;
-        pub(crate) fn az_duration_seconds(_:  usize) -> AzDuration;
+        pub(crate) fn az_instant_ptr_delete(_:  &mut AzInstantPtr);
+        pub(crate) fn az_instant_ptr_deep_copy(_:  &AzInstantPtr) -> AzInstantPtr;
         pub(crate) fn az_app_config_default() -> AzAppConfig;
         pub(crate) fn az_app_new(_:  AzRefAny, _:  AzAppConfig) -> AzApp;
         pub(crate) fn az_app_add_window(_:  &mut AzApp, _:  AzWindowCreateOptions);
@@ -3891,7 +3937,7 @@ mod dll {
         pub(crate) fn az_callback_info_get_keyboard_state(_:  &AzCallbackInfo) -> AzKeyboardState;
         pub(crate) fn az_callback_info_get_mouse_state(_:  &AzCallbackInfo) -> AzMouseState;
         pub(crate) fn az_callback_info_get_current_window_handle(_:  &AzCallbackInfo) -> AzRawWindowHandle;
-        pub(crate) fn az_callback_info_get_gl_context(_:  &AzCallbackInfo) -> AzGlContextPtr;
+        pub(crate) fn az_callback_info_get_gl_context(_:  &AzCallbackInfo) -> AzOptionGlContextPtr;
         pub(crate) fn az_callback_info_set_window_state(_:  &mut AzCallbackInfo, _:  AzWindowState);
         pub(crate) fn az_callback_info_set_focus(_:  &mut AzCallbackInfo, _:  AzFocusTarget);
         pub(crate) fn az_callback_info_set_css_property(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzCssProperty);
@@ -5040,6 +5086,9 @@ pub mod option {
     impl_option!(AzDuration, AzOptionDuration, [Debug, Copy, Clone]);
     impl_option!(AzInstant, AzOptionInstant, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
+    /// `OptionGlContextPtr` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionGlContextPtr as OptionGlContextPtr;
     /// `OptionThreadReceiveMsg` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionThreadReceiveMsg as OptionThreadReceiveMsg;
@@ -5232,18 +5281,35 @@ pub mod time {
     /// `Instant` struct
     
 #[doc(inline)] pub use crate::dll::AzInstant as Instant;
-    impl Clone for Instant { fn clone(&self) -> Self { unsafe { crate::dll::az_instant_deep_copy(self) } } }
-    impl Drop for Instant { fn drop(&mut self) { unsafe { crate::dll::az_instant_delete(self) } } }
+    /// `InstantPtr` struct
+    
+#[doc(inline)] pub use crate::dll::AzInstantPtr as InstantPtr;
+    impl Clone for InstantPtr { fn clone(&self) -> Self { unsafe { crate::dll::az_instant_ptr_deep_copy(self) } } }
+    impl Drop for InstantPtr { fn drop(&mut self) { unsafe { crate::dll::az_instant_ptr_delete(self) } } }
+    /// `InstantPtrCloneFnType` struct
+    
+#[doc(inline)] pub use crate::dll::AzInstantPtrCloneFnType as InstantPtrCloneFnType;
+    /// `InstantPtrCloneFn` struct
+    
+#[doc(inline)] pub use crate::dll::AzInstantPtrCloneFn as InstantPtrCloneFn;
+    /// `InstantPtrDestructorFnType` struct
+    
+#[doc(inline)] pub use crate::dll::AzInstantPtrDestructorFnType as InstantPtrDestructorFnType;
+    /// `InstantPtrDestructorFn` struct
+    
+#[doc(inline)] pub use crate::dll::AzInstantPtrDestructorFn as InstantPtrDestructorFn;
+    /// `SystemTick` struct
+    
+#[doc(inline)] pub use crate::dll::AzSystemTick as SystemTick;
     /// `Duration` struct
     
 #[doc(inline)] pub use crate::dll::AzDuration as Duration;
-    impl Duration {
-        /// Creates a new `Duration` instance.
-        pub fn milliseconds(milliseconds: usize) -> Self { unsafe { crate::dll::az_duration_milliseconds(milliseconds) } }
-        /// Creates a new `Duration` instance.
-        pub fn seconds(seconds: usize) -> Self { unsafe { crate::dll::az_duration_seconds(seconds) } }
-    }
-
+    /// `SystemTimeDiff` struct
+    
+#[doc(inline)] pub use crate::dll::AzSystemTimeDiff as SystemTimeDiff;
+    /// `SystemTickDiff` struct
+    
+#[doc(inline)] pub use crate::dll::AzSystemTickDiff as SystemTickDiff;
 }
 
 pub mod app {
@@ -5256,6 +5322,9 @@ pub mod app {
     /// `AppLogLevel` struct
     
 #[doc(inline)] pub use crate::dll::AzAppLogLevel as AppLogLevel;
+    /// External system callbacks to get the system time or create / manage threads
+    
+#[doc(inline)] pub use crate::dll::AzSystemCallbacks as SystemCallbacks;
     /// Configuration for optional features, such as whether to enable logging or panic hooks
     
 #[doc(inline)] pub use crate::dll::AzAppConfig as AppConfig;
@@ -5481,7 +5550,7 @@ pub mod callbacks {
         /// Returns a copy of the current windows `RawWindowHandle`.
         pub fn get_current_window_handle(&self)  -> crate::window::RawWindowHandle { unsafe { crate::dll::az_callback_info_get_current_window_handle(self) } }
         /// Returns a **reference-counted copy** of the current windows `GlContextPtr`. You can use this to render OpenGL textures.
-        pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { unsafe { crate::dll::az_callback_info_get_gl_context(self) } }
+        pub fn get_gl_context(&self)  -> crate::option::OptionGlContextPtr { unsafe { crate::dll::az_callback_info_get_gl_context(self) } }
         /// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
         pub fn set_window_state(&mut self, new_state: WindowState)  { unsafe { crate::dll::az_callback_info_set_window_state(self, new_state) } }
         /// Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.

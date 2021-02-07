@@ -23,9 +23,10 @@ links = "azul"
 path = "lib.rs"
 
 [dependencies]
-azul-dll = { version = "0.0.1", path = "../../azul-dll", optional = true }
+azul-dll = { version = "0.0.1", path = "../../azul-dll", default-features = false, optional = true }
 
 [features]
-link_static = []
-no_std = ["link_static"] # currently blocked on gleam, allsorts, rayon and webrender not being no_std
-minifb = ["link_static"]
+default = []
+link_static = ["azul-dll", "azul-dll/std"]
+no_std = ["azul-dll", "azul-dll/css_parser", "azul-dll/text_layout"] # currently blocked on gleam, allsorts, rayon and webrender not being no_std
+minifb = ["azul-dll", "azul-dll/std"]

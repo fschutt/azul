@@ -16,7 +16,7 @@ edition = "2018"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-azul-css                = { path = "../azul-css",        version = "0.0.1"                  }
+azul-css                = { path = "../azul-css",        version = "0.0.1", default-features = false }
 libm                    = { version = "0.2.1",   default-features = false                   }
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1", optional = true }
 rayon                   = { version = "1.5.0",   default-features = false,  optional = true }
@@ -24,7 +24,7 @@ gleam                   = { version = "0.13.1",  default-features = false,  opti
 ahash                   = { version = "0.7.0", default-features = false }
 
 [features]
-default = ["opengl", "multithreading"]
+default = ["opengl"]
 # Enables the CSS parser
 css_parser = ["azul-css-parser"]
 # Enables the OpenGL module (uses gleam)

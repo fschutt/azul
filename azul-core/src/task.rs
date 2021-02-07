@@ -163,9 +163,17 @@ impl SystemTick {
 #[repr(C)]
 pub struct AzInstantPtr {
     pub ptr: *mut c_void, // ptr: *mut StdInstant
-    pub clone_fn: extern "C" fn (*const c_void) -> AzInstantPtr,
-    pub destructor: extern "C" fn(*mut c_void),
+    pub clone_fn: InstantPtrCloneCallback,
+    pub destructor: InstantPtrDestructorCallback,
 }
+
+pub type InstantPtrCloneCallbackType = extern "C" fn (*const c_void) -> AzInstantPtr;
+#[repr(C)] pub struct InstantPtrCloneCallback { pub cb: InstantPtrCloneCallbackType }
+impl_callback!(InstantPtrCloneCallback);
+
+pub type InstantPtrDestructorCallbackType = extern "C" fn(*mut c_void);
+#[repr(C)] pub struct InstantPtrDestructorCallback { pub cb: InstantPtrDestructorCallbackType }
+impl_callback!(InstantPtrDestructorCallback);
 
 // ----  LIBSTD implementation for AzInstantPtr BEGIN
 #[cfg(feature = "std")]
@@ -247,7 +255,7 @@ impl AzInstantPtr {
 
 impl Clone for AzInstantPtr {
     fn clone(&self) -> Self {
-        (self.clone_fn)(self.ptr)
+        (self.clone_fn.cb)(self.ptr)
     }
 }
 
@@ -266,8 +274,8 @@ impl From<StdInstant> for AzInstantPtr {
     fn from(s: StdInstant) -> AzInstantPtr {
         Self {
             ptr: Box::into_raw(Box::new(s)) as *mut c_void,
-            clone_fn: std_instant_clone,
-            destructor: std_instant_drop,
+            clone_fn: InstantPtrCloneCallback { cb: std_instant_clone },
+            destructor: InstantPtrDestructorCallback { cb: std_instant_drop },
         }
     }
 }
@@ -281,7 +289,7 @@ impl From<AzInstantPtr> for StdInstant {
 
 impl Drop for AzInstantPtr {
     fn drop(&mut self) {
-        (self.destructor)(self.ptr)
+        (self.destructor.cb)(self.ptr)
     }
 }
 
