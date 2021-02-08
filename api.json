@@ -1782,10 +1782,10 @@
 					"enum_fields": [
 						{"Id": {"type": "DomNodeId"}},
 						{"Path": {"type": "FocusTargetPath"}},
-						{"PreviousFocusItem": {}},
-						{"NextFocusItem": {}},
-						{"FirstFocusItem": {}},
-						{"LastFocusItem": {}},
+						{"Previous": {}},
+						{"Next": {}},
+						{"First": {}},
+						{"Last": {}},
 						{"NoFocus": {}}
 					]
 				},

@@ -3824,10 +3824,10 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzFocusTarget {
         Id(AzDomNodeId),
         Path(AzFocusTargetPath),
-        PreviousFocusItem,
-        NextFocusItem,
-        FirstFocusItem,
-        LastFocusItem,
+        Previous,
+        Next,
+        First,
+        Last,
         NoFocus,
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallbackReturn` struct

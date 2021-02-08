@@ -6659,10 +6659,10 @@ mod test_sizes {
     #[repr(C, u8)]     pub enum AzFocusTarget {
         Id(AzDomNodeId),
         Path(AzFocusTargetPath),
-        PreviousFocusItem,
-        NextFocusItem,
-        FirstFocusItem,
-        LastFocusItem,
+        Previous,
+        Next,
+        First,
+        Last,
         NoFocus,
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallbackReturn` struct

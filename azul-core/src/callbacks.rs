@@ -1062,10 +1062,10 @@ impl HidpiAdjustedBounds {
 pub enum FocusTarget {
     Id(DomNodeId),
     Path(FocusTargetPath),
-    PreviousFocusItem,
-    NextFocusItem,
-    FirstFocusItem,
-    LastFocusItem,
+    Previous,
+    Next,
+    First,
+    Last,
     NoFocus,
 }
 
@@ -1077,12 +1077,94 @@ pub struct FocusTargetPath {
 }
 
 impl FocusTarget {
+
     pub fn resolve(&self, layout_results: &[LayoutResult], current_focus: Option<DomNodeId>) -> Result<Option<DomNodeId>, UpdateFocusWarning> {
 
         use crate::callbacks::FocusTarget::*;
         use crate::style::matches_html_element;
 
+        if layout_results.is_empty() { return Ok(None); }
+
+        macro_rules! search_for_focusable_node_id {($layout_results:expr, $start_dom_id:expr, $start_node_id:expr, $get_next_node_fn:ident) => {{
+
+            let mut start_dom_id = $start_dom_id;
+            let mut start_node_id = $start_node_id;
+
+            let min_dom_id = DomId::ROOT_ID;
+            let max_dom_id = DomId { inner: layout_results.len() - 1 };
+
+            // iterate through all DOMs
+            'outer_dom_iter: loop {
+
+                let layout_result = $layout_results.get(start_dom_id.inner).ok_or(UpdateFocusWarning::FocusInvalidDomId(start_dom_id.clone()))?;
+
+                let node_id_valid = layout_result.styled_dom.node_data.as_container().get(start_node_id).is_some();
+
+                if !node_id_valid {
+                    return Err(UpdateFocusWarning::FocusInvalidNodeId(AzNodeId::from_crate_internal(Some(start_node_id.clone()))));
+                }
+
+                if layout_result.styled_dom.node_data.is_empty() {
+                    return Err(UpdateFocusWarning::FocusInvalidDomId(start_dom_id.clone())); // ???
+                }
+
+                let max_node_id = NodeId::new(layout_result.styled_dom.node_data.len() - 1);
+                let min_node_id = NodeId::ZERO;
+
+                // iterate through nodes in DOM
+                loop {
+
+                    let current_node_id = NodeId::new(start_node_id.index().$get_next_node_fn(1))
+                        .max(min_node_id)
+                        .min(max_node_id);
+
+                    if layout_result.styled_dom.node_data.as_container()[current_node_id].is_focusable() {
+                        return Ok(Some(DomNodeId {
+                            dom: start_dom_id,
+                            node: AzNodeId::from_crate_internal(Some(current_node_id)),
+                        }));
+                    }
+
+                    if current_node_id == min_node_id && current_node_id < start_node_id {
+                        // going in decreasing (previous) direction
+                        if start_dom_id == min_dom_id {
+                            // root node / root dom encountered
+                            return Ok(None);
+                        } else {
+                            start_dom_id.inner -= 1;
+                            start_node_id = NodeId::new($layout_results[start_dom_id.inner].styled_dom.node_data.len() - 1);
+                            continue 'outer_dom_iter;
+                        }
+                    } else if current_node_id == max_node_id && current_node_id > start_node_id {
+                        // going in increasing (next) direction
+                        if start_dom_id == max_dom_id {
+                            // last dom / last node encountered
+                            return Ok(None);
+                        } else {
+                            start_dom_id.inner += 1;
+                            start_node_id = NodeId::ZERO;
+                            continue 'outer_dom_iter;
+                        }
+                    } else {
+                        start_node_id = current_node_id;
+                    }
+                }
+            }
+        }};}
+
         match self {
+            Path(FocusTargetPath { dom, css_path }) => {
+                let layout_result = layout_results.get(dom.inner).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom.clone()))?;
+                let html_node_tree = &layout_result.styled_dom.cascade_info;
+                let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
+                let node_data = &layout_result.styled_dom.node_data;
+                let resolved_node_id = html_node_tree
+                    .as_container()
+                    .linear_iter()
+                    .find(|node_id| matches_html_element(css_path, *node_id, &node_hierarchy.as_container(), &node_data.as_container(), &html_node_tree.as_container()))
+                    .ok_or(UpdateFocusWarning::CouldNotFindFocusNode(css_path.clone()))?;
+                Ok(Some(DomNodeId { dom: dom.clone(), node: AzNodeId::from_crate_internal(Some(resolved_node_id)) }))
+            },
             Id(dom_node_id) => {
                 let layout_result = layout_results.get(dom_node_id.dom.inner).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_node_id.dom.clone()))?;
                 let node_is_valid = dom_node_id.node
@@ -1096,21 +1178,55 @@ impl FocusTarget {
                     Ok(Some(dom_node_id.clone()))
                 }
             },
-            PreviousFocusItem => Ok(None), // TODO - select the next focusable element or `None` if this was the first focusable element in the DOM
-            NextFocusItem => Ok(None), // TODO - select the previous focusable element or `None` if this was the last focusable element in the DOM
-            FirstFocusItem => Ok(None), // TODO
-            LastFocusItem => Ok(None), // TODO
-            Path(FocusTargetPath { dom, css_path }) => {
-                let layout_result = layout_results.get(dom.inner).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom.clone()))?;
-                let html_node_tree = &layout_result.styled_dom.cascade_info;
-                let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
-                let node_data = &layout_result.styled_dom.node_data;
-                let resolved_node_id = html_node_tree
-                    .as_container()
-                    .linear_iter()
-                    .find(|node_id| matches_html_element(css_path, *node_id, &node_hierarchy.as_container(), &node_data.as_container(), &html_node_tree.as_container()))
-                    .ok_or(UpdateFocusWarning::CouldNotFindFocusNode(css_path.clone()))?;
-                Ok(Some(DomNodeId { dom: dom.clone(), node: AzNodeId::from_crate_internal(Some(resolved_node_id)) }))
+            Previous => {
+
+                let last_layout_dom_id = DomId { inner: layout_results.len() - 1 };
+
+                // select the previous focusable element or `None`
+                // if this was the first focusable element in the DOM
+                let (current_focus_dom, current_focus_node_id) = match current_focus {
+                    Some(s) => match s.node.into_crate_internal() {
+                        Some(n) => (s.dom, n),
+                        None => {
+                            if let Some(layout_result) = layout_results.get(s.dom.inner) {
+                                (s.dom, NodeId::new(layout_result.styled_dom.node_data.len() - 1))
+                            } else {
+                                (last_layout_dom_id, NodeId::new(layout_results[last_layout_dom_id.inner].styled_dom.node_data.len() - 1))
+                            }
+                        }
+                    },
+                    None => (last_layout_dom_id, NodeId::new(layout_results[last_layout_dom_id.inner].styled_dom.node_data.len() - 1)),
+                };
+
+                search_for_focusable_node_id!(layout_results, current_focus_dom, current_focus_node_id, saturating_sub);
+            },
+            Next => {
+                // select the previous focusable element or `None`
+                // if this was the first focusable element in the DOM, select the first focusable element
+                let (current_focus_dom, current_focus_node_id) = match current_focus {
+                    Some(s) => match s.node.into_crate_internal() {
+                        Some(n) => (s.dom, n),
+                        None => {
+                            if let Some(layout_result) = layout_results.get(s.dom.inner) {
+                                (s.dom, NodeId::ZERO)
+                            } else {
+                                (DomId::ROOT_ID, NodeId::ZERO)
+                            }
+                        }
+                    },
+                    None => (DomId::ROOT_ID, NodeId::ZERO),
+                };
+
+                search_for_focusable_node_id!(layout_results, current_focus_dom, current_focus_node_id, saturating_add);
+            },
+            First => {
+                let (current_focus_dom, current_focus_node_id) = (DomId::ROOT_ID, NodeId::ZERO);
+                search_for_focusable_node_id!(layout_results, current_focus_dom, current_focus_node_id, saturating_add);
+            },
+            Last => {
+                let last_layout_dom_id = DomId { inner: layout_results.len() - 1 };
+                let (current_focus_dom, current_focus_node_id) = (last_layout_dom_id, NodeId::new(layout_results[last_layout_dom_id.inner].styled_dom.node_data.len() - 1));
+                search_for_focusable_node_id!(layout_results, current_focus_dom, current_focus_node_id, saturating_add);
             },
             NoFocus => Ok(None),
         }
