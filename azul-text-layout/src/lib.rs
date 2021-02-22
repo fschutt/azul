@@ -88,8 +88,6 @@ use alloc::boxed::Box;
 
 pub mod script;
 pub mod text_layout;
-// pub mod text_shaping;
-#[path = "./text_shaping_new.rs"]
 pub mod text_shaping;
 
 use azul_core::{
