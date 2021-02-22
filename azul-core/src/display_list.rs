@@ -16,13 +16,13 @@ use azul_css::{
 };
 use crate::{
     callbacks::PipelineId,
-    ui_solver::{ExternalScrollId, LayoutResult, InlineTextLayout, PositionInfo},
+    ui_solver::{ExternalScrollId, LayoutResult, PositionInfo},
     window::{FullWindowState, LogicalRect, LogicalPosition, LogicalSize},
     app_resources::{
         AppResources, AddImageMsg, ImageDescriptor, ImageDescriptorFlags,
-        ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs, PrimitiveFlags,
+        ImageKey, FontInstanceKey, ImageInfo, ImageId, PrimitiveFlags,
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn, ParseFontFn,
-        ResourceUpdate, IdNamespace, ShapedWords, WordPositions,
+        ResourceUpdate, IdNamespace,
     },
     styled_dom::{DomId, StyledDom, ContentGroup},
     id_tree::NodeId,
@@ -32,7 +32,6 @@ use crate::{
 use crate::gl::{Texture, GlContextPtr};
 
 pub type GlyphIndex = u32;
-pub type GetGlyphsFunc = fn(&WordPositions, &ShapedWords, &InlineTextLayout) -> LayoutedGlyphs;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 pub struct GlyphInstance {
@@ -63,7 +62,6 @@ impl CachedDisplayList {
         layout_results: &[LayoutResult],
         gl_texture_cache: &GlTextureCache,
         app_resources: &AppResources,
-        get_glyphs_func: GetGlyphsFunc,
     ) -> Self {
 
         const DOM_ID: DomId = DomId::ROOT_ID;
@@ -79,8 +77,7 @@ impl CachedDisplayList {
                     layout_results: &layout_results,
                     gl_texture_cache: &gl_texture_cache,
                     app_resources,
-                },
-                get_glyphs_func,
+                }
             )
         };
 
@@ -708,7 +705,6 @@ impl SolvedLayout {
 pub fn push_rectangles_into_displaylist<'a>(
     root_content_group: &ContentGroup,
     referenced_content: &DisplayListParametersRef<'a>,
-    get_glyphs_func: GetGlyphsFunc,
 ) -> DisplayListMsg {
 
     use rayon::prelude::*;
@@ -716,7 +712,6 @@ pub fn push_rectangles_into_displaylist<'a>(
     let mut content = displaylist_handle_rect(
         root_content_group.root.into_crate_internal().unwrap(),
         referenced_content,
-        get_glyphs_func,
     );
 
     let children = root_content_group.children
@@ -726,7 +721,6 @@ pub fn push_rectangles_into_displaylist<'a>(
             push_rectangles_into_displaylist(
                 child_content_group,
                 referenced_content,
-                get_glyphs_func,
             )
         })
         .collect();
@@ -741,7 +735,6 @@ pub fn push_rectangles_into_displaylist<'a>(
 pub fn displaylist_handle_rect<'a>(
     rect_idx: NodeId,
     referenced_content: &DisplayListParametersRef<'a>,
-    get_glyphs_func: GetGlyphsFunc,
 ) -> DisplayListMsg {
 
     use crate::dom::NodeType::*;
@@ -889,7 +882,9 @@ pub fn displaylist_handle_rect<'a>(
                 layout_result.positioned_words_cache.get(&rect_idx),
                 positioned_rect.resolved_text_layout_options.as_ref(),
             ) {
-                let layouted_glyphs = (get_glyphs_func)(&word_positions.0, shaped_words, &inline_text_layout);
+                use crate::app_resources::get_inline_text;
+                let inline_text = get_inline_text(&word_positions.0, shaped_words, &inline_text_layout);
+                let layouted_glyphs = inline_text.get_layouted_glyphs();
                 let text_color = layout_result.styled_dom.get_css_property_cache().get_text_color_or_default(&rect_idx, &styled_node.state);
                 let font_instance_key = word_positions.1;
 
@@ -941,8 +936,7 @@ pub fn displaylist_handle_rect<'a>(
                         // otherwise this function would be endlessly recurse
                         dom_id: iframe_dom_id.clone(),
                         .. *referenced_content
-                    },
-                    get_glyphs_func,
+                    }
                 ));
             }
         },

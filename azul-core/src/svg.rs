@@ -9,6 +9,7 @@ use crate::gl::{
 };
 use alloc::vec::Vec;
 use alloc::string::String;
+use azul_css::U32Vec;
 
 #[cfg(feature = "opengl")]
 static mut SVG_SHADER: Option<SvgShader> = None;
@@ -266,15 +267,6 @@ impl_vec_debug!(SvgVertex, SvgVertexVec);
 impl_vec_partialord!(SvgVertex, SvgVertexVec);
 impl_vec_clone!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor);
 impl_vec_partialeq!(SvgVertex, SvgVertexVec);
-
-impl_vec!(u32, U32Vec, U32VecDestructor);
-impl_vec_debug!(u32, U32Vec);
-impl_vec_partialord!(u32, U32Vec);
-impl_vec_ord!(u32, U32Vec);
-impl_vec_clone!(u32, U32Vec, U32VecDestructor);
-impl_vec_partialeq!(u32, U32Vec);
-impl_vec_eq!(u32, U32Vec);
-impl_vec_hash!(u32, U32Vec);
 
 #[cfg(feature = "opengl")]
 #[derive(Debug, PartialEq, PartialOrd)]

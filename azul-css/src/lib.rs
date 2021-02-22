@@ -193,6 +193,7 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
     }
 
     impl From<$struct_name> for alloc::vec::Vec<$struct_type> {
+        #[allow(unused_mut)]
         fn from(mut input: $struct_name) -> alloc::vec::Vec<$struct_type> {
             input.into_library_owned_vec()
         }
@@ -852,6 +853,16 @@ impl_vec_partialeq!(u8, U8Vec);
 impl_vec_eq!(u8, U8Vec);
 impl_vec_hash!(u8, U8Vec);
 
+// Vec<char>
+impl_vec!(u32, U32Vec, U32VecDestructor);
+impl_vec_debug!(u32, U32Vec);
+impl_vec_partialord!(u32, U32Vec);
+impl_vec_ord!(u32, U32Vec);
+impl_vec_clone!(u32, U32Vec, U32VecDestructor);
+impl_vec_partialeq!(u32, U32Vec);
+impl_vec_eq!(u32, U32Vec);
+impl_vec_hash!(u32, U32Vec);
+
 impl_vec!(AzString, StringVec, StringVecDestructor);
 impl_vec_debug!(AzString, StringVec);
 impl_vec_partialord!(AzString, StringVec);
@@ -868,14 +879,12 @@ impl From<Vec<String>> for StringVec {
     }
 }
 
-/*
-impl From<StringVec> for Vec<String> {
-    fn from(v: StringVec) -> Vec<String> {
-        let v: Vec<AzString> = v.into();
-        v.into_iter().map(|s| s.into()).collect()
-    }
-}
-*/
+impl_option!(u16, OptionU16, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(u32, OptionU32, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(i16, OptionI16, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(i32, OptionI32, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(f32, OptionF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+impl_option!(f64, OptionF64, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 mod css;
 mod css_properties;

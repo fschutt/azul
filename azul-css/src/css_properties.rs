@@ -127,6 +127,13 @@ pub struct LayoutRect { pub origin: LayoutPoint, pub size: LayoutSize }
 
 impl_option!(LayoutRect, OptionLayoutRect, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
+impl_vec!(LayoutRect, LayoutRectVec, LayoutRectVecDestructor);
+impl_vec_clone!(LayoutRect, LayoutRectVec, LayoutRectVecDestructor);
+impl_vec_debug!(LayoutRect, LayoutRectVec);
+impl_vec_mut!(LayoutRect, LayoutRectVec);
+impl_vec_partialeq!(LayoutRect, LayoutRectVec);
+impl_vec_partialord!(LayoutRect, LayoutRectVec);
+
 impl fmt::Debug for LayoutRect {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)

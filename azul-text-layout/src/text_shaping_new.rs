@@ -817,7 +817,7 @@ fn make_raw_glyph(ch: char, glyph_index: u16, variation: Option<allsorts::unicod
 #[inline]
 fn translate_raw_glyph(rg: &allsorts::gsub::RawGlyph<()>) -> RawGlyph {
     RawGlyph {
-        unicodes: [rg.unicodes[0]],
+        unicode_codepoint: rg.unicodes.get(0).map(|s| s as u32).into(),
         glyph_index: rg.glyph_index,
         liga_component_pos: rg.liga_component_pos,
         glyph_origin: translate_glyph_origin(&rg.glyph_origin),

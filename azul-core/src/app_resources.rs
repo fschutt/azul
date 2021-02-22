@@ -1,6 +1,5 @@
 use core::{
     fmt,
-    num::NonZeroU16,
     any::Any,
     sync::atomic::{AtomicUsize, AtomicU32, Ordering},
 };
@@ -8,15 +7,18 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::string::String;
-use azul_css::{LayoutRect, StyleFontSize, ColorU, U8Vec, AzString};
+use azul_css::{
+    OptionU16, OptionU32, OptionI16, LayoutRect, StyleFontSize,
+    ColorU, U8Vec, U32Vec, AzString, OptionI32
+};
 use crate::{
     FastHashMap, FastBTreeSet,
-    ui_solver::ResolvedTextLayoutOptions,
+    ui_solver::{ResolvedTextLayoutOptions, InlineTextLayout},
     display_list::GlyphInstance,
     styled_dom::StyledDom,
-    callbacks::PipelineId,
+    callbacks::{PipelineId, InlineText},
     task::ExternalSystemCallbacks,
-    window::{DebugState, LogicalPosition, LogicalSize, OptionI32},
+    window::{DebugState, LogicalPosition, LogicalSize},
 };
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
@@ -71,11 +73,12 @@ pub type CssImageId = String;
 pub type CssFontId = String;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct FontMetrics {
 
     // head table
 
-    pub units_per_em: NonZeroU16,
+    pub units_per_em: u16,
     pub font_flags: u16,
     pub x_min: i16,
     pub y_min: i16,
@@ -125,29 +128,29 @@ pub struct FontMetrics {
 
     // os/2 version 0 table
 
-    pub s_typo_ascender: Option<i16>,
-    pub s_typo_descender: Option<i16>,
-    pub s_typo_line_gap: Option<i16>,
-    pub us_win_ascent: Option<u16>,
-    pub us_win_descent: Option<u16>,
+    pub s_typo_ascender: OptionI16,
+    pub s_typo_descender: OptionI16,
+    pub s_typo_line_gap: OptionI16,
+    pub us_win_ascent: OptionU16,
+    pub us_win_descent: OptionU16,
 
     // os/2 version 1 table
 
-    pub ul_code_page_range1: Option<u32>,
-    pub ul_code_page_range2: Option<u32>,
+    pub ul_code_page_range1: OptionU32,
+    pub ul_code_page_range2: OptionU32,
 
     // os/2 version 2 table
 
-    pub sx_height: Option<i16>,
-    pub s_cap_height: Option<i16>,
-    pub us_default_char: Option<u16>,
-    pub us_break_char: Option<u16>,
-    pub us_max_context: Option<u16>,
+    pub sx_height: OptionI16,
+    pub s_cap_height: OptionI16,
+    pub us_default_char: OptionU16,
+    pub us_break_char: OptionU16,
+    pub us_max_context: OptionU16,
 
     // os/2 version 3 table
 
-    pub us_lower_optical_point_size: Option<u16>,
-    pub us_upper_optical_point_size: Option<u16>,
+    pub us_lower_optical_point_size: OptionU16,
+    pub us_upper_optical_point_size: OptionU16,
 }
 
 impl Default for FontMetrics {
@@ -161,7 +164,7 @@ impl FontMetrics {
     /// Only for testing, zero-sized font, will always return 0 for every metric (`units_per_em = 1000`)
     pub const fn zero() -> Self {
         FontMetrics {
-            units_per_em: unsafe { NonZeroU16::new_unchecked(1000) },
+            units_per_em: 1000,
             font_flags: 0,
             x_min: 0,
             y_min: 0,
@@ -202,20 +205,20 @@ impl FontMetrics {
             fs_selection: 0,
             us_first_char_index: 0,
             us_last_char_index: 0,
-            s_typo_ascender: None,
-            s_typo_descender: None,
-            s_typo_line_gap: None,
-            us_win_ascent: None,
-            us_win_descent: None,
-            ul_code_page_range1: None,
-            ul_code_page_range2: None,
-            sx_height: None,
-            s_cap_height: None,
-            us_default_char: None,
-            us_break_char: None,
-            us_max_context: None,
-            us_lower_optical_point_size: None,
-            us_upper_optical_point_size: None,
+            s_typo_ascender: None.into(),
+            s_typo_descender: None.into(),
+            s_typo_line_gap: None.into(),
+            us_win_ascent: None.into(),
+            us_win_descent: None.into(),
+            ul_code_page_range1: None.into(),
+            ul_code_page_range2: None.into(),
+            sx_height: None.into(),
+            s_cap_height: None.into(),
+            us_default_char: None.into(),
+            us_break_char: None.into(),
+            us_max_context: None.into(),
+            us_lower_optical_point_size: None.into(),
+            us_upper_optical_point_size: None.into(),
         }
     }
 
@@ -227,7 +230,7 @@ impl FontMetrics {
     }
 
     pub fn get_ascender_unscaled(&self) -> i16 {
-        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_ascender };
+        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_ascender.into() };
         match use_typo {
             Some(s) => s,
             None => self.ascender
@@ -236,7 +239,7 @@ impl FontMetrics {
 
     /// NOTE: descender is NEGATIVE
     pub fn get_descender_unscaled(&self) -> i16 {
-        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_descender };
+        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_descender.into() };
         match use_typo {
             Some(s) => s,
             None => self.descender
@@ -244,39 +247,39 @@ impl FontMetrics {
     }
 
     pub fn get_line_gap_unscaled(&self) -> i16 {
-        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_line_gap };
+        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_line_gap.into() };
         match use_typo {
             Some(s) => s,
             None => self.line_gap
         }
     }
 
-    pub fn get_x_min(&self, target_font_size: f32) -> f32 { self.x_min as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_y_min(&self, target_font_size: f32) -> f32 { self.y_min as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_x_max(&self, target_font_size: f32) -> f32 { self.x_max as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_y_max(&self, target_font_size: f32) -> f32 { self.y_max as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_advance_width_max(&self, target_font_size: f32) -> f32 { self.advance_width_max as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_min_left_side_bearing(&self, target_font_size: f32) -> f32 { self.min_left_side_bearing as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_min_right_side_bearing(&self, target_font_size: f32) -> f32 { self.min_right_side_bearing as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_x_max_extent(&self, target_font_size: f32) -> f32 { self.x_max_extent as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_x_avg_char_width(&self, target_font_size: f32) -> f32 { self.x_avg_char_width as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_y_subscript_x_size(&self, target_font_size: f32) -> f32 { self.y_subscript_x_size as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_y_subscript_y_size(&self, target_font_size: f32) -> f32 { self.y_subscript_y_size as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_y_subscript_x_offset(&self, target_font_size: f32) -> f32 { self.y_subscript_x_offset as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_y_subscript_y_offset(&self, target_font_size: f32) -> f32 { self.y_subscript_y_offset as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_y_superscript_x_size(&self, target_font_size: f32) -> f32 { self.y_superscript_x_size as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_y_superscript_y_size(&self, target_font_size: f32) -> f32 { self.y_superscript_y_size as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_y_superscript_x_offset(&self, target_font_size: f32) -> f32 { self.y_superscript_x_offset as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_y_superscript_y_offset(&self, target_font_size: f32) -> f32 { self.y_superscript_y_offset as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_y_strikeout_size(&self, target_font_size: f32) -> f32 { self.y_strikeout_size as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_y_strikeout_position(&self, target_font_size: f32) -> f32 { self.y_strikeout_position as f32 / self.units_per_em.get() as f32 * target_font_size }
-    pub fn get_s_typo_ascender(&self, target_font_size: f32) -> Option<f32> { self.s_typo_ascender.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
-    pub fn get_s_typo_descender(&self, target_font_size: f32) -> Option<f32> { self.s_typo_descender.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
-    pub fn get_s_typo_line_gap(&self, target_font_size: f32) -> Option<f32> { self.s_typo_line_gap.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
-    pub fn get_us_win_ascent(&self, target_font_size: f32) -> Option<f32> { self.us_win_ascent.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
-    pub fn get_us_win_descent(&self, target_font_size: f32) -> Option<f32> { self.us_win_descent.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
-    pub fn get_sx_height(&self, target_font_size: f32) -> Option<f32> { self.sx_height.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
-    pub fn get_s_cap_height(&self, target_font_size: f32) -> Option<f32> { self.s_cap_height.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
+    pub fn get_x_min(&self, target_font_size: f32) -> f32 { self.x_min as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_min(&self, target_font_size: f32) -> f32 { self.y_min as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_x_max(&self, target_font_size: f32) -> f32 { self.x_max as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_max(&self, target_font_size: f32) -> f32 { self.y_max as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_advance_width_max(&self, target_font_size: f32) -> f32 { self.advance_width_max as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_min_left_side_bearing(&self, target_font_size: f32) -> f32 { self.min_left_side_bearing as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_min_right_side_bearing(&self, target_font_size: f32) -> f32 { self.min_right_side_bearing as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_x_max_extent(&self, target_font_size: f32) -> f32 { self.x_max_extent as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_x_avg_char_width(&self, target_font_size: f32) -> f32 { self.x_avg_char_width as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_subscript_x_size(&self, target_font_size: f32) -> f32 { self.y_subscript_x_size as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_subscript_y_size(&self, target_font_size: f32) -> f32 { self.y_subscript_y_size as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_subscript_x_offset(&self, target_font_size: f32) -> f32 { self.y_subscript_x_offset as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_subscript_y_offset(&self, target_font_size: f32) -> f32 { self.y_subscript_y_offset as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_superscript_x_size(&self, target_font_size: f32) -> f32 { self.y_superscript_x_size as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_superscript_y_size(&self, target_font_size: f32) -> f32 { self.y_superscript_y_size as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_superscript_x_offset(&self, target_font_size: f32) -> f32 { self.y_superscript_x_offset as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_superscript_y_offset(&self, target_font_size: f32) -> f32 { self.y_superscript_y_offset as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_strikeout_size(&self, target_font_size: f32) -> f32 { self.y_strikeout_size as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_strikeout_position(&self, target_font_size: f32) -> f32 { self.y_strikeout_position as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_s_typo_ascender(&self, target_font_size: f32) -> Option<f32> { self.s_typo_ascender.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+    pub fn get_s_typo_descender(&self, target_font_size: f32) -> Option<f32> { self.s_typo_descender.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+    pub fn get_s_typo_line_gap(&self, target_font_size: f32) -> Option<f32> { self.s_typo_line_gap.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+    pub fn get_us_win_ascent(&self, target_font_size: f32) -> Option<f32> { self.us_win_ascent.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+    pub fn get_us_win_descent(&self, target_font_size: f32) -> Option<f32> { self.us_win_descent.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+    pub fn get_sx_height(&self, target_font_size: f32) -> Option<f32> { self.sx_height.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+    pub fn get_s_cap_height(&self, target_font_size: f32) -> Option<f32> { self.s_cap_height.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
 }
 
 pub type WordIndex = usize;
@@ -600,19 +603,20 @@ impl LoadedFont {
 
 /// Text broken up into `Tab`, `Word()`, `Return` characters
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct Words {
     /// Words (and spaces), broken up into semantic items
     pub items: WordVec,
     /// String that makes up this paragraph of words
     pub internal_str: AzString,
     /// `internal_chars` is used in order to enable copy-paste (since taking a sub-string isn't possible using UTF-8)
-    pub internal_chars: CharVec,
+    pub internal_chars: U32Vec,
 }
 
 impl Words {
 
     pub fn get_substr(&self, word: &Word) -> String {
-        self.internal_chars.as_ref()[word.start..word.end].iter().collect()
+        self.internal_chars.as_ref()[word.start..word.end].iter().filter_map(|c| core::char::from_u32(*c)).collect()
     }
 
     pub fn get_str(&self) -> &str {
@@ -620,7 +624,7 @@ impl Words {
     }
 
     pub fn get_char(&self, idx: usize) -> Option<char> {
-        self.internal_chars.as_ref().get(idx).cloned()
+        self.internal_chars.as_ref().get(idx).and_then(|c| core::char::from_u32(*c))
     }
 }
 
@@ -635,6 +639,7 @@ pub struct Word {
 
 impl_vec!(Word, WordVec, WordVecDestructor);
 impl_vec_clone!(Word, WordVec, WordVecDestructor);
+impl_vec_debug!(Word, WordVec);
 impl_vec_partialeq!(Word, WordVec);
 impl_vec_eq!(Word, WordVec);
 impl_vec_ord!(Word, WordVec);
@@ -677,10 +682,10 @@ pub struct ShapedWords {
 
 impl ShapedWords {
     pub fn get_longest_word_width_px(&self, target_font_size: f32) -> f32 {
-        self.longest_word_width as f32 / self.font_metrics_units_per_em.get() as f32 * target_font_size
+        self.longest_word_width as f32 / self.font_metrics_units_per_em as f32 * target_font_size
     }
     pub fn get_space_advance_px(&self, target_font_size: f32) -> f32 {
-        self.space_advance as f32 / self.font_metrics_units_per_em.get() as f32 * target_font_size
+        self.space_advance as f32 / self.font_metrics_units_per_em as f32 * target_font_size
     }
     /// Get the distance from the top of the text to the baseline of the text (= ascender)
     pub fn get_baseline_px(&self, target_font_size: f32) -> f32 {
@@ -689,18 +694,18 @@ impl ShapedWords {
 
     /// NOTE: descender is NEGATIVE
     pub fn get_descender(&self, target_font_size: f32) -> f32 {
-        self.font_metrics_descender as f32 / self.font_metrics_units_per_em.get() as f32 * target_font_size
+        self.font_metrics_descender as f32 / self.font_metrics_units_per_em as f32 * target_font_size
     }
 
     /// `height = sTypoAscender - sTypoDescender + sTypoLineGap`
     pub fn get_line_height(&self, target_font_size: f32) -> f32 {
-        self.font_metrics_ascender as f32 / self.font_metrics_units_per_em.get() as f32 -
-        self.font_metrics_descender as f32 / self.font_metrics_units_per_em.get() as f32 +
-        self.font_metrics_line_gap as f32 / self.font_metrics_units_per_em.get() as f32 * target_font_size
+        self.font_metrics_ascender as f32 / self.font_metrics_units_per_em as f32 -
+        self.font_metrics_descender as f32 / self.font_metrics_units_per_em as f32 +
+        self.font_metrics_line_gap as f32 / self.font_metrics_units_per_em as f32 * target_font_size
     }
 
     pub fn get_ascender(&self, target_font_size: f32) -> f32 {
-        self.font_metrics_ascender as f32 / self.font_metrics_units_per_em.get() as f32 * target_font_size
+        self.font_metrics_ascender as f32 / self.font_metrics_units_per_em as f32 * target_font_size
     }
 }
 
@@ -755,11 +760,11 @@ pub struct PlacementDistance {
 
 impl Placement {
     #[inline]
-    pub fn get_placement_relative(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> (f32, f32) {
-        let font_metrics_divisor = units_per_em.get() as f32 / target_font_size;
+    pub fn get_placement_relative(&self, units_per_em: u16, target_font_size: f32) -> LogicalPosition {
+        let font_metrics_divisor = units_per_em as f32 / target_font_size;
         match self {
-            Placement::None | Placement::Anchor(_, _) => (0.0, 0.0),
-            Placement::Distance(x, y) => (*x as f32 / font_metrics_divisor, *y as f32 / font_metrics_divisor),
+            Placement::None | Placement::Anchor(_) => LogicalPosition::new(0.0, 0.0),
+            Placement::Distance(PlacementDistance { x, y }) => LogicalPosition::new(*x as f32 / font_metrics_divisor, *y as f32 / font_metrics_divisor),
         }
     }
 }
@@ -775,19 +780,19 @@ pub enum MarkPlacement {
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
 pub struct MarkAnchorPlacement {
-    pub size: usize,
-    pub x: Anchor,
-    pub y: Anchor,
+    pub index: usize,
+    pub _0: Anchor,
+    pub _1: Anchor,
 }
 
 impl MarkPlacement {
     #[inline]
-    pub fn get_placement_relative(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> (f32, f32) {
+    pub fn get_placement_relative(&self, units_per_em: u16, target_font_size: f32) -> (f32, f32) {
         match self {
             MarkPlacement::None => (0.0, 0.0),
-            MarkPlacement::MarkAnchor(_, a, _) => {
-                let font_metrics_divisor = units_per_em.get() as f32 / target_font_size;
-                (a.x as f32 / font_metrics_divisor, a.y as f32 / font_metrics_divisor)
+            MarkPlacement::MarkAnchor(anchor) => {
+                let font_metrics_divisor = units_per_em as f32 / target_font_size;
+                (anchor._0.x as f32 / font_metrics_divisor, anchor._0.y as f32 / font_metrics_divisor)
             },
             MarkPlacement::MarkOverprint(_) => (0.0, 0.0),
         }
@@ -804,7 +809,7 @@ pub struct Anchor {
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
 pub struct RawGlyph {
-    pub unicodes: [char; 1],
+    pub unicode_codepoint: OptionU32, // Option<char>
     pub glyph_index: u16,
     pub liga_component_pos: u16,
     pub glyph_origin: GlyphOrigin,
@@ -816,14 +821,128 @@ pub struct RawGlyph {
     pub variation: OptionVariationSelector,
 }
 
-#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+impl RawGlyph {
+
+    pub fn has_codepoint(&self) -> bool {
+        self.unicode_codepoint.is_some()
+    }
+
+    pub fn get_codepoint(&self) -> Option<char> {
+        self.unicode_codepoint.as_ref().and_then(|u| std::char::from_u32(*u))
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
-pub struct Info {
+pub struct GlyphInfo {
     pub glyph: RawGlyph,
     pub size: Advance,
     pub placement: Placement,
     pub mark_placement: MarkPlacement,
 }
+
+pub(crate) fn get_inline_text(word_positions: &WordPositions, shaped_words: &ShapedWords, inline_text_layout: &InlineTextLayout) -> InlineText {
+
+    use crate::callbacks::{InlineWord, InlineLine, InlineTextContents, InlineGlyph};
+    use crate::window::LogicalRect;
+
+    // most text blocks are very short, use stack space
+    // let mut all_glyphs: Vec<GlyphInstance> = Vec::with_capacity(scaled_words.items.len() * 4);
+
+    let mut word_index = 0;
+
+    let font_size_px = word_positions.text_layout_options.font_size_px;
+    let descender_px = &shaped_words.get_descender(font_size_px); // descender is NEGATIVE
+    let letter_spacing_px = word_positions.text_layout_options.letter_spacing.as_ref().copied().unwrap_or(0.0);
+    let units_per_em = shaped_words.font_metrics_units_per_em;
+
+    let inline_lines = inline_text_layout.lines.iter().map(|line| {
+
+        let words = line.words[line.word_start..line.word_end].iter().map(|word| {
+            match word.word_type {
+                WordType::Word => {
+
+                    let shaped_word = shaped_words.items.get(word_index)?;
+                    let word_position = word_positions.items.get(word_index)?;
+
+                    // most words are less than 16 chars, avg length of an english word is 4.7 chars
+                    let mut all_glyphs_in_this_word = Vec::<InlineGlyph>::with_capacity(16);
+                    let mut x_pos_in_word_px = 0.0;
+
+                    // all words only store the unscaled horizontal advance + horizontal kerning
+                    for glyph_info in shaped_word.glyph_infos.iter() {
+
+                        // local x and y displacement of the glyph - does NOT advance the horizontal cursor!
+                        let displacement = glyph_info.placement.get_placement_relative(units_per_em, font_size_px);
+
+                        // if the character is a mark, the mark displacement has to be added ON TOP OF the existing displacement
+                        // the origin should be relative to the word, not the final text
+                        let (letter_spacing_for_glyph, origin) = match glyph_info.mark_placement {
+                            MarkPlacement::None => {
+                                (letter_spacing_px, LogicalPosition::new(x_pos_in_word_px + displacement.x, displacement.y))
+                            },
+                            MarkPlacement::MarkAnchor(MarkAnchorPlacement { index, .. }) => {
+                                let anchor = &all_glyphs_in_this_word[index];
+                                (0.0, anchor.bounds.origin + displacement) // TODO: wrong
+                            },
+                            MarkPlacement::MarkOverprint(index) => {
+                                let anchor = &all_glyphs_in_this_word[index];
+                                (0.0,anchor.bounds.origin + displacement)
+                            },
+                        };
+
+                        let glyph_scale_x = glyph_info.size.get_x_size_scaled(units_per_em, font_size_px);
+                        let glyph_scale_y = glyph_info.size.get_y_size_scaled(units_per_em, font_size_px);
+
+                        let glyph_advance_x = glyph_info.size.get_x_advance_scaled(units_per_em, font_size_px);
+                        let kerning_x = glyph_info.size.get_kerning_scaled(units_per_em, font_size_px);
+
+                        let inline_char = InlineGlyph {
+                            bounds: LogicalRect::new(origin, LogicalSize::new(glyph_scale_x, glyph_scale_y)),
+                            unicode_codepoint: glyph_info.glyph.unicode_codepoint,
+                            glyph_index: glyph_info.glyph.glyph_index as u32,
+                        };
+
+                        x_pos_in_word_px += glyph_advance_x + kerning_x + letter_spacing_for_glyph;
+
+                        all_glyphs_in_this_word.push(inline_char);
+                    }
+
+                    let inline_word = InlineWord::Word(InlineTextContents {
+                        glyphs: all_glyphs_in_this_word.into(),
+                        bounds: LogicalRect::new(word_position.origin, LogicalSize::new(shaped_word.get_word_width(units_per_em, font_size_px), font_size_px)),
+                    });
+
+                    word_index += 1;
+
+                    inline_word
+                },
+                WordType::Tab => InlineWord::Tab,
+                WordType::Return => InlineWord::Return,
+                WordType::Space => InlineWord::Space,
+            }
+        }).collect::<Vec<InlineWord>>();
+
+        InlineLine {
+            words: words.into(),
+            bounds: line.bounds,
+        }
+    }).collect::<Vec<InlineLine>>();
+
+    InlineText {
+        lines: inline_lines.into(), // relative to 0, 0
+        bounds: LogicalRect::new(LogicalPosition::zero(), word_positions.content_size),
+        font_size_px,
+        baseline_descender_px: *descender_px,
+    }
+}
+
+impl_vec!(GlyphInfo, GlyphInfoVec, GlyphInfoVecDestructor);
+impl_vec_clone!(GlyphInfo, GlyphInfoVec, GlyphInfoVecDestructor);
+impl_vec_debug!(GlyphInfo, GlyphInfoVec);
+impl_vec_partialeq!(GlyphInfo, GlyphInfoVec);
+impl_vec_partialord!(GlyphInfo, GlyphInfoVec);
+impl_vec_hash!(GlyphInfo, GlyphInfoVec);
 
 #[derive(Debug, Default, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
@@ -848,24 +967,24 @@ impl Advance {
     pub const fn get_kerning_unscaled(&self) -> i16 { self.kerning }
 
     #[inline]
-    pub fn get_x_advance_total_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
-        self.get_x_advance_total_unscaled() as f32 / units_per_em.get() as f32 * target_font_size
+    pub fn get_x_advance_total_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
+        self.get_x_advance_total_unscaled() as f32 / units_per_em as f32 * target_font_size
     }
     #[inline]
-    pub fn get_x_advance_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
-        self.get_x_advance_unscaled() as f32 / units_per_em.get() as f32 * target_font_size
+    pub fn get_x_advance_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
+        self.get_x_advance_unscaled() as f32 / units_per_em as f32 * target_font_size
     }
     #[inline]
-    pub fn get_x_size_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
-        self.get_x_size_unscaled() as f32 / units_per_em.get() as f32 * target_font_size
+    pub fn get_x_size_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
+        self.get_x_size_unscaled() as f32 / units_per_em as f32 * target_font_size
     }
     #[inline]
-    pub fn get_y_size_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
-        self.get_y_size_unscaled() as f32 / units_per_em.get() as f32 * target_font_size
+    pub fn get_y_size_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
+        self.get_y_size_unscaled() as f32 / units_per_em as f32 * target_font_size
     }
     #[inline]
-    pub fn get_kerning_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
-        self.get_kerning_unscaled() as f32 / units_per_em.get() as f32 * target_font_size
+    pub fn get_kerning_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
+        self.get_kerning_unscaled() as f32 / units_per_em as f32 * target_font_size
     }
 }
 
@@ -874,7 +993,7 @@ impl Advance {
 #[repr(C)]
 pub struct ShapedWord {
     /// Glyph codepoint, glyph ID + kerning data
-    pub glyph_infos: InfoVec,
+    pub glyph_infos: GlyphInfoVec,
     /// The sum of the width of all the characters in this word
     pub word_width: usize,
 }
@@ -886,8 +1005,8 @@ impl_vec_partialord!(ShapedWord, ShapedWordVec);
 impl_vec_debug!(ShapedWord, ShapedWordVec);
 
 impl ShapedWord {
-    pub fn get_word_width(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
-        self.word_width as f32 / units_per_em.get() as f32 * target_font_size
+    pub fn get_word_width(&self, units_per_em: u16, target_font_size: f32) -> f32 {
+        self.word_width as f32 / units_per_em as f32 * target_font_size
     }
     /// Returns the number of glyphs THAT ARE NOT DIACRITIC MARKS
     pub fn number_of_glyphs(&self) -> usize {

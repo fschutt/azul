@@ -1,4 +1,5 @@
 use core::{
+    ops,
     hash::{Hash, Hasher},
     cmp::Ordering,
     sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
@@ -6,7 +7,10 @@ use core::{
 };
 use alloc::vec::Vec;
 use alloc::collections::btree_map::BTreeMap;
-use azul_css::{CssProperty, LayoutSize, U8Vec, ColorU, AzString, LayoutPoint, LayoutRect, CssPath};
+use azul_css::{
+    CssProperty, LayoutSize, U8Vec, ColorU, OptionF32,
+    AzString, LayoutPoint, LayoutRect, CssPath, OptionI32,
+};
 use crate::{
     FastHashMap,
     app_resources::{AppResources, IdNamespace, ResourceUpdate, Epoch},
@@ -312,8 +316,6 @@ pub struct MouseState {
     pub scroll_y: OptionF32,
 }
 
-impl_option!(i32, OptionI32, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-impl_option!(f32, OptionF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 impl_option!(MouseCursorType, OptionMouseCursorType, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 impl_option!(AzString, OptionAzString, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
@@ -1651,6 +1653,15 @@ impl LogicalRect {
         Self { origin, size }
     }
 
+    #[inline(always)]
+    pub fn max_x(&self) -> f32 { self.origin.x + self.size.width }
+    #[inline(always)]
+    pub fn min_x(&self) -> f32 { self.origin.x }
+    #[inline(always)]
+    pub fn max_y(&self) -> f32 { self.origin.y + self.size.height }
+    #[inline(always)]
+    pub fn min_y(&self) -> f32 { self.origin.y }
+
     /// Faster union for a Vec<LayoutRect>
     #[inline]
     pub fn union<I: Iterator<Item=Self>>(mut rects: I) -> Option<Self> {
@@ -1675,6 +1686,26 @@ impl LogicalRect {
             size: LogicalSize { width: max_width, height: max_height },
         })
     }
+
+    /// Same as `contains()`, but returns the (x, y) offset of the hit point
+    ///
+    /// On a regular computer this function takes ~3.2ns to run
+    #[inline]
+    pub const fn hit_test(&self, other: &LogicalPosition) -> Option<LogicalPosition> {
+        let dx_left_edge = other.x - self.min_x();
+        let dx_right_edge = self.max_x() - other.x;
+        let dy_top_edge = other.y - self.min_y();
+        let dy_bottom_edge = self.max_y() - other.y;
+        if dx_left_edge > 0.0 &&
+           dx_right_edge > 0.0 &&
+           dy_top_edge > 0.0 &&
+           dy_bottom_edge > 0.0
+        {
+            Some(LogicalPosition::new(dx_left_edge, dy_top_edge))
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
@@ -1682,6 +1713,30 @@ impl LogicalRect {
 pub struct LogicalPosition {
     pub x: f32,
     pub y: f32,
+}
+
+impl ops::Add for LogicalPosition {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, other: Self) -> Self {
+        Self {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
+    }
+}
+
+impl ops::Sub for LogicalPosition {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, other: Self) -> Self {
+        Self {
+            x: self.x - other.x,
+            y: self.y - other.y,
+        }
+    }
 }
 
 const DECIMAL_MULTIPLIER: f32 = 1000.0;

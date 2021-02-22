@@ -2,6 +2,10 @@
 
 [target.'cfg(all(target_arch="x86_64", target_os="windows"))']
 rustflags = [
-    "-C", "target-feature=+crt-static",
-    "-C", "link-arg=-s",
+    "-Cprefer-dynamic",
+    "-Ctarget-feature=+crt-static",
+    "-Clink-arg=-s",
+    "-Clink-arg=-fuse-ld=lld",
+    "-Zstrip=symbols",
+    "-Zshare-generics=y",
 ]

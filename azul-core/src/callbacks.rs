@@ -13,19 +13,26 @@ use alloc::collections::BTreeMap;
 use std::hash::Hash;
 use azul_css::{
     CssProperty, LayoutPoint, OptionLayoutPoint, AzString, LayoutRect,
-    LayoutSize, CssPath, OptionLayoutRect
+    LayoutSize, CssPath, OptionLayoutRect, OptionU32,
 };
 use crate::{
     FastHashMap,
-    app_resources::{AppResources, IdNamespace, ImageId, Words, ShapedWords, WordPositions, FontInstanceKey},
+    app_resources::{
+        AppResources, ImageSource, IdNamespace, Words, ShapedWords,
+        WordPositions, FontInstanceKey, LayoutedGlyphs
+    },
     styled_dom::StyledDom,
-    ui_solver::{OverflowingScrollNode, LayoutedRectangle, LayoutResult},
+    ui_solver::{
+        OverflowingScrollNode, PositionedRectangle,
+        LayoutedRectangle, LayoutResult
+    },
     styled_dom::{DomId, AzNodeId, AzNodeVec},
-    id_tree::NodeId,
+    dom::ImageMask,
+    id_tree::{NodeId, NodeDataContainer},
     window::{
         WindowSize, WindowState, FullWindowState, LogicalPosition,
         LogicalSize, PhysicalSize, UpdateFocusWarning, WindowCreateOptions,
-        RawWindowHandle, KeyboardState, MouseState,
+        RawWindowHandle, KeyboardState, MouseState, LogicalRect,
     },
     task::{
         Timer, Thread, TimerId, ThreadId, Instant, ExternalSystemCallbacks,
@@ -40,11 +47,11 @@ use crate::gl::{OptionTexture, GlContextPtr, OptionGlContextPtr};
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum UpdateScreen {
     /// The screen does not need to redraw after the callback has been called
-    DoNothing = 0,
+    DoNothing,
     /// After the callback is called, the screen needs to redraw (layout() function being called again)
-    RegenerateStyledDomForCurrentWindow = 1,
+    RegenerateStyledDomForCurrentWindow,
     /// The layout has to be re-calculated for all windows
-    RegenerateStyledDomForAllWindows = 2,
+    RegenerateStyledDomForAllWindows,
 }
 
 #[derive(Debug)]
@@ -53,16 +60,12 @@ pub struct RefCountInner {
     pub num_copies: usize,
     pub num_refs: usize,
     pub num_mutable_refs: usize,
-}
-
-impl RefCountInner {
-    const fn initial() -> Self {
-        Self {
-            num_copies: 1,
-            num_refs: 0,
-            num_mutable_refs: 0,
-        }
-    }
+    pub _internal_len: usize,
+    pub _internal_layout_size: usize,
+    pub _internal_layout_align: usize,
+    pub type_id: u64,
+    pub type_name: AzString,
+    pub custom_destructor: extern "C" fn(*mut c_void),
 }
 
 #[derive(Hash, PartialEq, PartialOrd, Ord, Eq)]
@@ -93,8 +96,8 @@ impl Drop for RefCount {
 
 impl RefCount {
 
-    fn new() -> Self {
-        RefCount { ptr: Box::into_raw(Box::new(RefCountInner::initial())) }
+    fn new(ref_count: RefCountInner) -> Self {
+        RefCount { ptr: Box::into_raw(Box::new(ref_count)) }
     }
     fn downcast(&self) -> &RefCountInner { unsafe { &*self.ptr } }
     fn downcast_mut(&mut self) -> &mut RefCountInner { unsafe { &mut *(self.ptr as *mut RefCountInner) } }
@@ -130,16 +133,14 @@ impl RefCount {
 #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(C)]
 pub struct RefAny {
+    /// void* to a boxed struct or enum of type "T". RefCount stores the RTTI
+    /// for this opaque type (can be downcasted by the user)
     pub _internal_ptr: *const c_void,
-    pub _internal_len: usize,
-    pub _internal_layout_size: usize,
-    pub _internal_layout_align: usize,
-    pub type_id: u64,
     // Special field: in order to avoid cloning the RefAny
     pub is_dead: bool,
-    pub type_name: AzString,
+    /// All the metadata information is set on the refcount, so that the metadata
+    /// has to only be created once per object, not once per copy
     pub sharing_info: RefCount,
-    pub custom_destructor: extern "C" fn(*mut c_void),
 }
 
 impl_option!(RefAny, OptionRefAny, copy = false, clone = false, [Debug, Hash, PartialEq, PartialOrd, Ord, Eq]);
@@ -191,53 +192,37 @@ impl RefAny {
         let heap_struct_as_bytes = unsafe { alloc::alloc::alloc(layout) };
         unsafe { ptr::copy_nonoverlapping(struct_as_bytes.as_ptr(), heap_struct_as_bytes, struct_as_bytes.len()) };
 
-        let s = Self {
-            _internal_ptr: heap_struct_as_bytes as *const c_void,
+        let ref_count_inner = RefCountInner {
+            num_copies: 1,
+            num_refs: 0,
+            num_mutable_refs: 0,
             _internal_len: len,
             _internal_layout_size: layout.size(),
             _internal_layout_align: layout.align(),
             type_id,
-            is_dead: true, // NOTE: default set to true - the RefAny is not alive until "copy_into_library_memory" has been called!
             type_name,
-            sharing_info: RefCount::new(),
             custom_destructor: unsafe { core::mem::transmute(custom_destructor) }, // fn(&mut c_void) and fn(*mut c_void) are the same
         };
 
-        s
+        Self {
+            _internal_ptr: heap_struct_as_bytes as *const c_void,
+            is_dead: true, // NOTE: default set to true - the RefAny is not alive until "copy_into_library_memory" has been called!
+            sharing_info: RefCount::new(ref_count_inner),
+        }
     }
 
     // In order to be able to modify the RefAny itself
     pub fn clone_into_library_memory(&mut self) -> Self {
         self.sharing_info.downcast_mut().num_copies += 1; // bump refcount
-        if self.is_dead {
-            Self {
-                _internal_ptr: self._internal_ptr,
-                _internal_len: self._internal_len,
-                _internal_layout_size: self._internal_layout_size,
-                _internal_layout_align: self._internal_layout_align,
-                type_id: self.type_id,
-                is_dead: false, // <- sets the liveness of the pointer to false
-                type_name: self.type_name.clone(),
-                sharing_info: self.sharing_info.clone(),
-                custom_destructor: self.custom_destructor,
-            }
-        } else {
-            Self {
-                _internal_ptr: self._internal_ptr,
-                _internal_len: self._internal_len,
-                _internal_layout_size: self._internal_layout_size,
-                _internal_layout_align: self._internal_layout_align,
-                type_id: self.type_id,
-                is_dead: self.is_dead,
-                type_name: self.type_name.clone(),
-                sharing_info: self.sharing_info.clone(),
-                custom_destructor: self.custom_destructor,
-            }
+        Self {
+            _internal_ptr: self._internal_ptr,
+            is_dead: false, // <- sets the "liveness" of the pointer to false
+            sharing_info: self.sharing_info.clone(),
         }
     }
 
     pub fn is_type(&self, type_id: u64) -> bool {
-        self.type_id == type_id
+        self.sharing_info.downcast().type_id == type_id
     }
 
     // Returns the typeid of `T` as a u64 (necessary because `core::any::TypeId` is not C-ABI compatible)
@@ -253,26 +238,38 @@ impl RefAny {
     }
 
     pub fn get_type_id(&self) -> u64 {
-        self.type_id
+        self.sharing_info.downcast().type_id
     }
 
     pub fn get_type_name(&self) -> AzString {
-        self.type_name.clone()
+        self.sharing_info.downcast().type_name.clone()
     }
 }
 
 impl Drop for RefAny {
     fn drop(&mut self) {
         self.sharing_info.downcast_mut().num_copies -= 1;
+
+        // Important: if the RefAny is dead, do not run the destructor
+        // nor try to access the _internal_ptr!
         if self.is_dead {
             let _ = self.clone_into_library_memory();
-        } else {
-            if self.sharing_info.downcast().num_copies == 0 {
-                // Important: if the RefAny is dead, do not run the destructor
-                // nor try to access the _internal_ptr!
-                (self.custom_destructor)(self._internal_ptr as *mut c_void);
-                unsafe { alloc::alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
-                let _ = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
+        } else if self.sharing_info.downcast().num_copies == 0 {
+
+            let sharing_info = Box::from_raw(self.sharing_info.ptr as *mut RefCountInner);
+            let sharing_info = *sharing_info; // sharing_info itself deallocates here
+
+
+            (sharing_info.custom_destructor)(self._internal_ptr as *mut c_void);
+
+            unsafe {
+                alloc::alloc::dealloc(
+                    self._internal_ptr as *mut u8,
+                    Layout::from_size_align_unchecked(
+                        sharing_info._internal_layout_size,
+                        sharing_info._internal_layout_align
+                    ),
+                );
             }
         }
     }
@@ -498,6 +495,265 @@ impl_callback!(Callback);
 
 impl_option!(Callback, OptionCallback, [Debug, Eq, Copy, Clone, PartialEq, PartialOrd, Ord, Hash]);
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct InlineTextHit {
+    // if the unicode_codepoint is None, it's usually a mark glyph that was hit
+    pub unicode_codepoint: OptionU32, // Option<char>
+
+    // position of the cursor relative to X
+    pub hit_relative_to_inline_text: LogicalPosition,
+    pub hit_relative_to_line: LogicalPosition,
+    pub hit_relative_to_text_content: LogicalPosition,
+    pub hit_relative_to_glyph: LogicalPosition,
+
+    // relative to text
+    pub line_index_relative_to_text: usize,
+    pub word_index_relative_to_text: usize,
+    pub text_content_index_relative_to_text: usize,
+    pub glyph_index_relative_to_text: usize,
+    pub char_index_relative_to_text: usize,
+
+    // relative to line
+    pub word_index_relative_to_line: usize,
+    pub text_content_index_relative_to_line: usize,
+    pub glyph_index_relative_to_line: usize,
+    pub char_index_relative_to_line: usize,
+
+    // relative to text content (word)
+    pub glyph_index_relative_to_word: usize,
+    pub char_index_relative_to_word: usize,
+}
+
+/// inline text so that hit-testing is easier
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct InlineText {
+    pub lines: InlineLineVec, // relative to 0, 0
+    pub bounds: LogicalRect,
+    pub font_size_px: f32,
+    /// NOTE: descender is NEGATIVE (pixels from baseline to font size)
+    pub baseline_descender_px: f32,
+}
+
+impl InlineText {
+
+    /// Returns the final, positioned glyphs from an inline text
+    pub fn get_layouted_glyphs(&self) -> LayoutedGlyphs {
+
+        use crate::display_list::GlyphInstance;
+
+        let default: InlineGlyphVec = Vec::new().into();
+
+        LayoutedGlyphs {
+            glyphs: self.lines
+            .iter()
+            .flat_map(|line| {
+
+                let mut line_origin = line.bounds.origin;  // top left corner of line rect
+                line_origin.y += self.baseline_descender_px;        // bottom left corner - descender is NEGATIVE
+
+                line.words
+                .iter()
+                .flat_map(|word| {
+
+                    let (glyphs, word_origin) = match word {
+                        InlineWord::Tab | InlineWord::Return | InlineWord::Space => (&default, LogicalPosition::zero()),
+                        InlineWord::Word(text_contents) => (&text_contents.glyphs, text_contents.bounds.origin),
+                    };
+
+                    glyphs.iter()
+                    .map(|glyph| {
+                        GlyphInstance {
+                            index: glyph.glyph_index,
+                            point: line_origin + word_origin + glyph.bounds.origin,
+                            size: glyph.bounds.size,
+                        }
+                    })
+                })
+
+            }).collect::<Vec<GlyphInstance>>()
+        }
+    }
+
+    /// Hit tests all glyphs, returns the hit glyphs - note that the result may
+    /// be empty (no glyphs hit), or it may contain more than one result
+    /// (overlapping glyphs - more than one glyph hit)
+    ///
+    /// Usually the result will contain a single `InlineTextHit`
+    pub fn hit_test(&self, position: LogicalPosition) -> Vec<InlineTextHit> {
+
+        let hit_relative_to_inline_text = match self.bounds.hit_test(&position) {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        let mut global_char_hit = 0;
+        let mut global_word_hit = 0;
+        let mut global_glyph_hit = 0;
+        let mut global_text_content_hit = 0;
+
+        // NOTE: this function cannot exit early, since it has to
+        // iterate through all lines
+
+        self.lines
+        .iter() // TODO: par_iter
+        .enumerate()
+        .flat_map(|(line_index, line)| {
+
+            let char_at_line_start = global_char_hit;
+            let word_at_line_start = global_word_hit;
+            let glyph_at_line_start = global_glyph_hit;
+            let text_content_at_line_start = global_text_content_hit;
+
+            line.bounds.hit_test(&hit_relative_to_inline_text)
+            .map(|hit_relative_to_line| {
+
+                line.words
+                .iter() // TODO: par_iter
+                .enumerate()
+                .flat_map(|(word_index, word)| {
+
+                    let char_at_text_content_start = global_char_hit;
+                    let glyph_at_text_content_start = global_glyph_hit;
+
+                    let word_result = word
+                    .get_text_content()
+                    .and_then(|text_content| {
+
+                        text_content.bounds
+                        .hit_test(&hit_relative_to_line)
+                        .map(|hit_relative_to_text_content| {
+
+                            text_content.glyphs
+                            .iter() // TODO: par_iter
+                            .enumerate()
+                            .flat_map(|(glyph_index, glyph)| {
+
+                                let result = glyph.bounds
+                                .hit_test(&hit_relative_to_text_content)
+                                .map(|hit_relative_to_glyph| {
+                                    InlineTextHit {
+                                        unicode_codepoint: glyph.unicode_codepoint,
+
+                                        hit_relative_to_inline_text,
+                                        hit_relative_to_line,
+                                        hit_relative_to_text_content,
+                                        hit_relative_to_glyph,
+
+                                        line_index_relative_to_text: line_index,
+                                        word_index_relative_to_text: global_word_hit,
+                                        text_content_index_relative_to_text: global_text_content_hit,
+                                        glyph_index_relative_to_text: global_glyph_hit,
+                                        char_index_relative_to_text: global_char_hit,
+
+                                        word_index_relative_to_line: global_word_hit - word_at_line_start,
+                                        text_content_index_relative_to_line: global_text_content_hit - text_content_at_line_start,
+                                        glyph_index_relative_to_line: global_glyph_hit - glyph_at_line_start,
+                                        char_index_relative_to_line: global_char_hit - char_at_line_start,
+
+                                        glyph_index_relative_to_word: global_glyph_hit - glyph_at_text_content_start,
+                                        char_index_relative_to_word: global_char_hit - char_at_text_content_start,
+                                    }
+                                });
+
+                                if glyph.has_codepoint() {
+                                    global_char_hit += 1;
+                                }
+
+                                global_glyph_hit += 1;
+
+                                result
+                            })
+                            .collect::<Vec<_>>()
+                        })
+                    }).unwrap_or_default();
+
+                    if word.has_text_content() {
+                        global_text_content_hit += 1;
+                    }
+
+                    global_word_hit += 1;
+
+                    word_result.into_iter()
+                })
+                .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+            .into_iter()
+
+        })
+        .collect::<Vec<_>>()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct InlineLine {
+    pub words: InlineWordVec,
+    pub bounds: LogicalRect,
+}
+
+impl_vec!(InlineLine, InlineLineVec, InlineLineVecDestructor);
+impl_vec_clone!(InlineLine, InlineLineVec, InlineLineVecDestructor);
+impl_vec_debug!(InlineLine, InlineLineVec);
+impl_vec_partialeq!(InlineLine, InlineLineVec);
+impl_vec_partialord!(InlineLine, InlineLineVec);
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C, u8)]
+pub enum InlineWord {
+    Tab,
+    Return,
+    Space,
+    Word(InlineTextContents)
+}
+
+impl InlineWord {
+    fn has_text_content(&self) -> bool {
+        self.get_text_content().is_some()
+    }
+    fn get_text_content(&self) -> Option<&InlineTextContents> {
+        match self {
+            InlineWord::Tab | InlineWord::Return | InlineWord::Space => None,
+            InlineWord::Word(tc) => Some(tc),
+        }
+    }
+}
+
+impl_vec!(InlineWord, InlineWordVec, InlineWordVecDestructor);
+impl_vec_clone!(InlineWord, InlineWordVec, InlineWordVecDestructor);
+impl_vec_debug!(InlineWord, InlineWordVec);
+impl_vec_partialeq!(InlineWord, InlineWordVec);
+impl_vec_partialord!(InlineWord, InlineWordVec);
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct InlineTextContents {
+    pub glyphs: InlineGlyphVec,
+    pub bounds: LogicalRect,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct InlineGlyph {
+    pub bounds: LogicalRect,
+    pub unicode_codepoint: OptionU32,
+    pub glyph_index: u32,
+}
+
+impl InlineGlyph {
+    pub fn has_codepoint(&self) -> bool {
+        self.unicode_codepoint.is_some()
+    }
+}
+
+impl_vec!(InlineGlyph, InlineGlyphVec, InlineGlyphVecDestructor);
+impl_vec_clone!(InlineGlyph, InlineGlyphVec, InlineGlyphVecDestructor);
+impl_vec_debug!(InlineGlyph, InlineGlyphVec);
+impl_vec_partialeq!(InlineGlyph, InlineGlyphVec);
+impl_vec_partialord!(InlineGlyph, InlineGlyphVec);
+
 /// Information about the callback that is passed to the callback whenever a callback is invoked
 #[derive(Debug)]
 #[repr(C)]
@@ -533,10 +789,13 @@ pub struct CallbackInfo {
     words_cache: *const BTreeMap<NodeId, Words>,
     shaped_words_cache: *const BTreeMap<NodeId, ShapedWords>,
     positioned_words_cache: *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+    positioned_rects: *const NodeDataContainer<PositionedRectangle>,
     /// Mutable reference to a list of words / text items that were changed in the callback
-    words_changed_in_callbacks: *mut BTreeMap<NodeId, *mut AzString>,
+    words_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
     /// Mutable reference to a list of images that were changed in the callback
-    images_changed_in_callbacks: *mut BTreeMap<NodeId, ImageId>,
+    images_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, ImageSource>>,
+    /// Mutable reference to a list of image clip masks that were changed in the callback
+    image_masks_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     /// Mutable reference to a list of CSS property changes, so that the callbacks can change CSS properties
     css_properties_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
     /// Immutable (!) reference to where the nodes are currently scrolled (current position)
@@ -571,11 +830,16 @@ impl CallbackInfo {
        current_window_handle: &'a RawWindowHandle,
        node_hierarchy: &'a AzNodeVec,
        system_callbacks: &'a ExternalSystemCallbacks,
+       words_cache: &'a BTreeMap<NodeId, Words>,
+       shaped_words_cache: &'a BTreeMap<NodeId, ShapedWords>,
+       positioned_words_cache: &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+       positioned_rects: &'a NodeDataContainer<PositionedRectangle>,
        dataset_map: &'a mut BTreeMap<NodeId, &'b mut RefAny>,
        stop_propagation: &'a mut bool,
        focus_target: &'a mut Option<FocusTarget>,
-       words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, String>>,
-       images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageId>>,
+       words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
+       images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageSource>>,
+       image_masks_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
        css_properties_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
        current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
        nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
@@ -593,12 +857,17 @@ impl CallbackInfo {
             new_windows: new_windows as *mut Vec<WindowCreateOptions>,
             current_window_handle: current_window_handle as *const RawWindowHandle,
             system_callbacks: system_callbacks as *const ExternalSystemCallbacks,
+            words_cache: words_cache as *const BTreeMap<NodeId, Words>,
+            shaped_words_cache: shaped_words_cache as *const BTreeMap<NodeId, ShapedWords>,
+            positioned_words_cache: positioned_words_cache as *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+            positioned_rects: positioned_rects as *const NodeDataContainer<PositionedRectangle>,
             node_hierarchy: node_hierarchy as *const AzNodeVec,
             dataset_map: dataset_map as *mut BTreeMap<NodeId, &'b mut RefAny> as *mut BTreeMap<NodeId, *mut RefAny>,
             stop_propagation: stop_propagation as *mut bool,
             focus_target: focus_target as *mut Option<FocusTarget>,
-            words_changed_in_callbacks: words_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, String>>,
-            images_changed_in_callbacks: images_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageId>>,
+            words_changed_in_callbacks: words_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
+            images_changed_in_callbacks: images_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageSource>>,
+            image_masks_changed_in_callbacks: image_masks_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
             css_properties_changed_in_callbacks: css_properties_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
             current_scroll_states: current_scroll_states as *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
             nodes_scrolled_in_callback: nodes_scrolled_in_callback as *mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
@@ -612,22 +881,30 @@ impl CallbackInfo {
     fn internal_get_modifiable_window_state<'a>(&'a mut self)-> &'a mut WindowState { unsafe { &mut *self.modifiable_window_state } }
     #[cfg(feature = "opengl")]
     fn internal_get_gl_context<'a>(&'a self) -> &'a GlContextPtr { unsafe { &*self.gl_context } }
-    fn internal_get_resources<'a>(&'a self) -> &'a mut AppResources { unsafe { &mut *self.resources } }
-    fn internal_get_timers<'a>(&'a self) -> &'a mut FastHashMap<TimerId, Timer> { unsafe { &mut *self.timers } }
-    fn internal_get_threads<'a>(&'a self) -> &'a mut FastHashMap<ThreadId, Thread> { unsafe { &mut *self.threads } }
-    fn internal_get_new_windows<'a>(&'a self) -> &'a mut Vec<WindowCreateOptions> { unsafe { &mut *self.new_windows } }
-    fn internal_get_current_window_handle<'a>(&'a self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
+    fn internal_get_resources<'a>(&'a mut self) -> &'a mut AppResources { unsafe { &mut *self.resources } }
+    fn internal_get_timers<'a>(&'a mut self) -> &'a mut FastHashMap<TimerId, Timer> { unsafe { &mut *self.timers } }
+    fn internal_get_threads<'a>(&'a mut self) -> &'a mut FastHashMap<ThreadId, Thread> { unsafe { &mut *self.threads } }
+    fn internal_get_new_windows<'a>(&'a mut self) -> &'a mut Vec<WindowCreateOptions> { unsafe { &mut *self.new_windows } }
+    fn internal_get_current_window_handle<'a>(&'a mut self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
     fn internal_get_node_hierarchy<'a>(&'a self) -> &'a AzNodeVec { unsafe { &*self.node_hierarchy } }
     fn internal_get_extern_system_callbacks<'a>(&'a self) -> &'a ExternalSystemCallbacks { unsafe { &*self.system_callbacks } }
-    fn internal_get_dataset_map<'a>(&'a self) -> &'a mut BTreeMap<NodeId, *mut RefAny> { unsafe { &mut *self.dataset_map } }
-    fn internal_get_stop_propagation<'a>(&'a self) -> &'a mut bool { unsafe { &mut *self.stop_propagation } }
-    fn internal_get_focus_target<'a>(&'a self) -> &'a mut Option<FocusTarget> { unsafe { &mut *self.focus_target } }
+    fn internal_get_dataset_map<'a>(&'a mut self) -> &'a mut BTreeMap<NodeId, *mut RefAny> { unsafe { &mut *self.dataset_map } }
+    fn internal_get_stop_propagation<'a>(&'a mut self) -> &'a mut bool { unsafe { &mut *self.stop_propagation } }
+    fn internal_get_focus_target<'a>(&'a mut self) -> &'a mut Option<FocusTarget> { unsafe { &mut *self.focus_target } }
     fn internal_get_current_scroll_states<'a>(&'a self) -> &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>> { unsafe { &*self.current_scroll_states } }
-    fn internal_get_css_properties_changed_in_callbacks<'a>(&'a self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>> { unsafe { &mut *self.css_properties_changed_in_callbacks } }
-    fn internal_get_nodes_scrolled_in_callback<'a>(&'a self) -> &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>> { unsafe { &mut *self.nodes_scrolled_in_callback } }
+    fn internal_get_css_properties_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>> { unsafe { &mut *self.css_properties_changed_in_callbacks } }
+    fn internal_get_nodes_scrolled_in_callback<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>> { unsafe { &mut *self.nodes_scrolled_in_callback } }
     fn internal_get_hit_dom_node<'a>(&'a self) -> DomNodeId { self.hit_dom_node }
     fn internal_get_cursor_relative_to_item<'a>(&'a self) -> OptionLayoutPoint { self.cursor_relative_to_item }
     fn internal_get_cursor_in_viewport<'a>(&'a self) -> OptionLayoutPoint { self.cursor_in_viewport }
+    fn internal_words_changed_in_callbacks<'a>(&'a self) -> &'a BTreeMap<NodeId, Words> { unsafe { &*self.words_cache } }
+    fn internal_get_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, Words> { unsafe { &*self.words_cache } }
+    fn internal_get_shaped_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, ShapedWords> { unsafe { &*self.shaped_words_cache } }
+    fn internal_get_positioned_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)> { unsafe { &*self.positioned_words_cache } }
+    fn internal_get_positioned_rectangles<'a>(&'a self) -> &'a NodeDataContainer<PositionedRectangle> { unsafe { &*self.positioned_rects } }
+    fn internal_get_words_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>> { unsafe { &mut *self.words_changed_in_callbacks } }
+    fn internal_get_images_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageSource>> { unsafe { &mut *self.images_changed_in_callbacks } }
+    fn internal_get_image_masks_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>> { unsafe { &mut *self.image_masks_changed_in_callbacks } }
 
     pub fn get_hit_node(&self) -> DomNodeId { self.internal_get_hit_dom_node() }
     pub fn get_cursor_relative_to_node(&self) -> OptionLayoutPoint { self.internal_get_cursor_relative_to_item() }
@@ -714,7 +991,9 @@ impl CallbackInfo {
         }
     }
 
-    pub fn set_window_state(&mut self, new_state: WindowState) { *self.internal_get_modifiable_window_state() = new_state; }
+    pub fn set_window_state(&mut self, new_state: WindowState) {
+        *self.internal_get_modifiable_window_state() = new_state;
+    }
 
     pub fn set_css_property(&mut self, node_id: DomNodeId, prop: CssProperty) {
         if let Some(nid) = node_id.node.into_crate_internal() {
@@ -730,16 +1009,58 @@ impl CallbackInfo {
         *self.internal_get_focus_target() = Some(target);
     }
 
-    pub fn get_string_contents(&self) -> Option<AzString> {
-
+    pub fn get_string_contents(&self, node_id: DomNodeId) -> Option<AzString> {
+        if node_id.dom != self.get_hit_node().dom {
+            None
+        } else {
+            let nid = node_id.node.into_crate_internal()?;
+            let words = self.internal_get_words_cache().get(&nid)?;
+            Some(words.internal_str.clone())
+        }
     }
 
-    pub fn set_string_contents() -> Option<AzString> {
-
+    pub fn set_string_contents(&mut self, node_id: DomNodeId, new_string_contents: AzString) {
+        if let Some(nid) = node_id.node.into_crate_internal() {
+            self.internal_get_words_changed_in_callbacks()
+            .entry(node_id.dom)
+            .or_insert_with(|| BTreeMap::new())
+            .insert(nid, new_string_contents);
+        }
     }
 
-    pub fn get_inline_text_layout(&self, node_id: DomNodeId) -> Option<InlineTextLayout> {
+    pub fn get_inline_text(&self, node_id: DomNodeId) -> Option<InlineText> {
 
+        if node_id.dom != self.get_hit_node().dom {
+            return None;
+        }
+
+        let nid = node_id.node.into_crate_internal()?;
+
+        let words = self.internal_get_words_cache().get(&nid)?;
+        let shaped_words = self.internal_get_shaped_words_cache().get(&nid)?;
+        let word_positions = self.internal_get_positioned_words_cache().get(&nid)?;
+        let positioned_rectangle = self.internal_get_positioned_rectangles().as_ref().get(nid)?;
+        let (resolved_text_layout_options, inline_text_layout) = positioned_rectangle.resolved_text_layout_options.as_ref()?;
+
+        Some(crate::app_resources::get_inline_text(&word_positions.0, &shaped_words, &inline_text_layout))
+    }
+
+    pub fn exchange_image(&mut self, node_id: DomNodeId, new_image: ImageSource) {
+        if let Some(nid) = node_id.node.into_crate_internal() {
+            self.internal_get_images_changed_in_callbacks()
+            .entry(node_id.dom)
+            .or_insert_with(|| BTreeMap::new())
+            .insert(nid, new_image);
+        }
+    }
+
+    pub fn exchange_image_mask(&mut self, node_id: DomNodeId, new_image_mask: ImageMask) {
+        if let Some(nid) = node_id.node.into_crate_internal() {
+            self.internal_get_image_masks_changed_in_callbacks()
+            .entry(node_id.dom)
+            .or_insert_with(|| BTreeMap::new())
+            .insert(nid, new_image_mask);
+        }
     }
 
     pub fn stop_propagation(&mut self) {
@@ -767,9 +1088,6 @@ impl CallbackInfo {
     // pub fn remove_font_source()
     // pub fn add_image_source()
     // pub fn remove_image_source()
-
-    // pub fn exchange_image_source(old_image_source, new_image_source)
-    // pub fn exchange_image_mask(old_image_mask, new_image_mask)
 }
 
 
@@ -791,28 +1109,44 @@ pub struct GlCallbackInfo {
     #[cfg(feature = "opengl")]
     gl_context: *const GlContextPtr,
     resources: *const AppResources,
+    node_hierarchy: *const AzNodeVec,
+    words_cache: *const BTreeMap<NodeId, Words>,
+    shaped_words_cache: *const BTreeMap<NodeId, ShapedWords>,
+    positioned_words_cache: *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+    positioned_rects: *const NodeDataContainer<PositionedRectangle>,
     bounds: HidpiAdjustedBounds,
 }
 
 #[cfg(feature = "opengl")]
-pub type GlCallbackType = extern "C" fn(&RefAny, GlCallbackInfo) -> GlCallbackReturn;
+pub type GlCallbackType = extern "C" fn(&mut RefAny, GlCallbackInfo) -> GlCallbackReturn;
 
 impl GlCallbackInfo {
+
     #[cfg(feature = "opengl")]
     pub fn new<'a>(
        gl_context: &'a GlContextPtr,
        resources: &'a AppResources,
+       node_hierarchy: &'a AzNodeVec,
+       words_cache: &'a BTreeMap<NodeId, Words>,
+       shaped_words_cache: &'a BTreeMap<NodeId, ShapedWords>,
+       positioned_words_cache: &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+       positioned_rects: &'a NodeDataContainer<PositionedRectangle>,
        bounds: HidpiAdjustedBounds,
     ) -> Self {
         Self {
             gl_context: gl_context as *const GlContextPtr,
             resources: resources as *const AppResources,
-            bounds
+            node_hierarchy: node_hierarchy as *const AzNodeVec,
+            words_cache: words_cache as *const BTreeMap<NodeId, Words>,
+            shaped_words_cache: shaped_words_cache as *const BTreeMap<NodeId, ShapedWords>,
+            positioned_words_cache: positioned_words_cache as *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+            positioned_rects: positioned_rects as *const NodeDataContainer<PositionedRectangle>,
+            bounds,
         }
     }
 
     #[cfg(feature = "opengl")]
-    pub fn get_gl_context(&self) -> GlContextPtr { self.internal_get_gl_context().clone() }
+    pub fn get_gl_context(&self) -> Option<GlContextPtr> { Some(self.internal_get_gl_context().clone()) }
     pub fn get_bounds(&self) -> HidpiAdjustedBounds { self.internal_get_bounds() }
 
     // fn get_font()
@@ -1094,7 +1428,7 @@ impl FocusTarget {
             let max_dom_id = DomId { inner: layout_results.len() - 1 };
 
             // iterate through all DOMs
-            'outer_dom_iter: loop {
+            loop { // 'outer_dom_iter
 
                 let layout_result = $layout_results.get(start_dom_id.inner).ok_or(UpdateFocusWarning::FocusInvalidDomId(start_dom_id.clone()))?;
 
@@ -1133,7 +1467,7 @@ impl FocusTarget {
                         } else {
                             start_dom_id.inner -= 1;
                             start_node_id = NodeId::new($layout_results[start_dom_id.inner].styled_dom.node_data.len() - 1);
-                            continue 'outer_dom_iter;
+                            break; // continue 'outer_dom_iter
                         }
                     } else if current_node_id == max_node_id && current_node_id > start_node_id {
                         // going in increasing (next) direction
@@ -1143,7 +1477,7 @@ impl FocusTarget {
                         } else {
                             start_dom_id.inner += 1;
                             start_node_id = NodeId::ZERO;
-                            continue 'outer_dom_iter;
+                            break; // continue 'outer_dom_iter
                         }
                     } else {
                         start_node_id = current_node_id;

@@ -2,8 +2,8 @@ use core::fmt;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 use azul_css::{
-    LayoutRect, LayoutPoint, LayoutSize, PixelValue, StyleFontSize,
-    StyleTextColor, ColorU as StyleColorU,
+    LayoutRect, LayoutRectVec, LayoutPoint, LayoutSize, PixelValue, StyleFontSize,
+    StyleTextColor, ColorU as StyleColorU, OptionF32,
     StyleTextAlignmentHorz, StyleTextAlignmentVert, LayoutPosition,
     CssPropertyValue, LayoutMarginTop, LayoutMarginRight, LayoutMarginLeft, LayoutMarginBottom,
     LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingBottom,
@@ -15,7 +15,7 @@ use crate::{
     id_tree::{NodeId, NodeDataContainer},
     dom::{DomHash, ScrollTagId},
     callbacks::{PipelineId, HitTestItem, ScrollHitTestItem},
-    window::{ScrollStates, LogicalRect, LogicalSize, OptionF32},
+    window::{ScrollStates, LogicalRect, LogicalSize},
 };
 
 pub const DEFAULT_FONT_SIZE_PX: isize = 16;
@@ -49,6 +49,13 @@ pub struct InlineTextLine {
     pub word_end: usize,
 }
 
+impl_vec!(InlineTextLine, InlineTextLineVec, InlineTextLineVecDestructor);
+impl_vec_clone!(InlineTextLine, InlineTextLineVec, InlineTextLineVecDestructor);
+impl_vec_mut!(InlineTextLine, InlineTextLineVec);
+impl_vec_debug!(InlineTextLine, InlineTextLineVec);
+impl_vec_partialeq!(InlineTextLine, InlineTextLineVec);
+impl_vec_partialord!(InlineTextLine, InlineTextLineVec);
+
 impl InlineTextLine {
     pub const fn new(bounds: LogicalRect, word_start: usize, word_end: usize) -> Self {
         Self { bounds, word_start, word_end }
@@ -58,41 +65,40 @@ impl InlineTextLine {
 impl InlineTextLayout {
 
     pub fn get_leading(&self) -> f32 {
-        match self.lines.first() {
+        match self.lines.as_ref().first() {
             None => 0.0,
             Some(s) => s.bounds.origin.x as f32,
         }
     }
 
     pub fn get_trailing(&self) -> f32 {
-        match self.lines.first() {
+        match self.lines.as_ref().first() {
             None => 0.0,
             Some(s) => (s.bounds.origin.x + s.bounds.size.width) as f32,
         }
     }
 
     pub const fn new(lines: Vec<InlineTextLine>) -> Self {
-        Self { lines }
+        Self { lines: lines.into() }
     }
 
     #[inline]
     #[must_use = "get_bounds calls union(self.lines) and is expensive to call"]
-    pub fn get_bounds(&self) -> LayoutRect {
+    pub fn get_bounds(&self) -> Option<LayoutRect> {
         // because of sub-pixel text positioning, calculating the bound has to be done using floating point
-        match LogicalRect::union(self.lines.iter().map(|c| c.bounds)) {
-            Some(s) => LayoutRect {
+        LogicalRect::union(self.lines.as_ref().iter().map(|c| c.bounds)).map(|s| {
+            LayoutRect {
                 origin: LayoutPoint::new(libm::floorf(s.origin.x) as isize, libm::floorf(s.origin.y) as isize),
                 size: LayoutSize::new(libm::ceilf(s.size.width) as isize, libm::ceilf(s.size.height) as isize),
-            },
-            None => LayoutRect::zero(),
-        }
+            }
+        })
     }
 
     #[must_use = "function is expensive to call since it iterates + collects over self.lines"]
     pub fn get_children_horizontal_diff_to_right_edge(&self, parent: &LayoutRect) -> Vec<f32> {
         let parent_right_edge = (parent.origin.x + parent.size.width) as f32;
         let parent_left_edge = parent.origin.x as f32;
-        self.lines.iter().map(|line| {
+        self.lines.as_ref().iter().map(|line| {
             let child_right_edge = line.bounds.origin.x + line.bounds.size.width;
             let child_left_edge = line.bounds.origin.x;
             ((child_left_edge - parent_left_edge) + (parent_right_edge - child_right_edge)) as f32
@@ -105,10 +111,10 @@ impl InlineTextLayout {
             None =>  return,
             Some(s) => s,
         };
-        let self_bounds = self.get_bounds();
+        let self_bounds = match self.get_bounds() { Some(s) => s, None => { return; }, };
         let horz_diff = self.get_children_horizontal_diff_to_right_edge(&self_bounds);
 
-        for (line, shift) in self.lines.iter_mut().zip(horz_diff.into_iter()) {
+        for (line, shift) in self.lines.as_mut().iter_mut().zip(horz_diff.into_iter()) {
             line.bounds.origin.x += shift * shift_multiplier;
         }
     }
@@ -121,12 +127,12 @@ impl InlineTextLayout {
             Some(s) => s,
         };
 
-        let self_bounds = self.get_bounds();
+        let self_bounds = match self.get_bounds() { Some(s) => s, None => { return; }, };
         let child_bottom_edge = (self_bounds.origin.y + self_bounds.size.height) as f32;
         let child_top_edge = self_bounds.origin.y as f32;
         let shift = child_top_edge + (parent_size.height - child_bottom_edge);
 
-        for line in self.lines.iter_mut() {
+        for line in self.lines.as_mut().iter_mut() {
             line.bounds.origin.y += shift * shift_multiplier;
         }
     }
