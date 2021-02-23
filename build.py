@@ -398,7 +398,25 @@ def generate_rust_dll(api_data):
     structs_map = {}
     functions_map = {}
 
-    code += read_file(root_folder + "/api/_patches/azul-dll/header.rs")
+    code += """
+        extern crate azul_core;
+
+        #[cfg(target_arch = "wasm32")]
+        extern crate azul_web as azul_impl;
+        #[cfg(not(target_arch = "wasm32"))]
+        extern crate azul_desktop as azul_impl;
+
+        use core::ffi::c_void;
+        use azul_impl::{
+            css::{self, *},
+            callbacks::RefAny,
+            window::{WindowCreateOptions, WindowState},
+            resources::{RawImage, AppConfig, FontId, ImageId},
+            app::App,
+            task::{Timer, TimerId},
+            gl::TextureFlags,
+        };
+    """
 
     for module_name in api_data.keys():
         module = api_data[module_name]["classes"]
@@ -844,22 +862,15 @@ def generate_structs(api_data, structs_map, autoderive):
 def generate_rust_dll_bindings(api_data, structs_map, functions_map):
 
     code = ""
-    code += "    use core::ffi::c_void;\r\n\r\n"
 
     code += read_file(root_folder + "/api/_patches/azul.rs/dll.rs")
 
     code += "    #[cfg(not(feature = \"link_static\"))]"
-    code += "    mod __structs {\r\n"
+    code += "    mod dynamic_link {\r\n"
+    code += "    use core::ffi::c_void;\r\n\r\n"
+
     code += generate_structs(api_data, structs_map, True)
-    code += "    }\r\n\r\n"
-    code += "    #[cfg(not(feature = \"link_static\"))]"
-    code += "    pub use self::structs::*;\r\n"
 
-
-    code += "\r\n"
-    code += "\r\n"
-
-    code += "    #[cfg(not(feature = \"link_static\"))]\r\n"
     code += "    #[cfg_attr(target_os = \"windows\", link(name=\"azul.dll\"))] // https://github.com/rust-lang/cargo/issues/9082\r\n"
     code += "    #[cfg_attr(not(target_os = \"windows\"), link(name=\"azul\"))] // https://github.com/rust-lang/cargo/issues/9082\r\n"
     code += "    extern \"C\" {\r\n"
@@ -873,10 +884,21 @@ def generate_rust_dll_bindings(api_data, structs_map, functions_map):
 
     code += "    }\r\n\r\n"
 
-    code += "    #[cfg(not(feature = \"link_static\"))] {\r\n"
+    code += "    }\r\n\r\n"
+    code += "    #[cfg(not(feature = \"link_static\"))]"
+    code += "    pub use self::dynamic_link::*;\r\n"
+
+
+    code += "\r\n"
+    code += "\r\n"
+
+    code += "    #[cfg(feature = \"link_static\")]"
+    code += "    mod static_link {\r\n"
     code += "        extern crate azul_dll;\r\n"
     code += "        use azul_dll::*;\r\n"
     code += "    }\r\n\r\n"
+    code += "    #[cfg(feature = \"link_static\")]\r\n"
+    code += "    pub use self::static_link::*;\r\n"
 
     return code
 
@@ -1131,6 +1153,7 @@ def generate_size_test(api_data, structs_map):
     test_str = ""
 
     test_str += "#[cfg(test)]\r\n"
+    test_str += "#[allow(dead_code)]\r\n"
     test_str += "mod test_sizes {\r\n"
 
     test_str += read_file(root_folder + "/api/_patches/azul-dll/test-sizes.rs")
@@ -1226,11 +1249,11 @@ def build_examples():
         # "layout_tests",
         # "list",
         # "opengl",
-        # "public",
+        "public",
         # "heap_corruption_test",
         # "slider",
         # "svg",
-        "table",
+        # "table",
         # "text_input",
     ]
     for e in examples:
@@ -1274,7 +1297,7 @@ def main():
     print("checking azul-dll for struct size integrity...")
     run_size_test()
     print("building examples...")
-    # build_examples()
+    build_examples()
     print("building docs (output_dir = /target/doc)...")
     # build_docs()
     # release_on_cargo()

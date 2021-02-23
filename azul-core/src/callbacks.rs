@@ -59,9 +59,6 @@ pub struct RefCountInner {
     pub num_copies: usize,
     pub num_refs: usize,
     pub num_mutable_refs: usize,
-    /// void* to a boxed struct or enum of type "T". RefCount stores the RTTI
-    /// for this opaque type (can be downcasted by the user)
-    pub _internal_ptr: *const c_void,
     pub _internal_len: usize,
     pub _internal_layout_size: usize,
     pub _internal_layout_align: usize,
@@ -135,6 +132,9 @@ impl RefCount {
 #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(C)]
 pub struct RefAny {
+    /// void* to a boxed struct or enum of type "T". RefCount stores the RTTI
+    /// for this opaque type (can be downcasted by the user)
+    pub _internal_ptr: *const c_void,
     // Special field: in order to avoid cloning the RefAny
     pub is_dead: bool,
     /// All the metadata information is set on the refcount, so that the metadata
@@ -196,7 +196,6 @@ impl RefAny {
             num_refs: 0,
             num_mutable_refs: 0,
             _internal_len: len,
-            _internal_ptr: heap_struct_as_bytes as *const c_void,
             _internal_layout_size: layout.size(),
             _internal_layout_align: layout.align(),
             type_id,
@@ -205,6 +204,7 @@ impl RefAny {
         };
 
         Self {
+            _internal_ptr: heap_struct_as_bytes as *const c_void,
             is_dead: true, // NOTE: default set to true - the RefAny is not alive until "copy_into_library_memory" has been called!
             sharing_info: RefCount::new(ref_count_inner),
         }
@@ -214,6 +214,7 @@ impl RefAny {
     pub fn clone_into_library_memory(&mut self) -> Self {
         self.sharing_info.downcast_mut().num_copies += 1; // bump refcount
         Self {
+            _internal_ptr: self._internal_ptr,
             is_dead: false, // <- sets the "liveness" of the pointer to false
             sharing_info: self.sharing_info.clone(),
         }
@@ -257,11 +258,11 @@ impl Drop for RefAny {
             let sharing_info = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
             let sharing_info = *sharing_info; // sharing_info itself deallocates here
 
-            (sharing_info.custom_destructor)(sharing_info._internal_ptr as *mut c_void);
+            (sharing_info.custom_destructor)(self._internal_ptr as *mut c_void);
 
             unsafe {
                 alloc::alloc::dealloc(
-                    sharing_info._internal_ptr as *mut u8,
+                    self._internal_ptr as *mut u8,
                     Layout::from_size_align_unchecked(
                         sharing_info._internal_layout_size,
                         sharing_info._internal_layout_align

@@ -41,8 +41,6 @@ pub mod prelude {
 }
 
 mod dll {
-    use core::ffi::c_void;
-
     impl AzString {
         #[inline]
         pub fn as_str(&self) -> &str {
@@ -60,40 +58,26 @@ mod dll {
     impl ::core::fmt::Debug for AzIFrameCallback             { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::core::fmt::Debug for AzTimerCallback              { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::core::fmt::Debug for AzWriteBackCallback          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    impl ::core::fmt::Debug for AzRefAny                     {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            write!(f, "RefAny {{\r\n")?;
-            write!(f, "    is_dead: {:?}\r\n", &self.is_dead)?;
-            write!(f, "    sharing_info: {:?}\r\n", &self.sharing_info)?;
-            write!(f, "}}\r\n")?;
-            Ok(())
-        }
-    }
-
-    impl PartialEq for AzCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    impl PartialEq for AzLayoutCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    impl PartialEq for AzGlCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    impl PartialEq for AzIFrameCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    impl PartialEq for AzTimerCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    impl PartialEq for AzWriteBackCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    impl PartialEq for AzRefAny { fn eq(&self, rhs: &Self) -> bool { (self._internal_ptr as usize).eq(&(rhs._internal_ptr as usize)) } }
-
-    impl PartialOrd for AzCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    impl PartialOrd for AzLayoutCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    impl PartialOrd for AzGlCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    impl PartialOrd for AzIFrameCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    impl PartialOrd for AzTimerCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    impl PartialOrd for AzWriteBackCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    impl PartialOrd for AzRefAny { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self._internal_ptr as usize).partial_cmp(&(rhs._internal_ptr as usize)) } }
+    impl ::core::fmt::Debug for AzThreadDestructorFn         { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzLibraryReceiveThreadMsgFn  { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzLibrarySendThreadMsgFn     { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzCheckThreadFinishedFn      { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzGetSystemTimeFn            { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzCreateThreadFn             { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzThreadRecvFn               { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzThreadReceiverDestructorFn { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzThreadSenderDestructorFn   { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzInstantPtrDestructorFn     { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzInstantPtrCloneFn          { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzThreadSendFn               { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
 
     impl ::core::fmt::Debug for AzRefCount {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
             let ptr = unsafe { &*self.ptr };
             write!(f, "RefAnyRefCount {{\r\n")?;
             write!(f, "    num_copies: {}\r\n", ptr.num_copies)?;
             write!(f, "    num_refs: {}\r\n", ptr.num_refs)?;
             write!(f, "    num_mutable_refs: {}\r\n", ptr.num_mutable_refs)?;
-            write!(f, "    _internal_ptr: 0x{:x}\r\n", ptr._internal_ptr as usize)?;
             write!(f, "    _internal_len: {}\r\n", ptr._internal_len)?;
             write!(f, "    _internal_layout_size: {}\r\n", ptr._internal_layout_size)?;
             write!(f, "    _internal_layout_align: {}\r\n", ptr._internal_layout_align)?;
@@ -105,7 +89,78 @@ mod dll {
         }
     }
 
-    #[cfg(not(feature = "link_static"))]    mod __structs {
+    impl PartialEq for AzCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzLayoutCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzGlCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzIFrameCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzTimerCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzWriteBackCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzThreadDestructorFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzLibraryReceiveThreadMsgFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzLibrarySendThreadMsgFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzCheckThreadFinishedFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzGetSystemTimeFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzCreateThreadFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzThreadRecvFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzThreadReceiverDestructorFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzThreadSenderDestructorFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzInstantPtrDestructorFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzInstantPtrCloneFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzThreadSendFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+
+    impl PartialEq for AzRefCountInner {
+        fn eq(&self, rhs: &Self) -> bool {
+            (self.num_copies).eq(&rhs.num_copies) &&
+            (self.num_refs).eq(&rhs.num_refs) &&
+            (self.num_mutable_refs).eq(&(rhs.num_mutable_refs)) &&
+            (self.type_id).eq(&rhs.type_id)
+        }
+    }
+
+    impl PartialEq for AzRefCount {
+        fn eq(&self, rhs: &Self) -> bool {
+            let ptr = unsafe { &*self.ptr };
+            let rhs = unsafe { &*rhs.ptr };
+            ptr.eq(rhs)
+        }
+    }
+
+    impl PartialOrd for AzCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzLayoutCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzGlCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzIFrameCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzTimerCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzWriteBackCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzThreadDestructorFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzLibraryReceiveThreadMsgFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzLibrarySendThreadMsgFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzCheckThreadFinishedFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzGetSystemTimeFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzCreateThreadFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzThreadRecvFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzThreadReceiverDestructorFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzThreadSenderDestructorFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzInstantPtrDestructorFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzInstantPtrCloneFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzThreadSendFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+
+    impl PartialOrd for AzRefCountInner {
+        fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> {
+            (self.type_id).partial_cmp(&rhs.type_id)
+        }
+    }
+
+    impl PartialOrd for AzRefCount {
+        fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> {
+            let ptr = unsafe { &*self.ptr };
+            let rhs = unsafe { &*rhs.ptr };
+            ptr.partial_cmp(rhs)
+        }
+    }
+
+    #[cfg(not(feature = "link_static"))]    mod dynamic_link {
+    use core::ffi::c_void;
+
     /// `AzDomVecDestructorType` struct
     pub type AzDomVecDestructorType = extern "C" fn(&mut AzDomVec);
     /// `AzIdOrClassVecDestructorType` struct
@@ -233,6 +288,7 @@ mod dll {
     }
     /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRefAny {
+        pub _internal_ptr: *const c_void,
         pub is_dead: bool,
         pub sharing_info: AzRefCount,
     }
@@ -2964,7 +3020,6 @@ mod dll {
         pub num_copies: usize,
         pub num_refs: usize,
         pub num_mutable_refs: usize,
-        pub _internal_ptr: *const c_void,
         pub _internal_len: usize,
         pub _internal_layout_size: usize,
         pub _internal_layout_align: usize,
@@ -3886,12 +3941,6 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzCss {
         pub stylesheets: AzStylesheetVec,
     }
-    }
-
-    #[cfg(not(feature = "link_static"))]    pub use self::structs::*;
-
-
-    #[cfg(not(feature = "link_static"))]
     #[cfg_attr(target_os = "windows", link(name="azul.dll"))] // https://github.com/rust-lang/cargo/issues/9082
     #[cfg_attr(not(target_os = "windows"), link(name="azul"))] // https://github.com/rust-lang/cargo/issues/9082
     extern "C" {
@@ -3963,6 +4012,7 @@ mod dll {
         pub(crate) fn az_callback_info_create_window(_:  &mut AzCallbackInfo, _:  AzWindowCreateOptions);
         pub(crate) fn az_callback_info_start_thread(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallbackType);
         pub(crate) fn az_callback_info_start_timer(_:  &mut AzCallbackInfo, _:  AzTimerId, _:  AzTimer);
+        pub(crate) fn az_i_frame_callback_info_get_bounds(_:  &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds;
         pub(crate) fn az_gl_callback_info_get_gl_context(_:  &AzGlCallbackInfo) -> AzOptionGlContextPtr;
         pub(crate) fn az_gl_callback_info_get_bounds(_:  &AzGlCallbackInfo) -> AzHidpiAdjustedBounds;
         pub(crate) fn az_ref_count_can_be_shared(_:  &AzRefCount) -> bool;
@@ -4244,11 +4294,18 @@ mod dll {
         pub(crate) fn az_window_create_options_default() -> AzWindowCreateOptions;
     }
 
-    #[cfg(not(feature = "link_static"))] {
+    }
+
+    #[cfg(not(feature = "link_static"))]    pub use self::dynamic_link::*;
+
+
+    #[cfg(feature = "link_static")]    mod static_link {
         extern crate azul_dll;
         use azul_dll::*;
     }
 
+    #[cfg(feature = "link_static")]
+    pub use self::static_link::*;
 }
 
 pub mod str {
@@ -5590,6 +5647,11 @@ pub mod callbacks {
     /// `IFrameCallbackInfo` struct
     
 #[doc(inline)] pub use crate::dll::AzIFrameCallbackInfo as IFrameCallbackInfo;
+    impl IFrameCallbackInfo {
+        /// Returns a copy of the internal `HidpiAdjustedBounds`
+        pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { unsafe { crate::dll::az_i_frame_callback_info_get_bounds(self) } }
+    }
+
     /// `IFrameCallbackReturn` struct
     
 #[doc(inline)] pub use crate::dll::AzIFrameCallbackReturn as IFrameCallbackReturn;

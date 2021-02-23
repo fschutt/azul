@@ -2035,7 +2035,17 @@
 					"struct_fields": [
 						{"resources": {"type": "*const c_void"}},
 						{"bounds": {"type": "HidpiAdjustedBounds"}}
-					]
+					],
+					"functions": {
+						"get_bounds": {
+							"doc": "Returns a copy of the internal `HidpiAdjustedBounds`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "HidpiAdjustedBounds",
+							"fn_body": "iframecallbackinfo.get_bounds()"
+						}
+					}
 				},
 				"IFrameCallbackReturn": {
 					"external": "azul_impl::callbacks::IFrameCallbackReturn",
@@ -2175,7 +2185,6 @@
 						{"num_copies": {"type": "usize"}},
 						{"num_refs": {"type": "usize"}},
 						{"num_mutable_refs": {"type": "usize"}},
-						{"_internal_ptr":  {"type": "*const c_void", "doc": "Pointer to the type-erased struct"}},
 						{"_internal_len":  {"type": "usize", "doc": "Length of Vec holding type-erased struct"}},
 						{"_internal_layout_size":  {"type": "usize", "doc": "Size of the type-erased struct"}},
 						{"_internal_layout_align":  {"type": "usize", "doc": "Alignment of the type-erased struct (usually 0 or 8)"}},
@@ -2237,6 +2246,7 @@
 					"is_boxed_object": true,
 					"clone": false,
 					"struct_fields": [
+						{"_internal_ptr":  {"type": "*const c_void", "doc": "Pointer to the type-erased struct"}},
 						{"is_dead":  {"type": "bool", "doc": "Field to check if the pointer is dead (TRUE BY DEFAULT!)"}},
 						{"sharing_info":  {"type": "RefCount", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}}
 					],
