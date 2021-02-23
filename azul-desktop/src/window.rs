@@ -710,7 +710,6 @@ impl Window {
             &self.internal.layout_results,
             &self.internal.gl_texture_cache,
             app_resources,
-            crate::text_layout::get_layouted_glyphs,
         );
 
         let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id);

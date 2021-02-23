@@ -236,6 +236,10 @@ fn run_inner(app: App) -> ! {
                 let mut stop_propagation = false;
                 let mut focus_target = None; // TODO: useful to implement autofocus
                 let scroll_states = window.internal.get_current_scroll_states();
+
+                let mut words_changed = BTreeMap::new();
+                let mut images_changed = BTreeMap::new();
+                let mut image_masks_changed = BTreeMap::new();
                 let mut css_properties_changed = BTreeMap::new();
                 let mut nodes_scrolled_in_callback = BTreeMap::new();
 
@@ -257,11 +261,18 @@ fn run_inner(app: App) -> ! {
                     &window_handle,
                     &layout_result.styled_dom.node_hierarchy,
                     &config.system_callbacks,
+                    &layout_result.words_cache,
+                    &layout_result.shaped_words_cache,
+                    &layout_result.positioned_words_cache,
+                    &layout_result.rects,
                     &mut datasets.1,
                     &mut stop_propagation,
                     &mut focus_target,
-                    &scroll_states,
+                    &mut words_changed,
+                    &mut images_changed,
+                    &mut image_masks_changed,
                     &mut css_properties_changed,
+                    &scroll_states,
                     &mut nodes_scrolled_in_callback,
                     DomNodeId::ROOT,
                     None.into(),
@@ -320,11 +331,16 @@ fn run_inner(app: App) -> ! {
                         None => continue,
                     };
 
+                    let mut words_changed_in_timers = BTreeMap::new();
+                    let mut images_changed_in_timers = BTreeMap::new();
+                    let mut image_masks_changed_in_timers = BTreeMap::new();
                     let mut css_properties_changed_in_timers = BTreeMap::new();
+
                     let mut nodes_scrolled_in_timers = BTreeMap::new();
                     let mut new_focus_node = None;
                     let mut new_timers = BTreeMap::new();
                     let mut modifiable_window_state = window.internal.current_window_state.clone().into();
+
                     let mut cur_threads = threads.get_mut(window_id).unwrap();
                     let current_scroll_states = window.internal.get_current_scroll_states();
 
@@ -346,14 +362,17 @@ fn run_inner(app: App) -> ! {
                         &mut window.internal.layout_results,
                         &mut false, // stop_propagation - can't be set in timer
                         &mut new_focus_node,
-                        &current_scroll_states,
+                        &mut words_changed_in_timers,
+                        &mut images_changed_in_timers,
+                        &mut image_masks_changed_in_timers,
                         &mut css_properties_changed_in_timers,
+                        &current_scroll_states,
                         &mut nodes_scrolled_in_timers,
                     );
 
                     match update_screen_timers {
                         UpdateScreen::DoNothing => {
-                            let new_focus_node = new_focus_node.and_then(|ft| ft.resolve(&window.internal.layout_results).ok());
+                            let new_focus_node = new_focus_node.and_then(|ft| ft.resolve(&window.internal.layout_results, window.internal.current_window_state.focused_node).ok());
                             let window_size = window.internal.get_layout_size();
 
                             // re-layouts and re-styles the window.internal.layout_results
@@ -423,7 +442,11 @@ fn run_inner(app: App) -> ! {
                         None => continue,
                     };
 
+                    let mut words_changed_in_threads = BTreeMap::new();
+                    let mut images_changed_in_threads = BTreeMap::new();
+                    let mut image_masks_changed_in_threads = BTreeMap::new();
                     let mut css_properties_changed_in_threads = BTreeMap::new();
+
                     let mut nodes_scrolled_in_threads = BTreeMap::new();
                     let mut new_focus_node = None;
                     let mut modifiable_window_state = window.internal.current_window_state.clone().into();
@@ -447,14 +470,19 @@ fn run_inner(app: App) -> ! {
                         &mut window.internal.layout_results,
                         &mut false, // stop_propagation - can't be set in timer
                         &mut new_focus_node,
-                        &current_scroll_states,
+                        &mut words_changed_in_threads,
+                        &mut images_changed_in_threads,
+                        &mut image_masks_changed_in_threads,
                         &mut css_properties_changed_in_threads,
+                        &current_scroll_states,
                         &mut nodes_scrolled_in_threads,
                     );
 
                     match update_screen_threads {
                         UpdateScreen::DoNothing => {
-                            let new_focus_node = new_focus_node.and_then(|ft| ft.resolve(&window.internal.layout_results).ok());
+                            let new_focus_node = new_focus_node.and_then(|ft| {
+                                ft.resolve(&window.internal.layout_results, window.internal.current_window_state.focused_node).ok()
+                            });
                             let window_size = window.internal.get_layout_size();
 
                             // re-layouts and re-styles the window.internal.layout_results
@@ -709,6 +737,10 @@ fn run_inner(app: App) -> ! {
                     let mut stop_propagation = false;
                     let mut focus_target = None; // TODO: useful to implement autofocus
                     let scroll_states = window.internal.get_current_scroll_states();
+
+                    let mut words_changed = BTreeMap::new();
+                    let mut images_changed = BTreeMap::new();
+                    let mut image_masks_changed = BTreeMap::new();
                     let mut css_properties_changed = BTreeMap::new();
                     let mut nodes_scrolled_in_callback = BTreeMap::new();
 
@@ -730,11 +762,18 @@ fn run_inner(app: App) -> ! {
                         &window_handle,
                         &layout_result.styled_dom.node_hierarchy,
                         &config.system_callbacks,
+                        &layout_result.words_cache,
+                        &layout_result.shaped_words_cache,
+                        &layout_result.positioned_words_cache,
+                        &layout_result.rects,
                         &mut datasets.1,
                         &mut stop_propagation,
                         &mut focus_target,
-                        &scroll_states,
+                        &mut words_changed,
+                        &mut images_changed,
+                        &mut image_masks_changed,
                         &mut css_properties_changed,
+                        &scroll_states,
                         &mut nodes_scrolled_in_callback,
                         DomNodeId::ROOT,
                         None.into(),
@@ -798,6 +837,10 @@ fn run_inner(app: App) -> ! {
                     let mut stop_propagation = false;
                     let mut focus_target = None; // TODO: useful to implement autofocus
                     let scroll_states = window.internal.get_current_scroll_states();
+
+                    let mut words_changed = BTreeMap::new();
+                    let mut images_changed = BTreeMap::new();
+                    let mut image_masks_changed = BTreeMap::new();
                     let mut css_properties_changed = BTreeMap::new();
                     let mut nodes_scrolled_in_callback = BTreeMap::new();
 
@@ -819,11 +862,18 @@ fn run_inner(app: App) -> ! {
                         &window_handle,
                         &layout_result.styled_dom.node_hierarchy,
                         &config.system_callbacks,
+                        &layout_result.words_cache,
+                        &layout_result.shaped_words_cache,
+                        &layout_result.positioned_words_cache,
+                        &layout_result.rects,
                         &mut datasets.1,
                         &mut stop_propagation,
                         &mut focus_target,
-                        &scroll_states,
+                        &mut words_changed,
+                        &mut images_changed,
+                        &mut image_masks_changed,
                         &mut css_properties_changed,
+                        &scroll_states,
                         &mut nodes_scrolled_in_callback,
                         DomNodeId::ROOT,
                         None.into(),
