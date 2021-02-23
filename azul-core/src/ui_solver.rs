@@ -64,6 +64,7 @@ impl InlineTextLine {
 
 impl InlineTextLayout {
 
+    #[inline]
     pub fn get_leading(&self) -> f32 {
         match self.lines.as_ref().first() {
             None => 0.0,
@@ -71,6 +72,7 @@ impl InlineTextLayout {
         }
     }
 
+    #[inline]
     pub fn get_trailing(&self) -> f32 {
         match self.lines.as_ref().first() {
             None => 0.0,
@@ -78,7 +80,8 @@ impl InlineTextLayout {
         }
     }
 
-    pub const fn new(lines: Vec<InlineTextLine>) -> Self {
+    #[inline]
+    pub fn new(lines: Vec<InlineTextLine>) -> Self {
         Self { lines: lines.into() }
     }
 

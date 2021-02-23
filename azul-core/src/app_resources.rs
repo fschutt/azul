@@ -18,7 +18,7 @@ use crate::{
     styled_dom::StyledDom,
     callbacks::{PipelineId, InlineText},
     task::ExternalSystemCallbacks,
-    window::{DebugState, LogicalPosition, LogicalSize},
+    window::{DebugState, LogicalPosition, LogicalSize, LogicalRect},
 };
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
@@ -205,20 +205,20 @@ impl FontMetrics {
             fs_selection: 0,
             us_first_char_index: 0,
             us_last_char_index: 0,
-            s_typo_ascender: None.into(),
-            s_typo_descender: None.into(),
-            s_typo_line_gap: None.into(),
-            us_win_ascent: None.into(),
-            us_win_descent: None.into(),
-            ul_code_page_range1: None.into(),
-            ul_code_page_range2: None.into(),
-            sx_height: None.into(),
-            s_cap_height: None.into(),
-            us_default_char: None.into(),
-            us_break_char: None.into(),
-            us_max_context: None.into(),
-            us_lower_optical_point_size: None.into(),
-            us_upper_optical_point_size: None.into(),
+            s_typo_ascender: OptionI16::None,
+            s_typo_descender: OptionI16::None,
+            s_typo_line_gap: OptionI16::None,
+            us_win_ascent: OptionU16::None,
+            us_win_descent: OptionU16::None,
+            ul_code_page_range1: OptionU32::None,
+            ul_code_page_range2: OptionU32::None,
+            sx_height: OptionI16::None,
+            s_cap_height: OptionI16::None,
+            us_default_char: OptionU16::None,
+            us_break_char: OptionU16::None,
+            us_max_context: OptionU16::None,
+            us_lower_optical_point_size: OptionU16::None,
+            us_upper_optical_point_size: OptionU16::None,
         }
     }
 
@@ -512,6 +512,16 @@ pub enum ImageSource {
     /// The image is loaded from a file
     File(AzString),
 }
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct ImageMask {
+    pub image: ImageId,
+    pub rect: LogicalRect,
+    pub repeat: bool,
+}
+
+impl_option!(ImageMask, OptionImageMask, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -841,13 +851,19 @@ pub struct GlyphInfo {
     pub mark_placement: MarkPlacement,
 }
 
-pub(crate) fn get_inline_text(word_positions: &WordPositions, shaped_words: &ShapedWords, inline_text_layout: &InlineTextLayout) -> InlineText {
+pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_positions: &WordPositions, inline_text_layout: &InlineTextLayout) -> InlineText {
 
     use crate::callbacks::{InlineWord, InlineLine, InlineTextContents, InlineGlyph};
-    use crate::window::LogicalRect;
+    use core::ops::Range;
 
-    // most text blocks are very short, use stack space
-    // let mut all_glyphs: Vec<GlyphInstance> = Vec::with_capacity(scaled_words.items.len() * 4);
+    fn get_range_checked<T>(input: &[T], range: Range<usize>) -> Option<&[T]> {
+        if input.is_empty() { return None; }
+        if range.start < input.len() && range.end < input.len() {
+            Some(&input[range])
+        } else {
+            None
+        }
+    }
 
     let mut word_index = 0;
 
@@ -856,14 +872,16 @@ pub(crate) fn get_inline_text(word_positions: &WordPositions, shaped_words: &Sha
     let letter_spacing_px = word_positions.text_layout_options.letter_spacing.as_ref().copied().unwrap_or(0.0);
     let units_per_em = shaped_words.font_metrics_units_per_em;
 
-    let inline_lines = inline_text_layout.lines.iter().map(|line| {
+    let inline_lines = inline_text_layout.lines.iter().filter_map(|line| {
 
-        let words = line.words[line.word_start..line.word_end].iter().map(|word| {
+        let word_items = words.items.as_ref();
+        let words = get_range_checked(word_items, line.word_start..line.word_end)?
+        .iter().filter_map(|word| {
             match word.word_type {
                 WordType::Word => {
 
                     let shaped_word = shaped_words.items.get(word_index)?;
-                    let word_position = word_positions.items.get(word_index)?;
+                    let word_position = word_positions.word_positions.get(word_index)?;
 
                     // most words are less than 16 chars, avg length of an english word is 4.7 chars
                     let mut all_glyphs_in_this_word = Vec::<InlineGlyph>::with_capacity(16);
@@ -910,23 +928,23 @@ pub(crate) fn get_inline_text(word_positions: &WordPositions, shaped_words: &Sha
 
                     let inline_word = InlineWord::Word(InlineTextContents {
                         glyphs: all_glyphs_in_this_word.into(),
-                        bounds: LogicalRect::new(word_position.origin, LogicalSize::new(shaped_word.get_word_width(units_per_em, font_size_px), font_size_px)),
+                        bounds: LogicalRect::new(*word_position, LogicalSize::new(shaped_word.get_word_width(units_per_em, font_size_px), font_size_px)),
                     });
 
                     word_index += 1;
 
-                    inline_word
+                    Some(inline_word)
                 },
-                WordType::Tab => InlineWord::Tab,
-                WordType::Return => InlineWord::Return,
-                WordType::Space => InlineWord::Space,
+                WordType::Tab => Some(InlineWord::Tab),
+                WordType::Return => Some(InlineWord::Return),
+                WordType::Space => Some(InlineWord::Space),
             }
         }).collect::<Vec<InlineWord>>();
 
-        InlineLine {
+        Some(InlineLine {
             words: words.into(),
             bounds: line.bounds,
-        }
+        })
     }).collect::<Vec<InlineLine>>();
 
     InlineText {

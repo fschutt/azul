@@ -43,19 +43,6 @@ use azul_impl::{
     gl::{OptionTexture, TextureFlags, Texture, GlContextPtr},
 };
 
-fn deallocate_vec<T>(ptr: *mut T, cap: usize) {
-
-    if cap == 0 {
-        return;
-    }
-
-    let layout = match std::alloc::Layout::array::<T>(cap) {
-        Ok(o) => o,
-        Err(_) => { std::process::exit(-1); },
-    };
-
-    unsafe { std::alloc::dealloc(ptr as *mut u8, layout); }
-}
 /// Re-export of rust-allocated (stack based) `String` struct
 pub type AzStringTT = azul_impl::css::AzString;
 pub use AzStringTT as AzString;

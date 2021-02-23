@@ -13,7 +13,7 @@ use azul_css::{
 };
 use crate::{
     FastHashMap,
-    app_resources::{AppResources, IdNamespace, ResourceUpdate, Epoch},
+    app_resources::{AppResources, IdNamespace, ResourceUpdate, Epoch, ImageSource, ImageMask},
     styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
     callbacks::{OptionCallback, PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, UpdateScreen},
@@ -1193,9 +1193,20 @@ pub struct CallCallbacksResult {
     pub callbacks_update_screen: UpdateScreen,
     /// WindowState that was (potentially) modified in the callbacks
     pub modified_window_state: WindowState,
+    /// If a word changed (often times the case with text input), we don't need to relayout / rerender
+    /// the whole screen. The result is passed to the `relayout()` function, which will only change the
+    /// single node that was modified
+    pub words_changed: BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
+    /// A callback can "exchange" and image for a new one without requiring a new display list to be
+    /// rebuilt. This is important for animated images, especially video.
+    pub images_changed: BTreeMap<DomId, BTreeMap<NodeId, ImageSource>>,
+    /// Same as images, clip masks can be changed in callbacks, often the case with vector animations
+    pub image_masks_changed: BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     /// If the focus target changes in the callbacks, the function will automatically
     /// restyle the DOM and set the new focus target
     pub css_properties_changed: BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+    /// If the callbacks have scrolled any nodes, the new scroll position will be stored here
+    pub nodes_scrolled_in_callbacks: BTreeMap::<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
     /// Whether the focused node was changed from the callbacks
     pub update_focused_node: Option<Option<DomNodeId>>,
     /// Timers that were added in the callbacks
@@ -1691,7 +1702,7 @@ impl LogicalRect {
     ///
     /// On a regular computer this function takes ~3.2ns to run
     #[inline]
-    pub const fn hit_test(&self, other: &LogicalPosition) -> Option<LogicalPosition> {
+    pub fn hit_test(&self, other: &LogicalPosition) -> Option<LogicalPosition> {
         let dx_left_edge = other.x - self.min_x();
         let dx_right_edge = self.max_x() - other.x;
         let dy_top_edge = other.y - self.min_y();

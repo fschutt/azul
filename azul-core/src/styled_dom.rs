@@ -1235,7 +1235,7 @@ impl StyledDom {
     pub(crate) fn scan_for_image_keys(&self, app_resources: &AppResources) -> FastBTreeSet<ImageId> {
 
         use crate::dom::NodeType::*;
-        use crate::dom::OptionImageMask;
+        use crate::app_resources::OptionImageMask;
         use azul_css::StyleBackgroundContentVec;
 
         #[derive(Default)]

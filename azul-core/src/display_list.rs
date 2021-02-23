@@ -607,9 +607,19 @@ impl SolvedLayout {
                 let texture = {
 
                     let size = LayoutSize::new(rect_size.width.round() as isize, rect_size.height.round() as isize);
+
+                    // NOTE: all of these extra arguments are necessary so that the callback
+                    // has access to information about the text layout, which is used to render
+                    // the "text selection" highlight (the text selection is nothing but an image
+                    // or an image mask).
                     let gl_callback_info = GlCallbackInfo::new(
                         /*gl_context:*/ &gl_context,
                         /*resources:*/ app_resources,
+                        /*node_hierarchy*/ &layout_result.styled_dom.node_hierarchy,
+                        /*words_cache*/ &layout_result.words_cache,
+                        /*shaped_words_cache*/ &layout_result.shaped_words_cache,
+                        /*positioned_words_cache*/ &layout_result.positioned_words_cache,
+                        /*positioned_rects*/ &layout_result.rects,
                         /*bounds:*/ HidpiAdjustedBounds::from_bounds(size, full_window_state.size.hidpi_factor),
                     );
 
@@ -873,17 +883,20 @@ pub fn displaylist_handle_rect<'a>(
         Div | Body | Br => { },
         Label(_) => {
 
+            use crate::app_resources::get_inline_text;
+
             // compute the layouted glyphs here, this way it's easier
             // to reflow text since there is no cache that needs to be updated
             //
             // if the text is reflowed, the display list needs to update anyway
-            if let (Some(shaped_words), Some(word_positions), Some((_, inline_text_layout))) = (
+            if let (Some(words), Some(shaped_words), Some(word_positions), Some((_, inline_text_layout))) = (
+                layout_result.words_cache.get(&rect_idx),
                 layout_result.shaped_words_cache.get(&rect_idx),
                 layout_result.positioned_words_cache.get(&rect_idx),
                 positioned_rect.resolved_text_layout_options.as_ref(),
             ) {
-                use crate::app_resources::get_inline_text;
-                let inline_text = get_inline_text(&word_positions.0, shaped_words, &inline_text_layout);
+
+                let inline_text = get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout);
                 let layouted_glyphs = inline_text.get_layouted_glyphs();
                 let text_color = layout_result.styled_dom.get_css_property_cache().get_text_color_or_default(&rect_idx, &styled_node.state);
                 let font_instance_key = word_positions.1;

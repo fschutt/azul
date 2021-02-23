@@ -575,13 +575,16 @@ impl CallbacksOfHitTest {
 
         use crate::styled_dom::ParentWithNodeDepth;
         use crate::callbacks::CallbackInfo;
-        use crate::window::LogicalPosition;
 
         let mut ret = CallCallbacksResult {
             should_scroll_render: false,
             callbacks_update_screen: UpdateScreen::DoNothing,
             modified_window_state: full_window_state.clone().into(),
             css_properties_changed: BTreeMap::new(),
+            words_changed: BTreeMap::new(),
+            images_changed: BTreeMap::new(),
+            image_masks_changed: BTreeMap::new(),
+            nodes_scrolled_in_callbacks: BTreeMap::new(),
             update_focused_node: None,
             timers: FastHashMap::new(),
             threads: FastHashMap::new(),
@@ -589,7 +592,7 @@ impl CallbacksOfHitTest {
             cursor_changed: false,
         };
         let mut new_focus_target = None;
-        let mut nodes_scrolled_in_callbacks = BTreeMap::<DomId, BTreeMap<AzNodeId, LogicalPosition>>::new();
+
         let current_cursor = full_window_state.mouse_state.mouse_cursor_type.clone();
 
         if self.nodes_with_callbacks.is_empty() {
@@ -597,12 +600,17 @@ impl CallbacksOfHitTest {
         }
 
         {
+
         let mut node_hierarchies = layout_results.iter_mut().enumerate().filter_map(|(dom_id, lr)| {
             Some((
              DomId { inner: dom_id }, (
                 lr.styled_dom.root.into_crate_internal()?,
                 &lr.styled_dom.node_hierarchy,
                 &lr.styled_dom.non_leaf_nodes,
+                &lr.words_cache,
+                &lr.shaped_words_cache,
+                &lr.positioned_words_cache,
+                &lr.rects,
                 lr.styled_dom.node_data.split_into_callbacks_and_dataset())
             ))
         }).collect::<BTreeMap<_, _>>();
@@ -614,7 +622,16 @@ impl CallbacksOfHitTest {
             .map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, cbtc.event_filter)))
             .collect::<BTreeMap<_, _>>();
 
-            let (root_id, node_hierarchy, non_leaf_nodes, (callback_map, dataset_map)) = match node_hierarchies.get_mut(dom_id) {
+            let (
+                 root_id,
+                 node_hierarchy,
+                 non_leaf_nodes,
+                 words_cache,
+                 shaped_words_cache,
+                 positioned_words_cache,
+                 positioned_rects,
+                 (callback_map, dataset_map)
+            ) = match node_hierarchies.get_mut(dom_id) {
                 Some(s) => s,
                 None => { return ret; },
             };
@@ -645,12 +662,19 @@ impl CallbacksOfHitTest {
                             /*current_window_handle:*/ raw_window_handle,
                             /*node_hierarchy*/ &node_hierarchy,
                             /*system_callbacks*/ system_callbacks,
+                            /*words_cache*/ &words_cache,
+                            /*shaped_words_cache*/ &shaped_words_cache,
+                            /*positioned_words_cache*/ &positioned_words_cache,
+                            /*positioned_rects*/ &positioned_rects,
                             /*dataset_map*/ dataset_map,
                             /*stop_propagation:*/ &mut stop_propagation,
                             /*focus_target:*/ &mut new_focus,
-                            /*current_scroll_states:*/ scroll_states,
+                            /*words_changed_in_callbacks:*/ &mut ret.words_changed,
+                            /*images_changed_in_callbacks:*/ &mut ret.images_changed,
+                            /*image_masks_changed_in_callbacks:*/ &mut ret.image_masks_changed,
                             /*css_properties_changed_in_callbacks:*/ &mut ret.css_properties_changed,
-                            /*nodes_scrolled_in_callback:*/ &mut nodes_scrolled_in_callbacks,
+                            /*current_scroll_states:*/ scroll_states,
+                            /*nodes_scrolled_in_callback:*/ &mut ret.nodes_scrolled_in_callbacks,
                             /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: AzNodeId::from_crate_internal(Some(child_id)) },
                             /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_relative_to_item.x, hi.point_relative_to_item.y)).into(),
                             /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_in_viewport.x, hi.point_in_viewport.y)).into(),
@@ -711,12 +735,19 @@ impl CallbacksOfHitTest {
                         /*current_window_handle:*/ raw_window_handle,
                         /*node_hierarchy*/ &node_hierarchy,
                         /*system_callbacks*/ system_callbacks,
+                        /*words_cache*/ &words_cache,
+                        /*shaped_words_cache*/ &shaped_words_cache,
+                        /*positioned_words_cache*/ &positioned_words_cache,
+                        /*positioned_rects*/ &positioned_rects,
                         /*dataset_map*/ dataset_map,
                         /*stop_propagation:*/ &mut stop_propagation,
                         /*focus_target:*/ &mut new_focus,
-                        /*current_scroll_states:*/ scroll_states,
+                        /*words_changed_in_callbacks:*/ &mut ret.words_changed,
+                        /*images_changed_in_callbacks:*/ &mut ret.images_changed,
+                        /*image_masks_changed_in_callbacks:*/ &mut ret.image_masks_changed,
                         /*css_properties_changed_in_callbacks:*/ &mut ret.css_properties_changed,
-                        /*nodes_scrolled_in_callback:*/ &mut nodes_scrolled_in_callbacks,
+                        /*current_scroll_states:*/ scroll_states,
+                        /*nodes_scrolled_in_callback:*/ &mut ret.nodes_scrolled_in_callbacks,
                         /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: AzNodeId::from_crate_internal(Some(*root_id)) },
                         /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_relative_to_item.x, hi.point_relative_to_item.y)).into(),
                         /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_in_viewport.x, hi.point_in_viewport.y)).into(),
@@ -761,7 +792,7 @@ impl CallbacksOfHitTest {
         }
 
         // Scroll nodes from programmatic callbacks
-        for (dom_id, callback_scrolled_nodes) in nodes_scrolled_in_callbacks.iter() {
+        for (dom_id, callback_scrolled_nodes) in ret.nodes_scrolled_in_callbacks.iter() {
             let scrollable_nodes = &layout_results[dom_id.inner].scrollable_nodes;
             for (scroll_node_id, scroll_position) in callback_scrolled_nodes.iter() {
                 let scroll_node = match scrollable_nodes.overflowing_nodes.get(&scroll_node_id) {
@@ -774,7 +805,8 @@ impl CallbacksOfHitTest {
             }
         }
 
-        let new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&layout_results).ok()?);
+        // Resolve the new focus target
+        let new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&layout_results, full_window_state.focused_node).ok()?);
         let focus_has_changed = full_window_state.focused_node != new_focus_node;
 
         if current_cursor != ret.modified_window_state.mouse_state.mouse_cursor_type {

@@ -27,7 +27,7 @@ use crate::{
         ThreadCallbackType, WriteBackCallback, WriteBackCallbackType,
         CallbackInfo, FocusTarget, ScrollPosition, DomNodeId
     },
-    app_resources::AppResources,
+    app_resources::{AppResources, ImageSource, ImageMask},
     window::{FullWindowState, LogicalPosition, RawWindowHandle, WindowState, WindowCreateOptions},
     styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
@@ -35,7 +35,7 @@ use crate::{
 };
 #[cfg(feature = "opengl")]
 use crate::gl::GlContextPtr;
-use azul_css::{OptionLayoutPoint, CssProperty};
+use azul_css::{AzString, OptionLayoutPoint, CssProperty};
 
 /// Should a timer terminate or not - used to remove active timers
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -893,8 +893,11 @@ pub fn run_all_timers<'a, 'b>(
     layout_results: &'a mut Vec<LayoutResult>,
     stop_propagation: &mut bool,
     focus_target: &mut Option<FocusTarget>,
-    current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+    words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
+    images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageSource>>,
+    image_masks_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     css_properties_changed_in_callbacks: &mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+    current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
     nodes_scrolled_in_callback: &mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
 ) -> UpdateScreen {
 
@@ -914,18 +917,25 @@ pub fn run_all_timers<'a, 'b>(
             current_window_state,
             modifiable_window_state,
             gl_context,
-            resources ,
+            resources,
             timers,
             threads,
             new_windows,
             current_window_handle,
             &layout_result.styled_dom.node_hierarchy,
             system_callbacks,
+            &layout_result.words_cache,
+            &layout_result.shaped_words_cache,
+            &layout_result.positioned_words_cache,
+            &layout_result.rects,
             &mut datasets.1,
             stop_propagation,
             focus_target,
-            current_scroll_states,
+            words_changed_in_callbacks,
+            images_changed_in_callbacks,
+            image_masks_changed_in_callbacks,
             css_properties_changed_in_callbacks,
+            current_scroll_states,
             nodes_scrolled_in_callback,
             hit_dom_node,
             cursor_relative_to_item,
@@ -978,8 +988,11 @@ pub fn clean_up_finished_threads<'a, 'b>(
     layout_results: &'a mut Vec<LayoutResult>,
     stop_propagation: &mut bool,
     focus_target: &mut Option<FocusTarget>,
-    current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+    words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
+    images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageSource>>,
+    image_masks_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     css_properties_changed_in_callbacks: &mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+    current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
     nodes_scrolled_in_callback: &mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
 ) -> UpdateScreen {
 
@@ -1014,11 +1027,18 @@ pub fn clean_up_finished_threads<'a, 'b>(
                     current_window_handle,
                     node_hierarchy,
                     system_callbacks,
+                    &layout_result.words_cache,
+                    &layout_result.shaped_words_cache,
+                    &layout_result.positioned_words_cache,
+                    &layout_result.rects,
                     &mut datasets.1,
                     stop_propagation,
                     focus_target,
-                    current_scroll_states,
+                    words_changed_in_callbacks,
+                    images_changed_in_callbacks,
+                    image_masks_changed_in_callbacks,
                     css_properties_changed_in_callbacks,
+                    current_scroll_states,
                     nodes_scrolled_in_callback,
                     hit_dom_node,
                     cursor_relative_to_item,

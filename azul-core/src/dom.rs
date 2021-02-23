@@ -12,12 +12,11 @@ use crate::{
         IFrameCallback, IFrameCallbackType,
         RefAny, OptionRefAny,
     },
-    app_resources::ImageId,
+    app_resources::{ImageId, OptionImageMask},
     id_tree::{
         NodeDataContainer, NodeDataContainerRef,
         NodeDataContainerRefMut
     },
-    window::LogicalRect,
     styled_dom::StyledDom,
 };
 #[cfg(feature = "opengl")]
@@ -79,16 +78,6 @@ impl ScrollTagId {
 /// Calculated hash of a DOM node, used for querying attributes of the DOM node
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct DomHash(pub u64);
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct ImageMask {
-    pub image: ImageId,
-    pub rect: LogicalRect,
-    pub repeat: bool,
-}
-
-impl_option!(ImageMask, OptionImageMask, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
 
 /// List of core DOM node types built-into by `azul`.
 #[derive(Debug, PartialEq, Hash, Eq, PartialOrd, Ord)]

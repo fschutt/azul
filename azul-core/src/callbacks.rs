@@ -19,7 +19,7 @@ use crate::{
     FastHashMap,
     app_resources::{
         AppResources, ImageSource, IdNamespace, Words, ShapedWords,
-        WordPositions, FontInstanceKey, LayoutedGlyphs
+        WordPositions, FontInstanceKey, LayoutedGlyphs, ImageMask
     },
     styled_dom::StyledDom,
     ui_solver::{
@@ -27,7 +27,6 @@ use crate::{
         LayoutedRectangle, LayoutResult
     },
     styled_dom::{DomId, AzNodeId, AzNodeVec},
-    dom::ImageMask,
     id_tree::{NodeId, NodeDataContainer},
     window::{
         WindowSize, WindowState, FullWindowState, LogicalPosition,
@@ -256,7 +255,7 @@ impl Drop for RefAny {
             let _ = self.clone_into_library_memory();
         } else if self.sharing_info.downcast().num_copies == 0 {
 
-            let sharing_info = Box::from_raw(self.sharing_info.ptr as *mut RefCountInner);
+            let sharing_info = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
             let sharing_info = *sharing_info; // sharing_info itself deallocates here
 
 
@@ -544,29 +543,30 @@ impl InlineText {
         use crate::display_list::GlyphInstance;
 
         let default: InlineGlyphVec = Vec::new().into();
+        let default_ref = &default;
+        let baseline_descender_px = LogicalPosition::new(0.0, self.baseline_descender_px); // descender_px is NEGATIVE
 
         LayoutedGlyphs {
             glyphs: self.lines
             .iter()
-            .flat_map(|line| {
+            .flat_map(move |line| {
 
-                let mut line_origin = line.bounds.origin;  // top left corner of line rect
-                line_origin.y += self.baseline_descender_px;        // bottom left corner - descender is NEGATIVE
+                let line_origin = line.bounds.origin;  // top left corner of line rect
 
                 line.words
                 .iter()
-                .flat_map(|word| {
+                .flat_map(move |word| {
 
                     let (glyphs, word_origin) = match word {
-                        InlineWord::Tab | InlineWord::Return | InlineWord::Space => (&default, LogicalPosition::zero()),
+                        InlineWord::Tab | InlineWord::Return | InlineWord::Space => (default_ref, LogicalPosition::zero()),
                         InlineWord::Word(text_contents) => (&text_contents.glyphs, text_contents.bounds.origin),
                     };
 
                     glyphs.iter()
-                    .map(|glyph| {
+                    .map(move |glyph| {
                         GlyphInstance {
                             index: glyph.glyph_index,
-                            point: line_origin + word_origin + glyph.bounds.origin,
+                            point: line_origin + baseline_descender_px + word_origin + glyph.bounds.origin,
                             size: glyph.bounds.size,
                         }
                     })
@@ -611,8 +611,7 @@ impl InlineText {
 
                 line.words
                 .iter() // TODO: par_iter
-                .enumerate()
-                .flat_map(|(word_index, word)| {
+                .flat_map(|word| {
 
                     let char_at_text_content_start = global_char_hit;
                     let glyph_at_text_content_start = global_glyph_hit;
@@ -627,8 +626,7 @@ impl InlineText {
 
                             text_content.glyphs
                             .iter() // TODO: par_iter
-                            .enumerate()
-                            .flat_map(|(glyph_index, glyph)| {
+                            .flat_map(|glyph| {
 
                                 let result = glyph.bounds
                                 .hit_test(&hit_relative_to_text_content)
@@ -885,7 +883,7 @@ impl CallbackInfo {
     fn internal_get_timers<'a>(&'a mut self) -> &'a mut FastHashMap<TimerId, Timer> { unsafe { &mut *self.timers } }
     fn internal_get_threads<'a>(&'a mut self) -> &'a mut FastHashMap<ThreadId, Thread> { unsafe { &mut *self.threads } }
     fn internal_get_new_windows<'a>(&'a mut self) -> &'a mut Vec<WindowCreateOptions> { unsafe { &mut *self.new_windows } }
-    fn internal_get_current_window_handle<'a>(&'a mut self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
+    fn internal_get_current_window_handle<'a>(&'a self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
     fn internal_get_node_hierarchy<'a>(&'a self) -> &'a AzNodeVec { unsafe { &*self.node_hierarchy } }
     fn internal_get_extern_system_callbacks<'a>(&'a self) -> &'a ExternalSystemCallbacks { unsafe { &*self.system_callbacks } }
     fn internal_get_dataset_map<'a>(&'a mut self) -> &'a mut BTreeMap<NodeId, *mut RefAny> { unsafe { &mut *self.dataset_map } }
@@ -1035,14 +1033,18 @@ impl CallbackInfo {
         }
 
         let nid = node_id.node.into_crate_internal()?;
+        let words = self.internal_get_words_cache();
+        let words = words.get(&nid)?;
+        let shaped_words = self.internal_get_shaped_words_cache();
+        let shaped_words = shaped_words.get(&nid)?;
+        let word_positions = self.internal_get_positioned_words_cache();
+        let word_positions = word_positions.get(&nid)?;
+        let positioned_rectangle = self.internal_get_positioned_rectangles();
+        let positioned_rectangle = positioned_rectangle.as_ref();
+        let positioned_rectangle = positioned_rectangle.get(nid)?;
+        let (_, inline_text_layout) = positioned_rectangle.resolved_text_layout_options.as_ref()?;
 
-        let words = self.internal_get_words_cache().get(&nid)?;
-        let shaped_words = self.internal_get_shaped_words_cache().get(&nid)?;
-        let word_positions = self.internal_get_positioned_words_cache().get(&nid)?;
-        let positioned_rectangle = self.internal_get_positioned_rectangles().as_ref().get(nid)?;
-        let (resolved_text_layout_options, inline_text_layout) = positioned_rectangle.resolved_text_layout_options.as_ref()?;
-
-        Some(crate::app_resources::get_inline_text(&word_positions.0, &shaped_words, &inline_text_layout))
+        Some(crate::app_resources::get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout))
     }
 
     pub fn exchange_image(&mut self, node_id: DomNodeId, new_image: ImageSource) {
@@ -1541,7 +1543,7 @@ impl FocusTarget {
                     Some(s) => match s.node.into_crate_internal() {
                         Some(n) => (s.dom, n),
                         None => {
-                            if let Some(layout_result) = layout_results.get(s.dom.inner) {
+                            if layout_results.get(s.dom.inner).is_some() {
                                 (s.dom, NodeId::ZERO)
                             } else {
                                 (DomId::ROOT_ID, NodeId::ZERO)
