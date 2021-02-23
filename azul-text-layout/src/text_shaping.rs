@@ -1,7 +1,7 @@
 use azul_core::app_resources::{
     FontMetrics, VariationSelector, Anchor,
     GlyphOrigin, RawGlyph, Placement, MarkPlacement,
-    Info, Advance,
+    GlyphInfo, Advance,
 };
 use tinyvec::tiny_vec;
 use alloc::collections::btree_map::BTreeMap;
@@ -16,14 +16,12 @@ use allsorts::{
         FontTableProvider, HheaTable, MaxpTable, HeadTable,
         loca::LocaTable,
         cmap::CmapSubtable,
-        glyf::{SimpleGlyph, CompositeGlyph, GlyphData, GlyfTable, Glyph, GlyfRecord, BoundingBox},
+        glyf::GlyfTable,
     },
     tables::cmap::owned::CmapSubtable as OwnedCmapSubtable,
 };
 
 pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
-
-    use core::num::NonZeroU16;
 
     #[derive(Default)]
     struct Os2Info {
@@ -141,7 +139,11 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
     FontMetrics {
 
         // head table
-        units_per_em: if head_table.units_per_em == 0 { 1000_u16 } else { head_table.units_per_em },
+        units_per_em: if head_table.units_per_em == 0 {
+            1000_u16
+        } else {
+            head_table.units_per_em
+        },
         font_flags: head_table.flags,
         x_min: head_table.x_min,
         y_min: head_table.y_min,
@@ -187,20 +189,20 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
         fs_selection: os2_table.fs_selection,
         us_first_char_index: os2_table.us_first_char_index,
         us_last_char_index: os2_table.us_last_char_index,
-        s_typo_ascender: os2_table.s_typo_ascender,
-        s_typo_descender: os2_table.s_typo_descender,
-        s_typo_line_gap: os2_table.s_typo_line_gap,
-        us_win_ascent: os2_table.us_win_ascent,
-        us_win_descent: os2_table.us_win_descent,
-        ul_code_page_range1: os2_table.ul_code_page_range1,
-        ul_code_page_range2: os2_table.ul_code_page_range2,
-        sx_height: os2_table.sx_height,
-        s_cap_height: os2_table.s_cap_height,
-        us_default_char: os2_table.us_default_char,
-        us_break_char: os2_table.us_break_char,
-        us_max_context: os2_table.us_max_context,
-        us_lower_optical_point_size: os2_table.us_lower_optical_point_size,
-        us_upper_optical_point_size: os2_table.us_upper_optical_point_size,
+        s_typo_ascender: os2_table.s_typo_ascender.into(),
+        s_typo_descender: os2_table.s_typo_descender.into(),
+        s_typo_line_gap: os2_table.s_typo_line_gap.into(),
+        us_win_ascent: os2_table.us_win_ascent.into(),
+        us_win_descent: os2_table.us_win_descent.into(),
+        ul_code_page_range1: os2_table.ul_code_page_range1.into(),
+        ul_code_page_range2: os2_table.ul_code_page_range2.into(),
+        sx_height: os2_table.sx_height.into(),
+        s_cap_height: os2_table.s_cap_height.into(),
+        us_default_char: os2_table.us_default_char.into(),
+        us_break_char: os2_table.us_break_char.into(),
+        us_max_context: os2_table.us_max_context.into(),
+        us_lower_optical_point_size: os2_table.us_lower_optical_point_size.into(),
+        us_upper_optical_point_size: os2_table.us_upper_optical_point_size.into(),
     }
 }
 
@@ -451,7 +453,7 @@ impl ParsedFont {
         Some((glyph_width, glyph_height))
     }
 
-    pub fn shape(&self, text: &[char], script: u32, lang: Option<u32>) -> ShapedTextBufferUnsized {
+    pub fn shape(&self, text: &[u32], script: u32, lang: Option<u32>) -> ShapedTextBufferUnsized {
         shape(self, text, script, lang).unwrap_or_default()
     }
 
@@ -465,7 +467,7 @@ impl ParsedFont {
 
 #[derive(Debug, PartialEq, Default)]
 pub struct ShapedTextBufferUnsized {
-    pub infos: Vec<Info>,
+    pub infos: Vec<GlyphInfo>,
 }
 
 impl ShapedTextBufferUnsized {
@@ -499,7 +501,6 @@ const fn tag(chars: [u8; 4]) -> u32 {
 #[allow(dead_code)]
 pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
 
-    use allsorts::tag as tag_mod;
     use crate::script::Script; // whatlang::Script
 
     // https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags
@@ -718,7 +719,7 @@ pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
 // get_word_visual_width(word: &TextBuffer) ->
 // get_glyph_instances(infos: &GlyphInfos, positions: &GlyphPositions) -> PositionedGlyphBuffer
 
-fn shape<'a>(font: &ParsedFont, text: &[char], script: u32, lang: Option<u32>) -> Option<ShapedTextBufferUnsized> {
+fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) -> Option<ShapedTextBufferUnsized> {
 
     use core::convert::TryFrom;
     use allsorts::gpos::apply as gpos_apply;
@@ -732,23 +733,22 @@ fn shape<'a>(font: &ParsedFont, text: &[char], script: u32, lang: Option<u32>) -
     let mut chars_iter = text.iter().peekable();
     let mut glyphs = Vec::new();
 
-    while let Some(ch) = chars_iter.next() {
-        match allsorts::unicode::VariationSelector::try_from(*ch) {
+    while let Some((ch, ch_as_char)) = chars_iter.next().and_then(|c| Some((c, core::char::from_u32(*c)?))) {
+        match allsorts::unicode::VariationSelector::try_from(ch_as_char) {
             Ok(_) => {} // filter out variation selectors
             Err(()) => {
                 let vs = chars_iter
                     .peek()
-                    .and_then(|&next| allsorts::unicode::VariationSelector::try_from(*next).ok());
+                    .and_then(|&next| allsorts::unicode::VariationSelector::try_from(core::char::from_u32(*next)?).ok());
 
-                let glyph_index = font.lookup_glyph_index(*ch as u32).unwrap_or(0);
-                let glyph = make_raw_glyph(*ch, glyph_index, vs);
-                glyphs.push(glyph);
+                let glyph_index = font.lookup_glyph_index(*ch).unwrap_or(0);
+                glyphs.push(make_raw_glyph(ch_as_char, glyph_index, vs));
             }
         }
     }
 
-    const DOTTED_CIRCLE: char = '\u{25cc}';
-    let dotted_circle_index = font.lookup_glyph_index(DOTTED_CIRCLE as u32).unwrap_or(0);
+    const DOTTED_CIRCLE: u32 = '\u{25cc}' as u32;
+    let dotted_circle_index = font.lookup_glyph_index(DOTTED_CIRCLE).unwrap_or(0);
 
     // Apply glyph substitution if table is present
     gsub_apply(
@@ -789,8 +789,8 @@ fn shape<'a>(font: &ParsedFont, text: &[char], script: u32, lang: Option<u32>) -
 }
 
 #[inline]
-fn translate_info(i: &allsorts::gpos::Info, size: Advance) -> Info {
-    Info {
+fn translate_info(i: &allsorts::gpos::Info, size: Advance) -> GlyphInfo {
+    GlyphInfo {
         glyph: translate_raw_glyph(&i.glyph),
         size,
         placement: translate_placement(&i.placement),
@@ -817,7 +817,7 @@ fn make_raw_glyph(ch: char, glyph_index: u16, variation: Option<allsorts::unicod
 #[inline]
 fn translate_raw_glyph(rg: &allsorts::gsub::RawGlyph<()>) -> RawGlyph {
     RawGlyph {
-        unicode_codepoint: rg.unicodes.get(0).map(|s| s as u32).into(),
+        unicode_codepoint: rg.unicodes.get(0).map(|s| (*s) as u32).into(),
         glyph_index: rg.glyph_index,
         liga_component_pos: rg.liga_component_pos,
         glyph_origin: translate_glyph_origin(&rg.glyph_origin),
@@ -826,8 +826,7 @@ fn translate_raw_glyph(rg: &allsorts::gsub::RawGlyph<()>) -> RawGlyph {
         is_vert_alt: rg.is_vert_alt,
         fake_bold: rg.fake_bold,
         fake_italic: rg.fake_italic,
-        variation: rg.variation.as_ref().map(translate_variation_selector),
-        extra_data: (),
+        variation: rg.variation.as_ref().map(translate_variation_selector).into(),
     }
 }
 
@@ -843,19 +842,28 @@ const fn translate_glyph_origin(g: &allsorts::gsub::GlyphOrigin) -> GlyphOrigin 
 #[inline]
 const fn translate_placement(p: &allsorts::gpos::Placement) -> Placement {
     use allsorts::gpos::Placement::*;
+    use azul_core::app_resources::{PlacementDistance, AnchorPlacement};
     match p {
         None => Placement::None,
-        Distance(x, y) => Placement::Distance(*x, *y),
-        Anchor(a, b) => Placement::Anchor(translate_anchor(a), translate_anchor(b)),
+        Distance(x, y) => Placement::Distance(PlacementDistance { x: *x, y: *y }),
+        Anchor(a, b) => Placement::Anchor(AnchorPlacement {
+            x: translate_anchor(a),
+            y: translate_anchor(b),
+        }),
     }
 }
 
 #[inline]
 const fn translate_mark_placement(mp: &allsorts::gpos::MarkPlacement) -> MarkPlacement {
     use allsorts::gpos::MarkPlacement::*;
+    use azul_core::app_resources::MarkAnchorPlacement;
     match mp {
         None => MarkPlacement::None,
-        MarkAnchor(a, b, c) => MarkPlacement::MarkAnchor(*a, translate_anchor(b), translate_anchor(c)),
+        MarkAnchor(a, b, c) => MarkPlacement::MarkAnchor(MarkAnchorPlacement {
+            index: *a,
+            _0: translate_anchor(b),
+            _1: translate_anchor(c),
+        }),
         MarkOverprint(a) => MarkPlacement::MarkOverprint(*a),
     }
 }

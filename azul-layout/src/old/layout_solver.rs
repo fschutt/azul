@@ -2015,14 +2015,14 @@ fn create_word_positions<'a>(
                 Some(solved_widths[*node_id].total() as f32)
             } else {
                 None
-            },
-            leading: None, // TODO
-            holes: Vec::new(), // TODO
+            }.into(),
+            leading: None.into(), // TODO
+            holes: Vec::new().into(), // TODO
             font_size_px,
-            word_spacing,
-            letter_spacing,
-            line_height,
-            tab_width,
+            word_spacing: word_spacing.into(),
+            letter_spacing: letter_spacing.into(),
+            line_height: line_height.into(),
+            tab_width: tab_width.into(),
         };
 
         let w = position_words(words, shaped_words, &text_layout_options);

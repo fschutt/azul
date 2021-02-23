@@ -125,9 +125,9 @@ pub fn split_text_into_words(text: &str) -> Words {
     }
 
     Words {
-        items: words,
-        internal_str: normalized_string,
-        internal_chars: normalized_chars,
+        items: words.into(),
+        internal_str: normalized_string.into(),
+        internal_chars: normalized_chars.iter().map(|c| *c as u32).collect(),
     }
 }
 
@@ -140,7 +140,7 @@ pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
     let (script, lang) = text_shaping::estimate_script_and_language(&words.internal_str);
 
     // Get the dimensions of the space glyph
-    let space_advance = font.get_space_width().unwrap_or(font.font_metrics.units_per_em.get() as usize);
+    let space_advance = font.get_space_width().unwrap_or(font.font_metrics.units_per_em as usize);
 
     let mut longest_word_width = 0_usize;
 
@@ -151,7 +151,7 @@ pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
     .map(|word| {
         use crate::text_shaping::ShapedTextBufferUnsized;
 
-        let chars = &words.internal_chars[word.start..word.end];
+        let chars = &words.internal_chars.as_ref()[word.start..word.end];
         let shaped_word = font.shape(chars, script, lang);
         let word_width = shaped_word.get_word_visual_width_unscaled();
 
@@ -160,7 +160,7 @@ pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
         let ShapedTextBufferUnsized { infos } = shaped_word;
 
         ShapedWord {
-            glyph_infos: infos,
+            glyph_infos: infos.into(),
             word_width,
         }
     }).collect();
@@ -185,9 +185,9 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
 
     let font_size_px = text_layout_options.font_size_px;
     let space_advance_px = shaped_words.get_space_advance_px(text_layout_options.font_size_px);
-    let word_spacing_px = space_advance_px * text_layout_options.word_spacing.unwrap_or(DEFAULT_WORD_SPACING);
-    let line_height_px = space_advance_px * text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
-    let tab_width_px = space_advance_px * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
+    let word_spacing_px = space_advance_px * text_layout_options.word_spacing.as_ref().copied().unwrap_or(DEFAULT_WORD_SPACING);
+    let line_height_px = space_advance_px * text_layout_options.line_height.as_ref().copied().unwrap_or(DEFAULT_LINE_HEIGHT);
+    let tab_width_px = space_advance_px * text_layout_options.tab_width.as_ref().copied().unwrap_or(DEFAULT_TAB_WIDTH);
 
     let mut line_breaks = Vec::new();
     let mut word_positions = Vec::new();
@@ -202,8 +202,8 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
             line_number,
             font_size_px,
             line_height_px,
-            &text_layout_options.holes[..],
-            text_layout_options.max_horizontal_width,
+            text_layout_options.holes.as_ref(),
+            text_layout_options.max_horizontal_width.as_ref().copied(),
         );
 
         if let LineCaretIntersection::PushCaretOntoNextLine(_, _) = caret_intersection {
@@ -220,7 +220,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
 
     advance_caret!(line_caret_x);
 
-    if let Some(leading) = text_layout_options.leading {
+    if let Some(leading) = text_layout_options.leading.as_ref() {
         line_caret_x += leading;
         advance_caret!(line_caret_x);
     }
@@ -235,13 +235,12 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
             None => continue,
         };
 
-        let reserved_letter_spacing_px = match text_layout_options.letter_spacing {
-            None => 0.0,
-            Some(spacing_multiplier) => spacing_multiplier * shaped_word.number_of_glyphs().saturating_sub(1) as f32,
-        };
+        let reserved_letter_spacing_px = text_layout_options.letter_spacing.as_ref().map(|spacing_multiplier| {
+            spacing_multiplier * shaped_word.number_of_glyphs().saturating_sub(1) as f32
+        }).unwrap_or(0.0);
 
         // Calculate where the caret would be for the next word
-        let word_advance_x = shaped_word.get_word_width(&shaped_words.font_metrics_units_per_em, text_layout_options.font_size_px) + reserved_letter_spacing_px;
+        let word_advance_x = shaped_word.get_word_width(shaped_words.font_metrics_units_per_em, text_layout_options.font_size_px) + reserved_letter_spacing_px;
 
         let mut new_caret_x = line_caret_x + word_advance_x;
 
@@ -252,8 +251,8 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
             line_number,
             font_size_px,
             line_height_px,
-            &text_layout_options.holes,
-            text_layout_options.max_horizontal_width,
+            text_layout_options.holes.as_ref(),
+            text_layout_options.max_horizontal_width.as_ref().copied(),
         );
 
         let mut is_line_break = false;
@@ -318,7 +317,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
     }
 
     // Handle the last word, but ignore any last Return, Space or Tab characters
-    for word in &words.items[words.items.len().saturating_sub(1)..] {
+    for word in &words.items.as_ref()[words.items.len().saturating_sub(1)..] {
         if word.word_type == Word {
             handle_word!();
         }
@@ -331,7 +330,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
 
     let longest_line_width = line_breaks.iter().map(|(_word_idx, line_length)| *line_length).fold(0.0_f32, f32::max);
     let content_size_y = get_line_y_position(line_number, font_size_px, line_height_px);
-    let content_size_x = text_layout_options.max_horizontal_width.unwrap_or(longest_line_width);
+    let content_size_x = text_layout_options.max_horizontal_width.as_ref().copied().unwrap_or(longest_line_width);
     let content_size = LogicalSize::new(content_size_x, content_size_y);
 
     WordPositions {
@@ -353,7 +352,7 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
     let font_size_px = word_positions.text_layout_options.font_size_px;
     let regular_line_height = scaled_words.get_line_height(font_size_px);
     let space_advance_px = scaled_words.get_space_advance_px(font_size_px);
-    let line_height_px = space_advance_px * word_positions.text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
+    let line_height_px = space_advance_px * word_positions.text_layout_options.line_height.as_ref().copied().unwrap_or(DEFAULT_LINE_HEIGHT);
 
     let mut last_word_index = 0;
 
