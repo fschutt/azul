@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use alloc::collections::btree_map::BTreeMap;
 use azul_css::{
     CssProperty, LayoutSize, U8Vec, ColorU, OptionF32,
-    AzString, LayoutPoint, LayoutRect, CssPath, OptionI32,
+    AzString, OptionAzString, LayoutPoint, LayoutRect, CssPath, OptionI32,
 };
 use crate::{
     FastHashMap,
@@ -317,7 +317,6 @@ pub struct MouseState {
 }
 
 impl_option!(MouseCursorType, OptionMouseCursorType, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-impl_option!(AzString, OptionAzString, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl Default for MouseState {
     fn default() -> Self {

@@ -18,14 +18,8 @@
     impl ::std::fmt::Debug for AzRefAny                     {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
             write!(f, "RefAny {{\r\n")?;
-            write!(f, "    _internal_ptr: 0x{:x}\r\n", self._internal_ptr as usize)?;
-            write!(f, "    _internal_len: {}\r\n", self._internal_len)?;
-            write!(f, "    _internal_layout_size: {}\r\n", self._internal_layout_size)?;
-            write!(f, "    _internal_layout_align: {}\r\n", self._internal_layout_align)?;
-            write!(f, "    type_name: \"{}\"\r\n", self.type_name.as_str())?;
-            write!(f, "    type_id: {}\r\n", self.type_id)?;
+            write!(f, "    is_dead: {:?}\r\n", &self.is_dead)?;
             write!(f, "    sharing_info: {:?}\r\n", &self.sharing_info)?;
-            write!(f, "    custom_destructor: 0x{:x}\r\n", self.custom_destructor as usize)?;
             write!(f, "}}\r\n")?;
             Ok(())
         }
@@ -34,7 +28,19 @@
     impl ::std::fmt::Debug for AzRefCount {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
             let ptr = unsafe { &*self.ptr };
-            write!(f, "{{ num_copies: {}, ref: {}, mut: {} }}", ptr.num_copies, ptr.num_refs, ptr.num_mutable_refs)
+            write!(f, "RefAnyRefCount {{\r\n")?;
+            write!(f, "    num_copies: {}\r\n", ptr.num_copies)?;
+            write!(f, "    num_refs: {}\r\n", ptr.num_refs)?;
+            write!(f, "    num_mutable_refs: {}\r\n", ptr.num_mutable_refs)?;
+            write!(f, "    _internal_ptr: 0x{:x}\r\n", ptr._internal_ptr as usize)?;
+            write!(f, "    _internal_len: {}\r\n", ptr._internal_len)?;
+            write!(f, "    _internal_layout_size: {}\r\n", ptr._internal_layout_size)?;
+            write!(f, "    _internal_layout_align: {}\r\n", ptr._internal_layout_align)?;
+            write!(f, "    type_name: \"{}\"\r\n", ptr.type_name.as_str())?;
+            write!(f, "    type_id: {}\r\n", ptr.type_id)?;
+            write!(f, "    custom_destructor: 0x{:x}\r\n", ptr.custom_destructor as usize)?;
+            write!(f, "}}\r\n")?;
+            Ok(())
         }
     }
 

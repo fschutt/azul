@@ -239,7 +239,7 @@
 				    }
 				},
 				"U32VecDestructor": {
-				    "external": "azul_impl::svg::U32VecDestructor",
+				    "external": "azul_impl::css::U32VecDestructor",
 				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"DefaultRust": {}},
@@ -780,7 +780,7 @@
 				"U32Vec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<u32>`",
 					"custom_destructor": true,
-					"external": "azul_impl::svg::U32Vec",
+					"external": "azul_impl::css::U32Vec",
 					"struct_fields": [
 						{ "ptr": { "type": "*const u32" } },
 						{ "len": { "type": "usize" } },
@@ -1218,7 +1218,7 @@
 					]
 				},
 				"OptionString": {
-					"external": "azul_impl::window::OptionAzString",
+					"external": "azul_impl::css::OptionAzString",
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "String" }}
@@ -1233,7 +1233,7 @@
 					]
 				},
 				"OptionI32": {
-					"external": "azul_impl::window::OptionI32",
+					"external": "azul_impl::css::OptionI32",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
@@ -1241,7 +1241,7 @@
 					]
 				},
 				"OptionF32": {
-					"external": "azul_impl::window::OptionF32",
+					"external": "azul_impl::css::OptionF32",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
@@ -1298,7 +1298,7 @@
 					]
 				},
 				"OptionImageMask": {
-					"external": "azul_impl::dom::OptionImageMask",
+					"external": "azul_impl::resources::OptionImageMask",
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "ImageMask" }}
@@ -1353,8 +1353,8 @@
 				}
 			}
 		},
-		"result": {
-			"doc": "Definition of azuls internal `Result<*>` wrappers",
+		"error": {
+			"doc": "Definition of error and `Result<T, E>`  types",
 			"classes": {
 				"ResultSvgSvgParseError": {
 					"external": "azul_impl::svg::ResultSvgSvgParseError",
@@ -1362,12 +1362,7 @@
 						{"Ok": {"type": "Svg"}},
 						{"Err": { "type": "SvgParseError" }}
 					]
-				}
-			}
-		},
-		"error": {
-			"doc": "Definition of error types",
-			"classes": {
+				},
 				"SvgParseError": {
 					"external": "azul_impl::svg::SvgParseError",
 					"enum_fields": [
@@ -1821,10 +1816,17 @@
 						{"system_callbacks": {"type": "*const SystemCallbacks"}},
 						{"datasets": {"type": "*mut c_void"}},
 						{"stop_propagation": {"type": "*mut bool"}},
-						{"focus_target": {"type": "*const c_void"}},
-						{"css_properties_changed_in_callbacks": {"type": "*const c_void"}},
+						{"focus_target": {"type": "*mut c_void"}},
+						{"words_cache": {"type": "*const c_void"}},
+						{"shaped_words_cache": {"type": "*const c_void"}},
+						{"positioned_words_cache": {"type": "*const c_void"}},
+						{"positioned_rects": {"type": "*const c_void"}},
+						{"words_changed_in_callbacks": {"type": "*mut c_void"}},
+						{"images_changed_in_callbacks": {"type": "*mut c_void"}},
+						{"image_masks_changed_in_callbacks": {"type": "*mut c_void"}},
+						{"css_properties_changed_in_callbacks": {"type": "*mut c_void"}},
 						{"current_scroll_states": {"type": "*const c_void"}},
-						{"nodes_scrolled_in_callback": {"type": "*const c_void"}},
+						{"nodes_scrolled_in_callback": {"type": "*mut c_void"}},
 						{"hit_dom_node": {"type": "DomNodeId"}},
 						{"cursor_relative_to_item": {"type": "OptionLayoutPoint"}},
 						{"cursor_in_viewport": {"type": "OptionLayoutPoint"}}
@@ -2066,6 +2068,11 @@
 					"struct_fields": [
 						{"gl_context": {"type": "*const GlContextPtr"}},
 						{"resources": {"type": "*const c_void"}},
+						{"node_hierarchy": {"type": "*const NodeVec"}},
+						{"words_cache": {"type": "*const c_void"}},
+						{"shaped_words_cache": {"type": "*const c_void"}},
+						{"positioned_words_cache": {"type": "*const c_void"}},
+						{"positioned_rects": {"type": "*const c_void"}},
 						{"bounds": {"type": "HidpiAdjustedBounds"}}
 					],
 					"functions": {
@@ -2074,8 +2081,8 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "GlContextPtr",
-							"fn_body": "glcallbackinfo.get_gl_context()"
+							"returns": "OptionGlContextPtr",
+							"fn_body": "glcallbackinfo.get_gl_context().into()"
 						},
 						"get_bounds": {
 							"doc": "Returns a copy of the internal `HidpiAdjustedBounds`",
@@ -2118,7 +2125,8 @@
 					"struct_fields": [
 						{"callback_info": {"type": "CallbackInfo"}},
 						{"frame_start": {"type": "Instant"}},
-						{"call_count": {"type": "usize"}}
+						{"call_count": {"type": "usize"}},
+						{"is_about_to_finish": {"type": "bool"}}
 					]
 				},
 				"TimerCallbackReturn": {
@@ -2166,7 +2174,14 @@
 					"struct_fields": [
 						{"num_copies": {"type": "usize"}},
 						{"num_refs": {"type": "usize"}},
-						{"num_mutable_refs": {"type": "usize"}}
+						{"num_mutable_refs": {"type": "usize"}},
+						{"_internal_ptr":  {"type": "*const c_void", "doc": "Pointer to the type-erased struct"}},
+						{"_internal_len":  {"type": "usize", "doc": "Length of Vec holding type-erased struct"}},
+						{"_internal_layout_size":  {"type": "usize", "doc": "Size of the type-erased struct"}},
+						{"_internal_layout_align":  {"type": "usize", "doc": "Alignment of the type-erased struct (usually 0 or 8)"}},
+						{"type_id":  {"type": "u64", "doc": "TypeId that can uniquely identify the type of the struct, usually generated by the compiler (i.e. in Rust it would be `std::any::TypeId`)"}},
+						{"type_name":  {"type": "String", "doc": "Optional, name of the type, usually compiler-generated (in Rust, `std::any::type_name<T>()`)"}},
+						{"custom_destructor":  {"type": "RefAnyDestructorType", "doc": "Function pointer to the destructor of `T`. Is called when the `num_copies` count of the `RefAny` reaches 0"}}
 					]
 				},
 				"RefCount": {
@@ -2222,15 +2237,8 @@
 					"is_boxed_object": true,
 					"clone": false,
 					"struct_fields": [
-						{"_internal_ptr":  {"type": "*const c_void", "doc": "Pointer to the type-erased struct"}},
-						{"_internal_len":  {"type": "usize", "doc": "Length of Vec holding type-erased struct"}},
-						{"_internal_layout_size":  {"type": "usize", "doc": "Size of the type-erased struct"}},
-						{"_internal_layout_align":  {"type": "usize", "doc": "Alignment of the type-erased struct (usually 0 or 8)"}},
-						{"type_id":  {"type": "u64", "doc": "TypeId that can uniquely identify the type of the struct, usually generated by the compiler (i.e. in Rust it would be `std::any::TypeId`)"}},
 						{"is_dead":  {"type": "bool", "doc": "Field to check if the pointer is dead (TRUE BY DEFAULT!)"}},
-						{"type_name":  {"type": "String", "doc": "Optional, name of the type, usually compiler-generated (in Rust, `std::any::type_name<T>()`)"}},
-						{"sharing_info":  {"type": "RefCount", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}},
-						{"custom_destructor":  {"type": "RefAnyDestructorType", "doc": "Function pointer to the destructor of `T`. Is called when the `num_copies` count of the `RefAny` reaches 0"}}
+						{"sharing_info":  {"type": "RefCount", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}}
 					],
 					"constructors": {
 						"new_c": {
@@ -2310,43 +2318,6 @@
 							],
 							"returns": "bool",
 							"fn_body": "layoutinfo.window_height_smaller_than(width)"
-						}
-					}
-				},
-				"IFrameCallbackInfo": {
-					"external": "azul_impl::callbacks::IFrameCallbackInfo",
-					"clone": false,
-					"struct_fields": [
-						{"resources": {"type": "*const c_void"}},
-						{"bounds": {"type": "HidpiAdjustedBounds"}}
-					],
-					"functions": {
-						"get_bounds": {
-							"doc": "Returns a copy of the IFrame bounds",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": "HidpiAdjustedBounds",
-							"fn_body": "iframecallbackinfo.get_bounds()"
-						}
-					}
-				},
-				"GlCallbackInfo": {
-					"external": "azul_impl::callbacks::GlCallbackInfo",
-					"clone": false,
-					"struct_fields": [
-						{"gl_context": {"type": "*const GlContextPtr"}},
-						{"resources": {"type": "*const c_void"}},
-						{"bounds": {"type": "HidpiAdjustedBounds"}}
-					],
-					"functions": {
-						"get_gl_context": {
-							"doc": "Returns a copy of the internal `GlContextPtr`",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": "GlContextPtr",
-							"fn_body": "glcallbackinfo.get_gl_context()"
 						}
 					}
 				}
@@ -4426,14 +4397,6 @@
 						{"event": {"type": "EventFilter"}},
 						{"callback": {"type": "Callback"}},
 						{"data": {"type": "RefAny"}}
-					]
-				},
-				"ImageMask": {
-					"external": "azul_impl::dom::ImageMask",
-					"struct_fields": [
-						{"image": {"type": "ImageId"}},
-						{"rect": {"type": "LogicalRect"}},
-						{"repeat": {"type": "bool"}}
 					]
 				},
 				"NodeData": {
@@ -6659,6 +6622,14 @@
 		"resources": {
 			"doc": "Struct definition for image / font / text IDs",
 			"classes": {
+				"ImageMask": {
+					"external": "azul_impl::resources::ImageMask",
+					"struct_fields": [
+						{"image": {"type": "ImageId"}},
+						{"rect": {"type": "LogicalRect"}},
+						{"repeat": {"type": "bool"}}
+					]
+				},
 				"RawImageFormat": {
 					"external": "azul_impl::resources::RawImageFormat",
 					"derive": ["Copy"],

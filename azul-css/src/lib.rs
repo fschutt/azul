@@ -713,6 +713,8 @@ macro_rules! impl_result {
 #[repr(C)]
 pub struct AzString { pub vec: U8Vec }
 
+impl_option!(AzString, OptionAzString, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
 impl<'a> From<&'a str> for AzString {
     fn from(s: &'a str) -> Self {
         s.to_string().into()

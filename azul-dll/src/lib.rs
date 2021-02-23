@@ -118,7 +118,7 @@ pub use AzSvgVertexVecDestructorTT as AzSvgVertexVecDestructor;
 
 pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
 /// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
-pub type AzU32VecDestructorTT = azul_impl::svg::U32VecDestructor;
+pub type AzU32VecDestructorTT = azul_impl::css::U32VecDestructor;
 pub use AzU32VecDestructorTT as AzU32VecDestructor;
 
 pub type AzU32VecDestructorType = extern "C" fn(&mut AzU32Vec);
@@ -322,7 +322,7 @@ pub use AzSvgVertexVecTT as AzSvgVertexVec;
 #[no_mangle] pub extern "C" fn az_svg_vertex_vec_delete(object: &mut AzSvgVertexVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<u32>`
-pub type AzU32VecTT = azul_impl::svg::U32Vec;
+pub type AzU32VecTT = azul_impl::css::U32Vec;
 pub use AzU32VecTT as AzU32Vec;
 /// Destructor: Takes ownership of the `U32Vec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_u32_vec_delete(object: &mut AzU32Vec) {  unsafe { core::ptr::drop_in_place(object); } }
@@ -554,7 +554,7 @@ pub type AzOptionWindowIconTT = azul_impl::window::OptionWindowIcon;
 pub use AzOptionWindowIconTT as AzOptionWindowIcon;
 
 /// Re-export of rust-allocated (stack based) `OptionString` struct
-pub type AzOptionStringTT = azul_impl::window::OptionAzString;
+pub type AzOptionStringTT = azul_impl::css::OptionAzString;
 pub use AzOptionStringTT as AzOptionString;
 
 /// Re-export of rust-allocated (stack based) `OptionX11Visual` struct
@@ -562,11 +562,11 @@ pub type AzOptionX11VisualTT = azul_impl::window::OptionX11Visual;
 pub use AzOptionX11VisualTT as AzOptionX11Visual;
 
 /// Re-export of rust-allocated (stack based) `OptionI32` struct
-pub type AzOptionI32TT = azul_impl::window::OptionI32;
+pub type AzOptionI32TT = azul_impl::css::OptionI32;
 pub use AzOptionI32TT as AzOptionI32;
 
 /// Re-export of rust-allocated (stack based) `OptionF32` struct
-pub type AzOptionF32TT = azul_impl::window::OptionF32;
+pub type AzOptionF32TT = azul_impl::css::OptionF32;
 pub use AzOptionF32TT as AzOptionF32;
 
 /// Re-export of rust-allocated (stack based) `OptionMouseCursorType` struct
@@ -594,7 +594,7 @@ pub type AzOptionTextureTT = azul_impl::gl::OptionTexture;
 pub use AzOptionTextureTT as AzOptionTexture;
 
 /// Re-export of rust-allocated (stack based) `OptionImageMask` struct
-pub type AzOptionImageMaskTT = azul_impl::dom::OptionImageMask;
+pub type AzOptionImageMaskTT = azul_impl::resources::OptionImageMask;
 pub use AzOptionImageMaskTT as AzOptionImageMask;
 
 /// Re-export of rust-allocated (stack based) `OptionTabIndex` struct
@@ -853,8 +853,6 @@ pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, AzIFrameCallbackInf
 /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
 pub type AzIFrameCallbackInfoTT = azul_impl::callbacks::IFrameCallbackInfo;
 pub use AzIFrameCallbackInfoTT as AzIFrameCallbackInfo;
-/// Returns a copy of the IFrame bounds
-#[no_mangle] pub extern "C" fn az_i_frame_callback_info_get_bounds(iframecallbackinfo: &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds { iframecallbackinfo.get_bounds() }
 
 /// Re-export of rust-allocated (stack based) `IFrameCallbackReturn` struct
 pub type AzIFrameCallbackReturnTT = azul_impl::callbacks::IFrameCallbackReturn;
@@ -869,7 +867,9 @@ pub type AzGlCallbackType = extern "C" fn(&mut AzRefAny, AzGlCallbackInfo) -> Az
 pub type AzGlCallbackInfoTT = azul_impl::callbacks::GlCallbackInfo;
 pub use AzGlCallbackInfoTT as AzGlCallbackInfo;
 /// Returns a copy of the internal `GlContextPtr`
-#[no_mangle] pub extern "C" fn az_gl_callback_info_get_gl_context(glcallbackinfo: &AzGlCallbackInfo) -> AzGlContextPtr { glcallbackinfo.get_gl_context() }
+#[no_mangle] pub extern "C" fn az_gl_callback_info_get_gl_context(glcallbackinfo: &AzGlCallbackInfo) -> AzOptionGlContextPtr { glcallbackinfo.get_gl_context().into() }
+/// Returns a copy of the internal `HidpiAdjustedBounds`
+#[no_mangle] pub extern "C" fn az_gl_callback_info_get_bounds(glcallbackinfo: &AzGlCallbackInfo) -> AzHidpiAdjustedBounds { glcallbackinfo.get_bounds() }
 
 /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
 pub type AzGlCallbackReturnTT = azul_impl::callbacks::GlCallbackReturn;
@@ -1743,10 +1743,6 @@ pub use AzIFrameNodeTT as AzIFrameNode;
 pub type AzCallbackDataTT = azul_impl::dom::CallbackData;
 pub use AzCallbackDataTT as AzCallbackData;
 
-/// Re-export of rust-allocated (stack based) `ImageMask` struct
-pub type AzImageMaskTT = azul_impl::dom::ImageMask;
-pub use AzImageMaskTT as AzImageMask;
-
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 pub type AzNodeDataTT = azul_impl::dom::NodeData;
 pub use AzNodeDataTT as AzNodeData;
@@ -2357,6 +2353,10 @@ pub use AzTextureFlagsTT as AzTextureFlags;
 /// Default texture flags (not opaque, not a video texture)
 #[no_mangle] pub extern "C" fn az_texture_flags_default() -> AzTextureFlags { TextureFlags::default() }
 
+/// Re-export of rust-allocated (stack based) `ImageMask` struct
+pub type AzImageMaskTT = azul_impl::resources::ImageMask;
+pub use AzImageMaskTT as AzImageMask;
+
 /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
 pub type AzRawImageFormatTT = azul_impl::resources::RawImageFormat;
 pub use AzRawImageFormatTT as AzRawImageFormat;
@@ -2865,14 +2865,8 @@ mod test_sizes {
     impl ::std::fmt::Debug for AzRefAny                     {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
             write!(f, "RefAny {{\r\n")?;
-            write!(f, "    _internal_ptr: 0x{:x}\r\n", self._internal_ptr as usize)?;
-            write!(f, "    _internal_len: {}\r\n", self._internal_len)?;
-            write!(f, "    _internal_layout_size: {}\r\n", self._internal_layout_size)?;
-            write!(f, "    _internal_layout_align: {}\r\n", self._internal_layout_align)?;
-            write!(f, "    type_name: \"{}\"\r\n", self.type_name.as_str())?;
-            write!(f, "    type_id: {}\r\n", self.type_id)?;
+            write!(f, "    is_dead: {:?}\r\n", &self.is_dead)?;
             write!(f, "    sharing_info: {:?}\r\n", &self.sharing_info)?;
-            write!(f, "    custom_destructor: 0x{:x}\r\n", self.custom_destructor as usize)?;
             write!(f, "}}\r\n")?;
             Ok(())
         }
@@ -2881,7 +2875,19 @@ mod test_sizes {
     impl ::std::fmt::Debug for AzRefCount {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
             let ptr = unsafe { &*self.ptr };
-            write!(f, "{{ num_copies: {}, ref: {}, mut: {} }}", ptr.num_copies, ptr.num_refs, ptr.num_mutable_refs)
+            write!(f, "RefAnyRefCount {{\r\n")?;
+            write!(f, "    num_copies: {}\r\n", ptr.num_copies)?;
+            write!(f, "    num_refs: {}\r\n", ptr.num_refs)?;
+            write!(f, "    num_mutable_refs: {}\r\n", ptr.num_mutable_refs)?;
+            write!(f, "    _internal_ptr: 0x{:x}\r\n", ptr._internal_ptr as usize)?;
+            write!(f, "    _internal_len: {}\r\n", ptr._internal_len)?;
+            write!(f, "    _internal_layout_size: {}\r\n", ptr._internal_layout_size)?;
+            write!(f, "    _internal_layout_align: {}\r\n", ptr._internal_layout_align)?;
+            write!(f, "    type_name: \"{}\"\r\n", ptr.type_name.as_str())?;
+            write!(f, "    type_id: {}\r\n", ptr.type_id)?;
+            write!(f, "    custom_destructor: 0x{:x}\r\n", ptr.custom_destructor as usize)?;
+            write!(f, "}}\r\n")?;
+            Ok(())
         }
     }
 
@@ -3050,15 +3056,8 @@ mod test_sizes {
     }
     /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
     #[repr(C)]     pub struct AzRefAny {
-        pub _internal_ptr: *const c_void,
-        pub _internal_len: usize,
-        pub _internal_layout_size: usize,
-        pub _internal_layout_align: usize,
-        pub type_id: u64,
         pub is_dead: bool,
-        pub type_name: AzString,
         pub sharing_info: AzRefCount,
-        pub custom_destructor: AzRefAnyDestructorType,
     }
     /// Re-export of rust-allocated (stack based) `NodeTypePath` struct
     #[repr(C)]     pub enum AzNodeTypePath {
@@ -4252,12 +4251,6 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
     #[repr(C)]     pub struct AzWriteBackCallback {
         pub cb: AzWriteBackCallbackType,
-    }
-    /// Re-export of rust-allocated (stack based) `RefCountInner` struct
-    #[repr(C)]     pub struct AzRefCountInner {
-        pub num_copies: usize,
-        pub num_refs: usize,
-        pub num_mutable_refs: usize,
     }
     /// Re-export of rust-allocated (stack based) `CssNthChildPattern` struct
     #[repr(C)]     pub struct AzCssNthChildPattern {
@@ -5782,7 +5775,25 @@ mod test_sizes {
     #[repr(C)]     pub struct AzGlCallbackInfo {
         pub gl_context: *const AzGlContextPtr,
         pub resources: *const c_void,
+        pub node_hierarchy: *const AzNodeVec,
+        pub words_cache: *const c_void,
+        pub shaped_words_cache: *const c_void,
+        pub positioned_words_cache: *const c_void,
+        pub positioned_rects: *const c_void,
         pub bounds: AzHidpiAdjustedBounds,
+    }
+    /// Re-export of rust-allocated (stack based) `RefCountInner` struct
+    #[repr(C)]     pub struct AzRefCountInner {
+        pub num_copies: usize,
+        pub num_refs: usize,
+        pub num_mutable_refs: usize,
+        pub _internal_ptr: *const c_void,
+        pub _internal_len: usize,
+        pub _internal_layout_size: usize,
+        pub _internal_layout_align: usize,
+        pub type_id: u64,
+        pub type_name: AzString,
+        pub custom_destructor: AzRefAnyDestructorType,
     }
     /// Re-export of rust-allocated (stack based) `CssNthChildSelector` struct
     #[repr(C, u8)]     pub enum AzCssNthChildSelector {
@@ -6209,12 +6220,6 @@ mod test_sizes {
         pub callback: AzCallback,
         pub data: AzRefAny,
     }
-    /// Re-export of rust-allocated (stack based) `ImageMask` struct
-    #[repr(C)]     pub struct AzImageMask {
-        pub image: AzImageId,
-        pub rect: AzLogicalRect,
-        pub repeat: bool,
-    }
     /// Re-export of rust-allocated (stack based) `VertexLayout` struct
     #[repr(C)]     pub struct AzVertexLayout {
         pub fields: AzVertexAttributeVec,
@@ -6233,6 +6238,12 @@ mod test_sizes {
         pub index_buffer_id: u32,
         pub index_buffer_len: usize,
         pub index_buffer_format: AzIndexBufferFormat,
+    }
+    /// Re-export of rust-allocated (stack based) `ImageMask` struct
+    #[repr(C)]     pub struct AzImageMask {
+        pub image: AzImageId,
+        pub rect: AzLogicalRect,
+        pub repeat: bool,
     }
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
     #[repr(C, u8)]     pub enum AzSvgPathElement {
@@ -6499,10 +6510,17 @@ mod test_sizes {
         pub system_callbacks: *const AzSystemCallbacks,
         pub datasets: *mut c_void,
         pub stop_propagation: *mut bool,
-        pub focus_target: *const c_void,
-        pub css_properties_changed_in_callbacks: *const c_void,
+        pub focus_target: *mut c_void,
+        pub words_cache: *const c_void,
+        pub shaped_words_cache: *const c_void,
+        pub positioned_words_cache: *const c_void,
+        pub positioned_rects: *const c_void,
+        pub words_changed_in_callbacks: *mut c_void,
+        pub images_changed_in_callbacks: *mut c_void,
+        pub image_masks_changed_in_callbacks: *mut c_void,
+        pub css_properties_changed_in_callbacks: *mut c_void,
         pub current_scroll_states: *const c_void,
-        pub nodes_scrolled_in_callback: *const c_void,
+        pub nodes_scrolled_in_callback: *mut c_void,
         pub hit_dom_node: AzDomNodeId,
         pub cursor_relative_to_item: AzOptionLayoutPoint,
         pub cursor_in_viewport: AzOptionLayoutPoint,
@@ -6512,6 +6530,7 @@ mod test_sizes {
         pub callback_info: AzCallbackInfo,
         pub frame_start: AzInstant,
         pub call_count: usize,
+        pub is_about_to_finish: bool,
     }
     /// Re-export of rust-allocated (stack based) `DynamicCssProperty` struct
     #[repr(C)]     pub struct AzDynamicCssProperty {
@@ -6775,7 +6794,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttributeVecDestructor>(), "AzVertexAttributeVecDestructor"), (Layout::new::<AzVertexAttributeVecDestructor>(), "AzVertexAttributeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"), (Layout::new::<AzSvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgVertexVecDestructor>(), "AzSvgVertexVecDestructor"), (Layout::new::<AzSvgVertexVecDestructor>(), "AzSvgVertexVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::svg::U32VecDestructor>(), "AzU32VecDestructor"), (Layout::new::<AzU32VecDestructor>(), "AzU32VecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::U32VecDestructor>(), "AzU32VecDestructor"), (Layout::new::<AzU32VecDestructor>(), "AzU32VecDestructor"));
         assert_eq!((Layout::new::<azul_impl::window::XWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"), (Layout::new::<AzXWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"), (Layout::new::<AzVirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::style::CascadeInfoVecDestructor>(), "AzCascadeInfoVecDestructor"), (Layout::new::<AzCascadeInfoVecDestructor>(), "AzCascadeInfoVecDestructor"));
@@ -6800,7 +6819,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVecDestructor>(), "AzParentWithNodeDepthVecDestructor"), (Layout::new::<AzParentWithNodeDepthVecDestructor>(), "AzParentWithNodeDepthVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataVecDestructor>(), "AzNodeDataVecDestructor"), (Layout::new::<AzNodeDataVecDestructor>(), "AzNodeDataVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"), (Layout::new::<AzStyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"));
-        assert_eq!((Layout::new::<azul_impl::svg::U32Vec>(), "AzU32Vec"), (Layout::new::<AzU32Vec>(), "AzU32Vec"));
+        assert_eq!((Layout::new::<azul_impl::css::U32Vec>(), "AzU32Vec"), (Layout::new::<AzU32Vec>(), "AzU32Vec"));
         assert_eq!((Layout::new::<azul_impl::window::XWindowTypeVec>(), "AzXWindowTypeVec"), (Layout::new::<AzXWindowTypeVec>(), "AzXWindowTypeVec"));
         assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"), (Layout::new::<AzVirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"));
         assert_eq!((Layout::new::<azul_impl::window::ScanCodeVec>(), "AzScanCodeVec"), (Layout::new::<AzScanCodeVec>(), "AzScanCodeVec"));
@@ -6813,8 +6832,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::OptionWindowTheme>(), "AzOptionWindowTheme"), (Layout::new::<AzOptionWindowTheme>(), "AzOptionWindowTheme"));
         assert_eq!((Layout::new::<azul_impl::window::OptionHwndHandle>(), "AzOptionHwndHandle"), (Layout::new::<AzOptionHwndHandle>(), "AzOptionHwndHandle"));
         assert_eq!((Layout::new::<azul_impl::window::OptionX11Visual>(), "AzOptionX11Visual"), (Layout::new::<AzOptionX11Visual>(), "AzOptionX11Visual"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionI32>(), "AzOptionI32"), (Layout::new::<AzOptionI32>(), "AzOptionI32"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionF32>(), "AzOptionF32"), (Layout::new::<AzOptionF32>(), "AzOptionF32"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionI32>(), "AzOptionI32"), (Layout::new::<AzOptionI32>(), "AzOptionI32"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionF32>(), "AzOptionF32"), (Layout::new::<AzOptionF32>(), "AzOptionF32"));
         assert_eq!((Layout::new::<azul_impl::window::OptionMouseCursorType>(), "AzOptionMouseCursorType"), (Layout::new::<AzOptionMouseCursorType>(), "AzOptionMouseCursorType"));
         assert_eq!((Layout::new::<azul_impl::window::OptionChar>(), "AzOptionChar"), (Layout::new::<AzOptionChar>(), "AzOptionChar"));
         assert_eq!((Layout::new::<azul_impl::window::OptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"), (Layout::new::<AzOptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"));
@@ -6837,7 +6856,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallback>(), "AzTimerCallback"), (Layout::new::<AzTimerCallback>(), "AzTimerCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackReturn>(), "AzTimerCallbackReturn"), (Layout::new::<AzTimerCallbackReturn>(), "AzTimerCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::callbacks::WriteBackCallback>(), "AzWriteBackCallback"), (Layout::new::<AzWriteBackCallback>(), "AzWriteBackCallback"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::RefCountInner>(), "AzRefCountInner"), (Layout::new::<AzRefCountInner>(), "AzRefCountInner"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildPattern>(), "AzCssNthChildPattern"), (Layout::new::<AzCssNthChildPattern>(), "AzCssNthChildPattern"));
         assert_eq!((Layout::new::<azul_impl::css::ColorU>(), "AzColorU"), (Layout::new::<AzColorU>(), "AzColorU"));
         assert_eq!((Layout::new::<azul_impl::css::FloatValue>(), "AzFloatValue"), (Layout::new::<AzFloatValue>(), "AzFloatValue"));
@@ -7069,7 +7087,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::OptionLogicalPosition>(), "AzOptionLogicalPosition"), (Layout::new::<AzOptionLogicalPosition>(), "AzOptionLogicalPosition"));
         assert_eq!((Layout::new::<azul_impl::window::OptionPhysicalPositionI32>(), "AzOptionPhysicalPositionI32"), (Layout::new::<AzOptionPhysicalPositionI32>(), "AzOptionPhysicalPositionI32"));
         assert_eq!((Layout::new::<azul_impl::window::OptionWindowIcon>(), "AzOptionWindowIcon"), (Layout::new::<AzOptionWindowIcon>(), "AzOptionWindowIcon"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionAzString>(), "AzOptionString"), (Layout::new::<AzOptionString>(), "AzOptionString"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionAzString>(), "AzOptionString"), (Layout::new::<AzOptionString>(), "AzOptionString"));
         assert_eq!((Layout::new::<azul_impl::window::OptionLogicalSize>(), "AzOptionLogicalSize"), (Layout::new::<AzOptionLogicalSize>(), "AzOptionLogicalSize"));
         assert_eq!((Layout::new::<azul_impl::dom::OptionTabIndex>(), "AzOptionTabIndex"), (Layout::new::<AzOptionTabIndex>(), "AzOptionTabIndex"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::OptionTagId>(), "AzOptionTagId"), (Layout::new::<AzOptionTagId>(), "AzOptionTagId"));
@@ -7092,6 +7110,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::HidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"), (Layout::new::<AzHidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"));
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackInfo>(), "AzIFrameCallbackInfo"), (Layout::new::<AzIFrameCallbackInfo>(), "AzIFrameCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackInfo>(), "AzGlCallbackInfo"), (Layout::new::<AzGlCallbackInfo>(), "AzGlCallbackInfo"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::RefCountInner>(), "AzRefCountInner"), (Layout::new::<AzRefCountInner>(), "AzRefCountInner"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildSelector>(), "AzCssNthChildSelector"), (Layout::new::<AzCssNthChildSelector>(), "AzCssNthChildSelector"));
         assert_eq!((Layout::new::<azul_impl::css::LinearColorStop>(), "AzLinearColorStop"), (Layout::new::<AzLinearColorStop>(), "AzLinearColorStop"));
         assert_eq!((Layout::new::<azul_impl::css::RadialColorStop>(), "AzRadialColorStop"), (Layout::new::<AzRadialColorStop>(), "AzRadialColorStop"));
@@ -7150,10 +7169,10 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<ScrollbarStyle>>(), "AzScrollbarStyleValue"), (Layout::new::<AzScrollbarStyleValue>(), "AzScrollbarStyleValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTransformVec>>(), "AzStyleTransformVecValue"), (Layout::new::<AzStyleTransformVecValue>(), "AzStyleTransformVecValue"));
         assert_eq!((Layout::new::<azul_impl::dom::CallbackData>(), "AzCallbackData"), (Layout::new::<AzCallbackData>(), "AzCallbackData"));
-        assert_eq!((Layout::new::<azul_impl::dom::ImageMask>(), "AzImageMask"), (Layout::new::<AzImageMask>(), "AzImageMask"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexLayout>(), "AzVertexLayout"), (Layout::new::<AzVertexLayout>(), "AzVertexLayout"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexArrayObject>(), "AzVertexArrayObject"), (Layout::new::<AzVertexArrayObject>(), "AzVertexArrayObject"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexBuffer>(), "AzVertexBuffer"), (Layout::new::<AzVertexBuffer>(), "AzVertexBuffer"));
+        assert_eq!((Layout::new::<azul_impl::resources::ImageMask>(), "AzImageMask"), (Layout::new::<AzImageMask>(), "AzImageMask"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElement>(), "AzSvgPathElement"), (Layout::new::<AzSvgPathElement>(), "AzSvgPathElement"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStyle>(), "AzSvgStyle"), (Layout::new::<AzSvgStyle>(), "AzSvgStyle"));
         assert_eq!((Layout::new::<azul_impl::task::Timer>(), "AzTimer"), (Layout::new::<AzTimer>(), "AzTimer"));
@@ -7162,7 +7181,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"), (Layout::new::<AzStyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVec>(), "AzSvgPathElementVec"), (Layout::new::<AzSvgPathElementVec>(), "AzSvgPathElementVec"));
         assert_eq!((Layout::new::<azul_impl::dom::CallbackDataVec>(), "AzCallbackDataVec"), (Layout::new::<AzCallbackDataVec>(), "AzCallbackDataVec"));
-        assert_eq!((Layout::new::<azul_impl::dom::OptionImageMask>(), "AzOptionImageMask"), (Layout::new::<AzOptionImageMask>(), "AzOptionImageMask"));
+        assert_eq!((Layout::new::<azul_impl::resources::OptionImageMask>(), "AzOptionImageMask"), (Layout::new::<AzOptionImageMask>(), "AzOptionImageMask"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlTextError>(), "AzXmlTextError"), (Layout::new::<AzXmlTextError>(), "AzXmlTextError"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathSelector>(), "AzCssPathSelector"), (Layout::new::<AzCssPathSelector>(), "AzCssPathSelector"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundContentVec>>(), "AzStyleBackgroundContentVecValue"), (Layout::new::<AzStyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"));

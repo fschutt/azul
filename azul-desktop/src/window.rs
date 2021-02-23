@@ -54,7 +54,7 @@ use azul_core::{
     gl::{GlContextPtr, GlShaderCreateError, Texture},
     window_state::{Events, NodesToCheck},
 };
-use azul_css::{LayoutPoint, AzString, LayoutSize};
+use azul_css::{LayoutPoint, AzString, OptionAzString, LayoutSize};
 use glutin::monitor::MonitorHandle as WinitMonitorHandle;
 pub use azul_core::window::*;
 

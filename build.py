@@ -41,7 +41,6 @@ basic_types = [ # note: "char" is not a primitive type! - use u32 instead
 ]
 
 license = read_file(root_folder + "/LICENSE")
-apiData = read_api_file(root_folder + "/api.json")
 
 rust_api_patches = {
     tuple(['str']): read_file(root_folder + "/api/_patches/azul.rs/string.rs"),
@@ -1183,6 +1182,7 @@ def cleanup_start():
     #         remove_path(os.environ['AZUL_INSTALL_DIR'])
 
 def generate_api():
+    apiData = read_api_file(root_folder + "/api.json")
     rust_dll_result = generate_rust_dll(apiData)
 
     rust_dll_code = rust_dll_result[0]

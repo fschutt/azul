@@ -1,5 +1,4 @@
-use azul_css::{U8Vec, AzString};
-use azul_core::window::OptionAzString;
+use azul_css::{U8Vec, AzString, OptionAzString};
 
 pub enum c_void { }
 

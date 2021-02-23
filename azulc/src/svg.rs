@@ -1,10 +1,9 @@
 use core::fmt;
 use azul_core::{
     svg::*,
-    window::OptionAzString,
     app_resources::{RawImage, RawImageFormat},
 };
-use azul_css::{U8Vec, OptionColorU, AzString, StringVec, ColorU};
+use azul_css::{U8Vec, OptionAzString, OptionColorU, AzString, StringVec, ColorU};
 use owned_ttf_parser::Font as TTFFont;
 use lyon::{
     tessellation::{
