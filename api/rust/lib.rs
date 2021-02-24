@@ -3173,11 +3173,22 @@ mod dll {
         File(AzString),
         Raw(AzRawImage),
     }
-    /// Re-export of rust-allocated (stack based) `FontSource` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzFontSource {
-        Embedded(AzU8Vec),
-        File(AzString),
-        System(AzString),
+    /// Re-export of rust-allocated (stack based) `EmbeddedFontSource` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzEmbeddedFontSource {
+        pub postscript_id: AzString,
+        pub font_data: AzU8Vec,
+        pub load_glyph_outlines: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `FileFontSource` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFileFontSource {
+        pub postscript_id: AzString,
+        pub file_path: AzString,
+        pub load_glyph_outlines: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `SystemFontSource` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSystemFontSource {
+        pub postscript_id: AzString,
+        pub load_glyph_outlines: bool,
     }
     /// Re-export of rust-allocated (stack based) `SvgLine` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgLine {
@@ -3476,6 +3487,12 @@ mod dll {
         pub image: AzImageId,
         pub rect: AzLogicalRect,
         pub repeat: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `FontSource` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzFontSource {
+        Embedded(AzEmbeddedFontSource),
+        File(AzFileFontSource),
+        System(AzSystemFontSource),
     }
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgPathElement {
@@ -9540,6 +9557,15 @@ pub mod resources {
     /// `FontSource` struct
     
 #[doc(inline)] pub use crate::dll::AzFontSource as FontSource;
+    /// `EmbeddedFontSource` struct
+    
+#[doc(inline)] pub use crate::dll::AzEmbeddedFontSource as EmbeddedFontSource;
+    /// `FileFontSource` struct
+    
+#[doc(inline)] pub use crate::dll::AzFileFontSource as FileFontSource;
+    /// `SystemFontSource` struct
+    
+#[doc(inline)] pub use crate::dll::AzSystemFontSource as SystemFontSource;
     /// `RawImage` struct
     
 #[doc(inline)] pub use crate::dll::AzRawImage as RawImage;

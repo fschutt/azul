@@ -527,20 +527,43 @@ impl_option!(ImageMask, OptionImageMask, [Debug, Copy, Clone, PartialEq, Partial
 #[repr(C)]
 pub enum FontSource {
     /// The font is embedded inside the binary file
-    Embedded(U8Vec),
+    Embedded(EmbeddedFontSource),
     /// The font is loaded from a file
-    File(AzString),
+    File(FileFontSource),
     /// The font is a system built-in font
-    System(AzString),
+    System(SystemFontSource),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct EmbeddedFontSource {
+    pub postscript_id: AzString,
+    pub font_data: U8Vec,
+    pub load_glyph_outlines: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct FileFontSource {
+    pub postscript_id: AzString,
+    pub file_path: AzString,
+    pub load_glyph_outlines: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct SystemFontSource {
+    pub postscript_id: AzString,
+    pub load_glyph_outlines: bool,
 }
 
 impl fmt::Display for FontSource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::FontSource::*;
         match self {
-            Embedded(e) => write!(f, "Embedded(0x{:x})", e.ptr_as_usize()),
-            File(p) => write!(f, "\"{}\"", p),
-            System(id) => write!(f, "\"{}\"", id),
+            Embedded(e) => write!(f, "Embedded({})", e.postscript_id.as_str()),
+            File(p) => write!(f, "File({}, \"{}\")", p.postscript_id.as_str(), p.file_path.as_str()),
+            System(id) => write!(f, "System(\"{}\")", id.postscript_id.as_str()),
         }
     }
 }
@@ -1205,6 +1228,8 @@ pub fn add_fonts_and_images(
     load_image_fn: LoadImageFn,
     parse_font_fn: ParseFontFn,
 ) {
+    println!("add fonts and images");
+
     let font_keys = styled_dom.scan_for_font_keys(&app_resources);
     let image_keys = styled_dom.scan_for_image_keys(&app_resources);
 
@@ -1213,6 +1238,8 @@ pub fn add_fonts_and_images(
 
     let add_font_resource_updates = build_add_font_resource_updates(app_resources, render_api_namespace, pipeline_id, &font_keys, load_font_fn, parse_font_fn);
     let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api_namespace, pipeline_id, &image_keys, load_image_fn);
+
+    println!("adding {} fonts and {} images", add_font_resource_updates.len(), add_image_resource_updates.len());
 
     add_resources(app_resources, all_resource_updates, pipeline_id, add_font_resource_updates, add_image_resource_updates);
 }
@@ -1329,8 +1356,9 @@ pub struct FontInstanceOptions {
     pub render_mode: FontRenderMode,
     pub flags: FontInstanceFlags,
     pub bg_color: ColorU,
-    /// When bg_color.a is != 0 and render_mode is FontRenderMode::Subpixel, the text will be
-    /// rendered with bg_color.r/g/b as an opaque estimated background color.
+    /// When bg_color.a is != 0 and render_mode is FontRenderMode::Subpixel,
+    /// the text will be rendered with bg_color.r/g/b as an opaque estimated
+    /// background color.
     pub synthetic_italics: SyntheticItalics,
 }
 
@@ -1602,6 +1630,9 @@ pub struct LoadedFontSource {
     /// Index of the font in the file (if not known, set to 0) -
     /// only relevant if the file is a font collection
     pub font_index: u32,
+    /// Whether the outlines of this font should be parsed - can save lots of memory if disabled!
+    /// Glyph outlines are parsed in parallel
+    pub parse_glyph_outlines: bool,
 }
 
 impl_option!(LoadedFontSource, OptionLoadedFontSource, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
@@ -1636,7 +1667,6 @@ pub fn build_add_font_resource_updates(
     let mut resource_updates = alloc::vec::Vec::new();
 
     for (im_font_id, font_sizes) in fonts_in_dom {
-
         macro_rules! insert_font_instances {($font_id:expr, $font_key:expr, $font_index:expr, $font_size:expr) => ({
 
             let font_instance_key_exists = app_resources.currently_registered_fonts[pipeline_id]
@@ -1702,7 +1732,10 @@ pub fn build_add_font_resource_updates(
                             None => continue,
                         }
                     },
-                    Unresolved(css_font_id) => FontSource::System(css_font_id.clone().into()),
+                    Unresolved(css_font_id) => FontSource::System(SystemFontSource {
+                        postscript_id: css_font_id.clone().into(),
+                        load_glyph_outlines: false, // TODO: ?
+                    }),
                 };
 
                 let loaded_font_source = match (font_source_load_fn.cb)(&font_source).into_option() {
@@ -1715,7 +1748,7 @@ pub fn build_add_font_resource_updates(
                     None => continue,
                 };
 
-                let LoadedFontSource { font_bytes, font_index } = loaded_font_source;
+                let LoadedFontSource { font_bytes, font_index, parse_glyph_outlines: _ } = loaded_font_source;
 
                 if !font_sizes.is_empty() {
                     // loaded_font
@@ -1778,6 +1811,8 @@ pub fn add_resources(
     add_font_resources: Vec<(ImmediateFontId, AddFontMsg)>,
     add_image_resources: Vec<(ImageId, AddImageMsg)>,
 ) {
+    println!("add_resources() - add font msg: {:#?}", add_font_resources.len());
+
     all_resource_updates.extend(add_font_resources.iter().map(|(_, f)| f.into_resource_update()));
     all_resource_updates.extend(add_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 

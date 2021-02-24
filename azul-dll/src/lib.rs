@@ -2362,6 +2362,18 @@ pub use AzImageSourceTT as AzImageSource;
 pub type AzFontSourceTT = azul_impl::resources::FontSource;
 pub use AzFontSourceTT as AzFontSource;
 
+/// Re-export of rust-allocated (stack based) `EmbeddedFontSource` struct
+pub type AzEmbeddedFontSourceTT = azul_impl::resources::EmbeddedFontSource;
+pub use AzEmbeddedFontSourceTT as AzEmbeddedFontSource;
+
+/// Re-export of rust-allocated (stack based) `FileFontSource` struct
+pub type AzFileFontSourceTT = azul_impl::resources::FileFontSource;
+pub use AzFileFontSourceTT as AzFileFontSource;
+
+/// Re-export of rust-allocated (stack based) `SystemFontSource` struct
+pub type AzSystemFontSourceTT = azul_impl::resources::SystemFontSource;
+pub use AzSystemFontSourceTT as AzSystemFontSource;
+
 /// Re-export of rust-allocated (stack based) `RawImage` struct
 pub type AzRawImageTT = azul_impl::resources::RawImage;
 pub use AzRawImageTT as AzRawImage;
@@ -5925,11 +5937,22 @@ mod test_sizes {
         File(AzString),
         Raw(AzRawImage),
     }
-    /// Re-export of rust-allocated (stack based) `FontSource` struct
-    #[repr(C, u8)]     pub enum AzFontSource {
-        Embedded(AzU8Vec),
-        File(AzString),
-        System(AzString),
+    /// Re-export of rust-allocated (stack based) `EmbeddedFontSource` struct
+    #[repr(C)]     pub struct AzEmbeddedFontSource {
+        pub postscript_id: AzString,
+        pub font_data: AzU8Vec,
+        pub load_glyph_outlines: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `FileFontSource` struct
+    #[repr(C)]     pub struct AzFileFontSource {
+        pub postscript_id: AzString,
+        pub file_path: AzString,
+        pub load_glyph_outlines: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `SystemFontSource` struct
+    #[repr(C)]     pub struct AzSystemFontSource {
+        pub postscript_id: AzString,
+        pub load_glyph_outlines: bool,
     }
     /// Re-export of rust-allocated (stack based) `SvgLine` struct
     #[repr(C)]     pub struct AzSvgLine {
@@ -6228,6 +6251,12 @@ mod test_sizes {
         pub image: AzImageId,
         pub rect: AzLogicalRect,
         pub repeat: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `FontSource` struct
+    #[repr(C, u8)]     pub enum AzFontSource {
+        Embedded(AzEmbeddedFontSource),
+        File(AzFileFontSource),
+        System(AzSystemFontSource),
     }
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
     #[repr(C, u8)]     pub enum AzSvgPathElement {
@@ -7115,7 +7144,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::GetActiveAttribReturn>(), "AzGetActiveAttribReturn"), (Layout::new::<AzGetActiveAttribReturn>(), "AzGetActiveAttribReturn"));
         assert_eq!((Layout::new::<azul_impl::gl::GetActiveUniformReturn>(), "AzGetActiveUniformReturn"), (Layout::new::<AzGetActiveUniformReturn>(), "AzGetActiveUniformReturn"));
         assert_eq!((Layout::new::<azul_impl::resources::ImageSource>(), "AzImageSource"), (Layout::new::<AzImageSource>(), "AzImageSource"));
-        assert_eq!((Layout::new::<azul_impl::resources::FontSource>(), "AzFontSource"), (Layout::new::<AzFontSource>(), "AzFontSource"));
+        assert_eq!((Layout::new::<azul_impl::resources::EmbeddedFontSource>(), "AzEmbeddedFontSource"), (Layout::new::<AzEmbeddedFontSource>(), "AzEmbeddedFontSource"));
+        assert_eq!((Layout::new::<azul_impl::resources::FileFontSource>(), "AzFileFontSource"), (Layout::new::<AzFileFontSource>(), "AzFileFontSource"));
+        assert_eq!((Layout::new::<azul_impl::resources::SystemFontSource>(), "AzSystemFontSource"), (Layout::new::<AzSystemFontSource>(), "AzSystemFontSource"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgLine>(), "AzSvgLine"), (Layout::new::<AzSvgLine>(), "AzSvgLine"));
         assert_eq!((Layout::new::<azul_impl::svg::TesselatedCPUSvgNode>(), "AzTesselatedCPUSvgNode"), (Layout::new::<AzTesselatedCPUSvgNode>(), "AzTesselatedCPUSvgNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgParseOptions>(), "AzSvgParseOptions"), (Layout::new::<AzSvgParseOptions>(), "AzSvgParseOptions"));
@@ -7157,6 +7188,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::VertexArrayObject>(), "AzVertexArrayObject"), (Layout::new::<AzVertexArrayObject>(), "AzVertexArrayObject"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexBuffer>(), "AzVertexBuffer"), (Layout::new::<AzVertexBuffer>(), "AzVertexBuffer"));
         assert_eq!((Layout::new::<azul_impl::resources::ImageMask>(), "AzImageMask"), (Layout::new::<AzImageMask>(), "AzImageMask"));
+        assert_eq!((Layout::new::<azul_impl::resources::FontSource>(), "AzFontSource"), (Layout::new::<AzFontSource>(), "AzFontSource"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElement>(), "AzSvgPathElement"), (Layout::new::<AzSvgPathElement>(), "AzSvgPathElement"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStyle>(), "AzSvgStyle"), (Layout::new::<AzSvgStyle>(), "AzSvgStyle"));
         assert_eq!((Layout::new::<azul_impl::task::Timer>(), "AzTimer"), (Layout::new::<AzTimer>(), "AzTimer"));

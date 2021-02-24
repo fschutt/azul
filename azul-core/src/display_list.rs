@@ -726,7 +726,7 @@ pub fn push_rectangles_into_displaylist<'a>(
 
     let children = root_content_group.children
         .as_ref()
-        .par_iter()
+        .iter()// .par_iter()
         .map(|child_content_group| {
             push_rectangles_into_displaylist(
                 child_content_group,
@@ -881,9 +881,15 @@ pub fn displaylist_handle_rect<'a>(
 
     match html_node.get_node_type() {
         Div | Body | Br => { },
-        Label(_) => {
+        Label(l) => {
 
             use crate::app_resources::get_inline_text;
+
+            println!("display list - encountered label {:?}", l);
+            println!("got words: {:?}", layout_result.words_cache.get(&rect_idx).is_some());
+            println!("got shaped words: {:?}", layout_result.shaped_words_cache.get(&rect_idx).is_some());
+            println!("got positioned_words: {:?}", layout_result.positioned_words_cache.get(&rect_idx).is_some());
+            println!("got text layout: {:#?}", positioned_rect.resolved_text_layout_options.as_ref());
 
             // compute the layouted glyphs here, this way it's easier
             // to reflow text since there is no cache that needs to be updated
@@ -896,7 +902,10 @@ pub fn displaylist_handle_rect<'a>(
                 positioned_rect.resolved_text_layout_options.as_ref(),
             ) {
 
+                println!("ok - layouting words...");
                 let inline_text = get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout);
+                println!("got glyphs: {:#?}", inline_text);
+
                 let layouted_glyphs = inline_text.get_layouted_glyphs();
                 let text_color = layout_result.styled_dom.get_css_property_cache().get_text_color_or_default(&rect_idx, &styled_node.state);
                 let font_instance_key = word_positions.1;

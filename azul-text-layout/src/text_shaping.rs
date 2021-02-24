@@ -314,7 +314,7 @@ pub struct OwnedGlyph {
 
 impl ParsedFont {
 
-    pub fn from_bytes(font_bytes: &[u8], font_index: usize) -> Option<Self> {
+    pub fn from_bytes(font_bytes: &[u8], font_index: usize, parse_glyph_outlines: bool) -> Option<Self> {
 
         use allsorts::tag;
         use rayon::iter::IntoParallelIterator;
@@ -344,59 +344,71 @@ impl ParsedFont {
 
         let font_metrics = get_font_metrics(font_bytes, font_index);
 
-        // also parse the font from owned-ttf-parser, to get the outline
-        // parsing the outline needs the following tables:
-        //
-        //     gvar, // optional, for variable fonts
-        //     glyf,
-        //     cff1,
-        //     cff2, // optional, for variable fonts
+        // not parsing glyph outlines can save lots of memory
+        let glyph_records_decoded = if parse_glyph_outlines {
 
-        // required tables first
-        let cff1 = provider.table_data(tag::CFF);
-        let gvar = provider.table_data(tag::GVAR);
-        let cff2 = provider.table_data(tag!(b"CFF2"));
+            // parse the font from owned-ttf-parser, to get the outline
+            // parsing the outline needs the following tables:
+            //
+            //     required:
+            //          head, hhea, maxp, glyf, cff1, loca
+            //     optional for variable fonts:
+            //          gvar, cff2
 
-        let mut outline_font_tables = vec![
-            Ok((ttf_parser::Tag::from_bytes(b"glyf"), Some(glyf_data.as_ref())))
-        ];
+            // required tables first
+            let cff1 = provider.table_data(tag!(b"CFF "));
+            let gvar = provider.table_data(tag!(b"gvar"));
+            let cff2 = provider.table_data(tag!(b"CFF2"));
 
-        if let Ok(Some(cff1_table)) = cff1.as_ref().as_ref() { outline_font_tables.push(Ok((ttf_parser::Tag::from_bytes(b"CFF "), Some(cff1_table.as_ref())))); }
-        if let Ok(Some(gvar_table)) = gvar.as_ref().as_ref() { outline_font_tables.push(Ok((ttf_parser::Tag::from_bytes(b"gvar"), Some(gvar_table.as_ref())))); }
-        if let Ok(Some(cff2_table)) = cff2.as_ref().as_ref() { outline_font_tables.push(Ok((ttf_parser::Tag::from_bytes(b"CFF2"), Some(cff2_table.as_ref())))); }
+            let mut outline_font_tables = vec![
+                Ok((ttf_parser::Tag::from_bytes(b"head"), Some(head_data.as_ref()))),
+                Ok((ttf_parser::Tag::from_bytes(b"loca"), Some(loca_data.as_ref()))),
+                Ok((ttf_parser::Tag::from_bytes(b"hhea"), Some(hhea_data.as_ref()))),
+                Ok((ttf_parser::Tag::from_bytes(b"maxp"), Some(maxp_data.as_ref()))),
+                Ok((ttf_parser::Tag::from_bytes(b"glyf"), Some(glyf_data.as_ref()))),
+            ];
 
-        let ttf_face_tables = ttf_parser::FaceTables::from_table_provider(outline_font_tables.into_iter()).ok()?;
+            if let Ok(Some(cff1_table)) = cff1.as_ref().as_ref() { outline_font_tables.push(Ok((ttf_parser::Tag::from_bytes(b"CFF "), Some(cff1_table.as_ref())))); }
+            if let Ok(Some(gvar_table)) = gvar.as_ref().as_ref() { outline_font_tables.push(Ok((ttf_parser::Tag::from_bytes(b"gvar"), Some(gvar_table.as_ref())))); }
+            if let Ok(Some(cff2_table)) = cff2.as_ref().as_ref() { outline_font_tables.push(Ok((ttf_parser::Tag::from_bytes(b"CFF2"), Some(cff2_table.as_ref())))); }
 
-        // parse the glyphs on startup, since otherwise it will slow down the layout
-        let glyph_records_decoded = glyf_table.records
-        .into_par_iter()
-        .enumerate()
-        .filter_map(|(glyph_index, _)| {
-            // glyph_record.parse().ok()?;
-            if glyph_index > (u16::MAX as usize) {
-                return None;
-            }
-            let glyph_index = glyph_index as u16;
-            let horz_advance = allsorts::glyph_info::advance(&maxp_table, &hhea_table, &hmtx_data, glyph_index).unwrap_or_default();
-            let mut outline = GlyphOutlineBuilder::default();
-            let bounding_rect = ttf_face_tables.outline_glyph(ttf_parser::GlyphId(glyph_index), &mut outline)?;
-            Some((glyph_index, OwnedGlyph {
-                horz_advance,
-                bounding_box: OwnedGlyphBoundingBox {
-                    max_x: bounding_rect.x_max,
-                    max_y: bounding_rect.y_max,
-                    min_x: bounding_rect.x_min,
-                    min_y: bounding_rect.y_min,
+            // NOTE: This might fail if the font doesn't have the respective tables, but it should not
+            // prevent the font from loading - DO NOT EARLY RETURN HERE!
+            match ttf_parser::FaceTables::from_table_provider(outline_font_tables.into_iter()) {
+                Ok(ttf_face_tables) => {
+                    // parse the glyphs on startup, since otherwise it will slow down the layout
+                    glyf_table.records
+                    .into_par_iter()
+                    .enumerate()
+                    .filter_map(|(glyph_index, _)| {
+
+                        // glyph_record.parse().ok()?;
+                        if glyph_index > (u16::MAX as usize) {
+                            return None;
+                        }
+
+                        let glyph_index = glyph_index as u16;
+                        let horz_advance = allsorts::glyph_info::advance(&maxp_table, &hhea_table, &hmtx_data, glyph_index).unwrap_or_default();
+                        let mut outline = GlyphOutlineBuilder::default();
+                        let bounding_rect = ttf_face_tables.outline_glyph(ttf_parser::GlyphId(glyph_index), &mut outline)?;
+
+                        Some((glyph_index, OwnedGlyph {
+                            horz_advance,
+                            bounding_box: OwnedGlyphBoundingBox {
+                                max_x: bounding_rect.x_max,
+                                max_y: bounding_rect.y_max,
+                                min_x: bounding_rect.x_min,
+                                min_y: bounding_rect.y_min,
+                            },
+                            outline: GlyphOutline { operations: outline.operations.into() },
+                        }))
+                    }).collect::<Vec<_>>()
                 },
-                outline: GlyphOutline { operations: outline.operations.into() },
-            }))
-            // match glyph_record {
-            //     GlyfRecord::Empty | GlyfRecord::Present(_) => None,
-            //     GlyfRecord::Parsed(g) => {
-            //         Some((glyph_index, OwnedGlyph::from_glyph_data(g, horz_advance)))
-            //     }
-            // }
-        }).collect::<Vec<_>>();
+                Err(e) => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
 
         let glyph_records_decoded = glyph_records_decoded.into_iter().collect();
 

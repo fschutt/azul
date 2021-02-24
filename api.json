@@ -6691,9 +6691,32 @@
 				"FontSource": {
 					"external": "azul_impl::resources::FontSource",
 					"enum_fields": [
-						{ "Embedded": {"type": "U8Vec", "doc": "Bytes are the bytes of the font file" } },
-						{ "File": {"type": "String", "doc": "References a font from a file path, which is loaded when necessary" } },
-						{ "System": {"type": "String", "doc": "References a font from from a system font identifier, such as `\"Arial\"` or `\"Helvetica\"`" } }
+						{ "Embedded": {"type": "EmbeddedFontSource", "doc": "References a font from a font file that is embedded into the binary (`&'static [u8]`) or loaded from a `Vec<u8>`" } },
+						{ "File": {"type": "FileFontSource", "doc": "References a font from a file path, which is loaded when necessary" } },
+						{ "System": {"type": "SystemFontSource", "doc": "References a font from from a system font identifier, such as `\"Arial\"` or `\"Helvetica\"`" } }
+					]
+				},
+				"EmbeddedFontSource": {
+					"external": "azul_impl::resources::EmbeddedFontSource",
+					"struct_fields": [
+						{ "postscript_id": {"type": "String", "doc": "ID of the font, such as `Arial` or `Roboto`" } },
+						{ "font_data": {"type": "U8Vec", "doc": "Bytes are the bytes of the font file" } },
+						{ "load_glyph_outlines": {"type": "bool", "doc": "Whether the glyph outlines should be loaded - must be explicitly enabled in order to save RAM" } }
+					]
+				},
+				"FileFontSource": {
+					"external": "azul_impl::resources::FileFontSource",
+					"struct_fields": [
+						{ "postscript_id": {"type": "String", "doc": "ID of the font, such as `Arial` or `Roboto`" } },
+						{ "file_path": {"type": "String", "doc": "Path to the file of the font" } },
+						{ "load_glyph_outlines": {"type": "bool", "doc": "Whether the glyph outlines should be loaded - must be explicitly enabled in order to save RAM" } }
+					]
+				},
+				"SystemFontSource": {
+					"external": "azul_impl::resources::SystemFontSource",
+					"struct_fields": [
+						{ "postscript_id": {"type": "String", "doc": "ID of the font, such as `Arial` or `Roboto`" } },
+						{ "load_glyph_outlines": {"type": "bool", "doc": "Whether the glyph outlines should be loaded - must be explicitly enabled in order to save RAM" } }
 					]
 				},
 				"RawImage": {

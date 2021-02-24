@@ -39,33 +39,34 @@ impl_display!(FontReloadError, {
 
 pub extern "C" fn font_source_get_bytes(font_source: &FontSource) -> OptionLoadedFontSource {
     // TODO: logging!
-    let (font_bytes, font_index) = match font_source_get_bytes_inner(font_source).ok() {
+    let (font_bytes, font_index, parse_glyph_outlines) = match font_source_get_bytes_inner(font_source).ok() {
         Some(s) => s,
         None => { return OptionLoadedFontSource::None; },
     };
-    Some(LoadedFontSource{ font_bytes: font_bytes, font_index: font_index as u32 }).into()
+    Some(LoadedFontSource{ font_bytes: font_bytes, font_index: font_index as u32, parse_glyph_outlines }).into()
 }
 
 /// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).
 /// Also returns the index into the font (in case the font is a font collection).
-pub fn font_source_get_bytes_inner(font_source: &FontSource) -> Result<(U8Vec, i32), FontReloadError> {
+pub fn font_source_get_bytes_inner(font_source: &FontSource) -> Result<(U8Vec, i32, bool), FontReloadError> {
 
     match font_source {
-        FontSource::Embedded(font_bytes) => Ok((font_bytes.clone(), DEFAULT_FONT_INDEX)),
-        FontSource::File(file_path) => {
-            let file_path: String = file_path.clone().into_library_owned_string();
+        FontSource::Embedded(embedded_font) => Ok((embedded_font.font_data.clone(), DEFAULT_FONT_INDEX, embedded_font.load_glyph_outlines)),
+        FontSource::File(file_font) => {
+            let file_path: String = file_font.file_path.clone().into_library_owned_string();
             let file_path = PathBuf::from(file_path);
             std::fs::read(&file_path)
             .map_err(|e| FontReloadError::Io(e, file_path.clone()))
-            .map(|font_bytes| (font_bytes.into(), DEFAULT_FONT_INDEX))
+            .map(|font_bytes| (font_bytes.into(), DEFAULT_FONT_INDEX, file_font.load_glyph_outlines))
         },
-        FontSource::System(id) => {
+        FontSource::System(system_font) => {
             #[cfg(feature = "font_loading")] {
-                crate::font::load_system_font(id.as_str())
-                .ok_or(FontReloadError::FontNotFound(id.clone().into_library_owned_string()))
+                crate::font::load_system_font(system_font.postscript_id.as_str())
+                .map(|(font_bytes, font_index)| (font_bytes, font_index, system_font.load_glyph_outlines))
+                .ok_or(FontReloadError::FontNotFound(system_font.postscript_id.as_str().to_string()))
             }
             #[cfg(not(feature = "font_loading"))] {
-                Err(FontReloadError::FontLoadingNotActive(id.clone().into_library_owned_string()))
+                Err(FontReloadError::FontLoadingNotActive(system_font.postscript_id.as_str().to_string()))
             }
         },
     }

@@ -3,7 +3,7 @@
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
 )]
 
-#![no_std]
+// #![no_std]
 
 #[macro_use]
 extern crate alloc;

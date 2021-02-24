@@ -22,8 +22,8 @@ use alloc::string::String;
 /// Creates a font from a font file (TTF, OTF, WOFF, etc.)
 ///
 /// NOTE: EXPENSIVE function, needs to parse tables, etc.
-pub fn parse_font(font_bytes: &[u8], font_index: usize) -> Option<ParsedFont> {
-    ParsedFont::from_bytes(font_bytes, font_index)
+pub fn parse_font(font_bytes: &[u8], font_index: usize, parse_outlines: bool) -> Option<ParsedFont> {
+    ParsedFont::from_bytes(font_bytes, font_index, parse_outlines)
 }
 
 /// Splits the text by whitespace into logical units (word, tab, return, whitespace).
@@ -381,7 +381,7 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
 ///
 /// NOTE: line_height_px has to be GREATER than font_size_px
 pub fn get_line_y_position(line_number: usize, font_size_px: f32, line_height_px: f32) -> f32 {
-    assert!(line_height_px >= font_size_px);
+    // assert!(line_height_px >= font_size_px);
     ((font_size_px + line_height_px) * line_number as f32) + font_size_px
 }
 
