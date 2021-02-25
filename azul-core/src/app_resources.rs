@@ -879,9 +879,10 @@ pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_po
     use crate::callbacks::{InlineWord, InlineLine, InlineTextContents, InlineGlyph};
     use core::ops::Range;
 
+    // check the range so that in the worst case there isn't a random crash here
     fn get_range_checked<T>(input: &[T], range: Range<usize>) -> Option<&[T]> {
-        if input.is_empty() { return None; }
-        if range.start < input.len() && range.end < input.len() {
+        let input_range = 0..=input.len();
+        if input_range.contains(&range.start) && input_range.contains(&range.end) {
             Some(&input[range])
         } else {
             None
@@ -895,11 +896,18 @@ pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_po
     let letter_spacing_px = word_positions.text_layout_options.letter_spacing.as_ref().copied().unwrap_or(0.0);
     let units_per_em = shaped_words.font_metrics_units_per_em;
 
-    let inline_lines = inline_text_layout.lines.iter().filter_map(|line| {
+    let inline_lines = inline_text_layout.lines
+    .par_iter() // TODO: par_iter
+    .filter_map(|line| {
 
         let word_items = words.items.as_ref();
-        let words = get_range_checked(word_items, line.word_start..line.word_end)?
-        .iter().filter_map(|word| {
+        let word_start = line.word_start.min(line.word_end);
+        let word_end = line.word_start.max(line.word_end);
+        let word_range = ;
+
+        let words = get_range_checked(word_items, word_start..word_end)?
+        .par_iter() // TODO: par_iter
+        .filter_map(|word| {
             match word.word_type {
                 WordType::Word => {
 

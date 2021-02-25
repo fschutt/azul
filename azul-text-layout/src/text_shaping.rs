@@ -16,7 +16,7 @@ use allsorts::{
         FontTableProvider, HheaTable, MaxpTable, HeadTable,
         loca::LocaTable,
         cmap::CmapSubtable,
-        glyf::GlyfTable,
+        glyf::{GlyfTable, Glyph, GlyfRecord},
     },
     tables::cmap::owned::CmapSubtable as OwnedCmapSubtable,
 };
@@ -309,7 +309,22 @@ pub struct OwnedGlyphBoundingBox {
 pub struct OwnedGlyph {
     pub bounding_box: OwnedGlyphBoundingBox,
     pub horz_advance: u16,
-    pub outline: GlyphOutline,
+    pub outline: Option<GlyphOutline>,
+}
+
+impl OwnedGlyph {
+    fn from_glyph_data<'a>(glyph: Glyph<'a>, horz_advance: u16) -> Self {
+        Self {
+            bounding_box: OwnedGlyphBoundingBox {
+                max_x: glyph.bounding_box.x_max,
+                max_y: glyph.bounding_box.y_max,
+                min_x: glyph.bounding_box.x_min,
+                min_y: glyph.bounding_box.y_min,
+            },
+            horz_advance,
+            outline: None,
+        }
+    }
 }
 
 impl ParsedFont {
@@ -400,14 +415,32 @@ impl ParsedFont {
                                 min_x: bounding_rect.x_min,
                                 min_y: bounding_rect.y_min,
                             },
-                            outline: GlyphOutline { operations: outline.operations.into() },
+                            outline: Some(GlyphOutline { operations: outline.operations.into() }),
                         }))
                     }).collect::<Vec<_>>()
                 },
                 Err(e) => Vec::new(),
             }
         } else {
-            Vec::new()
+            // parse the glyphs without the outline
+            glyf_table.records
+            .into_par_iter()
+            .enumerate()
+            .filter_map(|(glyph_index, mut glyph_record)| {
+                if glyph_index > (u16::MAX as usize) {
+                    return None;
+                }
+                glyph_record.parse().ok()?;
+                let glyph_index = glyph_index as u16;
+                let horz_advance = allsorts::glyph_info::advance(&maxp_table, &hhea_table, &hmtx_data, glyph_index).unwrap_or_default();
+                match glyph_record {
+                    GlyfRecord::Empty | GlyfRecord::Present(_) => None,
+                    GlyfRecord::Parsed(g) => {
+                        Some((glyph_index, OwnedGlyph::from_glyph_data(g, horz_advance)))
+                    }
+                }
+            })
+            .collect::<Vec<_>>()
         };
 
         let glyph_records_decoded = glyph_records_decoded.into_iter().collect();
@@ -743,7 +776,7 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
     // mapping the current glyph. When a variation selector is reached in the stream it is skipped
     // as it was handled as part of the preceding character.
     let mut chars_iter = text.iter().peekable();
-    let mut glyphs = Vec::new();
+    let mut glyphs = Vec::with_capacity(text.len());
 
     while let Some((ch, ch_as_char)) = chars_iter.next().and_then(|c| Some((c, core::char::from_u32(*c)?))) {
         match allsorts::unicode::VariationSelector::try_from(ch_as_char) {
