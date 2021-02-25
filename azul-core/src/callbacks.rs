@@ -530,6 +530,7 @@ pub struct InlineText {
     pub lines: InlineLineVec, // relative to 0, 0
     pub bounds: LogicalRect,
     pub font_size_px: f32,
+    pub last_word_index: usize,
     /// NOTE: descender is NEGATIVE (pixels from baseline to font size)
     pub baseline_descender_px: f32,
 }
@@ -1025,6 +1026,7 @@ impl CallbackInfo {
         }
     }
 
+    #[cfg(feature = "multithreading")]
     pub fn get_inline_text(&self, node_id: DomNodeId) -> Option<InlineText> {
 
         if node_id.dom != self.get_hit_node().dom {
@@ -1107,6 +1109,9 @@ impl_callback!(GlCallback);
 #[derive(Debug)]
 #[repr(C)]
 pub struct GlCallbackInfo {
+    /// The ID of the DOM node that the GlCallbackInfo was attached to
+    callback_node_id: DomNodeId,
+    bounds: HidpiAdjustedBounds,
     #[cfg(feature = "opengl")]
     gl_context: *const GlContextPtr,
     resources: *const AppResources,
@@ -1115,12 +1120,9 @@ pub struct GlCallbackInfo {
     shaped_words_cache: *const BTreeMap<NodeId, ShapedWords>,
     positioned_words_cache: *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     positioned_rects: *const NodeDataContainer<PositionedRectangle>,
-    bounds: HidpiAdjustedBounds,
 }
 
-#[cfg(feature = "opengl")]
-pub type GlCallbackType = extern "C" fn(&mut RefAny, GlCallbackInfo) -> GlCallbackReturn;
-
+// same as the implementations on CallbackInfo, just slightly adjusted for the GlCallbackInfo
 impl GlCallbackInfo {
 
     #[cfg(feature = "opengl")]
@@ -1133,8 +1135,10 @@ impl GlCallbackInfo {
        positioned_words_cache: &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
        positioned_rects: &'a NodeDataContainer<PositionedRectangle>,
        bounds: HidpiAdjustedBounds,
+       callback_node_id: DomNodeId,
     ) -> Self {
         Self {
+            callback_node_id,
             gl_context: gl_context as *const GlContextPtr,
             resources: resources as *const AppResources,
             node_hierarchy: node_hierarchy as *const AzNodeVec,
@@ -1147,17 +1151,99 @@ impl GlCallbackInfo {
     }
 
     #[cfg(feature = "opengl")]
+    fn internal_get_gl_context<'a>(&'a self) -> &'a GlContextPtr { unsafe { &*self.gl_context } }
+    fn internal_get_resources<'a>(&'a self) -> &'a AppResources { unsafe { &*self.resources } }
+    fn internal_get_bounds<'a>(&'a self) -> HidpiAdjustedBounds { self.bounds }
+    fn internal_get_node_hierarchy<'a>(&'a self) -> &'a AzNodeVec { unsafe { &*self.node_hierarchy } }
+    fn internal_get_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, Words> { unsafe { &*self.words_cache } }
+    fn internal_get_shaped_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, ShapedWords> { unsafe { &*self.shaped_words_cache } }
+    fn internal_get_positioned_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)> { unsafe { &*self.positioned_words_cache } }
+    fn internal_get_positioned_rectangles<'a>(&'a self) -> &'a NodeDataContainer<PositionedRectangle> { unsafe { &*self.positioned_rects } }
+
+    #[cfg(feature = "opengl")]
     pub fn get_gl_context(&self) -> Option<GlContextPtr> { Some(self.internal_get_gl_context().clone()) }
     pub fn get_bounds(&self) -> HidpiAdjustedBounds { self.internal_get_bounds() }
+    pub fn get_callback_node_id(&self) -> DomNodeId { self.callback_node_id }
 
     // fn get_font()
     // fn get_image()
 
-    #[cfg(feature = "opengl")]
-    fn internal_get_gl_context<'a>(&'a self) -> &'a GlContextPtr { unsafe { &*self.gl_context } }
-    fn internal_get_resources<'a>(&'a self) -> &'a AppResources { unsafe { &*self.resources } }
-    fn internal_get_bounds<'a>(&'a self) -> HidpiAdjustedBounds { self.bounds }
+    #[cfg(feature = "multithreading")]
+    pub fn get_inline_text(&self, node_id: DomNodeId) -> Option<InlineText> {
+
+        if node_id.dom != self.get_callback_node_id().dom {
+            return None;
+        }
+
+        let nid = node_id.node.into_crate_internal()?;
+        let words = self.internal_get_words_cache();
+        let words = words.get(&nid)?;
+        let shaped_words = self.internal_get_shaped_words_cache();
+        let shaped_words = shaped_words.get(&nid)?;
+        let word_positions = self.internal_get_positioned_words_cache();
+        let word_positions = word_positions.get(&nid)?;
+        let positioned_rectangle = self.internal_get_positioned_rectangles();
+        let positioned_rectangle = positioned_rectangle.as_ref();
+        let positioned_rectangle = positioned_rectangle.get(nid)?;
+        let (_, inline_text_layout) = positioned_rectangle.resolved_text_layout_options.as_ref()?;
+
+        Some(crate::app_resources::get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout))
+    }
+
+    pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        if node_id.dom != self.get_callback_node_id().dom {
+            None
+        } else {
+            self.internal_get_node_hierarchy()
+            .as_container().get(node_id.node.into_crate_internal()?)?.parent_id()
+            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        }
+    }
+
+    pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        if node_id.dom != self.get_callback_node_id().dom {
+            None
+        } else {
+            self.internal_get_node_hierarchy()
+            .as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id()
+            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        }
+    }
+
+    pub fn get_next_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        if node_id.dom != self.get_callback_node_id().dom {
+            None
+        } else {
+            self.internal_get_node_hierarchy()
+            .as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id()
+            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        }
+    }
+
+    pub fn get_first_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        if node_id.dom != self.get_callback_node_id().dom {
+            None
+        } else {
+            let nid = node_id.node.into_crate_internal()?;
+            self.internal_get_node_hierarchy()
+            .as_container().get(nid)?.first_child_id(nid)
+            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        }
+    }
+
+    pub fn get_last_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        if node_id.dom != self.get_callback_node_id().dom {
+            None
+        } else {
+            self.internal_get_node_hierarchy()
+            .as_container().get(node_id.node.into_crate_internal()?)?.last_child_id()
+            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+        }
+    }
 }
+
+#[cfg(feature = "opengl")]
+pub type GlCallbackType = extern "C" fn(&mut RefAny, GlCallbackInfo) -> GlCallbackReturn;
 
 #[cfg(feature = "opengl")]
 #[repr(C)]

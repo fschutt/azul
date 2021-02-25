@@ -5770,6 +5770,8 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `GlCallbackInfo` struct
     #[repr(C)]     pub struct AzGlCallbackInfo {
+        pub callback_node_id: AzDomNodeId,
+        pub bounds: AzHidpiAdjustedBounds,
         pub gl_context: *const AzGlContextPtr,
         pub resources: *const c_void,
         pub node_hierarchy: *const AzNodeVec,
@@ -5777,7 +5779,6 @@ mod test_sizes {
         pub shaped_words_cache: *const c_void,
         pub positioned_words_cache: *const c_void,
         pub positioned_rects: *const c_void,
-        pub bounds: AzHidpiAdjustedBounds,
     }
     /// Re-export of rust-allocated (stack based) `RefCountInner` struct
     #[repr(C)]     pub struct AzRefCountInner {

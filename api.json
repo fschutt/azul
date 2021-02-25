@@ -2076,14 +2076,15 @@
 					"external": "azul_impl::callbacks::GlCallbackInfo",
 					"clone": false,
 					"struct_fields": [
+						{"callback_node_id": {"type": "DomNodeId"}},
+						{"bounds": {"type": "HidpiAdjustedBounds"}},
 						{"gl_context": {"type": "*const GlContextPtr"}},
 						{"resources": {"type": "*const c_void"}},
 						{"node_hierarchy": {"type": "*const NodeVec"}},
 						{"words_cache": {"type": "*const c_void"}},
 						{"shaped_words_cache": {"type": "*const c_void"}},
 						{"positioned_words_cache": {"type": "*const c_void"}},
-						{"positioned_rects": {"type": "*const c_void"}},
-						{"bounds": {"type": "HidpiAdjustedBounds"}}
+						{"positioned_rects": {"type": "*const c_void"}}
 					],
 					"functions": {
 						"get_gl_context": {

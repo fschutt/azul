@@ -598,13 +598,21 @@ impl SolvedLayout {
         let mut solved_textures = BTreeMap::new();
 
         // Now that the layout is done, render the OpenGL textures and add them to the RenderAPI
-        for layout_result in layout_results.iter_mut() {
+        for (dom_id, layout_result) in layout_results.iter_mut().enumerate() {
             for gl_node_id in layout_result.styled_dom.scan_for_gltexture_callbacks() {
 
                 // Invoke OpenGL callback, render texture
                 let rect_size = layout_result.rects.as_ref()[gl_node_id].size;
 
                 let texture = {
+
+                    use crate::callbacks::DomNodeId;
+                    use crate::styled_dom::AzNodeId;
+
+                    let callback_domnode_id = DomNodeId {
+                        dom: DomId { inner: dom_id },
+                        node: AzNodeId::from_crate_internal(Some(gl_node_id)),
+                    };
 
                     let size = LayoutSize::new(rect_size.width.round() as isize, rect_size.height.round() as isize);
 
@@ -621,6 +629,7 @@ impl SolvedLayout {
                         /*positioned_words_cache*/ &layout_result.positioned_words_cache,
                         /*positioned_rects*/ &layout_result.rects,
                         /*bounds:*/ HidpiAdjustedBounds::from_bounds(size, full_window_state.size.hidpi_factor),
+                        /*hit_dom_node*/ callback_domnode_id,
                     );
 
                     let tex: Option<Texture> = {
@@ -902,10 +911,7 @@ pub fn displaylist_handle_rect<'a>(
                 positioned_rect.resolved_text_layout_options.as_ref(),
             ) {
 
-                println!("ok - layouting words...");
                 let inline_text = get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout);
-                println!("got glyphs: {:#?}", inline_text);
-
                 let layouted_glyphs = inline_text.get_layouted_glyphs();
                 let text_color = layout_result.styled_dom.get_css_property_cache().get_text_color_or_default(&rect_idx, &styled_node.state);
                 let font_instance_key = word_positions.1;

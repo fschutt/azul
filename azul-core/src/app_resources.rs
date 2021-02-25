@@ -874,6 +874,7 @@ pub struct GlyphInfo {
     pub mark_placement: MarkPlacement,
 }
 
+#[cfg(feature = "multithreading")]
 pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_positions: &WordPositions, inline_text_layout: &InlineTextLayout) -> InlineText {
 
     use crate::callbacks::{InlineWord, InlineLine, InlineTextContents, InlineGlyph};
@@ -889,24 +890,24 @@ pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_po
         }
     }
 
-    let mut word_index = 0;
-
     let font_size_px = word_positions.text_layout_options.font_size_px;
     let descender_px = &shaped_words.get_descender(font_size_px); // descender is NEGATIVE
     let letter_spacing_px = word_positions.text_layout_options.letter_spacing.as_ref().copied().unwrap_or(0.0);
     let units_per_em = shaped_words.font_metrics_units_per_em;
 
+    let mut word_index = 0;
+
     let inline_lines = inline_text_layout.lines
-    .par_iter() // TODO: par_iter
+    .as_ref()
+    .iter()
     .filter_map(|line| {
 
         let word_items = words.items.as_ref();
         let word_start = line.word_start.min(line.word_end);
         let word_end = line.word_start.max(line.word_end);
-        let word_range = ;
 
         let words = get_range_checked(word_items, word_start..word_end)?
-        .par_iter() // TODO: par_iter
+        .iter()
         .filter_map(|word| {
             match word.word_type {
                 WordType::Word => {
@@ -982,6 +983,7 @@ pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_po
         lines: inline_lines.into(), // relative to 0, 0
         bounds: LogicalRect::new(LogicalPosition::zero(), word_positions.content_size),
         font_size_px,
+        last_word_index: word_index,
         baseline_descender_px: *descender_px,
     }
 }
