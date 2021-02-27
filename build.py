@@ -1316,6 +1316,9 @@ def generate_docs():
     if os.path.exists(root_folder + "/target/html"):
         remove_path(root_folder + "/target/html")
 
+    if not(os.path.exists(root_folder + "/target")):
+        create_folder(root_folder + "/target")
+
     create_folder(root_folder + "/target/html")
     create_folder(root_folder + "/target/html/api")
 
@@ -1466,7 +1469,7 @@ def generate_docs():
 def main():
     print("removing old azul.dll...")
     cleanup_start()
-    print("verifying that LLVM / clang-cl is installed...\r\n")
+    print("verifying that LLVM / clang-cl is installed...")
     assure_clang_is_installed()
     print("generating API...")
     generate_api()
