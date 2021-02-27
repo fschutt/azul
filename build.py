@@ -1285,6 +1285,30 @@ def make_release_zip_files():
     # Generate the [arch]-*x86_64, [arch]-*i686 etc. ZIP files
     pass
 
+def replace_split(d, search, tag):
+
+    newdoc = ""
+
+    split = d.split(search)
+
+    index = 0
+    while index < len(split):
+        if index % 2 == 0:
+            newdoc += split[index]
+        else:
+            newdoc += "<" + tag + ">" + split[index] + "</" + tag + ">"
+        index += 1
+
+    return newdoc
+
+def format_doc(docstring):
+    newdoc = docstring
+    newdoc = newdoc.replace("<", "&lt;")
+    newdoc = newdoc.replace(">", "&gt;")
+    newdoc = replace_split(newdoc, "`", "code")
+    newdoc = replace_split(newdoc, "**", "strong")
+    return newdoc
+
 def generate_docs():
     apiData = read_api_file(root_folder + "/api.json")
     html_template = read_file(root_folder + "/api/_patches/html/api.template.html")
@@ -1302,29 +1326,93 @@ def generate_docs():
         api_page_contents = ""
         api_page_contents += "<ul>"
 
+        if "doc" in apiData[version].keys():
+            api_page_contents += "<p class=\"version doc\">" + format_doc(apiData[version]["doc"]) + "</p>"
+
         for module_name in apiData[version].keys():
 
-            api_page_contents += "<li>"
-            api_page_contents += "<h3>" + module_name + "</h3>"
+            api_page_contents += "<li class=\"m\" id=\"" + module_name + "\">"
 
             module = apiData[version][module_name]
+
+            if "doc" in module.keys():
+                api_page_contents += "<p class=\"module doc\">" + format_doc(module["doc"]) + "</p>"
+
+            api_page_contents += "<h3>mod " + module_name + ":</h3>"
+
             api_page_contents += "<ul>"
 
             for class_name in module["classes"].keys():
                 c = module["classes"][class_name]
-                api_page_contents += "<li>"
-                api_page_contents += "<h4>" + class_name + "</h4>"
+
+                if "doc" in c.keys():
+                    api_page_contents += "<p class=\"class doc\">" + format_doc(c["doc"]) + "</p>"
+
+                if "enum_fields" in c.keys():
+                    api_page_contents += "<li class=\"st e\" id=\"" + module_name + ".st.e." + class_name + "\">"
+                    api_page_contents += "<h4>enum <a href=\"#" + module_name + ".st.e." + class_name + "\">" + class_name + "</a></h4>"
+                    for enum_variant in c["enum_fields"]:
+                        enum_variant_name = list(enum_variant.keys())[0]
+                        if "doc" in enum_variant[enum_variant_name]:
+                            api_page_contents += "<p class=\"v doc\">" + format_doc(enum_variant[enum_variant_name]["doc"]) + "</p>"
+
+                        if "type" in enum_variant[enum_variant_name]:
+                            enum_variant_type = enum_variant[enum_variant_name]["type"]
+                            api_page_contents += "<p class=\"f\">" + enum_variant_name + "(<a href=\"#\">" + enum_variant_type + "</a>)</p>"
+                        else:
+                            api_page_contents += "<p class=\"f\">" + enum_variant_name + "</p>"
+
+                elif "struct_fields" in c.keys():
+                    api_page_contents += "<li class=\"st s\" id=\"" + module_name + ".st.s." + class_name + "\">"
+                    api_page_contents += "<h4>struct <a href=\"#" + module_name + ".st.s." + class_name + "\">" + class_name + "</a></h4>"
+                    for struct_field in c["struct_fields"]:
+                        struct_field_name = list(struct_field.keys())[0]
+                        struct_type = struct_field[struct_field_name]["type"]
+                        if "doc" in struct_field[struct_field_name]:
+                            api_page_contents += "<p class=\"f doc\">" + format_doc(struct_field[struct_field_name]["doc"]) + "</p>"
+                        api_page_contents += "<p class=\"f\">" + struct_field_name + ": <a href=\"#\">" + struct_type + "</a></p>"
 
                 if "constructors" in c.keys():
                     api_page_contents += "<ul>"
-                    for constructor in c["constructors"]:
-                        api_page_contents += "<li><p>" + constructor + "</p></li>"
+                    for constructor_name in c["constructors"]:
+                        if "doc" in c["constructors"][constructor_name]:
+                            api_page_contents += "<p class=\"cn doc\">" + format_doc(c["constructors"][constructor_name]["doc"]) + "</p>"
+                        api_page_contents += "<li class=\"cn\" id=\"" + constructor_name + "\"><p>constructor " + constructor_name + "():</p></li>"
                     api_page_contents += "</ul>"
 
                 if "functions" in c.keys():
                     api_page_contents += "<ul>"
-                    for function in c["functions"]:
-                        api_page_contents += "<li><p>" + function + "</p></li>"
+                    for function_name in c["functions"]:
+                        if "doc" in c["functions"][function_name]:
+                            api_page_contents += "<p class=\"fn doc\">" + format_doc(c["functions"][function_name]["doc"]) + "</p>"
+                        args = c["functions"][function_name]["fn_args"]
+                        arg_string = ""
+                        self_arg = ""
+                        for arg in args:
+                            arg_name = list(arg.keys())[0]
+                            arg_val = arg[arg_name]
+
+                            if arg_name == "self":
+                                if arg_val == "value":
+                                    self_arg = "self"
+                                elif arg_val == "ref":
+                                    self_arg = "&self"
+                                elif arg_val == "refmut":
+                                    self_arg = "&mut self"
+                            else:
+                                if "doc" in arg.keys():
+                                    arg_string += "<p class=\"arg doc\">" + doc + "</p>"
+
+                                arg_string += "<p class=\"arg\">arg " + arg_name + ": <a href=\"#\">" + arg_val + "</a></p>"
+
+                        api_page_contents += "<li class=\"fn\" id=\"" + function_name + "\">"
+                        api_page_contents += "<p>fn " + function_name + "(" + self_arg + "):</p>"
+                        if not(len(arg_string) == 0):
+                            api_page_contents += "<ul>"
+                            api_page_contents += arg_string
+                            api_page_contents += "</ul>"
+                        api_page_contents += "</li>"
+
                     api_page_contents += "</ul>"
 
                 api_page_contents += "</li>"
@@ -1344,6 +1432,16 @@ def generate_docs():
         extra_css = "\
         body > .center > main > div > ul * { font-size: 12px; font-weight: normal; list-style-type: none; font-family: monospace; }\
         body > .center > main > div > ul > li ul { margin-left: 20px; }\
+        body > .center > main > div > ul > li.m { margin-bottom: 10px; }\
+        body > .center > main > div > ul > li.m > ul > li.st { margin-bottom: 15px; }\
+        body > .center > main > div > ul > li.m > ul > li.st.e { color: #690; }\
+        body > .center > main > div > ul > li.m > ul > li.st.s { color: #905; }\
+        body > .center > main > div > ul > li.m > ul > li.st .f { margin-left: 20px; }\
+        body > .center > main > div > ul > li.m > ul > li.st .v.doc { margin-left: 20px; }\
+        body > .center > main > div > ul > li.m > ul > li.st .cn { margin-left: 20px; color: #07a; }\
+        body > .center > main > div > ul > li.m > ul > li.st .fn { margin-left: 20px; color: #004e92; }\
+        body > .center > main > div p.doc { margin-top: 5px !important; color: black !important; max-width: 70ch !important; font-weight: bolder; }\
+        body > .center > main > div a { color: inherit !important; }\
         "
         final_html = final_html.replace("/*$$_EXTRA_CSS$$*/", extra_css)
         final_html = final_html.replace("$$SIDEBAR_GUIDE$$", "")
@@ -1362,7 +1460,7 @@ def generate_docs():
     api_combined_page = api_combined_page.replace("$$SIDEBAR_CLASSES$$", releases_string)
     api_combined_page = api_combined_page.replace("$$TITLE$$", "Choose API version")
     api_combined_page = api_combined_page.replace("$$CONTENT$$", releases_string)
-    write_file(api_combined_page, root_folder + "/target/html/classes.html")
+    write_file(api_combined_page, root_folder + "/target/html/api.html")
 
 
 def main():
@@ -1375,11 +1473,11 @@ def main():
     print("generating documentation in /target/html...")
     generate_docs()
     print("building azul-dll (release mode)...")
-    build_dll()
+    # build_dll()
     print("checking azul-dll for struct size integrity...")
-    run_size_test()
+    # run_size_test()
     print("building examples...")
-    build_examples()
+    # build_examples()
     print("building docs (output_dir = /target/doc)...")
     # release_on_cargo()
     # make_debian_release_package()

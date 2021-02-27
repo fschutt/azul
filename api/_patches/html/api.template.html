@@ -15,12 +15,12 @@
   <style>
     @font-face {
         font-family: "Source Serif Pro";
-        src: url("./fonts/SourceSerifPro-Regular.ttf");
+        src: url("$$ROOT_RELATIVE$$/fonts/SourceSerifPro-Regular.ttf");
     }
 
     @font-face {
         font-family: "Morris Jenson Initialen";
-        src: url("./fonts/Morris Jenson Initialen.ttf");
+        src: url("$$ROOT_RELATIVE$$/fonts/Morris Jenson Initialen.ttf");
     }
 
     * {
@@ -49,7 +49,7 @@
       margin: 0 auto;
       max-width: 1400px;
       min-height: 100%;
-      height: 100%;
+      min-height: 100%;
     }
 
     aside {
@@ -78,6 +78,9 @@
     aside nav ul li.active {
       text-decoration: underline;
     }
+    aside nav ul li.active ul {
+      margin-left: 20px;
+    }
     main {
       background: white;
       overflow:hidden;
@@ -85,7 +88,13 @@
       box-shadow: 0px 0px 100px 0px rgba(0, 0, 0, 0.5);
       padding: 50px;
       box-sizing: border-box;
+      min-height: 100%;
     }
+
+    main h1 {
+        margin-bottom: 20px;
+    }
+
     .flower {
       font-family: "Morris Jenson Initialen", serif;
       letter-spacing: -0.1em;
@@ -114,7 +123,7 @@
 
     /* ------------------------- PRISM.CSS, for code highlighting ----------------------- */
 
-    code.language-c {
+    code {
         display: inline-block;
         color: black;
         background: #f5f2f0;
@@ -254,7 +263,7 @@
           $$SIDEBAR_GUIDE$$
         </li>
         <li class="active">
-          <a href="$$ROOT_RELATIVE$$/classes.html">classes</a>
+          <a href="$$ROOT_RELATIVE$$/api.html">api</a>
           $$SIDEBAR_CLASSES$$
         </li>
       </ul>
