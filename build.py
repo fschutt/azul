@@ -8,6 +8,9 @@ import shutil
 # dict that keeps the order of insertion
 from collections import OrderedDict
 
+def create_folder(path):
+    os.mkdir(path)
+
 def remove_path(path):
     """ param <path> could either be relative or absolute. """
     if os.path.isfile(path) or os.path.islink(path):
@@ -1282,8 +1285,85 @@ def make_release_zip_files():
     # Generate the [arch]-*x86_64, [arch]-*i686 etc. ZIP files
     pass
 
-def build_docs():
-    pass
+def generate_docs():
+    apiData = read_api_file(root_folder + "/api.json")
+    html_template = read_file(root_folder + "/api/_patches/html/api.template.html")
+
+    if os.path.exists(root_folder + "/target/html"):
+        remove_path(root_folder + "/target/html")
+
+    create_folder(root_folder + "/target/html")
+    create_folder(root_folder + "/target/html/api")
+
+    all_versions = list(apiData.keys())
+
+    for version in all_versions:
+
+        api_page_contents = ""
+        api_page_contents += "<ul>"
+
+        for module_name in apiData[version].keys():
+
+            api_page_contents += "<li>"
+            api_page_contents += "<h3>" + module_name + "</h3>"
+
+            module = apiData[version][module_name]
+            api_page_contents += "<ul>"
+
+            for class_name in module["classes"].keys():
+                c = module["classes"][class_name]
+                api_page_contents += "<li>"
+                api_page_contents += "<h4>" + class_name + "</h4>"
+
+                if "constructors" in c.keys():
+                    api_page_contents += "<ul>"
+                    for constructor in c["constructors"]:
+                        api_page_contents += "<li><p>" + constructor + "</p></li>"
+                    api_page_contents += "</ul>"
+
+                if "functions" in c.keys():
+                    api_page_contents += "<ul>"
+                    for function in c["functions"]:
+                        api_page_contents += "<li><p>" + function + "</p></li>"
+                    api_page_contents += "</ul>"
+
+                api_page_contents += "</li>"
+
+            api_page_contents += "</ul>"
+
+            api_page_contents += "</li>"
+
+        api_page_contents += "</ul>"
+
+        releases_string = "<ul>"
+        for version in all_versions:
+            releases_string += "<li><a href=\"./" + version + ".html\">" + version + "</a></li>"
+        releases_string += "</ul>"
+
+        final_html = html_template.replace("$$ROOT_RELATIVE$$", "..")
+        extra_css = "\
+        body > .center > main > div > ul * { font-size: 12px; font-weight: normal; list-style-type: none; font-family: monospace; }\
+        body > .center > main > div > ul > li ul { margin-left: 20px; }\
+        "
+        final_html = final_html.replace("/*$$_EXTRA_CSS$$*/", extra_css)
+        final_html = final_html.replace("$$SIDEBAR_GUIDE$$", "")
+        final_html = final_html.replace("$$SIDEBAR_CLASSES$$", releases_string)
+        final_html = final_html.replace("$$TITLE$$", "v" + version)
+        final_html = final_html.replace("$$CONTENT$$", api_page_contents)
+        write_file(final_html, root_folder + "/target/html/api/" + version + ".html")
+
+    releases_string = "<ul>"
+    for version in all_versions:
+        releases_string += "<li><a href=\"./api/" + version + ".html\">" + version + "</a></li>"
+    releases_string += "</ul>"
+
+    api_combined_page = html_template.replace("$$ROOT_RELATIVE$$", ".")
+    api_combined_page = api_combined_page.replace("$$SIDEBAR_GUIDE$$", "")
+    api_combined_page = api_combined_page.replace("$$SIDEBAR_CLASSES$$", releases_string)
+    api_combined_page = api_combined_page.replace("$$TITLE$$", "Choose API version")
+    api_combined_page = api_combined_page.replace("$$CONTENT$$", releases_string)
+    write_file(api_combined_page, root_folder + "/target/html/classes.html")
+
 
 def main():
     print("removing old azul.dll...")
@@ -1292,6 +1372,8 @@ def main():
     assure_clang_is_installed()
     print("generating API...")
     generate_api()
+    print("generating documentation in /target/html...")
+    generate_docs()
     print("building azul-dll (release mode)...")
     build_dll()
     print("checking azul-dll for struct size integrity...")
@@ -1299,7 +1381,6 @@ def main():
     print("building examples...")
     build_examples()
     print("building docs (output_dir = /target/doc)...")
-    # build_docs()
     # release_on_cargo()
     # make_debian_release_package()
     # make_release_zip_files()

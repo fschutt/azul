@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>$$TITLE$$</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+  <meta name="description" content="Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine">
+  <meta name="keywords" content="gui, rust, user interface">
+
+  <link rel="preload" as="font" href="fonts/SourceSerifPro-Regular.ttf" type="font/ttf">
+  <link rel="preload" as="font" href="fonts/Morris Jenson Initialen.ttf" type="font/ttf">
+
+  <link rel="shortcut icon" type="image/x-icon" href="$$ROOT_RELATIVE$$/favicon.ico">
+  <style>
+    @font-face {
+        font-family: "Source Serif Pro";
+        src: url("./fonts/SourceSerifPro-Regular.ttf");
+    }
+
+    @font-face {
+        font-family: "Morris Jenson Initialen";
+        src: url("./fonts/Morris Jenson Initialen.ttf");
+    }
+
+    * {
+        padding: 0px;
+        margin: 0px;
+        font-family: "Source Serif Pro", serif;
+    }
+
+    html {
+        overflow-x: hidden;
+        min-height: 100%;
+        width: 100%;
+    }
+
+    body {
+        /* Permalink - use to edit and share this gradient: http://colorzilla.com/gradient-editor/#004e92+0,000428+100 */
+        background: #004e92; /* Old browsers */
+        background: -moz-linear-gradient(-45deg, #004e92 0%, #000428 100%); /* FF3.6-15 */
+        background: -webkit-linear-gradient(-45deg, #004e92 0%,#000428 100%); /* Chrome10-25,Safari5.1-6 */
+        background: linear-gradient(135deg, #004e92 0%,#000428 100%); /* W3C, IE10+, FF16+, Chrome26+, Opera12+, Safari7+ */
+        filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#004e92', endColorstr='#000428',GradientType=1 ); /* IE6-9 fallback on horizontal gradient */
+        min-height: 100%;
+    }
+
+    body .center {
+      margin: 0 auto;
+      max-width: 1400px;
+      min-height: 100%;
+      height: 100%;
+    }
+
+    aside {
+      max-width: 200px;
+      padding: 50px;
+      float: left;
+    }
+
+    aside header {
+      width: 100px;
+      height: 100px;
+    }
+
+    aside nav {
+      margin-top: 50px;
+    }
+
+    aside nav ul {
+      line-height: 1.5;
+      color: white;
+    }
+    aside nav ul li a {
+      color: white;
+      text-decoration: none;
+    }
+    aside nav ul li.active {
+      text-decoration: underline;
+    }
+    main {
+      background: white;
+      overflow:hidden;
+      min-height: 100%;
+      box-shadow: 0px 0px 100px 0px rgba(0, 0, 0, 0.5);
+      padding: 50px;
+      box-sizing: border-box;
+    }
+    .flower {
+      font-family: "Morris Jenson Initialen", serif;
+      letter-spacing: -0.1em;
+      font-style: unset;
+    }
+
+    .horizontal-flip {
+      display: inline-block;
+      -moz-transform: scaleX(-1);
+      -webkit-transform: scaleX(-1);
+      -o-transform: scaleX(-1);
+      transform: scaleX(-1);
+      -ms-filter: fliph; /*IE*/
+      filter: fliph; /*IE*/
+    }
+
+    .vertical-flip {
+      display: inline-block;
+      -moz-transform: scaleY(-1);
+      -webkit-transform: scaleY(-1);
+      -o-transform: scaleY(-1);
+      transform: scaleY(-1);
+      -ms-filter: flipv; /*IE*/
+      filter: flipv; /*IE*/
+    }
+
+    /* ------------------------- PRISM.CSS, for code highlighting ----------------------- */
+
+    code.language-c {
+        display: inline-block;
+        color: black;
+        background: #f5f2f0;
+        padding: 0px;
+        text-shadow: 0 1px white;
+        font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+        font-size: 10pt;
+        text-align: left;
+        vertical-align: middle;
+        white-space: pre;
+        word-spacing: normal;
+        word-break: normal;
+        word-wrap: normal;
+        line-height: 1.45;
+
+        -moz-tab-size: 4;
+        -o-tab-size: 4;
+        tab-size: 4;
+
+        -webkit-hyphens: none;
+        -moz-hyphens: none;
+        -ms-hyphens: none;
+        hyphens: none;
+
+        overflow-x: auto;
+    }
+
+    @media print {
+        code[class*="language-"] {
+            text-shadow: none;
+        }
+    }
+
+    .token.comment,
+    .token.prolog,
+    .token.doctype,
+    .token.cdata {
+        color: slategray;
+    }
+
+    .token.punctuation {
+        color: #999;
+    }
+
+    .namespace {
+        opacity: .7;
+    }
+
+    .token.property,
+    .token.tag,
+    .token.boolean,
+    .token.number,
+    .token.constant,
+    .token.symbol,
+    .token.deleted {
+        color: #905;
+    }
+
+    .token.selector,
+    .token.attr-name,
+    .token.string,
+    .token.char,
+    .token.builtin,
+    .token.inserted {
+        color: #690;
+    }
+
+    .token.operator,
+    .token.entity,
+    .token.url,
+    .language-css .token.string,
+    .style .token.string {
+        color: #9a6e3a;
+        background: hsla(0, 0%, 100%, .5);
+    }
+
+    .token.atrule,
+    .token.attr-value,
+    .token.keyword {
+        color: #07a;
+    }
+
+    .token.function,
+    .token.class-name {
+        color: #DD4A68;
+    }
+
+    .token.regex,
+    .token.important,
+    .token.variable {
+        color: #e90;
+    }
+
+    .token.important,
+    .token.bold {
+        font-weight: bold;
+    }
+
+    .token.italic {
+        font-style: italic;
+    }
+
+    .token.entity {
+        cursor: help;
+    }
+  </style>
+  <style>/*$$_EXTRA_CSS$$*/</style>
+</head>
+
+<body>
+  <div class="center">
+  <aside>
+    <header>
+      <h1 style="display:none;">Azul GUI Framework</h1>
+      <svg width="100" height="100" version="1.1" viewBox="0 0 26.458 26.458" xmlns="http://www.w3.org/2000/svg">
+       <defs>
+        <clipPath id="a_clip">
+         <rect x="-103.9" y="110.66" width="10.146" height="8.6313" rx="0" ry="0"/>
+        </clipPath>
+       </defs>
+       <g transform="translate(0 -270.54)" fill="none" stroke="white">
+        <path d="m1.9902 284.71v6.1165c0 2.412 1.9553 4.3674 4.3674 4.3674s4.3674-1.9553 4.3674-4.3674v-6.0314" stroke-width="4.149" style="paint-order:markers stroke fill"/>
+        <path transform="matrix(1.3553 0 0 1.3553 140.71 120.94)" d="m-95.471 120-3.7063-6.4442-3.2859 6.3476" clip-path="url(#a_clip)" stroke-linecap="square" stroke-width="2.85"/>
+        <path d="m26.407 281.13h-8.8649l5.6491-9.1131h-8.2728" stroke-width="2.9879"/>
+        <path d="m16.581 284.81v10.468h10.224" stroke-width="3.4376"/>
+       </g>
+      </svg>
+    </header>
+    <nav>
+      <ul>
+        <li><a href="$$ROOT_RELATIVE$$/index.html">overview</a></li>
+        <li><a href="$$ROOT_RELATIVE$$/releases.html">releases</a></li>
+        <li><a href="https://github.com/maps4print/azul">code</a></li>
+        <li><a href="https://matrix.to/#/#azul:matrix.org">matrix chat</a></li>
+        <li>
+          <a href="$$ROOT_RELATIVE$$/guide.html">guide</a>
+          $$SIDEBAR_GUIDE$$
+        </li>
+        <li class="active">
+          <a href="$$ROOT_RELATIVE$$/classes.html">classes</a>
+          $$SIDEBAR_CLASSES$$
+        </li>
+      </ul>
+    </nav>
+  </aside>
+  <main>
+    <h1>$$TITLE$$</h1>
+    <div>
+      $$CONTENT$$
+    </div>
+  </main>
+  </div>
+  <script async type="text/javascript" src="$$ROOT_RELATIVE$$/prism_code_highlighter.js"></script>
+</body>
+</html>
