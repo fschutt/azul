@@ -51,6 +51,8 @@ render / select fonts.
 On Linux, you need to install the following packages:
 
 ```
+clang-cl // needed for compiling the software renderer
+linux-libc-dev // needed only for building
 libfreetype6-dev // needed to render fonts
 libfontconfig1-dev // needed to select system fonts
 ```

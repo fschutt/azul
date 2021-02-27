@@ -31,7 +31,6 @@ azul-layout             = { path = "../azul-layout",     default-features = fals
 image                   = { version = "0.23.12",         default-features = false,       optional = true,    features = ["gif", "jpeg", "png", "tiff", "bmp"]    }
 font-loader             = { version = "0.11.0",          default-features = false,       optional = true }
 lyon                    = { version = "0.15.8",  default-features = false,  optional = true }
-rusttype                = { version = "0.9.2",   default-features = false,  features = ["std"], optional = true }
 rayon                   = { version = "1.5.0",   default-features = false,  optional = true }
 usvg                    = { version = "0.13.0",  default-features = false,  optional = true }
 roxmltree               = { version = "0.13.0",  default-features = false,  optional = true }
@@ -64,6 +63,6 @@ text_layout = ["azul-layout/text_layout"]
 # The SVG rendering module is pretty huge since it needs lyon - if you don't use
 # SVG rendering in your app, you can turn this off to increase compilation
 # speed and decrease your binary size
-svg = ["lyon", "rusttype", "owned_ttf_parser", "rayon", "usvg"]
+svg = ["lyon", "owned_ttf_parser", "rayon", "usvg"]
 # Optional XML parser
 xml = ["roxmltree"]
