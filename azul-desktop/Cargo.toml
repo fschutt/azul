@@ -26,7 +26,7 @@ azul-layout             = { path = "../azul-layout", version = "0.0.4",  default
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",  default-features = false, optional = true }
 log                     = { version = "0.4.8",  default-features = false, optional = true }
 fern                    = { version = "0.5.7",  default-features = false, optional = true }
-backtrace               = { version = "0.3.43", default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"] }
+backtrace               = { version = "0.3.43", default-features = false, optional = true } #, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation              = { version = "0.9.0",     default-features = false, features = ["mac_os_10_7_support"] }

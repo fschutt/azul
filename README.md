@@ -50,11 +50,10 @@ render / select fonts.
 
 On Linux, you need to install the following packages:
 
-```
-clang-cl // needed for compiling the software renderer
-linux-libc-dev // needed only for building
-libfreetype6-dev // needed to render fonts
-libfontconfig1-dev // needed to select system fonts
+```sh
+# clang-cl // needed for compiling the software renderer
+libfreetype6-dev # needed to render fonts
+libfontconfig1-dev # needed to select system fonts
 ```
 
 **Arch Linux**: The package for `libfontconfig1-dev` is called `fontconfig`.
