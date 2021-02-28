@@ -1491,7 +1491,7 @@ def generate_docs():
 
 def build_azulc():
     # enable features="image_loading, font_loading" to enable layouting
-    os.system('cd "' + root_folder + '/azulc" && RUSTFLAGS="-Ctarget-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo +nightly build --bin azulc --no-default-features --features="xml std" --release')
+    os.system('cd "' + root_folder + '/azulc" && RUSTFLAGS="-Ctarget-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo +nightly build --bin azulc --no-default-features --features="xml std font_loading image_loading text_layout" --release')
 
 def full_test():
     os.system('cd "' + root_folder + '/azul-dll" && cargo check --verbose --all-features')

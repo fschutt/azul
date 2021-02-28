@@ -51,7 +51,7 @@ pub mod font_loading;
 pub mod image_loading;
 
 /// Parse a string in the format of "600x100" -> (600, 100)
-pub(crate) fn parse_display_list_size(output_size: &str) -> Option<(f32, f32)> {
+pub fn parse_display_list_size(output_size: &str) -> Option<(f32, f32)> {
     let output_size = output_size.trim();
     let mut iter = output_size.split("x");
     let w = iter.next()?;

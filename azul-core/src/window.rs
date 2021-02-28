@@ -22,9 +22,10 @@ use crate::{
     callbacks::{LayoutCallback, LayoutCallbackType},
     task::{TimerId, ThreadId, Timer, Thread},
 };
+use rust_fontconfig::FcFontCache;
 
 #[cfg(feature = "opengl")]
-use crate::gl::GlContextPtr;
+use crate::gl::OptionGlContextPtr;
 
 pub const DEFAULT_TITLE: &str = "Azul App";
 pub const DEFAULT_WIDTH: f32 = 800.0;
@@ -568,7 +569,7 @@ pub fn update_full_window_state(
 #[derive(Debug)]
 pub struct WindowInternal {
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
-    pub renderer_type: RendererType,
+    pub renderer_type: Option<RendererType>,
     /// Windows state of the window of (current frame - 1): initialized to None on startup
     pub previous_window_state: Option<FullWindowState>,
     /// Window state of this current window (current frame): initialized to the state of WindowCreateOptions
@@ -752,9 +753,10 @@ impl WindowInternal {
         init: WindowInternalInit,
         data: &mut RefAny,
         app_resources: &mut AppResources,
-        gl_context: &GlContextPtr,
+        gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
-        callbacks: RenderCallbacks
+        callbacks: RenderCallbacks,
+        fc_cache: &FcFontCache,
     ) -> Self {
 
         use crate::callbacks::LayoutInfo;
@@ -803,10 +805,11 @@ impl WindowInternal {
             init.id_namespace,
             app_resources,
             callbacks,
+            fc_cache,
         );
 
         WindowInternal {
-            renderer_type: gl_context.renderer_type,
+            renderer_type: gl_context.as_ref().map(|r| r.renderer_type),
             stop_sizes_width,
             stop_sizes_height,
             id_namespace: init.id_namespace,
@@ -827,9 +830,10 @@ impl WindowInternal {
         &mut self,
         data: &mut RefAny,
         app_resources: &mut AppResources,
-        gl_context: &GlContextPtr,
+        gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
-        callbacks: RenderCallbacks
+        callbacks: RenderCallbacks,
+        fc_cache: &FcFontCache,
     ) {
 
         use crate::callbacks::LayoutInfo;
@@ -877,6 +881,7 @@ impl WindowInternal {
             id_namespace,
             app_resources,
             callbacks,
+            fc_cache,
         );
 
         self.layout_results = layout_results;

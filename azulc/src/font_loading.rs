@@ -1,17 +1,21 @@
 #![cfg(feature = "std")]
+#![cfg(feature = "font_loading")]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use std::{
     path::PathBuf,
     io::Error as IoError,
 };
-use rust_fontconfig::FcFontCache;
-use azul_core::app_resources::FontSource;
-#[cfg(feature = "text_layout")]
 use azul_core::app_resources::{LoadedFontSource, OptionLoadedFontSource};
+pub use rust_fontconfig::FcFontCache;
+use azul_core::app_resources::FontSource;
 use azul_css::{U8Vec, StringVec};
 
 const DEFAULT_FONT_INDEX: i32 = 0;
+
+pub fn build_font_cache() -> FcFontCache {
+    FcFontCache::build()
+}
 
 #[derive(Debug)]
 pub enum FontReloadError {

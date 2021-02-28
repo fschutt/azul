@@ -1,42 +1,91 @@
 extern crate azulc;
 extern crate azul_core;
-extern crate azul_css_parser;
 
 use std::env;
 use std::fs;
+use std::path::Path;
+use std::process::exit;
 
+use azul_core::window::LogicalSize;
+use azul_core::styled_dom::StyledDom;
+use azulc::xml_parser::XmlComponentMap;
+
+#[derive(PartialEq)]
 enum Action {
-    PrintRustCode,
-    Cascade,
-    PrintDom,
-    PrintDisplayList((f32, f32)),
-}
-
-#[no_mangle]
-pub fn compile_css_to_rust_code(_input: &str) -> String {
-    String::new()
+    PrintHelp,
+    PrintHtmlCode,
+    PrintCCode, // unimplemented, does nothing
+    PrintCppCode, // unimplemented, does nothing
+    PrintRustCode, // unimplemented, does nothing
+    PrintPythonCode, // unimplemented, does nothing
+    PrintDisplayList(LogicalSize),
+    DisplayFile, // unimplemented, does nothing
 }
 
 fn print_help() {
-    eprintln!("usage: azulc file.xml [OPTIONS]");
+    eprintln!("usage: azulc [OPTIONS] file.xml");
     eprintln!("[OPTIONS]:");
     eprintln!("--language=[rust | c | html]: compile XML file to Rust or C source code");
     eprintln!("--display-list widthxheight");
+    eprintln!("");
+    eprintln!("If OPTIONS is empty, the file will be displayed in a window.");
 }
 
 fn main() {
 
-    use azulc::xml::*;
-    use std::process::exit;
+    let args = env::args().collect::<Vec<String>>();
 
-    let input_file = match env::args().nth(1) {
-        Some(s) => s,
-        None => {
-            eprintln!("error: no input file given");
+    let input_file = args.last();
+    let second_arg = args.get(2);
+
+    // select action
+    let action = match second_arg.as_ref().map(|s| s.as_str()) {
+        Some("--help")                  => Action::PrintHelp,
+        Some("--language=rust")         => Action::PrintRustCode,
+        Some("--language=html")         => Action::PrintHtmlCode,
+        Some("--language=c")            => Action::PrintCCode,
+        Some("--language=cpp")          => Action::PrintCppCode,
+        Some("--language=python")       => Action::PrintPythonCode,
+        Some("--display-list")          => {
+            let size = env::args().nth(3).expect("no output size specified for display list");
+            let size_parsed = match azulc::parse_display_list_size(&size) {
+                Some(s) => s,
+                None => {
+                    eprintln!("error: display list size \"{}\" could not be parsed", size);
+                    print_help();
+                    exit(-1);
+                }
+            };
+            Action::PrintDisplayList(LogicalSize::new(size_parsed.0, size_parsed.1))
+        },
+        Some(other) => {
+            eprintln!("unknown command: \"{}\"", other);
             print_help();
             exit(-1);
-        },
+        }
+        None => Action::DisplayFile,
     };
+
+    process(action, input_file)
+}
+
+fn process(action: Action, file: Option<&String>) {
+
+    use azulc::xml_parser::*;
+
+    if action == Action::PrintHelp {
+        print_help();
+        exit(0);
+    }
+
+    let input_file = match file {
+       Some(s) => s,
+       None => {
+           eprintln!("error: no input file given");
+           print_help();
+           exit(-1);
+       },
+   };
 
     let file_contents = match fs::read_to_string(input_file.clone()) {
         Ok(s) => s,
@@ -46,148 +95,123 @@ fn main() {
         },
     };
 
-    if input_file.ends_with(".html") || input_file.ends_with(".xml") {
-
-        // process XML / HTML
-
-        let second_arg = env::args().nth(2).unwrap_or(String::from("--rust"));
-
-        let action = match second_arg.as_str() {
-            "--rust"            => Action::PrintRustCode,
-            "--cascade"         => Action::Cascade,
-            "--dom"             => Action::PrintDom,
-            "--display-list"    => {
-                let size = env::args().nth(3).expect("no output size specified for display list");
-                let size_parsed = match azul_core::display_list::parse_display_list_size(&size) {
-                    Some(s) => s,
-                    None => {
-                        eprintln!("error: size \"{}\" could not be parsed", size);
-                        print_help();
-                        exit(-1);
-                    }
-                };
-                Action::PrintDisplayList(size_parsed)
-            },
-            _ => {
-                eprintln!("error: invalid second CLI argument");
-                print_help();
-                exit(-1);
-            },
-        };
-
-        // parse the XML
-        let root_nodes = match parse_xml_string(&file_contents).ok() {
-            Some(s) => s,
-            None => {
-                eprintln!("error: input could not be parsed as xml");
-                print_help();
-                exit(-1);
-            }
-        };
-
-        use std::path::Path;
-
-        let input_file_path = Path::new(&input_file);
-        let base = input_file_path.parent().and_then(|p| p.to_str()).unwrap_or("");
-
-        match action {
-            Action::PrintRustCode => {
-                let compiled_source = match str_to_rust_code(&root_nodes, "use azul_core::dom::*;", &mut XmlComponentMap::default()) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("error: could not render Rust code:\r\n{:?}", e);
-                        print_help();
-                        exit(-1);
-                    }
-                };
-                println!("{}", compiled_source);
-            },
-            Action::PrintDom => {
-                let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::default()) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("error: could not render DOM:\r\n{}", e);
-                        print_help();
-                        exit(-1);
-                    }
-                };
-
-                println!("{}", dom.get_html_string());
-            },
-            Action::Cascade => {
-                use azul_css::get_css_key_map;
-
-                let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::default()) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("error: could not render DOM:\r\n{}", e);
-                        print_help();
-                        exit(-1);
-                    }
-                };
-
-                // load the CSS file from the head -> link href="css" node
-                let css = match load_style_file_from_xml(base, &root_nodes) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("error: could not find CSS file:\r\n{:?}", e);
-                        print_help();
-                        exit(-1);
-                    }
-                };
-
-                let ui_description = cascade_dom(dom, &css);
-
-                let css_key_map = get_css_key_map();
-
-                for (node_id, styled_node) in ui_description.styled_nodes.internal.iter().enumerate() {
-                    println!("node {}:", node_id);
-                    for (css_key, css_value) in &styled_node.css_constraints {
-                        println!("\t{}: {},", css_key.to_str(&css_key_map), css_value.to_str());
-                    }
-                }
-            },
-            Action::PrintDisplayList((w, h)) => {
-                use azul_core::window::LogicalSize;
-
-                let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::default()) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("error: could not render DOM:\r\n{}", e);
-                        print_help();
-                        exit(-1);
-                    }
-                };
-
-                let css = match load_style_file_from_xml(base, &root_nodes) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("error: could not find CSS file:\r\n{:?}", e);
-                        print_help();
-                        exit(-1);
-                    }
-                };
-
-                let cached_display_list = layout_dom( // "not found in scope error": you forgot to compile azulc with "--all-features" !
-                    dom, &css, LogicalSize::new(w, h)
-                );
-                println!("{:#?}", cached_display_list.root);
-            },
+    // parse the XML
+    let root_nodes = match parse_xml_string(&file_contents).ok() {
+        Some(s) => s,
+        None => {
+            eprintln!("error: input could not be parsed as xml");
+            print_help();
+            exit(-1);
         }
-    } else if input_file.ends_with(".css") {
-        // compile CSS file to Rust code
-        let css = match azul_css_parser::new_from_str(&file_contents) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("error: could not parse CSS:\r\n{}", e);
-                print_help();
-                exit(-1);
-            }
-        };
-        println!("{}", azulc::css::css_to_rust_code(&css));
-    } else if input_file == "--help" {
-        print_help();
-    } else {
-        panic!("invalid input file type, can only process \".html\", \".xml\" or \".css\"");
+    };
+
+    let styled_dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::default()) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: could not render DOM:\r\n{}", e);
+            print_help();
+            exit(-1);
+        }
+    };
+
+    match action {
+        Action::PrintHelp => {
+            print_help();
+            exit(0);
+        },
+        Action::PrintHtmlCode => {
+            println!("{}", styled_dom.get_html_string());
+        },
+        Action::PrintCCode => {
+            println!("{}", get_c_code(&styled_dom, &mut XmlComponentMap::default()));
+        },
+        Action::PrintCppCode => {
+            println!("{}", get_cpp_code(&styled_dom, &mut XmlComponentMap::default()));
+        },
+        Action::PrintRustCode => {
+            println!("{}", get_rust_code(&styled_dom, &mut XmlComponentMap::default()));
+        },
+        Action::PrintPythonCode => {
+            println!("{}", get_python_code(&styled_dom, &mut XmlComponentMap::default()));
+        },
+        Action::PrintDisplayList(size) => {
+
+            use azul_core::{
+                app_resources::{AppResources, IdNamespace, LoadImageFn, LoadFontFn, Epoch},
+                display_list::SolvedLayout,
+                callbacks::PipelineId,
+                gl::OptionGlContextPtr,
+                window::{WindowSize, FullWindowState},
+                display_list::{CachedDisplayList, RenderCallbacks},
+            };
+
+            // Set width + height of the rendering here
+            let mut fake_window_state = FullWindowState::default();
+            fake_window_state.size.dimensions = size;
+
+            let mut app_resources = AppResources::new();
+            let gl_context = OptionGlContextPtr::None;
+            let pipeline_id = PipelineId::new();
+            let epoch = Epoch(0);
+
+            let fc_cache = azulc::font_loading::build_font_cache();
+
+            // Important!
+            app_resources.add_pipeline(pipeline_id);
+
+            let mut resource_updates = Vec::new();
+            let callbacks = RenderCallbacks {
+                insert_into_active_gl_textures: azul_core::gl::insert_into_active_gl_textures,
+                layout_fn: azul_layout::do_the_layout,
+                load_font_fn: LoadFontFn { cb: azulc::font_loading::font_source_get_bytes }, // needs feature="font_loading"
+                load_image_fn: LoadImageFn { cb: azulc::image_loading::image_source_get_bytes }, // needs feature="image_loading"
+                parse_font_fn: azul_layout::text_layout::parse_font_fn, // needs feature="text_layout"
+            };
+
+            // Solve the layout (the extra parameters are necessary because of IFrame recursion)
+            let solved_layout = SolvedLayout::new(
+                styled_dom,
+                epoch,
+                pipeline_id,
+                &fake_window_state,
+                &gl_context,
+                &mut resource_updates,
+                IdNamespace(0),
+                &mut app_resources,
+                callbacks,
+                &fc_cache,
+            );
+
+            let display_list = CachedDisplayList::new(
+                epoch,
+                pipeline_id,
+                &fake_window_state,
+                &solved_layout.layout_results,
+                &solved_layout.gl_texture_cache,
+                &app_resources,
+            );
+
+            println!("{:#?}", display_list.root);
+        },
+        Action::DisplayFile => {
+            // TODO: open window and show the file
+        },
+        // Action::RenderToPng(output_path) -- TODO!
     }
+}
+
+fn get_rust_code(dom: &StyledDom, components: &mut XmlComponentMap) -> String {
+    String::new() // TODO
+}
+
+fn get_c_code(dom: &StyledDom, components: &mut XmlComponentMap) -> String {
+    String::new() // TODO
+}
+
+fn get_cpp_code(dom: &StyledDom, components: &mut XmlComponentMap) -> String {
+    String::new() // TODO
+}
+
+fn get_python_code(dom: &StyledDom, components: &mut XmlComponentMap) -> String {
+    String::new() // TODO
 }

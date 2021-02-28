@@ -19,7 +19,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "azulc"
 path = "src/main.rs"
-required-features = ["xml", "std"]
+required-features = ["xml", "std", "font_loading", "image_loading", "text_layout"]
 
 [profile.release]
 opt-level = 3
@@ -38,7 +38,7 @@ azul-css                = { path = "../azul-css",        version = "0.0.1",     
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",          default-features = false }
 azul-layout             = { path = "../azul-layout",     default-features = false }
 image                   = { version = "0.23.12",         default-features = false,       optional = true,    features = ["gif", "jpeg", "png", "tiff", "bmp"]    }
-rust-fontconfig         = { version = "0.1.1",          default-features = false,       optional = true }
+rust-fontconfig         = { version = "0.1.1",          default-features = false,       features = ["std"], optional = true }
 lyon                    = { version = "0.15.8",  default-features = false,  optional = true }
 rayon                   = { version = "1.5.0",   default-features = false,  optional = true }
 usvg                    = { version = "0.13.0",  default-features = false,  optional = true }

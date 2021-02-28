@@ -20,6 +20,7 @@ use crate::{
     task::ExternalSystemCallbacks,
     window::{DebugState, LogicalPosition, LogicalSize, LogicalRect},
 };
+use rust_fontconfig::FcFontCache;
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1244,6 +1245,7 @@ impl AppResources {
 #[cfg(feature = "multithreading")]
 pub fn add_fonts_and_images(
     app_resources: &mut AppResources,
+    fc_cache: &FcFontCache,
     render_api_namespace: IdNamespace,
     all_resource_updates: &mut Vec<ResourceUpdate>,
     pipeline_id: &PipelineId,
@@ -1252,18 +1254,14 @@ pub fn add_fonts_and_images(
     load_image_fn: LoadImageFn,
     parse_font_fn: ParseFontFn,
 ) {
-    println!("add fonts and images");
-
     let font_keys = styled_dom.scan_for_font_keys(&app_resources);
     let image_keys = styled_dom.scan_for_image_keys(&app_resources);
 
     app_resources.last_frame_font_keys.get_mut(pipeline_id).unwrap().extend(font_keys.clone().into_iter());
     app_resources.last_frame_image_keys.get_mut(pipeline_id).unwrap().extend(image_keys.clone().into_iter());
 
-    let add_font_resource_updates = build_add_font_resource_updates(app_resources, render_api_namespace, pipeline_id, &font_keys, load_font_fn, parse_font_fn);
+    let add_font_resource_updates = build_add_font_resource_updates(app_resources, fc_cache, render_api_namespace, pipeline_id, &font_keys, load_font_fn, parse_font_fn);
     let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api_namespace, pipeline_id, &image_keys, load_image_fn);
-
-    println!("adding {} fonts and {} images", add_font_resource_updates.len(), add_image_resource_updates.len());
 
     add_resources(app_resources, all_resource_updates, pipeline_id, add_font_resource_updates, add_image_resource_updates);
 }
@@ -1662,7 +1660,7 @@ pub struct LoadedFontSource {
 impl_option!(LoadedFontSource, OptionLoadedFontSource, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
 
 #[repr(C)]
-pub struct LoadFontFn { pub cb: extern "C" fn(&FontSource) -> OptionLoadedFontSource }
+pub struct LoadFontFn { pub cb: extern "C" fn(&FontSource, &FcFontCache) -> OptionLoadedFontSource }
 impl_callback!(LoadFontFn);
 #[repr(C)]
 pub struct LoadImageFn { pub cb: extern "C" fn(&ImageSource) -> OptionLoadedImageSource }
@@ -1681,6 +1679,7 @@ pub type ParseFontFn = fn(&LoadedFontSource) -> Option<(Box<dyn Any>, FontMetric
 /// I/O waiting.
 pub fn build_add_font_resource_updates(
     app_resources: &AppResources,
+    fc_cache: &FcFontCache,
     id_namespace: IdNamespace,
     pipeline_id: &PipelineId,
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastBTreeSet<Au>>,
@@ -1762,7 +1761,7 @@ pub fn build_add_font_resource_updates(
                     }),
                 };
 
-                let loaded_font_source = match (font_source_load_fn.cb)(&font_source).into_option() {
+                let loaded_font_source = match (font_source_load_fn.cb)(&font_source, fc_cache).into_option() {
                     Some(s) => s,
                     None => continue,
                 };

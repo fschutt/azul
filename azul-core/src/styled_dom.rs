@@ -198,7 +198,6 @@ impl CssPropertyCache {
         if !css_is_empty {
 
             let css = css.sort_by_specificity();
-            let node_hierarchy_ref = node_hierarchy.as_ref();
 
             macro_rules! filter_rules {($styled_node_state:expr, $node_id:expr) => {{
                 css

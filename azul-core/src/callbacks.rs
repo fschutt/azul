@@ -1113,7 +1113,7 @@ pub struct GlCallbackInfo {
     callback_node_id: DomNodeId,
     bounds: HidpiAdjustedBounds,
     #[cfg(feature = "opengl")]
-    gl_context: *const GlContextPtr,
+    gl_context: *const OptionGlContextPtr,
     resources: *const AppResources,
     node_hierarchy: *const AzNodeVec,
     words_cache: *const BTreeMap<NodeId, Words>,
@@ -1127,7 +1127,7 @@ impl GlCallbackInfo {
 
     #[cfg(feature = "opengl")]
     pub fn new<'a>(
-       gl_context: &'a GlContextPtr,
+       gl_context: &'a OptionGlContextPtr,
        resources: &'a AppResources,
        node_hierarchy: &'a AzNodeVec,
        words_cache: &'a BTreeMap<NodeId, Words>,
@@ -1139,7 +1139,7 @@ impl GlCallbackInfo {
     ) -> Self {
         Self {
             callback_node_id,
-            gl_context: gl_context as *const GlContextPtr,
+            gl_context: gl_context as *const OptionGlContextPtr,
             resources: resources as *const AppResources,
             node_hierarchy: node_hierarchy as *const AzNodeVec,
             words_cache: words_cache as *const BTreeMap<NodeId, Words>,
@@ -1151,7 +1151,7 @@ impl GlCallbackInfo {
     }
 
     #[cfg(feature = "opengl")]
-    fn internal_get_gl_context<'a>(&'a self) -> &'a GlContextPtr { unsafe { &*self.gl_context } }
+    fn internal_get_gl_context<'a>(&'a self) -> &'a OptionGlContextPtr { unsafe { &*self.gl_context } }
     fn internal_get_resources<'a>(&'a self) -> &'a AppResources { unsafe { &*self.resources } }
     fn internal_get_bounds<'a>(&'a self) -> HidpiAdjustedBounds { self.bounds }
     fn internal_get_node_hierarchy<'a>(&'a self) -> &'a AzNodeVec { unsafe { &*self.node_hierarchy } }
@@ -1161,7 +1161,7 @@ impl GlCallbackInfo {
     fn internal_get_positioned_rectangles<'a>(&'a self) -> &'a NodeDataContainer<PositionedRectangle> { unsafe { &*self.positioned_rects } }
 
     #[cfg(feature = "opengl")]
-    pub fn get_gl_context(&self) -> Option<GlContextPtr> { Some(self.internal_get_gl_context().clone()) }
+    pub fn get_gl_context(&self) -> OptionGlContextPtr { self.internal_get_gl_context().clone() }
     pub fn get_bounds(&self) -> HidpiAdjustedBounds { self.internal_get_bounds() }
     pub fn get_callback_node_id(&self) -> DomNodeId { self.callback_node_id }
 

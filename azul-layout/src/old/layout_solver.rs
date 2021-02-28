@@ -27,6 +27,7 @@ use azul_core::{
     display_list::RenderCallbacks,
     window::{FullWindowState, LogicalRect, LogicalSize, LogicalPosition},
 };
+use rust_fontconfig::FcFontCache;
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
 
@@ -1311,6 +1312,7 @@ impl LayoutMarginOffsets {
 pub fn do_the_layout(
     styled_dom: StyledDom,
     app_resources: &mut AppResources,
+    fc_cache: &FcFontCache,
     all_resource_updates: &mut Vec<ResourceUpdate>,
     id_namespace: IdNamespace,
     pipeline_id: PipelineId,
@@ -1334,6 +1336,7 @@ pub fn do_the_layout(
 
             add_fonts_and_images(
                 app_resources,
+                fc_cache,
                 id_namespace,
                 all_resource_updates,
                 &pipeline_id,

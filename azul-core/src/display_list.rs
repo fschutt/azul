@@ -29,7 +29,8 @@ use crate::{
     dom::{TagId, ScrollTagId},
 };
 #[cfg(feature = "opengl")]
-use crate::gl::{Texture, GlContextPtr};
+use crate::gl::{Texture, OptionGlContextPtr};
+use rust_fontconfig::FcFontCache;
 
 pub type GlyphIndex = u32;
 
@@ -539,7 +540,7 @@ pub struct GlTextureCache {
 unsafe impl Send for GlTextureCache { } // necessary so the display list can be built in parallel
 
 // todo: very unclean
-pub type LayoutFn = fn(StyledDom, &mut AppResources, &mut Vec<ResourceUpdate>, IdNamespace, PipelineId, RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
+pub type LayoutFn = fn(StyledDom, &mut AppResources, &FcFontCache, &mut Vec<ResourceUpdate>, IdNamespace, PipelineId, RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
 #[cfg(feature = "opengl")]
 pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 
@@ -567,11 +568,12 @@ impl SolvedLayout {
         epoch: Epoch,
         pipeline_id: PipelineId,
         full_window_state: &FullWindowState,
-        gl_context: &GlContextPtr,
+        gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
         id_namespace: IdNamespace,
         app_resources: &mut AppResources,
         callbacks: RenderCallbacks,
+        fc_cache: &FcFontCache,
     ) -> Self {
 
         use crate::{
@@ -588,6 +590,7 @@ impl SolvedLayout {
         let mut layout_results = (callbacks.layout_fn)(
             styled_dom,
             app_resources,
+            fc_cache,
             all_resource_updates,
             id_namespace,
             pipeline_id,
@@ -645,9 +648,11 @@ impl SolvedLayout {
                     };
 
                     // Reset the framebuffer and SRGB color target to 0
-                    gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
-                    gl_context.disable(gl::FRAMEBUFFER_SRGB);
-                    gl_context.disable(gl::MULTISAMPLE);
+                    if let Some(gl) = gl_context.as_ref() {
+                        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+                        gl.disable(gl::FRAMEBUFFER_SRGB);
+                        gl.disable(gl::MULTISAMPLE);
+                    }
 
                     tex
                 };

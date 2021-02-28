@@ -23,20 +23,6 @@ pub use xmlparser::{Error as XmlError, TextPos, StreamError};
 /// stringified, since it is only used for printing and is not exposed in the public API
 pub type SyntaxError = String;
 
-/// Error that can happen while a CSS file is being loaded from an XML file
-#[derive(Debug)]
-pub enum LoadStyleFileError {
-    NoStyleFileFound,
-    CssParseError(String),
-    IoError(::std::io::Error),
-}
-
-impl From<::std::io::Error> for LoadStyleFileError {
-    fn from(e: ::std::io::Error) -> Self {
-        LoadStyleFileError::IoError(e)
-    }
-}
-
 /// Tag of an XML node, such as the "button" in `<button>Hello</button>`.
 pub type XmlTagName = String;
 /// Key of an attribute, such as the "color" in `<button color="blue">Hello</button>`.
@@ -172,19 +158,17 @@ pub trait XmlComponent {
     /// data format.
     fn get_available_arguments(&self) -> ComponentArguments;
     /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
-    fn render_dom(&self, components: &XmlComponentMap, arguments: &FilteredComponentArguments, content: &XmlTextContent) -> Result<Dom, RenderDomError>;
+    fn render_dom(&self, components: &XmlComponentMap, arguments: &FilteredComponentArguments, content: &XmlTextContent) -> Result<StyledDom, RenderDomError>;
     /// Used to compile the XML component to Rust code - input
     fn compile_to_rust_code(&self, components: &XmlComponentMap, attributes: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError>;
     /// Returns the XML node for this component (necessary to compile the component into a function
     /// during the Rust compilation stage)
     fn get_xml_node(&self) -> XmlNode;
-    fn get_style(&self) -> Css;
 }
 
 /// Wrapper for the XML parser - necessary to easily create a Dom from
 /// XML without putting an XML solver into `azul-core`.
 pub struct DomXml {
-    pub original_string: String,
     pub parsed_dom: StyledDom,
 }
 
@@ -198,7 +182,6 @@ impl DomXml {
         let parsed_dom = parse_xml_string(xml)?;
         let dom = str_to_dom(&parsed_dom, component_map)?;
         Ok(Self {
-            original_string: xml.to_string(),
             parsed_dom: dom,
         })
     }
@@ -222,7 +205,6 @@ impl DomXml {
         let xml = match fs::read_to_string(file_path) {
             Ok(xml) => xml,
             Err(e) => return Self {
-                original_string: format!("{}", e),
                 parsed_dom: Dom::label(format!("{}", e)).style(Css::empty()),
             },
         };
@@ -230,7 +212,6 @@ impl DomXml {
         match Self::new(&xml, component_map) {
             Ok(o) => o,
             Err(e) =>  Self {
-                original_string: format!("{}", e),
                 parsed_dom: Dom::label(format!("{}", e)).style(Css::empty()),
             },
         }
@@ -324,16 +305,17 @@ impl XmlComponent for DynamicXmlComponent {
         components: &XmlComponentMap,
         arguments: &FilteredComponentArguments,
         content: &XmlTextContent,
-    ) -> Result<Dom, RenderDomError> {
+    ) -> Result<StyledDom, RenderDomError> {
 
-        let mut dom = Dom::div();
-        let mut children = Vec::new();
+        let component_style = parse_style(&self.root.children).unwrap_or(Css::empty());
+
+        let mut dom = Dom::div().style(Css::empty());
 
         for child_node in &self.root.children {
-            children.push(render_dom_from_body_node_inner(child_node, components, arguments)?);
+            dom.append(render_dom_from_body_node_inner(child_node, components, arguments)?);
         }
 
-        dom.set_children(children.into());
+        dom.restyle(component_style);
 
         Ok(dom)
     }
@@ -345,10 +327,6 @@ impl XmlComponent for DynamicXmlComponent {
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
         Ok("Dom::div()".into()) // TODO!s
-    }
-
-    fn get_style(&self) -> Css {
-        parse_style(&self.root.children).unwrap_or(Css::empty())
     }
 }
 
@@ -475,10 +453,8 @@ pub enum ComponentParseError {
     /// Component type may not contain a whitespace (probably missing a `,` between the type and the next name)
     WhiteSpaceInComponentType(usize, String, String),
     /// Error parsing the <style> tag / CSS
-    CssError(LoadStyleFileError),
+    CssError(String),
 }
-
-impl_from!{ LoadStyleFileError, ComponentParseError::CssError }
 
 impl_from!{ ComponentParseError, XmlParseError::Component }
 impl_from!{ RenderDomError, XmlParseError::RenderDom }
@@ -514,6 +490,7 @@ impl fmt::Display for ComponentParseError {
                        arg_name, arg_pos, arg_type_unparsed
                 )
             },
+            CssError(lsf) => write!(f, "Error parsing <style> tag: {}", lsf),
         }
     }
 }
@@ -538,78 +515,7 @@ use azul_core::{
 };
 
 #[cfg(all(feature = "image_loading", feature = "font_loading"))]
-pub fn layout_dom(dom: Dom, css: &Css, root_size: LogicalSize) -> CachedDisplayList {
 
-    use std::rc::Rc;
-    use azul_core::{
-        app_resources::{AppResources, LoadImageFn, LoadFontFn, Epoch, FakeRenderApi},
-        dom::DomId,
-        display_list::SolvedLayout,
-        callbacks::PipelineId,
-        gl::{VirtualGlDriver, GlContextPtr},
-        window::{WindowSize, FullWindowState},
-    };
-
-    let mut app_resources = AppResources::new();
-    let mut render_api = FakeRenderApi::new();
-
-
-    // Set width + height of the rendering here
-    let fake_window_state = FullWindowState {
-        size: WindowSize {
-            dimensions: root_size,
-            .. Default::default()
-        },
-        .. Default::default()
-    };
-
-    // Note: while the VirtualGlDriver will crash on everything,
-    // triggering that behaviour is virtually impossible because
-    // there is no way to create OpenGL callbacks in the XML code
-    let gl_context = GlContextPtr::new(Rc::new(VirtualGlDriver::new()));
-    let pipeline_id = PipelineId::new();
-    let epoch = Epoch(0);
-
-    // Important!
-    app_resources.add_pipeline(pipeline_id);
-
-    DomId::reset();
-
-    let mut ui_state = UiState::new(dom, None);
-    let ui_description = UiDescription::new(&mut ui_state, &css, &None, &BTreeMap::new(), false);
-
-    let mut ui_states = BTreeMap::new();
-    ui_states.insert(DomId::ROOT_ID, ui_state);
-    let mut ui_descriptions = BTreeMap::new();
-    ui_descriptions.insert(DomId::ROOT_ID, ui_description);
-
-    // Solve the layout (the extra parameters are necessary because of IFrame recursion)
-    let solved_layout = SolvedLayout::new(
-        epoch,
-        pipeline_id,
-        &fake_window_state,
-        &gl_context,
-        &mut render_api,
-        &mut app_resources,
-        &mut ui_states,
-        &mut ui_descriptions,
-        azul_core::gl::insert_into_active_gl_textures,
-        azul_layout::do_the_layout,
-        LoadFontFn { cb: crate::font_loading::font_source_get_bytes },
-        LoadImageFn { cb: crate::image_loading::image_source_get_bytes },
-        azul_layout::text_layout::parse_font_fn,
-    );
-
-    CachedDisplayList::new(
-        epoch,
-        pipeline_id,
-        &fake_window_state,
-        &ui_states,
-        &solved_layout.solved_layout_cache,
-        &solved_layout.gl_texture_cache,
-        &app_resources,
-    )
-}
 */
 
 /// Parses the XML string into an XML tree, returns
@@ -827,11 +733,13 @@ pub fn get_body_node(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
     }
 }
 
+static DEFAULT_STR: &str = "";
+
 /// Find the <style> node and parse the contents of it as a CSS files
-pub fn parse_style(root_nodes: &[XmlNode]) -> Result<Css, CssParseError> {
+pub fn parse_style<'a>(root_nodes: &'a [XmlNode]) -> Result<Css, CssParseError<'a>> {
     match find_node_by_type(root_nodes, "style") {
         Some(s) => {
-            let text = s.text.unwrap_or_default();
+            let text = s.text.as_ref().map(|s| s.as_str()).unwrap_or(DEFAULT_STR);
             azul_css_parser::new_from_str(&text)
         },
         None => Ok(Css::empty())
@@ -999,32 +907,42 @@ pub fn render_dom_from_body_node_inner(
         dom.append(render_dom_from_body_node_inner(child_node, component_map, &filtered_xml_attributes)?);
     }
 
-    Ok(dom.style(renderer.get_style()))
+    Ok(dom)
 }
 
-pub fn set_attributes(dom: &mut Dom, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
+pub fn set_attributes(dom: &mut StyledDom, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
 
     use azul_core::dom::TabIndex;
+    use azul_core::dom::IdOrClass::{Id, Class};
+
+    let mut ids_and_classes = Vec::new();
+    let dom_root = match dom.root.into_crate_internal() {
+        Some(s) => s,
+        None => return,
+    };
+    let node_data = &mut dom.node_data.as_container_mut()[dom_root];
 
     if let Some(ids) = xml_attributes.get("id") {
         for id in ids.split_whitespace() {
-            dom.add_id(format_args_dynamic(id, &filtered_xml_attributes.args));
+            ids_and_classes.push(Id(format_args_dynamic(id, &filtered_xml_attributes.args).into()));
         }
     }
 
     if let Some(classes) = xml_attributes.get("class") {
         for class in classes.split_whitespace() {
-            dom.add_class(format_args_dynamic(class, &filtered_xml_attributes.args));
+            ids_and_classes.push(Class(format_args_dynamic(class, &filtered_xml_attributes.args).into()));
         }
     }
+
+    node_data.set_ids_and_classes(ids_and_classes.into());
 
     if let Some(focusable) = xml_attributes.get("focusable")
         .map(|f| format_args_dynamic(f, &filtered_xml_attributes.args))
         .and_then(|f| parse_bool(&f))
     {
         match focusable {
-            true => dom.set_tab_index(Some(TabIndex::Auto).into()),
-            false => dom.set_tab_index(Some(TabIndex::NoKeyboardFocus.into()).into()),
+            true => node_data.set_tab_index(Some(TabIndex::Auto).into()),
+            false => node_data.set_tab_index(Some(TabIndex::NoKeyboardFocus.into()).into()),
         }
     }
 
@@ -1033,9 +951,9 @@ pub fn set_attributes(dom: &mut Dom, xml_attributes: &XmlAttributeMap, filtered_
         .and_then(|val| val.parse::<isize>().ok())
     {
         match tab_index {
-            0 => dom.set_tab_index(Some(TabIndex::Auto).into()),
-            i if i > 0 => dom.set_tab_index(Some(TabIndex::OverrideInParent(i as u32)).into()),
-            _ => dom.set_tab_index(Some(TabIndex::NoKeyboardFocus).into()),
+            0 => node_data.set_tab_index(Some(TabIndex::Auto).into()),
+            i if i > 0 => node_data.set_tab_index(Some(TabIndex::OverrideInParent(i as u32)).into()),
+            _ => node_data.set_tab_index(Some(TabIndex::NoKeyboardFocus).into()),
         }
     }
 }
@@ -1499,8 +1417,8 @@ impl XmlComponent for DivRenderer {
         ComponentArguments::new()
     }
 
-    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<Dom, RenderDomError> {
-        Ok(Dom::div())
+    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
+        Ok(Dom::div().style(Css::empty()))
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
@@ -1510,8 +1428,6 @@ impl XmlComponent for DivRenderer {
     fn get_xml_node(&self) -> XmlNode {
         XmlNode::new("div")
     }
-
-    fn get_style(&self) -> Css { Css::empty() }
 }
 
 /// Render for a `body` component
@@ -1524,8 +1440,8 @@ impl XmlComponent for BodyRenderer {
         ComponentArguments::new()
     }
 
-    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<Dom, RenderDomError> {
-        Ok(Dom::body())
+    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
+        Ok(Dom::body().style(Css::empty()))
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
@@ -1535,8 +1451,6 @@ impl XmlComponent for BodyRenderer {
     fn get_xml_node(&self) -> XmlNode {
         XmlNode::new("body")
     }
-
-    fn get_style(&self) -> Css { Css::empty() }
 }
 
 /// Render for a `p` component
@@ -1552,9 +1466,9 @@ impl XmlComponent for TextRenderer {
         }
     }
 
-    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<Dom, RenderDomError> {
+    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
         let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
-        Ok(Dom::label(content))
+        Ok(Dom::label(content).style(Css::empty()))
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, args: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
@@ -1564,8 +1478,6 @@ impl XmlComponent for TextRenderer {
     fn get_xml_node(&self) -> XmlNode {
         XmlNode::new("p")
     }
-
-    fn get_style(&self) -> Css { Css::empty() }
 }
 
 // -- Tests
