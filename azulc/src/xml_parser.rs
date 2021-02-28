@@ -1,11 +1,22 @@
 #![allow(unused_variables)]
 
-use std::{fmt, collections::BTreeMap, path::Path};
+use core::fmt;
+use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
+use alloc::string::String;
+use alloc::prelude::v1::Box;
 use azul_core::{
-    dom::Dom
+    impl_from,
+    dom::Dom,
+    styled_dom::StyledDom,
 };
 use azul_css::Css;
+use azul_css_parser::CssParseError;
 use xmlparser::Tokenizer;
+
+#[cfg(feature = "std")]
+use std::path::Path;
+
 pub use xmlparser::{Error as XmlError, TextPos, StreamError};
 
 /// Error that can happen during hot-reload -
@@ -45,7 +56,15 @@ pub type ComponentName = String;
 pub type CompiledComponent = String;
 pub type FilteredComponentArguments = ComponentArguments;
 
-pub const DEFAULT_ARGS: [&str;8] = ["id", "class", "tabindex", "draggable", "focusable", "accepts_text", "name", "args"];
+pub const DEFAULT_ARGS: [&str;7] = [
+    "id",
+    "class",
+    "tabindex",
+    "focusable",
+    "accepts_text",
+    "name",
+    "args"
+];
 
 /// A component can take various arguments (to pass down to its children), which are then
 /// later compiled into Rust function arguments - for example
@@ -159,13 +178,14 @@ pub trait XmlComponent {
     /// Returns the XML node for this component (necessary to compile the component into a function
     /// during the Rust compilation stage)
     fn get_xml_node(&self) -> XmlNode;
+    fn get_style(&self) -> Css;
 }
 
 /// Wrapper for the XML parser - necessary to easily create a Dom from
 /// XML without putting an XML solver into `azul-core`.
 pub struct DomXml {
     pub original_string: String,
-    pub parsed_dom: Dom,
+    pub parsed_dom: StyledDom,
 }
 
 impl DomXml {
@@ -194,6 +214,7 @@ impl DomXml {
     /// **Warning**: The file is reloaded from disk on every function call - do not
     /// use this in release builds! This function deliberately never fails: In an error case,
     /// the error gets rendered as a `NodeType::Label`.
+    #[cfg(feature = "std")]
     pub fn from_file<I: AsRef<Path>>(file_path: I, component_map: &mut XmlComponentMap) -> Self {
 
         use std::fs;
@@ -202,7 +223,7 @@ impl DomXml {
             Ok(xml) => xml,
             Err(e) => return Self {
                 original_string: format!("{}", e),
-                parsed_dom: Dom::label(format!("{}", e)),
+                parsed_dom: Dom::label(format!("{}", e)).style(Css::empty()),
             },
         };
 
@@ -210,7 +231,7 @@ impl DomXml {
             Ok(o) => o,
             Err(e) =>  Self {
                 original_string: format!("{}", e),
-                parsed_dom: Dom::label(format!("{}", e)),
+                parsed_dom: Dom::label(format!("{}", e)).style(Css::empty()),
             },
         }
     }
@@ -227,23 +248,22 @@ impl DomXml {
     /// dom.assert_eq(Dom::div().with_id("test"));
     /// ```
     #[cfg(test)]
-    pub fn assert_eq(self, other: Dom) {
-        let fixed = Dom::div().with_child(other);
-        let expected = self.into_dom();
-        if expected != fixed {
+    pub fn assert_eq(self, other: StyledDom) {
+        let fixed = StyledDom::body().append(other);
+        if self.parsed_dom != fixed {
             panic!("\r\nExpected DOM did not match:\r\n\r\nexpected: ----------\r\n{}\r\ngot: ----------\r\n{}\r\n",
                 expected.get_html_string(), fixed.get_html_string()
             );
         }
     }
 
-    pub fn into_dom(self) -> Dom {
+    pub fn into_styled_dom(self) -> StyledDom {
         self.into()
     }
 }
 
-impl Into<Dom> for DomXml {
-    fn into(self) -> Dom {
+impl Into<StyledDom> for DomXml {
+    fn into(self) -> StyledDom {
         self.parsed_dom
     }
 }
@@ -260,6 +280,7 @@ pub struct DynamicXmlComponent {
 }
 
 impl DynamicXmlComponent {
+
     /// Parses a `component` from an XML node
     pub fn new(root: XmlNode) -> Result<Self, ComponentParseError> {
 
@@ -306,10 +327,13 @@ impl XmlComponent for DynamicXmlComponent {
     ) -> Result<Dom, RenderDomError> {
 
         let mut dom = Dom::div();
+        let mut children = Vec::new();
 
         for child_node in &self.root.children {
-            dom.add_child(render_dom_from_body_node_inner(child_node, components, arguments)?);
+            children.push(render_dom_from_body_node_inner(child_node, components, arguments)?);
         }
+
+        dom.set_children(children.into());
 
         Ok(dom)
     }
@@ -320,7 +344,11 @@ impl XmlComponent for DynamicXmlComponent {
         attributes: &FilteredComponentArguments,
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
-        Ok("Dom::div()".into())
+        Ok("Dom::div()".into()) // TODO!s
+    }
+
+    fn get_style(&self) -> Css {
+        parse_style(&self.root.children).unwrap_or(Css::empty())
     }
 }
 
@@ -432,7 +460,7 @@ pub enum RenderDomError {
     UnknownComponent(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug)]
 pub enum ComponentParseError {
     /// Given XmlNode is not a `<component />` node.
     NotAComponent,
@@ -446,7 +474,11 @@ pub enum ComponentParseError {
     WhiteSpaceInComponentName(usize, String),
     /// Component type may not contain a whitespace (probably missing a `,` between the type and the next name)
     WhiteSpaceInComponentType(usize, String, String),
+    /// Error parsing the <style> tag / CSS
+    CssError(LoadStyleFileError),
 }
+
+impl_from!{ LoadStyleFileError, ComponentParseError::CssError }
 
 impl_from!{ ComponentParseError, XmlParseError::Component }
 impl_from!{ RenderDomError, XmlParseError::RenderDom }
@@ -498,36 +530,7 @@ impl fmt::Display for RenderDomError {
     }
 }
 
-/// Tries to look for a `<link type="stylesheet" href="blah.css" />`
-/// in the `<head>` node, then parse the CSS
-pub fn load_style_file_from_xml<I: AsRef<Path>>(html_path: I, xml: &[XmlNode])
--> Result<Css, LoadStyleFileError>
-{
-    use std::path::PathBuf;
-    use std::fs;
-
-    fn try_find_stylesheet_path(xml: &[XmlNode]) -> Option<String> {
-        let head_node = find_node_by_type(xml, "head")?;
-        let link_node = find_node_by_type(&head_node.children, "link")?;
-        if find_attribute(link_node, "rel")?.as_str() != "stylesheet" {
-            return None;
-        }
-        find_attribute(link_node, "href").cloned()
-    }
-
-    let path = try_find_stylesheet_path(xml).ok_or(LoadStyleFileError::NoStyleFileFound)?;
-    let normalized_path = html_path.as_ref().join(PathBuf::from(path));
-    let file_contents = fs::read_to_string(&normalized_path)?;
-    let css = azul_css_parser::new_from_str(&file_contents)
-        .map_err(|e| LoadStyleFileError::CssParseError(format!("{}", e)))?; // have to return a String here due to lifetime in CssParseError
-    Ok(css)
-}
-
-pub fn cascade_dom(dom: Dom, css: &Css) -> UiDescription {
-    let mut ui_state = UiState::new(dom, None);
-    UiDescription::new(&mut ui_state, css, &None, &BTreeMap::new(), false)
-}
-
+/*
 #[cfg(all(feature = "image_loading", feature = "font_loading"))]
 use azul_core::{
     window::LogicalSize,
@@ -607,6 +610,7 @@ pub fn layout_dom(dom: Dom, css: &Css, root_size: LogicalSize) -> CachedDisplayL
         &app_resources,
     )
 }
+*/
 
 /// Parses the XML string into an XML tree, returns
 /// the root `<app></app>` node, with the children attached to it.
@@ -823,6 +827,17 @@ pub fn get_body_node(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
     }
 }
 
+/// Find the <style> node and parse the contents of it as a CSS files
+pub fn parse_style(root_nodes: &[XmlNode]) -> Result<Css, CssParseError> {
+    match find_node_by_type(root_nodes, "style") {
+        Some(s) => {
+            let text = s.text.unwrap_or_default();
+            azul_css_parser::new_from_str(&text)
+        },
+        None => Ok(Css::empty())
+    }
+}
+
 /// Filter all `<component />` nodes and insert them into the `components` node
 pub fn get_xml_components(root_nodes: &[XmlNode], components: &mut XmlComponentMap) -> Result<(), ComponentParseError> {
 
@@ -847,25 +862,31 @@ pub fn find_attribute<'a>(node: &'a XmlNode, attribute: &str) -> Option<&'a Stri
     node.attributes.iter().find(|n| normalize_casing(&n.0).as_str() == attribute).map(|s| s.1)
 }
 
-/// Parses an XML string and returns a `Dom` with the components instantiated in the `<app></app>`
-pub fn str_to_dom(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap) -> Result<Dom, XmlParseError> {
+/// Parses an XML string and returns a `StyledDom` with the components instantiated in the `<app></app>`
+pub fn str_to_dom(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap) -> Result<StyledDom, XmlParseError> {
+    let mut global_style = Css::empty();
     if let Some(head_node) = find_node_by_type(root_nodes, "head") {
         get_xml_components(&head_node.children, component_map)?;
+        global_style = match parse_style(&head_node.children) {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("error parsing global CSS: {:?}", e);
+                Css::empty()
+            }
+        };
     }
     let body_node = get_body_node(&root_nodes)?;
-    render_dom_from_body_node(&body_node, component_map).map_err(|e| e.into())
+    render_dom_from_body_node(&body_node, global_style, component_map).map_err(|e| e.into())
 }
 
 /// Parses an XML string and returns a `String`, which contains the Rust source code
 /// (i.e. it compiles the XML to valid Rust)
-pub fn str_to_rust_code(
-    root_nodes: &[XmlNode],
-    imports: &str,
-    component_map: &mut XmlComponentMap,
-) -> Result<String, CompileError> {
+pub fn str_to_rust_code(root_nodes: &[XmlNode], imports: &str, component_map: &mut XmlComponentMap) -> Result<String, CompileError> {
 
     const HEADER_WARNING: &str = "//! Auto-generated UI source code";
 
+    let source_code = HEADER_WARNING.to_string();
+/*
     if let Some(head_node) = root_nodes.iter().find(|n| normalize_casing(&n.node_type).as_str() == "head") {
         get_xml_components(&head_node.children, component_map).map_err(|e| format!("Error parsing component: {}", e))?;
     }
@@ -880,6 +901,7 @@ pub fn str_to_rust_code(
             app_source
         ),
     );
+*/
 
     Ok(source_code)
 }
@@ -926,14 +948,19 @@ pub fn compile_component(
 
 pub fn render_dom_from_body_node(
     body_node: &XmlNode,
+    global_css: Css,
     component_map: &XmlComponentMap
-) -> Result<Dom, RenderDomError> {
+) -> Result<StyledDom, RenderDomError> {
 
     // Don't actually render the <body></body> node itself
-    let mut dom = Dom::body();
+    let mut dom = Dom::body().style(Css::empty());
+
     for child_node in &body_node.children {
-        dom.add_child(render_dom_from_body_node_inner(child_node, component_map, &FilteredComponentArguments::default())?);
+        dom.append(render_dom_from_body_node_inner(child_node, component_map, &FilteredComponentArguments::default())?);
     }
+
+    dom.restyle(global_css); // apply the CSS again
+
     Ok(dom)
 }
 
@@ -942,7 +969,7 @@ pub fn render_dom_from_body_node_inner(
     xml_node: &XmlNode,
     component_map: &XmlComponentMap,
     parent_xml_attributes: &FilteredComponentArguments,
-) -> Result<Dom, RenderDomError> {
+) -> Result<StyledDom, RenderDomError> {
 
     let component_name = normalize_casing(&xml_node.node_type);
 
@@ -969,10 +996,10 @@ pub fn render_dom_from_body_node_inner(
     set_attributes(&mut dom, &xml_node.attributes, &filtered_xml_attributes);
 
     for child_node in &xml_node.children {
-        dom.add_child(render_dom_from_body_node_inner(child_node, component_map, &filtered_xml_attributes)?);
+        dom.append(render_dom_from_body_node_inner(child_node, component_map, &filtered_xml_attributes)?);
     }
 
-    Ok(dom)
+    Ok(dom.style(renderer.get_style()))
 }
 
 pub fn set_attributes(dom: &mut Dom, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
@@ -991,13 +1018,6 @@ pub fn set_attributes(dom: &mut Dom, xml_attributes: &XmlAttributeMap, filtered_
         }
     }
 
-    if let Some(drag) = xml_attributes.get("draggable")
-        .map(|d| format_args_dynamic(d, &filtered_xml_attributes.args))
-        .and_then(|d| parse_bool(&d))
-    {
-        dom.set_is_draggable(drag);
-    }
-
     if let Some(focusable) = xml_attributes.get("focusable")
         .map(|f| format_args_dynamic(f, &filtered_xml_attributes.args))
         .and_then(|f| parse_bool(&f))
@@ -1014,7 +1034,7 @@ pub fn set_attributes(dom: &mut Dom, xml_attributes: &XmlAttributeMap, filtered_
     {
         match tab_index {
             0 => dom.set_tab_index(Some(TabIndex::Auto).into()),
-            i if i > 0 => dom.set_tab_index(Some(TabIndex::OverrideInParent(i as usize)).into()),
+            i if i > 0 => dom.set_tab_index(Some(TabIndex::OverrideInParent(i as u32)).into()),
             _ => dom.set_tab_index(Some(TabIndex::NoKeyboardFocus).into()),
         }
     }
@@ -1047,13 +1067,6 @@ pub fn set_stringified_attributes(
             .join("\r\n");
 
         dom_string.push_str(&format!("\r\n{}", classes));
-    }
-
-    if let Some(drag) = xml_attributes.get("draggable")
-        .map(|d| format_args_dynamic(d, &filtered_xml_attributes))
-        .and_then(|d| parse_bool(&d))
-    {
-        dom_string.push_str(&format!("\r\n{}.with_draggable({})", t, drag));
     }
 
     if let Some(focusable) = xml_attributes.get("focusable")
@@ -1497,6 +1510,8 @@ impl XmlComponent for DivRenderer {
     fn get_xml_node(&self) -> XmlNode {
         XmlNode::new("div")
     }
+
+    fn get_style(&self) -> Css { Css::empty() }
 }
 
 /// Render for a `body` component
@@ -1520,6 +1535,8 @@ impl XmlComponent for BodyRenderer {
     fn get_xml_node(&self) -> XmlNode {
         XmlNode::new("body")
     }
+
+    fn get_style(&self) -> Css { Css::empty() }
 }
 
 /// Render for a `p` component
@@ -1547,6 +1564,8 @@ impl XmlComponent for TextRenderer {
     fn get_xml_node(&self) -> XmlNode {
         XmlNode::new("p")
     }
+
+    fn get_style(&self) -> Css { Css::empty() }
 }
 
 // -- Tests
@@ -1583,7 +1602,7 @@ fn test_compile_dom_1() {
 
     let s1 = r#"
         <component name="test">
-            <div id="a" class="b" draggable="true"></div>
+            <div id="a" class="b"></div>
         </component>
 
         <body>
@@ -1592,7 +1611,7 @@ fn test_compile_dom_1() {
     "#;
     let s1_expected = r#"
         fn render_component_test<T>() -> Dom {
-            Dom::div().with_id("a").with_class("b").is_draggable(true)
+            Dom::div().with_id("a").with_class("b")
         }
     "#;
 

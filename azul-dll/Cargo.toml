@@ -22,20 +22,6 @@ edition = "2018"
 crate-type = ["cdylib"]
 doc = false
 
-[profile.dev]
-opt-level = 3
-lto = "fat"
-panic = "abort"
-debug = true
-
-[profile.release]
-opt-level = 3
-lto = "fat"
-panic = "abort"
-codegen-units = 1
-debug = false
-overflow-checks = false
-
 [dependencies]
 azul-core = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }
 

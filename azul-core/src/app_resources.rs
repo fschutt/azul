@@ -875,7 +875,7 @@ impl RawGlyph {
     }
 
     pub fn get_codepoint(&self) -> Option<char> {
-        self.unicode_codepoint.as_ref().and_then(|u| std::char::from_u32(*u))
+        self.unicode_codepoint.as_ref().and_then(|u| core::char::from_u32(*u))
     }
 }
 
@@ -1835,8 +1835,6 @@ pub fn add_resources(
     add_font_resources: Vec<(ImmediateFontId, AddFontMsg)>,
     add_image_resources: Vec<(ImageId, AddImageMsg)>,
 ) {
-    println!("add_resources() - add font msg: {:#?}", add_font_resources.len());
-
     all_resource_updates.extend(add_font_resources.iter().map(|(_, f)| f.into_resource_update()));
     all_resource_updates.extend(add_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 

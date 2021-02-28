@@ -14,18 +14,6 @@ categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
-[profile.dev]
-incremental = false
-
-[profile.release]
-opt-level = 3
-lto = "fat"
-panic = "abort"
-codegen-units = 1
-debug = false
-overflow-checks = false
-incremental = false
-
 [[bin]]
 name = "public"
 path = "public.rs"

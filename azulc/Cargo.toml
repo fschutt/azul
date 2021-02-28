@@ -19,7 +19,16 @@ path = "src/lib.rs"
 [[bin]]
 name = "azulc"
 path = "src/main.rs"
-required-features = ["xml"]
+required-features = ["xml", "std"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+panic = "abort"
+codegen-units = 1
+debug = false
+overflow-checks = false
+incremental = false
 
 [dependencies]
 gleam                   = { version = "0.13.1",          default-features = false }
@@ -37,7 +46,7 @@ roxmltree               = { version = "0.13.0",  default-features = false,  opti
 owned_ttf_parser        = { version = "0.6.0",   default-features = false,  optional = true }
 
 [features]
-std = ["azul-core/std", "azul-layout/std", "image_loading", "font_loading"]
+std = ["azul-core/std", "azul-layout/std"]
 default = ["std", "text_layout"]
 # On some applications you might not want to load any images. For these purposes
 # the image crate can be disabled, to speed up compile times

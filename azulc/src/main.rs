@@ -18,8 +18,10 @@ pub fn compile_css_to_rust_code(_input: &str) -> String {
 }
 
 fn print_help() {
-    eprintln!("usage: azulc [file.xml | .html] [--rust | --cascade | --dom | --display-list widthxheight]");
-    eprintln!("usage: azulc file.css");
+    eprintln!("usage: azulc file.xml [OPTIONS]");
+    eprintln!("[OPTIONS]:");
+    eprintln!("--language=[rust | c | html]: compile XML file to Rust or C source code");
+    eprintln!("--display-list widthxheight");
 }
 
 fn main() {
@@ -35,6 +37,7 @@ fn main() {
             exit(-1);
         },
     };
+
     let file_contents = match fs::read_to_string(input_file.clone()) {
         Ok(s) => s,
         Err(e) => {

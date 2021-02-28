@@ -4,6 +4,7 @@ import pprint
 import os
 import subprocess
 import shutil
+from sys import platform
 
 # dict that keeps the order of insertion
 from collections import OrderedDict
@@ -1222,15 +1223,38 @@ def generate_api():
     # write_file(generate_cpp_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/cpp/azul.h")
     # write_file(generate_cpp_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/python/azul.py")
 
+# Build the library with release settings
 def build_dll():
-    # build the library with release settings
-    d = dict(os.environ)   # Make a copy of the current environment
-    d['CC'] = 'clang-cl'
-    d['CXX'] = 'clang-cl'
-    d['RUSTFLAGS'] = '-C target-feature=-crt-static'
+
+    # Make a copy of the current environment
+    # d = dict(os.environ)
+    # d['CC'] = 'clang'
+    # d['CXX'] = 'clang'
+
     cwd = root_folder + "/azul-dll"
-    subprocess.Popen(['cargo', 'build', '--target=x86_64-unknown-linux-musl', '--all-features', '--release'], env=d, cwd=cwd).wait()
-    pass
+
+    # TODO: build azulc!
+
+    if platform == "linux" or platform == "linux2": # TODO: freebsd?
+        # On linux, optimize for different CPUs, so that we can package for debian multiarch
+        os.system('rustup toolchain install nightly-x86_64-unknown-linux-gnu')
+        os.system('rustup override set nightly-x86_64-unknown-linux-gnu')
+        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=x86_64-unknown-linux-gnu --all-features --release')
+        os.system('rustup toolchain install nightly-i686-unknown-linux-gnu')
+        os.system('rustup override set nightly-i686-unknown-linux-gnu')
+        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=i686-unknown-linux-gnu --all-features --release')
+    elif platform == "darwin":
+        os.system('rustup override set nightly-x86_64-unknown-darwin-gnu', env=d, cwd=cwd).wait()
+        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=x86_64-unknown-darwin-gnu --all-features --release', env=d, cwd=cwd).wait()
+        os.system('rustup override set nightly-i686-unknown-darwin-gnu', env=d, cwd=cwd).wait()
+        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=i686-unknown-darwin-gnu --all-features --release', env=d, cwd=cwd).wait()
+    elif platform == "win32":
+        os.system('rustup override set nightly-x86_64-unknown-windows-msvc', env=d, cwd=cwd).wait()
+        os.system('RUSTFLAGS="-C target-feature=-crt-static" cargo build --target=x86_64-unknown-windows-msvc --all-features --release', env=d, cwd=cwd).wait()
+        os.system('rustup override set nightly-i686-unknown-windows-msvc', env=d, cwd=cwd).wait()
+        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=i686-unknown-windows-msvc --all-features --release', env=d, cwd=cwd).wait()
+    else:
+        raise Exception("unsupported platform: " + platform)
 
 def run_size_test():
     d = dict(os.environ)   # Make a copy of the current environment
@@ -1465,24 +1489,32 @@ def generate_docs():
     api_combined_page = api_combined_page.replace("$$CONTENT$$", releases_string)
     write_file(api_combined_page, root_folder + "/target/html/api.html")
 
+def build_azulc():
+    # enable features="image_loading, font_loading" to enable layouting
+    os.system('cd "' + root_folder + '/azulc" && RUSTFLAGS="-Ctarget-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo +nightly build --bin azulc --no-default-features --features="xml std" --release')
 
-def select_toolchain():
-    d = dict(os.environ)   # Make a copy of the current environment
-    cwd = root_folder + "/azul-dll"
-    subprocess.Popen(['rustup', 'target', 'add', 'x86_64-unknown-linux-musl'], env=d, cwd=cwd).wait()
-    pass
+def full_test():
+    os.system('cd "' + root_folder + '/azul-dll" && cargo check --verbose --all-features')
+    os.system('cd "' + root_folder + '/azul-dll" && cargo check --verbose --examples')
+    os.system('cd "' + root_folder + '/azul-dll" && cargo check --no-default-features')
+    os.system('cd "' + root_folder + '/azul-dll" && cargo check --verbose --release --all-features')
+    os.system('cd "' + root_folder + '/azul-dll" && cargo check --no-default-features --features="svg"')
+    os.system('cd "' + root_folder + '/azul-dll" && cargo check --no-default-features --features="image_loading"')
+    os.system('cd "' + root_folder + '/azul-dll" && cargo check --no-default-features --features="font_loading"')
+    os.system('cd "' + root_folder + '/azul-dll" && cargo test --verbose --all-features')
+    os.system('cd "' + root_folder + "/examples && cargo run --bin layout_tests -- --nocapture")
 
 def main():
-    print("overriding toolchain with x86_64-[OS]-musl ...")
-    select_toolchain()
     print("removing old azul.dll...")
     cleanup_start()
-    print("verifying that LLVM / clang-cl is installed...")
+    # print("verifying that LLVM / clang-cl is installed...")
     # verify_clang_is_installed()
     print("generating API...")
     generate_api()
     print("generating documentation in /target/html...")
     generate_docs()
+    print("building azulc (release mode)...")
+    build_azulc()
     print("building azul-dll (release mode)...")
     build_dll()
     print("checking azul-dll for struct size integrity...")
@@ -1490,9 +1522,11 @@ def main():
     print("building examples...")
     build_examples()
     print("building docs (output_dir = /target/doc)...")
+    # full_test()
     # release_on_cargo()
     # make_debian_release_package()
     # make_release_zip_files()
+    # travis: github release - copy azul.zip!
 
 if __name__ == "__main__":
     main()

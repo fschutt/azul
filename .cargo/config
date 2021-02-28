@@ -1,11 +1,17 @@
 [build]
 
-[target.'cfg(all(target_arch="x86_64", target_os="windows"))']
+[target.'cfg(all(target_arch="x86_64", target_os="linux"))']
 rustflags = [
-    "-Cprefer-dynamic",
-    "-Ctarget-feature=+crt-static",
-    "-Clink-arg=-s",
-    "-Clink-arg=-fuse-ld=lld",
+    "-Ctarget-feature=-crt-static",
     "-Zstrip=symbols",
     "-Zshare-generics=y",
+    "-Z mutable-noalias=yes",
+]
+
+[target.'cfg(all(target_arch="x86_64", target_os="windows"))']
+rustflags = [
+    "-Ctarget-feature=+crt-static",
+    "-Zstrip=symbols",
+    "-Zshare-generics=y",
+    "-Z mutable-noalias=yes",
 ]
