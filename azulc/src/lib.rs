@@ -10,7 +10,6 @@
 extern crate core;
 #[macro_use]
 extern crate alloc;
-
 extern crate gleam;
 extern crate xmlparser;
 #[macro_use(impl_display)]
@@ -19,7 +18,7 @@ extern crate azul_core;
 extern crate azul_css;
 extern crate azul_layout;
 #[cfg(feature = "font_loading")]
-extern crate font_loader;
+extern crate rust_fontconfig;
 #[cfg(feature = "image_loading")]
 extern crate image as image_crate;
 

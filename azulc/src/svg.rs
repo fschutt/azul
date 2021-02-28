@@ -3,7 +3,7 @@ use azul_core::{
     svg::*,
     app_resources::{RawImage, RawImageFormat},
 };
-use azul_css::{U8Vec, OptionAzString, OptionColorU, AzString, StringVec, ColorU};
+use azul_css::{OptionI16, OptionU16, U8Vec, OptionAzString, OptionColorU, AzString, StringVec, ColorU};
 use owned_ttf_parser::Font as TTFFont;
 use lyon::{
     tessellation::{
@@ -785,73 +785,6 @@ struct FontParser {
     current_pos: SvgPoint,
 }
 
-impl rusttype::OutlineBuilder for FontParser {
-    fn move_to(&mut self, x: f32, y: f32) {
-        self.current_pos = SvgPoint { x, y };
-    }
-    fn line_to(&mut self, x: f32, y: f32) {
-        let end = SvgPoint { x, y };
-        self.current_path.push(SvgPathElement::Line(SvgLine {
-            start: self.current_pos,
-            end
-        }));
-        self.current_pos = SvgPoint { x, y };
-    }
-    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
-        let end = SvgPoint { x, y };
-        self.current_path.push(SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
-            start: self.current_pos,
-            ctrl: SvgPoint { x: x1, y: y1 },
-            end
-        }));
-        self.current_pos = end;
-    }
-    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
-        let end = SvgPoint { x, y };
-        self.current_path.push(SvgPathElement::CubicCurve(SvgCubicCurve {
-            start: self.current_pos,
-            ctrl_1: SvgPoint { x: x1, y: y1 },
-            ctrl_2: SvgPoint { x: x2, y: y2 },
-            end
-        }));
-        self.current_pos = end;
-    }
-    fn close(&mut self) {
-        self.paths.push(SvgPath { items: self.current_path.clone().into() });
-        self.current_path.clear();
-    }
-}
-
-
-fn get_glyph_outline(glyph: &rusttype::Glyph) -> Option<SvgMultiPolygon> {
-    let g = glyph.clone().scaled(FAKE_GLYPH_SCALE_RUSTTYPE);
-    let mut fp = FontParser::default();
-    if !g.build_outline(&mut fp) { None } else {
-        if !fp.current_path.is_empty() {
-            fp.paths.push(SvgPath { items: fp.current_path.clone().into() })
-        }
-        Some(SvgMultiPolygon { rings: fp.paths.into() })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct GlyphMetrics {
-    /// The horizontal offset that the origin of the next glyph should be from the origin of this glyph.
-    pub advance_width: f32,
-    /// The horizontal offset between the origin of this glyph and the leftmost edge/point of the glyph.
-    pub left_side_bearing: f32,
-}
-
-impl From<rusttype::HMetrics> for GlyphMetrics {
-    fn from(f: rusttype::HMetrics) -> GlyphMetrics {
-        GlyphMetrics {
-            advance_width: f.advance_width,
-            left_side_bearing: f.left_side_bearing
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
 pub enum GlyphData {
@@ -903,6 +836,7 @@ fn decode_raster_glyph_image(i: owned_ttf_parser::RasterGlyphImage) -> Option<Ra
     })
 }
 
+/*
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct Glyph {
@@ -914,7 +848,7 @@ pub struct Glyph {
 
 impl_option!(Glyph, OptionGlyph, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 
-/*
+
 impl Glyph {
     pub fn render_to_image_cpu(&self, font_size: f32) -> RawImage {
         match &self.data {
@@ -928,13 +862,14 @@ impl Glyph {
         }
     }
 }
-*/
+
 
 impl_vec!(Glyph, GlyphVec, GlyphVecDestructor);
 impl_vec_debug!(Glyph, GlyphVec);
 impl_vec_partialord!(Glyph, GlyphVec);
 impl_vec_clone!(Glyph, GlyphVec, GlyphVecDestructor);
 impl_vec_partialeq!(Glyph, GlyphVec);
+*/
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -943,7 +878,7 @@ pub struct Font {
     pub font_index: u32,
     pub info: FontInfo,
 }
-
+/*
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub enum PlatformId {
@@ -1070,7 +1005,7 @@ impl From<owned_ttf_parser::TableName> for TableName {
         }
     }
 }
-
+*/
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 #[repr(C, u8)]
 pub enum FontWeight {
@@ -1169,10 +1104,10 @@ impl From<owned_ttf_parser::Width> for FontWidth {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct FontInfo {
-    pub available_tables: TableNameVec,
-    pub names: FontNameVec,
-    pub family_name: OptionAzString,
-    pub post_script_name: OptionAzString,
+    // pub available_tables: TableNameVec,
+    // pub names: FontNameVec,
+    // pub family_name: OptionAzString,
+    // pub post_script_name: OptionAzString,
     pub is_regular: bool,
     pub is_italic: bool,
     pub is_bold: bool,
@@ -1197,15 +1132,12 @@ pub struct FontInfo {
     pub number_of_glyphs: u16,
 }
 
-impl_option!(u16, OptionU16, [Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash]);
-impl_option!(i16, OptionI16, [Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash]);
 impl_option!(LineMetrics, OptionLineMetrics, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 impl_option!(ScriptMetrics, OptionScriptMetrics, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 /// Every unit in the SVG font is unscaled, meaning it's mapped from 0.0 to 1.0,
 /// so that it can simply be multiplied by the font size later on.
 const FAKE_GLYPH_SCALE: f32 = 1000.0;
-const FAKE_GLYPH_SCALE_RUSTTYPE: rusttype::Scale = rusttype::Scale { x: FAKE_GLYPH_SCALE, y: FAKE_GLYPH_SCALE };
 static ALL_TABLE_NAMES: [owned_ttf_parser::TableName;27] = [
     owned_ttf_parser::TableName::AxisVariations,
     owned_ttf_parser::TableName::CharacterToGlyphIndexMapping,
@@ -1243,10 +1175,10 @@ impl Font {
         let f = TTFFont::from_data(font_bytes.as_ref(), font_index)?;
 
         let info = FontInfo {
-            available_tables: ALL_TABLE_NAMES.iter().filter(|tn| f.has_table(**tn)).copied().map(Into::into).collect::<Vec<_>>().into(),
-            names: f.names().map(Into::into).collect::<Vec<_>>().into(),
-            family_name: f.family_name().map(Into::into).into(),
-            post_script_name: f.post_script_name().map(Into::into).into(),
+            // available_tables: ALL_TABLE_NAMES.iter().filter(|tn| f.has_table(**tn)).copied().map(Into::into).collect::<Vec<_>>().into(),
+            // names: f.names().map(Into::into).collect::<Vec<_>>().into(),
+            // family_name: f.family_name().map(Into::into).into(),
+            // post_script_name: f.post_script_name().map(Into::into).into(),
             is_regular: f.is_regular(),
             is_italic: f.is_italic(),
             is_bold: f.is_bold(),
@@ -1284,6 +1216,7 @@ impl Font {
         f.glyph_variation_index(c, variation_char).map(|i| i.0)
     }
 
+    /*
     pub fn get_glyph(&self, gid: GlyphId, previous_glyph_id: Option<GlyphId>) -> Option<Glyph> {
 
         fn get_glyph_metrics(glyph: &rusttype::Glyph) -> GlyphMetrics {
@@ -1296,15 +1229,17 @@ impl Font {
 
         fn get_glyph_data(glyph: &rusttype::Glyph, fb: &TTFFont, gid: owned_ttf_parser::GlyphId) -> Option<GlyphData> {
 
-            const PIXELS_PER_EM: u16 = 96;
+            // const PIXELS_PER_EM: u16 = 96;
+            //
+            // if let Some(svg_data) = fb.glyph_svg_image(gid) {
+            //     Some(GlyphData::Svg(Svg::parse(svg_data, SvgParseOptions::default()).ok()?))
+            // } else if let Some(image_data) = fb.glyph_raster_image(gid, PIXELS_PER_EM) {
+            //     Some(GlyphData::Image(decode_raster_glyph_image(image_data).unwrap_or(RawImage::null_image())))
+            // } else {
+            //     Some(GlyphData::Outline(get_glyph_outline(glyph)?))
+            // }
 
-            if let Some(svg_data) = fb.glyph_svg_image(gid) {
-                Some(GlyphData::Svg(Svg::parse(svg_data, SvgParseOptions::default()).ok()?))
-            } else if let Some(image_data) = fb.glyph_raster_image(gid, PIXELS_PER_EM) {
-                Some(GlyphData::Image(decode_raster_glyph_image(image_data).unwrap_or(RawImage::null_image())))
-            } else {
-                Some(GlyphData::Outline(get_glyph_outline(glyph)?))
-            }
+            None
         }
 
         let f = rusttype::Font::try_from_bytes_and_index(self.bytes.as_ref(), self.font_index)?;
@@ -1322,6 +1257,7 @@ impl Font {
             data: glyph_data,
         })
     }
+    */
 
     pub fn get_glyph_name(&self, gid: GlyphId) -> Option<String> {
         let f = TTFFont::from_data(self.bytes.as_ref(), self.font_index)?;

@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use alloc::string::String;
 use azul_css::{
     OptionU16, OptionU32, OptionI16, LayoutRect, StyleFontSize,
-    ColorU, U8Vec, U32Vec, AzString, OptionI32
+    ColorU, U8Vec, U32Vec, AzString, OptionI32, StringVec,
 };
 use crate::{
     FastHashMap, FastBTreeSet,
@@ -70,7 +70,6 @@ pub enum AppLogLevel {
 }
 
 pub type CssImageId = String;
-pub type CssFontId = String;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -419,12 +418,12 @@ impl FontInstanceKey {
 ///
 /// Images and fonts can be references across window contexts (not yet tested,
 /// but should work).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct AppResources {
     /// The CssImageId is the string used in the CSS, i.e. "my_image" -> ImageId(4)
     pub css_ids_to_image_ids: FastHashMap<CssImageId, ImageId>,
     /// Same as CssImageId -> ImageId, but for fonts, i.e. "Roboto" -> FontId(9)
-    pub css_ids_to_font_ids: FastHashMap<CssFontId, FontId>,
+    pub css_ids_to_font_ids: FastHashMap<StringVec, FontId>,
     /// Stores where the images were loaded from
     pub image_sources: FastHashMap<ImageId, ImageSource>,
     /// Stores where the fonts were loaded from
@@ -444,6 +443,21 @@ pub struct AppResources {
     /// The only thing remaining in memory permanently is the FontSource (which is only
     /// the string of the file path where the font was loaded from, so no huge memory pressure).
     pub last_frame_font_keys: FastHashMap<PipelineId, FastHashMap<ImmediateFontId, FastBTreeSet<Au>>>,
+}
+
+impl Default for AppResources {
+    fn default() -> Self {
+        Self {
+            css_ids_to_image_ids: FastHashMap::default(),
+            css_ids_to_font_ids: FastHashMap::<StringVec, FontId>::new(),
+            image_sources: FastHashMap::default(),
+            font_sources: FastHashMap::default(),
+            currently_registered_images: FastHashMap::default(),
+            currently_registered_fonts: FastHashMap::default(),
+            last_frame_image_keys: FastHashMap::default(),
+            last_frame_font_keys: FastHashMap::default(),
+        }
+    }
 }
 
 impl AppResources {
@@ -553,7 +567,7 @@ pub struct FileFontSource {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SystemFontSource {
-    pub postscript_id: AzString,
+    pub names: StringVec,
     pub load_glyph_outlines: bool,
 }
 
@@ -563,7 +577,7 @@ impl fmt::Display for FontSource {
         match self {
             Embedded(e) => write!(f, "Embedded({})", e.postscript_id.as_str()),
             File(p) => write!(f, "File({}, \"{}\")", p.postscript_id.as_str(), p.file_path.as_str()),
-            System(id) => write!(f, "System(\"{}\")", id.postscript_id.as_str()),
+            System(ids) => write!(f, "System(\"{:#?}\")", ids),
         }
     }
 }
@@ -571,7 +585,7 @@ impl fmt::Display for FontSource {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ImmediateFontId {
     Resolved(FontId),
-    Unresolved(CssFontId),
+    Unresolved(StringVec),
 }
 
 /// Raw image made up of raw pixels (either BRGA8 or A8)
@@ -1131,7 +1145,7 @@ impl AppResources {
         self.css_ids_to_image_ids.keys().cloned().collect()
     }
 
-    pub fn get_loaded_css_font_ids(&self) -> Vec<CssFontId> {
+    pub fn get_loaded_css_font_ids(&self) -> Vec<StringVec> {
         self.css_ids_to_font_ids.keys().cloned().collect()
     }
 
@@ -1182,19 +1196,19 @@ impl AppResources {
 
     // -- FontId cache
 
-    pub fn add_css_font_id<S: Into<String>>(&mut self, css_id: S) -> FontId {
-        *self.css_ids_to_font_ids.entry(css_id.into()).or_insert_with(|| FontId::new())
+    pub fn add_css_font_id(&mut self, css_id: StringVec) -> FontId {
+        *self.css_ids_to_font_ids.entry(css_id).or_insert_with(|| FontId::new())
     }
 
-    pub fn has_css_font_id(&self, css_id: &str) -> bool {
+    pub fn has_css_font_id(&self, css_id: &StringVec) -> bool {
         self.get_css_font_id(css_id).is_some()
     }
 
-    pub fn get_css_font_id(&self, css_id: &str) -> Option<&FontId> {
+    pub fn get_css_font_id(&self, css_id: &StringVec) -> Option<&FontId> {
         self.css_ids_to_font_ids.get(css_id)
     }
 
-    pub fn delete_css_font_id(&mut self, css_id: &str) -> Option<FontId> {
+    pub fn delete_css_font_id(&mut self, css_id: &StringVec) -> Option<FontId> {
         self.css_ids_to_font_ids.remove(css_id)
     }
 
@@ -1742,8 +1756,8 @@ pub fn build_add_font_resource_updates(
                             None => continue,
                         }
                     },
-                    Unresolved(css_font_id) => FontSource::System(SystemFontSource {
-                        postscript_id: css_font_id.clone().into(),
+                    Unresolved(css_font_ids) => FontSource::System(SystemFontSource {
+                        names: css_font_ids.clone().into(),
                         load_glyph_outlines: false, // TODO: ?
                     }),
                 };

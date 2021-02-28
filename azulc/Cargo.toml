@@ -29,7 +29,7 @@ azul-css                = { path = "../azul-css",        version = "0.0.1",     
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",          default-features = false }
 azul-layout             = { path = "../azul-layout",     default-features = false }
 image                   = { version = "0.23.12",         default-features = false,       optional = true,    features = ["gif", "jpeg", "png", "tiff", "bmp"]    }
-font-loader             = { version = "0.11.0",          default-features = false,       optional = true }
+rust-fontconfig         = { version = "0.1.1",          default-features = false,       optional = true }
 lyon                    = { version = "0.15.8",  default-features = false,  optional = true }
 rayon                   = { version = "1.5.0",   default-features = false,  optional = true }
 usvg                    = { version = "0.13.0",  default-features = false,  optional = true }
@@ -57,7 +57,7 @@ webp = ["image/webp"]
 # Enables loading of PNM files on the image decoder
 pnm = ["image/pnm"]
 # Activates the font-loading module, important to deactivate for example
-font_loading = ["font-loader", "std"]
+font_loading = ["rust-fontconfig", "std"]
 # Text loading module, disable if you have a custom text layouting function
 text_layout = ["azul-layout/text_layout"]
 # The SVG rendering module is pretty huge since it needs lyon - if you don't use

@@ -15,7 +15,7 @@ build = "build.rs"
 webrender               = { git = "https://github.com/servo/webrender", rev = "e6e2622d97a9828da2d68fe9edf6b066fda908a5", default-features = false, features = ["no_static_freetype"] }
 swgl                    = { git = "https://github.com/servo/webrender", rev = "e6e2622d97a9828da2d68fe9edf6b066fda908a5", default-features = false }
 gleam                   = { version = "0.13.1", default-features = false }
-glutin                  = { version = "0.26.0", default-features = false }
+glutin                  = { version = "0.26.0", default-features = false, features = ["x11", "wayland"] } # NOTE: wayland currently has dependency issues, but works!
 tinyfiledialogs         = { version = "3.3.9",  default-features = false }
 clipboard2              = { version = "0.1.1",  default-features = false }
 raw-window-handle       = { version = "0.3.3", default-features = false }
@@ -62,7 +62,7 @@ webp = ["azulc/webp"]
 # Enables loading of PNM files on the image decoder
 pnm = ["azulc/pnm"]
 # Activates the font-loading module, important to deactivate for example
-font_loading = ["azulc/font-loader"]
+font_loading = ["azulc/font_loading"]
 # Text loading module, disable if you have a custom text layouting function
 text_layout = ["azulc/text_layout"]
 # Whether to include SVG processing (adds dependencies for lyon, usvg and xmlparser)

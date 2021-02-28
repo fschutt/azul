@@ -1948,11 +1948,10 @@ pub fn create_shaped_words<'a>(
 
         println!("{} - shape words", node_id);
         let styled_node_state = &styled_nodes[*node_id].state;
-        let css_font_id = css_property_cache.get_font_id_or_default(node_id, styled_node_state);
-        println!("{} - shaping font id - {}", node_id, css_font_id.as_str());
-        let font_id = match app_resources.get_css_font_id(css_font_id.as_str()) {
+        let css_font_ids = css_property_cache.get_font_id_or_default(node_id, styled_node_state);
+        let font_id = match app_resources.get_css_font_id(&css_font_ids) {
             Some(s) => ImmediateFontId::Resolved(*s),
-            None => ImmediateFontId::Unresolved(css_font_id.to_string()),
+            None => ImmediateFontId::Unresolved(css_font_ids),
         };
 
         let loaded_font = app_resources.get_loaded_font_mut(pipeline_id, &font_id)?;
@@ -1998,11 +1997,11 @@ fn create_word_positions<'a>(
         let font_size = css_property_cache.get_font_size_or_default(node_id, &styled_node_state);
         let font_size_au = font_size_to_au(font_size);
         let font_size_px = font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32);
-        let css_font_id = css_property_cache.get_font_id_or_default(node_id, &styled_node_state);
+        let css_font_ids = css_property_cache.get_font_id_or_default(node_id, &styled_node_state);
 
-        let font_id = match app_resources.get_css_font_id(css_font_id.as_str()) {
+        let font_id = match app_resources.get_css_font_id(&css_font_ids) {
             Some(s) => ImmediateFontId::Resolved(*s),
-            None => ImmediateFontId::Unresolved(css_font_id.to_string()),
+            None => ImmediateFontId::Unresolved(css_font_ids),
         };
         let loaded_font = app_resources.get_loaded_font(pipeline_id, &font_id)?;
         let font_instance_key = loaded_font.font_instances.get(&font_size_au)?;

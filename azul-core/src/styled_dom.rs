@@ -6,7 +6,7 @@ use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::collections::btree_map::BTreeMap;
 use azul_css::{
-    Css, CssPath, CssProperty, CssPropertyType, AzString,
+    Css, CssPath, CssProperty, CssPropertyType, AzString, StringVec,
 
     StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
     StyleBackgroundSizeVecValue, StyleBackgroundRepeatVecValue,
@@ -286,12 +286,15 @@ impl CssPropertyCache {
         self.get_text_color(node_id, node_state).and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_TEXT_COLOR)
     }
 
-    pub fn get_font_id_or_default(&self, node_id: &NodeId, node_state: &StyledNodeState) -> AzString {
+    pub fn get_font_id_or_default(&self, node_id: &NodeId, node_state: &StyledNodeState) -> StringVec {
         use crate::ui_solver::DEFAULT_FONT_ID;
-        let default_font_id = AzString::from_const_str(DEFAULT_FONT_ID);
+        let default_font_id = vec![AzString::from_const_str(DEFAULT_FONT_ID)].into();
         let font_family_opt = self.get_font_family(node_id, node_state);
-        let font_id = font_family_opt.as_ref().and_then(|family| family.get_property()?.fonts.get(0));
-        font_id.map(|f| f.clone()).unwrap_or(default_font_id)
+
+        font_family_opt
+        .as_ref()
+        .and_then(|family| Some(family.get_property()?.fonts.clone()))
+        .unwrap_or(default_font_id)
     }
 
     pub fn get_font_size_or_default(&self, node_id: &NodeId, node_state: &StyledNodeState) -> StyleFontSize {
@@ -1210,11 +1213,11 @@ impl StyledDom {
                 let node_id = NodeId::new(node_id);
                 match node_data.get_node_type() {
                     Label(_) => {
-                        let css_font_id = self.get_css_property_cache().get_font_id_or_default(&node_id, &self.styled_nodes.as_container()[node_id].state);
+                        let css_font_ids = self.get_css_property_cache().get_font_id_or_default(&node_id, &self.styled_nodes.as_container()[node_id].state);
                         let font_size = self.get_css_property_cache().get_font_size_or_default(&node_id, &self.styled_nodes.as_container()[node_id].state);
-                        let font_id = match app_resources.css_ids_to_font_ids.get(css_font_id.as_str()) {
+                        let font_id = match app_resources.css_ids_to_font_ids.get(&css_font_ids) {
                             Some(s) => ImmediateFontId::Resolved(*s),
-                            None => ImmediateFontId::Unresolved(css_font_id.to_string()),
+                            None => ImmediateFontId::Unresolved(css_font_ids),
                         };
                         Some((font_id, font_size_to_au(font_size)))
                     },

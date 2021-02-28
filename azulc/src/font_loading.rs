@@ -5,19 +5,19 @@ use std::{
     path::PathBuf,
     io::Error as IoError,
 };
-use alloc::string::String;
+use rust_fontconfig::FcFontCache;
 use azul_core::app_resources::FontSource;
 #[cfg(feature = "text_layout")]
 use azul_core::app_resources::{LoadedFontSource, OptionLoadedFontSource};
-use azul_css::U8Vec;
+use azul_css::{U8Vec, StringVec};
 
 const DEFAULT_FONT_INDEX: i32 = 0;
 
 #[derive(Debug)]
 pub enum FontReloadError {
     Io(IoError, PathBuf),
-    FontNotFound(String),
-    FontLoadingNotActive(String),
+    FontNotFound(StringVec),
+    FontLoadingNotActive(StringVec),
 }
 
 impl Clone for FontReloadError {
@@ -33,13 +33,13 @@ impl Clone for FontReloadError {
 
 impl_display!(FontReloadError, {
     Io(err, path_buf) => format!("Could not load \"{}\" - IO error: {}", path_buf.as_path().to_string_lossy(), err),
-    FontNotFound(id) => format!("Could not locate system font: \"{}\" found", id),
-    FontLoadingNotActive(id) => format!("Could not load system font: \"{}\": crate was not compiled with --features=\"font_loading\"", id)
+    FontNotFound(id) => format!("Could not locate system font: \"{:?}\" found", id),
+    FontLoadingNotActive(id) => format!("Could not load system font: \"{:?}\": crate was not compiled with --features=\"font_loading\"", id)
 });
 
-pub extern "C" fn font_source_get_bytes(font_source: &FontSource) -> OptionLoadedFontSource {
+pub extern "C" fn font_source_get_bytes(font_source: &FontSource, fc_cache: &FcFontCache) -> OptionLoadedFontSource {
     // TODO: logging!
-    let (font_bytes, font_index, parse_glyph_outlines) = match font_source_get_bytes_inner(font_source).ok() {
+    let (font_bytes, font_index, parse_glyph_outlines) = match font_source_get_bytes_inner(font_source, fc_cache).ok() {
         Some(s) => s,
         None => { return OptionLoadedFontSource::None; },
     };
@@ -48,7 +48,7 @@ pub extern "C" fn font_source_get_bytes(font_source: &FontSource) -> OptionLoade
 
 /// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).
 /// Also returns the index into the font (in case the font is a font collection).
-pub fn font_source_get_bytes_inner(font_source: &FontSource) -> Result<(U8Vec, i32, bool), FontReloadError> {
+pub fn font_source_get_bytes_inner(font_source: &FontSource, fc_cache: &FcFontCache) -> Result<(U8Vec, i32, bool), FontReloadError> {
 
     match font_source {
         FontSource::Embedded(embedded_font) => Ok((embedded_font.font_data.clone(), DEFAULT_FONT_INDEX, embedded_font.load_glyph_outlines)),
@@ -59,14 +59,14 @@ pub fn font_source_get_bytes_inner(font_source: &FontSource) -> Result<(U8Vec, i
             .map_err(|e| FontReloadError::Io(e, file_path.clone()))
             .map(|font_bytes| (font_bytes.into(), DEFAULT_FONT_INDEX, file_font.load_glyph_outlines))
         },
-        FontSource::System(system_font) => {
+        FontSource::System(system_fonts) => {
             #[cfg(feature = "font_loading")] {
-                crate::font::load_system_font(system_font.postscript_id.as_str())
-                .map(|(font_bytes, font_index)| (font_bytes, font_index, system_font.load_glyph_outlines))
-                .ok_or(FontReloadError::FontNotFound(system_font.postscript_id.as_str().to_string()))
+                crate::font::load_system_fonts(system_fonts.names.as_ref(), fc_cache)
+                .map(|(font_bytes, font_index)| (font_bytes, font_index, system_fonts.load_glyph_outlines))
+                .ok_or(FontReloadError::FontNotFound(system_fonts.names.clone()))
             }
             #[cfg(not(feature = "font_loading"))] {
-                Err(FontReloadError::FontLoadingNotActive(system_font.postscript_id.as_str().to_string()))
+                Err(FontReloadError::FontLoadingNotActive(system_fonts.names.clone()))
             }
         },
     }

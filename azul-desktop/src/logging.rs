@@ -44,7 +44,7 @@ pub(crate) fn set_up_logging(log_level: LevelFilter) {
 pub(crate) fn set_up_panic_hooks() {
 
     use std::panic::{self, PanicInfo};
-    use backtrace::{Backtrace, BacktraceFrame};
+    // use backtrace::{Backtrace, BacktraceFrame};
 
     fn panic_fn(panic_info: &PanicInfo) {
 
@@ -63,13 +63,13 @@ pub(crate) fn set_up_panic_hooks() {
                 .unwrap_or(payload_str.as_str());
 
         let location_str = location.map(|loc| format!("{} at line {}", loc.file(), loc.line()));
-        let backtrace_str_old = format_backtrace(&Backtrace::new());
-        let backtrace_str = backtrace_str_old
-            .lines()
-            .filter(|l| !l.is_empty())
-            .collect::<Vec<&str>>()
-            .join("\r\n");
-
+        // let backtrace_str_old = format_backtrace(&Backtrace::new());
+        // let backtrace_str = backtrace_str_old
+        //     .lines()
+        //     .filter(|l| !l.is_empty())
+        //     .collect::<Vec<&str>>()
+        //     .join("\r\n");
+        let backtrace_str = "";
         let thread = thread::current();
         let thread_name = thread.name().unwrap_or("<unnamed thread>");
 
@@ -105,6 +105,7 @@ pub(crate) fn set_up_panic_hooks() {
         }
     }
 
+    /*
     fn format_backtrace(backtrace: &Backtrace) -> String {
 
         fn format_frame(frame: &BacktraceFrame) -> String {
@@ -167,6 +168,7 @@ pub(crate) fn set_up_panic_hooks() {
             .collect::<Vec<String>>()
             .join("\r\n")
     }
+    */
 
     panic::set_hook(Box::new(panic_fn));
 }
