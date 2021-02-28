@@ -1182,7 +1182,7 @@ def generate_size_test(api_data, structs_map):
 
 # ---------------------------
 
-def assure_clang_is_installed():
+def verify_clang_is_installed():
     if not(os.environ['CC'] == 'clang-cl') or not(os.environ['CXX'] == 'clang-cl'):
         raise Exception("environment variables CC and CXX have to be set to 'clang-cl' before building! Make sure LLVM and clang is installed!")
 
@@ -1227,9 +1227,9 @@ def build_dll():
     d = dict(os.environ)   # Make a copy of the current environment
     d['CC'] = 'clang-cl'
     d['CXX'] = 'clang-cl'
-    d['RUSTFLAGS'] = '-C target-feature=+crt-static'
+    d['RUSTFLAGS'] = '-C target-feature=-crt-static'
     cwd = root_folder + "/azul-dll"
-    subprocess.Popen(['cargo', 'build', '--all-features', '--release'], env=d, cwd=cwd).wait()
+    subprocess.Popen(['cargo', 'build', '--target=x86_64-unknown-linux-musl', '--all-features', '--release'], env=d, cwd=cwd).wait()
     pass
 
 def run_size_test():
@@ -1466,11 +1466,19 @@ def generate_docs():
     write_file(api_combined_page, root_folder + "/target/html/api.html")
 
 
+def select_toolchain():
+    d = dict(os.environ)   # Make a copy of the current environment
+    cwd = root_folder + "/azul-dll"
+    subprocess.Popen(['rustup', 'target', 'add', 'x86_64-unknown-linux-musl'], env=d, cwd=cwd).wait()
+    pass
+
 def main():
+    print("overriding toolchain with x86_64-[OS]-musl ...")
+    select_toolchain()
     print("removing old azul.dll...")
     cleanup_start()
     print("verifying that LLVM / clang-cl is installed...")
-    # assure_clang_is_installed()
+    # verify_clang_is_installed()
     print("generating API...")
     generate_api()
     print("generating documentation in /target/html...")
