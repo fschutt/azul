@@ -1420,8 +1420,8 @@ def generate_docs():
                                 fn_arg_ref_html = "&mut "
 
                             api_page_contents += "<p class=\"fnty arg\">" + fn_arg_ref_html + " <a href=\"#\">" + fn_arg_type + "</a></p>"
-                    if "returns" in callback_typedef:
-                        if "doc" in fn_arg.keys():
+                    if "returns" in callback_typedef.keys():
+                        if "doc" in callback_typedef["returns"].keys():
                             api_page_contents += "<p class=\"ret doc\">" + format_doc(callback_typedef["returns"]["doc"]) + "</p>"
                         api_page_contents += "<p class=\"fnty ret\">-&gt;&nbsp;" + format_doc(callback_typedef["returns"]["type"]) + "</p>"
 
@@ -1436,9 +1436,10 @@ def generate_docs():
                 if "functions" in c.keys():
                     api_page_contents += "<ul>"
                     for function_name in c["functions"]:
-                        if "doc" in c["functions"][function_name]:
+                        f = c["functions"][function_name]
+                        if "doc" in f:
                             api_page_contents += "<p class=\"fn doc\">" + format_doc(c["functions"][function_name]["doc"]) + "</p>"
-                        args = c["functions"][function_name]["fn_args"]
+                        args = f["fn_args"]
                         arg_string = ""
                         self_arg = ""
                         for arg in args:
@@ -1454,16 +1455,23 @@ def generate_docs():
                                     self_arg = "&mut self"
                             else:
                                 if "doc" in arg.keys():
-                                    arg_string += "<p class=\"arg doc\">" + doc + "</p>"
+                                    arg_string += "<p class=\"arg doc\">" + arg["doc"] + "</p>"
+                                arg_string += "<li><p class=\"arg\">arg " + arg_name + ": <a href=\"#\">" + arg_val + "</a></p></li>"
 
-                                arg_string += "<p class=\"arg\">arg " + arg_name + ": <a href=\"#\">" + arg_val + "</a></p>"
-
-                        api_page_contents += "<li class=\"fn\" id=\"" + function_name + "\">"
-                        api_page_contents += "<p>fn " + function_name + "(" + self_arg + "):</p>"
+                        api_page_contents += "<li class=\"fn\" id=\"" + class_name + "." + function_name + "\">"
+                        api_page_contents += "<p>fn <a href=\"#" + class_name + "." + function_name + "\">" + function_name + "</a>:</p>"
+                        api_page_contents += "<ul>"
+                        api_page_contents += "<li><p class=\"arg\">" + self_arg + "</p></li>"
                         if not(len(arg_string) == 0):
-                            api_page_contents += "<ul>"
                             api_page_contents += arg_string
-                            api_page_contents += "</ul>"
+                        if "returns" in f.keys():
+                            api_page_contents += "<li>"
+                            if "doc" in f["returns"].keys():
+                                api_page_contents += "<p class=\"ret doc\">" + format_doc(f["returns"]["doc"]) + "</p>"
+                            api_page_contents += "<p class=\"fn ret\">-&gt;&nbsp;" + format_doc(f["returns"]["type"]) + "</p>"
+                            api_page_contents += "</li>"
+
+                        api_page_contents += "</ul>"
                         api_page_contents += "</li>"
 
                     api_page_contents += "</ul>"
@@ -1487,9 +1495,10 @@ def generate_docs():
         body > .center > main > div > ul > li ul { margin-left: 20px; }\
         body > .center > main > div > ul > li.m { margin-top: 40px; margin-bottom: 20px; }\
         body > .center > main > div > ul > li.m > ul > li { margin-bottom: 15px; }\
-        body > .center > main > div > ul > li.m > ul > li.st.e { color: #690; }\
+        body > .center > main > div > ul > li.m > ul > li.st.e { color: #2b6a2d; }\
         body > .center > main > div > ul > li.m > ul > li.st.s { color: #905; }\
-        body > .center > main > div > ul > li.m > ul > li.fnty { color: #ff5722; }\
+        body > .center > main > div > ul > li.m > ul > li.fnty,\
+        body > .center > main > div > ul > li.m > ul > li .arg { color: #4c1c1a; }\
         body > .center > main > div > ul > li.m > ul > li.st .f { margin-left: 20px; }\
         body > .center > main > div > ul > li.m > ul > li.st .v.doc { margin-left: 20px; }\
         body > .center > main > div > ul > li.m > ul > li.st .cn { margin-left: 20px; color: #07a; }\
@@ -1497,7 +1506,7 @@ def generate_docs():
         body > .center > main > div > ul > li.m > ul > li .arg,\
         body > .center > main > div > ul > li.m > ul > li .arg.doc,\
         body > .center > main > div > ul > li.m > ul > li .ret,\
-        body > .center > main > div > ul > li.m > ul > li .ret.doc { margin-left: 40px; }\
+        body > .center > main > div > ul > li.m > ul > li .ret.doc { margin-left: 10px; }\
         body > .center > main > div p.doc { margin-top: 5px !important; color: black !important; max-width: 70ch !important; font-weight: bolder; }\
         body > .center > main > div a { color: inherit !important; }\
         "

@@ -29,6 +29,8 @@ pub use AzAppTT as AzApp;
 #[no_mangle] pub extern "C" fn az_app_new(data: AzRefAny, config: AzAppConfig) -> AzApp { azul_impl::app::AzAppPtr::new(App::new(data, config)) }
 /// Spawn a new window on the screen when the app is run.
 #[no_mangle] pub extern "C" fn az_app_add_window(app: &mut AzApp, window: AzWindowCreateOptions) { app.downcast_modify(|a| a.add_window(window)) }
+/// Returns a list of monitors - useful for setting the monitor that a window should spawn on.
+#[no_mangle] pub extern "C" fn az_app_get_monitors(app: &AzApp) -> AzMonitorVec { app.get().get_monitors() }
 /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
 #[no_mangle] pub extern "C" fn az_app_run(app: AzApp, window: AzWindowCreateOptions) { app.get().run(window) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.
@@ -40,15 +42,11 @@ pub use AzAppConfigTT as AzAppConfig;
 /// Creates a new AppConfig with default values
 #[no_mangle] pub extern "C" fn az_app_config_default() -> AzAppConfig { AppConfig::default() }
 
-/// Re-export of rust-allocated (stack based) `AppLogLevel` struct
+/// Configuration to set which messages should be logged.
 pub type AzAppLogLevelTT = azul_impl::resources::AppLogLevel;
 pub use AzAppLogLevelTT as AzAppLogLevel;
 
-/// External system callbacks to get the system time or create / manage threads
-pub type AzSystemCallbacksTT = azul_impl::task::ExternalSystemCallbacks;
-pub use AzSystemCallbacksTT as AzSystemCallbacks;
-
-/// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
+/// Options on how to initially create the window
 pub type AzWindowCreateOptionsTT = azul_impl::window::WindowCreateOptions;
 pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
 /// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
@@ -58,35 +56,35 @@ pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
 /// Equivalent to the Rust `WindowCreateOptions::default()` constructor.
 #[no_mangle] pub extern "C" fn az_window_create_options_default() -> AzWindowCreateOptions { WindowCreateOptions::default() }
 
-/// Re-export of rust-allocated (stack based) `RendererOptions` struct
+/// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
 pub type AzRendererOptionsTT = azul_impl::window::RendererOptions;
 pub use AzRendererOptionsTT as AzRendererOptions;
 
-/// Re-export of rust-allocated (stack based) `Vsync` struct
+/// Whether the renderer has VSync enabled
 pub type AzVsyncTT = azul_impl::window::Vsync;
 pub use AzVsyncTT as AzVsync;
 
-/// Re-export of rust-allocated (stack based) `Srgb` struct
+/// Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
 pub type AzSrgbTT = azul_impl::window::Srgb;
 pub use AzSrgbTT as AzSrgb;
 
-/// Re-export of rust-allocated (stack based) `HwAcceleration` struct
+/// Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
 pub type AzHwAccelerationTT = azul_impl::window::HwAcceleration;
 pub use AzHwAccelerationTT as AzHwAcceleration;
 
-/// Re-export of rust-allocated (stack based) `LayoutPoint` struct
+/// Offset in physical pixels (integer units)
 pub type AzLayoutPointTT = azul_impl::css::LayoutPoint;
 pub use AzLayoutPointTT as AzLayoutPoint;
 
-/// Re-export of rust-allocated (stack based) `LayoutSize` struct
+/// Size in physical pixels (integer units)
 pub type AzLayoutSizeTT = azul_impl::css::LayoutSize;
 pub use AzLayoutSizeTT as AzLayoutSize;
 
-/// Re-export of rust-allocated (stack based) `LayoutRect` struct
+/// Represents a rectangle in physical pixels (integer units)
 pub type AzLayoutRectTT = azul_impl::css::LayoutRect;
 pub use AzLayoutRectTT as AzLayoutRect;
 
-/// Re-export of rust-allocated (stack based) `RawWindowHandle` struct
+/// Raw platform handle, for integration in / with other toolkits and custom non-azul window extensions
 pub type AzRawWindowHandleTT = azul_impl::window::RawWindowHandle;
 pub use AzRawWindowHandleTT as AzRawWindowHandle;
 
@@ -122,7 +120,7 @@ pub use AzWebHandleTT as AzWebHandle;
 pub type AzAndroidHandleTT = azul_impl::window::AndroidHandle;
 pub use AzAndroidHandleTT as AzAndroidHandle;
 
-/// Re-export of rust-allocated (stack based) `TaskBarIcon` struct
+/// Application taskbar icon, 256x256x4 bytes in size
 pub type AzTaskBarIconTT = azul_impl::window::TaskBarIcon;
 pub use AzTaskBarIconTT as AzTaskBarIcon;
 
@@ -130,91 +128,91 @@ pub use AzTaskBarIconTT as AzTaskBarIcon;
 pub type AzXWindowTypeTT = azul_impl::window::XWindowType;
 pub use AzXWindowTypeTT as AzXWindowType;
 
-/// Re-export of rust-allocated (stack based) `PhysicalPositionI32` struct
+/// Same as `LayoutPoint`, but uses `i32` instead of `isize`
 pub type AzPhysicalPositionI32TT = azul_impl::window::PhysicalPosition<i32>;
 pub use AzPhysicalPositionI32TT as AzPhysicalPositionI32;
 
-/// Re-export of rust-allocated (stack based) `PhysicalSizeU32` struct
+/// Same as `LayoutPoint`, but uses `u32` instead of `isize`
 pub type AzPhysicalSizeU32TT = azul_impl::window::PhysicalSize<u32>;
 pub use AzPhysicalSizeU32TT as AzPhysicalSizeU32;
 
-/// Re-export of rust-allocated (stack based) `LogicalPosition` struct
-pub type AzLogicalPositionTT = azul_impl::window::LogicalPosition;
-pub use AzLogicalPositionTT as AzLogicalPosition;
-
-/// Re-export of rust-allocated (stack based) `LogicalRect` struct
+/// Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
 pub type AzLogicalRectTT = azul_impl::window::LogicalRect;
 pub use AzLogicalRectTT as AzLogicalRect;
 
-/// Re-export of rust-allocated (stack based) `IconKey` struct
+/// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
+pub type AzLogicalPositionTT = azul_impl::window::LogicalPosition;
+pub use AzLogicalPositionTT as AzLogicalPosition;
+
+/// Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.
 pub type AzIconKeyTT = azul_impl::window::IconKey;
 pub use AzIconKeyTT as AzIconKey;
 
-/// Re-export of rust-allocated (stack based) `SmallWindowIconBytes` struct
+/// Small (16x16x4) window icon, usually shown in the window titlebar
 pub type AzSmallWindowIconBytesTT = azul_impl::window::SmallWindowIconBytes;
 pub use AzSmallWindowIconBytesTT as AzSmallWindowIconBytes;
 
-/// Re-export of rust-allocated (stack based) `LargeWindowIconBytes` struct
+/// Large (32x32x4) window icon, usually used on high-resolution displays (instead of `SmallWindowIcon`)
 pub type AzLargeWindowIconBytesTT = azul_impl::window::LargeWindowIconBytes;
 pub use AzLargeWindowIconBytesTT as AzLargeWindowIconBytes;
 
-/// Re-export of rust-allocated (stack based) `WindowIcon` struct
+/// Window "favicon", usually shown in the top left of the window on Windows
 pub type AzWindowIconTT = azul_impl::window::WindowIcon;
 pub use AzWindowIconTT as AzWindowIcon;
 
-/// Re-export of rust-allocated (stack based) `VirtualKeyCode` struct
+/// Symbolic name for a keyboard key, does **not** take the keyboard locale into account
 pub type AzVirtualKeyCodeTT = azul_impl::window::VirtualKeyCode;
 pub use AzVirtualKeyCodeTT as AzVirtualKeyCode;
 
-/// Re-export of rust-allocated (stack based) `AcceleratorKey` struct
+/// Symbolic accelerator key (ctrl, alt, shift)
 pub type AzAcceleratorKeyTT = azul_impl::window::AcceleratorKey;
 pub use AzAcceleratorKeyTT as AzAcceleratorKey;
 
-/// Re-export of rust-allocated (stack based) `WindowSize` struct
+/// Minimum / maximum / current size of the window in logical dimensions
 pub type AzWindowSizeTT = azul_impl::window::WindowSize;
 pub use AzWindowSizeTT as AzWindowSize;
 
-/// Re-export of rust-allocated (stack based) `WindowFlags` struct
+/// Boolean flags relating to the current window state
 pub type AzWindowFlagsTT = azul_impl::window::WindowFlags;
 pub use AzWindowFlagsTT as AzWindowFlags;
 
-/// Re-export of rust-allocated (stack based) `DebugState` struct
+/// Debugging information, will be rendered as an overlay on top of the UI
 pub type AzDebugStateTT = azul_impl::window::DebugState;
 pub use AzDebugStateTT as AzDebugState;
 
-/// Re-export of rust-allocated (stack based) `KeyboardState` struct
+/// Current keyboard state, stores what keys / characters have been pressed
 pub type AzKeyboardStateTT = azul_impl::window::KeyboardState;
 pub use AzKeyboardStateTT as AzKeyboardState;
 
-/// Re-export of rust-allocated (stack based) `MouseCursorType` struct
+/// Current icon of the mouse cursor
 pub type AzMouseCursorTypeTT = azul_impl::window::MouseCursorType;
 pub use AzMouseCursorTypeTT as AzMouseCursorType;
 
-/// Re-export of rust-allocated (stack based) `CursorPosition` struct
+/// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
 pub type AzCursorPositionTT = azul_impl::window::CursorPosition;
 pub use AzCursorPositionTT as AzCursorPosition;
 
-/// Re-export of rust-allocated (stack based) `MouseState` struct
+/// Current mouse / cursor state
 pub type AzMouseStateTT = azul_impl::window::MouseState;
 pub use AzMouseStateTT as AzMouseState;
 
-/// Re-export of rust-allocated (stack based) `PlatformSpecificOptions` struct
+/// Platform-specific window configuration, i.e. WM options that are not cross-platform
 pub type AzPlatformSpecificOptionsTT = azul_impl::window::PlatformSpecificOptions;
 pub use AzPlatformSpecificOptionsTT as AzPlatformSpecificOptions;
 
-/// Re-export of rust-allocated (stack based) `WindowsWindowOptions` struct
+/// Window configuration specific to Win32
 pub type AzWindowsWindowOptionsTT = azul_impl::window::WindowsWindowOptions;
 pub use AzWindowsWindowOptionsTT as AzWindowsWindowOptions;
 
-/// Re-export of rust-allocated (stack based) `WaylandTheme` struct
+/// CSD theme of the window title / button controls
 pub type AzWaylandThemeTT = azul_impl::window::WaylandTheme;
 pub use AzWaylandThemeTT as AzWaylandTheme;
 
-/// Re-export of rust-allocated (stack based) `RendererType` struct
+/// Renderer type of the current windows OpenGL context
 pub type AzRendererTypeTT = azul_impl::window::RendererType;
 pub use AzRendererTypeTT as AzRendererType;
 
-/// Re-export of rust-allocated (stack based) `StringPair` struct
+/// Key-value pair, used for setting WM hints values specific to GNOME
 pub type AzStringPairTT = azul_impl::window::AzStringPair;
 pub use AzStringPairTT as AzStringPair;
 
@@ -249,6 +247,22 @@ pub use AzImePositionTT as AzImePosition;
 /// Re-export of rust-allocated (stack based) `TouchState` struct
 pub type AzTouchStateTT = azul_impl::window::TouchState;
 pub use AzTouchStateTT as AzTouchState;
+
+/// Re-export of rust-allocated (stack based) `MonitorHandle` struct
+pub type AzMonitorHandleTT = azul_impl::window::Monitor;
+pub use AzMonitorHandleTT as AzMonitorHandle;
+/// Destructor: Takes ownership of the `MonitorHandle` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_monitor_handle_delete(object: &mut AzMonitorHandle) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_monitor_handle_deep_copy(object: &AzMonitorHandle) -> AzMonitorHandle { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `Monitor` struct
+pub type AzMonitorTT = azul_impl::window::Monitor;
+pub use AzMonitorTT as AzMonitor;
+
+/// Re-export of rust-allocated (stack based) `VideoMode` struct
+pub type AzVideoModeTT = azul_impl::window::VideoMode;
+pub use AzVideoModeTT as AzVideoMode;
 
 /// Re-export of rust-allocated (stack based) `WindowState` struct
 pub type AzWindowStateTT = azul_impl::window::WindowState;
@@ -454,6 +468,10 @@ pub use AzLayoutInfoTT as AzLayoutInfo;
 #[no_mangle] pub extern "C" fn az_layout_info_window_height_larger_than(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_height_larger_than(width) }
 /// Equivalent to the Rust `LayoutInfo::window_height_smaller_than()` function.
 #[no_mangle] pub extern "C" fn az_layout_info_window_height_smaller_than(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_height_smaller_than(width) }
+
+/// External system callbacks to get the system time or create / manage threads
+pub type AzSystemCallbacksTT = azul_impl::task::ExternalSystemCallbacks;
+pub use AzSystemCallbacksTT as AzSystemCallbacks;
 
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
@@ -2151,6 +2169,18 @@ pub use AzThreadSenderDestructorFnTT as AzThreadSenderDestructorFn;
 pub type AzStringTT = azul_impl::css::AzString;
 pub use AzStringTT as AzString;
 
+/// Wrapper over a Rust-allocated `Vec<Monitor>`
+pub type AzMonitorVecTT = azul_impl::window::MonitorVec;
+pub use AzMonitorVecTT as AzMonitorVec;
+/// Destructor: Takes ownership of the `MonitorVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_monitor_vec_delete(object: &mut AzMonitorVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<VideoMode>`
+pub type AzVideoModeVecTT = azul_impl::window::VideoModeVec;
+pub use AzVideoModeVecTT as AzVideoModeVec;
+/// Destructor: Takes ownership of the `VideoModeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_video_mode_vec_delete(object: &mut AzVideoModeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Wrapper over a Rust-allocated `Vec<Dom>`
 pub type AzDomVecTT = azul_impl::dom::DomVec;
 pub use AzDomVecTT as AzDomVec;
@@ -2379,6 +2409,16 @@ pub use AzNodeDataVecTT as AzNodeDataVec;
 /// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_node_data_vec_delete(object: &mut AzNodeDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `MonitorVecDestructor` struct
+pub type AzMonitorVecDestructorTT = azul_impl::window::MonitorVecDestructor;
+pub use AzMonitorVecDestructorTT as AzMonitorVecDestructor;
+
+pub type AzMonitorVecDestructorType = extern "C" fn(&mut AzMonitorVec);
+/// Re-export of rust-allocated (stack based) `VideoModeVecDestructor` struct
+pub type AzVideoModeVecDestructorTT = azul_impl::window::VideoModeVecDestructor;
+pub use AzVideoModeVecDestructorTT as AzVideoModeVecDestructor;
+
+pub type AzVideoModeVecDestructorType = extern "C" fn(&mut AzVideoModeVec);
 /// Re-export of rust-allocated (stack based) `DomVecDestructor` struct
 pub type AzDomVecDestructorTT = azul_impl::dom::DomVecDestructor;
 pub use AzDomVecDestructorTT as AzDomVecDestructor;
@@ -2929,7 +2969,7 @@ mod test_sizes {
     #[repr(C)]     pub struct AzApp {
         pub(crate) ptr: *const c_void,
     }
-    /// Re-export of rust-allocated (stack based) `AppLogLevel` struct
+    /// Configuration to set which messages should be logged.
     #[repr(C)]     pub enum AzAppLogLevel {
         Off,
         Error,
@@ -2938,17 +2978,17 @@ mod test_sizes {
         Debug,
         Trace,
     }
-    /// Re-export of rust-allocated (stack based) `Vsync` struct
+    /// Whether the renderer has VSync enabled
     #[repr(C)]     pub enum AzVsync {
         Enabled,
         Disabled,
     }
-    /// Re-export of rust-allocated (stack based) `Srgb` struct
+    /// Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
     #[repr(C)]     pub enum AzSrgb {
         Enabled,
         Disabled,
     }
-    /// Re-export of rust-allocated (stack based) `HwAcceleration` struct
+    /// Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
     #[repr(C)]     pub enum AzHwAcceleration {
         Enabled,
         Disabled,
@@ -2970,7 +3010,7 @@ mod test_sizes {
         Dnd,
         Normal,
     }
-    /// Re-export of rust-allocated (stack based) `VirtualKeyCode` struct
+    /// Symbolic name for a keyboard key, does **not** take the keyboard locale into account
     #[repr(C)]     pub enum AzVirtualKeyCode {
         Key1,
         Key2,
@@ -3136,7 +3176,7 @@ mod test_sizes {
         Paste,
         Cut,
     }
-    /// Re-export of rust-allocated (stack based) `MouseCursorType` struct
+    /// Current icon of the mouse cursor
     #[repr(C)]     pub enum AzMouseCursorType {
         Default,
         Crosshair,
@@ -3174,7 +3214,7 @@ mod test_sizes {
         ColResize,
         RowResize,
     }
-    /// Re-export of rust-allocated (stack based) `RendererType` struct
+    /// Renderer type of the current windows OpenGL context
     #[repr(C)]     pub enum AzRendererType {
         Hardware,
         Software,
@@ -3190,6 +3230,10 @@ mod test_sizes {
     #[repr(C)]     pub enum AzWindowTheme {
         DarkMode,
         LightMode,
+    }
+    /// Re-export of rust-allocated (stack based) `MonitorHandle` struct
+    #[repr(C)]     pub struct AzMonitorHandle {
+        pub(crate) ptr: *mut c_void,
     }
     /// `AzLayoutCallbackType` struct
     pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutInfo) -> AzStyledDom;
@@ -3742,6 +3786,10 @@ mod test_sizes {
     pub type AzThreadReceiverDestructorFnType = extern "C" fn(&mut AzThreadReceiver);
     /// `AzThreadSenderDestructorFnType` struct
     pub type AzThreadSenderDestructorFnType = extern "C" fn(&mut AzThreadSender);
+    /// `AzMonitorVecDestructorType` struct
+    pub type AzMonitorVecDestructorType = extern "C" fn(&mut AzMonitorVec);
+    /// `AzVideoModeVecDestructorType` struct
+    pub type AzVideoModeVecDestructorType = extern "C" fn(&mut AzVideoModeVec);
     /// `AzDomVecDestructorType` struct
     pub type AzDomVecDestructorType = extern "C" fn(&mut AzDomVec);
     /// `AzIdOrClassVecDestructorType` struct
@@ -3828,23 +3876,23 @@ mod test_sizes {
     pub type AzInstantPtrCloneFnType = extern "C" fn(&c_void) -> AzInstantPtr;
     /// `AzInstantPtrDestructorFnType` struct
     pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut c_void);
-    /// Re-export of rust-allocated (stack based) `RendererOptions` struct
+    /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
     #[repr(C)]     pub struct AzRendererOptions {
         pub vsync: AzVsync,
         pub srgb: AzSrgb,
         pub hw_accel: AzHwAcceleration,
     }
-    /// Re-export of rust-allocated (stack based) `LayoutPoint` struct
+    /// Offset in physical pixels (integer units)
     #[repr(C)]     pub struct AzLayoutPoint {
         pub x: isize,
         pub y: isize,
     }
-    /// Re-export of rust-allocated (stack based) `LayoutSize` struct
+    /// Size in physical pixels (integer units)
     #[repr(C)]     pub struct AzLayoutSize {
         pub width: isize,
         pub height: isize,
     }
-    /// Re-export of rust-allocated (stack based) `LayoutRect` struct
+    /// Represents a rectangle in physical pixels (integer units)
     #[repr(C)]     pub struct AzLayoutRect {
         pub origin: AzLayoutPoint,
         pub size: AzLayoutSize,
@@ -3888,33 +3936,33 @@ mod test_sizes {
     #[repr(C)]     pub struct AzAndroidHandle {
         pub a_native_window: *mut c_void,
     }
-    /// Re-export of rust-allocated (stack based) `PhysicalPositionI32` struct
+    /// Same as `LayoutPoint`, but uses `i32` instead of `isize`
     #[repr(C)]     pub struct AzPhysicalPositionI32 {
         pub x: i32,
         pub y: i32,
     }
-    /// Re-export of rust-allocated (stack based) `PhysicalSizeU32` struct
+    /// Same as `LayoutPoint`, but uses `u32` instead of `isize`
     #[repr(C)]     pub struct AzPhysicalSizeU32 {
         pub width: u32,
         pub height: u32,
     }
-    /// Re-export of rust-allocated (stack based) `LogicalPosition` struct
+    /// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
     #[repr(C)]     pub struct AzLogicalPosition {
         pub x: f32,
         pub y: f32,
     }
-    /// Re-export of rust-allocated (stack based) `IconKey` struct
+    /// Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.
     #[repr(C)]     pub struct AzIconKey {
         pub id: usize,
     }
-    /// Re-export of rust-allocated (stack based) `AcceleratorKey` struct
+    /// Symbolic accelerator key (ctrl, alt, shift)
     #[repr(C, u8)]     pub enum AzAcceleratorKey {
         Ctrl,
         Alt,
         Shift,
         Key(AzVirtualKeyCode),
     }
-    /// Re-export of rust-allocated (stack based) `WindowFlags` struct
+    /// Boolean flags relating to the current window state
     #[repr(C)]     pub struct AzWindowFlags {
         pub is_maximized: bool,
         pub is_minimized: bool,
@@ -3925,9 +3973,10 @@ mod test_sizes {
         pub is_always_on_top: bool,
         pub is_resizable: bool,
         pub has_focus: bool,
+        pub has_extended_frame: bool,
         pub has_blur_behind_window: bool,
     }
-    /// Re-export of rust-allocated (stack based) `DebugState` struct
+    /// Debugging information, will be rendered as an overlay on top of the UI
     #[repr(C)]     pub struct AzDebugState {
         pub profiler_dbg: bool,
         pub render_target_dbg: bool,
@@ -3957,7 +4006,7 @@ mod test_sizes {
         pub profiler_capture: bool,
         pub force_picture_invalidation: bool,
     }
-    /// Re-export of rust-allocated (stack based) `CursorPosition` struct
+    /// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
     #[repr(C, u8)]     pub enum AzCursorPosition {
         OutOfWindow,
         Uninitialized,
@@ -3984,6 +4033,12 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `TouchState` struct
     #[repr(C)]     pub struct AzTouchState {
         pub unused: u8,
+    }
+    /// Re-export of rust-allocated (stack based) `VideoMode` struct
+    #[repr(C)]     pub struct AzVideoMode {
+        pub size: AzLayoutSize,
+        pub bit_depth: u16,
+        pub refresh_rate: u16,
     }
     /// Re-export of rust-allocated (stack based) `LogicalSize` struct
     #[repr(C)]     pub struct AzLogicalSize {
@@ -5074,6 +5129,18 @@ mod test_sizes {
     #[repr(C)]     pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+    /// Re-export of rust-allocated (stack based) `MonitorVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzMonitorVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzMonitorVecDestructorType),
+    }
+    /// Re-export of rust-allocated (stack based) `VideoModeVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzVideoModeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzVideoModeVecDestructorType),
+    }
     /// Re-export of rust-allocated (stack based) `DomVecDestructor` struct
     #[repr(C, u8)]     pub enum AzDomVecDestructor {
         DefaultRust,
@@ -5473,12 +5540,7 @@ mod test_sizes {
     #[repr(C)]     pub struct AzSystemTickDiff {
         pub tick_diff: u64,
     }
-    /// External system callbacks to get the system time or create / manage threads
-    #[repr(C)]     pub struct AzSystemCallbacks {
-        pub create_thread_fn: AzCreateThreadFn,
-        pub get_system_time_fn: AzGetSystemTimeFn,
-    }
-    /// Re-export of rust-allocated (stack based) `RawWindowHandle` struct
+    /// Raw platform handle, for integration in / with other toolkits and custom non-azul window extensions
     #[repr(C, u8)]     pub enum AzRawWindowHandle {
         IOS(AzIOSHandle),
         MacOS(AzMacOSHandle),
@@ -5490,12 +5552,12 @@ mod test_sizes {
         Android(AzAndroidHandle),
         Unsupported,
     }
-    /// Re-export of rust-allocated (stack based) `LogicalRect` struct
+    /// Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
     #[repr(C)]     pub struct AzLogicalRect {
         pub origin: AzLogicalPosition,
         pub size: AzLogicalSize,
     }
-    /// Re-export of rust-allocated (stack based) `WindowSize` struct
+    /// Minimum / maximum / current size of the window in logical dimensions
     #[repr(C)]     pub struct AzWindowSize {
         pub dimensions: AzLogicalSize,
         pub hidpi_factor: f32,
@@ -5503,7 +5565,7 @@ mod test_sizes {
         pub min_dimensions: AzOptionLogicalSize,
         pub max_dimensions: AzOptionLogicalSize,
     }
-    /// Re-export of rust-allocated (stack based) `MouseState` struct
+    /// Current mouse / cursor state
     #[repr(C)]     pub struct AzMouseState {
         pub mouse_cursor_type: AzOptionMouseCursorType,
         pub cursor_position: AzCursorPosition,
@@ -5524,6 +5586,11 @@ mod test_sizes {
         pub window_size_width_stops: *mut c_void,
         pub window_size_height_stops: *mut c_void,
         pub resources: *const c_void,
+    }
+    /// External system callbacks to get the system time or create / manage threads
+    #[repr(C)]     pub struct AzSystemCallbacks {
+        pub create_thread_fn: AzCreateThreadFn,
+        pub get_system_time_fn: AzGetSystemTimeFn,
     }
     /// Re-export of rust-allocated (stack based) `EventFilter` struct
     #[repr(C, u8)]     pub enum AzEventFilter {
@@ -5634,6 +5701,13 @@ mod test_sizes {
     #[repr(C, u8)]     pub enum AzThreadReceiveMsg {
         WriteBack(AzThreadWriteBackMsg),
         Update(AzUpdateScreen),
+    }
+    /// Wrapper over a Rust-allocated `Vec<VideoMode>`
+    #[repr(C)]     pub struct AzVideoModeVec {
+        pub(crate) ptr: *const AzVideoMode,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzVideoModeVecDestructor,
     }
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
     #[repr(C)]     pub struct AzStyleBackgroundPositionVec {
@@ -5828,30 +5902,29 @@ mod test_sizes {
         pub enable_visual_panic_hook: bool,
         pub enable_logging_on_panic: bool,
         pub enable_tab_navigation: bool,
-        pub debug_state: AzDebugState,
         pub system_callbacks: AzSystemCallbacks,
     }
-    /// Re-export of rust-allocated (stack based) `TaskBarIcon` struct
+    /// Application taskbar icon, 256x256x4 bytes in size
     #[repr(C)]     pub struct AzTaskBarIcon {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
     }
-    /// Re-export of rust-allocated (stack based) `SmallWindowIconBytes` struct
+    /// Small (16x16x4) window icon, usually shown in the window titlebar
     #[repr(C)]     pub struct AzSmallWindowIconBytes {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
     }
-    /// Re-export of rust-allocated (stack based) `LargeWindowIconBytes` struct
+    /// Large (32x32x4) window icon, usually used on high-resolution displays (instead of `SmallWindowIcon`)
     #[repr(C)]     pub struct AzLargeWindowIconBytes {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
     }
-    /// Re-export of rust-allocated (stack based) `WindowIcon` struct
+    /// Window "favicon", usually shown in the top left of the window on Windows
     #[repr(C, u8)]     pub enum AzWindowIcon {
         Small(AzSmallWindowIconBytes),
         Large(AzLargeWindowIconBytes),
     }
-    /// Re-export of rust-allocated (stack based) `KeyboardState` struct
+    /// Current keyboard state, stores what keys / characters have been pressed
     #[repr(C)]     pub struct AzKeyboardState {
         pub shift_down: bool,
         pub ctrl_down: bool,
@@ -6056,7 +6129,7 @@ mod test_sizes {
         pub got: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
-    /// Re-export of rust-allocated (stack based) `WindowsWindowOptions` struct
+    /// Window configuration specific to Win32
     #[repr(C)]     pub struct AzWindowsWindowOptions {
         pub allow_drag_drop: bool,
         pub no_redirection_bitmap: bool,
@@ -6064,7 +6137,7 @@ mod test_sizes {
         pub taskbar_icon: AzOptionTaskBarIcon,
         pub parent_window: AzOptionHwndHandle,
     }
-    /// Re-export of rust-allocated (stack based) `WaylandTheme` struct
+    /// CSD theme of the window title / button controls
     #[repr(C)]     pub struct AzWaylandTheme {
         pub title_bar_active_background_color: [u8;4],
         pub title_bar_active_separator_color: [u8;4],
@@ -6111,10 +6184,20 @@ mod test_sizes {
         pub title_bar_font: AzString,
         pub title_bar_font_size: f32,
     }
-    /// Re-export of rust-allocated (stack based) `StringPair` struct
+    /// Key-value pair, used for setting WM hints values specific to GNOME
     #[repr(C)]     pub struct AzStringPair {
         pub key: AzString,
         pub value: AzString,
+    }
+    /// Re-export of rust-allocated (stack based) `Monitor` struct
+    #[repr(C)]     pub struct AzMonitor {
+        pub handle: AzMonitorHandle,
+        pub name: AzOptionString,
+        pub size: AzLayoutSize,
+        pub position: AzLayoutPoint,
+        pub scale_factor: f64,
+        pub video_modes: AzVideoModeVec,
+        pub is_primary_monitor: bool,
     }
     /// Re-export of rust-allocated (stack based) `RefCountInner` struct
     #[repr(C)]     pub struct AzRefCountInner {
@@ -6278,6 +6361,13 @@ mod test_sizes {
         pub interval: AzOptionDuration,
         pub timeout: AzOptionDuration,
         pub callback: AzTimerCallback,
+    }
+    /// Wrapper over a Rust-allocated `Vec<Monitor>`
+    #[repr(C)]     pub struct AzMonitorVec {
+        pub(crate) ptr: *const AzMonitor,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzMonitorVecDestructor,
     }
     /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
     #[repr(C)]     pub struct AzIdOrClassVec {
@@ -6502,7 +6592,7 @@ mod test_sizes {
         pub stream_error: AzXmlStreamError,
         pub pos: AzSvgParseErrorPosition,
     }
-    /// Re-export of rust-allocated (stack based) `PlatformSpecificOptions` struct
+    /// Platform-specific window configuration, i.e. WM options that are not cross-platform
     #[repr(C)]     pub struct AzPlatformSpecificOptions {
         pub windows_options: AzWindowsWindowOptions,
         pub linux_options: AzLinuxWindowOptions,
@@ -6511,8 +6601,8 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `WindowState` struct
     #[repr(C)]     pub struct AzWindowState {
-        pub theme: AzWindowTheme,
         pub title: AzString,
+        pub theme: AzWindowTheme,
         pub size: AzWindowSize,
         pub position: AzWindowPosition,
         pub flags: AzWindowFlags,
@@ -6521,6 +6611,7 @@ mod test_sizes {
         pub mouse_state: AzMouseState,
         pub touch_state: AzTouchState,
         pub ime_position: AzImePosition,
+        pub monitor: AzMonitor,
         pub platform_specific_options: AzPlatformSpecificOptions,
         pub renderer_options: AzRendererOptions,
         pub background_color: AzColorU,
@@ -6613,7 +6704,7 @@ mod test_sizes {
         InvalidCharData(AzXmlTextError),
         UnknownToken(AzSvgParseErrorPosition),
     }
-    /// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
+    /// Options on how to initially create the window
     #[repr(C)]     pub struct AzWindowCreateOptions {
         pub state: AzWindowState,
         pub renderer_type: AzOptionRendererOptions,
@@ -6771,6 +6862,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::RendererType>(), "AzRendererType"), (Layout::new::<AzRendererType>(), "AzRendererType"));
         assert_eq!((Layout::new::<azul_impl::window::FullScreenMode>(), "AzFullScreenMode"), (Layout::new::<AzFullScreenMode>(), "AzFullScreenMode"));
         assert_eq!((Layout::new::<azul_impl::window::WindowTheme>(), "AzWindowTheme"), (Layout::new::<AzWindowTheme>(), "AzWindowTheme"));
+        assert_eq!((Layout::new::<azul_impl::window::Monitor>(), "AzMonitorHandle"), (Layout::new::<AzMonitorHandle>(), "AzMonitorHandle"));
         assert_eq!((Layout::new::<azul_impl::callbacks::UpdateScreen>(), "AzUpdateScreen"), (Layout::new::<AzUpdateScreen>(), "AzUpdateScreen"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefCount>(), "AzRefCount"), (Layout::new::<AzRefCount>(), "AzRefCount"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefAny>(), "AzRefAny"), (Layout::new::<AzRefAny>(), "AzRefAny"));
@@ -6850,6 +6942,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::WindowPosition>(), "AzWindowPosition"), (Layout::new::<AzWindowPosition>(), "AzWindowPosition"));
         assert_eq!((Layout::new::<azul_impl::window::ImePosition>(), "AzImePosition"), (Layout::new::<AzImePosition>(), "AzImePosition"));
         assert_eq!((Layout::new::<azul_impl::window::TouchState>(), "AzTouchState"), (Layout::new::<AzTouchState>(), "AzTouchState"));
+        assert_eq!((Layout::new::<azul_impl::window::VideoMode>(), "AzVideoMode"), (Layout::new::<AzVideoMode>(), "AzVideoMode"));
         assert_eq!((Layout::new::<azul_impl::window::LogicalSize>(), "AzLogicalSize"), (Layout::new::<AzLogicalSize>(), "AzLogicalSize"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallback>(), "AzLayoutCallback"), (Layout::new::<AzLayoutCallback>(), "AzLayoutCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::Callback>(), "AzCallback"), (Layout::new::<AzCallback>(), "AzCallback"));
@@ -7035,6 +7128,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadDestructorCallback>(), "AzThreadDestructorFn"), (Layout::new::<AzThreadDestructorFn>(), "AzThreadDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
+        assert_eq!((Layout::new::<azul_impl::window::MonitorVecDestructor>(), "AzMonitorVecDestructor"), (Layout::new::<AzMonitorVecDestructor>(), "AzMonitorVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::window::VideoModeVecDestructor>(), "AzVideoModeVecDestructor"), (Layout::new::<AzVideoModeVecDestructor>(), "AzVideoModeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::DomVecDestructor>(), "AzDomVecDestructor"), (Layout::new::<AzDomVecDestructor>(), "AzDomVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClassVecDestructor>(), "AzIdOrClassVecDestructor"), (Layout::new::<AzIdOrClassVecDestructor>(), "AzIdOrClassVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVecDestructor>(), "AzNodeDataInlineCssPropertyVecDestructor"), (Layout::new::<AzNodeDataInlineCssPropertyVecDestructor>(), "AzNodeDataInlineCssPropertyVecDestructor"));
@@ -7108,13 +7203,13 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::SystemTick>(), "AzSystemTick"), (Layout::new::<AzSystemTick>(), "AzSystemTick"));
         assert_eq!((Layout::new::<azul_impl::task::SystemTimeDiff>(), "AzSystemTimeDiff"), (Layout::new::<AzSystemTimeDiff>(), "AzSystemTimeDiff"));
         assert_eq!((Layout::new::<azul_impl::task::SystemTickDiff>(), "AzSystemTickDiff"), (Layout::new::<AzSystemTickDiff>(), "AzSystemTickDiff"));
-        assert_eq!((Layout::new::<azul_impl::task::ExternalSystemCallbacks>(), "AzSystemCallbacks"), (Layout::new::<AzSystemCallbacks>(), "AzSystemCallbacks"));
         assert_eq!((Layout::new::<azul_impl::window::RawWindowHandle>(), "AzRawWindowHandle"), (Layout::new::<AzRawWindowHandle>(), "AzRawWindowHandle"));
         assert_eq!((Layout::new::<azul_impl::window::LogicalRect>(), "AzLogicalRect"), (Layout::new::<AzLogicalRect>(), "AzLogicalRect"));
         assert_eq!((Layout::new::<azul_impl::window::WindowSize>(), "AzWindowSize"), (Layout::new::<AzWindowSize>(), "AzWindowSize"));
         assert_eq!((Layout::new::<azul_impl::window::MouseState>(), "AzMouseState"), (Layout::new::<AzMouseState>(), "AzMouseState"));
         assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackReturn>(), "AzGlCallbackReturn"), (Layout::new::<AzGlCallbackReturn>(), "AzGlCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutInfo>(), "AzLayoutInfo"), (Layout::new::<AzLayoutInfo>(), "AzLayoutInfo"));
+        assert_eq!((Layout::new::<azul_impl::task::ExternalSystemCallbacks>(), "AzSystemCallbacks"), (Layout::new::<AzSystemCallbacks>(), "AzSystemCallbacks"));
         assert_eq!((Layout::new::<azul_impl::dom::EventFilter>(), "AzEventFilter"), (Layout::new::<AzEventFilter>(), "AzEventFilter"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildSelector>(), "AzCssNthChildSelector"), (Layout::new::<AzCssNthChildSelector>(), "AzCssNthChildSelector"));
         assert_eq!((Layout::new::<azul_impl::css::LinearColorStop>(), "AzLinearColorStop"), (Layout::new::<AzLinearColorStop>(), "AzLinearColorStop"));
@@ -7129,6 +7224,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgStrokeStyle>(), "AzSvgStrokeStyle"), (Layout::new::<AzSvgStrokeStyle>(), "AzSvgStrokeStyle"));
         assert_eq!((Layout::new::<azul_impl::task::Thread>(), "AzThread"), (Layout::new::<AzThread>(), "AzThread"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiveMsg>(), "AzThreadReceiveMsg"), (Layout::new::<AzThreadReceiveMsg>(), "AzThreadReceiveMsg"));
+        assert_eq!((Layout::new::<azul_impl::window::VideoModeVec>(), "AzVideoModeVec"), (Layout::new::<AzVideoModeVec>(), "AzVideoModeVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"), (Layout::new::<AzStyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"), (Layout::new::<AzStyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"), (Layout::new::<AzStyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"));
@@ -7198,6 +7294,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::WindowsWindowOptions>(), "AzWindowsWindowOptions"), (Layout::new::<AzWindowsWindowOptions>(), "AzWindowsWindowOptions"));
         assert_eq!((Layout::new::<azul_impl::window::WaylandTheme>(), "AzWaylandTheme"), (Layout::new::<AzWaylandTheme>(), "AzWaylandTheme"));
         assert_eq!((Layout::new::<azul_impl::window::AzStringPair>(), "AzStringPair"), (Layout::new::<AzStringPair>(), "AzStringPair"));
+        assert_eq!((Layout::new::<azul_impl::window::Monitor>(), "AzMonitor"), (Layout::new::<AzMonitor>(), "AzMonitor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefCountInner>(), "AzRefCountInner"), (Layout::new::<AzRefCountInner>(), "AzRefCountInner"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeType>(), "AzNodeType"), (Layout::new::<AzNodeType>(), "AzNodeType"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClass>(), "AzIdOrClass"), (Layout::new::<AzIdOrClass>(), "AzIdOrClass"));
@@ -7220,6 +7317,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgPath>(), "AzSvgPath"), (Layout::new::<AzSvgPath>(), "AzSvgPath"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgParseOptions>(), "AzSvgParseOptions"), (Layout::new::<AzSvgParseOptions>(), "AzSvgParseOptions"));
         assert_eq!((Layout::new::<azul_impl::task::Timer>(), "AzTimer"), (Layout::new::<AzTimer>(), "AzTimer"));
+        assert_eq!((Layout::new::<azul_impl::window::MonitorVec>(), "AzMonitorVec"), (Layout::new::<AzMonitorVec>(), "AzMonitorVec"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClassVec>(), "AzIdOrClassVec"), (Layout::new::<AzIdOrClassVec>(), "AzIdOrClassVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"), (Layout::new::<AzStyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathVec>(), "AzSvgPathVec"), (Layout::new::<AzSvgPathVec>(), "AzSvgPathVec"));

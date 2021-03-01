@@ -977,13 +977,12 @@ impl_option!(WindowTheme, OptionWindowTheme, [Debug, Copy, Clone, PartialEq, Par
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct WindowState {
+    pub title: AzString,
     /// Theme of this window (dark or light) - can be set / overridden by the user
     ///
     /// Usually the operating system will set this field. On change, it will
     /// emit a `WindowEventFilter::ThemeChanged` event
     pub theme: WindowTheme,
-    /// Current title of the window
-    pub title: AzString,
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
     /// The x and y position, or None to let the WM decide where to put the window (default)
@@ -1003,6 +1002,8 @@ pub struct WindowState {
     /// Sets location of IME candidate box in client area coordinates
     /// relative to the top left of the window.
     pub ime_position: ImePosition,
+    /// Which monitor the window is currently residing on
+    pub monitor: Monitor,
     /// Window options that can only be set on a certain platform
     /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
     pub platform_specific_options: PlatformSpecificOptions,
@@ -1639,14 +1640,10 @@ impl Default for WindowState {
     }
 }
 
-/// Options on how to initially create the window
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct WindowCreateOptions {
-    /// State of the window, set the initial title / width / height here.
     pub state: WindowState,
-    // /// Which monitor should the window be created on?
-    // pub monitor: Monitor,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer: OptionRendererOptions,
     /// Override the default window theme (set to `None` to use the OS-provided theme)
@@ -1675,19 +1672,6 @@ impl WindowCreateOptions {
     }
 }
 
-/// Force a specific renderer.
-///
-/// By default, Azul will try to use the hardware renderer and fall
-/// back to the software renderer if it can't create an OpenGL 3.2 context.
-/// However, in some cases a hardware renderer might create problems
-/// or you want to force either a software or hardware renderer.
-///
-/// If the field `renderer_type` on the `WindowCreateOptions` is not
-/// `None`, the `create_window` method will try to create
-/// a window with the specific renderer type and **crash** if the renderer is
-/// not available for whatever reason.
-///
-/// If you don't know what any of this means, leave it at `Default`.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum RendererType {

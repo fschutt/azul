@@ -39,8 +39,6 @@ pub struct AppConfig {
     /// (STUB) Whether keyboard navigation should be enabled (default: true).
     /// Currently not implemented.
     pub enable_tab_navigation: bool,
-    /// Debug state for all windows
-    pub debug_state: DebugState,
     /// External callbacks to create a thread or get the curent time
     pub system_callbacks: ExternalSystemCallbacks,
 }
@@ -53,7 +51,6 @@ impl Default for AppConfig {
             enable_visual_panic_hook: true,
             enable_logging_on_panic: true,
             enable_tab_navigation: true,
-            debug_state: DebugState::default(),
             system_callbacks: ExternalSystemCallbacks::rust_internal(),
         }
     }

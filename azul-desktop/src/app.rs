@@ -155,7 +155,7 @@ impl App {
     }
 
     /// Returns a list of monitors available on the system
-    pub fn list_monitors(&self) -> MonitorVec {
+    pub fn get_monitors(&self) -> MonitorVec {
         let mut monitors = self.event_loop.available_monitors().map(|mh| Monitor::new(mh, false)).collect::<Vec<Monitor>>();
         if let Some(primary) = self.event_loop.primary_monitor().map(|p| MonitorHandle::new(p)) {
             if let Some(pm) = monitors.iter_mut().find(|i| i.handle == primary) {

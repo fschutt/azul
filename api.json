@@ -15,8 +15,8 @@
 						"new": {
 							"doc":"Creates a new App instance from the given `AppConfig`",
 							"fn_args": [
-								{"data": "RefAny"},
-								{"config": "AppConfig"}
+								{"data": "RefAny", "doc": "The initialized data model of the application, will be passed to the `LayoutCallback` of the active windows"},
+								{"config": "AppConfig", "doc": "Additional configuration on how the global application should behave"}
 							],
 							"fn_body": "azul_impl::app::AzAppPtr::new(App::new(data, config))"
 						}
@@ -26,15 +26,23 @@
 							"doc": "Spawn a new window on the screen when the app is run.",
 							"fn_args": [
 								{"self": "refmut"},
-								{"window": "WindowCreateOptions"}
+								{"window": "WindowCreateOptions", "doc": "New window, note that this will **not** be spawned as the root window"}
 							],
 							"fn_body":"app.downcast_modify(|a| a.add_window(window))"
+						},
+						"get_monitors": {
+							"doc": "Returns a list of monitors - useful for setting the monitor that a window should spawn on.",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "MonitorVec", "doc": "List of currently attached monitors, note that this `Vec` will be empty on wasm32"},
+							"fn_body":"app.get().get_monitors()"
 						},
 						"run": {
 							"doc": "Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.",
 							"fn_args": [
 								{"self": "value"},
-								{"window": "WindowCreateOptions"}
+								{"window": "WindowCreateOptions", "doc": "Initial state of the root (main) window of the application"}
 							],
 							"fn_body":"app.get().run(window)"
 						}
@@ -48,7 +56,6 @@
 						{"enable_visual_panic_hook": {"type": "bool", "doc": "If the app crashes / panics, a window with a message box pops up"}},
 						{"enable_logging_on_panic": {"type": "bool", "doc": "If set, a backtrace + error information gets logged to stdout (if the log_level is not `LogLevel::Off`)"}},
 						{"enable_tab_navigation": {"type": "bool", "doc": "Whether keyboard navigation should be enabled"}},
-						{"debug_state": {"type": "DebugState", "doc": "WebRender debug state for all windows (draws overdraw / frame time info on the screen)"}},
 						{"system_callbacks": {"type": "SystemCallbacks", "doc": "External callbacks to create a thread or get the curent time"}}
 					],
 					"constructors": {
@@ -59,23 +66,16 @@
 					}
 				},
 				"AppLogLevel": {
+					"doc": "Configuration to set which messages should be logged.",
 					"external": "azul_impl::resources::AppLogLevel",
 					"derive": ["Copy"],
 					"enum_fields": [
-						{"Off": {}},
-						{"Error": {}},
-						{"Warn": {}},
-						{"Info": {}},
-						{"Debug": {}},
-						{"Trace": {}}
-					]
-				},
-				"SystemCallbacks": {
-					"external": "azul_impl::task::ExternalSystemCallbacks",
-					"doc": "External system callbacks to get the system time or create / manage threads",
-					"struct_fields": [
-						{"create_thread_fn": {"type": "CreateThreadFn"}},
-						{"get_system_time_fn": {"type": "GetSystemTimeFn"}}
+						{"Off": {"doc": "No logging"}},
+						{"Error": {"doc": "Log errors"}},
+						{"Warn": {"doc": "Log warnings"}},
+						{"Info": {"doc": "Log informational messages"}},
+						{"Debug": {"doc": "Log debug messages"}},
+						{"Trace": {"doc": "Log tracing information"}}
 					]
 				}
 			}
@@ -85,11 +85,12 @@
 			"classes": {
 				"WindowCreateOptions": {
 					"external": "azul_impl::window::WindowCreateOptions",
+					"doc": "Options on how to initially create the window",
 					"struct_fields": [
-						{"state": {"type": "WindowState"}},
-						{"renderer_type": {"type": "OptionRendererOptions"}},
-						{"theme": {"type": "OptionWindowTheme"}},
-						{"create_callback": {"type": "OptionCallback", "doc": "Callback to run once when the window is created"}}
+						{"state": {"type": "WindowState", "doc": "Initial state of the window on the first frame"}},
+						{"renderer_type": {"type": "OptionRendererOptions", "doc": "If not `None`, azul will try to create a window with the specific renderer type and **crash** if the renderer is not available for whatever reason"}},
+						{"theme": {"type": "OptionWindowTheme", "doc": "Initially the `theme` on the `WindowState` is set to the OS theme - use this field to override the operating systems `Dark` or `Light` mode"}},
+						{"create_callback": {"type": "OptionCallback", "doc": "Callback to run **once** when the window is initially created"}}
 					],
 					"constructors": {
 						"new": {
@@ -105,15 +106,17 @@
 					}
 				},
 				"RendererOptions": {
+					"doc": "Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.",
 					"external": "azul_impl::window::RendererOptions",
 					"derive": ["Copy"],
 					"struct_fields": [
-						{"vsync": {"type": "Vsync"}},
-						{"srgb": {"type": "Srgb"}},
-						{"hw_accel": {"type": "HwAcceleration"}}
+						{"vsync": {"type": "Vsync", "doc": "Force the renderer to enable VSync. Set this only if your application can't run without VSync."}},
+						{"srgb": {"type": "Srgb", "doc": "Force the renderer to enable SRGB (OpenGL extension). Set this only if your application can't run without correct SRGB handling and color correctness is a priority."}},
+						{"hw_accel": {"type": "HwAcceleration", "doc": "Force the renderer to enable hardware acceleration. Set this only if your application can't run without hardware acceleration (ex. for games)."}}
 					]
 				},
 				"Vsync": {
+					"doc": "Whether the renderer has VSync enabled",
 					"external": "azul_impl::window::Vsync",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -122,6 +125,7 @@
 					]
 				},
 				"Srgb": {
+					"doc": "Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly",
 					"external": "azul_impl::window::Srgb",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -130,6 +134,7 @@
 					]
 				},
 				"HwAcceleration": {
+					"doc": "Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly",
 					"external": "azul_impl::window::HwAcceleration",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -138,30 +143,34 @@
 					]
 				},
 				"LayoutPoint": {
+					"doc": "Offset in physical pixels (integer units)",
 					"external": "azul_impl::css::LayoutPoint",
 					"derive": ["Copy"],
 					"struct_fields": [
-						{"x": {"type": "isize"}},
-						{"y": {"type": "isize"}}
+						{"x": {"type": "isize", "doc": "**Note**: can be negative"}},
+						{"y": {"type": "isize", "doc": "**Note**: can be negative"}}
 					]
 				},
 				"LayoutSize": {
+					"doc": "Size in physical pixels (integer units)",
 					"external": "azul_impl::css::LayoutSize",
 					"derive": ["Copy"],
 					"struct_fields": [
-						{"width": {"type": "isize"}},
-						{"height": {"type": "isize"}}
+						{"width": {"type": "isize", "doc": "**Note**: can be negative"}},
+						{"height": {"type": "isize", "doc": "**Note**: can be negative"}}
 					]
 				},
 				"LayoutRect": {
 					"external": "azul_impl::css::LayoutRect",
+					"doc": "Represents a rectangle in physical pixels (integer units)",
 					"derive": ["Copy"],
 					"struct_fields": [
-						{"origin": {"type": "LayoutPoint"}},
-						{"size": {"type": "LayoutSize"}}
+						{"origin": {"type": "LayoutPoint", "doc": "**Note**: can be negative"}},
+						{"size": {"type": "LayoutSize", "doc": "**Note**: can be negative"}}
 					]
 				},
 				"RawWindowHandle": {
+					"doc": "Raw platform handle, for integration in / with other toolkits and custom non-azul window extensions",
 					"external": "azul_impl::window::RawWindowHandle",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -267,6 +276,7 @@
 					]
 				},
 				"PhysicalPositionI32": {
+					"doc": "Same as `LayoutPoint`, but uses `i32` instead of `isize`",
 					"external": "azul_impl::window::PhysicalPosition<i32>",
 					"derive": ["Copy"],
 					"struct_fields": [
@@ -275,6 +285,7 @@
 					]
 				},
 				"PhysicalSizeU32": {
+					"doc": "Same as `LayoutPoint`, but uses `u32` instead of `isize`",
 					"external": "azul_impl::window::PhysicalSize<u32>",
 					"derive": ["Copy"],
 					"struct_fields": [
@@ -282,15 +293,8 @@
 						{"height": {"type": "u32"}}
 					]
 				},
-				"LogicalPosition": {
-					"external": "azul_impl::window::LogicalPosition",
-					"derive": ["Copy"],
-					"struct_fields": [
-						{"x": {"type": "f32"}},
-						{"y": {"type": "f32"}}
-					]
-				},
 				"LogicalRect": {
+					"doc": "Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.",
 					"external": "azul_impl::window::LogicalRect",
 					"derive": ["Copy"],
 					"struct_fields": [
@@ -298,42 +302,57 @@
 						{"size": {"type": "LogicalSize"}}
 					]
 				},
+				"LogicalPosition": {
+					"doc": "Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.",
+					"external": "azul_impl::window::LogicalPosition",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"x": {"type": "f32"}},
+						{"y": {"type": "f32"}}
+					]
+				},
 				"IconKey": {
+					"doc": "Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.",
 					"external": "azul_impl::window::IconKey",
 					"derive": ["Copy"],
 					"struct_fields": [
-						{"id": {"type": "usize"}}
+						{"id": {"type": "usize", "doc": "Can be any number, just has to be unique to the application. You need to generate a new `IconKey` if the window icon of your application has changed."}}
 					]
 				},
 				"SmallWindowIconBytes": {
+					"doc": "Small (16x16x4) window icon, usually shown in the window titlebar",
 					"external": "azul_impl::window::SmallWindowIconBytes",
 					"struct_fields": [
-						{"key": {"type": "IconKey"}},
-						{"rgba_bytes": {"type": "U8Vec"}}
+						{"key": {"type": "IconKey", "doc": "Key / hash of the window icon, so that azul can detect whether the icon has changed and notify the OS about the change."}},
+						{"rgba_bytes": {"type": "U8Vec", "doc": "Decoded bytes of the window icon, [32x32x4] bytes in length, rgba format"}}
 					]
 				},
 				"LargeWindowIconBytes": {
+					"doc": "Large (32x32x4) window icon, usually used on high-resolution displays (instead of `SmallWindowIcon`)",
 					"external": "azul_impl::window::LargeWindowIconBytes",
 					"struct_fields": [
-						{"key": {"type": "IconKey"}},
-						{"rgba_bytes": {"type": "U8Vec"}}
+						{"key": {"type": "IconKey", "doc": "Key / hash of the taskbar icon, so that azul can detect whether the icon has changed and notify the OS about the change."}},
+						{"rgba_bytes": {"type": "U8Vec", "doc": "Decoded bytes of the window icon, [32x32x4] bytes in length, rgba format"}}
 					]
 				},
 				"WindowIcon": {
+					"doc": "Window \"favicon\", usually shown in the top left of the window on Windows",
 					"external": "azul_impl::window::WindowIcon",
 					"enum_fields": [
-						{"Small": {"type": "SmallWindowIconBytes"}},
-						{"Large": {"type": "LargeWindowIconBytes"}}
+						{"Small": {"type": "SmallWindowIconBytes", "doc": "Low-resolution version of the favicon"}},
+						{"Large": {"type": "LargeWindowIconBytes", "doc": "High-resolution version of the favicon"}}
 					]
 				},
 				"TaskBarIcon": {
+					"doc": "Application taskbar icon, 256x256x4 bytes in size",
 					"external": "azul_impl::window::TaskBarIcon",
 					"struct_fields": [
-						{"key": {"type": "IconKey"}},
-						{"rgba_bytes": {"type": "U8Vec"}}
+						{"key": {"type": "IconKey", "doc": "Unique icon key so that azul can determine whether the application icon has changed and notify the OS about the change"}},
+						{"rgba_bytes": {"type": "U8Vec", "doc": "Decoded bytes of the taskbar icon, 256x256x4 bytes in size, rgba format"}}
 					]
 				},
 				"VirtualKeyCode": {
+					"doc": "Symbolic name for a keyboard key, does **not** take the keyboard locale into account",
 					"external": "azul_impl::window::VirtualKeyCode",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -503,6 +522,7 @@
 					]
 				},
 				"AcceleratorKey": {
+					"doc": "Symbolic accelerator key (ctrl, alt, shift)",
 					"external": "azul_impl::window::AcceleratorKey",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -513,17 +533,19 @@
 					]
 				},
 				"WindowSize": {
+					"doc": "Minimum / maximum / current size of the window in logical dimensions",
 					"external": "azul_impl::window::WindowSize",
 					"derive": ["Copy"],
 					"struct_fields": [
-						{"dimensions": {"type": "LogicalSize"}},
-						{"hidpi_factor": {"type": "f32"}},
-						{"system_hidpi_factor": {"type": "f32"}},
-						{"min_dimensions": {"type": "OptionLogicalSize"}},
-						{"max_dimensions": {"type": "OptionLogicalSize"}}
+						{"dimensions": {"type": "LogicalSize", "doc": "Current dimensions in logical units"}},
+						{"hidpi_factor": {"type": "f32", "doc": "HiDPI factor that can be overridden by the application"}},
+						{"system_hidpi_factor": {"type": "f32", "doc": "HiDPI factor of the system - note that some systems report the scaling factor wrong (esp. Linux HiDPI). Usually the same as `hidpi_factor`."}},
+						{"min_dimensions": {"type": "OptionLogicalSize", "doc": "Maximum size of the window in logical units"}},
+						{"max_dimensions": {"type": "OptionLogicalSize", "doc": "Minimum size of the window in logical units"}}
 					]
 				},
 				"WindowFlags": {
+					"doc": "Boolean flags relating to the current window state",
 					"external": "azul_impl::window::WindowFlags",
 					"derive": ["Copy"],
 					"struct_fields": [
@@ -536,13 +558,15 @@
 						{"is_always_on_top": {"type": "bool", "doc": "Is the window always on top?"}},
 						{"is_resizable": {"type": "bool", "doc": "Whether the window is resizable"}},
 						{"has_focus": {"type": "bool", "doc": "Whether the window is currently focused (changing this field will request user attention)"}},
+						{"has_extended_frame": {"type": "bool", "doc": "Whether the window has an \"extended frame\", i.e. the title bar is not rendered and the maximize / minimize / close buttons bleed into the window content"}},
 						{"has_blur_behind_window": {"type": "bool", "doc": "Whether the window has a background blur"}}
 					]
 				},
 				"DebugState": {
+					"doc": "Debugging information, will be rendered as an overlay on top of the UI",
 					"external": "azul_impl::window::DebugState",
 					"struct_fields": [
-						{"profiler_dbg": {"type": "bool"}},
+						{"profiler_dbg": {"type": "bool", "doc": "Show frame profiler"}},
 						{"render_target_dbg": {"type": "bool"}},
 						{"texture_cache_dbg": {"type": "bool"}},
 						{"gpu_time_queries": {"type": "bool"}},
@@ -572,12 +596,13 @@
 					]
 				},
 				"KeyboardState": {
+					"doc": "Current keyboard state, stores what keys / characters have been pressed",
 					"external": "azul_impl::window::KeyboardState",
 					"struct_fields": [
-						{"shift_down": {"type": "bool", "doc": "Tracks, if the `Shift` key is currently pressed - (READONLY)"}},
-						{"ctrl_down": {"type": "bool", "doc": "Tracks, if the `Ctrl` key is currently pressed - (READONLY)"}},
-						{"alt_down": {"type": "bool", "doc": "Tracks, if the `Alt` key is currently pressed - (READONLY)"}},
-						{"super_down": {"type": "bool", "doc": "Tracks, if the `Super / Windows / Command` key is currently pressed - (READONLY)"}},
+						{"shift_down": {"type": "bool", "doc": "Tracks if the `Shift` key is currently pressed - (READONLY)"}},
+						{"ctrl_down": {"type": "bool", "doc": "Tracks if the `Ctrl` key is currently pressed - (READONLY)"}},
+						{"alt_down": {"type": "bool", "doc": "Tracks if the `Alt` key is currently pressed - (READONLY)"}},
+						{"super_down": {"type": "bool", "doc": "Tracks if the `Super / Windows / Command` key is currently pressed - (READONLY)"}},
 						{"current_char": {"type": "OptionChar", "doc": "Currently pressed `char` - (READONLY)"}},
 						{"current_virtual_keycode": {"type": "OptionVirtualKeyCode", "doc": "Currently pressed `VirtualKeyCode` - (READONLY). **DO NOT USE THIS FOR TEXT INPUT, USE `current_char` and `On::TextInput` instead.**"}},
 						{"pressed_virtual_keycodes": {"type": "VirtualKeyCodeVec", "doc": "List of currently held-down `VirtualKeyCodes` - useful to implement combinated shortcuts (ex. `Ctrl + Shift + Right`)"}},
@@ -585,6 +610,7 @@
 					]
 				},
 				"MouseCursorType": {
+					"doc": "Current icon of the mouse cursor",
 					"external": "azul_impl::window::MouseCursorType",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -626,6 +652,7 @@
 					]
 				},
 				"CursorPosition": {
+					"doc": "Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).",
 					"external": "azul_impl::window::CursorPosition",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -635,6 +662,7 @@
 					]
 				},
 				"MouseState": {
+					"doc": "Current mouse / cursor state",
 					"external": "azul_impl::window::MouseState",
 					"struct_fields": [
 						{"mouse_cursor_type": {"type": "OptionMouseCursorType", "doc": "Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)"}},
@@ -648,6 +676,7 @@
 					]
 				},
 				"PlatformSpecificOptions": {
+					"doc": "Platform-specific window configuration, i.e. WM options that are not cross-platform",
 					"external": "azul_impl::window::PlatformSpecificOptions",
 					"struct_fields": [
 						{"windows_options": {"type": "WindowsWindowOptions"}},
@@ -657,6 +686,7 @@
 					]
 				},
 				"WindowsWindowOptions": {
+					"doc": "Window configuration specific to Win32",
 					"external": "azul_impl::window::WindowsWindowOptions",
 					"struct_fields": [
 						{"allow_drag_drop": {"type": "bool", "doc": "STARTUP ONLY: Whether the window should allow drag + drop operations (default: true)"}},
@@ -667,6 +697,7 @@
 					]
 				},
 				"WaylandTheme": {
+					"doc": "CSD theme of the window title / button controls",
 					"external": "azul_impl::window::WaylandTheme",
 					"struct_fields": [
 						{"title_bar_active_background_color": {"type": "[u8;4]"}},
@@ -716,14 +747,16 @@
 					]
 				},
 				"RendererType": {
+					"doc": "Renderer type of the current windows OpenGL context",
 					"external": "azul_impl::window::RendererType",
 					"derive": ["Copy"],
 					"enum_fields": [
-						{"Hardware": {"doc": "Force hardware rendering (OpenGL 3.3 / OpenGL ES 3.0)"}},
-						{"Software": {"doc": "Force software rendering (not yet implemented)"}}
+						{"Hardware": {"doc": "Hardware rendering active (OpenGL 3.1 / OpenGL ES 3.0)"}},
+						{"Software": {"doc": "Software OpenGL rendering active (swgl)"}}
 					]
 				},
 				"StringPair": {
+					"doc": "Key-value pair, used for setting WM hints values specific to GNOME",
 					"external": "azul_impl::window::AzStringPair",
 					"struct_fields": [
 						{"key": {"type": "String"}},
@@ -802,11 +835,38 @@
 						{"unused": {"type": "u8"}}
 					]
 				},
+				"MonitorHandle": {
+					"external": "azul_impl::window::Monitor",
+					"is_boxed_object": true,
+					"struct_fields": [
+						{"ptr": {"type": "*mut c_void"}}
+					]
+				},
+				"Monitor": {
+					"external": "azul_impl::window::Monitor",
+					"struct_fields": [
+						{"handle": {"type": "MonitorHandle"}},
+						{"name": {"type": "OptionString"}},
+						{"size": {"type": "LayoutSize"}},
+						{"position": {"type": "LayoutPoint"}},
+						{"scale_factor": {"type": "f64"}},
+						{"video_modes": {"type": "VideoModeVec"}},
+						{"is_primary_monitor": {"type": "bool"}}
+					]
+				},
+				"VideoMode": {
+					"external": "azul_impl::window::VideoMode",
+					"struct_fields": [
+						{"size": {"type": "LayoutSize"}},
+						{"bit_depth": {"type": "u16"}},
+						{"refresh_rate": {"type": "u16"}}
+					]
+				},
 				"WindowState": {
 					"external": "azul_impl::window::WindowState",
 					"struct_fields": [
-						{"theme": {"type": "WindowTheme", "doc": "Current theme of the window (dark or light mode)"}},
 						{"title": {"type": "String", "doc": "Current title of the window"}},
+						{"theme": {"type": "WindowTheme", "doc": "Current theme of the window (dark or light mode). Will emit a `ThemeChanged` event if it is changed in a callback."}},
 						{"size": {"type": "WindowSize", "doc": "Size of the window + max width / max height: 800 x 600 by default"}},
 						{"position": {"type": "WindowPosition", "doc": "The x and y position, or None to let the WM decide where to put the window (default)"}},
 						{"flags": {"type": "WindowFlags", "doc": "Flags such as whether the window is minimized / maximized, fullscreen, etc."}},
@@ -815,6 +875,7 @@
 						{"mouse_state": {"type": "MouseState", "doc": "Current mouse state"}},
 						{"touch_state": {"type": "TouchState", "doc": "Current touch state, stores all states of currently connected touch input devices, pencils, tablets, etc. - NOTE: readonly field - mutating this field will not get synchronized with the OS"}},
 						{"ime_position": {"type": "ImePosition", "doc": "Sets location of IME candidate box in client area coordinates (relative to the top left of the window)"}},
+						{"monitor": {"type": "Monitor", "doc": "Which monitor the window is currently residing on"}},
 						{"platform_specific_options": {"type": "PlatformSpecificOptions", "doc": "Window options that can only be set on a certain platform (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`)."}},
 						{"renderer_options": {"type": "RendererOptions", "doc": "Whether this window has SRGB / vsync / hardware acceleration"}},
 						{"background_color": {"type": "ColorU", "doc": "Color of the window background (can be transparent if necessary)"}},
@@ -1487,6 +1548,14 @@
 							"fn_body": "layoutinfo.window_height_smaller_than(width)"
 						}
 					}
+				},
+				"SystemCallbacks": {
+					"external": "azul_impl::task::ExternalSystemCallbacks",
+					"doc": "External system callbacks to get the system time or create / manage threads",
+					"struct_fields": [
+						{"create_thread_fn": {"type": "CreateThreadFn"}},
+						{"get_system_time_fn": {"type": "GetSystemTimeFn"}}
+					]
 				}
 			}
 		},
@@ -6518,6 +6587,28 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"MonitorVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<Monitor>`",
+					"custom_destructor": true,
+					"external": "azul_impl::window::MonitorVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const Monitor" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "MonitorVecDestructor" } }
+					]
+				},
+				"VideoModeVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<VideoMode>`",
+					"custom_destructor": true,
+					"external": "azul_impl::window::VideoModeVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const VideoMode" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "VideoModeVecDestructor" } }
+					]
+				},
 				"DomVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<Dom>`",
 					"custom_destructor": true,
@@ -6937,7 +7028,39 @@
 						{ "destructor": { "type": "NodeDataVecDestructor" } }
 					]
 				},
-								"DomVecDestructor": {
+				"MonitorVecDestructor": {
+				    "external": "azul_impl::window::MonitorVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "MonitorVecDestructorType"}}
+				    ]
+				},
+				"MonitorVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "MonitorVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"VideoModeVecDestructor": {
+				    "external": "azul_impl::window::VideoModeVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "VideoModeVecDestructorType"}}
+				    ]
+				},
+				"VideoModeVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "VideoModeVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"DomVecDestructor": {
 				    "external": "azul_impl::dom::DomVecDestructor",
 				    "derive": ["Copy"],
 				    "enum_fields": [
