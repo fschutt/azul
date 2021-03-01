@@ -94,14 +94,11 @@
 					],
 					"constructors": {
 						"new": {
+							"doc": "Creates a new window configuration with a custom layout callback",
 							"fn_args":[
-								{"layout_callback": "LayoutCallbackType"}
+								{"layout_callback": "LayoutCallbackType", "doc": "The callback to call when the UI of the window should be rendered"}
 							],
 							"fn_body":"WindowCreateOptions::new(layout_callback)"
-						},
-						"default": {
-							"fn_args":[],
-							"fn_body":"WindowCreateOptions::default()"
 						}
 					}
 				},
@@ -230,32 +227,26 @@
 					"external": "azul_impl::window::WindowsHandle",
 					"derive": ["Copy"],
 					"struct_fields": [
-						{"hwnd": {"type": "*mut c_void", "doc": "A Win32 HWND handle"}},
-						{"hinstance": {"type": "*mut c_void", "doc": "The HINSTANCE associated with this type's HWND"}}
+						{"hwnd": {"type": "*mut c_void", "doc": "Pointer to a `HWND` handle"}},
+						{"hinstance": {"type": "*mut c_void", "doc": "Pointer to a `HINSTANCE` associated with this windows `HWND`."}}
 					]
 				},
 				"WebHandle": {
 					"external": "azul_impl::window::WebHandle",
 					"derive": ["Copy"],
 					"struct_fields": [
-						{"id": {"type": "u32", "doc": "An ID value inserted into the data attributes of the canvas element as 'raw-handle'. Invalid = 0."}}
+						{"id": {"type": "u32", "doc": "An ID value inserted into the data attributes of the canvas element. Set to 0 if invalid."}}
 					]
 				},
 				"AndroidHandle": {
 					"external": "azul_impl::window::AndroidHandle",
 					"derive": ["Copy"],
 					"struct_fields": [
-						{"a_native_window": {"type": "*mut c_void", "doc": "A pointer to an ANativeWindow"}}
-					]
-				},
-				"TaskBarIcon": {
-					"external": "azul_impl::window::TaskBarIcon",
-					"struct_fields": [
-						{"key": {"type": "IconKey"}},
-						{"rgba_bytes": {"type": "U8Vec"}}
+						{"a_native_window": {"type": "*mut c_void", "doc": "A pointer to an `ANativeWindow`"}}
 					]
 				},
 				"XWindowType": {
+					"doc": "X11 window hint: Type of window",
 					"external": "azul_impl::window::XWindowType",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -566,33 +557,33 @@
 					"doc": "Debugging information, will be rendered as an overlay on top of the UI",
 					"external": "azul_impl::window::DebugState",
 					"struct_fields": [
-						{"profiler_dbg": {"type": "bool", "doc": "Show frame profiler"}},
-						{"render_target_dbg": {"type": "bool"}},
-						{"texture_cache_dbg": {"type": "bool"}},
-						{"gpu_time_queries": {"type": "bool"}},
-						{"gpu_sample_queries": {"type": "bool"}},
-						{"disable_batching": {"type": "bool"}},
-						{"epochs": {"type": "bool"}},
-						{"echo_driver_messages": {"type": "bool"}},
-						{"show_overdraw": {"type": "bool"}},
-						{"gpu_cache_dbg": {"type": "bool"}},
-						{"texture_cache_dbg_clear_evicted": {"type": "bool"}},
-						{"picture_caching_dbg": {"type": "bool"}},
-						{"primitive_dbg": {"type": "bool"}},
-						{"zoom_dbg": {"type": "bool"}},
-						{"small_screen": {"type": "bool"}},
-						{"disable_opaque_pass": {"type": "bool"}},
-						{"disable_alpha_pass": {"type": "bool"}},
-						{"disable_clip_masks": {"type": "bool"}},
-						{"disable_text_prims": {"type": "bool"}},
-						{"disable_gradient_prims": {"type": "bool"}},
-						{"obscure_images": {"type": "bool"}},
-						{"glyph_flashing": {"type": "bool"}},
-						{"smart_profiler": {"type": "bool"}},
-						{"invalidation_dbg": {"type": "bool"}},
-						{"tile_cache_logging_dbg": {"type": "bool"}},
-						{"profiler_capture": {"type": "bool"}},
-						{"force_picture_invalidation": {"type": "bool"}}
+						{"profiler_dbg": {"type": "bool", "doc": "Display the frame profiler on screen"}},
+						{"render_target_dbg": {"type": "bool", "doc": "Display intermediate render targets on screen"}},
+						{"texture_cache_dbg": {"type": "bool", "doc": "Display all texture cache pages on screen"}},
+						{"gpu_time_queries": {"type": "bool", "doc": "Display GPU timing results"}},
+						{"gpu_sample_queries": {"type": "bool", "doc": "Query the number of pixels that pass the depth test divided and show it in the profiler as a percentage of the number of pixels in the screen (window width times height)"}},
+						{"disable_batching": {"type": "bool", "doc": "Render each quad with their own draw call.\r\nTerrible for performance but can help with understanding the drawing order when inspecting renderdoc or apitrace recordings"}},
+						{"epochs": {"type": "bool", "doc": "Display the pipeline epochs"}},
+						{"echo_driver_messages": {"type": "bool", "doc": "Print driver messages to stdout"}},
+						{"show_overdraw": {"type": "bool", "doc": "Show an overlay displaying overdraw amount"}},
+						{"gpu_cache_dbg": {"type": "bool", "doc": "Display the contents of GPU cache"}},
+						{"texture_cache_dbg_clear_evicted": {"type": "bool", "doc": "Clear evicted parts of the texture cache for debugging purposes"}},
+						{"picture_caching_dbg": {"type": "bool", "doc": "Show picture caching debug overlay"}},
+						{"primitive_dbg": {"type": "bool", "doc": "Highlight all primitives with colors based on kind"}},
+						{"zoom_dbg": {"type": "bool", "doc": "Draw a zoom widget showing part of the framebuffer zoomed in"}},
+						{"small_screen": {"type": "bool", "doc": "Scale the debug renderer down for a smaller screen. This will disrupt any mapping between debug display items and page content, so shouldn't be used with overlays like the picture caching or primitive display"}},
+						{"disable_opaque_pass": {"type": "bool", "doc": "Disable various bits of the WebRender pipeline, to help narrow down where slowness might be coming from"}},
+						{"disable_alpha_pass": {"type": "bool", "doc": "Disable alpha"}},
+						{"disable_clip_masks": {"type": "bool", "doc": "Disable all clip masks"}},
+						{"disable_text_prims": {"type": "bool", "doc": "Disable text rendering"}},
+						{"disable_gradient_prims": {"type": "bool", "doc": "Disable gradients"}},
+						{"obscure_images": {"type": "bool", "doc": "Disable image rendering"}},
+						{"glyph_flashing": {"type": "bool", "doc": "Taint the transparent area of the glyphs with a random opacity to easily see when glyphs are re-rasterized"}},
+						{"smart_profiler": {"type": "bool", "doc": "The profiler only displays information that is out of the ordinary"}},
+						{"invalidation_dbg": {"type": "bool", "doc": "Dump picture cache invalidation information to stdout"}},
+						{"tile_cache_logging_dbg": {"type": "bool", "doc": "Print debug information about tile caches"}},
+						{"profiler_capture": {"type": "bool", "doc": "Capture a profile of the frame to a file"}},
+						{"force_picture_invalidation": {"type": "bool", "doc": "Force WebRender to render a new frame, even if WR can't determine that the display has changed"}}
 					]
 				},
 				"KeyboardState": {
@@ -656,9 +647,9 @@
 					"external": "azul_impl::window::CursorPosition",
 					"derive": ["Copy"],
 					"enum_fields": [
-						{"OutOfWindow": {}},
-						{"Uninitialized": {}},
-						{"InWindow": {"type": "LogicalPosition"}}
+						{"OutOfWindow": {"doc": "The cursor is out of bound of the window. For security reasons, tracking the cursor is not permitted by the library"}},
+						{"Uninitialized": {"doc": "The cursor position is unknown because the app hasn't yet been started. This is the default value and should generally only be set on startup."}},
+						{"InWindow": {"type": "LogicalPosition", "doc": "Cursor position relative to the top left corner of the window"}}
 					]
 				},
 				"MouseState": {
@@ -679,10 +670,10 @@
 					"doc": "Platform-specific window configuration, i.e. WM options that are not cross-platform",
 					"external": "azul_impl::window::PlatformSpecificOptions",
 					"struct_fields": [
-						{"windows_options": {"type": "WindowsWindowOptions"}},
-						{"linux_options": {"type": "LinuxWindowOptions"}},
-						{"mac_options": {"type": "MacWindowOptions"}},
-						{"wasm_options": {"type": "WasmWindowOptions"}}
+						{"windows_options": {"type": "WindowsWindowOptions", "doc": "Windows-specific WM options"}},
+						{"linux_options": {"type": "LinuxWindowOptions", "doc": "Linux-specific WM options"}},
+						{"mac_options": {"type": "MacWindowOptions", "doc": "Mac-specific WM options"}},
+						{"wasm_options": {"type": "WasmWindowOptions", "doc": "Web / WASM-specific WM options"}}
 					]
 				},
 				"WindowsWindowOptions": {
@@ -742,7 +733,7 @@
 						{"maximize_disabled_background_active_color": {"type": "[u8;4]"}},
 						{"minimize_disabled_background_active_color": {"type": "[u8;4]"}},
 						{"close_disabled_background_active_color": {"type": "[u8;4]"}},
-						{"title_bar_font": {"type": "String"}},
+						{"title_bar_font": {"type": "String", "doc": "Font of the title bar, \"sans-serif\" by default"}},
 						{"title_bar_font_size": {"type": "f32"}}
 					]
 				},

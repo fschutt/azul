@@ -13,14 +13,39 @@
 
   <link rel="shortcut icon" type="image/x-icon" href="$$ROOT_RELATIVE$$/favicon.ico">
   <style>
-    @font-face {
-        font-family: "Source Serif Pro";
-        src: url("$$ROOT_RELATIVE$$/fonts/SourceSerifPro-Regular.ttf");
+
+    @media screen {
+      @font-face {
+          font-family: "Source Serif Pro";
+          src: url("$$ROOT_RELATIVE$$/fonts/SourceSerifPro-Regular.ttf");
+      }
+
+      @font-face {
+          font-family: "Morris Jenson Initialen";
+          src: url("$$ROOT_RELATIVE$$/fonts/Morris Jenson Initialen.ttf");
+      }
     }
 
-    @font-face {
-        font-family: "Morris Jenson Initialen";
-        src: url("$$ROOT_RELATIVE$$/fonts/Morris Jenson Initialen.ttf");
+    @media print {
+
+      .pbi { page-break-inside: avoid; }
+
+      @page {
+        size: auto;   /* auto is the initial value */
+        margin: 0mm 10mm;  /* this affects the margin in the printer settings */
+      }
+
+      html
+      {
+          background-color: #FFFFFF;
+          margin: 0px;  /* this affects the margin on the html before sending to printer */
+      }
+
+      body
+      {
+          border: none;
+          margin: 0mm; /* margin you want for the content */
+      }
     }
 
     * {
@@ -99,6 +124,12 @@
       padding: 50px;
       box-sizing: border-box;
       min-height: 100%;
+    }
+
+    @media print {
+      main {
+        box-shadow: none !important;
+      }
     }
 
     main h1 {
@@ -238,6 +269,13 @@
 
     .token.entity {
         cursor: help;
+    }
+
+    @media print {
+      aside { display: none !important; }
+      a[href]:after {
+        content: none !important;
+      }
     }
   </style>
   <style>/*$$_EXTRA_CSS$$*/</style>

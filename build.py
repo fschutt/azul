@@ -1331,6 +1331,7 @@ def format_doc(docstring):
     newdoc = newdoc.replace(">", "&gt;")
     newdoc = replace_split(newdoc, "`", "code")
     newdoc = replace_split(newdoc, "**", "strong")
+    newdoc = newdoc.replace("\r\n", "<br/>")
     return newdoc
 
 def generate_docs():
@@ -1372,11 +1373,10 @@ def generate_docs():
             for class_name in module["classes"].keys():
                 c = module["classes"][class_name]
 
-                if "doc" in c.keys():
-                    api_page_contents += "<p class=\"class doc\">" + format_doc(c["doc"]) + "</p>"
-
                 if "enum_fields" in c.keys():
-                    api_page_contents += "<li class=\"st e\" id=\"st." + class_name + "\">"
+                    api_page_contents += "<li class=\"st e pbi\" id=\"st." + class_name + "\">"
+                    if "doc" in c.keys():
+                        api_page_contents += "<p class=\"class doc\">" + format_doc(c["doc"]) + "</p>"
                     api_page_contents += "<h4>enum <a href=\"#st." + class_name + "\">" + class_name + "</a></h4>"
                     for enum_variant in c["enum_fields"]:
                         enum_variant_name = list(enum_variant.keys())[0]
@@ -1395,7 +1395,9 @@ def generate_docs():
                             api_page_contents += "<p class=\"f\">" + enum_variant_name + "</p>"
 
                 elif "struct_fields" in c.keys():
-                    api_page_contents += "<li class=\"st s\" id=\"st." + class_name + "\">"
+                    api_page_contents += "<li class=\"st s pbi\" id=\"st." + class_name + "\">"
+                    if "doc" in c.keys():
+                        api_page_contents += "<p class=\"class doc\">" + format_doc(c["doc"]) + "</p>"
                     api_page_contents += "<h4>struct <a href=\"#st." + class_name + "\">" + class_name + "</a></h4>"
                     for struct_field in c["struct_fields"]:
                         struct_field_name = list(struct_field.keys())[0]
@@ -1411,7 +1413,9 @@ def generate_docs():
                             api_page_contents += "<p class=\"f\">" + struct_field_name + ": " + analyzed_struct_type[0] + "<a href=\"#st." + analyzed_struct_type[1] + "\">" + analyzed_struct_type[1] +"</a>" + analyzed_struct_type[2] + "</p>"
 
                 elif "callback_typedef" in c.keys():
-                    api_page_contents += "<li class=\"fnty\" id=\"st." + class_name + "\">"
+                    api_page_contents += "<li class=\"pbi fnty\" id=\"st." + class_name + "\">"
+                    if "doc" in c.keys():
+                        api_page_contents += "<p class=\"class doc\">" + format_doc(c["doc"]) + "</p>"
                     api_page_contents += "<h4>fnptr <a href=\"#fnty." + class_name + "\">" + class_name + "</a></h4>"
                     callback_typedef = c["callback_typedef"]
 

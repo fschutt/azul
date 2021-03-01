@@ -49,12 +49,8 @@ pub use AzAppLogLevelTT as AzAppLogLevel;
 /// Options on how to initially create the window
 pub type AzWindowCreateOptionsTT = azul_impl::window::WindowCreateOptions;
 pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
-/// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `WindowCreateOptions::new()` constructor.
+/// Creates a new window configuration with a custom layout callback
 #[no_mangle] pub extern "C" fn az_window_create_options_new(layout_callback: AzLayoutCallbackType) -> AzWindowCreateOptions { WindowCreateOptions::new(layout_callback) }
-/// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `WindowCreateOptions::default()` constructor.
-#[no_mangle] pub extern "C" fn az_window_create_options_default() -> AzWindowCreateOptions { WindowCreateOptions::default() }
 
 /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
 pub type AzRendererOptionsTT = azul_impl::window::RendererOptions;
@@ -120,11 +116,7 @@ pub use AzWebHandleTT as AzWebHandle;
 pub type AzAndroidHandleTT = azul_impl::window::AndroidHandle;
 pub use AzAndroidHandleTT as AzAndroidHandle;
 
-/// Application taskbar icon, 256x256x4 bytes in size
-pub type AzTaskBarIconTT = azul_impl::window::TaskBarIcon;
-pub use AzTaskBarIconTT as AzTaskBarIcon;
-
-/// Re-export of rust-allocated (stack based) `XWindowType` struct
+/// X11 window hint: Type of window
 pub type AzXWindowTypeTT = azul_impl::window::XWindowType;
 pub use AzXWindowTypeTT as AzXWindowType;
 
@@ -159,6 +151,10 @@ pub use AzLargeWindowIconBytesTT as AzLargeWindowIconBytes;
 /// Window "favicon", usually shown in the top left of the window on Windows
 pub type AzWindowIconTT = azul_impl::window::WindowIcon;
 pub use AzWindowIconTT as AzWindowIcon;
+
+/// Application taskbar icon, 256x256x4 bytes in size
+pub type AzTaskBarIconTT = azul_impl::window::TaskBarIcon;
+pub use AzTaskBarIconTT as AzTaskBarIcon;
 
 /// Symbolic name for a keyboard key, does **not** take the keyboard locale into account
 pub type AzVirtualKeyCodeTT = azul_impl::window::VirtualKeyCode;
@@ -2993,7 +2989,7 @@ mod test_sizes {
         Enabled,
         Disabled,
     }
-    /// Re-export of rust-allocated (stack based) `XWindowType` struct
+    /// X11 window hint: Type of window
     #[repr(C)]     pub enum AzXWindowType {
         Desktop,
         Dock,
@@ -5904,11 +5900,6 @@ mod test_sizes {
         pub enable_tab_navigation: bool,
         pub system_callbacks: AzSystemCallbacks,
     }
-    /// Application taskbar icon, 256x256x4 bytes in size
-    #[repr(C)]     pub struct AzTaskBarIcon {
-        pub key: AzIconKey,
-        pub rgba_bytes: AzU8Vec,
-    }
     /// Small (16x16x4) window icon, usually shown in the window titlebar
     #[repr(C)]     pub struct AzSmallWindowIconBytes {
         pub key: AzIconKey,
@@ -5923,6 +5914,11 @@ mod test_sizes {
     #[repr(C, u8)]     pub enum AzWindowIcon {
         Small(AzSmallWindowIconBytes),
         Large(AzLargeWindowIconBytes),
+    }
+    /// Application taskbar icon, 256x256x4 bytes in size
+    #[repr(C)]     pub struct AzTaskBarIcon {
+        pub key: AzIconKey,
+        pub rgba_bytes: AzU8Vec,
     }
     /// Current keyboard state, stores what keys / characters have been pressed
     #[repr(C)]     pub struct AzKeyboardState {
@@ -7255,10 +7251,10 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::Instant>(), "AzInstant"), (Layout::new::<AzInstant>(), "AzInstant"));
         assert_eq!((Layout::new::<azul_impl::task::Duration>(), "AzDuration"), (Layout::new::<AzDuration>(), "AzDuration"));
         assert_eq!((Layout::new::<azul_impl::resources::AppConfig>(), "AzAppConfig"), (Layout::new::<AzAppConfig>(), "AzAppConfig"));
-        assert_eq!((Layout::new::<azul_impl::window::TaskBarIcon>(), "AzTaskBarIcon"), (Layout::new::<AzTaskBarIcon>(), "AzTaskBarIcon"));
         assert_eq!((Layout::new::<azul_impl::window::SmallWindowIconBytes>(), "AzSmallWindowIconBytes"), (Layout::new::<AzSmallWindowIconBytes>(), "AzSmallWindowIconBytes"));
         assert_eq!((Layout::new::<azul_impl::window::LargeWindowIconBytes>(), "AzLargeWindowIconBytes"), (Layout::new::<AzLargeWindowIconBytes>(), "AzLargeWindowIconBytes"));
         assert_eq!((Layout::new::<azul_impl::window::WindowIcon>(), "AzWindowIcon"), (Layout::new::<AzWindowIcon>(), "AzWindowIcon"));
+        assert_eq!((Layout::new::<azul_impl::window::TaskBarIcon>(), "AzTaskBarIcon"), (Layout::new::<AzTaskBarIcon>(), "AzTaskBarIcon"));
         assert_eq!((Layout::new::<azul_impl::window::KeyboardState>(), "AzKeyboardState"), (Layout::new::<AzKeyboardState>(), "AzKeyboardState"));
         assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackInfo>(), "AzGlCallbackInfo"), (Layout::new::<AzGlCallbackInfo>(), "AzGlCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::dom::CallbackData>(), "AzCallbackData"), (Layout::new::<AzCallbackData>(), "AzCallbackData"));

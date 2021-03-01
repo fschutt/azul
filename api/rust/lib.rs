@@ -189,7 +189,7 @@ mod dll {
         Enabled,
         Disabled,
     }
-    /// Re-export of rust-allocated (stack based) `XWindowType` struct
+    /// X11 window hint: Type of window
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzXWindowType {
         Desktop,
         Dock,
@@ -3100,11 +3100,6 @@ mod dll {
         pub enable_tab_navigation: bool,
         pub system_callbacks: AzSystemCallbacks,
     }
-    /// Application taskbar icon, 256x256x4 bytes in size
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzTaskBarIcon {
-        pub key: AzIconKey,
-        pub rgba_bytes: AzU8Vec,
-    }
     /// Small (16x16x4) window icon, usually shown in the window titlebar
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSmallWindowIconBytes {
         pub key: AzIconKey,
@@ -3119,6 +3114,11 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzWindowIcon {
         Small(AzSmallWindowIconBytes),
         Large(AzLargeWindowIconBytes),
+    }
+    /// Application taskbar icon, 256x256x4 bytes in size
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzTaskBarIcon {
+        pub key: AzIconKey,
+        pub rgba_bytes: AzU8Vec,
     }
     /// Current keyboard state, stores what keys / characters have been pressed
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzKeyboardState {
@@ -4051,7 +4051,6 @@ mod dll {
         pub(crate) fn az_app_delete(_:  &mut AzApp);
         pub(crate) fn az_app_config_default() -> AzAppConfig;
         pub(crate) fn az_window_create_options_new(_:  AzLayoutCallbackType) -> AzWindowCreateOptions;
-        pub(crate) fn az_window_create_options_default() -> AzWindowCreateOptions;
         pub(crate) fn az_monitor_handle_delete(_:  &mut AzMonitorHandle);
         pub(crate) fn az_monitor_handle_deep_copy(_:  &AzMonitorHandle) -> AzMonitorHandle;
         pub(crate) fn az_window_state_new(_:  AzLayoutCallbackType) -> AzWindowState;
@@ -4542,10 +4541,8 @@ pub mod window {
     
 #[doc(inline)] pub use crate::dll::AzWindowCreateOptions as WindowCreateOptions;
     impl WindowCreateOptions {
-        /// Creates a new `WindowCreateOptions` instance.
+        /// Creates a new window configuration with a custom layout callback
         pub fn new(layout_callback: LayoutCallbackType) -> Self { unsafe { crate::dll::az_window_create_options_new(layout_callback) } }
-        /// Creates a new `WindowCreateOptions` instance.
-        pub fn default() -> Self { unsafe { crate::dll::az_window_create_options_default() } }
     }
 
     /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
@@ -4596,10 +4593,7 @@ pub mod window {
     /// `AndroidHandle` struct
     
 #[doc(inline)] pub use crate::dll::AzAndroidHandle as AndroidHandle;
-    /// Application taskbar icon, 256x256x4 bytes in size
-    
-#[doc(inline)] pub use crate::dll::AzTaskBarIcon as TaskBarIcon;
-    /// `XWindowType` struct
+    /// X11 window hint: Type of window
     
 #[doc(inline)] pub use crate::dll::AzXWindowType as XWindowType;
     /// Same as `LayoutPoint`, but uses `i32` instead of `isize`
@@ -4626,6 +4620,9 @@ pub mod window {
     /// Window "favicon", usually shown in the top left of the window on Windows
     
 #[doc(inline)] pub use crate::dll::AzWindowIcon as WindowIcon;
+    /// Application taskbar icon, 256x256x4 bytes in size
+    
+#[doc(inline)] pub use crate::dll::AzTaskBarIcon as TaskBarIcon;
     /// Symbolic name for a keyboard key, does **not** take the keyboard locale into account
     
 #[doc(inline)] pub use crate::dll::AzVirtualKeyCode as VirtualKeyCode;
