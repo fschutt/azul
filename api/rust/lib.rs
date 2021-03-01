@@ -2709,22 +2709,6 @@ mod dll {
         pub scroll_x: AzOptionF32,
         pub scroll_y: AzOptionF32,
     }
-    /// Re-export of rust-allocated (stack based) `WaylandTheme` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzWaylandTheme {
-        pub primary_color_active: [u8;4],
-        pub primary_color_inactive: [u8;4],
-        pub secondary_color_active: [u8;4],
-        pub secondary_color_inactive: [u8;4],
-        pub close_button_color_idle: [u8;4],
-        pub close_button_color_hovered: [u8;4],
-        pub close_button_color_disabled: [u8;4],
-        pub maximize_button_color_idle: [u8;4],
-        pub maximize_button_color_hovered: [u8;4],
-        pub maximize_button_color_disabled: [u8;4],
-        pub minimize_button_color_idle: [u8;4],
-        pub minimize_button_color_hovered: [u8;4],
-        pub minimize_button_color_disabled: [u8;4],
-    }
     /// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzMacWindowOptions {
         pub _reserved: u8,
@@ -2866,11 +2850,6 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionSvgDashPattern {
         None,
         Some(AzSvgDashPattern),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionWaylandTheme {
-        None,
-        Some(AzWaylandTheme),
     }
     /// Re-export of rust-allocated (stack based) `OptionLogicalPosition` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionLogicalPosition {
@@ -3277,6 +3256,53 @@ mod dll {
         pub min_dimensions: AzOptionLogicalSize,
         pub max_dimensions: AzOptionLogicalSize,
     }
+    /// Re-export of rust-allocated (stack based) `WaylandTheme` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzWaylandTheme {
+        pub title_bar_active_background_color: [u8;4],
+        pub title_bar_active_separator_color: [u8;4],
+        pub title_bar_active_text_color: [u8;4],
+        pub title_bar_inactive_background_color: [u8;4],
+        pub title_bar_inactive_separator_color: [u8;4],
+        pub title_bar_inactive_text_color: [u8;4],
+        pub maximize_idle_foreground_inactive_color: [u8;4],
+        pub minimize_idle_foreground_inactive_color: [u8;4],
+        pub close_idle_foreground_inactive_color: [u8;4],
+        pub maximize_hovered_foreground_inactive_color: [u8;4],
+        pub minimize_hovered_foreground_inactive_color: [u8;4],
+        pub close_hovered_foreground_inactive_color: [u8;4],
+        pub maximize_disabled_foreground_inactive_color: [u8;4],
+        pub minimize_disabled_foreground_inactive_color: [u8;4],
+        pub close_disabled_foreground_inactive_color: [u8;4],
+        pub maximize_idle_background_inactive_color: [u8;4],
+        pub minimize_idle_background_inactive_color: [u8;4],
+        pub close_idle_background_inactive_color: [u8;4],
+        pub maximize_hovered_background_inactive_color: [u8;4],
+        pub minimize_hovered_background_inactive_color: [u8;4],
+        pub close_hovered_background_inactive_color: [u8;4],
+        pub maximize_disabled_background_inactive_color: [u8;4],
+        pub minimize_disabled_background_inactive_color: [u8;4],
+        pub close_disabled_background_inactive_color: [u8;4],
+        pub maximize_idle_foreground_active_color: [u8;4],
+        pub minimize_idle_foreground_active_color: [u8;4],
+        pub close_idle_foreground_active_color: [u8;4],
+        pub maximize_hovered_foreground_active_color: [u8;4],
+        pub minimize_hovered_foreground_active_color: [u8;4],
+        pub close_hovered_foreground_active_color: [u8;4],
+        pub maximize_disabled_foreground_active_color: [u8;4],
+        pub minimize_disabled_foreground_active_color: [u8;4],
+        pub close_disabled_foreground_active_color: [u8;4],
+        pub maximize_idle_background_active_color: [u8;4],
+        pub minimize_idle_background_active_color: [u8;4],
+        pub close_idle_background_active_color: [u8;4],
+        pub maximize_hovered_background_active_color: [u8;4],
+        pub minimize_hovered_background_active_color: [u8;4],
+        pub close_hovered_background_active_color: [u8;4],
+        pub maximize_disabled_background_active_color: [u8;4],
+        pub minimize_disabled_background_active_color: [u8;4],
+        pub close_disabled_background_active_color: [u8;4],
+        pub title_bar_font: AzString,
+        pub title_bar_font_size: f32,
+    }
     /// Re-export of rust-allocated (stack based) `StringPair` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzStringPair {
         pub key: AzString,
@@ -3349,6 +3375,11 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionThreadReceiveMsg {
         None,
         Some(AzThreadReceiveMsg),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionWaylandTheme {
+        None,
+        Some(AzWaylandTheme),
     }
     /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTaskBarIcon {

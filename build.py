@@ -1233,8 +1233,6 @@ def build_dll():
 
     cwd = root_folder + "/azul-dll"
 
-    # TODO: build azulc!
-
     if platform == "linux" or platform == "linux2": # TODO: freebsd?
         # On linux, optimize for different CPUs, so that we can package for debian multiarch
         os.system('rustup toolchain install nightly-x86_64-unknown-linux-gnu')
@@ -1514,7 +1512,7 @@ def main():
     print("generating documentation in /target/html...")
     generate_docs()
     print("building azulc (release mode)...")
-    build_azulc()
+    # build_azulc()
     print("building azul-dll (release mode)...")
     build_dll()
     print("checking azul-dll for struct size integrity...")

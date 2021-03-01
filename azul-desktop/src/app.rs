@@ -1,5 +1,6 @@
 use core::ffi::c_void;
 use alloc::collections::btree_map::BTreeMap;
+use std::thread::JoinHandle;
 use glutin::{
     window::{
         Window as GlutinWindow,
@@ -22,11 +23,12 @@ use crate::{
     window::{Window, UserEvent, Monitor, MonitorVec, MonitorHandle},
 };
 use azul_core::{
-    window::{WindowCreateOptions, FullWindowState},
+    window::{WindowCreateOptions, LazyFcCache, FullWindowState},
     gl::GlContextPtr,
     callbacks::{RefAny, UpdateScreen},
     app_resources::{AppConfig, AppResources},
 };
+use rust_fontconfig::FcFontCache;
 
 /// Graphical application that maintains some kind of application state
 #[derive(Debug)]
@@ -40,6 +42,9 @@ pub struct App {
     pub windows: Vec<WindowCreateOptions>,
     /// Glutin / winit event loop
     pub event_loop: GlutinEventLoop<UserEvent>,
+    /// Font configuration cache - already start building the font cache
+    /// while the app is starting
+    pub fc_cache: LazyFcCache,
 }
 
 #[derive(Debug)]
@@ -78,6 +83,10 @@ impl App {
     /// This does not open any windows, but it starts the event loop
     /// to the display server
     pub fn new(mut initial_data: RefAny, app_config: AppConfig) -> Self {
+
+        use std::thread;
+
+        let fc_cache = LazyFcCache::InProgress(Some(thread::spawn(move || FcFontCache::build())));
 
         #[cfg(feature = "logging")] {
 
@@ -141,6 +150,7 @@ impl App {
             data: initial_data.clone_into_library_memory(),
             config: app_config,
             event_loop,
+            fc_cache,
         }
     }
 
@@ -194,7 +204,8 @@ fn run_inner(app: App) -> ! {
         mut data,
         event_loop,
         config,
-        windows
+        windows,
+        mut fc_cache,
     } = app;
 
     let mut timers = BTreeMap::new();
@@ -215,8 +226,8 @@ fn run_inner(app: App) -> ! {
             &proxy,
             &mut active_windows,
             &mut resources,
+            &mut fc_cache,
         );
-
 
         if let Some(init_callback) = create_callback.as_ref() {
             if let Some(window_id) = id.as_ref() {
@@ -405,7 +416,7 @@ fn run_inner(app: App) -> ! {
                         UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                             let mut resource_updates = Vec::new();
                             let mut transaction = WrTransaction::new();
-                            window.regenerate_styled_dom(&mut data, &mut resources, &mut resource_updates);
+                            window.regenerate_styled_dom(&mut data, &mut resources, &mut resource_updates, &mut fc_cache);
                             window.rebuild_display_list(&mut transaction, &resources, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
                             windows_that_need_to_redraw.insert(*window_id);
@@ -514,7 +525,7 @@ fn run_inner(app: App) -> ! {
                             UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                                 let mut resource_updates = Vec::new();
                                 let mut transaction = WrTransaction::new();
-                                window.regenerate_styled_dom(&mut data, &mut resources, &mut resource_updates);
+                                window.regenerate_styled_dom(&mut data, &mut resources, &mut resource_updates, &mut fc_cache);
                                 window.rebuild_display_list(&mut transaction, &resources, resource_updates);
                                 window.render_async(transaction, /* display list was rebuilt */ true);
                                 windows_that_need_to_redraw.insert(*window_id);
@@ -548,7 +559,7 @@ fn run_inner(app: App) -> ! {
                         let mut resource_updates = Vec::new();
                         let mut transaction = WrTransaction::new();
 
-                        window.regenerate_styled_dom(&mut data, &mut resources, &mut resource_updates);
+                        window.regenerate_styled_dom(&mut data, &mut resources, &mut resource_updates, &mut fc_cache);
                         window.rebuild_display_list(&mut transaction, &resources, resource_updates);
                         window.render_async(transaction, /* display list was rebuilt */ true);
                         windows_that_need_to_redraw.insert(*window_id);
@@ -613,13 +624,13 @@ fn run_inner(app: App) -> ! {
                     window.internal.current_window_state.mouse_state.reset_scroll_to_zero();
 
                     if layout_callback_changed {
-                        window.regenerate_styled_dom(&mut data, &mut resources, &mut updated_resources);
+                        window.regenerate_styled_dom(&mut data, &mut resources, &mut updated_resources, &mut fc_cache);
                         need_regenerate_display_list = true;
                         callback_results.update_focused_node = Some(None); // unset the focus
                     } else {
                         match callback_results.callbacks_update_screen {
                             UpdateScreen::RegenerateStyledDomForCurrentWindow => {
-                                window.regenerate_styled_dom(&mut data, &mut resources, &mut updated_resources);
+                                window.regenerate_styled_dom(&mut data, &mut resources, &mut updated_resources, &mut fc_cache);
                                 need_regenerate_display_list = true;
                                 callback_results.update_focused_node = Some(None); // unset the focus
                             },
@@ -817,6 +828,7 @@ fn run_inner(app: App) -> ! {
                 &proxy,
                 &mut active_windows,
                 &mut resources,
+                &mut fc_cache,
             );
 
             if let Some(init_callback) = create_callback.as_ref() {
@@ -1103,6 +1115,7 @@ fn create_window(
     proxy: &GlutinEventLoopProxy<UserEvent>,
     active_windows: &mut BTreeMap<GlutinWindowId, Window>,
     app_resources: &mut AppResources,
+    fc_cache: &mut LazyFcCache,
 ) -> Option<GlutinWindowId> {
 
     let window = Window::new(
@@ -1111,6 +1124,7 @@ fn create_window(
          events_loop,
          proxy,
          app_resources,
+         fc_cache,
     );
 
     let window = match window {

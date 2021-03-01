@@ -5473,22 +5473,6 @@ mod test_sizes {
         pub scroll_x: AzOptionF32,
         pub scroll_y: AzOptionF32,
     }
-    /// Re-export of rust-allocated (stack based) `WaylandTheme` struct
-    #[repr(C)]     pub struct AzWaylandTheme {
-        pub primary_color_active: [u8;4],
-        pub primary_color_inactive: [u8;4],
-        pub secondary_color_active: [u8;4],
-        pub secondary_color_inactive: [u8;4],
-        pub close_button_color_idle: [u8;4],
-        pub close_button_color_hovered: [u8;4],
-        pub close_button_color_disabled: [u8;4],
-        pub maximize_button_color_idle: [u8;4],
-        pub maximize_button_color_hovered: [u8;4],
-        pub maximize_button_color_disabled: [u8;4],
-        pub minimize_button_color_idle: [u8;4],
-        pub minimize_button_color_hovered: [u8;4],
-        pub minimize_button_color_disabled: [u8;4],
-    }
     /// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
     #[repr(C)]     pub struct AzMacWindowOptions {
         pub _reserved: u8,
@@ -5630,11 +5614,6 @@ mod test_sizes {
     #[repr(C, u8)]     pub enum AzOptionSvgDashPattern {
         None,
         Some(AzSvgDashPattern),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
-    #[repr(C, u8)]     pub enum AzOptionWaylandTheme {
-        None,
-        Some(AzWaylandTheme),
     }
     /// Re-export of rust-allocated (stack based) `OptionLogicalPosition` struct
     #[repr(C, u8)]     pub enum AzOptionLogicalPosition {
@@ -6041,6 +6020,53 @@ mod test_sizes {
         pub min_dimensions: AzOptionLogicalSize,
         pub max_dimensions: AzOptionLogicalSize,
     }
+    /// Re-export of rust-allocated (stack based) `WaylandTheme` struct
+    #[repr(C)]     pub struct AzWaylandTheme {
+        pub title_bar_active_background_color: [u8;4],
+        pub title_bar_active_separator_color: [u8;4],
+        pub title_bar_active_text_color: [u8;4],
+        pub title_bar_inactive_background_color: [u8;4],
+        pub title_bar_inactive_separator_color: [u8;4],
+        pub title_bar_inactive_text_color: [u8;4],
+        pub maximize_idle_foreground_inactive_color: [u8;4],
+        pub minimize_idle_foreground_inactive_color: [u8;4],
+        pub close_idle_foreground_inactive_color: [u8;4],
+        pub maximize_hovered_foreground_inactive_color: [u8;4],
+        pub minimize_hovered_foreground_inactive_color: [u8;4],
+        pub close_hovered_foreground_inactive_color: [u8;4],
+        pub maximize_disabled_foreground_inactive_color: [u8;4],
+        pub minimize_disabled_foreground_inactive_color: [u8;4],
+        pub close_disabled_foreground_inactive_color: [u8;4],
+        pub maximize_idle_background_inactive_color: [u8;4],
+        pub minimize_idle_background_inactive_color: [u8;4],
+        pub close_idle_background_inactive_color: [u8;4],
+        pub maximize_hovered_background_inactive_color: [u8;4],
+        pub minimize_hovered_background_inactive_color: [u8;4],
+        pub close_hovered_background_inactive_color: [u8;4],
+        pub maximize_disabled_background_inactive_color: [u8;4],
+        pub minimize_disabled_background_inactive_color: [u8;4],
+        pub close_disabled_background_inactive_color: [u8;4],
+        pub maximize_idle_foreground_active_color: [u8;4],
+        pub minimize_idle_foreground_active_color: [u8;4],
+        pub close_idle_foreground_active_color: [u8;4],
+        pub maximize_hovered_foreground_active_color: [u8;4],
+        pub minimize_hovered_foreground_active_color: [u8;4],
+        pub close_hovered_foreground_active_color: [u8;4],
+        pub maximize_disabled_foreground_active_color: [u8;4],
+        pub minimize_disabled_foreground_active_color: [u8;4],
+        pub close_disabled_foreground_active_color: [u8;4],
+        pub maximize_idle_background_active_color: [u8;4],
+        pub minimize_idle_background_active_color: [u8;4],
+        pub close_idle_background_active_color: [u8;4],
+        pub maximize_hovered_background_active_color: [u8;4],
+        pub minimize_hovered_background_active_color: [u8;4],
+        pub close_hovered_background_active_color: [u8;4],
+        pub maximize_disabled_background_active_color: [u8;4],
+        pub minimize_disabled_background_active_color: [u8;4],
+        pub close_disabled_background_active_color: [u8;4],
+        pub title_bar_font: AzString,
+        pub title_bar_font_size: f32,
+    }
     /// Re-export of rust-allocated (stack based) `StringPair` struct
     #[repr(C)]     pub struct AzStringPair {
         pub key: AzString,
@@ -6113,6 +6139,11 @@ mod test_sizes {
     #[repr(C, u8)]     pub enum AzOptionThreadReceiveMsg {
         None,
         Some(AzThreadReceiveMsg),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
+    #[repr(C, u8)]     pub enum AzOptionWaylandTheme {
+        None,
+        Some(AzWaylandTheme),
     }
     /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
     #[repr(C, u8)]     pub enum AzOptionTaskBarIcon {
@@ -7070,7 +7101,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::KeyboardState>(), "AzKeyboardState"), (Layout::new::<AzKeyboardState>(), "AzKeyboardState"));
         assert_eq!((Layout::new::<azul_impl::window::CursorPosition>(), "AzCursorPosition"), (Layout::new::<AzCursorPosition>(), "AzCursorPosition"));
         assert_eq!((Layout::new::<azul_impl::window::MouseState>(), "AzMouseState"), (Layout::new::<AzMouseState>(), "AzMouseState"));
-        assert_eq!((Layout::new::<azul_impl::window::WaylandTheme>(), "AzWaylandTheme"), (Layout::new::<AzWaylandTheme>(), "AzWaylandTheme"));
         assert_eq!((Layout::new::<azul_impl::window::MacWindowOptions>(), "AzMacWindowOptions"), (Layout::new::<AzMacWindowOptions>(), "AzMacWindowOptions"));
         assert_eq!((Layout::new::<azul_impl::window::WasmWindowOptions>(), "AzWasmWindowOptions"), (Layout::new::<AzWasmWindowOptions>(), "AzWasmWindowOptions"));
         assert_eq!((Layout::new::<azul_impl::window::WindowPosition>(), "AzWindowPosition"), (Layout::new::<AzWindowPosition>(), "AzWindowPosition"));
@@ -7097,7 +7127,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::OptionColorU>(), "AzOptionColorU"), (Layout::new::<AzOptionColorU>(), "AzOptionColorU"));
         assert_eq!((Layout::new::<azul_impl::resources::OptionRawImage>(), "AzOptionRawImage"), (Layout::new::<AzOptionRawImage>(), "AzOptionRawImage"));
         assert_eq!((Layout::new::<azul_impl::svg::OptionSvgDashPattern>(), "AzOptionSvgDashPattern"), (Layout::new::<AzOptionSvgDashPattern>(), "AzOptionSvgDashPattern"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionWaylandTheme>(), "AzOptionWaylandTheme"), (Layout::new::<AzOptionWaylandTheme>(), "AzOptionWaylandTheme"));
         assert_eq!((Layout::new::<azul_impl::window::OptionLogicalPosition>(), "AzOptionLogicalPosition"), (Layout::new::<AzOptionLogicalPosition>(), "AzOptionLogicalPosition"));
         assert_eq!((Layout::new::<azul_impl::window::OptionPhysicalPositionI32>(), "AzOptionPhysicalPositionI32"), (Layout::new::<AzOptionPhysicalPositionI32>(), "AzOptionPhysicalPositionI32"));
         assert_eq!((Layout::new::<azul_impl::window::OptionWindowIcon>(), "AzOptionWindowIcon"), (Layout::new::<AzOptionWindowIcon>(), "AzOptionWindowIcon"));
@@ -7159,6 +7188,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::TaskBarIcon>(), "AzTaskBarIcon"), (Layout::new::<AzTaskBarIcon>(), "AzTaskBarIcon"));
         assert_eq!((Layout::new::<azul_impl::window::LogicalRect>(), "AzLogicalRect"), (Layout::new::<AzLogicalRect>(), "AzLogicalRect"));
         assert_eq!((Layout::new::<azul_impl::window::WindowSize>(), "AzWindowSize"), (Layout::new::<AzWindowSize>(), "AzWindowSize"));
+        assert_eq!((Layout::new::<azul_impl::window::WaylandTheme>(), "AzWaylandTheme"), (Layout::new::<AzWaylandTheme>(), "AzWaylandTheme"));
         assert_eq!((Layout::new::<azul_impl::window::AzStringPair>(), "AzStringPair"), (Layout::new::<AzStringPair>(), "AzStringPair"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClassVec>(), "AzIdOrClassVec"), (Layout::new::<AzIdOrClassVec>(), "AzIdOrClassVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformVec>(), "AzStyleTransformVec"), (Layout::new::<AzStyleTransformVec>(), "AzStyleTransformVec"));
@@ -7170,6 +7200,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVec>(), "AzStyledNodeVec"), (Layout::new::<AzStyledNodeVec>(), "AzStyledNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"), (Layout::new::<AzTagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"));
         assert_eq!((Layout::new::<azul_impl::task::OptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"), (Layout::new::<AzOptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionWaylandTheme>(), "AzOptionWaylandTheme"), (Layout::new::<AzOptionWaylandTheme>(), "AzOptionWaylandTheme"));
         assert_eq!((Layout::new::<azul_impl::window::OptionTaskBarIcon>(), "AzOptionTaskBarIcon"), (Layout::new::<AzOptionTaskBarIcon>(), "AzOptionTaskBarIcon"));
         assert_eq!((Layout::new::<azul_impl::task::OptionDuration>(), "AzOptionDuration"), (Layout::new::<AzOptionDuration>(), "AzOptionDuration"));
         assert_eq!((Layout::new::<azul_impl::task::OptionInstant>(), "AzOptionInstant"), (Layout::new::<AzOptionInstant>(), "AzOptionInstant"));

@@ -51,7 +51,8 @@ use azul_core::{
     task::ExternalSystemCallbacks,
     display_list::{CachedDisplayList, RenderCallbacks},
     app_resources::{ResourceUpdate, AppResources, LoadFontFn, IdNamespace, LoadImageFn},
-    gl::{GlContextPtr, GlShaderCreateError, Texture},
+    gl::{GlContextPtr, OptionGlContextPtr, GlShaderCreateError, Texture},
+    window::LazyFcCache,
     window_state::{Events, NodesToCheck},
 };
 use azul_css::{LayoutPoint, AzString, OptionAzString, LayoutSize};
@@ -415,7 +416,8 @@ impl Window {
         mut options: WindowCreateOptions,
         events_loop: &EventLoopWindowTarget<UserEvent>,
         proxy: &GlutinEventLoopProxy<UserEvent>,
-        app_resources: &mut AppResources
+        app_resources: &mut AppResources,
+        fc_cache: &mut LazyFcCache,
     ) -> Result<Self, WindowCreateError> {
 
         use crate::wr_translate::translate_document_id_wr;
@@ -468,7 +470,8 @@ impl Window {
         // fetch the GlContextPtr
         window_context.make_current();
 
-        // the hardware OpenGL context has to always be initialized
+        // the hardware OpenGL context has to always be initialized -
+        // TODO: change this - see minifb for a pure-software window!
         let hardware_gl = Self::initialize_hardware_gl_context(&window_context.context().unwrap())?;
         let mut renderer_sender = None;
         let mut software_gl = None;
@@ -573,12 +576,18 @@ impl Window {
         };
 
         let internal = WindowInternal::new(
-            WindowInternalInit { window_create_options: options, document_id, pipeline_id, id_namespace },
+            WindowInternalInit {
+                window_create_options: options,
+                document_id,
+                pipeline_id,
+                id_namespace
+            },
             data,
             app_resources,
-            &gl_context_ptr,
+            &OptionGlContextPtr::Some(gl_context_ptr.clone()),
             &mut initial_resource_updates,
-            Window::CALLBACKS
+            Window::CALLBACKS,
+            fc_cache,
         );
 
         let mut window = Window {
@@ -626,7 +635,7 @@ impl Window {
         context_builder
             .with_gl_debug_flag(gl_debug_enabled)
             .with_gl(glutin::GlRequest::GlThenGles {
-                opengl_version: (3, 2),
+                opengl_version: (3, 1),
                 opengles_version: (3, 0),
             })
             .with_vsync(vsync.is_enabled())
@@ -680,8 +689,16 @@ impl Window {
         data: &mut RefAny,
         app_resources: &mut AppResources,
         resource_updates: &mut Vec<ResourceUpdate>,
+        fc_cache: &mut LazyFcCache,
     ) {
-        self.internal.regenerate_styled_dom(data, app_resources, &self.get_gl_context_ptr(), resource_updates, Window::CALLBACKS);
+        self.internal.regenerate_styled_dom(
+            data,
+            app_resources,
+            &OptionGlContextPtr::Some(self.get_gl_context_ptr()),
+            resource_updates,
+            Window::CALLBACKS,
+            fc_cache,
+        );
     }
 
     /// Only re-build the display list and send it to webrender
@@ -1072,7 +1089,10 @@ impl Window {
                 .with_override_redirect(platform_options.x11_override_redirect);
 
             for AzStringPair { key, value } in platform_options.x11_wm_classes.iter() {
-                window_builder = window_builder.with_class(key.clone().into(), value.clone().into());
+                window_builder = window_builder.with_class(
+                    key.clone().into_library_owned_string(),
+                    value.clone().into_library_owned_string()
+                );
             }
 
             if !platform_options.x11_window_types.is_empty() {
@@ -1081,7 +1101,7 @@ impl Window {
             }
 
             if let OptionAzString::Some(theme_variant) = platform_options.x11_gtk_theme_variant.clone() {
-                window_builder = window_builder.with_gtk_theme_variant(theme_variant.into());
+                window_builder = window_builder.with_gtk_theme_variant(theme_variant.into_library_owned_string());
             }
 
             if let OptionLogicalSize::Some(resize_increments) = platform_options.x11_resize_increments {
@@ -1093,7 +1113,7 @@ impl Window {
             }
 
             if let OptionAzString::Some(app_id) = platform_options.wayland_app_id.clone() {
-                window_builder = window_builder.with_app_id(app_id.into());
+                window_builder = window_builder.with_app_id(app_id.into_library_owned_string());
             }
 
             window_builder
@@ -1410,17 +1430,22 @@ fn synchronize_os_window_linux_extensions(
     window: &GlutinWindow,
 ) -> bool {
     use glutin::platform::unix::WindowExtUnix;
-    use crate::wr_translate::winit_translate::{translate_window_icon, translate_wayland_theme};
+    use glutin::window::UserAttentionType as WinitUserAttentionType;
+    use crate::wr_translate::winit_translate::{translate_window_icon, WaylandThemeWrapper};
 
     let window_was_updated = false;
 
     if old_state.request_user_attention != new_state.request_user_attention {
-        window.set_urgent(new_state.request_user_attention);
+        window.request_user_attention(match new_state.request_user_attention {
+            UserAttentionType::None => None,
+            UserAttentionType::Critical => Some(WinitUserAttentionType::Critical),
+            UserAttentionType::Informational => Some(WinitUserAttentionType::Informational),
+        });
     }
 
     if old_state.wayland_theme != new_state.wayland_theme {
-        if let OptionWaylandTheme::Some(new_wayland_theme) = new_state.wayland_theme {
-            window.set_wayland_theme(translate_wayland_theme(new_wayland_theme));
+        if let Some(new_wayland_theme) = new_state.wayland_theme.as_ref() {
+            window.set_wayland_theme(WaylandThemeWrapper(new_wayland_theme.clone()));
         }
     }
 
@@ -1473,15 +1498,24 @@ fn initialize_os_window_linux_extensions(
     window: &GlutinWindow,
 ) {
     use glutin::platform::unix::WindowExtUnix;
-    use crate::wr_translate::winit_translate::{translate_window_icon, translate_wayland_theme};
+    use glutin::window::UserAttentionType as WinitUserAttentionType;
+    use crate::wr_translate::winit_translate::{translate_window_icon, WaylandThemeWrapper};
 
-    window.set_urgent(new_state.request_user_attention);
+    window.request_user_attention(match new_state.request_user_attention {
+        UserAttentionType::None => None,
+        UserAttentionType::Critical => Some(WinitUserAttentionType::Critical),
+        UserAttentionType::Informational => Some(WinitUserAttentionType::Informational),
+    });
 
-    if let OptionWaylandTheme::Some(new_wayland_theme) = new_state.wayland_theme {
-        window.set_wayland_theme(translate_wayland_theme(new_wayland_theme));
+    if let Some(new_wayland_theme) = new_state.wayland_theme.as_ref() {
+        window.set_wayland_theme(WaylandThemeWrapper(new_wayland_theme.clone()));
     }
 
-    window.set_window_icon(new_state.window_icon.clone().into_option().and_then(|ic| translate_window_icon(ic).ok()));
+    window.set_window_icon(
+        new_state.window_icon.clone()
+        .into_option()
+        .and_then(|ic| translate_window_icon(ic).ok())
+    );
 }
 
 // Mac-specific window options

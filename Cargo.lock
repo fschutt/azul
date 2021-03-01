@@ -165,6 +165,7 @@ dependencies = [
  "glutin",
  "log",
  "raw-window-handle",
+ "rust-fontconfig",
  "swgl",
  "tinyfiledialogs",
  "webrender",
@@ -1814,9 +1815,9 @@ dependencies = [
 
 [[package]]
 name = "rust-fontconfig"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "130806e2290131914578b86badbf52c63f90f1154346de37a90b2a08ceec2cc7"
+checksum = "c7aa55d7bb670708b7b35cc41257779df748eb03324fd2339d7f3f6560ee3dd7"
 dependencies = [
  "allsorts",
  "mmapio",

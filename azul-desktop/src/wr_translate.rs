@@ -126,7 +126,10 @@ pub(crate) mod winit_translate {
     use glutin::platform::unix::{
         Theme as WinitWaylandTheme,
         ButtonState as WinitButtonState,
+        Element as WinitElement,
+        Button as WinitButton,
         XWindowType as WinitXWindowType,
+        ARGBColor as WinitARGBColor,
     };
     #[cfg(target_os = "linux")]
     use azul_core::window::{WaylandTheme, XWindowType};
@@ -137,43 +140,190 @@ pub(crate) mod winit_translate {
     pub(crate) type WinitLogicalSize = glutin::dpi::LogicalSize<f64>;
     pub(crate) type WinitLogicalPosition = glutin::dpi::LogicalPosition<f64>;
 
-    // Translation type because in winit 24.0 the WinitWaylandTheme is a trait instead
-    // of a struct, which makes things more complicated
-    pub(crate) struct WaylandThemeWrapper {
-        primary_color_active: [u8; 4],
-        primary_color_inactive: [u8; 4],
-        secondary_color_active: [u8; 4],
-        secondary_color_inactive: [u8; 4],
-        close_button_color_idle: [u8; 4],
-        close_button_color_hovered: [u8; 4],
-        close_button_color_disabled: [u8; 4],
-        maximize_button_color_idle: [u8;4],
-        maximize_button_color_hovered: [u8;4],
-        maximize_button_color_disabled: [u8;4],
-        minimize_button_color_idle: [u8;4],
-        minimize_button_color_hovered: [u8;4],
-        minimize_button_color_disabled: [u8;4],
+    #[cfg(target_os = "linux")]
+    const fn translate_color(input: [u8;4]) -> WinitARGBColor {
+        WinitARGBColor { r: input[0], g: input[1], b: input[2], a: input[3] }
     }
 
     #[cfg(target_os = "linux")]
+    #[derive(Debug)]
+    pub struct WaylandThemeWrapper(pub WaylandTheme);
+
+    #[cfg(target_os = "linux")]
     impl WinitWaylandTheme for WaylandThemeWrapper {
-        fn primary_color(&self, window_active: bool) -> [u8;4] { if window_active { self.primary_color_active } else { self.primary_color_inactive }}
-        fn secondary_color(&self, window_active: bool) -> [u8;4] { if window_active { self.secondary_color_active } else { self.secondary_color_inactive }}
-        fn close_button_color(&self, button_state: WinitButtonState) -> [u8;4] { match button_state {
-            WinitButtonState::Idle => self.close_button_color_idle,
-            WinitButtonState::Hovered => self.close_button_color_hovered,
-            WinitButtonState::Disabled => self.close_button_color_disabled
-        }}
-        fn maximize_button_color(&self, button_state: WinitButtonState) -> [u8;4] { match button_state {
-            WinitButtonState::Idle => self.maximize_button_color_idle,
-            WinitButtonState::Hovered => self.maximize_button_color_hovered,
-            WinitButtonState::Disabled => self.maximize_button_color_disabled
-        }}
-        fn minimize_button_color(&self, button_state: WinitButtonState) -> [u8;4] { match button_state {
-            WinitButtonState::Idle => self.minimize_button_color_idle,
-            WinitButtonState::Hovered => self.minimize_button_color_hovered,
-            WinitButtonState::Disabled => self.minimize_button_color_disabled
-        }}
+        fn element_color(&self, element: WinitElement, window_active: bool) -> WinitARGBColor {
+            if window_active {
+                match element {
+                    WinitElement::Bar => translate_color(self.0.title_bar_active_background_color),
+                    WinitElement::Separator => translate_color(self.0.title_bar_active_separator_color),
+                    WinitElement::Text => translate_color(self.0.title_bar_active_text_color),
+                }
+            } else {
+                match element {
+                    WinitElement::Bar => translate_color(self.0.title_bar_inactive_background_color),
+                    WinitElement::Separator => translate_color(self.0.title_bar_inactive_separator_color),
+                    WinitElement::Text => translate_color(self.0.title_bar_inactive_text_color),
+                }
+            }
+        }
+
+        fn button_color(
+            &self,
+            button: WinitButton,
+            button_state: WinitButtonState,
+            foreground: bool,
+            window_active: bool
+        ) -> WinitARGBColor {
+            match button {
+                WinitButton::Maximize => {
+                    match button_state {
+                        WinitButtonState::Idle => {
+                            if foreground {
+                                if window_active {
+                                    translate_color(self.0.maximize_idle_foreground_active_color)
+                                } else {
+                                    translate_color(self.0.maximize_idle_foreground_inactive_color)
+                                }
+                            } else {
+                                if window_active {
+                                    translate_color(self.0.maximize_idle_background_active_color)
+                                } else {
+                                    translate_color(self.0.maximize_idle_background_inactive_color)
+                                }
+                            }
+                        },
+                        WinitButtonState::Hovered => {
+                            if foreground {
+                                if window_active {
+                                    translate_color(self.0.maximize_hovered_foreground_active_color)
+                                } else {
+                                    translate_color(self.0.maximize_hovered_foreground_inactive_color)
+                                }
+                            } else {
+                                if window_active {
+                                    translate_color(self.0.maximize_hovered_background_active_color)
+                                } else {
+                                    translate_color(self.0.maximize_hovered_background_inactive_color)
+                                }
+                            }
+                        },
+                        WinitButtonState::Disabled => {
+                            if foreground {
+                                if window_active {
+                                    translate_color(self.0.maximize_disabled_foreground_active_color)
+                                } else {
+                                    translate_color(self.0.maximize_disabled_foreground_inactive_color)
+                                }
+                            } else {
+                                if window_active {
+                                    translate_color(self.0.maximize_disabled_background_active_color)
+                                } else {
+                                    translate_color(self.0.maximize_disabled_background_inactive_color)
+                                }
+                            }
+                        },
+                    }
+                },
+                WinitButton::Minimize => {
+                    match button_state {
+                        WinitButtonState::Idle => {
+                            if foreground {
+                                if window_active {
+                                    translate_color(self.0.minimize_idle_foreground_active_color)
+                                } else {
+                                    translate_color(self.0.minimize_idle_foreground_inactive_color)
+                                }
+                            } else {
+                                if window_active {
+                                    translate_color(self.0.minimize_idle_background_active_color)
+                                } else {
+                                    translate_color(self.0.minimize_idle_background_inactive_color)
+                                }
+                            }
+                        },
+                        WinitButtonState::Hovered => {
+                            if foreground {
+                                if window_active {
+                                    translate_color(self.0.minimize_hovered_foreground_active_color)
+                                } else {
+                                    translate_color(self.0.minimize_hovered_foreground_inactive_color)
+                                }
+                            } else {
+                                if window_active {
+                                    translate_color(self.0.minimize_hovered_background_active_color)
+                                } else {
+                                    translate_color(self.0.minimize_hovered_background_inactive_color)
+                                }
+                            }
+                        },
+                        WinitButtonState::Disabled => {
+                            if foreground {
+                                if window_active {
+                                    translate_color(self.0.minimize_disabled_foreground_active_color)
+                                } else {
+                                    translate_color(self.0.minimize_disabled_foreground_inactive_color)
+                                }
+                            } else {
+                                if window_active {
+                                    translate_color(self.0.minimize_disabled_background_active_color)
+                                } else {
+                                    translate_color(self.0.minimize_disabled_background_inactive_color)
+                                }
+                            }
+                        },
+                    }
+                },
+                WinitButton::Close => {
+                    match button_state {
+                        WinitButtonState::Idle => {
+                            if foreground {
+                                if window_active {
+                                    translate_color(self.0.close_idle_foreground_active_color)
+                                } else {
+                                    translate_color(self.0.close_idle_foreground_inactive_color)
+                                }
+                            } else {
+                                if window_active {
+                                    translate_color(self.0.close_idle_background_active_color)
+                                } else {
+                                    translate_color(self.0.close_idle_background_inactive_color)
+                                }
+                            }
+                        },
+                        WinitButtonState::Hovered => {
+                            if foreground {
+                                if window_active {
+                                    translate_color(self.0.close_hovered_foreground_active_color)
+                                } else {
+                                    translate_color(self.0.close_hovered_foreground_inactive_color)
+                                }
+                            } else {
+                                if window_active {
+                                    translate_color(self.0.close_hovered_background_active_color)
+                                } else {
+                                    translate_color(self.0.close_hovered_background_inactive_color)
+                                }
+                            }
+                        },
+                        WinitButtonState::Disabled => {
+                            if foreground {
+                                if window_active {
+                                    translate_color(self.0.close_disabled_foreground_active_color)
+                                } else {
+                                    translate_color(self.0.close_disabled_foreground_inactive_color)
+                                }
+                            } else {
+                                if window_active {
+                                    translate_color(self.0.close_disabled_background_active_color)
+                                } else {
+                                    translate_color(self.0.close_disabled_background_inactive_color)
+                                }
+                            }
+                        },
+                    }
+                },
+            }
+        }
     }
 
     #[inline(always)]
@@ -306,26 +456,6 @@ pub(crate) mod winit_translate {
     #[inline]
     pub(crate) fn translate_taskbar_icon(input: TaskBarIcon) -> Result<WinitIcon, WinitBadIcon> {
         WinitIcon::from_rgba(input.rgba_bytes.into_library_owned_vec(), 256, 256)
-    }
-
-    #[cfg(target_os = "linux")]
-    #[inline(always)]
-    pub(crate) const fn translate_wayland_theme(input: WaylandTheme) -> WaylandThemeWrapper {
-        WaylandThemeWrapper {
-            primary_color_active: input.primary_color_active,
-            primary_color_inactive: input.primary_color_inactive,
-            secondary_color_active: input.secondary_color_active,
-            secondary_color_inactive: input.secondary_color_inactive,
-            close_button_color_idle: input.close_button_color_idle,
-            close_button_color_hovered: input.close_button_color_hovered,
-            close_button_color_disabled: input.close_button_color_disabled,
-            maximize_button_color_idle: input.maximize_button_color_idle,
-            maximize_button_color_hovered: input.maximize_button_color_hovered,
-            maximize_button_color_disabled: input.maximize_button_color_disabled,
-            minimize_button_color_idle: input.minimize_button_color_idle,
-            minimize_button_color_hovered: input.minimize_button_color_hovered,
-            minimize_button_color_disabled: input.minimize_button_color_disabled,
-        }
     }
 
     #[inline]

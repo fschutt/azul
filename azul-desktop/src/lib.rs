@@ -17,6 +17,7 @@ extern crate alloc;
 
 #[macro_use]
 extern crate azul_css;
+extern crate rust_fontconfig;
 #[macro_use(impl_from, impl_display)]
 extern crate azul_core;
 extern crate azulc;

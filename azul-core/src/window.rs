@@ -23,7 +23,8 @@ use crate::{
     task::{TimerId, ThreadId, Timer, Thread},
 };
 use rust_fontconfig::FcFontCache;
-
+#[cfg(feature = "std")]
+use std::thread::JoinHandle;
 #[cfg(feature = "opengl")]
 use crate::gl::OptionGlContextPtr;
 
@@ -567,6 +568,25 @@ pub fn update_full_window_state(
 }
 
 #[derive(Debug)]
+pub enum LazyFcCache {
+    Resolved(FcFontCache),
+    InProgress(Option<JoinHandle<FcFontCache>>)
+}
+
+impl LazyFcCache {
+    pub fn resolve(&mut self) -> FcFontCache {
+        match self {
+            LazyFcCache::Resolved(c) => { c.clone() },
+            LazyFcCache::InProgress(j) => {
+                j.take().and_then(|j| Some(j.join().ok()))
+                .unwrap_or_default()
+                .unwrap_or_default()
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct WindowInternal {
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: Option<RendererType>,
@@ -748,7 +768,7 @@ pub struct WindowInternalInit {
 impl WindowInternal {
 
     /// Initializes the `WindowInternal` on window creation. Calls the layout() method once to initializes the layout
-    #[cfg(all(feature = "opengl", feature = "multithreading"))]
+    #[cfg(all(feature = "opengl", feature = "multithreading", feature = "std"))]
     pub fn new(
         init: WindowInternalInit,
         data: &mut RefAny,
@@ -756,7 +776,7 @@ impl WindowInternal {
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
         callbacks: RenderCallbacks,
-        fc_cache: &FcFontCache,
+        fc_cache: &mut LazyFcCache,
     ) -> Self {
 
         use crate::callbacks::LayoutInfo;
@@ -795,6 +815,11 @@ impl WindowInternal {
 
         let epoch = Epoch(0);
 
+        // the fc_cache has to resolve here - fonts are loaded lazily in order
+        // to hide any startup delay
+        let fc_cache_real = fc_cache.resolve();
+        *fc_cache = LazyFcCache::Resolved(fc_cache_real.clone());
+
         let SolvedLayout { layout_results, gl_texture_cache } = SolvedLayout::new(
             styled_dom,
             epoch,
@@ -805,7 +830,7 @@ impl WindowInternal {
             init.id_namespace,
             app_resources,
             callbacks,
-            fc_cache,
+            &fc_cache_real,
         );
 
         WindowInternal {
@@ -833,7 +858,7 @@ impl WindowInternal {
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
         callbacks: RenderCallbacks,
-        fc_cache: &FcFontCache,
+        fc_cache: &mut LazyFcCache,
     ) {
 
         use crate::callbacks::LayoutInfo;
@@ -871,6 +896,9 @@ impl WindowInternal {
             styled_dom
         };
 
+        let fc_cache_real = fc_cache.resolve();
+        *fc_cache = LazyFcCache::Resolved(fc_cache_real.clone());
+
         let SolvedLayout { layout_results, gl_texture_cache } = SolvedLayout::new(
             styled_dom,
             self.epoch,
@@ -881,7 +909,7 @@ impl WindowInternal {
             id_namespace,
             app_resources,
             callbacks,
-            fc_cache,
+            &fc_cache_real,
         );
 
         self.layout_results = layout_results;
@@ -1369,6 +1397,20 @@ impl Default for XWindowType {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
+#[repr(C)]
+pub enum UserAttentionType {
+    None,
+    Critical,
+    Informational,
+}
+
+impl Default for UserAttentionType {
+    fn default() -> UserAttentionType {
+        UserAttentionType::None
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LinuxWindowOptions {
@@ -1402,7 +1444,7 @@ pub struct LinuxWindowOptions {
     /// [Desktop Entry Spec](https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html#desktop-file-id)
     pub wayland_app_id: OptionAzString,
     pub wayland_theme: OptionWaylandTheme,
-    pub request_user_attention: bool,
+    pub request_user_attention: UserAttentionType,
     pub window_icon: OptionWindowIcon,
 }
 
@@ -1434,7 +1476,7 @@ impl_vec_partialeq!(XWindowType, XWindowTypeVec);
 impl_vec_eq!(XWindowType, XWindowTypeVec);
 impl_vec_hash!(XWindowType, XWindowTypeVec);
 
-impl_option!(WaylandTheme, OptionWaylandTheme, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(WaylandTheme, OptionWaylandTheme, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
@@ -1492,35 +1534,55 @@ pub enum FullScreenMode {
     FastWindowed,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
+// Translation type because in winit 24.0 the WinitWaylandTheme is a trait instead
+// of a struct, which makes things more complicated
 pub struct WaylandTheme {
-    /// Primary color when the window is focused
-    pub primary_color_active: [u8;4],
-    /// Primary color when the window is unfocused
-    pub primary_color_inactive: [u8;4],
-    /// Secondary color when the window is focused
-    pub secondary_color_active: [u8;4],
-    /// Secondary color when the window is unfocused
-    pub secondary_color_inactive: [u8;4],
-    /// Close button color (idle state)
-    pub close_button_color_idle: [u8;4],
-    /// Close button color (hovered state)
-    pub close_button_color_hovered: [u8;4],
-    /// Close button color (disabled state)
-    pub close_button_color_disabled: [u8;4],
-    /// Maximize button color (idle state)
-    pub maximize_button_color_idle: [u8;4],
-    /// Maximize button color (hovered state)
-    pub maximize_button_color_hovered: [u8;4],
-    /// Maximize button color (disabled state)
-    pub maximize_button_color_disabled: [u8;4],
-    /// Minimize button color (idle state)
-    pub minimize_button_color_idle: [u8;4],
-    /// Minimize button color (hovered state)
-    pub minimize_button_color_hovered: [u8;4],
-    /// Minimize button color (disabled state)
-    pub minimize_button_color_disabled: [u8;4],
+    pub title_bar_active_background_color: [u8;4],
+    pub title_bar_active_separator_color: [u8;4],
+    pub title_bar_active_text_color: [u8;4],
+    pub title_bar_inactive_background_color: [u8;4],
+    pub title_bar_inactive_separator_color: [u8;4],
+    pub title_bar_inactive_text_color: [u8;4],
+    pub maximize_idle_foreground_inactive_color: [u8;4],
+    pub minimize_idle_foreground_inactive_color: [u8;4],
+    pub close_idle_foreground_inactive_color: [u8;4],
+    pub maximize_hovered_foreground_inactive_color: [u8;4],
+    pub minimize_hovered_foreground_inactive_color: [u8;4],
+    pub close_hovered_foreground_inactive_color: [u8;4],
+    pub maximize_disabled_foreground_inactive_color: [u8;4],
+    pub minimize_disabled_foreground_inactive_color: [u8;4],
+    pub close_disabled_foreground_inactive_color: [u8;4],
+    pub maximize_idle_background_inactive_color: [u8;4],
+    pub minimize_idle_background_inactive_color: [u8;4],
+    pub close_idle_background_inactive_color: [u8;4],
+    pub maximize_hovered_background_inactive_color: [u8;4],
+    pub minimize_hovered_background_inactive_color: [u8;4],
+    pub close_hovered_background_inactive_color: [u8;4],
+    pub maximize_disabled_background_inactive_color: [u8;4],
+    pub minimize_disabled_background_inactive_color: [u8;4],
+    pub close_disabled_background_inactive_color: [u8;4],
+    pub maximize_idle_foreground_active_color: [u8;4],
+    pub minimize_idle_foreground_active_color: [u8;4],
+    pub close_idle_foreground_active_color: [u8;4],
+    pub maximize_hovered_foreground_active_color: [u8;4],
+    pub minimize_hovered_foreground_active_color: [u8;4],
+    pub close_hovered_foreground_active_color: [u8;4],
+    pub maximize_disabled_foreground_active_color: [u8;4],
+    pub minimize_disabled_foreground_active_color: [u8;4],
+    pub close_disabled_foreground_active_color: [u8;4],
+    pub maximize_idle_background_active_color: [u8;4],
+    pub minimize_idle_background_active_color: [u8;4],
+    pub close_idle_background_active_color: [u8;4],
+    pub maximize_hovered_background_active_color: [u8;4],
+    pub minimize_hovered_background_active_color: [u8;4],
+    pub close_hovered_background_active_color: [u8;4],
+    pub maximize_disabled_background_active_color: [u8;4],
+    pub minimize_disabled_background_active_color: [u8;4],
+    pub close_disabled_background_active_color: [u8;4],
+    pub title_bar_font: AzString,
+    pub title_bar_font_size: f32,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
