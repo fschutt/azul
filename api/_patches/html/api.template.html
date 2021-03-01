@@ -56,6 +56,15 @@
       max-width: 200px;
       padding: 50px;
       float: left;
+      box-sizing: border-box;
+    }
+
+    @media screen and (max-width: 720px) {
+      body .center aside { min-width: 100%; }
+      body .center aside header { display: inline-block; }
+      body .center aside nav { display: inline-block; float: right; overflow: hidden; margin: 0px; }
+      body .center aside nav ul li { display: inline-block; width: 50%; }
+      body .center aside nav ul li:nth-child(odd) { float: right; }
     }
 
     aside header {
