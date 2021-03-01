@@ -4940,7 +4940,7 @@ pub mod callbacks {
     /// C-ABI wrapper over an `IFrameCallbackType`
     
 #[doc(inline)] pub use crate::dll::AzIFrameCallback as IFrameCallback;
-    /// For rendering large or infinite datasets such as tables or lists, azul uses `IFrameCallbacks` that allow the library user to only render the visible portion of DOM nodes, not the entire set. IFrames are rendered after the screen has been laid out, but before it gets composited. IFrames can be used recursively (i.e. iframes within iframes are possible). IFrames are re-rendered once the user scrolls to the bounds (see `IFrameCallbackReturn` on how to set the bounds) or the parent DOM was re-rendered.
+    /// For rendering large or infinite datasets such as tables or lists, azul uses `IFrameCallbacks` that allow the library user to only render the visible portion of DOM nodes, not the entire set. IFrames are rendered after the screen has been laid out, but before it gets composited. IFrames can be used recursively (i.e. iframes within iframes are possible). IFrames are re-rendered once the user scrolls to the bounds (see `IFrameCallbackReturn` on how to set the bounds) or the parent DOM was recreated.
     
 #[doc(inline)] pub use crate::dll::AzIFrameCallbackType as IFrameCallbackType;
     /// `IFrameCallbackInfo` struct
