@@ -27,6 +27,6 @@ azul-dll = { version = "0.0.1", path = "../../azul-dll", default-features = fals
 
 [features]
 default = []
-link_static = ["azul-dll", "azul-dll/std"]
-no_std = ["azul-dll", "azul-dll/css_parser", "azul-dll/text_layout"] # currently blocked on gleam, allsorts, rayon and webrender not being no_std
-minifb = ["azul-dll", "azul-dll/std"]
+link_static = ["azul-dll"]
+no_std = ["link_static", "azul-dll/css_parser", "azul-dll/text_layout"] # currently blocked on gleam, allsorts, rayon and webrender not being no_std
+minifb = ["azul-dll/std", "link_static"]

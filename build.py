@@ -889,16 +889,18 @@ def generate_rust_dll_bindings(api_data, structs_map, functions_map):
     code += "    }\r\n\r\n"
 
     code += "    }\r\n\r\n"
-    code += "    #[cfg(not(feature = \"link_static\"))]"
+    code += "    #[cfg(not(feature = \"link_static\"))]\r\n"
     code += "    pub use self::dynamic_link::*;\r\n"
 
 
     code += "\r\n"
     code += "\r\n"
 
-    code += "    #[cfg(feature = \"link_static\")]"
+    code += "    #[cfg(feature = \"link_static\")]\r\n"
     code += "    mod static_link {\r\n"
+    code += "       #[cfg(feature = \"link_static\")]\r\n"
     code += "        extern crate azul_dll;\r\n"
+    code += "       #[cfg(feature = \"link_static\")]\r\n"
     code += "        use azul_dll::*;\r\n"
     code += "    }\r\n\r\n"
     code += "    #[cfg(feature = \"link_static\")]\r\n"

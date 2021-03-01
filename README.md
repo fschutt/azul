@@ -52,6 +52,8 @@ On Linux, you need to install the following packages:
 
 ```sh
 # clang-cl // needed for compiling the software renderer
+libxcb-shape0-dev
+libxcb-xfixes0-dev
 libfreetype6-dev # needed to render fonts
 libfontconfig1-dev # needed to select system fonts
 ```

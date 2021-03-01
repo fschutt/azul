@@ -22,708 +22,6 @@
             gl::TextureFlags,
         };
     
-/// Re-export of rust-allocated (stack based) `String` struct
-pub type AzStringTT = azul_impl::css::AzString;
-pub use AzStringTT as AzString;
-
-/// Re-export of rust-allocated (stack based) `DomVecDestructor` struct
-pub type AzDomVecDestructorTT = azul_impl::dom::DomVecDestructor;
-pub use AzDomVecDestructorTT as AzDomVecDestructor;
-
-pub type AzDomVecDestructorType = extern "C" fn(&mut AzDomVec);
-/// Re-export of rust-allocated (stack based) `IdOrClassVecDestructor` struct
-pub type AzIdOrClassVecDestructorTT = azul_impl::dom::IdOrClassVecDestructor;
-pub use AzIdOrClassVecDestructorTT as AzIdOrClassVecDestructor;
-
-pub type AzIdOrClassVecDestructorType = extern "C" fn(&mut AzIdOrClassVec);
-/// Re-export of rust-allocated (stack based) `NodeDataInlineCssPropertyVecDestructor` struct
-pub type AzNodeDataInlineCssPropertyVecDestructorTT = azul_impl::dom::NodeDataInlineCssPropertyVecDestructor;
-pub use AzNodeDataInlineCssPropertyVecDestructorTT as AzNodeDataInlineCssPropertyVecDestructor;
-
-pub type AzNodeDataInlineCssPropertyVecDestructorType = extern "C" fn(&mut AzNodeDataInlineCssPropertyVec);
-/// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecDestructor` struct
-pub type AzStyleBackgroundContentVecDestructorTT = azul_impl::css::StyleBackgroundContentVecDestructor;
-pub use AzStyleBackgroundContentVecDestructorTT as AzStyleBackgroundContentVecDestructor;
-
-pub type AzStyleBackgroundContentVecDestructorType = extern "C" fn(&mut AzStyleBackgroundContentVec);
-/// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecDestructor` struct
-pub type AzStyleBackgroundPositionVecDestructorTT = azul_impl::css::StyleBackgroundPositionVecDestructor;
-pub use AzStyleBackgroundPositionVecDestructorTT as AzStyleBackgroundPositionVecDestructor;
-
-pub type AzStyleBackgroundPositionVecDestructorType = extern "C" fn(&mut AzStyleBackgroundPositionVec);
-/// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecDestructor` struct
-pub type AzStyleBackgroundRepeatVecDestructorTT = azul_impl::css::StyleBackgroundRepeatVecDestructor;
-pub use AzStyleBackgroundRepeatVecDestructorTT as AzStyleBackgroundRepeatVecDestructor;
-
-pub type AzStyleBackgroundRepeatVecDestructorType = extern "C" fn(&mut AzStyleBackgroundRepeatVec);
-/// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecDestructor` struct
-pub type AzStyleBackgroundSizeVecDestructorTT = azul_impl::css::StyleBackgroundSizeVecDestructor;
-pub use AzStyleBackgroundSizeVecDestructorTT as AzStyleBackgroundSizeVecDestructor;
-
-pub type AzStyleBackgroundSizeVecDestructorType = extern "C" fn(&mut AzStyleBackgroundSizeVec);
-/// Re-export of rust-allocated (stack based) `StyleTransformVecDestructor` struct
-pub type AzStyleTransformVecDestructorTT = azul_impl::css::StyleTransformVecDestructor;
-pub use AzStyleTransformVecDestructorTT as AzStyleTransformVecDestructor;
-
-pub type AzStyleTransformVecDestructorType = extern "C" fn(&mut AzStyleTransformVec);
-/// Re-export of rust-allocated (stack based) `CssPropertyVecDestructor` struct
-pub type AzCssPropertyVecDestructorTT = azul_impl::css::CssPropertyVecDestructor;
-pub use AzCssPropertyVecDestructorTT as AzCssPropertyVecDestructor;
-
-pub type AzCssPropertyVecDestructorType = extern "C" fn(&mut AzCssPropertyVec);
-/// Re-export of rust-allocated (stack based) `SvgMultiPolygonVecDestructor` struct
-pub type AzSvgMultiPolygonVecDestructorTT = azul_impl::svg::SvgMultiPolygonVecDestructor;
-pub use AzSvgMultiPolygonVecDestructorTT as AzSvgMultiPolygonVecDestructor;
-
-pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
-/// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
-pub type AzSvgPathVecDestructorTT = azul_impl::svg::SvgPathVecDestructor;
-pub use AzSvgPathVecDestructorTT as AzSvgPathVecDestructor;
-
-pub type AzSvgPathVecDestructorType = extern "C" fn(&mut AzSvgPathVec);
-/// Re-export of rust-allocated (stack based) `VertexAttributeVecDestructor` struct
-pub type AzVertexAttributeVecDestructorTT = azul_impl::gl::VertexAttributeVecDestructor;
-pub use AzVertexAttributeVecDestructorTT as AzVertexAttributeVecDestructor;
-
-pub type AzVertexAttributeVecDestructorType = extern "C" fn(&mut AzVertexAttributeVec);
-/// Re-export of rust-allocated (stack based) `SvgPathElementVecDestructor` struct
-pub type AzSvgPathElementVecDestructorTT = azul_impl::svg::SvgPathElementVecDestructor;
-pub use AzSvgPathElementVecDestructorTT as AzSvgPathElementVecDestructor;
-
-pub type AzSvgPathElementVecDestructorType = extern "C" fn(&mut AzSvgPathElementVec);
-/// Re-export of rust-allocated (stack based) `SvgVertexVecDestructor` struct
-pub type AzSvgVertexVecDestructorTT = azul_impl::svg::SvgVertexVecDestructor;
-pub use AzSvgVertexVecDestructorTT as AzSvgVertexVecDestructor;
-
-pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
-/// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
-pub type AzU32VecDestructorTT = azul_impl::css::U32VecDestructor;
-pub use AzU32VecDestructorTT as AzU32VecDestructor;
-
-pub type AzU32VecDestructorType = extern "C" fn(&mut AzU32Vec);
-/// Re-export of rust-allocated (stack based) `XWindowTypeVecDestructor` struct
-pub type AzXWindowTypeVecDestructorTT = azul_impl::window::XWindowTypeVecDestructor;
-pub use AzXWindowTypeVecDestructorTT as AzXWindowTypeVecDestructor;
-
-pub type AzXWindowTypeVecDestructorType = extern "C" fn(&mut AzXWindowTypeVec);
-/// Re-export of rust-allocated (stack based) `VirtualKeyCodeVecDestructor` struct
-pub type AzVirtualKeyCodeVecDestructorTT = azul_impl::window::VirtualKeyCodeVecDestructor;
-pub use AzVirtualKeyCodeVecDestructorTT as AzVirtualKeyCodeVecDestructor;
-
-pub type AzVirtualKeyCodeVecDestructorType = extern "C" fn(&mut AzVirtualKeyCodeVec);
-/// Re-export of rust-allocated (stack based) `CascadeInfoVecDestructor` struct
-pub type AzCascadeInfoVecDestructorTT = azul_impl::style::CascadeInfoVecDestructor;
-pub use AzCascadeInfoVecDestructorTT as AzCascadeInfoVecDestructor;
-
-pub type AzCascadeInfoVecDestructorType = extern "C" fn(&mut AzCascadeInfoVec);
-/// Re-export of rust-allocated (stack based) `ScanCodeVecDestructor` struct
-pub type AzScanCodeVecDestructorTT = azul_impl::window::ScanCodeVecDestructor;
-pub use AzScanCodeVecDestructorTT as AzScanCodeVecDestructor;
-
-pub type AzScanCodeVecDestructorType = extern "C" fn(&mut AzScanCodeVec);
-/// Re-export of rust-allocated (stack based) `CssDeclarationVecDestructor` struct
-pub type AzCssDeclarationVecDestructorTT = azul_impl::css::CssDeclarationVecDestructor;
-pub use AzCssDeclarationVecDestructorTT as AzCssDeclarationVecDestructor;
-
-pub type AzCssDeclarationVecDestructorType = extern "C" fn(&mut AzCssDeclarationVec);
-/// Re-export of rust-allocated (stack based) `CssPathSelectorVecDestructor` struct
-pub type AzCssPathSelectorVecDestructorTT = azul_impl::css::CssPathSelectorVecDestructor;
-pub use AzCssPathSelectorVecDestructorTT as AzCssPathSelectorVecDestructor;
-
-pub type AzCssPathSelectorVecDestructorType = extern "C" fn(&mut AzCssPathSelectorVec);
-/// Re-export of rust-allocated (stack based) `StylesheetVecDestructor` struct
-pub type AzStylesheetVecDestructorTT = azul_impl::css::StylesheetVecDestructor;
-pub use AzStylesheetVecDestructorTT as AzStylesheetVecDestructor;
-
-pub type AzStylesheetVecDestructorType = extern "C" fn(&mut AzStylesheetVec);
-/// Re-export of rust-allocated (stack based) `CssRuleBlockVecDestructor` struct
-pub type AzCssRuleBlockVecDestructorTT = azul_impl::css::CssRuleBlockVecDestructor;
-pub use AzCssRuleBlockVecDestructorTT as AzCssRuleBlockVecDestructor;
-
-pub type AzCssRuleBlockVecDestructorType = extern "C" fn(&mut AzCssRuleBlockVec);
-/// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
-pub type AzU8VecDestructorTT = azul_impl::css::U8VecDestructor;
-pub use AzU8VecDestructorTT as AzU8VecDestructor;
-
-pub type AzU8VecDestructorType = extern "C" fn(&mut AzU8Vec);
-/// Re-export of rust-allocated (stack based) `CallbackDataVecDestructor` struct
-pub type AzCallbackDataVecDestructorTT = azul_impl::dom::CallbackDataVecDestructor;
-pub use AzCallbackDataVecDestructorTT as AzCallbackDataVecDestructor;
-
-pub type AzCallbackDataVecDestructorType = extern "C" fn(&mut AzCallbackDataVec);
-/// Re-export of rust-allocated (stack based) `DebugMessageVecDestructor` struct
-pub type AzDebugMessageVecDestructorTT = azul_impl::gl::AzDebugMessageVecDestructor;
-pub use AzDebugMessageVecDestructorTT as AzDebugMessageVecDestructor;
-
-pub type AzDebugMessageVecDestructorType = extern "C" fn(&mut AzDebugMessageVec);
-/// Re-export of rust-allocated (stack based) `GLuintVecDestructor` struct
-pub type AzGLuintVecDestructorTT = azul_impl::gl::GLuintVecDestructor;
-pub use AzGLuintVecDestructorTT as AzGLuintVecDestructor;
-
-pub type AzGLuintVecDestructorType = extern "C" fn(&mut AzGLuintVec);
-/// Re-export of rust-allocated (stack based) `GLintVecDestructor` struct
-pub type AzGLintVecDestructorTT = azul_impl::gl::GLintVecDestructor;
-pub use AzGLintVecDestructorTT as AzGLintVecDestructor;
-
-pub type AzGLintVecDestructorType = extern "C" fn(&mut AzGLintVec);
-/// Re-export of rust-allocated (stack based) `StringVecDestructor` struct
-pub type AzStringVecDestructorTT = azul_impl::css::StringVecDestructor;
-pub use AzStringVecDestructorTT as AzStringVecDestructor;
-
-pub type AzStringVecDestructorType = extern "C" fn(&mut AzStringVec);
-/// Re-export of rust-allocated (stack based) `StringPairVecDestructor` struct
-pub type AzStringPairVecDestructorTT = azul_impl::window::StringPairVecDestructor;
-pub use AzStringPairVecDestructorTT as AzStringPairVecDestructor;
-
-pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
-/// Re-export of rust-allocated (stack based) `LinearColorStopVecDestructor` struct
-pub type AzLinearColorStopVecDestructorTT = azul_impl::css::LinearColorStopVecDestructor;
-pub use AzLinearColorStopVecDestructorTT as AzLinearColorStopVecDestructor;
-
-pub type AzLinearColorStopVecDestructorType = extern "C" fn(&mut AzLinearColorStopVec);
-/// Re-export of rust-allocated (stack based) `RadialColorStopVecDestructor` struct
-pub type AzRadialColorStopVecDestructorTT = azul_impl::css::RadialColorStopVecDestructor;
-pub use AzRadialColorStopVecDestructorTT as AzRadialColorStopVecDestructor;
-
-pub type AzRadialColorStopVecDestructorType = extern "C" fn(&mut AzRadialColorStopVec);
-/// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
-pub type AzNodeIdVecDestructorTT = azul_impl::styled_dom::NodeIdVecDestructor;
-pub use AzNodeIdVecDestructorTT as AzNodeIdVecDestructor;
-
-pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
-/// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
-pub type AzNodeVecDestructorTT = azul_impl::styled_dom::AzNodeVecDestructor;
-pub use AzNodeVecDestructorTT as AzNodeVecDestructor;
-
-pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
-/// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
-pub type AzStyledNodeVecDestructorTT = azul_impl::styled_dom::StyledNodeVecDestructor;
-pub use AzStyledNodeVecDestructorTT as AzStyledNodeVecDestructor;
-
-pub type AzStyledNodeVecDestructorType = extern "C" fn(&mut AzStyledNodeVec);
-/// Re-export of rust-allocated (stack based) `TagIdsToNodeIdsMappingVecDestructor` struct
-pub type AzTagIdsToNodeIdsMappingVecDestructorTT = azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor;
-pub use AzTagIdsToNodeIdsMappingVecDestructorTT as AzTagIdsToNodeIdsMappingVecDestructor;
-
-pub type AzTagIdsToNodeIdsMappingVecDestructorType = extern "C" fn(&mut AzTagIdsToNodeIdsMappingVec);
-/// Re-export of rust-allocated (stack based) `ParentWithNodeDepthVecDestructor` struct
-pub type AzParentWithNodeDepthVecDestructorTT = azul_impl::styled_dom::ParentWithNodeDepthVecDestructor;
-pub use AzParentWithNodeDepthVecDestructorTT as AzParentWithNodeDepthVecDestructor;
-
-pub type AzParentWithNodeDepthVecDestructorType = extern "C" fn(&mut AzParentWithNodeDepthVec);
-/// Re-export of rust-allocated (stack based) `NodeDataVecDestructor` struct
-pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
-pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
-
-pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
-/// Wrapper over a Rust-allocated `Vec<Dom>`
-pub type AzDomVecTT = azul_impl::dom::DomVec;
-pub use AzDomVecTT as AzDomVec;
-/// Destructor: Takes ownership of the `DomVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_dom_vec_delete(object: &mut AzDomVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<IdOrClass>`
-pub type AzIdOrClassVecTT = azul_impl::dom::IdOrClassVec;
-pub use AzIdOrClassVecTT as AzIdOrClassVec;
-/// Destructor: Takes ownership of the `IdOrClassVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_id_or_class_vec_delete(object: &mut AzIdOrClassVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
-pub type AzNodeDataInlineCssPropertyVecTT = azul_impl::dom::NodeDataInlineCssPropertyVec;
-pub use AzNodeDataInlineCssPropertyVecTT as AzNodeDataInlineCssPropertyVec;
-/// Destructor: Takes ownership of the `NodeDataInlineCssPropertyVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_node_data_inline_css_property_vec_delete(object: &mut AzNodeDataInlineCssPropertyVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
-pub type AzStyleBackgroundContentVecTT = azul_impl::css::StyleBackgroundContentVec;
-pub use AzStyleBackgroundContentVecTT as AzStyleBackgroundContentVec;
-/// Destructor: Takes ownership of the `StyleBackgroundContentVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_style_background_content_vec_delete(object: &mut AzStyleBackgroundContentVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
-pub type AzStyleBackgroundPositionVecTT = azul_impl::css::StyleBackgroundPositionVec;
-pub use AzStyleBackgroundPositionVecTT as AzStyleBackgroundPositionVec;
-/// Destructor: Takes ownership of the `StyleBackgroundPositionVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_style_background_position_vec_delete(object: &mut AzStyleBackgroundPositionVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
-pub type AzStyleBackgroundRepeatVecTT = azul_impl::css::StyleBackgroundRepeatVec;
-pub use AzStyleBackgroundRepeatVecTT as AzStyleBackgroundRepeatVec;
-/// Destructor: Takes ownership of the `StyleBackgroundRepeatVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_style_background_repeat_vec_delete(object: &mut AzStyleBackgroundRepeatVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
-pub type AzStyleBackgroundSizeVecTT = azul_impl::css::StyleBackgroundSizeVec;
-pub use AzStyleBackgroundSizeVecTT as AzStyleBackgroundSizeVec;
-/// Destructor: Takes ownership of the `StyleBackgroundSizeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_style_background_size_vec_delete(object: &mut AzStyleBackgroundSizeVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<StyleTransform>`
-pub type AzStyleTransformVecTT = azul_impl::css::StyleTransformVec;
-pub use AzStyleTransformVecTT as AzStyleTransformVec;
-/// Destructor: Takes ownership of the `StyleTransformVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_style_transform_vec_delete(object: &mut AzStyleTransformVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<CssProperty>`
-pub type AzCssPropertyVecTT = azul_impl::css::CssPropertyVec;
-pub use AzCssPropertyVecTT as AzCssPropertyVec;
-/// Destructor: Takes ownership of the `CssPropertyVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_css_property_vec_delete(object: &mut AzCssPropertyVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
-pub type AzSvgMultiPolygonVecTT = azul_impl::svg::SvgMultiPolygonVec;
-pub use AzSvgMultiPolygonVecTT as AzSvgMultiPolygonVec;
-/// Destructor: Takes ownership of the `SvgMultiPolygonVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_svg_multi_polygon_vec_delete(object: &mut AzSvgMultiPolygonVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<SvgPath>`
-pub type AzSvgPathVecTT = azul_impl::svg::SvgPathVec;
-pub use AzSvgPathVecTT as AzSvgPathVec;
-/// Destructor: Takes ownership of the `SvgPathVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_svg_path_vec_delete(object: &mut AzSvgPathVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
-pub type AzVertexAttributeVecTT = azul_impl::gl::VertexAttributeVec;
-pub use AzVertexAttributeVecTT as AzVertexAttributeVec;
-/// Destructor: Takes ownership of the `VertexAttributeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_vertex_attribute_vec_delete(object: &mut AzVertexAttributeVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `VertexAttribute`
-pub type AzSvgPathElementVecTT = azul_impl::svg::SvgPathElementVec;
-pub use AzSvgPathElementVecTT as AzSvgPathElementVec;
-/// Destructor: Takes ownership of the `SvgPathElementVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_svg_path_element_vec_delete(object: &mut AzSvgPathElementVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `SvgVertex`
-pub type AzSvgVertexVecTT = azul_impl::svg::SvgVertexVec;
-pub use AzSvgVertexVecTT as AzSvgVertexVec;
-/// Destructor: Takes ownership of the `SvgVertexVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_svg_vertex_vec_delete(object: &mut AzSvgVertexVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<u32>`
-pub type AzU32VecTT = azul_impl::css::U32Vec;
-pub use AzU32VecTT as AzU32Vec;
-/// Destructor: Takes ownership of the `U32Vec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_u32_vec_delete(object: &mut AzU32Vec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `XWindowType`
-pub type AzXWindowTypeVecTT = azul_impl::window::XWindowTypeVec;
-pub use AzXWindowTypeVecTT as AzXWindowTypeVec;
-/// Destructor: Takes ownership of the `XWindowTypeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_x_window_type_vec_delete(object: &mut AzXWindowTypeVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `VirtualKeyCode`
-pub type AzVirtualKeyCodeVecTT = azul_impl::window::VirtualKeyCodeVec;
-pub use AzVirtualKeyCodeVecTT as AzVirtualKeyCodeVec;
-/// Destructor: Takes ownership of the `VirtualKeyCodeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_virtual_key_code_vec_delete(object: &mut AzVirtualKeyCodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `CascadeInfo`
-pub type AzCascadeInfoVecTT = azul_impl::style::CascadeInfoVec;
-pub use AzCascadeInfoVecTT as AzCascadeInfoVec;
-/// Destructor: Takes ownership of the `CascadeInfoVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_cascade_info_vec_delete(object: &mut AzCascadeInfoVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `ScanCode`
-pub type AzScanCodeVecTT = azul_impl::window::ScanCodeVec;
-pub use AzScanCodeVecTT as AzScanCodeVec;
-/// Destructor: Takes ownership of the `ScanCodeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_scan_code_vec_delete(object: &mut AzScanCodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `CssDeclaration`
-pub type AzCssDeclarationVecTT = azul_impl::css::CssDeclarationVec;
-pub use AzCssDeclarationVecTT as AzCssDeclarationVec;
-/// Destructor: Takes ownership of the `CssDeclarationVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_css_declaration_vec_delete(object: &mut AzCssDeclarationVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `CssPathSelector`
-pub type AzCssPathSelectorVecTT = azul_impl::css::CssPathSelectorVec;
-pub use AzCssPathSelectorVecTT as AzCssPathSelectorVec;
-/// Destructor: Takes ownership of the `CssPathSelectorVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_css_path_selector_vec_delete(object: &mut AzCssPathSelectorVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Stylesheet`
-pub type AzStylesheetVecTT = azul_impl::css::StylesheetVec;
-pub use AzStylesheetVecTT as AzStylesheetVec;
-/// Destructor: Takes ownership of the `StylesheetVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_stylesheet_vec_delete(object: &mut AzStylesheetVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `CssRuleBlock`
-pub type AzCssRuleBlockVecTT = azul_impl::css::CssRuleBlockVec;
-pub use AzCssRuleBlockVecTT as AzCssRuleBlockVec;
-/// Destructor: Takes ownership of the `CssRuleBlockVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_css_rule_block_vec_delete(object: &mut AzCssRuleBlockVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `U8Vec`
-pub type AzU8VecTT = azul_impl::css::U8Vec;
-pub use AzU8VecTT as AzU8Vec;
-/// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_u8_vec_delete(object: &mut AzU8Vec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `CallbackData`
-pub type AzCallbackDataVecTT = azul_impl::dom::CallbackDataVec;
-pub use AzCallbackDataVecTT as AzCallbackDataVec;
-/// Destructor: Takes ownership of the `CallbackDataVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_callback_data_vec_delete(object: &mut AzCallbackDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `Vec<DebugMessage>`
-pub type AzDebugMessageVecTT = azul_impl::gl::AzDebugMessageVec;
-pub use AzDebugMessageVecTT as AzDebugMessageVec;
-/// Destructor: Takes ownership of the `DebugMessageVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_debug_message_vec_delete(object: &mut AzDebugMessageVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `U32Vec`
-pub type AzGLuintVecTT = azul_impl::gl::GLuintVec;
-pub use AzGLuintVecTT as AzGLuintVec;
-/// Destructor: Takes ownership of the `GLuintVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_g_luint_vec_delete(object: &mut AzGLuintVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `GLintVec`
-pub type AzGLintVecTT = azul_impl::gl::GLintVec;
-pub use AzGLintVecTT as AzGLintVec;
-/// Destructor: Takes ownership of the `GLintVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_g_lint_vec_delete(object: &mut AzGLintVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `StringVec`
-pub type AzStringVecTT = azul_impl::css::StringVec;
-pub use AzStringVecTT as AzStringVec;
-/// Destructor: Takes ownership of the `StringVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_string_vec_delete(object: &mut AzStringVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `StringPairVec`
-pub type AzStringPairVecTT = azul_impl::window::StringPairVec;
-pub use AzStringPairVecTT as AzStringPairVec;
-/// Destructor: Takes ownership of the `StringPairVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_string_pair_vec_delete(object: &mut AzStringPairVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `LinearColorStopVec`
-pub type AzLinearColorStopVecTT = azul_impl::css::LinearColorStopVec;
-pub use AzLinearColorStopVecTT as AzLinearColorStopVec;
-/// Destructor: Takes ownership of the `LinearColorStopVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_linear_color_stop_vec_delete(object: &mut AzLinearColorStopVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `RadialColorStopVec`
-pub type AzRadialColorStopVecTT = azul_impl::css::RadialColorStopVec;
-pub use AzRadialColorStopVecTT as AzRadialColorStopVec;
-/// Destructor: Takes ownership of the `RadialColorStopVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_radial_color_stop_vec_delete(object: &mut AzRadialColorStopVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `NodeIdVec`
-pub type AzNodeIdVecTT = azul_impl::styled_dom::NodeIdVec;
-pub use AzNodeIdVecTT as AzNodeIdVec;
-/// Destructor: Takes ownership of the `NodeIdVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_node_id_vec_delete(object: &mut AzNodeIdVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `NodeVec`
-pub type AzNodeVecTT = azul_impl::styled_dom::AzNodeVec;
-pub use AzNodeVecTT as AzNodeVec;
-/// Destructor: Takes ownership of the `NodeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_node_vec_delete(object: &mut AzNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `StyledNodeVec`
-pub type AzStyledNodeVecTT = azul_impl::styled_dom::StyledNodeVec;
-pub use AzStyledNodeVecTT as AzStyledNodeVec;
-/// Destructor: Takes ownership of the `StyledNodeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_styled_node_vec_delete(object: &mut AzStyledNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
-pub type AzTagIdsToNodeIdsMappingVecTT = azul_impl::styled_dom::TagIdsToNodeIdsMappingVec;
-pub use AzTagIdsToNodeIdsMappingVecTT as AzTagIdsToNodeIdsMappingVec;
-/// Destructor: Takes ownership of the `TagIdsToNodeIdsMappingVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_delete(object: &mut AzTagIdsToNodeIdsMappingVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
-pub type AzParentWithNodeDepthVecTT = azul_impl::styled_dom::ParentWithNodeDepthVec;
-pub use AzParentWithNodeDepthVecTT as AzParentWithNodeDepthVec;
-/// Destructor: Takes ownership of the `ParentWithNodeDepthVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_parent_with_node_depth_vec_delete(object: &mut AzParentWithNodeDepthVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Wrapper over a Rust-allocated `NodeDataVec`
-pub type AzNodeDataVecTT = azul_impl::dom::NodeDataVec;
-pub use AzNodeDataVecTT as AzNodeDataVec;
-/// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_node_data_vec_delete(object: &mut AzNodeDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// Re-export of rust-allocated (stack based) `OptionGlContextPtr` struct
-pub type AzOptionGlContextPtrTT = azul_impl::gl::OptionGlContextPtr;
-pub use AzOptionGlContextPtrTT as AzOptionGlContextPtr;
-
-/// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
-pub type AzOptionThreadReceiveMsgTT = azul_impl::task::OptionThreadReceiveMsg;
-pub use AzOptionThreadReceiveMsgTT as AzOptionThreadReceiveMsg;
-
-/// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
-pub type AzOptionPercentageValueTT = azul_impl::css::OptionPercentageValue;
-pub use AzOptionPercentageValueTT as AzOptionPercentageValue;
-
-/// Re-export of rust-allocated (stack based) `OptionAngleValue` struct
-pub type AzOptionAngleValueTT = azul_impl::css::OptionAngleValue;
-pub use AzOptionAngleValueTT as AzOptionAngleValue;
-
-/// Re-export of rust-allocated (stack based) `OptionRendererOptions` struct
-pub type AzOptionRendererOptionsTT = azul_impl::window::OptionRendererOptions;
-pub use AzOptionRendererOptionsTT as AzOptionRendererOptions;
-
-/// Re-export of rust-allocated (stack based) `OptionCallback` struct
-pub type AzOptionCallbackTT = azul_impl::callbacks::OptionCallback;
-pub use AzOptionCallbackTT as AzOptionCallback;
-
-/// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
-pub type AzOptionThreadSendMsgTT = azul_impl::task::OptionThreadSendMsg;
-pub use AzOptionThreadSendMsgTT as AzOptionThreadSendMsg;
-
-/// Re-export of rust-allocated (stack based) `OptionLayoutRect` struct
-pub type AzOptionLayoutRectTT = azul_impl::css::OptionLayoutRect;
-pub use AzOptionLayoutRectTT as AzOptionLayoutRect;
-
-/// Re-export of rust-allocated (stack based) `OptionRefAny` struct
-pub type AzOptionRefAnyTT = azul_impl::callbacks::OptionRefAny;
-pub use AzOptionRefAnyTT as AzOptionRefAny;
-
-/// Re-export of rust-allocated (stack based) `OptionLayoutPoint` struct
-pub type AzOptionLayoutPointTT = azul_impl::css::OptionLayoutPoint;
-pub use AzOptionLayoutPointTT as AzOptionLayoutPoint;
-
-/// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
-pub type AzOptionWindowThemeTT = azul_impl::window::OptionWindowTheme;
-pub use AzOptionWindowThemeTT as AzOptionWindowTheme;
-
-/// Re-export of rust-allocated (stack based) `OptionNodeId` struct
-pub type AzOptionNodeIdTT = azul_impl::styled_dom::OptionNodeId;
-pub use AzOptionNodeIdTT as AzOptionNodeId;
-
-/// Re-export of rust-allocated (stack based) `OptionDomNodeId` struct
-pub type AzOptionDomNodeIdTT = azul_impl::callbacks::OptionDomNodeId;
-pub use AzOptionDomNodeIdTT as AzOptionDomNodeId;
-
-/// Re-export of rust-allocated (stack based) `OptionColorU` struct
-pub type AzOptionColorUTT = azul_impl::css::OptionColorU;
-pub use AzOptionColorUTT as AzOptionColorU;
-
-/// Re-export of rust-allocated (stack based) `OptionRawImage` struct
-pub type AzOptionRawImageTT = azul_impl::resources::OptionRawImage;
-pub use AzOptionRawImageTT as AzOptionRawImage;
-
-/// Re-export of rust-allocated (stack based) `OptionSvgDashPattern` struct
-pub type AzOptionSvgDashPatternTT = azul_impl::svg::OptionSvgDashPattern;
-pub use AzOptionSvgDashPatternTT as AzOptionSvgDashPattern;
-
-/// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
-pub type AzOptionWaylandThemeTT = azul_impl::window::OptionWaylandTheme;
-pub use AzOptionWaylandThemeTT as AzOptionWaylandTheme;
-
-/// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
-pub type AzOptionTaskBarIconTT = azul_impl::window::OptionTaskBarIcon;
-pub use AzOptionTaskBarIconTT as AzOptionTaskBarIcon;
-
-/// Re-export of rust-allocated (stack based) `OptionHwndHandle` struct
-pub type AzOptionHwndHandleTT = azul_impl::window::OptionHwndHandle;
-pub use AzOptionHwndHandleTT as AzOptionHwndHandle;
-
-/// Re-export of rust-allocated (stack based) `OptionLogicalPosition` struct
-pub type AzOptionLogicalPositionTT = azul_impl::window::OptionLogicalPosition;
-pub use AzOptionLogicalPositionTT as AzOptionLogicalPosition;
-
-/// Re-export of rust-allocated (stack based) `OptionPhysicalPositionI32` struct
-pub type AzOptionPhysicalPositionI32TT = azul_impl::window::OptionPhysicalPositionI32;
-pub use AzOptionPhysicalPositionI32TT as AzOptionPhysicalPositionI32;
-
-/// Re-export of rust-allocated (stack based) `OptionWindowIcon` struct
-pub type AzOptionWindowIconTT = azul_impl::window::OptionWindowIcon;
-pub use AzOptionWindowIconTT as AzOptionWindowIcon;
-
-/// Re-export of rust-allocated (stack based) `OptionString` struct
-pub type AzOptionStringTT = azul_impl::css::OptionAzString;
-pub use AzOptionStringTT as AzOptionString;
-
-/// Re-export of rust-allocated (stack based) `OptionX11Visual` struct
-pub type AzOptionX11VisualTT = azul_impl::window::OptionX11Visual;
-pub use AzOptionX11VisualTT as AzOptionX11Visual;
-
-/// Re-export of rust-allocated (stack based) `OptionI32` struct
-pub type AzOptionI32TT = azul_impl::css::OptionI32;
-pub use AzOptionI32TT as AzOptionI32;
-
-/// Re-export of rust-allocated (stack based) `OptionF32` struct
-pub type AzOptionF32TT = azul_impl::css::OptionF32;
-pub use AzOptionF32TT as AzOptionF32;
-
-/// Re-export of rust-allocated (stack based) `OptionMouseCursorType` struct
-pub type AzOptionMouseCursorTypeTT = azul_impl::window::OptionMouseCursorType;
-pub use AzOptionMouseCursorTypeTT as AzOptionMouseCursorType;
-
-/// Re-export of rust-allocated (stack based) `OptionLogicalSize` struct
-pub type AzOptionLogicalSizeTT = azul_impl::window::OptionLogicalSize;
-pub use AzOptionLogicalSizeTT as AzOptionLogicalSize;
-
-/// Option<char> but the char is a u32, for C FFI stability reasons
-pub type AzOptionCharTT = azul_impl::window::OptionChar;
-pub use AzOptionCharTT as AzOptionChar;
-
-/// Re-export of rust-allocated (stack based) `OptionVirtualKeyCode` struct
-pub type AzOptionVirtualKeyCodeTT = azul_impl::window::OptionVirtualKeyCode;
-pub use AzOptionVirtualKeyCodeTT as AzOptionVirtualKeyCode;
-
-/// Re-export of rust-allocated (stack based) `OptionDom` struct
-pub type AzOptionDomTT = azul_impl::dom::OptionDom;
-pub use AzOptionDomTT as AzOptionDom;
-
-/// Re-export of rust-allocated (stack based) `OptionTexture` struct
-pub type AzOptionTextureTT = azul_impl::gl::OptionTexture;
-pub use AzOptionTextureTT as AzOptionTexture;
-
-/// Re-export of rust-allocated (stack based) `OptionImageMask` struct
-pub type AzOptionImageMaskTT = azul_impl::resources::OptionImageMask;
-pub use AzOptionImageMaskTT as AzOptionImageMask;
-
-/// Re-export of rust-allocated (stack based) `OptionTabIndex` struct
-pub type AzOptionTabIndexTT = azul_impl::dom::OptionTabIndex;
-pub use AzOptionTabIndexTT as AzOptionTabIndex;
-
-/// Re-export of rust-allocated (stack based) `OptionTagId` struct
-pub type AzOptionTagIdTT = azul_impl::styled_dom::OptionTagId;
-pub use AzOptionTagIdTT as AzOptionTagId;
-
-/// Re-export of rust-allocated (stack based) `OptionDuration` struct
-pub type AzOptionDurationTT = azul_impl::task::OptionDuration;
-pub use AzOptionDurationTT as AzOptionDuration;
-
-/// Re-export of rust-allocated (stack based) `OptionInstant` struct
-pub type AzOptionInstantTT = azul_impl::task::OptionInstant;
-pub use AzOptionInstantTT as AzOptionInstant;
-
-/// Re-export of rust-allocated (stack based) `OptionUsize` struct
-pub type AzOptionUsizeTT = azul_impl::gl::OptionUsize;
-pub use AzOptionUsizeTT as AzOptionUsize;
-
-/// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
-pub type AzOptionU8VecRefTT = azul_impl::gl::OptionU8VecRef;
-pub use AzOptionU8VecRefTT as AzOptionU8VecRef;
-
-/// Re-export of rust-allocated (stack based) `ResultSvgSvgParseError` struct
-pub type AzResultSvgSvgParseErrorTT = azul_impl::svg::ResultSvgSvgParseError;
-pub use AzResultSvgSvgParseErrorTT as AzResultSvgSvgParseError;
-
-/// Re-export of rust-allocated (stack based) `SvgParseError` struct
-pub type AzSvgParseErrorTT = azul_impl::svg::SvgParseError;
-pub use AzSvgParseErrorTT as AzSvgParseError;
-
-/// Re-export of rust-allocated (stack based) `XmlError` struct
-pub type AzXmlErrorTT = azul_impl::xml::XmlError;
-pub use AzXmlErrorTT as AzXmlError;
-
-/// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
-pub type AzDuplicatedNamespaceErrorTT = azul_impl::xml::DuplicatedNamespaceError;
-pub use AzDuplicatedNamespaceErrorTT as AzDuplicatedNamespaceError;
-
-/// Re-export of rust-allocated (stack based) `UnknownNamespaceError` struct
-pub type AzUnknownNamespaceErrorTT = azul_impl::xml::UnknownNamespaceError;
-pub use AzUnknownNamespaceErrorTT as AzUnknownNamespaceError;
-
-/// Re-export of rust-allocated (stack based) `UnexpectedCloseTagError` struct
-pub type AzUnexpectedCloseTagErrorTT = azul_impl::xml::UnexpectedCloseTagError;
-pub use AzUnexpectedCloseTagErrorTT as AzUnexpectedCloseTagError;
-
-/// Re-export of rust-allocated (stack based) `UnknownEntityReferenceError` struct
-pub type AzUnknownEntityReferenceErrorTT = azul_impl::xml::UnknownEntityReferenceError;
-pub use AzUnknownEntityReferenceErrorTT as AzUnknownEntityReferenceError;
-
-/// Re-export of rust-allocated (stack based) `DuplicatedAttributeError` struct
-pub type AzDuplicatedAttributeErrorTT = azul_impl::xml::DuplicatedAttributeError;
-pub use AzDuplicatedAttributeErrorTT as AzDuplicatedAttributeError;
-
-/// Re-export of rust-allocated (stack based) `XmlParseError` struct
-pub type AzXmlParseErrorTT = azul_impl::xml::XmlParseError;
-pub use AzXmlParseErrorTT as AzXmlParseError;
-
-/// Re-export of rust-allocated (stack based) `XmlTextError` struct
-pub type AzXmlTextErrorTT = azul_impl::xml::XmlTextError;
-pub use AzXmlTextErrorTT as AzXmlTextError;
-
-/// Re-export of rust-allocated (stack based) `XmlStreamError` struct
-pub type AzXmlStreamErrorTT = azul_impl::xml::XmlStreamError;
-pub use AzXmlStreamErrorTT as AzXmlStreamError;
-
-/// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
-pub type AzNonXmlCharErrorTT = azul_impl::xml::NonXmlCharError;
-pub use AzNonXmlCharErrorTT as AzNonXmlCharError;
-
-/// Re-export of rust-allocated (stack based) `InvalidCharError` struct
-pub type AzInvalidCharErrorTT = azul_impl::xml::InvalidCharError;
-pub use AzInvalidCharErrorTT as AzInvalidCharError;
-
-/// Re-export of rust-allocated (stack based) `InvalidCharMultipleError` struct
-pub type AzInvalidCharMultipleErrorTT = azul_impl::xml::InvalidCharMultipleError;
-pub use AzInvalidCharMultipleErrorTT as AzInvalidCharMultipleError;
-
-/// Re-export of rust-allocated (stack based) `InvalidQuoteError` struct
-pub type AzInvalidQuoteErrorTT = azul_impl::xml::InvalidQuoteError;
-pub use AzInvalidQuoteErrorTT as AzInvalidQuoteError;
-
-/// Re-export of rust-allocated (stack based) `InvalidSpaceError` struct
-pub type AzInvalidSpaceErrorTT = azul_impl::xml::InvalidSpaceError;
-pub use AzInvalidSpaceErrorTT as AzInvalidSpaceError;
-
-/// Re-export of rust-allocated (stack based) `InvalidStringError` struct
-pub type AzInvalidStringErrorTT = azul_impl::xml::InvalidStringError;
-pub use AzInvalidStringErrorTT as AzInvalidStringError;
-
-/// Re-export of rust-allocated (stack based) `SvgParseErrorPosition` struct
-pub type AzSvgParseErrorPositionTT = azul_impl::xml::XmlTextPos;
-pub use AzSvgParseErrorPositionTT as AzSvgParseErrorPosition;
-
-/// Re-export of rust-allocated (stack based) `Instant` struct
-pub type AzInstantTT = azul_impl::task::Instant;
-pub use AzInstantTT as AzInstant;
-
-/// Re-export of rust-allocated (stack based) `InstantPtr` struct
-pub type AzInstantPtrTT = azul_impl::task::AzInstantPtr;
-pub use AzInstantPtrTT as AzInstantPtr;
-/// Destructor: Takes ownership of the `InstantPtr` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_instant_ptr_delete(object: &mut AzInstantPtr) {  unsafe { core::ptr::drop_in_place(object); } }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_instant_ptr_deep_copy(object: &AzInstantPtr) -> AzInstantPtr { object.clone() }
-
-pub type AzInstantPtrCloneFnType = extern "C" fn(&c_void) -> AzInstantPtr;
-/// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
-pub type AzInstantPtrCloneFnTT = azul_impl::task::InstantPtrCloneCallback;
-pub use AzInstantPtrCloneFnTT as AzInstantPtrCloneFn;
-
-pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut c_void);
-/// Re-export of rust-allocated (stack based) `InstantPtrDestructorFn` struct
-pub type AzInstantPtrDestructorFnTT = azul_impl::task::InstantPtrDestructorCallback;
-pub use AzInstantPtrDestructorFnTT as AzInstantPtrDestructorFn;
-
-/// Re-export of rust-allocated (stack based) `SystemTick` struct
-pub type AzSystemTickTT = azul_impl::task::SystemTick;
-pub use AzSystemTickTT as AzSystemTick;
-
-/// Re-export of rust-allocated (stack based) `Duration` struct
-pub type AzDurationTT = azul_impl::task::Duration;
-pub use AzDurationTT as AzDuration;
-
-/// Re-export of rust-allocated (stack based) `SystemTimeDiff` struct
-pub type AzSystemTimeDiffTT = azul_impl::task::SystemTimeDiff;
-pub use AzSystemTimeDiffTT as AzSystemTimeDiff;
-
-/// Re-export of rust-allocated (stack based) `SystemTickDiff` struct
-pub type AzSystemTickDiffTT = azul_impl::task::SystemTickDiff;
-pub use AzSystemTickDiffTT as AzSystemTickDiff;
-
-/// Re-export of rust-allocated (stack based) `AppLogLevel` struct
-pub type AzAppLogLevelTT = azul_impl::resources::AppLogLevel;
-pub use AzAppLogLevelTT as AzAppLogLevel;
-
-/// External system callbacks to get the system time or create / manage threads
-pub type AzSystemCallbacksTT = azul_impl::task::ExternalSystemCallbacks;
-pub use AzSystemCallbacksTT as AzSystemCallbacks;
-
-/// Configuration for optional features, such as whether to enable logging or panic hooks
-pub type AzAppConfigTT = azul_impl::resources::AppConfig;
-pub use AzAppConfigTT as AzAppConfig;
-/// Creates a new AppConfig with default values
-#[no_mangle] pub extern "C" fn az_app_config_default() -> AzAppConfig { AppConfig::default() }
-
 /// Main application class
 pub type AzAppTT = azul_impl::app::AzAppPtr;
 pub use AzAppTT as AzApp;
@@ -735,6 +33,245 @@ pub use AzAppTT as AzApp;
 #[no_mangle] pub extern "C" fn az_app_run(app: AzApp, window: AzWindowCreateOptions) { app.get().run(window) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_app_delete(object: &mut AzApp) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Configuration for optional features, such as whether to enable logging or panic hooks
+pub type AzAppConfigTT = azul_impl::resources::AppConfig;
+pub use AzAppConfigTT as AzAppConfig;
+/// Creates a new AppConfig with default values
+#[no_mangle] pub extern "C" fn az_app_config_default() -> AzAppConfig { AppConfig::default() }
+
+/// Re-export of rust-allocated (stack based) `AppLogLevel` struct
+pub type AzAppLogLevelTT = azul_impl::resources::AppLogLevel;
+pub use AzAppLogLevelTT as AzAppLogLevel;
+
+/// External system callbacks to get the system time or create / manage threads
+pub type AzSystemCallbacksTT = azul_impl::task::ExternalSystemCallbacks;
+pub use AzSystemCallbacksTT as AzSystemCallbacks;
+
+/// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
+pub type AzWindowCreateOptionsTT = azul_impl::window::WindowCreateOptions;
+pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
+/// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `WindowCreateOptions::new()` constructor.
+#[no_mangle] pub extern "C" fn az_window_create_options_new(layout_callback: AzLayoutCallbackType) -> AzWindowCreateOptions { WindowCreateOptions::new(layout_callback) }
+/// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `WindowCreateOptions::default()` constructor.
+#[no_mangle] pub extern "C" fn az_window_create_options_default() -> AzWindowCreateOptions { WindowCreateOptions::default() }
+
+/// Re-export of rust-allocated (stack based) `RendererOptions` struct
+pub type AzRendererOptionsTT = azul_impl::window::RendererOptions;
+pub use AzRendererOptionsTT as AzRendererOptions;
+
+/// Re-export of rust-allocated (stack based) `Vsync` struct
+pub type AzVsyncTT = azul_impl::window::Vsync;
+pub use AzVsyncTT as AzVsync;
+
+/// Re-export of rust-allocated (stack based) `Srgb` struct
+pub type AzSrgbTT = azul_impl::window::Srgb;
+pub use AzSrgbTT as AzSrgb;
+
+/// Re-export of rust-allocated (stack based) `HwAcceleration` struct
+pub type AzHwAccelerationTT = azul_impl::window::HwAcceleration;
+pub use AzHwAccelerationTT as AzHwAcceleration;
+
+/// Re-export of rust-allocated (stack based) `LayoutPoint` struct
+pub type AzLayoutPointTT = azul_impl::css::LayoutPoint;
+pub use AzLayoutPointTT as AzLayoutPoint;
+
+/// Re-export of rust-allocated (stack based) `LayoutSize` struct
+pub type AzLayoutSizeTT = azul_impl::css::LayoutSize;
+pub use AzLayoutSizeTT as AzLayoutSize;
+
+/// Re-export of rust-allocated (stack based) `LayoutRect` struct
+pub type AzLayoutRectTT = azul_impl::css::LayoutRect;
+pub use AzLayoutRectTT as AzLayoutRect;
+
+/// Re-export of rust-allocated (stack based) `RawWindowHandle` struct
+pub type AzRawWindowHandleTT = azul_impl::window::RawWindowHandle;
+pub use AzRawWindowHandleTT as AzRawWindowHandle;
+
+/// Re-export of rust-allocated (stack based) `IOSHandle` struct
+pub type AzIOSHandleTT = azul_impl::window::IOSHandle;
+pub use AzIOSHandleTT as AzIOSHandle;
+
+/// Re-export of rust-allocated (stack based) `MacOSHandle` struct
+pub type AzMacOSHandleTT = azul_impl::window::MacOSHandle;
+pub use AzMacOSHandleTT as AzMacOSHandle;
+
+/// Re-export of rust-allocated (stack based) `XlibHandle` struct
+pub type AzXlibHandleTT = azul_impl::window::XlibHandle;
+pub use AzXlibHandleTT as AzXlibHandle;
+
+/// Re-export of rust-allocated (stack based) `XcbHandle` struct
+pub type AzXcbHandleTT = azul_impl::window::XcbHandle;
+pub use AzXcbHandleTT as AzXcbHandle;
+
+/// Re-export of rust-allocated (stack based) `WaylandHandle` struct
+pub type AzWaylandHandleTT = azul_impl::window::WaylandHandle;
+pub use AzWaylandHandleTT as AzWaylandHandle;
+
+/// Re-export of rust-allocated (stack based) `WindowsHandle` struct
+pub type AzWindowsHandleTT = azul_impl::window::WindowsHandle;
+pub use AzWindowsHandleTT as AzWindowsHandle;
+
+/// Re-export of rust-allocated (stack based) `WebHandle` struct
+pub type AzWebHandleTT = azul_impl::window::WebHandle;
+pub use AzWebHandleTT as AzWebHandle;
+
+/// Re-export of rust-allocated (stack based) `AndroidHandle` struct
+pub type AzAndroidHandleTT = azul_impl::window::AndroidHandle;
+pub use AzAndroidHandleTT as AzAndroidHandle;
+
+/// Re-export of rust-allocated (stack based) `TaskBarIcon` struct
+pub type AzTaskBarIconTT = azul_impl::window::TaskBarIcon;
+pub use AzTaskBarIconTT as AzTaskBarIcon;
+
+/// Re-export of rust-allocated (stack based) `XWindowType` struct
+pub type AzXWindowTypeTT = azul_impl::window::XWindowType;
+pub use AzXWindowTypeTT as AzXWindowType;
+
+/// Re-export of rust-allocated (stack based) `PhysicalPositionI32` struct
+pub type AzPhysicalPositionI32TT = azul_impl::window::PhysicalPosition<i32>;
+pub use AzPhysicalPositionI32TT as AzPhysicalPositionI32;
+
+/// Re-export of rust-allocated (stack based) `PhysicalSizeU32` struct
+pub type AzPhysicalSizeU32TT = azul_impl::window::PhysicalSize<u32>;
+pub use AzPhysicalSizeU32TT as AzPhysicalSizeU32;
+
+/// Re-export of rust-allocated (stack based) `LogicalPosition` struct
+pub type AzLogicalPositionTT = azul_impl::window::LogicalPosition;
+pub use AzLogicalPositionTT as AzLogicalPosition;
+
+/// Re-export of rust-allocated (stack based) `LogicalRect` struct
+pub type AzLogicalRectTT = azul_impl::window::LogicalRect;
+pub use AzLogicalRectTT as AzLogicalRect;
+
+/// Re-export of rust-allocated (stack based) `IconKey` struct
+pub type AzIconKeyTT = azul_impl::window::IconKey;
+pub use AzIconKeyTT as AzIconKey;
+
+/// Re-export of rust-allocated (stack based) `SmallWindowIconBytes` struct
+pub type AzSmallWindowIconBytesTT = azul_impl::window::SmallWindowIconBytes;
+pub use AzSmallWindowIconBytesTT as AzSmallWindowIconBytes;
+
+/// Re-export of rust-allocated (stack based) `LargeWindowIconBytes` struct
+pub type AzLargeWindowIconBytesTT = azul_impl::window::LargeWindowIconBytes;
+pub use AzLargeWindowIconBytesTT as AzLargeWindowIconBytes;
+
+/// Re-export of rust-allocated (stack based) `WindowIcon` struct
+pub type AzWindowIconTT = azul_impl::window::WindowIcon;
+pub use AzWindowIconTT as AzWindowIcon;
+
+/// Re-export of rust-allocated (stack based) `VirtualKeyCode` struct
+pub type AzVirtualKeyCodeTT = azul_impl::window::VirtualKeyCode;
+pub use AzVirtualKeyCodeTT as AzVirtualKeyCode;
+
+/// Re-export of rust-allocated (stack based) `AcceleratorKey` struct
+pub type AzAcceleratorKeyTT = azul_impl::window::AcceleratorKey;
+pub use AzAcceleratorKeyTT as AzAcceleratorKey;
+
+/// Re-export of rust-allocated (stack based) `WindowSize` struct
+pub type AzWindowSizeTT = azul_impl::window::WindowSize;
+pub use AzWindowSizeTT as AzWindowSize;
+
+/// Re-export of rust-allocated (stack based) `WindowFlags` struct
+pub type AzWindowFlagsTT = azul_impl::window::WindowFlags;
+pub use AzWindowFlagsTT as AzWindowFlags;
+
+/// Re-export of rust-allocated (stack based) `DebugState` struct
+pub type AzDebugStateTT = azul_impl::window::DebugState;
+pub use AzDebugStateTT as AzDebugState;
+
+/// Re-export of rust-allocated (stack based) `KeyboardState` struct
+pub type AzKeyboardStateTT = azul_impl::window::KeyboardState;
+pub use AzKeyboardStateTT as AzKeyboardState;
+
+/// Re-export of rust-allocated (stack based) `MouseCursorType` struct
+pub type AzMouseCursorTypeTT = azul_impl::window::MouseCursorType;
+pub use AzMouseCursorTypeTT as AzMouseCursorType;
+
+/// Re-export of rust-allocated (stack based) `CursorPosition` struct
+pub type AzCursorPositionTT = azul_impl::window::CursorPosition;
+pub use AzCursorPositionTT as AzCursorPosition;
+
+/// Re-export of rust-allocated (stack based) `MouseState` struct
+pub type AzMouseStateTT = azul_impl::window::MouseState;
+pub use AzMouseStateTT as AzMouseState;
+
+/// Re-export of rust-allocated (stack based) `PlatformSpecificOptions` struct
+pub type AzPlatformSpecificOptionsTT = azul_impl::window::PlatformSpecificOptions;
+pub use AzPlatformSpecificOptionsTT as AzPlatformSpecificOptions;
+
+/// Re-export of rust-allocated (stack based) `WindowsWindowOptions` struct
+pub type AzWindowsWindowOptionsTT = azul_impl::window::WindowsWindowOptions;
+pub use AzWindowsWindowOptionsTT as AzWindowsWindowOptions;
+
+/// Re-export of rust-allocated (stack based) `WaylandTheme` struct
+pub type AzWaylandThemeTT = azul_impl::window::WaylandTheme;
+pub use AzWaylandThemeTT as AzWaylandTheme;
+
+/// Re-export of rust-allocated (stack based) `RendererType` struct
+pub type AzRendererTypeTT = azul_impl::window::RendererType;
+pub use AzRendererTypeTT as AzRendererType;
+
+/// Re-export of rust-allocated (stack based) `StringPair` struct
+pub type AzStringPairTT = azul_impl::window::AzStringPair;
+pub use AzStringPairTT as AzStringPair;
+
+/// Re-export of rust-allocated (stack based) `LinuxWindowOptions` struct
+pub type AzLinuxWindowOptionsTT = azul_impl::window::LinuxWindowOptions;
+pub use AzLinuxWindowOptionsTT as AzLinuxWindowOptions;
+
+/// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
+pub type AzMacWindowOptionsTT = azul_impl::window::MacWindowOptions;
+pub use AzMacWindowOptionsTT as AzMacWindowOptions;
+
+/// Re-export of rust-allocated (stack based) `WasmWindowOptions` struct
+pub type AzWasmWindowOptionsTT = azul_impl::window::WasmWindowOptions;
+pub use AzWasmWindowOptionsTT as AzWasmWindowOptions;
+
+/// Re-export of rust-allocated (stack based) `FullScreenMode` struct
+pub type AzFullScreenModeTT = azul_impl::window::FullScreenMode;
+pub use AzFullScreenModeTT as AzFullScreenMode;
+
+/// Re-export of rust-allocated (stack based) `WindowTheme` struct
+pub type AzWindowThemeTT = azul_impl::window::WindowTheme;
+pub use AzWindowThemeTT as AzWindowTheme;
+
+/// Re-export of rust-allocated (stack based) `WindowPosition` struct
+pub type AzWindowPositionTT = azul_impl::window::WindowPosition;
+pub use AzWindowPositionTT as AzWindowPosition;
+
+/// Re-export of rust-allocated (stack based) `ImePosition` struct
+pub type AzImePositionTT = azul_impl::window::ImePosition;
+pub use AzImePositionTT as AzImePosition;
+
+/// Re-export of rust-allocated (stack based) `TouchState` struct
+pub type AzTouchStateTT = azul_impl::window::TouchState;
+pub use AzTouchStateTT as AzTouchState;
+
+/// Re-export of rust-allocated (stack based) `WindowState` struct
+pub type AzWindowStateTT = azul_impl::window::WindowState;
+pub use AzWindowStateTT as AzWindowState;
+/// Creates a new `WindowState` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `WindowState::new()` constructor.
+#[no_mangle] pub extern "C" fn az_window_state_new(layout_callback: AzLayoutCallbackType) -> AzWindowState { WindowState::new(layout_callback) }
+/// Creates a new `WindowState` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `WindowState::default()` constructor.
+#[no_mangle] pub extern "C" fn az_window_state_default() -> AzWindowState { WindowState::default() }
+
+/// Re-export of rust-allocated (stack based) `LogicalSize` struct
+pub type AzLogicalSizeTT = azul_impl::window::LogicalSize;
+pub use AzLogicalSizeTT as AzLogicalSize;
+
+/// Re-export of rust-allocated (stack based) `LayoutCallback` struct
+pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
+pub use AzLayoutCallbackTT as AzLayoutCallback;
+
+pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutInfo) -> AzStyledDom;
+/// Re-export of rust-allocated (stack based) `Callback` struct
+pub type AzCallbackTT = azul_impl::callbacks::Callback;
+pub use AzCallbackTT as AzCallback;
 
 /// Re-export of rust-allocated (stack based) `NodeId` struct
 pub type AzNodeIdTT = azul_impl::styled_dom::AzNodeId;
@@ -757,15 +294,6 @@ pub use AzHidpiAdjustedBoundsTT as AzHidpiAdjustedBounds;
 #[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_physical_size(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32 { hidpiadjustedbounds.get_physical_size() }
 /// Returns the hidpi factor of the bounds
 #[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_hidpi_factor(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> f32 { hidpiadjustedbounds.get_hidpi_factor() }
-
-/// Re-export of rust-allocated (stack based) `LayoutCallback` struct
-pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
-pub use AzLayoutCallbackTT as AzLayoutCallback;
-
-pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutInfo) -> AzStyledDom;
-/// Re-export of rust-allocated (stack based) `Callback` struct
-pub type AzCallbackTT = azul_impl::callbacks::Callback;
-pub use AzCallbackTT as AzCallback;
 
 /// Defines the focus target for the next frame
 pub type AzFocusTargetTT = azul_impl::callbacks::FocusTarget;
@@ -926,6 +454,78 @@ pub use AzLayoutInfoTT as AzLayoutInfo;
 #[no_mangle] pub extern "C" fn az_layout_info_window_height_larger_than(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_height_larger_than(width) }
 /// Equivalent to the Rust `LayoutInfo::window_height_smaller_than()` function.
 #[no_mangle] pub extern "C" fn az_layout_info_window_height_smaller_than(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_height_smaller_than(width) }
+
+/// Re-export of rust-allocated (stack based) `Dom` struct
+pub type AzDomTT = azul_impl::dom::Dom;
+pub use AzDomTT as AzDom;
+/// Returns the number of nodes in the DOM
+#[no_mangle] pub extern "C" fn az_dom_node_count(dom: &AzDom) -> usize { dom.node_count() }
+
+/// Re-export of rust-allocated (stack based) `GlTextureNode` struct
+pub type AzGlTextureNodeTT = azul_impl::dom::GlTextureNode;
+pub use AzGlTextureNodeTT as AzGlTextureNode;
+
+/// Re-export of rust-allocated (stack based) `IFrameNode` struct
+pub type AzIFrameNodeTT = azul_impl::dom::IFrameNode;
+pub use AzIFrameNodeTT as AzIFrameNode;
+
+/// Re-export of rust-allocated (stack based) `CallbackData` struct
+pub type AzCallbackDataTT = azul_impl::dom::CallbackData;
+pub use AzCallbackDataTT as AzCallbackData;
+
+/// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
+pub type AzNodeDataTT = azul_impl::dom::NodeData;
+pub use AzNodeDataTT as AzNodeData;
+
+/// List of core DOM node types built-into by `azul`
+pub type AzNodeTypeTT = azul_impl::dom::NodeType;
+pub use AzNodeTypeTT as AzNodeType;
+
+/// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
+pub type AzOnTT = azul_impl::dom::On;
+pub use AzOnTT as AzOn;
+/// Converts the `On` shorthand into a `EventFilter`
+#[no_mangle] pub extern "C" fn az_on_into_event_filter(on: AzOn) -> AzEventFilter { on.into() }
+
+/// Re-export of rust-allocated (stack based) `EventFilter` struct
+pub type AzEventFilterTT = azul_impl::dom::EventFilter;
+pub use AzEventFilterTT as AzEventFilter;
+
+/// Re-export of rust-allocated (stack based) `HoverEventFilter` struct
+pub type AzHoverEventFilterTT = azul_impl::dom::HoverEventFilter;
+pub use AzHoverEventFilterTT as AzHoverEventFilter;
+
+/// Re-export of rust-allocated (stack based) `FocusEventFilter` struct
+pub type AzFocusEventFilterTT = azul_impl::dom::FocusEventFilter;
+pub use AzFocusEventFilterTT as AzFocusEventFilter;
+
+/// Re-export of rust-allocated (stack based) `NotEventFilter` struct
+pub type AzNotEventFilterTT = azul_impl::dom::NotEventFilter;
+pub use AzNotEventFilterTT as AzNotEventFilter;
+
+/// Re-export of rust-allocated (stack based) `WindowEventFilter` struct
+pub type AzWindowEventFilterTT = azul_impl::dom::WindowEventFilter;
+pub use AzWindowEventFilterTT as AzWindowEventFilter;
+
+/// Re-export of rust-allocated (stack based) `ComponentEventFilter` struct
+pub type AzComponentEventFilterTT = azul_impl::dom::ComponentEventFilter;
+pub use AzComponentEventFilterTT as AzComponentEventFilter;
+
+/// Re-export of rust-allocated (stack based) `ApplicationEventFilter` struct
+pub type AzApplicationEventFilterTT = azul_impl::dom::ApplicationEventFilter;
+pub use AzApplicationEventFilterTT as AzApplicationEventFilter;
+
+/// Re-export of rust-allocated (stack based) `TabIndex` struct
+pub type AzTabIndexTT = azul_impl::dom::TabIndex;
+pub use AzTabIndexTT as AzTabIndex;
+
+/// Re-export of rust-allocated (stack based) `IdOrClass` struct
+pub type AzIdOrClassTT = azul_impl::dom::IdOrClass;
+pub use AzIdOrClassTT as AzIdOrClass;
+
+/// Re-export of rust-allocated (stack based) `NodeDataInlineCssProperty` struct
+pub type AzNodeDataInlineCssPropertyTT = azul_impl::dom::NodeDataInlineCssProperty;
+pub use AzNodeDataInlineCssPropertyTT as AzNodeDataInlineCssProperty;
 
 /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
 pub type AzCssRuleBlockTT = azul_impl::css::CssRuleBlock;
@@ -1697,78 +1297,6 @@ pub use AzStyledDomTT as AzStyledDom;
 #[no_mangle] pub extern "C" fn az_styled_dom_append(styleddom: &mut AzStyledDom, dom: AzStyledDom) { styleddom.append(dom); }
 /// Returns the number of nodes in the styled DOM
 #[no_mangle] pub extern "C" fn az_styled_dom_node_count(styleddom: &AzStyledDom) -> usize { styleddom.node_count() }
-
-/// Re-export of rust-allocated (stack based) `IdOrClass` struct
-pub type AzIdOrClassTT = azul_impl::dom::IdOrClass;
-pub use AzIdOrClassTT as AzIdOrClass;
-
-/// Re-export of rust-allocated (stack based) `NodeDataInlineCssProperty` struct
-pub type AzNodeDataInlineCssPropertyTT = azul_impl::dom::NodeDataInlineCssProperty;
-pub use AzNodeDataInlineCssPropertyTT as AzNodeDataInlineCssProperty;
-
-/// Re-export of rust-allocated (stack based) `Dom` struct
-pub type AzDomTT = azul_impl::dom::Dom;
-pub use AzDomTT as AzDom;
-/// Returns the number of nodes in the DOM
-#[no_mangle] pub extern "C" fn az_dom_node_count(dom: &AzDom) -> usize { dom.node_count() }
-
-/// Re-export of rust-allocated (stack based) `GlTextureNode` struct
-pub type AzGlTextureNodeTT = azul_impl::dom::GlTextureNode;
-pub use AzGlTextureNodeTT as AzGlTextureNode;
-
-/// Re-export of rust-allocated (stack based) `IFrameNode` struct
-pub type AzIFrameNodeTT = azul_impl::dom::IFrameNode;
-pub use AzIFrameNodeTT as AzIFrameNode;
-
-/// Re-export of rust-allocated (stack based) `CallbackData` struct
-pub type AzCallbackDataTT = azul_impl::dom::CallbackData;
-pub use AzCallbackDataTT as AzCallbackData;
-
-/// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
-pub type AzNodeDataTT = azul_impl::dom::NodeData;
-pub use AzNodeDataTT as AzNodeData;
-
-/// List of core DOM node types built-into by `azul`
-pub type AzNodeTypeTT = azul_impl::dom::NodeType;
-pub use AzNodeTypeTT as AzNodeType;
-
-/// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
-pub type AzOnTT = azul_impl::dom::On;
-pub use AzOnTT as AzOn;
-/// Converts the `On` shorthand into a `EventFilter`
-#[no_mangle] pub extern "C" fn az_on_into_event_filter(on: AzOn) -> AzEventFilter { on.into() }
-
-/// Re-export of rust-allocated (stack based) `EventFilter` struct
-pub type AzEventFilterTT = azul_impl::dom::EventFilter;
-pub use AzEventFilterTT as AzEventFilter;
-
-/// Re-export of rust-allocated (stack based) `HoverEventFilter` struct
-pub type AzHoverEventFilterTT = azul_impl::dom::HoverEventFilter;
-pub use AzHoverEventFilterTT as AzHoverEventFilter;
-
-/// Re-export of rust-allocated (stack based) `FocusEventFilter` struct
-pub type AzFocusEventFilterTT = azul_impl::dom::FocusEventFilter;
-pub use AzFocusEventFilterTT as AzFocusEventFilter;
-
-/// Re-export of rust-allocated (stack based) `NotEventFilter` struct
-pub type AzNotEventFilterTT = azul_impl::dom::NotEventFilter;
-pub use AzNotEventFilterTT as AzNotEventFilter;
-
-/// Re-export of rust-allocated (stack based) `WindowEventFilter` struct
-pub type AzWindowEventFilterTT = azul_impl::dom::WindowEventFilter;
-pub use AzWindowEventFilterTT as AzWindowEventFilter;
-
-/// Re-export of rust-allocated (stack based) `ComponentEventFilter` struct
-pub type AzComponentEventFilterTT = azul_impl::dom::ComponentEventFilter;
-pub use AzComponentEventFilterTT as AzComponentEventFilter;
-
-/// Re-export of rust-allocated (stack based) `ApplicationEventFilter` struct
-pub type AzApplicationEventFilterTT = azul_impl::dom::ApplicationEventFilter;
-pub use AzApplicationEventFilterTT as AzApplicationEventFilter;
-
-/// Re-export of rust-allocated (stack based) `TabIndex` struct
-pub type AzTabIndexTT = azul_impl::dom::TabIndex;
-pub use AzTabIndexTT as AzTabIndex;
 
 /// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
 pub type AzGlShaderPrecisionFormatReturnTT = azul_impl::gl::GlShaderPrecisionFormatReturn;
@@ -2619,221 +2147,693 @@ pub type AzThreadSenderDestructorFnType = extern "C" fn(&mut AzThreadSender);
 pub type AzThreadSenderDestructorFnTT = azul_impl::task::ThreadSenderDestructorCallback;
 pub use AzThreadSenderDestructorFnTT as AzThreadSenderDestructorFn;
 
-/// Re-export of rust-allocated (stack based) `RendererOptions` struct
-pub type AzRendererOptionsTT = azul_impl::window::RendererOptions;
-pub use AzRendererOptionsTT as AzRendererOptions;
+/// Re-export of rust-allocated (stack based) `String` struct
+pub type AzStringTT = azul_impl::css::AzString;
+pub use AzStringTT as AzString;
 
-/// Re-export of rust-allocated (stack based) `Vsync` struct
-pub type AzVsyncTT = azul_impl::window::Vsync;
-pub use AzVsyncTT as AzVsync;
+/// Wrapper over a Rust-allocated `Vec<Dom>`
+pub type AzDomVecTT = azul_impl::dom::DomVec;
+pub use AzDomVecTT as AzDomVec;
+/// Destructor: Takes ownership of the `DomVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_dom_vec_delete(object: &mut AzDomVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `Srgb` struct
-pub type AzSrgbTT = azul_impl::window::Srgb;
-pub use AzSrgbTT as AzSrgb;
+/// Wrapper over a Rust-allocated `Vec<IdOrClass>`
+pub type AzIdOrClassVecTT = azul_impl::dom::IdOrClassVec;
+pub use AzIdOrClassVecTT as AzIdOrClassVec;
+/// Destructor: Takes ownership of the `IdOrClassVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_id_or_class_vec_delete(object: &mut AzIdOrClassVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `HwAcceleration` struct
-pub type AzHwAccelerationTT = azul_impl::window::HwAcceleration;
-pub use AzHwAccelerationTT as AzHwAcceleration;
+/// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
+pub type AzNodeDataInlineCssPropertyVecTT = azul_impl::dom::NodeDataInlineCssPropertyVec;
+pub use AzNodeDataInlineCssPropertyVecTT as AzNodeDataInlineCssPropertyVec;
+/// Destructor: Takes ownership of the `NodeDataInlineCssPropertyVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_node_data_inline_css_property_vec_delete(object: &mut AzNodeDataInlineCssPropertyVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `LayoutPoint` struct
-pub type AzLayoutPointTT = azul_impl::css::LayoutPoint;
-pub use AzLayoutPointTT as AzLayoutPoint;
+/// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
+pub type AzStyleBackgroundContentVecTT = azul_impl::css::StyleBackgroundContentVec;
+pub use AzStyleBackgroundContentVecTT as AzStyleBackgroundContentVec;
+/// Destructor: Takes ownership of the `StyleBackgroundContentVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_style_background_content_vec_delete(object: &mut AzStyleBackgroundContentVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `LayoutSize` struct
-pub type AzLayoutSizeTT = azul_impl::css::LayoutSize;
-pub use AzLayoutSizeTT as AzLayoutSize;
+/// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
+pub type AzStyleBackgroundPositionVecTT = azul_impl::css::StyleBackgroundPositionVec;
+pub use AzStyleBackgroundPositionVecTT as AzStyleBackgroundPositionVec;
+/// Destructor: Takes ownership of the `StyleBackgroundPositionVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_style_background_position_vec_delete(object: &mut AzStyleBackgroundPositionVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `LayoutRect` struct
-pub type AzLayoutRectTT = azul_impl::css::LayoutRect;
-pub use AzLayoutRectTT as AzLayoutRect;
+/// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
+pub type AzStyleBackgroundRepeatVecTT = azul_impl::css::StyleBackgroundRepeatVec;
+pub use AzStyleBackgroundRepeatVecTT as AzStyleBackgroundRepeatVec;
+/// Destructor: Takes ownership of the `StyleBackgroundRepeatVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_style_background_repeat_vec_delete(object: &mut AzStyleBackgroundRepeatVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `RawWindowHandle` struct
-pub type AzRawWindowHandleTT = azul_impl::window::RawWindowHandle;
-pub use AzRawWindowHandleTT as AzRawWindowHandle;
+/// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
+pub type AzStyleBackgroundSizeVecTT = azul_impl::css::StyleBackgroundSizeVec;
+pub use AzStyleBackgroundSizeVecTT as AzStyleBackgroundSizeVec;
+/// Destructor: Takes ownership of the `StyleBackgroundSizeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_style_background_size_vec_delete(object: &mut AzStyleBackgroundSizeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `IOSHandle` struct
-pub type AzIOSHandleTT = azul_impl::window::IOSHandle;
-pub use AzIOSHandleTT as AzIOSHandle;
+/// Wrapper over a Rust-allocated `Vec<StyleTransform>`
+pub type AzStyleTransformVecTT = azul_impl::css::StyleTransformVec;
+pub use AzStyleTransformVecTT as AzStyleTransformVec;
+/// Destructor: Takes ownership of the `StyleTransformVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_style_transform_vec_delete(object: &mut AzStyleTransformVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `MacOSHandle` struct
-pub type AzMacOSHandleTT = azul_impl::window::MacOSHandle;
-pub use AzMacOSHandleTT as AzMacOSHandle;
+/// Wrapper over a Rust-allocated `Vec<CssProperty>`
+pub type AzCssPropertyVecTT = azul_impl::css::CssPropertyVec;
+pub use AzCssPropertyVecTT as AzCssPropertyVec;
+/// Destructor: Takes ownership of the `CssPropertyVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_css_property_vec_delete(object: &mut AzCssPropertyVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `XlibHandle` struct
-pub type AzXlibHandleTT = azul_impl::window::XlibHandle;
-pub use AzXlibHandleTT as AzXlibHandle;
+/// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
+pub type AzSvgMultiPolygonVecTT = azul_impl::svg::SvgMultiPolygonVec;
+pub use AzSvgMultiPolygonVecTT as AzSvgMultiPolygonVec;
+/// Destructor: Takes ownership of the `SvgMultiPolygonVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_svg_multi_polygon_vec_delete(object: &mut AzSvgMultiPolygonVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `XcbHandle` struct
-pub type AzXcbHandleTT = azul_impl::window::XcbHandle;
-pub use AzXcbHandleTT as AzXcbHandle;
+/// Wrapper over a Rust-allocated `Vec<SvgPath>`
+pub type AzSvgPathVecTT = azul_impl::svg::SvgPathVec;
+pub use AzSvgPathVecTT as AzSvgPathVec;
+/// Destructor: Takes ownership of the `SvgPathVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_svg_path_vec_delete(object: &mut AzSvgPathVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `WaylandHandle` struct
-pub type AzWaylandHandleTT = azul_impl::window::WaylandHandle;
-pub use AzWaylandHandleTT as AzWaylandHandle;
+/// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
+pub type AzVertexAttributeVecTT = azul_impl::gl::VertexAttributeVec;
+pub use AzVertexAttributeVecTT as AzVertexAttributeVec;
+/// Destructor: Takes ownership of the `VertexAttributeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_vertex_attribute_vec_delete(object: &mut AzVertexAttributeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `WindowsHandle` struct
-pub type AzWindowsHandleTT = azul_impl::window::WindowsHandle;
-pub use AzWindowsHandleTT as AzWindowsHandle;
+/// Wrapper over a Rust-allocated `VertexAttribute`
+pub type AzSvgPathElementVecTT = azul_impl::svg::SvgPathElementVec;
+pub use AzSvgPathElementVecTT as AzSvgPathElementVec;
+/// Destructor: Takes ownership of the `SvgPathElementVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_svg_path_element_vec_delete(object: &mut AzSvgPathElementVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `WebHandle` struct
-pub type AzWebHandleTT = azul_impl::window::WebHandle;
-pub use AzWebHandleTT as AzWebHandle;
+/// Wrapper over a Rust-allocated `SvgVertex`
+pub type AzSvgVertexVecTT = azul_impl::svg::SvgVertexVec;
+pub use AzSvgVertexVecTT as AzSvgVertexVec;
+/// Destructor: Takes ownership of the `SvgVertexVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_svg_vertex_vec_delete(object: &mut AzSvgVertexVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `AndroidHandle` struct
-pub type AzAndroidHandleTT = azul_impl::window::AndroidHandle;
-pub use AzAndroidHandleTT as AzAndroidHandle;
+/// Wrapper over a Rust-allocated `Vec<u32>`
+pub type AzU32VecTT = azul_impl::css::U32Vec;
+pub use AzU32VecTT as AzU32Vec;
+/// Destructor: Takes ownership of the `U32Vec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_u32_vec_delete(object: &mut AzU32Vec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `TaskBarIcon` struct
-pub type AzTaskBarIconTT = azul_impl::window::TaskBarIcon;
-pub use AzTaskBarIconTT as AzTaskBarIcon;
+/// Wrapper over a Rust-allocated `XWindowType`
+pub type AzXWindowTypeVecTT = azul_impl::window::XWindowTypeVec;
+pub use AzXWindowTypeVecTT as AzXWindowTypeVec;
+/// Destructor: Takes ownership of the `XWindowTypeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_x_window_type_vec_delete(object: &mut AzXWindowTypeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `XWindowType` struct
-pub type AzXWindowTypeTT = azul_impl::window::XWindowType;
-pub use AzXWindowTypeTT as AzXWindowType;
+/// Wrapper over a Rust-allocated `VirtualKeyCode`
+pub type AzVirtualKeyCodeVecTT = azul_impl::window::VirtualKeyCodeVec;
+pub use AzVirtualKeyCodeVecTT as AzVirtualKeyCodeVec;
+/// Destructor: Takes ownership of the `VirtualKeyCodeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_virtual_key_code_vec_delete(object: &mut AzVirtualKeyCodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `PhysicalPositionI32` struct
-pub type AzPhysicalPositionI32TT = azul_impl::window::PhysicalPosition<i32>;
-pub use AzPhysicalPositionI32TT as AzPhysicalPositionI32;
+/// Wrapper over a Rust-allocated `CascadeInfo`
+pub type AzCascadeInfoVecTT = azul_impl::style::CascadeInfoVec;
+pub use AzCascadeInfoVecTT as AzCascadeInfoVec;
+/// Destructor: Takes ownership of the `CascadeInfoVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_cascade_info_vec_delete(object: &mut AzCascadeInfoVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `PhysicalSizeU32` struct
-pub type AzPhysicalSizeU32TT = azul_impl::window::PhysicalSize<u32>;
-pub use AzPhysicalSizeU32TT as AzPhysicalSizeU32;
+/// Wrapper over a Rust-allocated `ScanCode`
+pub type AzScanCodeVecTT = azul_impl::window::ScanCodeVec;
+pub use AzScanCodeVecTT as AzScanCodeVec;
+/// Destructor: Takes ownership of the `ScanCodeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_scan_code_vec_delete(object: &mut AzScanCodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `LogicalPosition` struct
-pub type AzLogicalPositionTT = azul_impl::window::LogicalPosition;
-pub use AzLogicalPositionTT as AzLogicalPosition;
+/// Wrapper over a Rust-allocated `CssDeclaration`
+pub type AzCssDeclarationVecTT = azul_impl::css::CssDeclarationVec;
+pub use AzCssDeclarationVecTT as AzCssDeclarationVec;
+/// Destructor: Takes ownership of the `CssDeclarationVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_css_declaration_vec_delete(object: &mut AzCssDeclarationVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `LogicalRect` struct
-pub type AzLogicalRectTT = azul_impl::window::LogicalRect;
-pub use AzLogicalRectTT as AzLogicalRect;
+/// Wrapper over a Rust-allocated `CssPathSelector`
+pub type AzCssPathSelectorVecTT = azul_impl::css::CssPathSelectorVec;
+pub use AzCssPathSelectorVecTT as AzCssPathSelectorVec;
+/// Destructor: Takes ownership of the `CssPathSelectorVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_css_path_selector_vec_delete(object: &mut AzCssPathSelectorVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `IconKey` struct
-pub type AzIconKeyTT = azul_impl::window::IconKey;
-pub use AzIconKeyTT as AzIconKey;
+/// Wrapper over a Rust-allocated `Stylesheet`
+pub type AzStylesheetVecTT = azul_impl::css::StylesheetVec;
+pub use AzStylesheetVecTT as AzStylesheetVec;
+/// Destructor: Takes ownership of the `StylesheetVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_stylesheet_vec_delete(object: &mut AzStylesheetVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `SmallWindowIconBytes` struct
-pub type AzSmallWindowIconBytesTT = azul_impl::window::SmallWindowIconBytes;
-pub use AzSmallWindowIconBytesTT as AzSmallWindowIconBytes;
+/// Wrapper over a Rust-allocated `CssRuleBlock`
+pub type AzCssRuleBlockVecTT = azul_impl::css::CssRuleBlockVec;
+pub use AzCssRuleBlockVecTT as AzCssRuleBlockVec;
+/// Destructor: Takes ownership of the `CssRuleBlockVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_css_rule_block_vec_delete(object: &mut AzCssRuleBlockVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `LargeWindowIconBytes` struct
-pub type AzLargeWindowIconBytesTT = azul_impl::window::LargeWindowIconBytes;
-pub use AzLargeWindowIconBytesTT as AzLargeWindowIconBytes;
+/// Wrapper over a Rust-allocated `U8Vec`
+pub type AzU8VecTT = azul_impl::css::U8Vec;
+pub use AzU8VecTT as AzU8Vec;
+/// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_u8_vec_delete(object: &mut AzU8Vec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `WindowIcon` struct
-pub type AzWindowIconTT = azul_impl::window::WindowIcon;
-pub use AzWindowIconTT as AzWindowIcon;
+/// Wrapper over a Rust-allocated `CallbackData`
+pub type AzCallbackDataVecTT = azul_impl::dom::CallbackDataVec;
+pub use AzCallbackDataVecTT as AzCallbackDataVec;
+/// Destructor: Takes ownership of the `CallbackDataVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_callback_data_vec_delete(object: &mut AzCallbackDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `VirtualKeyCode` struct
-pub type AzVirtualKeyCodeTT = azul_impl::window::VirtualKeyCode;
-pub use AzVirtualKeyCodeTT as AzVirtualKeyCode;
+/// Wrapper over a Rust-allocated `Vec<DebugMessage>`
+pub type AzDebugMessageVecTT = azul_impl::gl::AzDebugMessageVec;
+pub use AzDebugMessageVecTT as AzDebugMessageVec;
+/// Destructor: Takes ownership of the `DebugMessageVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_debug_message_vec_delete(object: &mut AzDebugMessageVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `AcceleratorKey` struct
-pub type AzAcceleratorKeyTT = azul_impl::window::AcceleratorKey;
-pub use AzAcceleratorKeyTT as AzAcceleratorKey;
+/// Wrapper over a Rust-allocated `U32Vec`
+pub type AzGLuintVecTT = azul_impl::gl::GLuintVec;
+pub use AzGLuintVecTT as AzGLuintVec;
+/// Destructor: Takes ownership of the `GLuintVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_g_luint_vec_delete(object: &mut AzGLuintVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `WindowSize` struct
-pub type AzWindowSizeTT = azul_impl::window::WindowSize;
-pub use AzWindowSizeTT as AzWindowSize;
+/// Wrapper over a Rust-allocated `GLintVec`
+pub type AzGLintVecTT = azul_impl::gl::GLintVec;
+pub use AzGLintVecTT as AzGLintVec;
+/// Destructor: Takes ownership of the `GLintVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_g_lint_vec_delete(object: &mut AzGLintVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `WindowFlags` struct
-pub type AzWindowFlagsTT = azul_impl::window::WindowFlags;
-pub use AzWindowFlagsTT as AzWindowFlags;
+/// Wrapper over a Rust-allocated `StringVec`
+pub type AzStringVecTT = azul_impl::css::StringVec;
+pub use AzStringVecTT as AzStringVec;
+/// Destructor: Takes ownership of the `StringVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_string_vec_delete(object: &mut AzStringVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `DebugState` struct
-pub type AzDebugStateTT = azul_impl::window::DebugState;
-pub use AzDebugStateTT as AzDebugState;
+/// Wrapper over a Rust-allocated `StringPairVec`
+pub type AzStringPairVecTT = azul_impl::window::StringPairVec;
+pub use AzStringPairVecTT as AzStringPairVec;
+/// Destructor: Takes ownership of the `StringPairVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_string_pair_vec_delete(object: &mut AzStringPairVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `KeyboardState` struct
-pub type AzKeyboardStateTT = azul_impl::window::KeyboardState;
-pub use AzKeyboardStateTT as AzKeyboardState;
+/// Wrapper over a Rust-allocated `LinearColorStopVec`
+pub type AzLinearColorStopVecTT = azul_impl::css::LinearColorStopVec;
+pub use AzLinearColorStopVecTT as AzLinearColorStopVec;
+/// Destructor: Takes ownership of the `LinearColorStopVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_linear_color_stop_vec_delete(object: &mut AzLinearColorStopVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `MouseCursorType` struct
-pub type AzMouseCursorTypeTT = azul_impl::window::MouseCursorType;
-pub use AzMouseCursorTypeTT as AzMouseCursorType;
+/// Wrapper over a Rust-allocated `RadialColorStopVec`
+pub type AzRadialColorStopVecTT = azul_impl::css::RadialColorStopVec;
+pub use AzRadialColorStopVecTT as AzRadialColorStopVec;
+/// Destructor: Takes ownership of the `RadialColorStopVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_radial_color_stop_vec_delete(object: &mut AzRadialColorStopVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `CursorPosition` struct
-pub type AzCursorPositionTT = azul_impl::window::CursorPosition;
-pub use AzCursorPositionTT as AzCursorPosition;
+/// Wrapper over a Rust-allocated `NodeIdVec`
+pub type AzNodeIdVecTT = azul_impl::styled_dom::NodeIdVec;
+pub use AzNodeIdVecTT as AzNodeIdVec;
+/// Destructor: Takes ownership of the `NodeIdVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_node_id_vec_delete(object: &mut AzNodeIdVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `MouseState` struct
-pub type AzMouseStateTT = azul_impl::window::MouseState;
-pub use AzMouseStateTT as AzMouseState;
+/// Wrapper over a Rust-allocated `NodeVec`
+pub type AzNodeVecTT = azul_impl::styled_dom::AzNodeVec;
+pub use AzNodeVecTT as AzNodeVec;
+/// Destructor: Takes ownership of the `NodeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_node_vec_delete(object: &mut AzNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `PlatformSpecificOptions` struct
-pub type AzPlatformSpecificOptionsTT = azul_impl::window::PlatformSpecificOptions;
-pub use AzPlatformSpecificOptionsTT as AzPlatformSpecificOptions;
+/// Wrapper over a Rust-allocated `StyledNodeVec`
+pub type AzStyledNodeVecTT = azul_impl::styled_dom::StyledNodeVec;
+pub use AzStyledNodeVecTT as AzStyledNodeVec;
+/// Destructor: Takes ownership of the `StyledNodeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_styled_node_vec_delete(object: &mut AzStyledNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `WindowsWindowOptions` struct
-pub type AzWindowsWindowOptionsTT = azul_impl::window::WindowsWindowOptions;
-pub use AzWindowsWindowOptionsTT as AzWindowsWindowOptions;
+/// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
+pub type AzTagIdsToNodeIdsMappingVecTT = azul_impl::styled_dom::TagIdsToNodeIdsMappingVec;
+pub use AzTagIdsToNodeIdsMappingVecTT as AzTagIdsToNodeIdsMappingVec;
+/// Destructor: Takes ownership of the `TagIdsToNodeIdsMappingVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_delete(object: &mut AzTagIdsToNodeIdsMappingVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `WaylandTheme` struct
-pub type AzWaylandThemeTT = azul_impl::window::WaylandTheme;
-pub use AzWaylandThemeTT as AzWaylandTheme;
+/// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
+pub type AzParentWithNodeDepthVecTT = azul_impl::styled_dom::ParentWithNodeDepthVec;
+pub use AzParentWithNodeDepthVecTT as AzParentWithNodeDepthVec;
+/// Destructor: Takes ownership of the `ParentWithNodeDepthVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_parent_with_node_depth_vec_delete(object: &mut AzParentWithNodeDepthVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `RendererType` struct
-pub type AzRendererTypeTT = azul_impl::window::RendererType;
-pub use AzRendererTypeTT as AzRendererType;
+/// Wrapper over a Rust-allocated `NodeDataVec`
+pub type AzNodeDataVecTT = azul_impl::dom::NodeDataVec;
+pub use AzNodeDataVecTT as AzNodeDataVec;
+/// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_node_data_vec_delete(object: &mut AzNodeDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `StringPair` struct
-pub type AzStringPairTT = azul_impl::window::AzStringPair;
-pub use AzStringPairTT as AzStringPair;
+/// Re-export of rust-allocated (stack based) `DomVecDestructor` struct
+pub type AzDomVecDestructorTT = azul_impl::dom::DomVecDestructor;
+pub use AzDomVecDestructorTT as AzDomVecDestructor;
 
-/// Re-export of rust-allocated (stack based) `LinuxWindowOptions` struct
-pub type AzLinuxWindowOptionsTT = azul_impl::window::LinuxWindowOptions;
-pub use AzLinuxWindowOptionsTT as AzLinuxWindowOptions;
+pub type AzDomVecDestructorType = extern "C" fn(&mut AzDomVec);
+/// Re-export of rust-allocated (stack based) `IdOrClassVecDestructor` struct
+pub type AzIdOrClassVecDestructorTT = azul_impl::dom::IdOrClassVecDestructor;
+pub use AzIdOrClassVecDestructorTT as AzIdOrClassVecDestructor;
 
-/// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
-pub type AzMacWindowOptionsTT = azul_impl::window::MacWindowOptions;
-pub use AzMacWindowOptionsTT as AzMacWindowOptions;
+pub type AzIdOrClassVecDestructorType = extern "C" fn(&mut AzIdOrClassVec);
+/// Re-export of rust-allocated (stack based) `NodeDataInlineCssPropertyVecDestructor` struct
+pub type AzNodeDataInlineCssPropertyVecDestructorTT = azul_impl::dom::NodeDataInlineCssPropertyVecDestructor;
+pub use AzNodeDataInlineCssPropertyVecDestructorTT as AzNodeDataInlineCssPropertyVecDestructor;
 
-/// Re-export of rust-allocated (stack based) `WasmWindowOptions` struct
-pub type AzWasmWindowOptionsTT = azul_impl::window::WasmWindowOptions;
-pub use AzWasmWindowOptionsTT as AzWasmWindowOptions;
+pub type AzNodeDataInlineCssPropertyVecDestructorType = extern "C" fn(&mut AzNodeDataInlineCssPropertyVec);
+/// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecDestructor` struct
+pub type AzStyleBackgroundContentVecDestructorTT = azul_impl::css::StyleBackgroundContentVecDestructor;
+pub use AzStyleBackgroundContentVecDestructorTT as AzStyleBackgroundContentVecDestructor;
 
-/// Re-export of rust-allocated (stack based) `FullScreenMode` struct
-pub type AzFullScreenModeTT = azul_impl::window::FullScreenMode;
-pub use AzFullScreenModeTT as AzFullScreenMode;
+pub type AzStyleBackgroundContentVecDestructorType = extern "C" fn(&mut AzStyleBackgroundContentVec);
+/// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecDestructor` struct
+pub type AzStyleBackgroundPositionVecDestructorTT = azul_impl::css::StyleBackgroundPositionVecDestructor;
+pub use AzStyleBackgroundPositionVecDestructorTT as AzStyleBackgroundPositionVecDestructor;
 
-/// Re-export of rust-allocated (stack based) `WindowTheme` struct
-pub type AzWindowThemeTT = azul_impl::window::WindowTheme;
-pub use AzWindowThemeTT as AzWindowTheme;
+pub type AzStyleBackgroundPositionVecDestructorType = extern "C" fn(&mut AzStyleBackgroundPositionVec);
+/// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecDestructor` struct
+pub type AzStyleBackgroundRepeatVecDestructorTT = azul_impl::css::StyleBackgroundRepeatVecDestructor;
+pub use AzStyleBackgroundRepeatVecDestructorTT as AzStyleBackgroundRepeatVecDestructor;
 
-/// Re-export of rust-allocated (stack based) `WindowPosition` struct
-pub type AzWindowPositionTT = azul_impl::window::WindowPosition;
-pub use AzWindowPositionTT as AzWindowPosition;
+pub type AzStyleBackgroundRepeatVecDestructorType = extern "C" fn(&mut AzStyleBackgroundRepeatVec);
+/// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecDestructor` struct
+pub type AzStyleBackgroundSizeVecDestructorTT = azul_impl::css::StyleBackgroundSizeVecDestructor;
+pub use AzStyleBackgroundSizeVecDestructorTT as AzStyleBackgroundSizeVecDestructor;
 
-/// Re-export of rust-allocated (stack based) `ImePosition` struct
-pub type AzImePositionTT = azul_impl::window::ImePosition;
-pub use AzImePositionTT as AzImePosition;
+pub type AzStyleBackgroundSizeVecDestructorType = extern "C" fn(&mut AzStyleBackgroundSizeVec);
+/// Re-export of rust-allocated (stack based) `StyleTransformVecDestructor` struct
+pub type AzStyleTransformVecDestructorTT = azul_impl::css::StyleTransformVecDestructor;
+pub use AzStyleTransformVecDestructorTT as AzStyleTransformVecDestructor;
 
-/// Re-export of rust-allocated (stack based) `TouchState` struct
-pub type AzTouchStateTT = azul_impl::window::TouchState;
-pub use AzTouchStateTT as AzTouchState;
+pub type AzStyleTransformVecDestructorType = extern "C" fn(&mut AzStyleTransformVec);
+/// Re-export of rust-allocated (stack based) `CssPropertyVecDestructor` struct
+pub type AzCssPropertyVecDestructorTT = azul_impl::css::CssPropertyVecDestructor;
+pub use AzCssPropertyVecDestructorTT as AzCssPropertyVecDestructor;
 
-/// Re-export of rust-allocated (stack based) `WindowState` struct
-pub type AzWindowStateTT = azul_impl::window::WindowState;
-pub use AzWindowStateTT as AzWindowState;
-/// Creates a new `WindowState` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `WindowState::new()` constructor.
-#[no_mangle] pub extern "C" fn az_window_state_new(layout_callback: AzLayoutCallbackType) -> AzWindowState { WindowState::new(layout_callback) }
-/// Creates a new `WindowState` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `WindowState::default()` constructor.
-#[no_mangle] pub extern "C" fn az_window_state_default() -> AzWindowState { WindowState::default() }
+pub type AzCssPropertyVecDestructorType = extern "C" fn(&mut AzCssPropertyVec);
+/// Re-export of rust-allocated (stack based) `SvgMultiPolygonVecDestructor` struct
+pub type AzSvgMultiPolygonVecDestructorTT = azul_impl::svg::SvgMultiPolygonVecDestructor;
+pub use AzSvgMultiPolygonVecDestructorTT as AzSvgMultiPolygonVecDestructor;
 
-/// Re-export of rust-allocated (stack based) `LogicalSize` struct
-pub type AzLogicalSizeTT = azul_impl::window::LogicalSize;
-pub use AzLogicalSizeTT as AzLogicalSize;
+pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
+/// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
+pub type AzSvgPathVecDestructorTT = azul_impl::svg::SvgPathVecDestructor;
+pub use AzSvgPathVecDestructorTT as AzSvgPathVecDestructor;
 
-/// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
-pub type AzWindowCreateOptionsTT = azul_impl::window::WindowCreateOptions;
-pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
-/// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `WindowCreateOptions::new()` constructor.
-#[no_mangle] pub extern "C" fn az_window_create_options_new(layout_callback: AzLayoutCallbackType) -> AzWindowCreateOptions { WindowCreateOptions::new(layout_callback) }
-/// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `WindowCreateOptions::default()` constructor.
-#[no_mangle] pub extern "C" fn az_window_create_options_default() -> AzWindowCreateOptions { WindowCreateOptions::default() }
+pub type AzSvgPathVecDestructorType = extern "C" fn(&mut AzSvgPathVec);
+/// Re-export of rust-allocated (stack based) `VertexAttributeVecDestructor` struct
+pub type AzVertexAttributeVecDestructorTT = azul_impl::gl::VertexAttributeVecDestructor;
+pub use AzVertexAttributeVecDestructorTT as AzVertexAttributeVecDestructor;
+
+pub type AzVertexAttributeVecDestructorType = extern "C" fn(&mut AzVertexAttributeVec);
+/// Re-export of rust-allocated (stack based) `SvgPathElementVecDestructor` struct
+pub type AzSvgPathElementVecDestructorTT = azul_impl::svg::SvgPathElementVecDestructor;
+pub use AzSvgPathElementVecDestructorTT as AzSvgPathElementVecDestructor;
+
+pub type AzSvgPathElementVecDestructorType = extern "C" fn(&mut AzSvgPathElementVec);
+/// Re-export of rust-allocated (stack based) `SvgVertexVecDestructor` struct
+pub type AzSvgVertexVecDestructorTT = azul_impl::svg::SvgVertexVecDestructor;
+pub use AzSvgVertexVecDestructorTT as AzSvgVertexVecDestructor;
+
+pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
+/// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
+pub type AzU32VecDestructorTT = azul_impl::css::U32VecDestructor;
+pub use AzU32VecDestructorTT as AzU32VecDestructor;
+
+pub type AzU32VecDestructorType = extern "C" fn(&mut AzU32Vec);
+/// Re-export of rust-allocated (stack based) `XWindowTypeVecDestructor` struct
+pub type AzXWindowTypeVecDestructorTT = azul_impl::window::XWindowTypeVecDestructor;
+pub use AzXWindowTypeVecDestructorTT as AzXWindowTypeVecDestructor;
+
+pub type AzXWindowTypeVecDestructorType = extern "C" fn(&mut AzXWindowTypeVec);
+/// Re-export of rust-allocated (stack based) `VirtualKeyCodeVecDestructor` struct
+pub type AzVirtualKeyCodeVecDestructorTT = azul_impl::window::VirtualKeyCodeVecDestructor;
+pub use AzVirtualKeyCodeVecDestructorTT as AzVirtualKeyCodeVecDestructor;
+
+pub type AzVirtualKeyCodeVecDestructorType = extern "C" fn(&mut AzVirtualKeyCodeVec);
+/// Re-export of rust-allocated (stack based) `CascadeInfoVecDestructor` struct
+pub type AzCascadeInfoVecDestructorTT = azul_impl::style::CascadeInfoVecDestructor;
+pub use AzCascadeInfoVecDestructorTT as AzCascadeInfoVecDestructor;
+
+pub type AzCascadeInfoVecDestructorType = extern "C" fn(&mut AzCascadeInfoVec);
+/// Re-export of rust-allocated (stack based) `ScanCodeVecDestructor` struct
+pub type AzScanCodeVecDestructorTT = azul_impl::window::ScanCodeVecDestructor;
+pub use AzScanCodeVecDestructorTT as AzScanCodeVecDestructor;
+
+pub type AzScanCodeVecDestructorType = extern "C" fn(&mut AzScanCodeVec);
+/// Re-export of rust-allocated (stack based) `CssDeclarationVecDestructor` struct
+pub type AzCssDeclarationVecDestructorTT = azul_impl::css::CssDeclarationVecDestructor;
+pub use AzCssDeclarationVecDestructorTT as AzCssDeclarationVecDestructor;
+
+pub type AzCssDeclarationVecDestructorType = extern "C" fn(&mut AzCssDeclarationVec);
+/// Re-export of rust-allocated (stack based) `CssPathSelectorVecDestructor` struct
+pub type AzCssPathSelectorVecDestructorTT = azul_impl::css::CssPathSelectorVecDestructor;
+pub use AzCssPathSelectorVecDestructorTT as AzCssPathSelectorVecDestructor;
+
+pub type AzCssPathSelectorVecDestructorType = extern "C" fn(&mut AzCssPathSelectorVec);
+/// Re-export of rust-allocated (stack based) `StylesheetVecDestructor` struct
+pub type AzStylesheetVecDestructorTT = azul_impl::css::StylesheetVecDestructor;
+pub use AzStylesheetVecDestructorTT as AzStylesheetVecDestructor;
+
+pub type AzStylesheetVecDestructorType = extern "C" fn(&mut AzStylesheetVec);
+/// Re-export of rust-allocated (stack based) `CssRuleBlockVecDestructor` struct
+pub type AzCssRuleBlockVecDestructorTT = azul_impl::css::CssRuleBlockVecDestructor;
+pub use AzCssRuleBlockVecDestructorTT as AzCssRuleBlockVecDestructor;
+
+pub type AzCssRuleBlockVecDestructorType = extern "C" fn(&mut AzCssRuleBlockVec);
+/// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
+pub type AzU8VecDestructorTT = azul_impl::css::U8VecDestructor;
+pub use AzU8VecDestructorTT as AzU8VecDestructor;
+
+pub type AzU8VecDestructorType = extern "C" fn(&mut AzU8Vec);
+/// Re-export of rust-allocated (stack based) `CallbackDataVecDestructor` struct
+pub type AzCallbackDataVecDestructorTT = azul_impl::dom::CallbackDataVecDestructor;
+pub use AzCallbackDataVecDestructorTT as AzCallbackDataVecDestructor;
+
+pub type AzCallbackDataVecDestructorType = extern "C" fn(&mut AzCallbackDataVec);
+/// Re-export of rust-allocated (stack based) `DebugMessageVecDestructor` struct
+pub type AzDebugMessageVecDestructorTT = azul_impl::gl::AzDebugMessageVecDestructor;
+pub use AzDebugMessageVecDestructorTT as AzDebugMessageVecDestructor;
+
+pub type AzDebugMessageVecDestructorType = extern "C" fn(&mut AzDebugMessageVec);
+/// Re-export of rust-allocated (stack based) `GLuintVecDestructor` struct
+pub type AzGLuintVecDestructorTT = azul_impl::gl::GLuintVecDestructor;
+pub use AzGLuintVecDestructorTT as AzGLuintVecDestructor;
+
+pub type AzGLuintVecDestructorType = extern "C" fn(&mut AzGLuintVec);
+/// Re-export of rust-allocated (stack based) `GLintVecDestructor` struct
+pub type AzGLintVecDestructorTT = azul_impl::gl::GLintVecDestructor;
+pub use AzGLintVecDestructorTT as AzGLintVecDestructor;
+
+pub type AzGLintVecDestructorType = extern "C" fn(&mut AzGLintVec);
+/// Re-export of rust-allocated (stack based) `StringVecDestructor` struct
+pub type AzStringVecDestructorTT = azul_impl::css::StringVecDestructor;
+pub use AzStringVecDestructorTT as AzStringVecDestructor;
+
+pub type AzStringVecDestructorType = extern "C" fn(&mut AzStringVec);
+/// Re-export of rust-allocated (stack based) `StringPairVecDestructor` struct
+pub type AzStringPairVecDestructorTT = azul_impl::window::StringPairVecDestructor;
+pub use AzStringPairVecDestructorTT as AzStringPairVecDestructor;
+
+pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
+/// Re-export of rust-allocated (stack based) `LinearColorStopVecDestructor` struct
+pub type AzLinearColorStopVecDestructorTT = azul_impl::css::LinearColorStopVecDestructor;
+pub use AzLinearColorStopVecDestructorTT as AzLinearColorStopVecDestructor;
+
+pub type AzLinearColorStopVecDestructorType = extern "C" fn(&mut AzLinearColorStopVec);
+/// Re-export of rust-allocated (stack based) `RadialColorStopVecDestructor` struct
+pub type AzRadialColorStopVecDestructorTT = azul_impl::css::RadialColorStopVecDestructor;
+pub use AzRadialColorStopVecDestructorTT as AzRadialColorStopVecDestructor;
+
+pub type AzRadialColorStopVecDestructorType = extern "C" fn(&mut AzRadialColorStopVec);
+/// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
+pub type AzNodeIdVecDestructorTT = azul_impl::styled_dom::NodeIdVecDestructor;
+pub use AzNodeIdVecDestructorTT as AzNodeIdVecDestructor;
+
+pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
+/// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
+pub type AzNodeVecDestructorTT = azul_impl::styled_dom::AzNodeVecDestructor;
+pub use AzNodeVecDestructorTT as AzNodeVecDestructor;
+
+pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
+/// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
+pub type AzStyledNodeVecDestructorTT = azul_impl::styled_dom::StyledNodeVecDestructor;
+pub use AzStyledNodeVecDestructorTT as AzStyledNodeVecDestructor;
+
+pub type AzStyledNodeVecDestructorType = extern "C" fn(&mut AzStyledNodeVec);
+/// Re-export of rust-allocated (stack based) `TagIdsToNodeIdsMappingVecDestructor` struct
+pub type AzTagIdsToNodeIdsMappingVecDestructorTT = azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor;
+pub use AzTagIdsToNodeIdsMappingVecDestructorTT as AzTagIdsToNodeIdsMappingVecDestructor;
+
+pub type AzTagIdsToNodeIdsMappingVecDestructorType = extern "C" fn(&mut AzTagIdsToNodeIdsMappingVec);
+/// Re-export of rust-allocated (stack based) `ParentWithNodeDepthVecDestructor` struct
+pub type AzParentWithNodeDepthVecDestructorTT = azul_impl::styled_dom::ParentWithNodeDepthVecDestructor;
+pub use AzParentWithNodeDepthVecDestructorTT as AzParentWithNodeDepthVecDestructor;
+
+pub type AzParentWithNodeDepthVecDestructorType = extern "C" fn(&mut AzParentWithNodeDepthVec);
+/// Re-export of rust-allocated (stack based) `NodeDataVecDestructor` struct
+pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
+pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
+
+pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionGlContextPtr` struct
+pub type AzOptionGlContextPtrTT = azul_impl::gl::OptionGlContextPtr;
+pub use AzOptionGlContextPtrTT as AzOptionGlContextPtr;
+
+/// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
+pub type AzOptionThreadReceiveMsgTT = azul_impl::task::OptionThreadReceiveMsg;
+pub use AzOptionThreadReceiveMsgTT as AzOptionThreadReceiveMsg;
+
+/// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
+pub type AzOptionPercentageValueTT = azul_impl::css::OptionPercentageValue;
+pub use AzOptionPercentageValueTT as AzOptionPercentageValue;
+
+/// Re-export of rust-allocated (stack based) `OptionAngleValue` struct
+pub type AzOptionAngleValueTT = azul_impl::css::OptionAngleValue;
+pub use AzOptionAngleValueTT as AzOptionAngleValue;
+
+/// Re-export of rust-allocated (stack based) `OptionRendererOptions` struct
+pub type AzOptionRendererOptionsTT = azul_impl::window::OptionRendererOptions;
+pub use AzOptionRendererOptionsTT as AzOptionRendererOptions;
+
+/// Re-export of rust-allocated (stack based) `OptionCallback` struct
+pub type AzOptionCallbackTT = azul_impl::callbacks::OptionCallback;
+pub use AzOptionCallbackTT as AzOptionCallback;
+
+/// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
+pub type AzOptionThreadSendMsgTT = azul_impl::task::OptionThreadSendMsg;
+pub use AzOptionThreadSendMsgTT as AzOptionThreadSendMsg;
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutRect` struct
+pub type AzOptionLayoutRectTT = azul_impl::css::OptionLayoutRect;
+pub use AzOptionLayoutRectTT as AzOptionLayoutRect;
+
+/// Re-export of rust-allocated (stack based) `OptionRefAny` struct
+pub type AzOptionRefAnyTT = azul_impl::callbacks::OptionRefAny;
+pub use AzOptionRefAnyTT as AzOptionRefAny;
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutPoint` struct
+pub type AzOptionLayoutPointTT = azul_impl::css::OptionLayoutPoint;
+pub use AzOptionLayoutPointTT as AzOptionLayoutPoint;
+
+/// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
+pub type AzOptionWindowThemeTT = azul_impl::window::OptionWindowTheme;
+pub use AzOptionWindowThemeTT as AzOptionWindowTheme;
+
+/// Re-export of rust-allocated (stack based) `OptionNodeId` struct
+pub type AzOptionNodeIdTT = azul_impl::styled_dom::OptionNodeId;
+pub use AzOptionNodeIdTT as AzOptionNodeId;
+
+/// Re-export of rust-allocated (stack based) `OptionDomNodeId` struct
+pub type AzOptionDomNodeIdTT = azul_impl::callbacks::OptionDomNodeId;
+pub use AzOptionDomNodeIdTT as AzOptionDomNodeId;
+
+/// Re-export of rust-allocated (stack based) `OptionColorU` struct
+pub type AzOptionColorUTT = azul_impl::css::OptionColorU;
+pub use AzOptionColorUTT as AzOptionColorU;
+
+/// Re-export of rust-allocated (stack based) `OptionRawImage` struct
+pub type AzOptionRawImageTT = azul_impl::resources::OptionRawImage;
+pub use AzOptionRawImageTT as AzOptionRawImage;
+
+/// Re-export of rust-allocated (stack based) `OptionSvgDashPattern` struct
+pub type AzOptionSvgDashPatternTT = azul_impl::svg::OptionSvgDashPattern;
+pub use AzOptionSvgDashPatternTT as AzOptionSvgDashPattern;
+
+/// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
+pub type AzOptionWaylandThemeTT = azul_impl::window::OptionWaylandTheme;
+pub use AzOptionWaylandThemeTT as AzOptionWaylandTheme;
+
+/// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
+pub type AzOptionTaskBarIconTT = azul_impl::window::OptionTaskBarIcon;
+pub use AzOptionTaskBarIconTT as AzOptionTaskBarIcon;
+
+/// Re-export of rust-allocated (stack based) `OptionHwndHandle` struct
+pub type AzOptionHwndHandleTT = azul_impl::window::OptionHwndHandle;
+pub use AzOptionHwndHandleTT as AzOptionHwndHandle;
+
+/// Re-export of rust-allocated (stack based) `OptionLogicalPosition` struct
+pub type AzOptionLogicalPositionTT = azul_impl::window::OptionLogicalPosition;
+pub use AzOptionLogicalPositionTT as AzOptionLogicalPosition;
+
+/// Re-export of rust-allocated (stack based) `OptionPhysicalPositionI32` struct
+pub type AzOptionPhysicalPositionI32TT = azul_impl::window::OptionPhysicalPositionI32;
+pub use AzOptionPhysicalPositionI32TT as AzOptionPhysicalPositionI32;
+
+/// Re-export of rust-allocated (stack based) `OptionWindowIcon` struct
+pub type AzOptionWindowIconTT = azul_impl::window::OptionWindowIcon;
+pub use AzOptionWindowIconTT as AzOptionWindowIcon;
+
+/// Re-export of rust-allocated (stack based) `OptionString` struct
+pub type AzOptionStringTT = azul_impl::css::OptionAzString;
+pub use AzOptionStringTT as AzOptionString;
+
+/// Re-export of rust-allocated (stack based) `OptionX11Visual` struct
+pub type AzOptionX11VisualTT = azul_impl::window::OptionX11Visual;
+pub use AzOptionX11VisualTT as AzOptionX11Visual;
+
+/// Re-export of rust-allocated (stack based) `OptionI32` struct
+pub type AzOptionI32TT = azul_impl::css::OptionI32;
+pub use AzOptionI32TT as AzOptionI32;
+
+/// Re-export of rust-allocated (stack based) `OptionF32` struct
+pub type AzOptionF32TT = azul_impl::css::OptionF32;
+pub use AzOptionF32TT as AzOptionF32;
+
+/// Re-export of rust-allocated (stack based) `OptionMouseCursorType` struct
+pub type AzOptionMouseCursorTypeTT = azul_impl::window::OptionMouseCursorType;
+pub use AzOptionMouseCursorTypeTT as AzOptionMouseCursorType;
+
+/// Re-export of rust-allocated (stack based) `OptionLogicalSize` struct
+pub type AzOptionLogicalSizeTT = azul_impl::window::OptionLogicalSize;
+pub use AzOptionLogicalSizeTT as AzOptionLogicalSize;
+
+/// Option<char> but the char is a u32, for C FFI stability reasons
+pub type AzOptionCharTT = azul_impl::window::OptionChar;
+pub use AzOptionCharTT as AzOptionChar;
+
+/// Re-export of rust-allocated (stack based) `OptionVirtualKeyCode` struct
+pub type AzOptionVirtualKeyCodeTT = azul_impl::window::OptionVirtualKeyCode;
+pub use AzOptionVirtualKeyCodeTT as AzOptionVirtualKeyCode;
+
+/// Re-export of rust-allocated (stack based) `OptionDom` struct
+pub type AzOptionDomTT = azul_impl::dom::OptionDom;
+pub use AzOptionDomTT as AzOptionDom;
+
+/// Re-export of rust-allocated (stack based) `OptionTexture` struct
+pub type AzOptionTextureTT = azul_impl::gl::OptionTexture;
+pub use AzOptionTextureTT as AzOptionTexture;
+
+/// Re-export of rust-allocated (stack based) `OptionImageMask` struct
+pub type AzOptionImageMaskTT = azul_impl::resources::OptionImageMask;
+pub use AzOptionImageMaskTT as AzOptionImageMask;
+
+/// Re-export of rust-allocated (stack based) `OptionTabIndex` struct
+pub type AzOptionTabIndexTT = azul_impl::dom::OptionTabIndex;
+pub use AzOptionTabIndexTT as AzOptionTabIndex;
+
+/// Re-export of rust-allocated (stack based) `OptionTagId` struct
+pub type AzOptionTagIdTT = azul_impl::styled_dom::OptionTagId;
+pub use AzOptionTagIdTT as AzOptionTagId;
+
+/// Re-export of rust-allocated (stack based) `OptionDuration` struct
+pub type AzOptionDurationTT = azul_impl::task::OptionDuration;
+pub use AzOptionDurationTT as AzOptionDuration;
+
+/// Re-export of rust-allocated (stack based) `OptionInstant` struct
+pub type AzOptionInstantTT = azul_impl::task::OptionInstant;
+pub use AzOptionInstantTT as AzOptionInstant;
+
+/// Re-export of rust-allocated (stack based) `OptionUsize` struct
+pub type AzOptionUsizeTT = azul_impl::gl::OptionUsize;
+pub use AzOptionUsizeTT as AzOptionUsize;
+
+/// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
+pub type AzOptionU8VecRefTT = azul_impl::gl::OptionU8VecRef;
+pub use AzOptionU8VecRefTT as AzOptionU8VecRef;
+
+/// Re-export of rust-allocated (stack based) `ResultSvgSvgParseError` struct
+pub type AzResultSvgSvgParseErrorTT = azul_impl::svg::ResultSvgSvgParseError;
+pub use AzResultSvgSvgParseErrorTT as AzResultSvgSvgParseError;
+
+/// Re-export of rust-allocated (stack based) `SvgParseError` struct
+pub type AzSvgParseErrorTT = azul_impl::svg::SvgParseError;
+pub use AzSvgParseErrorTT as AzSvgParseError;
+
+/// Re-export of rust-allocated (stack based) `XmlError` struct
+pub type AzXmlErrorTT = azul_impl::xml::XmlError;
+pub use AzXmlErrorTT as AzXmlError;
+
+/// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
+pub type AzDuplicatedNamespaceErrorTT = azul_impl::xml::DuplicatedNamespaceError;
+pub use AzDuplicatedNamespaceErrorTT as AzDuplicatedNamespaceError;
+
+/// Re-export of rust-allocated (stack based) `UnknownNamespaceError` struct
+pub type AzUnknownNamespaceErrorTT = azul_impl::xml::UnknownNamespaceError;
+pub use AzUnknownNamespaceErrorTT as AzUnknownNamespaceError;
+
+/// Re-export of rust-allocated (stack based) `UnexpectedCloseTagError` struct
+pub type AzUnexpectedCloseTagErrorTT = azul_impl::xml::UnexpectedCloseTagError;
+pub use AzUnexpectedCloseTagErrorTT as AzUnexpectedCloseTagError;
+
+/// Re-export of rust-allocated (stack based) `UnknownEntityReferenceError` struct
+pub type AzUnknownEntityReferenceErrorTT = azul_impl::xml::UnknownEntityReferenceError;
+pub use AzUnknownEntityReferenceErrorTT as AzUnknownEntityReferenceError;
+
+/// Re-export of rust-allocated (stack based) `DuplicatedAttributeError` struct
+pub type AzDuplicatedAttributeErrorTT = azul_impl::xml::DuplicatedAttributeError;
+pub use AzDuplicatedAttributeErrorTT as AzDuplicatedAttributeError;
+
+/// Re-export of rust-allocated (stack based) `XmlParseError` struct
+pub type AzXmlParseErrorTT = azul_impl::xml::XmlParseError;
+pub use AzXmlParseErrorTT as AzXmlParseError;
+
+/// Re-export of rust-allocated (stack based) `XmlTextError` struct
+pub type AzXmlTextErrorTT = azul_impl::xml::XmlTextError;
+pub use AzXmlTextErrorTT as AzXmlTextError;
+
+/// Re-export of rust-allocated (stack based) `XmlStreamError` struct
+pub type AzXmlStreamErrorTT = azul_impl::xml::XmlStreamError;
+pub use AzXmlStreamErrorTT as AzXmlStreamError;
+
+/// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
+pub type AzNonXmlCharErrorTT = azul_impl::xml::NonXmlCharError;
+pub use AzNonXmlCharErrorTT as AzNonXmlCharError;
+
+/// Re-export of rust-allocated (stack based) `InvalidCharError` struct
+pub type AzInvalidCharErrorTT = azul_impl::xml::InvalidCharError;
+pub use AzInvalidCharErrorTT as AzInvalidCharError;
+
+/// Re-export of rust-allocated (stack based) `InvalidCharMultipleError` struct
+pub type AzInvalidCharMultipleErrorTT = azul_impl::xml::InvalidCharMultipleError;
+pub use AzInvalidCharMultipleErrorTT as AzInvalidCharMultipleError;
+
+/// Re-export of rust-allocated (stack based) `InvalidQuoteError` struct
+pub type AzInvalidQuoteErrorTT = azul_impl::xml::InvalidQuoteError;
+pub use AzInvalidQuoteErrorTT as AzInvalidQuoteError;
+
+/// Re-export of rust-allocated (stack based) `InvalidSpaceError` struct
+pub type AzInvalidSpaceErrorTT = azul_impl::xml::InvalidSpaceError;
+pub use AzInvalidSpaceErrorTT as AzInvalidSpaceError;
+
+/// Re-export of rust-allocated (stack based) `InvalidStringError` struct
+pub type AzInvalidStringErrorTT = azul_impl::xml::InvalidStringError;
+pub use AzInvalidStringErrorTT as AzInvalidStringError;
+
+/// Re-export of rust-allocated (stack based) `SvgParseErrorPosition` struct
+pub type AzSvgParseErrorPositionTT = azul_impl::xml::XmlTextPos;
+pub use AzSvgParseErrorPositionTT as AzSvgParseErrorPosition;
+
+/// Re-export of rust-allocated (stack based) `Instant` struct
+pub type AzInstantTT = azul_impl::task::Instant;
+pub use AzInstantTT as AzInstant;
+
+/// Re-export of rust-allocated (stack based) `InstantPtr` struct
+pub type AzInstantPtrTT = azul_impl::task::AzInstantPtr;
+pub use AzInstantPtrTT as AzInstantPtr;
+/// Destructor: Takes ownership of the `InstantPtr` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_instant_ptr_delete(object: &mut AzInstantPtr) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_instant_ptr_deep_copy(object: &AzInstantPtr) -> AzInstantPtr { object.clone() }
+
+pub type AzInstantPtrCloneFnType = extern "C" fn(&c_void) -> AzInstantPtr;
+/// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
+pub type AzInstantPtrCloneFnTT = azul_impl::task::InstantPtrCloneCallback;
+pub use AzInstantPtrCloneFnTT as AzInstantPtrCloneFn;
+
+pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut c_void);
+/// Re-export of rust-allocated (stack based) `InstantPtrDestructorFn` struct
+pub type AzInstantPtrDestructorFnTT = azul_impl::task::InstantPtrDestructorCallback;
+pub use AzInstantPtrDestructorFnTT as AzInstantPtrDestructorFn;
+
+/// Re-export of rust-allocated (stack based) `SystemTick` struct
+pub type AzSystemTickTT = azul_impl::task::SystemTick;
+pub use AzSystemTickTT as AzSystemTick;
+
+/// Re-export of rust-allocated (stack based) `Duration` struct
+pub type AzDurationTT = azul_impl::task::Duration;
+pub use AzDurationTT as AzDuration;
+
+/// Re-export of rust-allocated (stack based) `SystemTimeDiff` struct
+pub type AzSystemTimeDiffTT = azul_impl::task::SystemTimeDiff;
+pub use AzSystemTimeDiffTT as AzSystemTimeDiff;
+
+/// Re-export of rust-allocated (stack based) `SystemTickDiff` struct
+pub type AzSystemTickDiffTT = azul_impl::task::SystemTickDiff;
+pub use AzSystemTickDiffTT as AzSystemTickDiff;
 
 
 #[cfg(test)]
@@ -2925,92 +2925,10 @@ mod test_sizes {
     impl ::std::fmt::Debug for AzTagIdsToNodeIdsMappingVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzTagIdsToNodeIdsMappingVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     impl ::std::fmt::Debug for AzParentWithNodeDepthVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzParentWithNodeDepthVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     impl ::std::fmt::Debug for AzNodeDataVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzNodeDataVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
-    /// `AzDomVecDestructorType` struct
-    pub type AzDomVecDestructorType = extern "C" fn(&mut AzDomVec);
-    /// `AzIdOrClassVecDestructorType` struct
-    pub type AzIdOrClassVecDestructorType = extern "C" fn(&mut AzIdOrClassVec);
-    /// `AzNodeDataInlineCssPropertyVecDestructorType` struct
-    pub type AzNodeDataInlineCssPropertyVecDestructorType = extern "C" fn(&mut AzNodeDataInlineCssPropertyVec);
-    /// `AzStyleBackgroundContentVecDestructorType` struct
-    pub type AzStyleBackgroundContentVecDestructorType = extern "C" fn(&mut AzStyleBackgroundContentVec);
-    /// `AzStyleBackgroundPositionVecDestructorType` struct
-    pub type AzStyleBackgroundPositionVecDestructorType = extern "C" fn(&mut AzStyleBackgroundPositionVec);
-    /// `AzStyleBackgroundRepeatVecDestructorType` struct
-    pub type AzStyleBackgroundRepeatVecDestructorType = extern "C" fn(&mut AzStyleBackgroundRepeatVec);
-    /// `AzStyleBackgroundSizeVecDestructorType` struct
-    pub type AzStyleBackgroundSizeVecDestructorType = extern "C" fn(&mut AzStyleBackgroundSizeVec);
-    /// `AzStyleTransformVecDestructorType` struct
-    pub type AzStyleTransformVecDestructorType = extern "C" fn(&mut AzStyleTransformVec);
-    /// `AzCssPropertyVecDestructorType` struct
-    pub type AzCssPropertyVecDestructorType = extern "C" fn(&mut AzCssPropertyVec);
-    /// `AzSvgMultiPolygonVecDestructorType` struct
-    pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
-    /// `AzSvgPathVecDestructorType` struct
-    pub type AzSvgPathVecDestructorType = extern "C" fn(&mut AzSvgPathVec);
-    /// `AzVertexAttributeVecDestructorType` struct
-    pub type AzVertexAttributeVecDestructorType = extern "C" fn(&mut AzVertexAttributeVec);
-    /// `AzSvgPathElementVecDestructorType` struct
-    pub type AzSvgPathElementVecDestructorType = extern "C" fn(&mut AzSvgPathElementVec);
-    /// `AzSvgVertexVecDestructorType` struct
-    pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
-    /// `AzU32VecDestructorType` struct
-    pub type AzU32VecDestructorType = extern "C" fn(&mut AzU32Vec);
-    /// `AzXWindowTypeVecDestructorType` struct
-    pub type AzXWindowTypeVecDestructorType = extern "C" fn(&mut AzXWindowTypeVec);
-    /// `AzVirtualKeyCodeVecDestructorType` struct
-    pub type AzVirtualKeyCodeVecDestructorType = extern "C" fn(&mut AzVirtualKeyCodeVec);
-    /// `AzCascadeInfoVecDestructorType` struct
-    pub type AzCascadeInfoVecDestructorType = extern "C" fn(&mut AzCascadeInfoVec);
-    /// `AzScanCodeVecDestructorType` struct
-    pub type AzScanCodeVecDestructorType = extern "C" fn(&mut AzScanCodeVec);
-    /// `AzCssDeclarationVecDestructorType` struct
-    pub type AzCssDeclarationVecDestructorType = extern "C" fn(&mut AzCssDeclarationVec);
-    /// `AzCssPathSelectorVecDestructorType` struct
-    pub type AzCssPathSelectorVecDestructorType = extern "C" fn(&mut AzCssPathSelectorVec);
-    /// `AzStylesheetVecDestructorType` struct
-    pub type AzStylesheetVecDestructorType = extern "C" fn(&mut AzStylesheetVec);
-    /// `AzCssRuleBlockVecDestructorType` struct
-    pub type AzCssRuleBlockVecDestructorType = extern "C" fn(&mut AzCssRuleBlockVec);
-    /// `AzU8VecDestructorType` struct
-    pub type AzU8VecDestructorType = extern "C" fn(&mut AzU8Vec);
-    /// `AzCallbackDataVecDestructorType` struct
-    pub type AzCallbackDataVecDestructorType = extern "C" fn(&mut AzCallbackDataVec);
-    /// `AzDebugMessageVecDestructorType` struct
-    pub type AzDebugMessageVecDestructorType = extern "C" fn(&mut AzDebugMessageVec);
-    /// `AzGLuintVecDestructorType` struct
-    pub type AzGLuintVecDestructorType = extern "C" fn(&mut AzGLuintVec);
-    /// `AzGLintVecDestructorType` struct
-    pub type AzGLintVecDestructorType = extern "C" fn(&mut AzGLintVec);
-    /// `AzStringVecDestructorType` struct
-    pub type AzStringVecDestructorType = extern "C" fn(&mut AzStringVec);
-    /// `AzStringPairVecDestructorType` struct
-    pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
-    /// `AzLinearColorStopVecDestructorType` struct
-    pub type AzLinearColorStopVecDestructorType = extern "C" fn(&mut AzLinearColorStopVec);
-    /// `AzRadialColorStopVecDestructorType` struct
-    pub type AzRadialColorStopVecDestructorType = extern "C" fn(&mut AzRadialColorStopVec);
-    /// `AzNodeIdVecDestructorType` struct
-    pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
-    /// `AzNodeVecDestructorType` struct
-    pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
-    /// `AzStyledNodeVecDestructorType` struct
-    pub type AzStyledNodeVecDestructorType = extern "C" fn(&mut AzStyledNodeVec);
-    /// `AzTagIdsToNodeIdsMappingVecDestructorType` struct
-    pub type AzTagIdsToNodeIdsMappingVecDestructorType = extern "C" fn(&mut AzTagIdsToNodeIdsMappingVec);
-    /// `AzParentWithNodeDepthVecDestructorType` struct
-    pub type AzParentWithNodeDepthVecDestructorType = extern "C" fn(&mut AzParentWithNodeDepthVec);
-    /// `AzNodeDataVecDestructorType` struct
-    pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
-    /// Re-export of rust-allocated (stack based) `InstantPtr` struct
-    #[repr(C)]     pub struct AzInstantPtr {
+    /// Main application class
+    #[repr(C)]     pub struct AzApp {
         pub(crate) ptr: *const c_void,
-        pub clone_fn: AzInstantPtrCloneFn,
-        pub destructor: AzInstantPtrDestructorFn,
     }
-    /// `AzInstantPtrCloneFnType` struct
-    pub type AzInstantPtrCloneFnType = extern "C" fn(&c_void) -> AzInstantPtr;
-    /// `AzInstantPtrDestructorFnType` struct
-    pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut c_void);
     /// Re-export of rust-allocated (stack based) `AppLogLevel` struct
     #[repr(C)]     pub enum AzAppLogLevel {
         Off,
@@ -3020,9 +2938,258 @@ mod test_sizes {
         Debug,
         Trace,
     }
-    /// Main application class
-    #[repr(C)]     pub struct AzApp {
-        pub(crate) ptr: *const c_void,
+    /// Re-export of rust-allocated (stack based) `Vsync` struct
+    #[repr(C)]     pub enum AzVsync {
+        Enabled,
+        Disabled,
+    }
+    /// Re-export of rust-allocated (stack based) `Srgb` struct
+    #[repr(C)]     pub enum AzSrgb {
+        Enabled,
+        Disabled,
+    }
+    /// Re-export of rust-allocated (stack based) `HwAcceleration` struct
+    #[repr(C)]     pub enum AzHwAcceleration {
+        Enabled,
+        Disabled,
+    }
+    /// Re-export of rust-allocated (stack based) `XWindowType` struct
+    #[repr(C)]     pub enum AzXWindowType {
+        Desktop,
+        Dock,
+        Toolbar,
+        Menu,
+        Utility,
+        Splash,
+        Dialog,
+        DropdownMenu,
+        PopupMenu,
+        Tooltip,
+        Notification,
+        Combo,
+        Dnd,
+        Normal,
+    }
+    /// Re-export of rust-allocated (stack based) `VirtualKeyCode` struct
+    #[repr(C)]     pub enum AzVirtualKeyCode {
+        Key1,
+        Key2,
+        Key3,
+        Key4,
+        Key5,
+        Key6,
+        Key7,
+        Key8,
+        Key9,
+        Key0,
+        A,
+        B,
+        C,
+        D,
+        E,
+        F,
+        G,
+        H,
+        I,
+        J,
+        K,
+        L,
+        M,
+        N,
+        O,
+        P,
+        Q,
+        R,
+        S,
+        T,
+        U,
+        V,
+        W,
+        X,
+        Y,
+        Z,
+        Escape,
+        F1,
+        F2,
+        F3,
+        F4,
+        F5,
+        F6,
+        F7,
+        F8,
+        F9,
+        F10,
+        F11,
+        F12,
+        F13,
+        F14,
+        F15,
+        F16,
+        F17,
+        F18,
+        F19,
+        F20,
+        F21,
+        F22,
+        F23,
+        F24,
+        Snapshot,
+        Scroll,
+        Pause,
+        Insert,
+        Home,
+        Delete,
+        End,
+        PageDown,
+        PageUp,
+        Left,
+        Up,
+        Right,
+        Down,
+        Back,
+        Return,
+        Space,
+        Compose,
+        Caret,
+        Numlock,
+        Numpad0,
+        Numpad1,
+        Numpad2,
+        Numpad3,
+        Numpad4,
+        Numpad5,
+        Numpad6,
+        Numpad7,
+        Numpad8,
+        Numpad9,
+        NumpadAdd,
+        NumpadDivide,
+        NumpadDecimal,
+        NumpadComma,
+        NumpadEnter,
+        NumpadEquals,
+        NumpadMultiply,
+        NumpadSubtract,
+        AbntC1,
+        AbntC2,
+        Apostrophe,
+        Apps,
+        Asterisk,
+        At,
+        Ax,
+        Backslash,
+        Calculator,
+        Capital,
+        Colon,
+        Comma,
+        Convert,
+        Equals,
+        Grave,
+        Kana,
+        Kanji,
+        LAlt,
+        LBracket,
+        LControl,
+        LShift,
+        LWin,
+        Mail,
+        MediaSelect,
+        MediaStop,
+        Minus,
+        Mute,
+        MyComputer,
+        NavigateForward,
+        NavigateBackward,
+        NextTrack,
+        NoConvert,
+        OEM102,
+        Period,
+        PlayPause,
+        Plus,
+        Power,
+        PrevTrack,
+        RAlt,
+        RBracket,
+        RControl,
+        RShift,
+        RWin,
+        Semicolon,
+        Slash,
+        Sleep,
+        Stop,
+        Sysrq,
+        Tab,
+        Underline,
+        Unlabeled,
+        VolumeDown,
+        VolumeUp,
+        Wake,
+        WebBack,
+        WebFavorites,
+        WebForward,
+        WebHome,
+        WebRefresh,
+        WebSearch,
+        WebStop,
+        Yen,
+        Copy,
+        Paste,
+        Cut,
+    }
+    /// Re-export of rust-allocated (stack based) `MouseCursorType` struct
+    #[repr(C)]     pub enum AzMouseCursorType {
+        Default,
+        Crosshair,
+        Hand,
+        Arrow,
+        Move,
+        Text,
+        Wait,
+        Help,
+        Progress,
+        NotAllowed,
+        ContextMenu,
+        Cell,
+        VerticalText,
+        Alias,
+        Copy,
+        NoDrop,
+        Grab,
+        Grabbing,
+        AllScroll,
+        ZoomIn,
+        ZoomOut,
+        EResize,
+        NResize,
+        NeResize,
+        NwResize,
+        SResize,
+        SeResize,
+        SwResize,
+        WResize,
+        EwResize,
+        NsResize,
+        NeswResize,
+        NwseResize,
+        ColResize,
+        RowResize,
+    }
+    /// Re-export of rust-allocated (stack based) `RendererType` struct
+    #[repr(C)]     pub enum AzRendererType {
+        Hardware,
+        Software,
+    }
+    /// Re-export of rust-allocated (stack based) `FullScreenMode` struct
+    #[repr(C)]     pub enum AzFullScreenMode {
+        SlowFullScreen,
+        FastFullScreen,
+        SlowWindowed,
+        FastWindowed,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowTheme` struct
+    #[repr(C)]     pub enum AzWindowTheme {
+        DarkMode,
+        LightMode,
     }
     /// `AzLayoutCallbackType` struct
     pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutInfo) -> AzStyledDom;
@@ -3055,6 +3222,122 @@ mod test_sizes {
         pub _internal_ptr: *const c_void,
         pub is_dead: bool,
         pub sharing_info: AzRefCount,
+    }
+    /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
+    #[repr(C)]     pub enum AzOn {
+        MouseOver,
+        MouseDown,
+        LeftMouseDown,
+        MiddleMouseDown,
+        RightMouseDown,
+        MouseUp,
+        LeftMouseUp,
+        MiddleMouseUp,
+        RightMouseUp,
+        MouseEnter,
+        MouseLeave,
+        Scroll,
+        TextInput,
+        VirtualKeyDown,
+        VirtualKeyUp,
+        HoveredFile,
+        DroppedFile,
+        HoveredFileCancelled,
+        FocusReceived,
+        FocusLost,
+    }
+    /// Re-export of rust-allocated (stack based) `HoverEventFilter` struct
+    #[repr(C)]     pub enum AzHoverEventFilter {
+        MouseOver,
+        MouseDown,
+        LeftMouseDown,
+        RightMouseDown,
+        MiddleMouseDown,
+        MouseUp,
+        LeftMouseUp,
+        RightMouseUp,
+        MiddleMouseUp,
+        MouseEnter,
+        MouseLeave,
+        Scroll,
+        ScrollStart,
+        ScrollEnd,
+        TextInput,
+        VirtualKeyDown,
+        VirtualKeyUp,
+        HoveredFile,
+        DroppedFile,
+        HoveredFileCancelled,
+        TouchStart,
+        TouchMove,
+        TouchEnd,
+        TouchCancel,
+    }
+    /// Re-export of rust-allocated (stack based) `FocusEventFilter` struct
+    #[repr(C)]     pub enum AzFocusEventFilter {
+        MouseOver,
+        MouseDown,
+        LeftMouseDown,
+        RightMouseDown,
+        MiddleMouseDown,
+        MouseUp,
+        LeftMouseUp,
+        RightMouseUp,
+        MiddleMouseUp,
+        MouseEnter,
+        MouseLeave,
+        Scroll,
+        ScrollStart,
+        ScrollEnd,
+        TextInput,
+        VirtualKeyDown,
+        VirtualKeyUp,
+        FocusReceived,
+        FocusLost,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowEventFilter` struct
+    #[repr(C)]     pub enum AzWindowEventFilter {
+        MouseOver,
+        MouseDown,
+        LeftMouseDown,
+        RightMouseDown,
+        MiddleMouseDown,
+        MouseUp,
+        LeftMouseUp,
+        RightMouseUp,
+        MiddleMouseUp,
+        MouseEnter,
+        MouseLeave,
+        Scroll,
+        ScrollStart,
+        ScrollEnd,
+        TextInput,
+        VirtualKeyDown,
+        VirtualKeyUp,
+        HoveredFile,
+        DroppedFile,
+        HoveredFileCancelled,
+        Resized,
+        Moved,
+        TouchStart,
+        TouchMove,
+        TouchEnd,
+        TouchCancel,
+        FocusReceived,
+        FocusLost,
+        CloseRequested,
+        ThemeChanged,
+    }
+    /// Re-export of rust-allocated (stack based) `ComponentEventFilter` struct
+    #[repr(C)]     pub enum AzComponentEventFilter {
+        AfterMount,
+        BeforeUnmount,
+        NodeResized,
+    }
+    /// Re-export of rust-allocated (stack based) `ApplicationEventFilter` struct
+    #[repr(C)]     pub enum AzApplicationEventFilter {
+        DeviceConnected,
+        DeviceDisconnected,
     }
     /// Re-export of rust-allocated (stack based) `NodeTypePath` struct
     #[repr(C)]     pub enum AzNodeTypePath {
@@ -3324,122 +3607,6 @@ mod test_sizes {
     #[repr(C)]     pub struct AzCssPropertyCache {
         pub(crate) ptr: *mut c_void,
     }
-    /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
-    #[repr(C)]     pub enum AzOn {
-        MouseOver,
-        MouseDown,
-        LeftMouseDown,
-        MiddleMouseDown,
-        RightMouseDown,
-        MouseUp,
-        LeftMouseUp,
-        MiddleMouseUp,
-        RightMouseUp,
-        MouseEnter,
-        MouseLeave,
-        Scroll,
-        TextInput,
-        VirtualKeyDown,
-        VirtualKeyUp,
-        HoveredFile,
-        DroppedFile,
-        HoveredFileCancelled,
-        FocusReceived,
-        FocusLost,
-    }
-    /// Re-export of rust-allocated (stack based) `HoverEventFilter` struct
-    #[repr(C)]     pub enum AzHoverEventFilter {
-        MouseOver,
-        MouseDown,
-        LeftMouseDown,
-        RightMouseDown,
-        MiddleMouseDown,
-        MouseUp,
-        LeftMouseUp,
-        RightMouseUp,
-        MiddleMouseUp,
-        MouseEnter,
-        MouseLeave,
-        Scroll,
-        ScrollStart,
-        ScrollEnd,
-        TextInput,
-        VirtualKeyDown,
-        VirtualKeyUp,
-        HoveredFile,
-        DroppedFile,
-        HoveredFileCancelled,
-        TouchStart,
-        TouchMove,
-        TouchEnd,
-        TouchCancel,
-    }
-    /// Re-export of rust-allocated (stack based) `FocusEventFilter` struct
-    #[repr(C)]     pub enum AzFocusEventFilter {
-        MouseOver,
-        MouseDown,
-        LeftMouseDown,
-        RightMouseDown,
-        MiddleMouseDown,
-        MouseUp,
-        LeftMouseUp,
-        RightMouseUp,
-        MiddleMouseUp,
-        MouseEnter,
-        MouseLeave,
-        Scroll,
-        ScrollStart,
-        ScrollEnd,
-        TextInput,
-        VirtualKeyDown,
-        VirtualKeyUp,
-        FocusReceived,
-        FocusLost,
-    }
-    /// Re-export of rust-allocated (stack based) `WindowEventFilter` struct
-    #[repr(C)]     pub enum AzWindowEventFilter {
-        MouseOver,
-        MouseDown,
-        LeftMouseDown,
-        RightMouseDown,
-        MiddleMouseDown,
-        MouseUp,
-        LeftMouseUp,
-        RightMouseUp,
-        MiddleMouseUp,
-        MouseEnter,
-        MouseLeave,
-        Scroll,
-        ScrollStart,
-        ScrollEnd,
-        TextInput,
-        VirtualKeyDown,
-        VirtualKeyUp,
-        HoveredFile,
-        DroppedFile,
-        HoveredFileCancelled,
-        Resized,
-        Moved,
-        TouchStart,
-        TouchMove,
-        TouchEnd,
-        TouchCancel,
-        FocusReceived,
-        FocusLost,
-        CloseRequested,
-        ThemeChanged,
-    }
-    /// Re-export of rust-allocated (stack based) `ComponentEventFilter` struct
-    #[repr(C)]     pub enum AzComponentEventFilter {
-        AfterMount,
-        BeforeUnmount,
-        NodeResized,
-    }
-    /// Re-export of rust-allocated (stack based) `ApplicationEventFilter` struct
-    #[repr(C)]     pub enum AzApplicationEventFilter {
-        DeviceConnected,
-        DeviceDisconnected,
-    }
     /// Re-export of rust-allocated (stack based) `VertexAttributeType` struct
     #[repr(C)]     pub enum AzVertexAttributeType {
         Float,
@@ -3575,633 +3742,261 @@ mod test_sizes {
     pub type AzThreadReceiverDestructorFnType = extern "C" fn(&mut AzThreadReceiver);
     /// `AzThreadSenderDestructorFnType` struct
     pub type AzThreadSenderDestructorFnType = extern "C" fn(&mut AzThreadSender);
-    /// Re-export of rust-allocated (stack based) `Vsync` struct
-    #[repr(C)]     pub enum AzVsync {
-        Enabled,
-        Disabled,
-    }
-    /// Re-export of rust-allocated (stack based) `Srgb` struct
-    #[repr(C)]     pub enum AzSrgb {
-        Enabled,
-        Disabled,
-    }
-    /// Re-export of rust-allocated (stack based) `HwAcceleration` struct
-    #[repr(C)]     pub enum AzHwAcceleration {
-        Enabled,
-        Disabled,
-    }
-    /// Re-export of rust-allocated (stack based) `XWindowType` struct
-    #[repr(C)]     pub enum AzXWindowType {
-        Desktop,
-        Dock,
-        Toolbar,
-        Menu,
-        Utility,
-        Splash,
-        Dialog,
-        DropdownMenu,
-        PopupMenu,
-        Tooltip,
-        Notification,
-        Combo,
-        Dnd,
-        Normal,
-    }
-    /// Re-export of rust-allocated (stack based) `VirtualKeyCode` struct
-    #[repr(C)]     pub enum AzVirtualKeyCode {
-        Key1,
-        Key2,
-        Key3,
-        Key4,
-        Key5,
-        Key6,
-        Key7,
-        Key8,
-        Key9,
-        Key0,
-        A,
-        B,
-        C,
-        D,
-        E,
-        F,
-        G,
-        H,
-        I,
-        J,
-        K,
-        L,
-        M,
-        N,
-        O,
-        P,
-        Q,
-        R,
-        S,
-        T,
-        U,
-        V,
-        W,
-        X,
-        Y,
-        Z,
-        Escape,
-        F1,
-        F2,
-        F3,
-        F4,
-        F5,
-        F6,
-        F7,
-        F8,
-        F9,
-        F10,
-        F11,
-        F12,
-        F13,
-        F14,
-        F15,
-        F16,
-        F17,
-        F18,
-        F19,
-        F20,
-        F21,
-        F22,
-        F23,
-        F24,
-        Snapshot,
-        Scroll,
-        Pause,
-        Insert,
-        Home,
-        Delete,
-        End,
-        PageDown,
-        PageUp,
-        Left,
-        Up,
-        Right,
-        Down,
-        Back,
-        Return,
-        Space,
-        Compose,
-        Caret,
-        Numlock,
-        Numpad0,
-        Numpad1,
-        Numpad2,
-        Numpad3,
-        Numpad4,
-        Numpad5,
-        Numpad6,
-        Numpad7,
-        Numpad8,
-        Numpad9,
-        NumpadAdd,
-        NumpadDivide,
-        NumpadDecimal,
-        NumpadComma,
-        NumpadEnter,
-        NumpadEquals,
-        NumpadMultiply,
-        NumpadSubtract,
-        AbntC1,
-        AbntC2,
-        Apostrophe,
-        Apps,
-        Asterisk,
-        At,
-        Ax,
-        Backslash,
-        Calculator,
-        Capital,
-        Colon,
-        Comma,
-        Convert,
-        Equals,
-        Grave,
-        Kana,
-        Kanji,
-        LAlt,
-        LBracket,
-        LControl,
-        LShift,
-        LWin,
-        Mail,
-        MediaSelect,
-        MediaStop,
-        Minus,
-        Mute,
-        MyComputer,
-        NavigateForward,
-        NavigateBackward,
-        NextTrack,
-        NoConvert,
-        OEM102,
-        Period,
-        PlayPause,
-        Plus,
-        Power,
-        PrevTrack,
-        RAlt,
-        RBracket,
-        RControl,
-        RShift,
-        RWin,
-        Semicolon,
-        Slash,
-        Sleep,
-        Stop,
-        Sysrq,
-        Tab,
-        Underline,
-        Unlabeled,
-        VolumeDown,
-        VolumeUp,
-        Wake,
-        WebBack,
-        WebFavorites,
-        WebForward,
-        WebHome,
-        WebRefresh,
-        WebSearch,
-        WebStop,
-        Yen,
-        Copy,
-        Paste,
-        Cut,
-    }
-    /// Re-export of rust-allocated (stack based) `MouseCursorType` struct
-    #[repr(C)]     pub enum AzMouseCursorType {
-        Default,
-        Crosshair,
-        Hand,
-        Arrow,
-        Move,
-        Text,
-        Wait,
-        Help,
-        Progress,
-        NotAllowed,
-        ContextMenu,
-        Cell,
-        VerticalText,
-        Alias,
-        Copy,
-        NoDrop,
-        Grab,
-        Grabbing,
-        AllScroll,
-        ZoomIn,
-        ZoomOut,
-        EResize,
-        NResize,
-        NeResize,
-        NwResize,
-        SResize,
-        SeResize,
-        SwResize,
-        WResize,
-        EwResize,
-        NsResize,
-        NeswResize,
-        NwseResize,
-        ColResize,
-        RowResize,
-    }
-    /// Re-export of rust-allocated (stack based) `RendererType` struct
-    #[repr(C)]     pub enum AzRendererType {
-        Hardware,
-        Software,
-    }
-    /// Re-export of rust-allocated (stack based) `FullScreenMode` struct
-    #[repr(C)]     pub enum AzFullScreenMode {
-        SlowFullScreen,
-        FastFullScreen,
-        SlowWindowed,
-        FastWindowed,
-    }
-    /// Re-export of rust-allocated (stack based) `WindowTheme` struct
-    #[repr(C)]     pub enum AzWindowTheme {
-        DarkMode,
-        LightMode,
-    }
-    /// Re-export of rust-allocated (stack based) `DomVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzDomVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzDomVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `IdOrClassVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzIdOrClassVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzIdOrClassVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `NodeDataInlineCssPropertyVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzNodeDataInlineCssPropertyVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzNodeDataInlineCssPropertyVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundContentVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzStyleBackgroundContentVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundPositionVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzStyleBackgroundPositionVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundRepeatVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzStyleBackgroundRepeatVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundSizeVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzStyleBackgroundSizeVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `StyleTransformVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyleTransformVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzStyleTransformVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `CssPropertyVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzCssPropertyVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzCssPropertyVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `SvgMultiPolygonVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzSvgMultiPolygonVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzSvgMultiPolygonVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzSvgPathVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzSvgPathVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `VertexAttributeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzVertexAttributeVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzVertexAttributeVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `SvgPathElementVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzSvgPathElementVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzSvgPathElementVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `SvgVertexVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzSvgVertexVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzSvgVertexVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
-    #[repr(C, u8)]     pub enum AzU32VecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzU32VecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `XWindowTypeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzXWindowTypeVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzXWindowTypeVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `VirtualKeyCodeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzVirtualKeyCodeVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzVirtualKeyCodeVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `CascadeInfoVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzCascadeInfoVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzCascadeInfoVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `ScanCodeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzScanCodeVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzScanCodeVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `CssDeclarationVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzCssDeclarationVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzCssDeclarationVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `CssPathSelectorVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzCssPathSelectorVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzCssPathSelectorVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `StylesheetVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStylesheetVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzStylesheetVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `CssRuleBlockVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzCssRuleBlockVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzCssRuleBlockVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
-    #[repr(C, u8)]     pub enum AzU8VecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzU8VecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `CallbackDataVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzCallbackDataVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzCallbackDataVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `DebugMessageVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzDebugMessageVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzDebugMessageVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `GLuintVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzGLuintVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzGLuintVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `GLintVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzGLintVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzGLintVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `StringVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStringVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzStringVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `StringPairVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStringPairVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzStringPairVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `LinearColorStopVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzLinearColorStopVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzLinearColorStopVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `RadialColorStopVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzRadialColorStopVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzRadialColorStopVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzNodeIdVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzNodeIdVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzNodeVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzNodeVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyledNodeVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzStyledNodeVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `TagIdsToNodeIdsMappingVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzTagIdsToNodeIdsMappingVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzTagIdsToNodeIdsMappingVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `ParentWithNodeDepthVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzParentWithNodeDepthVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzParentWithNodeDepthVecDestructorType),
-    }
-    /// Re-export of rust-allocated (stack based) `NodeDataVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzNodeDataVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzNodeDataVecDestructorType),
-    }
-    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
-    #[repr(C)]     pub struct AzStyleBackgroundRepeatVec {
-        pub(crate) ptr: *const AzStyleBackgroundRepeat,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzStyleBackgroundRepeatVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `Vec<u32>`
-    #[repr(C)]     pub struct AzU32Vec {
-        pub(crate) ptr: *const u32,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzU32VecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `XWindowType`
-    #[repr(C)]     pub struct AzXWindowTypeVec {
-        pub(crate) ptr: *const AzXWindowType,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzXWindowTypeVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `VirtualKeyCode`
-    #[repr(C)]     pub struct AzVirtualKeyCodeVec {
-        pub(crate) ptr: *const AzVirtualKeyCode,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzVirtualKeyCodeVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `ScanCode`
-    #[repr(C)]     pub struct AzScanCodeVec {
-        pub(crate) ptr: *const u32,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzScanCodeVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `U8Vec`
-    #[repr(C)]     pub struct AzU8Vec {
-        pub(crate) ptr: *const u8,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzU8VecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `U32Vec`
-    #[repr(C)]     pub struct AzGLuintVec {
-        pub(crate) ptr: *const u32,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzGLuintVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `GLintVec`
-    #[repr(C)]     pub struct AzGLintVec {
-        pub(crate) ptr: *const i32,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzGLintVecDestructor,
-    }
-    /// Re-export of rust-allocated (stack based) `OptionGlContextPtr` struct
-    #[repr(C, u8)]     pub enum AzOptionGlContextPtr {
-        None,
-        Some(AzGlContextPtr),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
-    #[repr(C, u8)]     pub enum AzOptionThreadSendMsg {
-        None,
-        Some(AzThreadSendMsg),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
-    #[repr(C, u8)]     pub enum AzOptionRefAny {
-        None,
-        Some(AzRefAny),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
-    #[repr(C, u8)]     pub enum AzOptionWindowTheme {
-        None,
-        Some(AzWindowTheme),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionHwndHandle` struct
-    #[repr(C, u8)]     pub enum AzOptionHwndHandle {
-        None,
-        Some(*mut c_void),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionX11Visual` struct
-    #[repr(C, u8)]     pub enum AzOptionX11Visual {
-        None,
-        Some(*const c_void),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionI32` struct
-    #[repr(C, u8)]     pub enum AzOptionI32 {
-        None,
-        Some(i32),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionF32` struct
-    #[repr(C, u8)]     pub enum AzOptionF32 {
-        None,
-        Some(f32),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionMouseCursorType` struct
-    #[repr(C, u8)]     pub enum AzOptionMouseCursorType {
-        None,
-        Some(AzMouseCursorType),
-    }
-    /// Option<char> but the char is a u32, for C FFI stability reasons
-    #[repr(C, u8)]     pub enum AzOptionChar {
-        None,
-        Some(u32),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCode` struct
-    #[repr(C, u8)]     pub enum AzOptionVirtualKeyCode {
-        None,
-        Some(AzVirtualKeyCode),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionTexture` struct
-    #[repr(C, u8)]     pub enum AzOptionTexture {
-        None,
-        Some(AzTexture),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionUsize` struct
-    #[repr(C, u8)]     pub enum AzOptionUsize {
-        None,
-        Some(usize),
-    }
-    /// Re-export of rust-allocated (stack based) `SvgParseErrorPosition` struct
-    #[repr(C)]     pub struct AzSvgParseErrorPosition {
-        pub row: u32,
-        pub col: u32,
-    }
-    /// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
-    #[repr(C)]     pub struct AzInstantPtrCloneFn {
-        pub cb: AzInstantPtrCloneFnType,
-    }
-    /// Re-export of rust-allocated (stack based) `InstantPtrDestructorFn` struct
-    #[repr(C)]     pub struct AzInstantPtrDestructorFn {
-        pub cb: AzInstantPtrDestructorFnType,
-    }
-    /// Re-export of rust-allocated (stack based) `SystemTick` struct
-    #[repr(C)]     pub struct AzSystemTick {
-        pub tick_counter: u64,
-    }
-    /// Re-export of rust-allocated (stack based) `SystemTimeDiff` struct
-    #[repr(C)]     pub struct AzSystemTimeDiff {
-        pub secs: u64,
-        pub nanos: u32,
-    }
-    /// Re-export of rust-allocated (stack based) `SystemTickDiff` struct
-    #[repr(C)]     pub struct AzSystemTickDiff {
-        pub tick_diff: u64,
+    /// `AzDomVecDestructorType` struct
+    pub type AzDomVecDestructorType = extern "C" fn(&mut AzDomVec);
+    /// `AzIdOrClassVecDestructorType` struct
+    pub type AzIdOrClassVecDestructorType = extern "C" fn(&mut AzIdOrClassVec);
+    /// `AzNodeDataInlineCssPropertyVecDestructorType` struct
+    pub type AzNodeDataInlineCssPropertyVecDestructorType = extern "C" fn(&mut AzNodeDataInlineCssPropertyVec);
+    /// `AzStyleBackgroundContentVecDestructorType` struct
+    pub type AzStyleBackgroundContentVecDestructorType = extern "C" fn(&mut AzStyleBackgroundContentVec);
+    /// `AzStyleBackgroundPositionVecDestructorType` struct
+    pub type AzStyleBackgroundPositionVecDestructorType = extern "C" fn(&mut AzStyleBackgroundPositionVec);
+    /// `AzStyleBackgroundRepeatVecDestructorType` struct
+    pub type AzStyleBackgroundRepeatVecDestructorType = extern "C" fn(&mut AzStyleBackgroundRepeatVec);
+    /// `AzStyleBackgroundSizeVecDestructorType` struct
+    pub type AzStyleBackgroundSizeVecDestructorType = extern "C" fn(&mut AzStyleBackgroundSizeVec);
+    /// `AzStyleTransformVecDestructorType` struct
+    pub type AzStyleTransformVecDestructorType = extern "C" fn(&mut AzStyleTransformVec);
+    /// `AzCssPropertyVecDestructorType` struct
+    pub type AzCssPropertyVecDestructorType = extern "C" fn(&mut AzCssPropertyVec);
+    /// `AzSvgMultiPolygonVecDestructorType` struct
+    pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
+    /// `AzSvgPathVecDestructorType` struct
+    pub type AzSvgPathVecDestructorType = extern "C" fn(&mut AzSvgPathVec);
+    /// `AzVertexAttributeVecDestructorType` struct
+    pub type AzVertexAttributeVecDestructorType = extern "C" fn(&mut AzVertexAttributeVec);
+    /// `AzSvgPathElementVecDestructorType` struct
+    pub type AzSvgPathElementVecDestructorType = extern "C" fn(&mut AzSvgPathElementVec);
+    /// `AzSvgVertexVecDestructorType` struct
+    pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
+    /// `AzU32VecDestructorType` struct
+    pub type AzU32VecDestructorType = extern "C" fn(&mut AzU32Vec);
+    /// `AzXWindowTypeVecDestructorType` struct
+    pub type AzXWindowTypeVecDestructorType = extern "C" fn(&mut AzXWindowTypeVec);
+    /// `AzVirtualKeyCodeVecDestructorType` struct
+    pub type AzVirtualKeyCodeVecDestructorType = extern "C" fn(&mut AzVirtualKeyCodeVec);
+    /// `AzCascadeInfoVecDestructorType` struct
+    pub type AzCascadeInfoVecDestructorType = extern "C" fn(&mut AzCascadeInfoVec);
+    /// `AzScanCodeVecDestructorType` struct
+    pub type AzScanCodeVecDestructorType = extern "C" fn(&mut AzScanCodeVec);
+    /// `AzCssDeclarationVecDestructorType` struct
+    pub type AzCssDeclarationVecDestructorType = extern "C" fn(&mut AzCssDeclarationVec);
+    /// `AzCssPathSelectorVecDestructorType` struct
+    pub type AzCssPathSelectorVecDestructorType = extern "C" fn(&mut AzCssPathSelectorVec);
+    /// `AzStylesheetVecDestructorType` struct
+    pub type AzStylesheetVecDestructorType = extern "C" fn(&mut AzStylesheetVec);
+    /// `AzCssRuleBlockVecDestructorType` struct
+    pub type AzCssRuleBlockVecDestructorType = extern "C" fn(&mut AzCssRuleBlockVec);
+    /// `AzU8VecDestructorType` struct
+    pub type AzU8VecDestructorType = extern "C" fn(&mut AzU8Vec);
+    /// `AzCallbackDataVecDestructorType` struct
+    pub type AzCallbackDataVecDestructorType = extern "C" fn(&mut AzCallbackDataVec);
+    /// `AzDebugMessageVecDestructorType` struct
+    pub type AzDebugMessageVecDestructorType = extern "C" fn(&mut AzDebugMessageVec);
+    /// `AzGLuintVecDestructorType` struct
+    pub type AzGLuintVecDestructorType = extern "C" fn(&mut AzGLuintVec);
+    /// `AzGLintVecDestructorType` struct
+    pub type AzGLintVecDestructorType = extern "C" fn(&mut AzGLintVec);
+    /// `AzStringVecDestructorType` struct
+    pub type AzStringVecDestructorType = extern "C" fn(&mut AzStringVec);
+    /// `AzStringPairVecDestructorType` struct
+    pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
+    /// `AzLinearColorStopVecDestructorType` struct
+    pub type AzLinearColorStopVecDestructorType = extern "C" fn(&mut AzLinearColorStopVec);
+    /// `AzRadialColorStopVecDestructorType` struct
+    pub type AzRadialColorStopVecDestructorType = extern "C" fn(&mut AzRadialColorStopVec);
+    /// `AzNodeIdVecDestructorType` struct
+    pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
+    /// `AzNodeVecDestructorType` struct
+    pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
+    /// `AzStyledNodeVecDestructorType` struct
+    pub type AzStyledNodeVecDestructorType = extern "C" fn(&mut AzStyledNodeVec);
+    /// `AzTagIdsToNodeIdsMappingVecDestructorType` struct
+    pub type AzTagIdsToNodeIdsMappingVecDestructorType = extern "C" fn(&mut AzTagIdsToNodeIdsMappingVec);
+    /// `AzParentWithNodeDepthVecDestructorType` struct
+    pub type AzParentWithNodeDepthVecDestructorType = extern "C" fn(&mut AzParentWithNodeDepthVec);
+    /// `AzNodeDataVecDestructorType` struct
+    pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+    /// Re-export of rust-allocated (stack based) `InstantPtr` struct
+    #[repr(C)]     pub struct AzInstantPtr {
+        pub(crate) ptr: *const c_void,
+        pub clone_fn: AzInstantPtrCloneFn,
+        pub destructor: AzInstantPtrDestructorFn,
+    }
+    /// `AzInstantPtrCloneFnType` struct
+    pub type AzInstantPtrCloneFnType = extern "C" fn(&c_void) -> AzInstantPtr;
+    /// `AzInstantPtrDestructorFnType` struct
+    pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut c_void);
+    /// Re-export of rust-allocated (stack based) `RendererOptions` struct
+    #[repr(C)]     pub struct AzRendererOptions {
+        pub vsync: AzVsync,
+        pub srgb: AzSrgb,
+        pub hw_accel: AzHwAcceleration,
+    }
+    /// Re-export of rust-allocated (stack based) `LayoutPoint` struct
+    #[repr(C)]     pub struct AzLayoutPoint {
+        pub x: isize,
+        pub y: isize,
+    }
+    /// Re-export of rust-allocated (stack based) `LayoutSize` struct
+    #[repr(C)]     pub struct AzLayoutSize {
+        pub width: isize,
+        pub height: isize,
+    }
+    /// Re-export of rust-allocated (stack based) `LayoutRect` struct
+    #[repr(C)]     pub struct AzLayoutRect {
+        pub origin: AzLayoutPoint,
+        pub size: AzLayoutSize,
+    }
+    /// Re-export of rust-allocated (stack based) `IOSHandle` struct
+    #[repr(C)]     pub struct AzIOSHandle {
+        pub ui_window: *mut c_void,
+        pub ui_view: *mut c_void,
+        pub ui_view_controller: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `MacOSHandle` struct
+    #[repr(C)]     pub struct AzMacOSHandle {
+        pub ns_window: *mut c_void,
+        pub ns_view: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `XlibHandle` struct
+    #[repr(C)]     pub struct AzXlibHandle {
+        pub window: u64,
+        pub display: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `XcbHandle` struct
+    #[repr(C)]     pub struct AzXcbHandle {
+        pub window: u32,
+        pub connection: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `WaylandHandle` struct
+    #[repr(C)]     pub struct AzWaylandHandle {
+        pub surface: *mut c_void,
+        pub display: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowsHandle` struct
+    #[repr(C)]     pub struct AzWindowsHandle {
+        pub hwnd: *mut c_void,
+        pub hinstance: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `WebHandle` struct
+    #[repr(C)]     pub struct AzWebHandle {
+        pub id: u32,
+    }
+    /// Re-export of rust-allocated (stack based) `AndroidHandle` struct
+    #[repr(C)]     pub struct AzAndroidHandle {
+        pub a_native_window: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `PhysicalPositionI32` struct
+    #[repr(C)]     pub struct AzPhysicalPositionI32 {
+        pub x: i32,
+        pub y: i32,
+    }
+    /// Re-export of rust-allocated (stack based) `PhysicalSizeU32` struct
+    #[repr(C)]     pub struct AzPhysicalSizeU32 {
+        pub width: u32,
+        pub height: u32,
+    }
+    /// Re-export of rust-allocated (stack based) `LogicalPosition` struct
+    #[repr(C)]     pub struct AzLogicalPosition {
+        pub x: f32,
+        pub y: f32,
+    }
+    /// Re-export of rust-allocated (stack based) `IconKey` struct
+    #[repr(C)]     pub struct AzIconKey {
+        pub id: usize,
+    }
+    /// Re-export of rust-allocated (stack based) `AcceleratorKey` struct
+    #[repr(C, u8)]     pub enum AzAcceleratorKey {
+        Ctrl,
+        Alt,
+        Shift,
+        Key(AzVirtualKeyCode),
+    }
+    /// Re-export of rust-allocated (stack based) `WindowFlags` struct
+    #[repr(C)]     pub struct AzWindowFlags {
+        pub is_maximized: bool,
+        pub is_minimized: bool,
+        pub is_about_to_close: bool,
+        pub is_fullscreen: bool,
+        pub has_decorations: bool,
+        pub is_visible: bool,
+        pub is_always_on_top: bool,
+        pub is_resizable: bool,
+        pub has_focus: bool,
+        pub has_blur_behind_window: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `DebugState` struct
+    #[repr(C)]     pub struct AzDebugState {
+        pub profiler_dbg: bool,
+        pub render_target_dbg: bool,
+        pub texture_cache_dbg: bool,
+        pub gpu_time_queries: bool,
+        pub gpu_sample_queries: bool,
+        pub disable_batching: bool,
+        pub epochs: bool,
+        pub echo_driver_messages: bool,
+        pub show_overdraw: bool,
+        pub gpu_cache_dbg: bool,
+        pub texture_cache_dbg_clear_evicted: bool,
+        pub picture_caching_dbg: bool,
+        pub primitive_dbg: bool,
+        pub zoom_dbg: bool,
+        pub small_screen: bool,
+        pub disable_opaque_pass: bool,
+        pub disable_alpha_pass: bool,
+        pub disable_clip_masks: bool,
+        pub disable_text_prims: bool,
+        pub disable_gradient_prims: bool,
+        pub obscure_images: bool,
+        pub glyph_flashing: bool,
+        pub smart_profiler: bool,
+        pub invalidation_dbg: bool,
+        pub tile_cache_logging_dbg: bool,
+        pub profiler_capture: bool,
+        pub force_picture_invalidation: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `CursorPosition` struct
+    #[repr(C, u8)]     pub enum AzCursorPosition {
+        OutOfWindow,
+        Uninitialized,
+        InWindow(AzLogicalPosition),
+    }
+    /// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
+    #[repr(C)]     pub struct AzMacWindowOptions {
+        pub _reserved: u8,
+    }
+    /// Re-export of rust-allocated (stack based) `WasmWindowOptions` struct
+    #[repr(C)]     pub struct AzWasmWindowOptions {
+        pub _reserved: u8,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowPosition` struct
+    #[repr(C, u8)]     pub enum AzWindowPosition {
+        Uninitialized,
+        Initialized(AzPhysicalPositionI32),
+    }
+    /// Re-export of rust-allocated (stack based) `ImePosition` struct
+    #[repr(C, u8)]     pub enum AzImePosition {
+        Uninitialized,
+        Initialized(AzLogicalPosition),
+    }
+    /// Re-export of rust-allocated (stack based) `TouchState` struct
+    #[repr(C)]     pub struct AzTouchState {
+        pub unused: u8,
+    }
+    /// Re-export of rust-allocated (stack based) `LogicalSize` struct
+    #[repr(C)]     pub struct AzLogicalSize {
+        pub width: f32,
+        pub height: f32,
+    }
+    /// Re-export of rust-allocated (stack based) `LayoutCallback` struct
+    #[repr(C)]     pub struct AzLayoutCallback {
+        pub cb: AzLayoutCallbackType,
+    }
+    /// Re-export of rust-allocated (stack based) `Callback` struct
+    #[repr(C)]     pub struct AzCallback {
+        pub cb: AzCallbackType,
     }
     /// Re-export of rust-allocated (stack based) `NodeId` struct
     #[repr(C)]     pub struct AzNodeId {
@@ -4216,25 +4011,23 @@ mod test_sizes {
         pub dom: AzDomId,
         pub node: AzNodeId,
     }
-    /// Re-export of rust-allocated (stack based) `LayoutCallback` struct
-    #[repr(C)]     pub struct AzLayoutCallback {
-        pub cb: AzLayoutCallbackType,
-    }
-    /// Re-export of rust-allocated (stack based) `Callback` struct
-    #[repr(C)]     pub struct AzCallback {
-        pub cb: AzCallbackType,
+    /// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
+    #[repr(C)]     pub struct AzHidpiAdjustedBounds {
+        pub logical_size: AzLogicalSize,
+        pub hidpi_factor: f32,
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallback` struct
     #[repr(C)]     pub struct AzIFrameCallback {
         pub cb: AzIFrameCallbackType,
     }
+    /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
+    #[repr(C)]     pub struct AzIFrameCallbackInfo {
+        pub resources: *const c_void,
+        pub bounds: AzHidpiAdjustedBounds,
+    }
     /// Re-export of rust-allocated (stack based) `GlCallback` struct
     #[repr(C)]     pub struct AzGlCallback {
         pub cb: AzGlCallbackType,
-    }
-    /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
-    #[repr(C)]     pub struct AzGlCallbackReturn {
-        pub texture: AzOptionTexture,
     }
     /// Re-export of rust-allocated (stack based) `TimerCallback` struct
     #[repr(C)]     pub struct AzTimerCallback {
@@ -4248,6 +4041,27 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
     #[repr(C)]     pub struct AzWriteBackCallback {
         pub cb: AzWriteBackCallbackType,
+    }
+    /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
+    #[repr(C)]     pub struct AzGlTextureNode {
+        pub callback: AzGlCallback,
+        pub data: AzRefAny,
+    }
+    /// Re-export of rust-allocated (stack based) `IFrameNode` struct
+    #[repr(C)]     pub struct AzIFrameNode {
+        pub callback: AzIFrameCallback,
+        pub data: AzRefAny,
+    }
+    /// Re-export of rust-allocated (stack based) `NotEventFilter` struct
+    #[repr(C, u8)]     pub enum AzNotEventFilter {
+        Hover(AzHoverEventFilter),
+        Focus(AzFocusEventFilter),
+    }
+    /// Re-export of rust-allocated (stack based) `TabIndex` struct
+    #[repr(C, u8)]     pub enum AzTabIndex {
+        Auto,
+        OverrideInParent(u32),
+        NoKeyboardFocus,
     }
     /// Re-export of rust-allocated (stack based) `CssNthChildPattern` struct
     #[repr(C)]     pub struct AzCssNthChildPattern {
@@ -4818,14 +4632,6 @@ mod test_sizes {
         Initial,
         Exact(AzLayoutOverflow),
     }
-    /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundRepeatVecValue {
-        Auto,
-        None,
-        Inherit,
-        Initial,
-        Exact(AzStyleBackgroundRepeatVec),
-    }
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomColorValue` struct
     #[repr(C, u8)]     pub enum AzStyleBorderBottomColorValue {
         Auto,
@@ -5078,27 +4884,6 @@ mod test_sizes {
         pub depth: usize,
         pub node_id: AzNodeId,
     }
-    /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
-    #[repr(C)]     pub struct AzGlTextureNode {
-        pub callback: AzGlCallback,
-        pub data: AzRefAny,
-    }
-    /// Re-export of rust-allocated (stack based) `IFrameNode` struct
-    #[repr(C)]     pub struct AzIFrameNode {
-        pub callback: AzIFrameCallback,
-        pub data: AzRefAny,
-    }
-    /// Re-export of rust-allocated (stack based) `NotEventFilter` struct
-    #[repr(C, u8)]     pub enum AzNotEventFilter {
-        Hover(AzHoverEventFilter),
-        Focus(AzFocusEventFilter),
-    }
-    /// Re-export of rust-allocated (stack based) `TabIndex` struct
-    #[repr(C, u8)]     pub enum AzTabIndex {
-        Auto,
-        OverrideInParent(u32),
-        NoKeyboardFocus,
-    }
     /// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
     #[repr(C)]     pub struct AzGlShaderPrecisionFormatReturn {
         pub _0: i32,
@@ -5160,11 +4945,6 @@ mod test_sizes {
         pub(crate) ptr: *const u8,
         pub len: usize,
     }
-    /// C-ABI stable reexport of `(U8Vec, u32)`
-    #[repr(C)]     pub struct AzGetProgramBinaryReturn {
-        pub _0: AzU8Vec,
-        pub _1: u32,
-    }
     /// Re-export of rust-allocated (stack based) `TextureFlags` struct
     #[repr(C)]     pub struct AzTextureFlags {
         pub is_opaque: bool,
@@ -5177,13 +4957,6 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `FontId` struct
     #[repr(C)]     pub struct AzFontId {
         pub id: usize,
-    }
-    /// Re-export of rust-allocated (stack based) `RawImage` struct
-    #[repr(C)]     pub struct AzRawImage {
-        pub pixels: AzU8Vec,
-        pub width: usize,
-        pub height: usize,
-        pub data_format: AzRawImageFormat,
     }
     /// Re-export of rust-allocated (stack based) `SvgCircle` struct
     #[repr(C)]     pub struct AzSvgCircle {
@@ -5301,264 +5074,238 @@ mod test_sizes {
     #[repr(C)]     pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
-    /// Re-export of rust-allocated (stack based) `RendererOptions` struct
-    #[repr(C)]     pub struct AzRendererOptions {
-        pub vsync: AzVsync,
-        pub srgb: AzSrgb,
-        pub hw_accel: AzHwAcceleration,
+    /// Re-export of rust-allocated (stack based) `DomVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzDomVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzDomVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `LayoutPoint` struct
-    #[repr(C)]     pub struct AzLayoutPoint {
-        pub x: isize,
-        pub y: isize,
+    /// Re-export of rust-allocated (stack based) `IdOrClassVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzIdOrClassVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzIdOrClassVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `LayoutSize` struct
-    #[repr(C)]     pub struct AzLayoutSize {
-        pub width: isize,
-        pub height: isize,
+    /// Re-export of rust-allocated (stack based) `NodeDataInlineCssPropertyVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzNodeDataInlineCssPropertyVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeDataInlineCssPropertyVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `LayoutRect` struct
-    #[repr(C)]     pub struct AzLayoutRect {
-        pub origin: AzLayoutPoint,
-        pub size: AzLayoutSize,
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzStyleBackgroundContentVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleBackgroundContentVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `IOSHandle` struct
-    #[repr(C)]     pub struct AzIOSHandle {
-        pub ui_window: *mut c_void,
-        pub ui_view: *mut c_void,
-        pub ui_view_controller: *mut c_void,
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzStyleBackgroundPositionVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleBackgroundPositionVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `MacOSHandle` struct
-    #[repr(C)]     pub struct AzMacOSHandle {
-        pub ns_window: *mut c_void,
-        pub ns_view: *mut c_void,
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzStyleBackgroundRepeatVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleBackgroundRepeatVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `XlibHandle` struct
-    #[repr(C)]     pub struct AzXlibHandle {
-        pub window: u64,
-        pub display: *mut c_void,
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzStyleBackgroundSizeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleBackgroundSizeVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `XcbHandle` struct
-    #[repr(C)]     pub struct AzXcbHandle {
-        pub window: u32,
-        pub connection: *mut c_void,
+    /// Re-export of rust-allocated (stack based) `StyleTransformVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzStyleTransformVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleTransformVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `WaylandHandle` struct
-    #[repr(C)]     pub struct AzWaylandHandle {
-        pub surface: *mut c_void,
-        pub display: *mut c_void,
+    /// Re-export of rust-allocated (stack based) `CssPropertyVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzCssPropertyVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCssPropertyVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `WindowsHandle` struct
-    #[repr(C)]     pub struct AzWindowsHandle {
-        pub hwnd: *mut c_void,
-        pub hinstance: *mut c_void,
+    /// Re-export of rust-allocated (stack based) `SvgMultiPolygonVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzSvgMultiPolygonVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgMultiPolygonVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `WebHandle` struct
-    #[repr(C)]     pub struct AzWebHandle {
-        pub id: u32,
+    /// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzSvgPathVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgPathVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `AndroidHandle` struct
-    #[repr(C)]     pub struct AzAndroidHandle {
-        pub a_native_window: *mut c_void,
+    /// Re-export of rust-allocated (stack based) `VertexAttributeVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzVertexAttributeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzVertexAttributeVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `PhysicalPositionI32` struct
-    #[repr(C)]     pub struct AzPhysicalPositionI32 {
-        pub x: i32,
-        pub y: i32,
+    /// Re-export of rust-allocated (stack based) `SvgPathElementVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzSvgPathElementVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgPathElementVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `PhysicalSizeU32` struct
-    #[repr(C)]     pub struct AzPhysicalSizeU32 {
-        pub width: u32,
-        pub height: u32,
+    /// Re-export of rust-allocated (stack based) `SvgVertexVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzSvgVertexVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgVertexVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `LogicalPosition` struct
-    #[repr(C)]     pub struct AzLogicalPosition {
-        pub x: f32,
-        pub y: f32,
+    /// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
+    #[repr(C, u8)]     pub enum AzU32VecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzU32VecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `IconKey` struct
-    #[repr(C)]     pub struct AzIconKey {
-        pub id: usize,
+    /// Re-export of rust-allocated (stack based) `XWindowTypeVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzXWindowTypeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzXWindowTypeVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `SmallWindowIconBytes` struct
-    #[repr(C)]     pub struct AzSmallWindowIconBytes {
-        pub key: AzIconKey,
-        pub rgba_bytes: AzU8Vec,
+    /// Re-export of rust-allocated (stack based) `VirtualKeyCodeVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzVirtualKeyCodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzVirtualKeyCodeVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `LargeWindowIconBytes` struct
-    #[repr(C)]     pub struct AzLargeWindowIconBytes {
-        pub key: AzIconKey,
-        pub rgba_bytes: AzU8Vec,
+    /// Re-export of rust-allocated (stack based) `CascadeInfoVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzCascadeInfoVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCascadeInfoVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `WindowIcon` struct
-    #[repr(C, u8)]     pub enum AzWindowIcon {
-        Small(AzSmallWindowIconBytes),
-        Large(AzLargeWindowIconBytes),
+    /// Re-export of rust-allocated (stack based) `ScanCodeVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzScanCodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzScanCodeVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `AcceleratorKey` struct
-    #[repr(C, u8)]     pub enum AzAcceleratorKey {
-        Ctrl,
-        Alt,
-        Shift,
-        Key(AzVirtualKeyCode),
+    /// Re-export of rust-allocated (stack based) `CssDeclarationVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzCssDeclarationVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCssDeclarationVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `WindowFlags` struct
-    #[repr(C)]     pub struct AzWindowFlags {
-        pub is_maximized: bool,
-        pub is_minimized: bool,
-        pub is_about_to_close: bool,
-        pub is_fullscreen: bool,
-        pub has_decorations: bool,
-        pub is_visible: bool,
-        pub is_always_on_top: bool,
-        pub is_resizable: bool,
-        pub has_focus: bool,
-        pub has_blur_behind_window: bool,
+    /// Re-export of rust-allocated (stack based) `CssPathSelectorVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzCssPathSelectorVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCssPathSelectorVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `DebugState` struct
-    #[repr(C)]     pub struct AzDebugState {
-        pub profiler_dbg: bool,
-        pub render_target_dbg: bool,
-        pub texture_cache_dbg: bool,
-        pub gpu_time_queries: bool,
-        pub gpu_sample_queries: bool,
-        pub disable_batching: bool,
-        pub epochs: bool,
-        pub echo_driver_messages: bool,
-        pub show_overdraw: bool,
-        pub gpu_cache_dbg: bool,
-        pub texture_cache_dbg_clear_evicted: bool,
-        pub picture_caching_dbg: bool,
-        pub primitive_dbg: bool,
-        pub zoom_dbg: bool,
-        pub small_screen: bool,
-        pub disable_opaque_pass: bool,
-        pub disable_alpha_pass: bool,
-        pub disable_clip_masks: bool,
-        pub disable_text_prims: bool,
-        pub disable_gradient_prims: bool,
-        pub obscure_images: bool,
-        pub glyph_flashing: bool,
-        pub smart_profiler: bool,
-        pub invalidation_dbg: bool,
-        pub tile_cache_logging_dbg: bool,
-        pub profiler_capture: bool,
-        pub force_picture_invalidation: bool,
+    /// Re-export of rust-allocated (stack based) `StylesheetVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzStylesheetVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStylesheetVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `KeyboardState` struct
-    #[repr(C)]     pub struct AzKeyboardState {
-        pub shift_down: bool,
-        pub ctrl_down: bool,
-        pub alt_down: bool,
-        pub super_down: bool,
-        pub current_char: AzOptionChar,
-        pub current_virtual_keycode: AzOptionVirtualKeyCode,
-        pub pressed_virtual_keycodes: AzVirtualKeyCodeVec,
-        pub pressed_scancodes: AzScanCodeVec,
+    /// Re-export of rust-allocated (stack based) `CssRuleBlockVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzCssRuleBlockVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCssRuleBlockVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `CursorPosition` struct
-    #[repr(C, u8)]     pub enum AzCursorPosition {
-        OutOfWindow,
-        Uninitialized,
-        InWindow(AzLogicalPosition),
+    /// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
+    #[repr(C, u8)]     pub enum AzU8VecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzU8VecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `MouseState` struct
-    #[repr(C)]     pub struct AzMouseState {
-        pub mouse_cursor_type: AzOptionMouseCursorType,
-        pub cursor_position: AzCursorPosition,
-        pub is_cursor_locked: bool,
-        pub left_down: bool,
-        pub right_down: bool,
-        pub middle_down: bool,
-        pub scroll_x: AzOptionF32,
-        pub scroll_y: AzOptionF32,
+    /// Re-export of rust-allocated (stack based) `CallbackDataVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzCallbackDataVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzCallbackDataVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
-    #[repr(C)]     pub struct AzMacWindowOptions {
-        pub _reserved: u8,
+    /// Re-export of rust-allocated (stack based) `DebugMessageVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzDebugMessageVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzDebugMessageVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `WasmWindowOptions` struct
-    #[repr(C)]     pub struct AzWasmWindowOptions {
-        pub _reserved: u8,
+    /// Re-export of rust-allocated (stack based) `GLuintVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzGLuintVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzGLuintVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `WindowPosition` struct
-    #[repr(C, u8)]     pub enum AzWindowPosition {
-        Uninitialized,
-        Initialized(AzPhysicalPositionI32),
+    /// Re-export of rust-allocated (stack based) `GLintVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzGLintVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzGLintVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `ImePosition` struct
-    #[repr(C, u8)]     pub enum AzImePosition {
-        Uninitialized,
-        Initialized(AzLogicalPosition),
+    /// Re-export of rust-allocated (stack based) `StringVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzStringVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStringVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `TouchState` struct
-    #[repr(C)]     pub struct AzTouchState {
-        pub unused: u8,
+    /// Re-export of rust-allocated (stack based) `StringPairVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzStringPairVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStringPairVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `LogicalSize` struct
-    #[repr(C)]     pub struct AzLogicalSize {
-        pub width: f32,
-        pub height: f32,
+    /// Re-export of rust-allocated (stack based) `LinearColorStopVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzLinearColorStopVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzLinearColorStopVecDestructorType),
     }
-    /// Re-export of rust-allocated (stack based) `String` struct
-    #[repr(C)]     pub struct AzString {
-        pub vec: AzU8Vec,
+    /// Re-export of rust-allocated (stack based) `RadialColorStopVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzRadialColorStopVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzRadialColorStopVecDestructorType),
     }
-    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
-    #[repr(C)]     pub struct AzStyleBackgroundPositionVec {
-        pub(crate) ptr: *const AzStyleBackgroundPosition,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzStyleBackgroundPositionVecDestructor,
+    /// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzNodeIdVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeIdVecDestructorType),
     }
-    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
-    #[repr(C)]     pub struct AzStyleBackgroundSizeVec {
-        pub(crate) ptr: *const AzStyleBackgroundSize,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzStyleBackgroundSizeVecDestructor,
+    /// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzNodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeVecDestructorType),
     }
-    /// Wrapper over a Rust-allocated `SvgVertex`
-    #[repr(C)]     pub struct AzSvgVertexVec {
-        pub(crate) ptr: *const AzSvgVertex,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzSvgVertexVecDestructor,
+    /// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzStyledNodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyledNodeVecDestructorType),
     }
-    /// Wrapper over a Rust-allocated `CascadeInfo`
-    #[repr(C)]     pub struct AzCascadeInfoVec {
-        pub(crate) ptr: *const AzCascadeInfo,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzCascadeInfoVecDestructor,
+    /// Re-export of rust-allocated (stack based) `TagIdsToNodeIdsMappingVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzTagIdsToNodeIdsMappingVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzTagIdsToNodeIdsMappingVecDestructorType),
     }
-    /// Wrapper over a Rust-allocated `StringVec`
-    #[repr(C)]     pub struct AzStringVec {
-        pub(crate) ptr: *const AzString,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzStringVecDestructor,
+    /// Re-export of rust-allocated (stack based) `ParentWithNodeDepthVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzParentWithNodeDepthVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzParentWithNodeDepthVecDestructorType),
     }
-    /// Wrapper over a Rust-allocated `NodeIdVec`
-    #[repr(C)]     pub struct AzNodeIdVec {
-        pub(crate) ptr: *const AzNodeId,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzNodeIdVecDestructor,
+    /// Re-export of rust-allocated (stack based) `NodeDataVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzNodeDataVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeDataVecDestructorType),
     }
-    /// Wrapper over a Rust-allocated `NodeVec`
-    #[repr(C)]     pub struct AzNodeVec {
-        pub(crate) ptr: *const AzNode,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzNodeVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
-    #[repr(C)]     pub struct AzParentWithNodeDepthVec {
-        pub(crate) ptr: *const AzParentWithNodeDepth,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzParentWithNodeDepthVecDestructor,
+    /// Re-export of rust-allocated (stack based) `OptionGlContextPtr` struct
+    #[repr(C, u8)]     pub enum AzOptionGlContextPtr {
+        None,
+        Some(AzGlContextPtr),
     }
     /// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
     #[repr(C, u8)]     pub enum AzOptionPercentageValue {
@@ -5580,15 +5327,30 @@ mod test_sizes {
         None,
         Some(AzCallback),
     }
+    /// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
+    #[repr(C, u8)]     pub enum AzOptionThreadSendMsg {
+        None,
+        Some(AzThreadSendMsg),
+    }
     /// Re-export of rust-allocated (stack based) `OptionLayoutRect` struct
     #[repr(C, u8)]     pub enum AzOptionLayoutRect {
         None,
         Some(AzLayoutRect),
     }
+    /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
+    #[repr(C, u8)]     pub enum AzOptionRefAny {
+        None,
+        Some(AzRefAny),
+    }
     /// Re-export of rust-allocated (stack based) `OptionLayoutPoint` struct
     #[repr(C, u8)]     pub enum AzOptionLayoutPoint {
         None,
         Some(AzLayoutPoint),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
+    #[repr(C, u8)]     pub enum AzOptionWindowTheme {
+        None,
+        Some(AzWindowTheme),
     }
     /// Re-export of rust-allocated (stack based) `OptionNodeId` struct
     #[repr(C, u8)]     pub enum AzOptionNodeId {
@@ -5605,15 +5367,15 @@ mod test_sizes {
         None,
         Some(AzColorU),
     }
-    /// Re-export of rust-allocated (stack based) `OptionRawImage` struct
-    #[repr(C, u8)]     pub enum AzOptionRawImage {
-        None,
-        Some(AzRawImage),
-    }
     /// Re-export of rust-allocated (stack based) `OptionSvgDashPattern` struct
     #[repr(C, u8)]     pub enum AzOptionSvgDashPattern {
         None,
         Some(AzSvgDashPattern),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionHwndHandle` struct
+    #[repr(C, u8)]     pub enum AzOptionHwndHandle {
+        None,
+        Some(*mut c_void),
     }
     /// Re-export of rust-allocated (stack based) `OptionLogicalPosition` struct
     #[repr(C, u8)]     pub enum AzOptionLogicalPosition {
@@ -5625,20 +5387,45 @@ mod test_sizes {
         None,
         Some(AzPhysicalPositionI32),
     }
-    /// Re-export of rust-allocated (stack based) `OptionWindowIcon` struct
-    #[repr(C, u8)]     pub enum AzOptionWindowIcon {
+    /// Re-export of rust-allocated (stack based) `OptionX11Visual` struct
+    #[repr(C, u8)]     pub enum AzOptionX11Visual {
         None,
-        Some(AzWindowIcon),
+        Some(*const c_void),
     }
-    /// Re-export of rust-allocated (stack based) `OptionString` struct
-    #[repr(C, u8)]     pub enum AzOptionString {
+    /// Re-export of rust-allocated (stack based) `OptionI32` struct
+    #[repr(C, u8)]     pub enum AzOptionI32 {
         None,
-        Some(AzString),
+        Some(i32),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionF32` struct
+    #[repr(C, u8)]     pub enum AzOptionF32 {
+        None,
+        Some(f32),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionMouseCursorType` struct
+    #[repr(C, u8)]     pub enum AzOptionMouseCursorType {
+        None,
+        Some(AzMouseCursorType),
     }
     /// Re-export of rust-allocated (stack based) `OptionLogicalSize` struct
     #[repr(C, u8)]     pub enum AzOptionLogicalSize {
         None,
         Some(AzLogicalSize),
+    }
+    /// Option<char> but the char is a u32, for C FFI stability reasons
+    #[repr(C, u8)]     pub enum AzOptionChar {
+        None,
+        Some(u32),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCode` struct
+    #[repr(C, u8)]     pub enum AzOptionVirtualKeyCode {
+        None,
+        Some(AzVirtualKeyCode),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionTexture` struct
+    #[repr(C, u8)]     pub enum AzOptionTexture {
+        None,
+        Some(AzTexture),
     }
     /// Re-export of rust-allocated (stack based) `OptionTabIndex` struct
     #[repr(C, u8)]     pub enum AzOptionTabIndex {
@@ -5650,126 +5437,102 @@ mod test_sizes {
         None,
         Some(AzTagId),
     }
+    /// Re-export of rust-allocated (stack based) `OptionUsize` struct
+    #[repr(C, u8)]     pub enum AzOptionUsize {
+        None,
+        Some(usize),
+    }
     /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
     #[repr(C, u8)]     pub enum AzOptionU8VecRef {
         None,
         Some(AzU8VecRef),
     }
-    /// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
-    #[repr(C)]     pub struct AzDuplicatedNamespaceError {
-        pub ns: AzString,
-        pub pos: AzSvgParseErrorPosition,
+    /// Re-export of rust-allocated (stack based) `SvgParseErrorPosition` struct
+    #[repr(C)]     pub struct AzSvgParseErrorPosition {
+        pub row: u32,
+        pub col: u32,
     }
-    /// Re-export of rust-allocated (stack based) `UnknownNamespaceError` struct
-    #[repr(C)]     pub struct AzUnknownNamespaceError {
-        pub ns: AzString,
-        pub pos: AzSvgParseErrorPosition,
+    /// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
+    #[repr(C)]     pub struct AzInstantPtrCloneFn {
+        pub cb: AzInstantPtrCloneFnType,
     }
-    /// Re-export of rust-allocated (stack based) `UnexpectedCloseTagError` struct
-    #[repr(C)]     pub struct AzUnexpectedCloseTagError {
-        pub expected: AzString,
-        pub actual: AzString,
-        pub pos: AzSvgParseErrorPosition,
+    /// Re-export of rust-allocated (stack based) `InstantPtrDestructorFn` struct
+    #[repr(C)]     pub struct AzInstantPtrDestructorFn {
+        pub cb: AzInstantPtrDestructorFnType,
     }
-    /// Re-export of rust-allocated (stack based) `UnknownEntityReferenceError` struct
-    #[repr(C)]     pub struct AzUnknownEntityReferenceError {
-        pub entity: AzString,
-        pub pos: AzSvgParseErrorPosition,
+    /// Re-export of rust-allocated (stack based) `SystemTick` struct
+    #[repr(C)]     pub struct AzSystemTick {
+        pub tick_counter: u64,
     }
-    /// Re-export of rust-allocated (stack based) `DuplicatedAttributeError` struct
-    #[repr(C)]     pub struct AzDuplicatedAttributeError {
-        pub attribute: AzString,
-        pub pos: AzSvgParseErrorPosition,
+    /// Re-export of rust-allocated (stack based) `SystemTimeDiff` struct
+    #[repr(C)]     pub struct AzSystemTimeDiff {
+        pub secs: u64,
+        pub nanos: u32,
     }
-    /// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
-    #[repr(C)]     pub struct AzNonXmlCharError {
-        pub ch: u32,
-        pub pos: AzSvgParseErrorPosition,
-    }
-    /// Re-export of rust-allocated (stack based) `InvalidCharError` struct
-    #[repr(C)]     pub struct AzInvalidCharError {
-        pub expected: u8,
-        pub got: u8,
-        pub pos: AzSvgParseErrorPosition,
-    }
-    /// Re-export of rust-allocated (stack based) `InvalidCharMultipleError` struct
-    #[repr(C)]     pub struct AzInvalidCharMultipleError {
-        pub expected: u8,
-        pub got: AzU8Vec,
-        pub pos: AzSvgParseErrorPosition,
-    }
-    /// Re-export of rust-allocated (stack based) `InvalidQuoteError` struct
-    #[repr(C)]     pub struct AzInvalidQuoteError {
-        pub got: u8,
-        pub pos: AzSvgParseErrorPosition,
-    }
-    /// Re-export of rust-allocated (stack based) `InvalidSpaceError` struct
-    #[repr(C)]     pub struct AzInvalidSpaceError {
-        pub got: u8,
-        pub pos: AzSvgParseErrorPosition,
-    }
-    /// Re-export of rust-allocated (stack based) `InvalidStringError` struct
-    #[repr(C)]     pub struct AzInvalidStringError {
-        pub got: AzString,
-        pub pos: AzSvgParseErrorPosition,
-    }
-    /// Re-export of rust-allocated (stack based) `Instant` struct
-    #[repr(C, u8)]     pub enum AzInstant {
-        System(AzInstantPtr),
-        Tick(AzSystemTick),
-    }
-    /// Re-export of rust-allocated (stack based) `Duration` struct
-    #[repr(C, u8)]     pub enum AzDuration {
-        System(AzSystemTimeDiff),
-        Tick(AzSystemTickDiff),
+    /// Re-export of rust-allocated (stack based) `SystemTickDiff` struct
+    #[repr(C)]     pub struct AzSystemTickDiff {
+        pub tick_diff: u64,
     }
     /// External system callbacks to get the system time or create / manage threads
     #[repr(C)]     pub struct AzSystemCallbacks {
         pub create_thread_fn: AzCreateThreadFn,
         pub get_system_time_fn: AzGetSystemTimeFn,
     }
-    /// Configuration for optional features, such as whether to enable logging or panic hooks
-    #[repr(C)]     pub struct AzAppConfig {
-        pub log_level: AzAppLogLevel,
-        pub enable_visual_panic_hook: bool,
-        pub enable_logging_on_panic: bool,
-        pub enable_tab_navigation: bool,
-        pub debug_state: AzDebugState,
-        pub system_callbacks: AzSystemCallbacks,
+    /// Re-export of rust-allocated (stack based) `RawWindowHandle` struct
+    #[repr(C, u8)]     pub enum AzRawWindowHandle {
+        IOS(AzIOSHandle),
+        MacOS(AzMacOSHandle),
+        Xlib(AzXlibHandle),
+        Xcb(AzXcbHandle),
+        Wayland(AzWaylandHandle),
+        Windows(AzWindowsHandle),
+        Web(AzWebHandle),
+        Android(AzAndroidHandle),
+        Unsupported,
     }
-    /// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
-    #[repr(C)]     pub struct AzHidpiAdjustedBounds {
-        pub logical_size: AzLogicalSize,
+    /// Re-export of rust-allocated (stack based) `LogicalRect` struct
+    #[repr(C)]     pub struct AzLogicalRect {
+        pub origin: AzLogicalPosition,
+        pub size: AzLogicalSize,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowSize` struct
+    #[repr(C)]     pub struct AzWindowSize {
+        pub dimensions: AzLogicalSize,
         pub hidpi_factor: f32,
+        pub system_hidpi_factor: f32,
+        pub min_dimensions: AzOptionLogicalSize,
+        pub max_dimensions: AzOptionLogicalSize,
     }
-    /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
-    #[repr(C)]     pub struct AzIFrameCallbackInfo {
+    /// Re-export of rust-allocated (stack based) `MouseState` struct
+    #[repr(C)]     pub struct AzMouseState {
+        pub mouse_cursor_type: AzOptionMouseCursorType,
+        pub cursor_position: AzCursorPosition,
+        pub is_cursor_locked: bool,
+        pub left_down: bool,
+        pub right_down: bool,
+        pub middle_down: bool,
+        pub scroll_x: AzOptionF32,
+        pub scroll_y: AzOptionF32,
+    }
+    /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
+    #[repr(C)]     pub struct AzGlCallbackReturn {
+        pub texture: AzOptionTexture,
+    }
+    /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
+    #[repr(C)]     pub struct AzLayoutInfo {
+        pub window_size: *const AzWindowSize,
+        pub window_size_width_stops: *mut c_void,
+        pub window_size_height_stops: *mut c_void,
         pub resources: *const c_void,
-        pub bounds: AzHidpiAdjustedBounds,
     }
-    /// Re-export of rust-allocated (stack based) `GlCallbackInfo` struct
-    #[repr(C)]     pub struct AzGlCallbackInfo {
-        pub callback_node_id: AzDomNodeId,
-        pub bounds: AzHidpiAdjustedBounds,
-        pub gl_context: *const AzGlContextPtr,
-        pub resources: *const c_void,
-        pub node_hierarchy: *const AzNodeVec,
-        pub words_cache: *const c_void,
-        pub shaped_words_cache: *const c_void,
-        pub positioned_words_cache: *const c_void,
-        pub positioned_rects: *const c_void,
-    }
-    /// Re-export of rust-allocated (stack based) `RefCountInner` struct
-    #[repr(C)]     pub struct AzRefCountInner {
-        pub num_copies: usize,
-        pub num_refs: usize,
-        pub num_mutable_refs: usize,
-        pub _internal_len: usize,
-        pub _internal_layout_size: usize,
-        pub _internal_layout_align: usize,
-        pub type_id: u64,
-        pub type_name: AzString,
-        pub custom_destructor: AzRefAnyDestructorType,
+    /// Re-export of rust-allocated (stack based) `EventFilter` struct
+    #[repr(C, u8)]     pub enum AzEventFilter {
+        Hover(AzHoverEventFilter),
+        Not(AzNotEventFilter),
+        Focus(AzFocusEventFilter),
+        Window(AzWindowEventFilter),
+        Component(AzComponentEventFilter),
+        Application(AzApplicationEventFilter),
     }
     /// Re-export of rust-allocated (stack based) `CssNthChildSelector` struct
     #[repr(C, u8)]     pub enum AzCssNthChildSelector {
@@ -5787,14 +5550,6 @@ mod test_sizes {
     #[repr(C)]     pub struct AzRadialColorStop {
         pub offset: AzOptionAngleValue,
         pub color: AzColorU,
-    }
-    /// Re-export of rust-allocated (stack based) `CssImageId` struct
-    #[repr(C)]     pub struct AzCssImageId {
-        pub inner: AzString,
-    }
-    /// Re-export of rust-allocated (stack based) `StyleFontFamily` struct
-    #[repr(C)]     pub struct AzStyleFontFamily {
-        pub fonts: AzStringVec,
     }
     /// Re-export of rust-allocated (stack based) `StyleTransform` struct
     #[repr(C, u8)]     pub enum AzStyleTransform {
@@ -5820,30 +5575,6 @@ mod test_sizes {
         SkewY(AzPercentageValue),
         Perspective(AzPixelValue),
     }
-    /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundPositionVecValue {
-        Auto,
-        None,
-        Inherit,
-        Initial,
-        Exact(AzStyleBackgroundPositionVec),
-    }
-    /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundSizeVecValue {
-        Auto,
-        None,
-        Inherit,
-        Initial,
-        Exact(AzStyleBackgroundSizeVec),
-    }
-    /// Re-export of rust-allocated (stack based) `StyleFontFamilyValue` struct
-    #[repr(C, u8)]     pub enum AzStyleFontFamilyValue {
-        Auto,
-        None,
-        Inherit,
-        Initial,
-        Exact(AzStyleFontFamily),
-    }
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
     #[repr(C)]     pub struct AzStyledNode {
         pub state: AzStyledNodeState,
@@ -5855,107 +5586,21 @@ mod test_sizes {
         pub node_id: AzNodeId,
         pub tab_index: AzOptionTabIndex,
     }
-    /// Re-export of rust-allocated (stack based) `IdOrClass` struct
-    #[repr(C, u8)]     pub enum AzIdOrClass {
-        Id(AzString),
-        Class(AzString),
-    }
-    /// List of core DOM node types built-into by `azul`
-    #[repr(C, u8)]     pub enum AzNodeType {
-        Div,
-        Body,
-        Br,
-        Label(AzString),
-        Image(AzImageId),
-        IFrame(AzIFrameNode),
-        GlTexture(AzGlTextureNode),
-    }
-    /// Re-export of rust-allocated (stack based) `EventFilter` struct
-    #[repr(C, u8)]     pub enum AzEventFilter {
-        Hover(AzHoverEventFilter),
-        Not(AzNotEventFilter),
-        Focus(AzFocusEventFilter),
-        Window(AzWindowEventFilter),
-        Component(AzComponentEventFilter),
-        Application(AzApplicationEventFilter),
-    }
-    /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
-    #[repr(C)]     pub struct AzVertexAttribute {
-        pub name: AzString,
-        pub layout_location: AzOptionUsize,
-        pub attribute_type: AzVertexAttributeType,
-        pub item_count: usize,
-    }
-    /// Re-export of rust-allocated (stack based) `DebugMessage` struct
-    #[repr(C)]     pub struct AzDebugMessage {
-        pub message: AzString,
-        pub source: u32,
-        pub ty: u32,
-        pub id: u32,
-        pub severity: u32,
-    }
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
     #[repr(C)]     pub struct AzRefstrVecRef {
         pub(crate) ptr: *const AzRefstr,
         pub len: usize,
     }
-    /// C-ABI stable reexport of `(i32, u32, AzString)`
-    #[repr(C)]     pub struct AzGetActiveAttribReturn {
-        pub _0: i32,
-        pub _1: u32,
-        pub _2: AzString,
-    }
-    /// C-ABI stable reexport of `(i32, u32, AzString)`
-    #[repr(C)]     pub struct AzGetActiveUniformReturn {
-        pub _0: i32,
-        pub _1: u32,
-        pub _2: AzString,
-    }
-    /// Re-export of rust-allocated (stack based) `ImageSource` struct
-    #[repr(C, u8)]     pub enum AzImageSource {
-        Embedded(AzU8Vec),
-        File(AzString),
-        Raw(AzRawImage),
-    }
-    /// Re-export of rust-allocated (stack based) `EmbeddedFontSource` struct
-    #[repr(C)]     pub struct AzEmbeddedFontSource {
-        pub postscript_id: AzString,
-        pub font_data: AzU8Vec,
-        pub load_glyph_outlines: bool,
-    }
-    /// Re-export of rust-allocated (stack based) `FileFontSource` struct
-    #[repr(C)]     pub struct AzFileFontSource {
-        pub postscript_id: AzString,
-        pub file_path: AzString,
-        pub load_glyph_outlines: bool,
-    }
-    /// Re-export of rust-allocated (stack based) `SystemFontSource` struct
-    #[repr(C)]     pub struct AzSystemFontSource {
-        pub postscript_id: AzString,
-        pub load_glyph_outlines: bool,
+    /// Re-export of rust-allocated (stack based) `ImageMask` struct
+    #[repr(C)]     pub struct AzImageMask {
+        pub image: AzImageId,
+        pub rect: AzLogicalRect,
+        pub repeat: bool,
     }
     /// Re-export of rust-allocated (stack based) `SvgLine` struct
     #[repr(C)]     pub struct AzSvgLine {
         pub start: AzSvgPoint,
         pub end: AzSvgPoint,
-    }
-    /// Re-export of rust-allocated (stack based) `TesselatedCPUSvgNode` struct
-    #[repr(C)]     pub struct AzTesselatedCPUSvgNode {
-        pub vertices: AzSvgVertexVec,
-        pub indices: AzU32Vec,
-    }
-    /// Re-export of rust-allocated (stack based) `SvgParseOptions` struct
-    #[repr(C)]     pub struct AzSvgParseOptions {
-        pub relative_image_path: AzOptionString,
-        pub dpi: f32,
-        pub default_font_family: AzString,
-        pub font_size: f32,
-        pub languages: AzStringVec,
-        pub shape_rendering: AzShapeRendering,
-        pub text_rendering: AzTextRendering,
-        pub image_rendering: AzImageRendering,
-        pub keep_named_groups: bool,
-        pub fontdb: AzFontDatabase,
     }
     /// Re-export of rust-allocated (stack based) `SvgRenderOptions` struct
     #[repr(C)]     pub struct AzSvgRenderOptions {
@@ -5990,35 +5635,434 @@ mod test_sizes {
         WriteBack(AzThreadWriteBackMsg),
         Update(AzUpdateScreen),
     }
-    /// Re-export of rust-allocated (stack based) `RawWindowHandle` struct
-    #[repr(C, u8)]     pub enum AzRawWindowHandle {
-        IOS(AzIOSHandle),
-        MacOS(AzMacOSHandle),
-        Xlib(AzXlibHandle),
-        Xcb(AzXcbHandle),
-        Wayland(AzWaylandHandle),
-        Windows(AzWindowsHandle),
-        Web(AzWebHandle),
-        Android(AzAndroidHandle),
-        Unsupported,
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
+    #[repr(C)]     pub struct AzStyleBackgroundPositionVec {
+        pub(crate) ptr: *const AzStyleBackgroundPosition,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzStyleBackgroundPositionVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
+    #[repr(C)]     pub struct AzStyleBackgroundRepeatVec {
+        pub(crate) ptr: *const AzStyleBackgroundRepeat,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzStyleBackgroundRepeatVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
+    #[repr(C)]     pub struct AzStyleBackgroundSizeVec {
+        pub(crate) ptr: *const AzStyleBackgroundSize,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzStyleBackgroundSizeVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
+    #[repr(C)]     pub struct AzStyleTransformVec {
+        pub(crate) ptr: *const AzStyleTransform,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzStyleTransformVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `SvgVertex`
+    #[repr(C)]     pub struct AzSvgVertexVec {
+        pub(crate) ptr: *const AzSvgVertex,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzSvgVertexVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<u32>`
+    #[repr(C)]     pub struct AzU32Vec {
+        pub(crate) ptr: *const u32,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzU32VecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `XWindowType`
+    #[repr(C)]     pub struct AzXWindowTypeVec {
+        pub(crate) ptr: *const AzXWindowType,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzXWindowTypeVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `VirtualKeyCode`
+    #[repr(C)]     pub struct AzVirtualKeyCodeVec {
+        pub(crate) ptr: *const AzVirtualKeyCode,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzVirtualKeyCodeVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `CascadeInfo`
+    #[repr(C)]     pub struct AzCascadeInfoVec {
+        pub(crate) ptr: *const AzCascadeInfo,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzCascadeInfoVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `ScanCode`
+    #[repr(C)]     pub struct AzScanCodeVec {
+        pub(crate) ptr: *const u32,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzScanCodeVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `U8Vec`
+    #[repr(C)]     pub struct AzU8Vec {
+        pub(crate) ptr: *const u8,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzU8VecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `U32Vec`
+    #[repr(C)]     pub struct AzGLuintVec {
+        pub(crate) ptr: *const u32,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzGLuintVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `GLintVec`
+    #[repr(C)]     pub struct AzGLintVec {
+        pub(crate) ptr: *const i32,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzGLintVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `LinearColorStopVec`
+    #[repr(C)]     pub struct AzLinearColorStopVec {
+        pub(crate) ptr: *const AzLinearColorStop,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzLinearColorStopVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `RadialColorStopVec`
+    #[repr(C)]     pub struct AzRadialColorStopVec {
+        pub(crate) ptr: *const AzRadialColorStop,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzRadialColorStopVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `NodeIdVec`
+    #[repr(C)]     pub struct AzNodeIdVec {
+        pub(crate) ptr: *const AzNodeId,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNodeIdVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `NodeVec`
+    #[repr(C)]     pub struct AzNodeVec {
+        pub(crate) ptr: *const AzNode,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNodeVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `StyledNodeVec`
+    #[repr(C)]     pub struct AzStyledNodeVec {
+        pub(crate) ptr: *const AzStyledNode,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzStyledNodeVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
+    #[repr(C)]     pub struct AzTagIdsToNodeIdsMappingVec {
+        pub(crate) ptr: *const AzTagIdToNodeIdMapping,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
+    #[repr(C)]     pub struct AzParentWithNodeDepthVec {
+        pub(crate) ptr: *const AzParentWithNodeDepth,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzParentWithNodeDepthVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
+    #[repr(C, u8)]     pub enum AzOptionThreadReceiveMsg {
+        None,
+        Some(AzThreadReceiveMsg),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionImageMask` struct
+    #[repr(C, u8)]     pub enum AzOptionImageMask {
+        None,
+        Some(AzImageMask),
+    }
+    /// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
+    #[repr(C)]     pub struct AzNonXmlCharError {
+        pub ch: u32,
+        pub pos: AzSvgParseErrorPosition,
+    }
+    /// Re-export of rust-allocated (stack based) `InvalidCharError` struct
+    #[repr(C)]     pub struct AzInvalidCharError {
+        pub expected: u8,
+        pub got: u8,
+        pub pos: AzSvgParseErrorPosition,
+    }
+    /// Re-export of rust-allocated (stack based) `InvalidCharMultipleError` struct
+    #[repr(C)]     pub struct AzInvalidCharMultipleError {
+        pub expected: u8,
+        pub got: AzU8Vec,
+        pub pos: AzSvgParseErrorPosition,
+    }
+    /// Re-export of rust-allocated (stack based) `InvalidQuoteError` struct
+    #[repr(C)]     pub struct AzInvalidQuoteError {
+        pub got: u8,
+        pub pos: AzSvgParseErrorPosition,
+    }
+    /// Re-export of rust-allocated (stack based) `InvalidSpaceError` struct
+    #[repr(C)]     pub struct AzInvalidSpaceError {
+        pub got: u8,
+        pub pos: AzSvgParseErrorPosition,
+    }
+    /// Re-export of rust-allocated (stack based) `Instant` struct
+    #[repr(C, u8)]     pub enum AzInstant {
+        System(AzInstantPtr),
+        Tick(AzSystemTick),
+    }
+    /// Re-export of rust-allocated (stack based) `Duration` struct
+    #[repr(C, u8)]     pub enum AzDuration {
+        System(AzSystemTimeDiff),
+        Tick(AzSystemTickDiff),
+    }
+    /// Configuration for optional features, such as whether to enable logging or panic hooks
+    #[repr(C)]     pub struct AzAppConfig {
+        pub log_level: AzAppLogLevel,
+        pub enable_visual_panic_hook: bool,
+        pub enable_logging_on_panic: bool,
+        pub enable_tab_navigation: bool,
+        pub debug_state: AzDebugState,
+        pub system_callbacks: AzSystemCallbacks,
     }
     /// Re-export of rust-allocated (stack based) `TaskBarIcon` struct
     #[repr(C)]     pub struct AzTaskBarIcon {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
     }
-    /// Re-export of rust-allocated (stack based) `LogicalRect` struct
-    #[repr(C)]     pub struct AzLogicalRect {
-        pub origin: AzLogicalPosition,
-        pub size: AzLogicalSize,
+    /// Re-export of rust-allocated (stack based) `SmallWindowIconBytes` struct
+    #[repr(C)]     pub struct AzSmallWindowIconBytes {
+        pub key: AzIconKey,
+        pub rgba_bytes: AzU8Vec,
     }
-    /// Re-export of rust-allocated (stack based) `WindowSize` struct
-    #[repr(C)]     pub struct AzWindowSize {
-        pub dimensions: AzLogicalSize,
-        pub hidpi_factor: f32,
-        pub system_hidpi_factor: f32,
-        pub min_dimensions: AzOptionLogicalSize,
-        pub max_dimensions: AzOptionLogicalSize,
+    /// Re-export of rust-allocated (stack based) `LargeWindowIconBytes` struct
+    #[repr(C)]     pub struct AzLargeWindowIconBytes {
+        pub key: AzIconKey,
+        pub rgba_bytes: AzU8Vec,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowIcon` struct
+    #[repr(C, u8)]     pub enum AzWindowIcon {
+        Small(AzSmallWindowIconBytes),
+        Large(AzLargeWindowIconBytes),
+    }
+    /// Re-export of rust-allocated (stack based) `KeyboardState` struct
+    #[repr(C)]     pub struct AzKeyboardState {
+        pub shift_down: bool,
+        pub ctrl_down: bool,
+        pub alt_down: bool,
+        pub super_down: bool,
+        pub current_char: AzOptionChar,
+        pub current_virtual_keycode: AzOptionVirtualKeyCode,
+        pub pressed_virtual_keycodes: AzVirtualKeyCodeVec,
+        pub pressed_scancodes: AzScanCodeVec,
+    }
+    /// Re-export of rust-allocated (stack based) `GlCallbackInfo` struct
+    #[repr(C)]     pub struct AzGlCallbackInfo {
+        pub callback_node_id: AzDomNodeId,
+        pub bounds: AzHidpiAdjustedBounds,
+        pub gl_context: *const AzGlContextPtr,
+        pub resources: *const c_void,
+        pub node_hierarchy: *const AzNodeVec,
+        pub words_cache: *const c_void,
+        pub shaped_words_cache: *const c_void,
+        pub positioned_words_cache: *const c_void,
+        pub positioned_rects: *const c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `CallbackData` struct
+    #[repr(C)]     pub struct AzCallbackData {
+        pub event: AzEventFilter,
+        pub callback: AzCallback,
+        pub data: AzRefAny,
+    }
+    /// Re-export of rust-allocated (stack based) `CssPathPseudoSelector` struct
+    #[repr(C, u8)]     pub enum AzCssPathPseudoSelector {
+        First,
+        Last,
+        NthChild(AzCssNthChildSelector),
+        Hover,
+        Active,
+        Focus,
+    }
+    /// Re-export of rust-allocated (stack based) `LinearGradient` struct
+    #[repr(C)]     pub struct AzLinearGradient {
+        pub direction: AzDirection,
+        pub extend_mode: AzExtendMode,
+        pub stops: AzLinearColorStopVec,
+    }
+    /// Re-export of rust-allocated (stack based) `RadialGradient` struct
+    #[repr(C)]     pub struct AzRadialGradient {
+        pub shape: AzShape,
+        pub size: AzRadialGradientSize,
+        pub position: AzStyleBackgroundPosition,
+        pub extend_mode: AzExtendMode,
+        pub stops: AzLinearColorStopVec,
+    }
+    /// Re-export of rust-allocated (stack based) `ConicGradient` struct
+    #[repr(C)]     pub struct AzConicGradient {
+        pub extend_mode: AzExtendMode,
+        pub center: AzStyleBackgroundPosition,
+        pub angle: AzAngleValue,
+        pub stops: AzRadialColorStopVec,
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecValue` struct
+    #[repr(C, u8)]     pub enum AzStyleBackgroundPositionVecValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBackgroundPositionVec),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecValue` struct
+    #[repr(C, u8)]     pub enum AzStyleBackgroundRepeatVecValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBackgroundRepeatVec),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecValue` struct
+    #[repr(C, u8)]     pub enum AzStyleBackgroundSizeVecValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBackgroundSizeVec),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleTransformVecValue` struct
+    #[repr(C, u8)]     pub enum AzStyleTransformVecValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleTransformVec),
+    }
+    /// C-ABI stable reexport of `(U8Vec, u32)`
+    #[repr(C)]     pub struct AzGetProgramBinaryReturn {
+        pub _0: AzU8Vec,
+        pub _1: u32,
+    }
+    /// Re-export of rust-allocated (stack based) `RawImage` struct
+    #[repr(C)]     pub struct AzRawImage {
+        pub pixels: AzU8Vec,
+        pub width: usize,
+        pub height: usize,
+        pub data_format: AzRawImageFormat,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
+    #[repr(C, u8)]     pub enum AzSvgPathElement {
+        Line(AzSvgLine),
+        QuadraticCurve(AzSvgQuadraticCurve),
+        CubicCurve(AzSvgCubicCurve),
+    }
+    /// Re-export of rust-allocated (stack based) `TesselatedCPUSvgNode` struct
+    #[repr(C)]     pub struct AzTesselatedCPUSvgNode {
+        pub vertices: AzSvgVertexVec,
+        pub indices: AzU32Vec,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgStyle` struct
+    #[repr(C, u8)]     pub enum AzSvgStyle {
+        Fill(AzSvgFillStyle),
+        Stroke(AzSvgStrokeStyle),
+    }
+    /// Re-export of rust-allocated (stack based) `String` struct
+    #[repr(C)]     pub struct AzString {
+        pub vec: AzU8Vec,
+    }
+    /// Wrapper over a Rust-allocated `VertexAttribute`
+    #[repr(C)]     pub struct AzSvgPathElementVec {
+        pub(crate) ptr: *const AzSvgPathElement,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzSvgPathElementVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `CallbackData`
+    #[repr(C)]     pub struct AzCallbackDataVec {
+        pub(crate) ptr: *const AzCallbackData,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzCallbackDataVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `StringVec`
+    #[repr(C)]     pub struct AzStringVec {
+        pub(crate) ptr: *const AzString,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzStringVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionRawImage` struct
+    #[repr(C, u8)]     pub enum AzOptionRawImage {
+        None,
+        Some(AzRawImage),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
+    #[repr(C, u8)]     pub enum AzOptionTaskBarIcon {
+        None,
+        Some(AzTaskBarIcon),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionWindowIcon` struct
+    #[repr(C, u8)]     pub enum AzOptionWindowIcon {
+        None,
+        Some(AzWindowIcon),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionString` struct
+    #[repr(C, u8)]     pub enum AzOptionString {
+        None,
+        Some(AzString),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionDuration` struct
+    #[repr(C, u8)]     pub enum AzOptionDuration {
+        None,
+        Some(AzDuration),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionInstant` struct
+    #[repr(C, u8)]     pub enum AzOptionInstant {
+        None,
+        Some(AzInstant),
+    }
+    /// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
+    #[repr(C)]     pub struct AzDuplicatedNamespaceError {
+        pub ns: AzString,
+        pub pos: AzSvgParseErrorPosition,
+    }
+    /// Re-export of rust-allocated (stack based) `UnknownNamespaceError` struct
+    #[repr(C)]     pub struct AzUnknownNamespaceError {
+        pub ns: AzString,
+        pub pos: AzSvgParseErrorPosition,
+    }
+    /// Re-export of rust-allocated (stack based) `UnexpectedCloseTagError` struct
+    #[repr(C)]     pub struct AzUnexpectedCloseTagError {
+        pub expected: AzString,
+        pub actual: AzString,
+        pub pos: AzSvgParseErrorPosition,
+    }
+    /// Re-export of rust-allocated (stack based) `UnknownEntityReferenceError` struct
+    #[repr(C)]     pub struct AzUnknownEntityReferenceError {
+        pub entity: AzString,
+        pub pos: AzSvgParseErrorPosition,
+    }
+    /// Re-export of rust-allocated (stack based) `DuplicatedAttributeError` struct
+    #[repr(C)]     pub struct AzDuplicatedAttributeError {
+        pub attribute: AzString,
+        pub pos: AzSvgParseErrorPosition,
+    }
+    /// Re-export of rust-allocated (stack based) `InvalidStringError` struct
+    #[repr(C)]     pub struct AzInvalidStringError {
+        pub got: AzString,
+        pub pos: AzSvgParseErrorPosition,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowsWindowOptions` struct
+    #[repr(C)]     pub struct AzWindowsWindowOptions {
+        pub allow_drag_drop: bool,
+        pub no_redirection_bitmap: bool,
+        pub window_icon: AzOptionWindowIcon,
+        pub taskbar_icon: AzOptionTaskBarIcon,
+        pub parent_window: AzOptionHwndHandle,
     }
     /// Re-export of rust-allocated (stack based) `WaylandTheme` struct
     #[repr(C)]     pub struct AzWaylandTheme {
@@ -6072,146 +6116,46 @@ mod test_sizes {
         pub key: AzString,
         pub value: AzString,
     }
-    /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
-    #[repr(C)]     pub struct AzIdOrClassVec {
-        pub(crate) ptr: *const AzIdOrClass,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzIdOrClassVecDestructor,
+    /// Re-export of rust-allocated (stack based) `RefCountInner` struct
+    #[repr(C)]     pub struct AzRefCountInner {
+        pub num_copies: usize,
+        pub num_refs: usize,
+        pub num_mutable_refs: usize,
+        pub _internal_len: usize,
+        pub _internal_layout_size: usize,
+        pub _internal_layout_align: usize,
+        pub type_id: u64,
+        pub type_name: AzString,
+        pub custom_destructor: AzRefAnyDestructorType,
     }
-    /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
-    #[repr(C)]     pub struct AzStyleTransformVec {
-        pub(crate) ptr: *const AzStyleTransform,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzStyleTransformVecDestructor,
+    /// List of core DOM node types built-into by `azul`
+    #[repr(C, u8)]     pub enum AzNodeType {
+        Div,
+        Body,
+        Br,
+        Label(AzString),
+        Image(AzImageId),
+        IFrame(AzIFrameNode),
+        GlTexture(AzGlTextureNode),
     }
-    /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
-    #[repr(C)]     pub struct AzVertexAttributeVec {
-        pub(crate) ptr: *const AzVertexAttribute,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzVertexAttributeVecDestructor,
+    /// Re-export of rust-allocated (stack based) `IdOrClass` struct
+    #[repr(C, u8)]     pub enum AzIdOrClass {
+        Id(AzString),
+        Class(AzString),
     }
-    /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
-    #[repr(C)]     pub struct AzDebugMessageVec {
-        pub(crate) ptr: *const AzDebugMessage,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzDebugMessageVecDestructor,
+    /// Re-export of rust-allocated (stack based) `CssPathSelector` struct
+    #[repr(C, u8)]     pub enum AzCssPathSelector {
+        Global,
+        Type(AzNodeTypePath),
+        Class(AzString),
+        Id(AzString),
+        PseudoSelector(AzCssPathPseudoSelector),
+        DirectChildren,
+        Children,
     }
-    /// Wrapper over a Rust-allocated `StringPairVec`
-    #[repr(C)]     pub struct AzStringPairVec {
-        pub(crate) ptr: *const AzStringPair,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzStringPairVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `LinearColorStopVec`
-    #[repr(C)]     pub struct AzLinearColorStopVec {
-        pub(crate) ptr: *const AzLinearColorStop,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzLinearColorStopVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `RadialColorStopVec`
-    #[repr(C)]     pub struct AzRadialColorStopVec {
-        pub(crate) ptr: *const AzRadialColorStop,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzRadialColorStopVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `StyledNodeVec`
-    #[repr(C)]     pub struct AzStyledNodeVec {
-        pub(crate) ptr: *const AzStyledNode,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzStyledNodeVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
-    #[repr(C)]     pub struct AzTagIdsToNodeIdsMappingVec {
-        pub(crate) ptr: *const AzTagIdToNodeIdMapping,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
-    }
-    /// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
-    #[repr(C, u8)]     pub enum AzOptionThreadReceiveMsg {
-        None,
-        Some(AzThreadReceiveMsg),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
-    #[repr(C, u8)]     pub enum AzOptionWaylandTheme {
-        None,
-        Some(AzWaylandTheme),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
-    #[repr(C, u8)]     pub enum AzOptionTaskBarIcon {
-        None,
-        Some(AzTaskBarIcon),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionDuration` struct
-    #[repr(C, u8)]     pub enum AzOptionDuration {
-        None,
-        Some(AzDuration),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionInstant` struct
-    #[repr(C, u8)]     pub enum AzOptionInstant {
-        None,
-        Some(AzInstant),
-    }
-    /// Re-export of rust-allocated (stack based) `XmlStreamError` struct
-    #[repr(C, u8)]     pub enum AzXmlStreamError {
-        UnexpectedEndOfStream,
-        InvalidName,
-        NonXmlChar(AzNonXmlCharError),
-        InvalidChar(AzInvalidCharError),
-        InvalidCharMultiple(AzInvalidCharMultipleError),
-        InvalidQuote(AzInvalidQuoteError),
-        InvalidSpace(AzInvalidSpaceError),
-        InvalidString(AzInvalidStringError),
-        InvalidReference,
-        InvalidExternalID,
-        InvalidCommentData,
-        InvalidCommentEnd,
-        InvalidCharacterData,
-    }
-    /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
-    #[repr(C)]     pub struct AzLayoutInfo {
-        pub window_size: *const AzWindowSize,
-        pub window_size_width_stops: *mut c_void,
-        pub window_size_height_stops: *mut c_void,
-        pub resources: *const c_void,
-    }
-    /// Re-export of rust-allocated (stack based) `CssPathPseudoSelector` struct
-    #[repr(C, u8)]     pub enum AzCssPathPseudoSelector {
-        First,
-        Last,
-        NthChild(AzCssNthChildSelector),
-        Hover,
-        Active,
-        Focus,
-    }
-    /// Re-export of rust-allocated (stack based) `LinearGradient` struct
-    #[repr(C)]     pub struct AzLinearGradient {
-        pub direction: AzDirection,
-        pub extend_mode: AzExtendMode,
-        pub stops: AzLinearColorStopVec,
-    }
-    /// Re-export of rust-allocated (stack based) `RadialGradient` struct
-    #[repr(C)]     pub struct AzRadialGradient {
-        pub shape: AzShape,
-        pub size: AzRadialGradientSize,
-        pub position: AzStyleBackgroundPosition,
-        pub extend_mode: AzExtendMode,
-        pub stops: AzLinearColorStopVec,
-    }
-    /// Re-export of rust-allocated (stack based) `ConicGradient` struct
-    #[repr(C)]     pub struct AzConicGradient {
-        pub extend_mode: AzExtendMode,
-        pub center: AzStyleBackgroundPosition,
-        pub angle: AzAngleValue,
-        pub stops: AzRadialColorStopVec,
+    /// Re-export of rust-allocated (stack based) `CssImageId` struct
+    #[repr(C)]     pub struct AzCssImageId {
+        pub inner: AzString,
     }
     /// Re-export of rust-allocated (stack based) `StyleBackgroundContent` struct
     #[repr(C, u8)]     pub enum AzStyleBackgroundContent {
@@ -6237,6 +6181,10 @@ mod test_sizes {
         pub horizontal: AzScrollbarInfo,
         pub vertical: AzScrollbarInfo,
     }
+    /// Re-export of rust-allocated (stack based) `StyleFontFamily` struct
+    #[repr(C)]     pub struct AzStyleFontFamily {
+        pub fonts: AzStringVec,
+    }
     /// Re-export of rust-allocated (stack based) `ScrollbarStyleValue` struct
     #[repr(C, u8)]     pub enum AzScrollbarStyleValue {
         Auto,
@@ -6245,61 +6193,80 @@ mod test_sizes {
         Initial,
         Exact(AzScrollbarStyle),
     }
-    /// Re-export of rust-allocated (stack based) `StyleTransformVecValue` struct
-    #[repr(C, u8)]     pub enum AzStyleTransformVecValue {
+    /// Re-export of rust-allocated (stack based) `StyleFontFamilyValue` struct
+    #[repr(C, u8)]     pub enum AzStyleFontFamilyValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzStyleTransformVec),
+        Exact(AzStyleFontFamily),
     }
-    /// Re-export of rust-allocated (stack based) `CallbackData` struct
-    #[repr(C)]     pub struct AzCallbackData {
-        pub event: AzEventFilter,
-        pub callback: AzCallback,
-        pub data: AzRefAny,
+    /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
+    #[repr(C)]     pub struct AzVertexAttribute {
+        pub name: AzString,
+        pub layout_location: AzOptionUsize,
+        pub attribute_type: AzVertexAttributeType,
+        pub item_count: usize,
     }
-    /// Re-export of rust-allocated (stack based) `VertexLayout` struct
-    #[repr(C)]     pub struct AzVertexLayout {
-        pub fields: AzVertexAttributeVec,
+    /// Re-export of rust-allocated (stack based) `DebugMessage` struct
+    #[repr(C)]     pub struct AzDebugMessage {
+        pub message: AzString,
+        pub source: u32,
+        pub ty: u32,
+        pub id: u32,
+        pub severity: u32,
     }
-    /// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
-    #[repr(C)]     pub struct AzVertexArrayObject {
-        pub vertex_layout: AzVertexLayout,
-        pub vao_id: u32,
-        pub gl_context: AzGlContextPtr,
+    /// C-ABI stable reexport of `(i32, u32, AzString)`
+    #[repr(C)]     pub struct AzGetActiveAttribReturn {
+        pub _0: i32,
+        pub _1: u32,
+        pub _2: AzString,
     }
-    /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
-    #[repr(C)]     pub struct AzVertexBuffer {
-        pub vertex_buffer_id: u32,
-        pub vertex_buffer_len: usize,
-        pub vao: AzVertexArrayObject,
-        pub index_buffer_id: u32,
-        pub index_buffer_len: usize,
-        pub index_buffer_format: AzIndexBufferFormat,
+    /// C-ABI stable reexport of `(i32, u32, AzString)`
+    #[repr(C)]     pub struct AzGetActiveUniformReturn {
+        pub _0: i32,
+        pub _1: u32,
+        pub _2: AzString,
     }
-    /// Re-export of rust-allocated (stack based) `ImageMask` struct
-    #[repr(C)]     pub struct AzImageMask {
-        pub image: AzImageId,
-        pub rect: AzLogicalRect,
-        pub repeat: bool,
+    /// Re-export of rust-allocated (stack based) `ImageSource` struct
+    #[repr(C, u8)]     pub enum AzImageSource {
+        Embedded(AzU8Vec),
+        File(AzString),
+        Raw(AzRawImage),
     }
-    /// Re-export of rust-allocated (stack based) `FontSource` struct
-    #[repr(C, u8)]     pub enum AzFontSource {
-        Embedded(AzEmbeddedFontSource),
-        File(AzFileFontSource),
-        System(AzSystemFontSource),
+    /// Re-export of rust-allocated (stack based) `EmbeddedFontSource` struct
+    #[repr(C)]     pub struct AzEmbeddedFontSource {
+        pub postscript_id: AzString,
+        pub font_data: AzU8Vec,
+        pub load_glyph_outlines: bool,
     }
-    /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
-    #[repr(C, u8)]     pub enum AzSvgPathElement {
-        Line(AzSvgLine),
-        QuadraticCurve(AzSvgQuadraticCurve),
-        CubicCurve(AzSvgCubicCurve),
+    /// Re-export of rust-allocated (stack based) `FileFontSource` struct
+    #[repr(C)]     pub struct AzFileFontSource {
+        pub postscript_id: AzString,
+        pub file_path: AzString,
+        pub load_glyph_outlines: bool,
     }
-    /// Re-export of rust-allocated (stack based) `SvgStyle` struct
-    #[repr(C, u8)]     pub enum AzSvgStyle {
-        Fill(AzSvgFillStyle),
-        Stroke(AzSvgStrokeStyle),
+    /// Re-export of rust-allocated (stack based) `SystemFontSource` struct
+    #[repr(C)]     pub struct AzSystemFontSource {
+        pub postscript_id: AzString,
+        pub load_glyph_outlines: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgPath` struct
+    #[repr(C)]     pub struct AzSvgPath {
+        pub items: AzSvgPathElementVec,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgParseOptions` struct
+    #[repr(C)]     pub struct AzSvgParseOptions {
+        pub relative_image_path: AzOptionString,
+        pub dpi: f32,
+        pub default_font_family: AzString,
+        pub font_size: f32,
+        pub languages: AzStringVec,
+        pub shape_rendering: AzShapeRendering,
+        pub text_rendering: AzTextRendering,
+        pub image_rendering: AzImageRendering,
+        pub keep_named_groups: bool,
+        pub fontdb: AzFontDatabase,
     }
     /// Re-export of rust-allocated (stack based) `Timer` struct
     #[repr(C)]     pub struct AzTimer {
@@ -6312,13 +6279,75 @@ mod test_sizes {
         pub timeout: AzOptionDuration,
         pub callback: AzTimerCallback,
     }
-    /// Re-export of rust-allocated (stack based) `WindowsWindowOptions` struct
-    #[repr(C)]     pub struct AzWindowsWindowOptions {
-        pub allow_drag_drop: bool,
-        pub no_redirection_bitmap: bool,
-        pub window_icon: AzOptionWindowIcon,
-        pub taskbar_icon: AzOptionTaskBarIcon,
-        pub parent_window: AzOptionHwndHandle,
+    /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
+    #[repr(C)]     pub struct AzIdOrClassVec {
+        pub(crate) ptr: *const AzIdOrClass,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzIdOrClassVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
+    #[repr(C)]     pub struct AzStyleBackgroundContentVec {
+        pub(crate) ptr: *const AzStyleBackgroundContent,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzStyleBackgroundContentVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<SvgPath>`
+    #[repr(C)]     pub struct AzSvgPathVec {
+        pub(crate) ptr: *const AzSvgPath,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzSvgPathVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
+    #[repr(C)]     pub struct AzVertexAttributeVec {
+        pub(crate) ptr: *const AzVertexAttribute,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzVertexAttributeVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `CssPathSelector`
+    #[repr(C)]     pub struct AzCssPathSelectorVec {
+        pub(crate) ptr: *const AzCssPathSelector,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzCssPathSelectorVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
+    #[repr(C)]     pub struct AzDebugMessageVec {
+        pub(crate) ptr: *const AzDebugMessage,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzDebugMessageVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `StringPairVec`
+    #[repr(C)]     pub struct AzStringPairVec {
+        pub(crate) ptr: *const AzStringPair,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzStringPairVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
+    #[repr(C, u8)]     pub enum AzOptionWaylandTheme {
+        None,
+        Some(AzWaylandTheme),
+    }
+    /// Re-export of rust-allocated (stack based) `XmlStreamError` struct
+    #[repr(C, u8)]     pub enum AzXmlStreamError {
+        UnexpectedEndOfStream,
+        InvalidName,
+        NonXmlChar(AzNonXmlCharError),
+        InvalidChar(AzInvalidCharError),
+        InvalidCharMultiple(AzInvalidCharMultipleError),
+        InvalidQuote(AzInvalidQuoteError),
+        InvalidSpace(AzInvalidSpaceError),
+        InvalidString(AzInvalidStringError),
+        InvalidReference,
+        InvalidExternalID,
+        InvalidCommentData,
+        InvalidCommentEnd,
+        InvalidCharacterData,
     }
     /// Re-export of rust-allocated (stack based) `LinuxWindowOptions` struct
     #[repr(C)]     pub struct AzLinuxWindowOptions {
@@ -6335,46 +6364,9 @@ mod test_sizes {
         pub request_user_attention: bool,
         pub window_icon: AzOptionWindowIcon,
     }
-    /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
-    #[repr(C)]     pub struct AzStyleBackgroundContentVec {
-        pub(crate) ptr: *const AzStyleBackgroundContent,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzStyleBackgroundContentVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `VertexAttribute`
-    #[repr(C)]     pub struct AzSvgPathElementVec {
-        pub(crate) ptr: *const AzSvgPathElement,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzSvgPathElementVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `CallbackData`
-    #[repr(C)]     pub struct AzCallbackDataVec {
-        pub(crate) ptr: *const AzCallbackData,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzCallbackDataVecDestructor,
-    }
-    /// Re-export of rust-allocated (stack based) `OptionImageMask` struct
-    #[repr(C, u8)]     pub enum AzOptionImageMask {
-        None,
-        Some(AzImageMask),
-    }
-    /// Re-export of rust-allocated (stack based) `XmlTextError` struct
-    #[repr(C)]     pub struct AzXmlTextError {
-        pub stream_error: AzXmlStreamError,
-        pub pos: AzSvgParseErrorPosition,
-    }
-    /// Re-export of rust-allocated (stack based) `CssPathSelector` struct
-    #[repr(C, u8)]     pub enum AzCssPathSelector {
-        Global,
-        Type(AzNodeTypePath),
-        Class(AzString),
-        Id(AzString),
-        PseudoSelector(AzCssPathPseudoSelector),
-        DirectChildren,
-        Children,
+    /// Re-export of rust-allocated (stack based) `CssPath` struct
+    #[repr(C)]     pub struct AzCssPath {
+        pub selectors: AzCssPathSelectorVec,
     }
     /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecValue` struct
     #[repr(C, u8)]     pub enum AzStyleBackgroundContentVecValue {
@@ -6457,16 +6449,58 @@ mod test_sizes {
         PerspectiveOrigin(AzStylePerspectiveOriginValue),
         BackfaceVisibility(AzStyleBackfaceVisibilityValue),
     }
-    /// Re-export of rust-allocated (stack based) `NodeDataInlineCssProperty` struct
-    #[repr(C, u8)]     pub enum AzNodeDataInlineCssProperty {
-        Normal(AzCssProperty),
-        Active(AzCssProperty),
-        Focus(AzCssProperty),
-        Hover(AzCssProperty),
+    /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
+    #[repr(C, u8)]     pub enum AzCssPropertySource {
+        Css(AzCssPath),
+        Inline,
     }
-    /// Re-export of rust-allocated (stack based) `SvgPath` struct
-    #[repr(C)]     pub struct AzSvgPath {
-        pub items: AzSvgPathElementVec,
+    /// Re-export of rust-allocated (stack based) `VertexLayout` struct
+    #[repr(C)]     pub struct AzVertexLayout {
+        pub fields: AzVertexAttributeVec,
+    }
+    /// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
+    #[repr(C)]     pub struct AzVertexArrayObject {
+        pub vertex_layout: AzVertexLayout,
+        pub vao_id: u32,
+        pub gl_context: AzGlContextPtr,
+    }
+    /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
+    #[repr(C)]     pub struct AzVertexBuffer {
+        pub vertex_buffer_id: u32,
+        pub vertex_buffer_len: usize,
+        pub vao: AzVertexArrayObject,
+        pub index_buffer_id: u32,
+        pub index_buffer_len: usize,
+        pub index_buffer_format: AzIndexBufferFormat,
+    }
+    /// Re-export of rust-allocated (stack based) `FontSource` struct
+    #[repr(C, u8)]     pub enum AzFontSource {
+        Embedded(AzEmbeddedFontSource),
+        File(AzFileFontSource),
+        System(AzSystemFontSource),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
+    #[repr(C)]     pub struct AzSvgMultiPolygon {
+        pub rings: AzSvgPathVec,
+    }
+    /// Wrapper over a Rust-allocated `Vec<CssProperty>`
+    #[repr(C)]     pub struct AzCssPropertyVec {
+        pub(crate) ptr: *const AzCssProperty,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzCssPropertyVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
+    #[repr(C)]     pub struct AzSvgMultiPolygonVec {
+        pub(crate) ptr: *const AzSvgMultiPolygon,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzSvgMultiPolygonVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `XmlTextError` struct
+    #[repr(C)]     pub struct AzXmlTextError {
+        pub stream_error: AzXmlStreamError,
+        pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `PlatformSpecificOptions` struct
     #[repr(C)]     pub struct AzPlatformSpecificOptions {
@@ -6493,53 +6527,10 @@ mod test_sizes {
         pub layout_callback: AzLayoutCallback,
         pub close_callback: AzOptionCallback,
     }
-    /// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
-    #[repr(C)]     pub struct AzWindowCreateOptions {
-        pub state: AzWindowState,
-        pub renderer_type: AzOptionRendererOptions,
-        pub theme: AzOptionWindowTheme,
-        pub create_callback: AzOptionCallback,
-    }
-    /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
-    #[repr(C)]     pub struct AzNodeDataInlineCssPropertyVec {
-        pub(crate) ptr: *const AzNodeDataInlineCssProperty,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzNodeDataInlineCssPropertyVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `Vec<CssProperty>`
-    #[repr(C)]     pub struct AzCssPropertyVec {
-        pub(crate) ptr: *const AzCssProperty,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzCssPropertyVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `Vec<SvgPath>`
-    #[repr(C)]     pub struct AzSvgPathVec {
-        pub(crate) ptr: *const AzSvgPath,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzSvgPathVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `CssPathSelector`
-    #[repr(C)]     pub struct AzCssPathSelectorVec {
-        pub(crate) ptr: *const AzCssPathSelector,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzCssPathSelectorVecDestructor,
-    }
-    /// Re-export of rust-allocated (stack based) `XmlParseError` struct
-    #[repr(C, u8)]     pub enum AzXmlParseError {
-        InvalidDeclaration(AzXmlTextError),
-        InvalidComment(AzXmlTextError),
-        InvalidPI(AzXmlTextError),
-        InvalidDoctype(AzXmlTextError),
-        InvalidEntity(AzXmlTextError),
-        InvalidElement(AzXmlTextError),
-        InvalidAttribute(AzXmlTextError),
-        InvalidCdata(AzXmlTextError),
-        InvalidCharData(AzXmlTextError),
-        UnknownToken(AzSvgParseErrorPosition),
+    /// Re-export of rust-allocated (stack based) `FocusTargetPath` struct
+    #[repr(C)]     pub struct AzFocusTargetPath {
+        pub dom: AzDomId,
+        pub css_path: AzCssPath,
     }
     /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
     #[repr(C)]     pub struct AzCallbackInfo {
@@ -6577,19 +6568,67 @@ mod test_sizes {
         pub call_count: usize,
         pub is_about_to_finish: bool,
     }
+    /// Re-export of rust-allocated (stack based) `NodeDataInlineCssProperty` struct
+    #[repr(C, u8)]     pub enum AzNodeDataInlineCssProperty {
+        Normal(AzCssProperty),
+        Active(AzCssProperty),
+        Focus(AzCssProperty),
+        Hover(AzCssProperty),
+    }
     /// Re-export of rust-allocated (stack based) `DynamicCssProperty` struct
     #[repr(C)]     pub struct AzDynamicCssProperty {
         pub dynamic_id: AzString,
         pub default_value: AzCssProperty,
     }
-    /// Re-export of rust-allocated (stack based) `CssPath` struct
-    #[repr(C)]     pub struct AzCssPath {
-        pub selectors: AzCssPathSelectorVec,
+    /// Re-export of rust-allocated (stack based) `SvgNode` struct
+    #[repr(C, u8)]     pub enum AzSvgNode {
+        MultiPolygonCollection(AzSvgMultiPolygonVec),
+        MultiPolygon(AzSvgMultiPolygon),
+        Path(AzSvgPath),
+        Circle(AzSvgCircle),
+        Rect(AzSvgRect),
     }
-    /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
-    #[repr(C, u8)]     pub enum AzCssPropertySource {
-        Css(AzCssPath),
-        Inline,
+    /// Re-export of rust-allocated (stack based) `SvgStyledNode` struct
+    #[repr(C)]     pub struct AzSvgStyledNode {
+        pub geometry: AzSvgNode,
+        pub style: AzSvgStyle,
+    }
+    /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
+    #[repr(C)]     pub struct AzNodeDataInlineCssPropertyVec {
+        pub(crate) ptr: *const AzNodeDataInlineCssProperty,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNodeDataInlineCssPropertyVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `XmlParseError` struct
+    #[repr(C, u8)]     pub enum AzXmlParseError {
+        InvalidDeclaration(AzXmlTextError),
+        InvalidComment(AzXmlTextError),
+        InvalidPI(AzXmlTextError),
+        InvalidDoctype(AzXmlTextError),
+        InvalidEntity(AzXmlTextError),
+        InvalidElement(AzXmlTextError),
+        InvalidAttribute(AzXmlTextError),
+        InvalidCdata(AzXmlTextError),
+        InvalidCharData(AzXmlTextError),
+        UnknownToken(AzSvgParseErrorPosition),
+    }
+    /// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
+    #[repr(C)]     pub struct AzWindowCreateOptions {
+        pub state: AzWindowState,
+        pub renderer_type: AzOptionRendererOptions,
+        pub theme: AzOptionWindowTheme,
+        pub create_callback: AzOptionCallback,
+    }
+    /// Defines the focus target for the next frame
+    #[repr(C, u8)]     pub enum AzFocusTarget {
+        Id(AzDomNodeId),
+        Path(AzFocusTargetPath),
+        Previous,
+        Next,
+        First,
+        Last,
+        NoFocus,
     }
     /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
     #[repr(C)]     pub struct AzNodeData {
@@ -6601,16 +6640,17 @@ mod test_sizes {
         pub clip_mask: AzOptionImageMask,
         pub tab_index: AzOptionTabIndex,
     }
-    /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
-    #[repr(C)]     pub struct AzSvgMultiPolygon {
-        pub rings: AzSvgPathVec,
+    /// Re-export of rust-allocated (stack based) `CssDeclaration` struct
+    #[repr(C, u8)]     pub enum AzCssDeclaration {
+        Static(AzCssProperty),
+        Dynamic(AzDynamicCssProperty),
     }
-    /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
-    #[repr(C)]     pub struct AzSvgMultiPolygonVec {
-        pub(crate) ptr: *const AzSvgMultiPolygon,
+    /// Wrapper over a Rust-allocated `CssDeclaration`
+    #[repr(C)]     pub struct AzCssDeclarationVec {
+        pub(crate) ptr: *const AzCssDeclaration,
         pub len: usize,
         pub cap: usize,
-        pub destructor: AzSvgMultiPolygonVecDestructor,
+        pub destructor: AzCssDeclarationVecDestructor,
     }
     /// Wrapper over a Rust-allocated `NodeDataVec`
     #[repr(C)]     pub struct AzNodeDataVec {
@@ -6638,15 +6678,16 @@ mod test_sizes {
         SizeLimit,
         ParserError(AzXmlParseError),
     }
-    /// Re-export of rust-allocated (stack based) `FocusTargetPath` struct
-    #[repr(C)]     pub struct AzFocusTargetPath {
-        pub dom: AzDomId,
-        pub css_path: AzCssPath,
+    /// Re-export of rust-allocated (stack based) `Dom` struct
+    #[repr(C)]     pub struct AzDom {
+        pub root: AzNodeData,
+        pub children: AzDomVec,
+        pub estimated_total_children: usize,
     }
-    /// Re-export of rust-allocated (stack based) `CssDeclaration` struct
-    #[repr(C, u8)]     pub enum AzCssDeclaration {
-        Static(AzCssProperty),
-        Dynamic(AzDynamicCssProperty),
+    /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
+    #[repr(C)]     pub struct AzCssRuleBlock {
+        pub path: AzCssPath,
+        pub declarations: AzCssDeclarationVec,
     }
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
     #[repr(C)]     pub struct AzStyledDom {
@@ -6659,25 +6700,6 @@ mod test_sizes {
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub css_property_cache: AzCssPropertyCache,
     }
-    /// Re-export of rust-allocated (stack based) `Dom` struct
-    #[repr(C)]     pub struct AzDom {
-        pub root: AzNodeData,
-        pub children: AzDomVec,
-        pub estimated_total_children: usize,
-    }
-    /// Re-export of rust-allocated (stack based) `SvgNode` struct
-    #[repr(C, u8)]     pub enum AzSvgNode {
-        MultiPolygonCollection(AzSvgMultiPolygonVec),
-        MultiPolygon(AzSvgMultiPolygon),
-        Path(AzSvgPath),
-        Circle(AzSvgCircle),
-        Rect(AzSvgRect),
-    }
-    /// Re-export of rust-allocated (stack based) `SvgStyledNode` struct
-    #[repr(C)]     pub struct AzSvgStyledNode {
-        pub geometry: AzSvgNode,
-        pub style: AzSvgStyle,
-    }
     /// Wrapper over a Rust-allocated `Vec<Dom>`
     #[repr(C)]     pub struct AzDomVec {
         pub(crate) ptr: *const AzDom,
@@ -6685,12 +6707,12 @@ mod test_sizes {
         pub cap: usize,
         pub destructor: AzDomVecDestructor,
     }
-    /// Wrapper over a Rust-allocated `CssDeclaration`
-    #[repr(C)]     pub struct AzCssDeclarationVec {
-        pub(crate) ptr: *const AzCssDeclaration,
+    /// Wrapper over a Rust-allocated `CssRuleBlock`
+    #[repr(C)]     pub struct AzCssRuleBlockVec {
+        pub(crate) ptr: *const AzCssRuleBlock,
         pub len: usize,
         pub cap: usize,
-        pub destructor: AzCssDeclarationVecDestructor,
+        pub destructor: AzCssRuleBlockVecDestructor,
     }
     /// Re-export of rust-allocated (stack based) `OptionDom` struct
     #[repr(C, u8)]     pub enum AzOptionDom {
@@ -6706,38 +6728,11 @@ mod test_sizes {
         InvalidSize,
         ParsingFailed(AzXmlError),
     }
-    /// Defines the focus target for the next frame
-    #[repr(C, u8)]     pub enum AzFocusTarget {
-        Id(AzDomNodeId),
-        Path(AzFocusTargetPath),
-        Previous,
-        Next,
-        First,
-        Last,
-        NoFocus,
-    }
     /// Re-export of rust-allocated (stack based) `IFrameCallbackReturn` struct
     #[repr(C)]     pub struct AzIFrameCallbackReturn {
         pub dom: AzStyledDom,
         pub size: AzLayoutRect,
         pub virtual_size: AzOptionLayoutRect,
-    }
-    /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
-    #[repr(C)]     pub struct AzCssRuleBlock {
-        pub path: AzCssPath,
-        pub declarations: AzCssDeclarationVec,
-    }
-    /// Wrapper over a Rust-allocated `CssRuleBlock`
-    #[repr(C)]     pub struct AzCssRuleBlockVec {
-        pub(crate) ptr: *const AzCssRuleBlock,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzCssRuleBlockVecDestructor,
-    }
-    /// Re-export of rust-allocated (stack based) `ResultSvgSvgParseError` struct
-    #[repr(C, u8)]     pub enum AzResultSvgSvgParseError {
-        Ok(AzSvg),
-        Err(AzSvgParseError),
     }
     /// Re-export of rust-allocated (stack based) `Stylesheet` struct
     #[repr(C)]     pub struct AzStylesheet {
@@ -6750,6 +6745,11 @@ mod test_sizes {
         pub cap: usize,
         pub destructor: AzStylesheetVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `ResultSvgSvgParseError` struct
+    #[repr(C, u8)]     pub enum AzResultSvgSvgParseError {
+        Ok(AzSvg),
+        Err(AzSvgParseError),
+    }
     /// Re-export of rust-allocated (stack based) `Css` struct
     #[repr(C)]     pub struct AzCss {
         pub stylesheets: AzStylesheetVec,
@@ -6760,12 +6760,26 @@ mod test_sizes {
     #[test]
     fn test_size() {
          use core::alloc::Layout;
-        assert_eq!((Layout::new::<azul_impl::task::AzInstantPtr>(), "AzInstantPtr"), (Layout::new::<AzInstantPtr>(), "AzInstantPtr"));
-        assert_eq!((Layout::new::<azul_impl::resources::AppLogLevel>(), "AzAppLogLevel"), (Layout::new::<AzAppLogLevel>(), "AzAppLogLevel"));
         assert_eq!((Layout::new::<azul_impl::app::AzAppPtr>(), "AzApp"), (Layout::new::<AzApp>(), "AzApp"));
+        assert_eq!((Layout::new::<azul_impl::resources::AppLogLevel>(), "AzAppLogLevel"), (Layout::new::<AzAppLogLevel>(), "AzAppLogLevel"));
+        assert_eq!((Layout::new::<azul_impl::window::Vsync>(), "AzVsync"), (Layout::new::<AzVsync>(), "AzVsync"));
+        assert_eq!((Layout::new::<azul_impl::window::Srgb>(), "AzSrgb"), (Layout::new::<AzSrgb>(), "AzSrgb"));
+        assert_eq!((Layout::new::<azul_impl::window::HwAcceleration>(), "AzHwAcceleration"), (Layout::new::<AzHwAcceleration>(), "AzHwAcceleration"));
+        assert_eq!((Layout::new::<azul_impl::window::XWindowType>(), "AzXWindowType"), (Layout::new::<AzXWindowType>(), "AzXWindowType"));
+        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCode>(), "AzVirtualKeyCode"), (Layout::new::<AzVirtualKeyCode>(), "AzVirtualKeyCode"));
+        assert_eq!((Layout::new::<azul_impl::window::MouseCursorType>(), "AzMouseCursorType"), (Layout::new::<AzMouseCursorType>(), "AzMouseCursorType"));
+        assert_eq!((Layout::new::<azul_impl::window::RendererType>(), "AzRendererType"), (Layout::new::<AzRendererType>(), "AzRendererType"));
+        assert_eq!((Layout::new::<azul_impl::window::FullScreenMode>(), "AzFullScreenMode"), (Layout::new::<AzFullScreenMode>(), "AzFullScreenMode"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowTheme>(), "AzWindowTheme"), (Layout::new::<AzWindowTheme>(), "AzWindowTheme"));
         assert_eq!((Layout::new::<azul_impl::callbacks::UpdateScreen>(), "AzUpdateScreen"), (Layout::new::<AzUpdateScreen>(), "AzUpdateScreen"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefCount>(), "AzRefCount"), (Layout::new::<AzRefCount>(), "AzRefCount"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefAny>(), "AzRefAny"), (Layout::new::<AzRefAny>(), "AzRefAny"));
+        assert_eq!((Layout::new::<azul_impl::dom::On>(), "AzOn"), (Layout::new::<AzOn>(), "AzOn"));
+        assert_eq!((Layout::new::<azul_impl::dom::HoverEventFilter>(), "AzHoverEventFilter"), (Layout::new::<AzHoverEventFilter>(), "AzHoverEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::dom::FocusEventFilter>(), "AzFocusEventFilter"), (Layout::new::<AzFocusEventFilter>(), "AzFocusEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::dom::WindowEventFilter>(), "AzWindowEventFilter"), (Layout::new::<AzWindowEventFilter>(), "AzWindowEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::dom::ComponentEventFilter>(), "AzComponentEventFilter"), (Layout::new::<AzComponentEventFilter>(), "AzComponentEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::dom::ApplicationEventFilter>(), "AzApplicationEventFilter"), (Layout::new::<AzApplicationEventFilter>(), "AzApplicationEventFilter"));
         assert_eq!((Layout::new::<azul_impl::css::NodeTypePath>(), "AzNodeTypePath"), (Layout::new::<AzNodeTypePath>(), "AzNodeTypePath"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyType>(), "AzCssPropertyType"), (Layout::new::<AzCssPropertyType>(), "AzCssPropertyType"));
         assert_eq!((Layout::new::<azul_impl::css::SizeMetric>(), "AzSizeMetric"), (Layout::new::<AzSizeMetric>(), "AzSizeMetric"));
@@ -6791,12 +6805,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"), (Layout::new::<AzStyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTextAlignmentHorz>(), "AzStyleTextAlignmentHorz"), (Layout::new::<AzStyleTextAlignmentHorz>(), "AzStyleTextAlignmentHorz"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::CssPropertyCachePtr>(), "AzCssPropertyCache"), (Layout::new::<AzCssPropertyCache>(), "AzCssPropertyCache"));
-        assert_eq!((Layout::new::<azul_impl::dom::On>(), "AzOn"), (Layout::new::<AzOn>(), "AzOn"));
-        assert_eq!((Layout::new::<azul_impl::dom::HoverEventFilter>(), "AzHoverEventFilter"), (Layout::new::<AzHoverEventFilter>(), "AzHoverEventFilter"));
-        assert_eq!((Layout::new::<azul_impl::dom::FocusEventFilter>(), "AzFocusEventFilter"), (Layout::new::<AzFocusEventFilter>(), "AzFocusEventFilter"));
-        assert_eq!((Layout::new::<azul_impl::dom::WindowEventFilter>(), "AzWindowEventFilter"), (Layout::new::<AzWindowEventFilter>(), "AzWindowEventFilter"));
-        assert_eq!((Layout::new::<azul_impl::dom::ComponentEventFilter>(), "AzComponentEventFilter"), (Layout::new::<AzComponentEventFilter>(), "AzComponentEventFilter"));
-        assert_eq!((Layout::new::<azul_impl::dom::ApplicationEventFilter>(), "AzApplicationEventFilter"), (Layout::new::<AzApplicationEventFilter>(), "AzApplicationEventFilter"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttributeType>(), "AzVertexAttributeType"), (Layout::new::<AzVertexAttributeType>(), "AzVertexAttributeType"));
         assert_eq!((Layout::new::<azul_impl::gl::IndexBufferFormat>(), "AzIndexBufferFormat"), (Layout::new::<AzIndexBufferFormat>(), "AzIndexBufferFormat"));
         assert_eq!((Layout::new::<azul_impl::gl::AzGlType>(), "AzGlType"), (Layout::new::<AzGlType>(), "AzGlType"));
@@ -6816,91 +6824,49 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadSender>(), "AzThreadSender"), (Layout::new::<AzThreadSender>(), "AzThreadSender"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiver>(), "AzThreadReceiver"), (Layout::new::<AzThreadReceiver>(), "AzThreadReceiver"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSendMsg>(), "AzThreadSendMsg"), (Layout::new::<AzThreadSendMsg>(), "AzThreadSendMsg"));
-        assert_eq!((Layout::new::<azul_impl::window::Vsync>(), "AzVsync"), (Layout::new::<AzVsync>(), "AzVsync"));
-        assert_eq!((Layout::new::<azul_impl::window::Srgb>(), "AzSrgb"), (Layout::new::<AzSrgb>(), "AzSrgb"));
-        assert_eq!((Layout::new::<azul_impl::window::HwAcceleration>(), "AzHwAcceleration"), (Layout::new::<AzHwAcceleration>(), "AzHwAcceleration"));
-        assert_eq!((Layout::new::<azul_impl::window::XWindowType>(), "AzXWindowType"), (Layout::new::<AzXWindowType>(), "AzXWindowType"));
-        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCode>(), "AzVirtualKeyCode"), (Layout::new::<AzVirtualKeyCode>(), "AzVirtualKeyCode"));
-        assert_eq!((Layout::new::<azul_impl::window::MouseCursorType>(), "AzMouseCursorType"), (Layout::new::<AzMouseCursorType>(), "AzMouseCursorType"));
-        assert_eq!((Layout::new::<azul_impl::window::RendererType>(), "AzRendererType"), (Layout::new::<AzRendererType>(), "AzRendererType"));
-        assert_eq!((Layout::new::<azul_impl::window::FullScreenMode>(), "AzFullScreenMode"), (Layout::new::<AzFullScreenMode>(), "AzFullScreenMode"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowTheme>(), "AzWindowTheme"), (Layout::new::<AzWindowTheme>(), "AzWindowTheme"));
-        assert_eq!((Layout::new::<azul_impl::dom::DomVecDestructor>(), "AzDomVecDestructor"), (Layout::new::<AzDomVecDestructor>(), "AzDomVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::dom::IdOrClassVecDestructor>(), "AzIdOrClassVecDestructor"), (Layout::new::<AzIdOrClassVecDestructor>(), "AzIdOrClassVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVecDestructor>(), "AzNodeDataInlineCssPropertyVecDestructor"), (Layout::new::<AzNodeDataInlineCssPropertyVecDestructor>(), "AzNodeDataInlineCssPropertyVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVecDestructor>(), "AzStyleBackgroundContentVecDestructor"), (Layout::new::<AzStyleBackgroundContentVecDestructor>(), "AzStyleBackgroundContentVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPositionVecDestructor>(), "AzStyleBackgroundPositionVecDestructor"), (Layout::new::<AzStyleBackgroundPositionVecDestructor>(), "AzStyleBackgroundPositionVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVecDestructor>(), "AzStyleBackgroundRepeatVecDestructor"), (Layout::new::<AzStyleBackgroundRepeatVecDestructor>(), "AzStyleBackgroundRepeatVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVecDestructor>(), "AzStyleBackgroundSizeVecDestructor"), (Layout::new::<AzStyleBackgroundSizeVecDestructor>(), "AzStyleBackgroundSizeVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleTransformVecDestructor>(), "AzStyleTransformVecDestructor"), (Layout::new::<AzStyleTransformVecDestructor>(), "AzStyleTransformVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyVecDestructor>(), "AzCssPropertyVecDestructor"), (Layout::new::<AzCssPropertyVecDestructor>(), "AzCssPropertyVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygonVecDestructor>(), "AzSvgMultiPolygonVecDestructor"), (Layout::new::<AzSvgMultiPolygonVecDestructor>(), "AzSvgMultiPolygonVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgPathVecDestructor>(), "AzSvgPathVecDestructor"), (Layout::new::<AzSvgPathVecDestructor>(), "AzSvgPathVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::gl::VertexAttributeVecDestructor>(), "AzVertexAttributeVecDestructor"), (Layout::new::<AzVertexAttributeVecDestructor>(), "AzVertexAttributeVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"), (Layout::new::<AzSvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgVertexVecDestructor>(), "AzSvgVertexVecDestructor"), (Layout::new::<AzSvgVertexVecDestructor>(), "AzSvgVertexVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::U32VecDestructor>(), "AzU32VecDestructor"), (Layout::new::<AzU32VecDestructor>(), "AzU32VecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::window::XWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"), (Layout::new::<AzXWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"), (Layout::new::<AzVirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::style::CascadeInfoVecDestructor>(), "AzCascadeInfoVecDestructor"), (Layout::new::<AzCascadeInfoVecDestructor>(), "AzCascadeInfoVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::window::ScanCodeVecDestructor>(), "AzScanCodeVecDestructor"), (Layout::new::<AzScanCodeVecDestructor>(), "AzScanCodeVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::CssDeclarationVecDestructor>(), "AzCssDeclarationVecDestructor"), (Layout::new::<AzCssDeclarationVecDestructor>(), "AzCssDeclarationVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPathSelectorVecDestructor>(), "AzCssPathSelectorVecDestructor"), (Layout::new::<AzCssPathSelectorVecDestructor>(), "AzCssPathSelectorVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::StylesheetVecDestructor>(), "AzStylesheetVecDestructor"), (Layout::new::<AzStylesheetVecDestructor>(), "AzStylesheetVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVecDestructor>(), "AzCssRuleBlockVecDestructor"), (Layout::new::<AzCssRuleBlockVecDestructor>(), "AzCssRuleBlockVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::U8VecDestructor>(), "AzU8VecDestructor"), (Layout::new::<AzU8VecDestructor>(), "AzU8VecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::dom::CallbackDataVecDestructor>(), "AzCallbackDataVecDestructor"), (Layout::new::<AzCallbackDataVecDestructor>(), "AzCallbackDataVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessageVecDestructor>(), "AzDebugMessageVecDestructor"), (Layout::new::<AzDebugMessageVecDestructor>(), "AzDebugMessageVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::gl::GLuintVecDestructor>(), "AzGLuintVecDestructor"), (Layout::new::<AzGLuintVecDestructor>(), "AzGLuintVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::gl::GLintVecDestructor>(), "AzGLintVecDestructor"), (Layout::new::<AzGLintVecDestructor>(), "AzGLintVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::StringVecDestructor>(), "AzStringVecDestructor"), (Layout::new::<AzStringVecDestructor>(), "AzStringVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::window::StringPairVecDestructor>(), "AzStringPairVecDestructor"), (Layout::new::<AzStringPairVecDestructor>(), "AzStringPairVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::LinearColorStopVecDestructor>(), "AzLinearColorStopVecDestructor"), (Layout::new::<AzLinearColorStopVecDestructor>(), "AzLinearColorStopVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::RadialColorStopVecDestructor>(), "AzRadialColorStopVecDestructor"), (Layout::new::<AzRadialColorStopVecDestructor>(), "AzRadialColorStopVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVecDestructor>(), "AzNodeIdVecDestructor"), (Layout::new::<AzNodeIdVecDestructor>(), "AzNodeIdVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVecDestructor>(), "AzNodeVecDestructor"), (Layout::new::<AzNodeVecDestructor>(), "AzNodeVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVecDestructor>(), "AzStyledNodeVecDestructor"), (Layout::new::<AzStyledNodeVecDestructor>(), "AzStyledNodeVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor>(), "AzTagIdsToNodeIdsMappingVecDestructor"), (Layout::new::<AzTagIdsToNodeIdsMappingVecDestructor>(), "AzTagIdsToNodeIdsMappingVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVecDestructor>(), "AzParentWithNodeDepthVecDestructor"), (Layout::new::<AzParentWithNodeDepthVecDestructor>(), "AzParentWithNodeDepthVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::dom::NodeDataVecDestructor>(), "AzNodeDataVecDestructor"), (Layout::new::<AzNodeDataVecDestructor>(), "AzNodeDataVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"), (Layout::new::<AzStyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"));
-        assert_eq!((Layout::new::<azul_impl::css::U32Vec>(), "AzU32Vec"), (Layout::new::<AzU32Vec>(), "AzU32Vec"));
-        assert_eq!((Layout::new::<azul_impl::window::XWindowTypeVec>(), "AzXWindowTypeVec"), (Layout::new::<AzXWindowTypeVec>(), "AzXWindowTypeVec"));
-        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"), (Layout::new::<AzVirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"));
-        assert_eq!((Layout::new::<azul_impl::window::ScanCodeVec>(), "AzScanCodeVec"), (Layout::new::<AzScanCodeVec>(), "AzScanCodeVec"));
-        assert_eq!((Layout::new::<azul_impl::css::U8Vec>(), "AzU8Vec"), (Layout::new::<AzU8Vec>(), "AzU8Vec"));
-        assert_eq!((Layout::new::<azul_impl::gl::GLuintVec>(), "AzGLuintVec"), (Layout::new::<AzGLuintVec>(), "AzGLuintVec"));
-        assert_eq!((Layout::new::<azul_impl::gl::GLintVec>(), "AzGLintVec"), (Layout::new::<AzGLintVec>(), "AzGLintVec"));
-        assert_eq!((Layout::new::<azul_impl::gl::OptionGlContextPtr>(), "AzOptionGlContextPtr"), (Layout::new::<AzOptionGlContextPtr>(), "AzOptionGlContextPtr"));
-        assert_eq!((Layout::new::<azul_impl::task::OptionThreadSendMsg>(), "AzOptionThreadSendMsg"), (Layout::new::<AzOptionThreadSendMsg>(), "AzOptionThreadSendMsg"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::OptionRefAny>(), "AzOptionRefAny"), (Layout::new::<AzOptionRefAny>(), "AzOptionRefAny"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionWindowTheme>(), "AzOptionWindowTheme"), (Layout::new::<AzOptionWindowTheme>(), "AzOptionWindowTheme"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionHwndHandle>(), "AzOptionHwndHandle"), (Layout::new::<AzOptionHwndHandle>(), "AzOptionHwndHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionX11Visual>(), "AzOptionX11Visual"), (Layout::new::<AzOptionX11Visual>(), "AzOptionX11Visual"));
-        assert_eq!((Layout::new::<azul_impl::css::OptionI32>(), "AzOptionI32"), (Layout::new::<AzOptionI32>(), "AzOptionI32"));
-        assert_eq!((Layout::new::<azul_impl::css::OptionF32>(), "AzOptionF32"), (Layout::new::<AzOptionF32>(), "AzOptionF32"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionMouseCursorType>(), "AzOptionMouseCursorType"), (Layout::new::<AzOptionMouseCursorType>(), "AzOptionMouseCursorType"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionChar>(), "AzOptionChar"), (Layout::new::<AzOptionChar>(), "AzOptionChar"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"), (Layout::new::<AzOptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"));
-        assert_eq!((Layout::new::<azul_impl::gl::OptionTexture>(), "AzOptionTexture"), (Layout::new::<AzOptionTexture>(), "AzOptionTexture"));
-        assert_eq!((Layout::new::<azul_impl::gl::OptionUsize>(), "AzOptionUsize"), (Layout::new::<AzOptionUsize>(), "AzOptionUsize"));
-        assert_eq!((Layout::new::<azul_impl::xml::XmlTextPos>(), "AzSvgParseErrorPosition"), (Layout::new::<AzSvgParseErrorPosition>(), "AzSvgParseErrorPosition"));
-        assert_eq!((Layout::new::<azul_impl::task::InstantPtrCloneCallback>(), "AzInstantPtrCloneFn"), (Layout::new::<AzInstantPtrCloneFn>(), "AzInstantPtrCloneFn"));
-        assert_eq!((Layout::new::<azul_impl::task::InstantPtrDestructorCallback>(), "AzInstantPtrDestructorFn"), (Layout::new::<AzInstantPtrDestructorFn>(), "AzInstantPtrDestructorFn"));
-        assert_eq!((Layout::new::<azul_impl::task::SystemTick>(), "AzSystemTick"), (Layout::new::<AzSystemTick>(), "AzSystemTick"));
-        assert_eq!((Layout::new::<azul_impl::task::SystemTimeDiff>(), "AzSystemTimeDiff"), (Layout::new::<AzSystemTimeDiff>(), "AzSystemTimeDiff"));
-        assert_eq!((Layout::new::<azul_impl::task::SystemTickDiff>(), "AzSystemTickDiff"), (Layout::new::<AzSystemTickDiff>(), "AzSystemTickDiff"));
+        assert_eq!((Layout::new::<azul_impl::task::AzInstantPtr>(), "AzInstantPtr"), (Layout::new::<AzInstantPtr>(), "AzInstantPtr"));
+        assert_eq!((Layout::new::<azul_impl::window::RendererOptions>(), "AzRendererOptions"), (Layout::new::<AzRendererOptions>(), "AzRendererOptions"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutPoint>(), "AzLayoutPoint"), (Layout::new::<AzLayoutPoint>(), "AzLayoutPoint"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutSize>(), "AzLayoutSize"), (Layout::new::<AzLayoutSize>(), "AzLayoutSize"));
+        assert_eq!((Layout::new::<azul_impl::css::LayoutRect>(), "AzLayoutRect"), (Layout::new::<AzLayoutRect>(), "AzLayoutRect"));
+        assert_eq!((Layout::new::<azul_impl::window::IOSHandle>(), "AzIOSHandle"), (Layout::new::<AzIOSHandle>(), "AzIOSHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::MacOSHandle>(), "AzMacOSHandle"), (Layout::new::<AzMacOSHandle>(), "AzMacOSHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::XlibHandle>(), "AzXlibHandle"), (Layout::new::<AzXlibHandle>(), "AzXlibHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::XcbHandle>(), "AzXcbHandle"), (Layout::new::<AzXcbHandle>(), "AzXcbHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::WaylandHandle>(), "AzWaylandHandle"), (Layout::new::<AzWaylandHandle>(), "AzWaylandHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowsHandle>(), "AzWindowsHandle"), (Layout::new::<AzWindowsHandle>(), "AzWindowsHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::WebHandle>(), "AzWebHandle"), (Layout::new::<AzWebHandle>(), "AzWebHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::AndroidHandle>(), "AzAndroidHandle"), (Layout::new::<AzAndroidHandle>(), "AzAndroidHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::PhysicalPosition<i32>>(), "AzPhysicalPositionI32"), (Layout::new::<AzPhysicalPositionI32>(), "AzPhysicalPositionI32"));
+        assert_eq!((Layout::new::<azul_impl::window::PhysicalSize<u32>>(), "AzPhysicalSizeU32"), (Layout::new::<AzPhysicalSizeU32>(), "AzPhysicalSizeU32"));
+        assert_eq!((Layout::new::<azul_impl::window::LogicalPosition>(), "AzLogicalPosition"), (Layout::new::<AzLogicalPosition>(), "AzLogicalPosition"));
+        assert_eq!((Layout::new::<azul_impl::window::IconKey>(), "AzIconKey"), (Layout::new::<AzIconKey>(), "AzIconKey"));
+        assert_eq!((Layout::new::<azul_impl::window::AcceleratorKey>(), "AzAcceleratorKey"), (Layout::new::<AzAcceleratorKey>(), "AzAcceleratorKey"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowFlags>(), "AzWindowFlags"), (Layout::new::<AzWindowFlags>(), "AzWindowFlags"));
+        assert_eq!((Layout::new::<azul_impl::window::DebugState>(), "AzDebugState"), (Layout::new::<AzDebugState>(), "AzDebugState"));
+        assert_eq!((Layout::new::<azul_impl::window::CursorPosition>(), "AzCursorPosition"), (Layout::new::<AzCursorPosition>(), "AzCursorPosition"));
+        assert_eq!((Layout::new::<azul_impl::window::MacWindowOptions>(), "AzMacWindowOptions"), (Layout::new::<AzMacWindowOptions>(), "AzMacWindowOptions"));
+        assert_eq!((Layout::new::<azul_impl::window::WasmWindowOptions>(), "AzWasmWindowOptions"), (Layout::new::<AzWasmWindowOptions>(), "AzWasmWindowOptions"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowPosition>(), "AzWindowPosition"), (Layout::new::<AzWindowPosition>(), "AzWindowPosition"));
+        assert_eq!((Layout::new::<azul_impl::window::ImePosition>(), "AzImePosition"), (Layout::new::<AzImePosition>(), "AzImePosition"));
+        assert_eq!((Layout::new::<azul_impl::window::TouchState>(), "AzTouchState"), (Layout::new::<AzTouchState>(), "AzTouchState"));
+        assert_eq!((Layout::new::<azul_impl::window::LogicalSize>(), "AzLogicalSize"), (Layout::new::<AzLogicalSize>(), "AzLogicalSize"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallback>(), "AzLayoutCallback"), (Layout::new::<AzLayoutCallback>(), "AzLayoutCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::Callback>(), "AzCallback"), (Layout::new::<AzCallback>(), "AzCallback"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeId>(), "AzNodeId"), (Layout::new::<AzNodeId>(), "AzNodeId"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::DomId>(), "AzDomId"), (Layout::new::<AzDomId>(), "AzDomId"));
         assert_eq!((Layout::new::<azul_impl::callbacks::DomNodeId>(), "AzDomNodeId"), (Layout::new::<AzDomNodeId>(), "AzDomNodeId"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallback>(), "AzLayoutCallback"), (Layout::new::<AzLayoutCallback>(), "AzLayoutCallback"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::Callback>(), "AzCallback"), (Layout::new::<AzCallback>(), "AzCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::HidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"), (Layout::new::<AzHidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"));
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallback>(), "AzIFrameCallback"), (Layout::new::<AzIFrameCallback>(), "AzIFrameCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackInfo>(), "AzIFrameCallbackInfo"), (Layout::new::<AzIFrameCallbackInfo>(), "AzIFrameCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::GlCallback>(), "AzGlCallback"), (Layout::new::<AzGlCallback>(), "AzGlCallback"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackReturn>(), "AzGlCallbackReturn"), (Layout::new::<AzGlCallbackReturn>(), "AzGlCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallback>(), "AzTimerCallback"), (Layout::new::<AzTimerCallback>(), "AzTimerCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackReturn>(), "AzTimerCallbackReturn"), (Layout::new::<AzTimerCallbackReturn>(), "AzTimerCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::callbacks::WriteBackCallback>(), "AzWriteBackCallback"), (Layout::new::<AzWriteBackCallback>(), "AzWriteBackCallback"));
+        assert_eq!((Layout::new::<azul_impl::dom::GlTextureNode>(), "AzGlTextureNode"), (Layout::new::<AzGlTextureNode>(), "AzGlTextureNode"));
+        assert_eq!((Layout::new::<azul_impl::dom::IFrameNode>(), "AzIFrameNode"), (Layout::new::<AzIFrameNode>(), "AzIFrameNode"));
+        assert_eq!((Layout::new::<azul_impl::dom::NotEventFilter>(), "AzNotEventFilter"), (Layout::new::<AzNotEventFilter>(), "AzNotEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::dom::TabIndex>(), "AzTabIndex"), (Layout::new::<AzTabIndex>(), "AzTabIndex"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildPattern>(), "AzCssNthChildPattern"), (Layout::new::<AzCssNthChildPattern>(), "AzCssNthChildPattern"));
         assert_eq!((Layout::new::<azul_impl::css::ColorU>(), "AzColorU"), (Layout::new::<AzColorU>(), "AzColorU"));
         assert_eq!((Layout::new::<azul_impl::css::FloatValue>(), "AzFloatValue"), (Layout::new::<AzFloatValue>(), "AzFloatValue"));
@@ -6999,7 +6965,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutWidth>>(), "AzLayoutWidthValue"), (Layout::new::<AzLayoutWidthValue>(), "AzLayoutWidthValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexWrap>>(), "AzLayoutFlexWrapValue"), (Layout::new::<AzLayoutFlexWrapValue>(), "AzLayoutFlexWrapValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutOverflow>>(), "AzLayoutOverflowValue"), (Layout::new::<AzLayoutOverflowValue>(), "AzLayoutOverflowValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>>(), "AzStyleBackgroundRepeatVecValue"), (Layout::new::<AzStyleBackgroundRepeatVecValue>(), "AzStyleBackgroundRepeatVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>>(), "AzStyleBorderBottomColorValue"), (Layout::new::<AzStyleBorderBottomColorValue>(), "AzStyleBorderBottomColorValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>>(), "AzStyleBorderBottomLeftRadiusValue"), (Layout::new::<AzStyleBorderBottomLeftRadiusValue>(), "AzStyleBorderBottomLeftRadiusValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>>(), "AzStyleBorderBottomRightRadiusValue"), (Layout::new::<AzStyleBorderBottomRightRadiusValue>(), "AzStyleBorderBottomRightRadiusValue"));
@@ -7033,10 +6998,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeState>(), "AzStyledNodeState"), (Layout::new::<AzStyledNodeState>(), "AzStyledNodeState"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzTagId>(), "AzTagId"), (Layout::new::<AzTagId>(), "AzTagId"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepth>(), "AzParentWithNodeDepth"), (Layout::new::<AzParentWithNodeDepth>(), "AzParentWithNodeDepth"));
-        assert_eq!((Layout::new::<azul_impl::dom::GlTextureNode>(), "AzGlTextureNode"), (Layout::new::<AzGlTextureNode>(), "AzGlTextureNode"));
-        assert_eq!((Layout::new::<azul_impl::dom::IFrameNode>(), "AzIFrameNode"), (Layout::new::<AzIFrameNode>(), "AzIFrameNode"));
-        assert_eq!((Layout::new::<azul_impl::dom::NotEventFilter>(), "AzNotEventFilter"), (Layout::new::<AzNotEventFilter>(), "AzNotEventFilter"));
-        assert_eq!((Layout::new::<azul_impl::dom::TabIndex>(), "AzTabIndex"), (Layout::new::<AzTabIndex>(), "AzTabIndex"));
         assert_eq!((Layout::new::<azul_impl::gl::GlShaderPrecisionFormatReturn>(), "AzGlShaderPrecisionFormatReturn"), (Layout::new::<AzGlShaderPrecisionFormatReturn>(), "AzGlShaderPrecisionFormatReturn"));
         assert_eq!((Layout::new::<azul_impl::gl::U8VecRef>(), "AzU8VecRef"), (Layout::new::<AzU8VecRef>(), "AzU8VecRef"));
         assert_eq!((Layout::new::<azul_impl::gl::U8VecRefMut>(), "AzU8VecRefMut"), (Layout::new::<AzU8VecRefMut>(), "AzU8VecRefMut"));
@@ -7049,11 +7010,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::GLbooleanVecRefMut>(), "AzGLbooleanVecRefMut"), (Layout::new::<AzGLbooleanVecRefMut>(), "AzGLbooleanVecRefMut"));
         assert_eq!((Layout::new::<azul_impl::gl::GLfloatVecRefMut>(), "AzGLfloatVecRefMut"), (Layout::new::<AzGLfloatVecRefMut>(), "AzGLfloatVecRefMut"));
         assert_eq!((Layout::new::<azul_impl::gl::Refstr>(), "AzRefstr"), (Layout::new::<AzRefstr>(), "AzRefstr"));
-        assert_eq!((Layout::new::<azul_impl::gl::GetProgramBinaryReturn>(), "AzGetProgramBinaryReturn"), (Layout::new::<AzGetProgramBinaryReturn>(), "AzGetProgramBinaryReturn"));
         assert_eq!((Layout::new::<azul_impl::gl::TextureFlags>(), "AzTextureFlags"), (Layout::new::<AzTextureFlags>(), "AzTextureFlags"));
         assert_eq!((Layout::new::<azul_impl::resources::ImageId>(), "AzImageId"), (Layout::new::<AzImageId>(), "AzImageId"));
         assert_eq!((Layout::new::<azul_impl::resources::FontId>(), "AzFontId"), (Layout::new::<AzFontId>(), "AzFontId"));
-        assert_eq!((Layout::new::<azul_impl::resources::RawImage>(), "AzRawImage"), (Layout::new::<AzRawImage>(), "AzRawImage"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgCircle>(), "AzSvgCircle"), (Layout::new::<AzSvgCircle>(), "AzSvgCircle"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPoint>(), "AzSvgPoint"), (Layout::new::<AzSvgPoint>(), "AzSvgPoint"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgVertex>(), "AzSvgVertex"), (Layout::new::<AzSvgVertex>(), "AzSvgVertex"));
@@ -7076,201 +7035,242 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadDestructorCallback>(), "AzThreadDestructorFn"), (Layout::new::<AzThreadDestructorFn>(), "AzThreadDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
-        assert_eq!((Layout::new::<azul_impl::window::RendererOptions>(), "AzRendererOptions"), (Layout::new::<AzRendererOptions>(), "AzRendererOptions"));
-        assert_eq!((Layout::new::<azul_impl::css::LayoutPoint>(), "AzLayoutPoint"), (Layout::new::<AzLayoutPoint>(), "AzLayoutPoint"));
-        assert_eq!((Layout::new::<azul_impl::css::LayoutSize>(), "AzLayoutSize"), (Layout::new::<AzLayoutSize>(), "AzLayoutSize"));
-        assert_eq!((Layout::new::<azul_impl::css::LayoutRect>(), "AzLayoutRect"), (Layout::new::<AzLayoutRect>(), "AzLayoutRect"));
-        assert_eq!((Layout::new::<azul_impl::window::IOSHandle>(), "AzIOSHandle"), (Layout::new::<AzIOSHandle>(), "AzIOSHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::MacOSHandle>(), "AzMacOSHandle"), (Layout::new::<AzMacOSHandle>(), "AzMacOSHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::XlibHandle>(), "AzXlibHandle"), (Layout::new::<AzXlibHandle>(), "AzXlibHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::XcbHandle>(), "AzXcbHandle"), (Layout::new::<AzXcbHandle>(), "AzXcbHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::WaylandHandle>(), "AzWaylandHandle"), (Layout::new::<AzWaylandHandle>(), "AzWaylandHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowsHandle>(), "AzWindowsHandle"), (Layout::new::<AzWindowsHandle>(), "AzWindowsHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::WebHandle>(), "AzWebHandle"), (Layout::new::<AzWebHandle>(), "AzWebHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::AndroidHandle>(), "AzAndroidHandle"), (Layout::new::<AzAndroidHandle>(), "AzAndroidHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::PhysicalPosition<i32>>(), "AzPhysicalPositionI32"), (Layout::new::<AzPhysicalPositionI32>(), "AzPhysicalPositionI32"));
-        assert_eq!((Layout::new::<azul_impl::window::PhysicalSize<u32>>(), "AzPhysicalSizeU32"), (Layout::new::<AzPhysicalSizeU32>(), "AzPhysicalSizeU32"));
-        assert_eq!((Layout::new::<azul_impl::window::LogicalPosition>(), "AzLogicalPosition"), (Layout::new::<AzLogicalPosition>(), "AzLogicalPosition"));
-        assert_eq!((Layout::new::<azul_impl::window::IconKey>(), "AzIconKey"), (Layout::new::<AzIconKey>(), "AzIconKey"));
-        assert_eq!((Layout::new::<azul_impl::window::SmallWindowIconBytes>(), "AzSmallWindowIconBytes"), (Layout::new::<AzSmallWindowIconBytes>(), "AzSmallWindowIconBytes"));
-        assert_eq!((Layout::new::<azul_impl::window::LargeWindowIconBytes>(), "AzLargeWindowIconBytes"), (Layout::new::<AzLargeWindowIconBytes>(), "AzLargeWindowIconBytes"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowIcon>(), "AzWindowIcon"), (Layout::new::<AzWindowIcon>(), "AzWindowIcon"));
-        assert_eq!((Layout::new::<azul_impl::window::AcceleratorKey>(), "AzAcceleratorKey"), (Layout::new::<AzAcceleratorKey>(), "AzAcceleratorKey"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowFlags>(), "AzWindowFlags"), (Layout::new::<AzWindowFlags>(), "AzWindowFlags"));
-        assert_eq!((Layout::new::<azul_impl::window::DebugState>(), "AzDebugState"), (Layout::new::<AzDebugState>(), "AzDebugState"));
-        assert_eq!((Layout::new::<azul_impl::window::KeyboardState>(), "AzKeyboardState"), (Layout::new::<AzKeyboardState>(), "AzKeyboardState"));
-        assert_eq!((Layout::new::<azul_impl::window::CursorPosition>(), "AzCursorPosition"), (Layout::new::<AzCursorPosition>(), "AzCursorPosition"));
-        assert_eq!((Layout::new::<azul_impl::window::MouseState>(), "AzMouseState"), (Layout::new::<AzMouseState>(), "AzMouseState"));
-        assert_eq!((Layout::new::<azul_impl::window::MacWindowOptions>(), "AzMacWindowOptions"), (Layout::new::<AzMacWindowOptions>(), "AzMacWindowOptions"));
-        assert_eq!((Layout::new::<azul_impl::window::WasmWindowOptions>(), "AzWasmWindowOptions"), (Layout::new::<AzWasmWindowOptions>(), "AzWasmWindowOptions"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowPosition>(), "AzWindowPosition"), (Layout::new::<AzWindowPosition>(), "AzWindowPosition"));
-        assert_eq!((Layout::new::<azul_impl::window::ImePosition>(), "AzImePosition"), (Layout::new::<AzImePosition>(), "AzImePosition"));
-        assert_eq!((Layout::new::<azul_impl::window::TouchState>(), "AzTouchState"), (Layout::new::<AzTouchState>(), "AzTouchState"));
-        assert_eq!((Layout::new::<azul_impl::window::LogicalSize>(), "AzLogicalSize"), (Layout::new::<AzLogicalSize>(), "AzLogicalSize"));
-        assert_eq!((Layout::new::<azul_impl::css::AzString>(), "AzString"), (Layout::new::<AzString>(), "AzString"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"), (Layout::new::<AzStyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"), (Layout::new::<AzStyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgVertexVec>(), "AzSvgVertexVec"), (Layout::new::<AzSvgVertexVec>(), "AzSvgVertexVec"));
-        assert_eq!((Layout::new::<azul_impl::style::CascadeInfoVec>(), "AzCascadeInfoVec"), (Layout::new::<AzCascadeInfoVec>(), "AzCascadeInfoVec"));
-        assert_eq!((Layout::new::<azul_impl::css::StringVec>(), "AzStringVec"), (Layout::new::<AzStringVec>(), "AzStringVec"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
+        assert_eq!((Layout::new::<azul_impl::dom::DomVecDestructor>(), "AzDomVecDestructor"), (Layout::new::<AzDomVecDestructor>(), "AzDomVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::dom::IdOrClassVecDestructor>(), "AzIdOrClassVecDestructor"), (Layout::new::<AzIdOrClassVecDestructor>(), "AzIdOrClassVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVecDestructor>(), "AzNodeDataInlineCssPropertyVecDestructor"), (Layout::new::<AzNodeDataInlineCssPropertyVecDestructor>(), "AzNodeDataInlineCssPropertyVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVecDestructor>(), "AzStyleBackgroundContentVecDestructor"), (Layout::new::<AzStyleBackgroundContentVecDestructor>(), "AzStyleBackgroundContentVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPositionVecDestructor>(), "AzStyleBackgroundPositionVecDestructor"), (Layout::new::<AzStyleBackgroundPositionVecDestructor>(), "AzStyleBackgroundPositionVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVecDestructor>(), "AzStyleBackgroundRepeatVecDestructor"), (Layout::new::<AzStyleBackgroundRepeatVecDestructor>(), "AzStyleBackgroundRepeatVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVecDestructor>(), "AzStyleBackgroundSizeVecDestructor"), (Layout::new::<AzStyleBackgroundSizeVecDestructor>(), "AzStyleBackgroundSizeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformVecDestructor>(), "AzStyleTransformVecDestructor"), (Layout::new::<AzStyleTransformVecDestructor>(), "AzStyleTransformVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyVecDestructor>(), "AzCssPropertyVecDestructor"), (Layout::new::<AzCssPropertyVecDestructor>(), "AzCssPropertyVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygonVecDestructor>(), "AzSvgMultiPolygonVecDestructor"), (Layout::new::<AzSvgMultiPolygonVecDestructor>(), "AzSvgMultiPolygonVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPathVecDestructor>(), "AzSvgPathVecDestructor"), (Layout::new::<AzSvgPathVecDestructor>(), "AzSvgPathVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::gl::VertexAttributeVecDestructor>(), "AzVertexAttributeVecDestructor"), (Layout::new::<AzVertexAttributeVecDestructor>(), "AzVertexAttributeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"), (Layout::new::<AzSvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgVertexVecDestructor>(), "AzSvgVertexVecDestructor"), (Layout::new::<AzSvgVertexVecDestructor>(), "AzSvgVertexVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::U32VecDestructor>(), "AzU32VecDestructor"), (Layout::new::<AzU32VecDestructor>(), "AzU32VecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::window::XWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"), (Layout::new::<AzXWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"), (Layout::new::<AzVirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::style::CascadeInfoVecDestructor>(), "AzCascadeInfoVecDestructor"), (Layout::new::<AzCascadeInfoVecDestructor>(), "AzCascadeInfoVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::window::ScanCodeVecDestructor>(), "AzScanCodeVecDestructor"), (Layout::new::<AzScanCodeVecDestructor>(), "AzScanCodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::CssDeclarationVecDestructor>(), "AzCssDeclarationVecDestructor"), (Layout::new::<AzCssDeclarationVecDestructor>(), "AzCssDeclarationVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPathSelectorVecDestructor>(), "AzCssPathSelectorVecDestructor"), (Layout::new::<AzCssPathSelectorVecDestructor>(), "AzCssPathSelectorVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StylesheetVecDestructor>(), "AzStylesheetVecDestructor"), (Layout::new::<AzStylesheetVecDestructor>(), "AzStylesheetVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVecDestructor>(), "AzCssRuleBlockVecDestructor"), (Layout::new::<AzCssRuleBlockVecDestructor>(), "AzCssRuleBlockVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::U8VecDestructor>(), "AzU8VecDestructor"), (Layout::new::<AzU8VecDestructor>(), "AzU8VecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::dom::CallbackDataVecDestructor>(), "AzCallbackDataVecDestructor"), (Layout::new::<AzCallbackDataVecDestructor>(), "AzCallbackDataVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessageVecDestructor>(), "AzDebugMessageVecDestructor"), (Layout::new::<AzDebugMessageVecDestructor>(), "AzDebugMessageVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLuintVecDestructor>(), "AzGLuintVecDestructor"), (Layout::new::<AzGLuintVecDestructor>(), "AzGLuintVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLintVecDestructor>(), "AzGLintVecDestructor"), (Layout::new::<AzGLintVecDestructor>(), "AzGLintVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StringVecDestructor>(), "AzStringVecDestructor"), (Layout::new::<AzStringVecDestructor>(), "AzStringVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::window::StringPairVecDestructor>(), "AzStringPairVecDestructor"), (Layout::new::<AzStringPairVecDestructor>(), "AzStringPairVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::LinearColorStopVecDestructor>(), "AzLinearColorStopVecDestructor"), (Layout::new::<AzLinearColorStopVecDestructor>(), "AzLinearColorStopVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::RadialColorStopVecDestructor>(), "AzRadialColorStopVecDestructor"), (Layout::new::<AzRadialColorStopVecDestructor>(), "AzRadialColorStopVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVecDestructor>(), "AzNodeIdVecDestructor"), (Layout::new::<AzNodeIdVecDestructor>(), "AzNodeIdVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVecDestructor>(), "AzNodeVecDestructor"), (Layout::new::<AzNodeVecDestructor>(), "AzNodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVecDestructor>(), "AzStyledNodeVecDestructor"), (Layout::new::<AzStyledNodeVecDestructor>(), "AzStyledNodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor>(), "AzTagIdsToNodeIdsMappingVecDestructor"), (Layout::new::<AzTagIdsToNodeIdsMappingVecDestructor>(), "AzTagIdsToNodeIdsMappingVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVecDestructor>(), "AzParentWithNodeDepthVecDestructor"), (Layout::new::<AzParentWithNodeDepthVecDestructor>(), "AzParentWithNodeDepthVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeDataVecDestructor>(), "AzNodeDataVecDestructor"), (Layout::new::<AzNodeDataVecDestructor>(), "AzNodeDataVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::gl::OptionGlContextPtr>(), "AzOptionGlContextPtr"), (Layout::new::<AzOptionGlContextPtr>(), "AzOptionGlContextPtr"));
         assert_eq!((Layout::new::<azul_impl::css::OptionPercentageValue>(), "AzOptionPercentageValue"), (Layout::new::<AzOptionPercentageValue>(), "AzOptionPercentageValue"));
         assert_eq!((Layout::new::<azul_impl::css::OptionAngleValue>(), "AzOptionAngleValue"), (Layout::new::<AzOptionAngleValue>(), "AzOptionAngleValue"));
         assert_eq!((Layout::new::<azul_impl::window::OptionRendererOptions>(), "AzOptionRendererOptions"), (Layout::new::<AzOptionRendererOptions>(), "AzOptionRendererOptions"));
         assert_eq!((Layout::new::<azul_impl::callbacks::OptionCallback>(), "AzOptionCallback"), (Layout::new::<AzOptionCallback>(), "AzOptionCallback"));
+        assert_eq!((Layout::new::<azul_impl::task::OptionThreadSendMsg>(), "AzOptionThreadSendMsg"), (Layout::new::<AzOptionThreadSendMsg>(), "AzOptionThreadSendMsg"));
         assert_eq!((Layout::new::<azul_impl::css::OptionLayoutRect>(), "AzOptionLayoutRect"), (Layout::new::<AzOptionLayoutRect>(), "AzOptionLayoutRect"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::OptionRefAny>(), "AzOptionRefAny"), (Layout::new::<AzOptionRefAny>(), "AzOptionRefAny"));
         assert_eq!((Layout::new::<azul_impl::css::OptionLayoutPoint>(), "AzOptionLayoutPoint"), (Layout::new::<AzOptionLayoutPoint>(), "AzOptionLayoutPoint"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionWindowTheme>(), "AzOptionWindowTheme"), (Layout::new::<AzOptionWindowTheme>(), "AzOptionWindowTheme"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::OptionNodeId>(), "AzOptionNodeId"), (Layout::new::<AzOptionNodeId>(), "AzOptionNodeId"));
         assert_eq!((Layout::new::<azul_impl::callbacks::OptionDomNodeId>(), "AzOptionDomNodeId"), (Layout::new::<AzOptionDomNodeId>(), "AzOptionDomNodeId"));
         assert_eq!((Layout::new::<azul_impl::css::OptionColorU>(), "AzOptionColorU"), (Layout::new::<AzOptionColorU>(), "AzOptionColorU"));
-        assert_eq!((Layout::new::<azul_impl::resources::OptionRawImage>(), "AzOptionRawImage"), (Layout::new::<AzOptionRawImage>(), "AzOptionRawImage"));
         assert_eq!((Layout::new::<azul_impl::svg::OptionSvgDashPattern>(), "AzOptionSvgDashPattern"), (Layout::new::<AzOptionSvgDashPattern>(), "AzOptionSvgDashPattern"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionHwndHandle>(), "AzOptionHwndHandle"), (Layout::new::<AzOptionHwndHandle>(), "AzOptionHwndHandle"));
         assert_eq!((Layout::new::<azul_impl::window::OptionLogicalPosition>(), "AzOptionLogicalPosition"), (Layout::new::<AzOptionLogicalPosition>(), "AzOptionLogicalPosition"));
         assert_eq!((Layout::new::<azul_impl::window::OptionPhysicalPositionI32>(), "AzOptionPhysicalPositionI32"), (Layout::new::<AzOptionPhysicalPositionI32>(), "AzOptionPhysicalPositionI32"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionWindowIcon>(), "AzOptionWindowIcon"), (Layout::new::<AzOptionWindowIcon>(), "AzOptionWindowIcon"));
-        assert_eq!((Layout::new::<azul_impl::css::OptionAzString>(), "AzOptionString"), (Layout::new::<AzOptionString>(), "AzOptionString"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionX11Visual>(), "AzOptionX11Visual"), (Layout::new::<AzOptionX11Visual>(), "AzOptionX11Visual"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionI32>(), "AzOptionI32"), (Layout::new::<AzOptionI32>(), "AzOptionI32"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionF32>(), "AzOptionF32"), (Layout::new::<AzOptionF32>(), "AzOptionF32"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionMouseCursorType>(), "AzOptionMouseCursorType"), (Layout::new::<AzOptionMouseCursorType>(), "AzOptionMouseCursorType"));
         assert_eq!((Layout::new::<azul_impl::window::OptionLogicalSize>(), "AzOptionLogicalSize"), (Layout::new::<AzOptionLogicalSize>(), "AzOptionLogicalSize"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionChar>(), "AzOptionChar"), (Layout::new::<AzOptionChar>(), "AzOptionChar"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"), (Layout::new::<AzOptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"));
+        assert_eq!((Layout::new::<azul_impl::gl::OptionTexture>(), "AzOptionTexture"), (Layout::new::<AzOptionTexture>(), "AzOptionTexture"));
         assert_eq!((Layout::new::<azul_impl::dom::OptionTabIndex>(), "AzOptionTabIndex"), (Layout::new::<AzOptionTabIndex>(), "AzOptionTabIndex"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::OptionTagId>(), "AzOptionTagId"), (Layout::new::<AzOptionTagId>(), "AzOptionTagId"));
+        assert_eq!((Layout::new::<azul_impl::gl::OptionUsize>(), "AzOptionUsize"), (Layout::new::<AzOptionUsize>(), "AzOptionUsize"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionU8VecRef>(), "AzOptionU8VecRef"), (Layout::new::<AzOptionU8VecRef>(), "AzOptionU8VecRef"));
-        assert_eq!((Layout::new::<azul_impl::xml::DuplicatedNamespaceError>(), "AzDuplicatedNamespaceError"), (Layout::new::<AzDuplicatedNamespaceError>(), "AzDuplicatedNamespaceError"));
-        assert_eq!((Layout::new::<azul_impl::xml::UnknownNamespaceError>(), "AzUnknownNamespaceError"), (Layout::new::<AzUnknownNamespaceError>(), "AzUnknownNamespaceError"));
-        assert_eq!((Layout::new::<azul_impl::xml::UnexpectedCloseTagError>(), "AzUnexpectedCloseTagError"), (Layout::new::<AzUnexpectedCloseTagError>(), "AzUnexpectedCloseTagError"));
-        assert_eq!((Layout::new::<azul_impl::xml::UnknownEntityReferenceError>(), "AzUnknownEntityReferenceError"), (Layout::new::<AzUnknownEntityReferenceError>(), "AzUnknownEntityReferenceError"));
-        assert_eq!((Layout::new::<azul_impl::xml::DuplicatedAttributeError>(), "AzDuplicatedAttributeError"), (Layout::new::<AzDuplicatedAttributeError>(), "AzDuplicatedAttributeError"));
+        assert_eq!((Layout::new::<azul_impl::xml::XmlTextPos>(), "AzSvgParseErrorPosition"), (Layout::new::<AzSvgParseErrorPosition>(), "AzSvgParseErrorPosition"));
+        assert_eq!((Layout::new::<azul_impl::task::InstantPtrCloneCallback>(), "AzInstantPtrCloneFn"), (Layout::new::<AzInstantPtrCloneFn>(), "AzInstantPtrCloneFn"));
+        assert_eq!((Layout::new::<azul_impl::task::InstantPtrDestructorCallback>(), "AzInstantPtrDestructorFn"), (Layout::new::<AzInstantPtrDestructorFn>(), "AzInstantPtrDestructorFn"));
+        assert_eq!((Layout::new::<azul_impl::task::SystemTick>(), "AzSystemTick"), (Layout::new::<AzSystemTick>(), "AzSystemTick"));
+        assert_eq!((Layout::new::<azul_impl::task::SystemTimeDiff>(), "AzSystemTimeDiff"), (Layout::new::<AzSystemTimeDiff>(), "AzSystemTimeDiff"));
+        assert_eq!((Layout::new::<azul_impl::task::SystemTickDiff>(), "AzSystemTickDiff"), (Layout::new::<AzSystemTickDiff>(), "AzSystemTickDiff"));
+        assert_eq!((Layout::new::<azul_impl::task::ExternalSystemCallbacks>(), "AzSystemCallbacks"), (Layout::new::<AzSystemCallbacks>(), "AzSystemCallbacks"));
+        assert_eq!((Layout::new::<azul_impl::window::RawWindowHandle>(), "AzRawWindowHandle"), (Layout::new::<AzRawWindowHandle>(), "AzRawWindowHandle"));
+        assert_eq!((Layout::new::<azul_impl::window::LogicalRect>(), "AzLogicalRect"), (Layout::new::<AzLogicalRect>(), "AzLogicalRect"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowSize>(), "AzWindowSize"), (Layout::new::<AzWindowSize>(), "AzWindowSize"));
+        assert_eq!((Layout::new::<azul_impl::window::MouseState>(), "AzMouseState"), (Layout::new::<AzMouseState>(), "AzMouseState"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackReturn>(), "AzGlCallbackReturn"), (Layout::new::<AzGlCallbackReturn>(), "AzGlCallbackReturn"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutInfo>(), "AzLayoutInfo"), (Layout::new::<AzLayoutInfo>(), "AzLayoutInfo"));
+        assert_eq!((Layout::new::<azul_impl::dom::EventFilter>(), "AzEventFilter"), (Layout::new::<AzEventFilter>(), "AzEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::css::CssNthChildSelector>(), "AzCssNthChildSelector"), (Layout::new::<AzCssNthChildSelector>(), "AzCssNthChildSelector"));
+        assert_eq!((Layout::new::<azul_impl::css::LinearColorStop>(), "AzLinearColorStop"), (Layout::new::<AzLinearColorStop>(), "AzLinearColorStop"));
+        assert_eq!((Layout::new::<azul_impl::css::RadialColorStop>(), "AzRadialColorStop"), (Layout::new::<AzRadialColorStop>(), "AzRadialColorStop"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransform>(), "AzStyleTransform"), (Layout::new::<AzStyleTransform>(), "AzStyleTransform"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNode>(), "AzStyledNode"), (Layout::new::<AzStyledNode>(), "AzStyledNode"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"), (Layout::new::<AzTagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"));
+        assert_eq!((Layout::new::<azul_impl::gl::RefstrVecRef>(), "AzRefstrVecRef"), (Layout::new::<AzRefstrVecRef>(), "AzRefstrVecRef"));
+        assert_eq!((Layout::new::<azul_impl::resources::ImageMask>(), "AzImageMask"), (Layout::new::<AzImageMask>(), "AzImageMask"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgLine>(), "AzSvgLine"), (Layout::new::<AzSvgLine>(), "AzSvgLine"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgRenderOptions>(), "AzSvgRenderOptions"), (Layout::new::<AzSvgRenderOptions>(), "AzSvgRenderOptions"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgStrokeStyle>(), "AzSvgStrokeStyle"), (Layout::new::<AzSvgStrokeStyle>(), "AzSvgStrokeStyle"));
+        assert_eq!((Layout::new::<azul_impl::task::Thread>(), "AzThread"), (Layout::new::<AzThread>(), "AzThread"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadReceiveMsg>(), "AzThreadReceiveMsg"), (Layout::new::<AzThreadReceiveMsg>(), "AzThreadReceiveMsg"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"), (Layout::new::<AzStyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"), (Layout::new::<AzStyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"), (Layout::new::<AzStyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTransformVec>(), "AzStyleTransformVec"), (Layout::new::<AzStyleTransformVec>(), "AzStyleTransformVec"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgVertexVec>(), "AzSvgVertexVec"), (Layout::new::<AzSvgVertexVec>(), "AzSvgVertexVec"));
+        assert_eq!((Layout::new::<azul_impl::css::U32Vec>(), "AzU32Vec"), (Layout::new::<AzU32Vec>(), "AzU32Vec"));
+        assert_eq!((Layout::new::<azul_impl::window::XWindowTypeVec>(), "AzXWindowTypeVec"), (Layout::new::<AzXWindowTypeVec>(), "AzXWindowTypeVec"));
+        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"), (Layout::new::<AzVirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"));
+        assert_eq!((Layout::new::<azul_impl::style::CascadeInfoVec>(), "AzCascadeInfoVec"), (Layout::new::<AzCascadeInfoVec>(), "AzCascadeInfoVec"));
+        assert_eq!((Layout::new::<azul_impl::window::ScanCodeVec>(), "AzScanCodeVec"), (Layout::new::<AzScanCodeVec>(), "AzScanCodeVec"));
+        assert_eq!((Layout::new::<azul_impl::css::U8Vec>(), "AzU8Vec"), (Layout::new::<AzU8Vec>(), "AzU8Vec"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLuintVec>(), "AzGLuintVec"), (Layout::new::<AzGLuintVec>(), "AzGLuintVec"));
+        assert_eq!((Layout::new::<azul_impl::gl::GLintVec>(), "AzGLintVec"), (Layout::new::<AzGLintVec>(), "AzGLintVec"));
+        assert_eq!((Layout::new::<azul_impl::css::LinearColorStopVec>(), "AzLinearColorStopVec"), (Layout::new::<AzLinearColorStopVec>(), "AzLinearColorStopVec"));
+        assert_eq!((Layout::new::<azul_impl::css::RadialColorStopVec>(), "AzRadialColorStopVec"), (Layout::new::<AzRadialColorStopVec>(), "AzRadialColorStopVec"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVec>(), "AzStyledNodeVec"), (Layout::new::<AzStyledNodeVec>(), "AzStyledNodeVec"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"), (Layout::new::<AzTagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
+        assert_eq!((Layout::new::<azul_impl::task::OptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"), (Layout::new::<AzOptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"));
+        assert_eq!((Layout::new::<azul_impl::resources::OptionImageMask>(), "AzOptionImageMask"), (Layout::new::<AzOptionImageMask>(), "AzOptionImageMask"));
         assert_eq!((Layout::new::<azul_impl::xml::NonXmlCharError>(), "AzNonXmlCharError"), (Layout::new::<AzNonXmlCharError>(), "AzNonXmlCharError"));
         assert_eq!((Layout::new::<azul_impl::xml::InvalidCharError>(), "AzInvalidCharError"), (Layout::new::<AzInvalidCharError>(), "AzInvalidCharError"));
         assert_eq!((Layout::new::<azul_impl::xml::InvalidCharMultipleError>(), "AzInvalidCharMultipleError"), (Layout::new::<AzInvalidCharMultipleError>(), "AzInvalidCharMultipleError"));
         assert_eq!((Layout::new::<azul_impl::xml::InvalidQuoteError>(), "AzInvalidQuoteError"), (Layout::new::<AzInvalidQuoteError>(), "AzInvalidQuoteError"));
         assert_eq!((Layout::new::<azul_impl::xml::InvalidSpaceError>(), "AzInvalidSpaceError"), (Layout::new::<AzInvalidSpaceError>(), "AzInvalidSpaceError"));
-        assert_eq!((Layout::new::<azul_impl::xml::InvalidStringError>(), "AzInvalidStringError"), (Layout::new::<AzInvalidStringError>(), "AzInvalidStringError"));
         assert_eq!((Layout::new::<azul_impl::task::Instant>(), "AzInstant"), (Layout::new::<AzInstant>(), "AzInstant"));
         assert_eq!((Layout::new::<azul_impl::task::Duration>(), "AzDuration"), (Layout::new::<AzDuration>(), "AzDuration"));
-        assert_eq!((Layout::new::<azul_impl::task::ExternalSystemCallbacks>(), "AzSystemCallbacks"), (Layout::new::<AzSystemCallbacks>(), "AzSystemCallbacks"));
         assert_eq!((Layout::new::<azul_impl::resources::AppConfig>(), "AzAppConfig"), (Layout::new::<AzAppConfig>(), "AzAppConfig"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::HidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"), (Layout::new::<AzHidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackInfo>(), "AzIFrameCallbackInfo"), (Layout::new::<AzIFrameCallbackInfo>(), "AzIFrameCallbackInfo"));
+        assert_eq!((Layout::new::<azul_impl::window::TaskBarIcon>(), "AzTaskBarIcon"), (Layout::new::<AzTaskBarIcon>(), "AzTaskBarIcon"));
+        assert_eq!((Layout::new::<azul_impl::window::SmallWindowIconBytes>(), "AzSmallWindowIconBytes"), (Layout::new::<AzSmallWindowIconBytes>(), "AzSmallWindowIconBytes"));
+        assert_eq!((Layout::new::<azul_impl::window::LargeWindowIconBytes>(), "AzLargeWindowIconBytes"), (Layout::new::<AzLargeWindowIconBytes>(), "AzLargeWindowIconBytes"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowIcon>(), "AzWindowIcon"), (Layout::new::<AzWindowIcon>(), "AzWindowIcon"));
+        assert_eq!((Layout::new::<azul_impl::window::KeyboardState>(), "AzKeyboardState"), (Layout::new::<AzKeyboardState>(), "AzKeyboardState"));
         assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackInfo>(), "AzGlCallbackInfo"), (Layout::new::<AzGlCallbackInfo>(), "AzGlCallbackInfo"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::RefCountInner>(), "AzRefCountInner"), (Layout::new::<AzRefCountInner>(), "AzRefCountInner"));
-        assert_eq!((Layout::new::<azul_impl::css::CssNthChildSelector>(), "AzCssNthChildSelector"), (Layout::new::<AzCssNthChildSelector>(), "AzCssNthChildSelector"));
-        assert_eq!((Layout::new::<azul_impl::css::LinearColorStop>(), "AzLinearColorStop"), (Layout::new::<AzLinearColorStop>(), "AzLinearColorStop"));
-        assert_eq!((Layout::new::<azul_impl::css::RadialColorStop>(), "AzRadialColorStop"), (Layout::new::<AzRadialColorStop>(), "AzRadialColorStop"));
-        assert_eq!((Layout::new::<azul_impl::css::CssImageId>(), "AzCssImageId"), (Layout::new::<AzCssImageId>(), "AzCssImageId"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleFontFamily>(), "AzStyleFontFamily"), (Layout::new::<AzStyleFontFamily>(), "AzStyleFontFamily"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleTransform>(), "AzStyleTransform"), (Layout::new::<AzStyleTransform>(), "AzStyleTransform"));
+        assert_eq!((Layout::new::<azul_impl::dom::CallbackData>(), "AzCallbackData"), (Layout::new::<AzCallbackData>(), "AzCallbackData"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPathPseudoSelector>(), "AzCssPathPseudoSelector"), (Layout::new::<AzCssPathPseudoSelector>(), "AzCssPathPseudoSelector"));
+        assert_eq!((Layout::new::<azul_impl::css::LinearGradient>(), "AzLinearGradient"), (Layout::new::<AzLinearGradient>(), "AzLinearGradient"));
+        assert_eq!((Layout::new::<azul_impl::css::RadialGradient>(), "AzRadialGradient"), (Layout::new::<AzRadialGradient>(), "AzRadialGradient"));
+        assert_eq!((Layout::new::<azul_impl::css::ConicGradient>(), "AzConicGradient"), (Layout::new::<AzConicGradient>(), "AzConicGradient"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>>(), "AzStyleBackgroundPositionVecValue"), (Layout::new::<AzStyleBackgroundPositionVecValue>(), "AzStyleBackgroundPositionVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>>(), "AzStyleBackgroundRepeatVecValue"), (Layout::new::<AzStyleBackgroundRepeatVecValue>(), "AzStyleBackgroundRepeatVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>>(), "AzStyleBackgroundSizeVecValue"), (Layout::new::<AzStyleBackgroundSizeVecValue>(), "AzStyleBackgroundSizeVecValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleFontFamily>>(), "AzStyleFontFamilyValue"), (Layout::new::<AzStyleFontFamilyValue>(), "AzStyleFontFamilyValue"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNode>(), "AzStyledNode"), (Layout::new::<AzStyledNode>(), "AzStyledNode"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"), (Layout::new::<AzTagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"));
-        assert_eq!((Layout::new::<azul_impl::dom::IdOrClass>(), "AzIdOrClass"), (Layout::new::<AzIdOrClass>(), "AzIdOrClass"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTransformVec>>(), "AzStyleTransformVecValue"), (Layout::new::<AzStyleTransformVecValue>(), "AzStyleTransformVecValue"));
+        assert_eq!((Layout::new::<azul_impl::gl::GetProgramBinaryReturn>(), "AzGetProgramBinaryReturn"), (Layout::new::<AzGetProgramBinaryReturn>(), "AzGetProgramBinaryReturn"));
+        assert_eq!((Layout::new::<azul_impl::resources::RawImage>(), "AzRawImage"), (Layout::new::<AzRawImage>(), "AzRawImage"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPathElement>(), "AzSvgPathElement"), (Layout::new::<AzSvgPathElement>(), "AzSvgPathElement"));
+        assert_eq!((Layout::new::<azul_impl::svg::TesselatedCPUSvgNode>(), "AzTesselatedCPUSvgNode"), (Layout::new::<AzTesselatedCPUSvgNode>(), "AzTesselatedCPUSvgNode"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgStyle>(), "AzSvgStyle"), (Layout::new::<AzSvgStyle>(), "AzSvgStyle"));
+        assert_eq!((Layout::new::<azul_impl::css::AzString>(), "AzString"), (Layout::new::<AzString>(), "AzString"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVec>(), "AzSvgPathElementVec"), (Layout::new::<AzSvgPathElementVec>(), "AzSvgPathElementVec"));
+        assert_eq!((Layout::new::<azul_impl::dom::CallbackDataVec>(), "AzCallbackDataVec"), (Layout::new::<AzCallbackDataVec>(), "AzCallbackDataVec"));
+        assert_eq!((Layout::new::<azul_impl::css::StringVec>(), "AzStringVec"), (Layout::new::<AzStringVec>(), "AzStringVec"));
+        assert_eq!((Layout::new::<azul_impl::resources::OptionRawImage>(), "AzOptionRawImage"), (Layout::new::<AzOptionRawImage>(), "AzOptionRawImage"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionTaskBarIcon>(), "AzOptionTaskBarIcon"), (Layout::new::<AzOptionTaskBarIcon>(), "AzOptionTaskBarIcon"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionWindowIcon>(), "AzOptionWindowIcon"), (Layout::new::<AzOptionWindowIcon>(), "AzOptionWindowIcon"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionAzString>(), "AzOptionString"), (Layout::new::<AzOptionString>(), "AzOptionString"));
+        assert_eq!((Layout::new::<azul_impl::task::OptionDuration>(), "AzOptionDuration"), (Layout::new::<AzOptionDuration>(), "AzOptionDuration"));
+        assert_eq!((Layout::new::<azul_impl::task::OptionInstant>(), "AzOptionInstant"), (Layout::new::<AzOptionInstant>(), "AzOptionInstant"));
+        assert_eq!((Layout::new::<azul_impl::xml::DuplicatedNamespaceError>(), "AzDuplicatedNamespaceError"), (Layout::new::<AzDuplicatedNamespaceError>(), "AzDuplicatedNamespaceError"));
+        assert_eq!((Layout::new::<azul_impl::xml::UnknownNamespaceError>(), "AzUnknownNamespaceError"), (Layout::new::<AzUnknownNamespaceError>(), "AzUnknownNamespaceError"));
+        assert_eq!((Layout::new::<azul_impl::xml::UnexpectedCloseTagError>(), "AzUnexpectedCloseTagError"), (Layout::new::<AzUnexpectedCloseTagError>(), "AzUnexpectedCloseTagError"));
+        assert_eq!((Layout::new::<azul_impl::xml::UnknownEntityReferenceError>(), "AzUnknownEntityReferenceError"), (Layout::new::<AzUnknownEntityReferenceError>(), "AzUnknownEntityReferenceError"));
+        assert_eq!((Layout::new::<azul_impl::xml::DuplicatedAttributeError>(), "AzDuplicatedAttributeError"), (Layout::new::<AzDuplicatedAttributeError>(), "AzDuplicatedAttributeError"));
+        assert_eq!((Layout::new::<azul_impl::xml::InvalidStringError>(), "AzInvalidStringError"), (Layout::new::<AzInvalidStringError>(), "AzInvalidStringError"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowsWindowOptions>(), "AzWindowsWindowOptions"), (Layout::new::<AzWindowsWindowOptions>(), "AzWindowsWindowOptions"));
+        assert_eq!((Layout::new::<azul_impl::window::WaylandTheme>(), "AzWaylandTheme"), (Layout::new::<AzWaylandTheme>(), "AzWaylandTheme"));
+        assert_eq!((Layout::new::<azul_impl::window::AzStringPair>(), "AzStringPair"), (Layout::new::<AzStringPair>(), "AzStringPair"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::RefCountInner>(), "AzRefCountInner"), (Layout::new::<AzRefCountInner>(), "AzRefCountInner"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeType>(), "AzNodeType"), (Layout::new::<AzNodeType>(), "AzNodeType"));
-        assert_eq!((Layout::new::<azul_impl::dom::EventFilter>(), "AzEventFilter"), (Layout::new::<AzEventFilter>(), "AzEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::dom::IdOrClass>(), "AzIdOrClass"), (Layout::new::<AzIdOrClass>(), "AzIdOrClass"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPathSelector>(), "AzCssPathSelector"), (Layout::new::<AzCssPathSelector>(), "AzCssPathSelector"));
+        assert_eq!((Layout::new::<azul_impl::css::CssImageId>(), "AzCssImageId"), (Layout::new::<AzCssImageId>(), "AzCssImageId"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContent>(), "AzStyleBackgroundContent"), (Layout::new::<AzStyleBackgroundContent>(), "AzStyleBackgroundContent"));
+        assert_eq!((Layout::new::<azul_impl::css::ScrollbarInfo>(), "AzScrollbarInfo"), (Layout::new::<AzScrollbarInfo>(), "AzScrollbarInfo"));
+        assert_eq!((Layout::new::<azul_impl::css::ScrollbarStyle>(), "AzScrollbarStyle"), (Layout::new::<AzScrollbarStyle>(), "AzScrollbarStyle"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleFontFamily>(), "AzStyleFontFamily"), (Layout::new::<AzStyleFontFamily>(), "AzStyleFontFamily"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<ScrollbarStyle>>(), "AzScrollbarStyleValue"), (Layout::new::<AzScrollbarStyleValue>(), "AzScrollbarStyleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleFontFamily>>(), "AzStyleFontFamilyValue"), (Layout::new::<AzStyleFontFamilyValue>(), "AzStyleFontFamilyValue"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttribute>(), "AzVertexAttribute"), (Layout::new::<AzVertexAttribute>(), "AzVertexAttribute"));
         assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessage>(), "AzDebugMessage"), (Layout::new::<AzDebugMessage>(), "AzDebugMessage"));
-        assert_eq!((Layout::new::<azul_impl::gl::RefstrVecRef>(), "AzRefstrVecRef"), (Layout::new::<AzRefstrVecRef>(), "AzRefstrVecRef"));
         assert_eq!((Layout::new::<azul_impl::gl::GetActiveAttribReturn>(), "AzGetActiveAttribReturn"), (Layout::new::<AzGetActiveAttribReturn>(), "AzGetActiveAttribReturn"));
         assert_eq!((Layout::new::<azul_impl::gl::GetActiveUniformReturn>(), "AzGetActiveUniformReturn"), (Layout::new::<AzGetActiveUniformReturn>(), "AzGetActiveUniformReturn"));
         assert_eq!((Layout::new::<azul_impl::resources::ImageSource>(), "AzImageSource"), (Layout::new::<AzImageSource>(), "AzImageSource"));
         assert_eq!((Layout::new::<azul_impl::resources::EmbeddedFontSource>(), "AzEmbeddedFontSource"), (Layout::new::<AzEmbeddedFontSource>(), "AzEmbeddedFontSource"));
         assert_eq!((Layout::new::<azul_impl::resources::FileFontSource>(), "AzFileFontSource"), (Layout::new::<AzFileFontSource>(), "AzFileFontSource"));
         assert_eq!((Layout::new::<azul_impl::resources::SystemFontSource>(), "AzSystemFontSource"), (Layout::new::<AzSystemFontSource>(), "AzSystemFontSource"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgLine>(), "AzSvgLine"), (Layout::new::<AzSvgLine>(), "AzSvgLine"));
-        assert_eq!((Layout::new::<azul_impl::svg::TesselatedCPUSvgNode>(), "AzTesselatedCPUSvgNode"), (Layout::new::<AzTesselatedCPUSvgNode>(), "AzTesselatedCPUSvgNode"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPath>(), "AzSvgPath"), (Layout::new::<AzSvgPath>(), "AzSvgPath"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgParseOptions>(), "AzSvgParseOptions"), (Layout::new::<AzSvgParseOptions>(), "AzSvgParseOptions"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgRenderOptions>(), "AzSvgRenderOptions"), (Layout::new::<AzSvgRenderOptions>(), "AzSvgRenderOptions"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgStrokeStyle>(), "AzSvgStrokeStyle"), (Layout::new::<AzSvgStrokeStyle>(), "AzSvgStrokeStyle"));
-        assert_eq!((Layout::new::<azul_impl::task::Thread>(), "AzThread"), (Layout::new::<AzThread>(), "AzThread"));
-        assert_eq!((Layout::new::<azul_impl::task::ThreadReceiveMsg>(), "AzThreadReceiveMsg"), (Layout::new::<AzThreadReceiveMsg>(), "AzThreadReceiveMsg"));
-        assert_eq!((Layout::new::<azul_impl::window::RawWindowHandle>(), "AzRawWindowHandle"), (Layout::new::<AzRawWindowHandle>(), "AzRawWindowHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::TaskBarIcon>(), "AzTaskBarIcon"), (Layout::new::<AzTaskBarIcon>(), "AzTaskBarIcon"));
-        assert_eq!((Layout::new::<azul_impl::window::LogicalRect>(), "AzLogicalRect"), (Layout::new::<AzLogicalRect>(), "AzLogicalRect"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowSize>(), "AzWindowSize"), (Layout::new::<AzWindowSize>(), "AzWindowSize"));
-        assert_eq!((Layout::new::<azul_impl::window::WaylandTheme>(), "AzWaylandTheme"), (Layout::new::<AzWaylandTheme>(), "AzWaylandTheme"));
-        assert_eq!((Layout::new::<azul_impl::window::AzStringPair>(), "AzStringPair"), (Layout::new::<AzStringPair>(), "AzStringPair"));
+        assert_eq!((Layout::new::<azul_impl::task::Timer>(), "AzTimer"), (Layout::new::<AzTimer>(), "AzTimer"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClassVec>(), "AzIdOrClassVec"), (Layout::new::<AzIdOrClassVec>(), "AzIdOrClassVec"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleTransformVec>(), "AzStyleTransformVec"), (Layout::new::<AzStyleTransformVec>(), "AzStyleTransformVec"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"), (Layout::new::<AzStyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgPathVec>(), "AzSvgPathVec"), (Layout::new::<AzSvgPathVec>(), "AzSvgPathVec"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttributeVec>(), "AzVertexAttributeVec"), (Layout::new::<AzVertexAttributeVec>(), "AzVertexAttributeVec"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPathSelectorVec>(), "AzCssPathSelectorVec"), (Layout::new::<AzCssPathSelectorVec>(), "AzCssPathSelectorVec"));
         assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessageVec>(), "AzDebugMessageVec"), (Layout::new::<AzDebugMessageVec>(), "AzDebugMessageVec"));
         assert_eq!((Layout::new::<azul_impl::window::StringPairVec>(), "AzStringPairVec"), (Layout::new::<AzStringPairVec>(), "AzStringPairVec"));
-        assert_eq!((Layout::new::<azul_impl::css::LinearColorStopVec>(), "AzLinearColorStopVec"), (Layout::new::<AzLinearColorStopVec>(), "AzLinearColorStopVec"));
-        assert_eq!((Layout::new::<azul_impl::css::RadialColorStopVec>(), "AzRadialColorStopVec"), (Layout::new::<AzRadialColorStopVec>(), "AzRadialColorStopVec"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVec>(), "AzStyledNodeVec"), (Layout::new::<AzStyledNodeVec>(), "AzStyledNodeVec"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"), (Layout::new::<AzTagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"));
-        assert_eq!((Layout::new::<azul_impl::task::OptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"), (Layout::new::<AzOptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"));
         assert_eq!((Layout::new::<azul_impl::window::OptionWaylandTheme>(), "AzOptionWaylandTheme"), (Layout::new::<AzOptionWaylandTheme>(), "AzOptionWaylandTheme"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionTaskBarIcon>(), "AzOptionTaskBarIcon"), (Layout::new::<AzOptionTaskBarIcon>(), "AzOptionTaskBarIcon"));
-        assert_eq!((Layout::new::<azul_impl::task::OptionDuration>(), "AzOptionDuration"), (Layout::new::<AzOptionDuration>(), "AzOptionDuration"));
-        assert_eq!((Layout::new::<azul_impl::task::OptionInstant>(), "AzOptionInstant"), (Layout::new::<AzOptionInstant>(), "AzOptionInstant"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlStreamError>(), "AzXmlStreamError"), (Layout::new::<AzXmlStreamError>(), "AzXmlStreamError"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutInfo>(), "AzLayoutInfo"), (Layout::new::<AzLayoutInfo>(), "AzLayoutInfo"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPathPseudoSelector>(), "AzCssPathPseudoSelector"), (Layout::new::<AzCssPathPseudoSelector>(), "AzCssPathPseudoSelector"));
-        assert_eq!((Layout::new::<azul_impl::css::LinearGradient>(), "AzLinearGradient"), (Layout::new::<AzLinearGradient>(), "AzLinearGradient"));
-        assert_eq!((Layout::new::<azul_impl::css::RadialGradient>(), "AzRadialGradient"), (Layout::new::<AzRadialGradient>(), "AzRadialGradient"));
-        assert_eq!((Layout::new::<azul_impl::css::ConicGradient>(), "AzConicGradient"), (Layout::new::<AzConicGradient>(), "AzConicGradient"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContent>(), "AzStyleBackgroundContent"), (Layout::new::<AzStyleBackgroundContent>(), "AzStyleBackgroundContent"));
-        assert_eq!((Layout::new::<azul_impl::css::ScrollbarInfo>(), "AzScrollbarInfo"), (Layout::new::<AzScrollbarInfo>(), "AzScrollbarInfo"));
-        assert_eq!((Layout::new::<azul_impl::css::ScrollbarStyle>(), "AzScrollbarStyle"), (Layout::new::<AzScrollbarStyle>(), "AzScrollbarStyle"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<ScrollbarStyle>>(), "AzScrollbarStyleValue"), (Layout::new::<AzScrollbarStyleValue>(), "AzScrollbarStyleValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTransformVec>>(), "AzStyleTransformVecValue"), (Layout::new::<AzStyleTransformVecValue>(), "AzStyleTransformVecValue"));
-        assert_eq!((Layout::new::<azul_impl::dom::CallbackData>(), "AzCallbackData"), (Layout::new::<AzCallbackData>(), "AzCallbackData"));
+        assert_eq!((Layout::new::<azul_impl::window::LinuxWindowOptions>(), "AzLinuxWindowOptions"), (Layout::new::<AzLinuxWindowOptions>(), "AzLinuxWindowOptions"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPath>(), "AzCssPath"), (Layout::new::<AzCssPath>(), "AzCssPath"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundContentVec>>(), "AzStyleBackgroundContentVecValue"), (Layout::new::<AzStyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssProperty>(), "AzCssProperty"), (Layout::new::<AzCssProperty>(), "AzCssProperty"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::CssPropertySource>(), "AzCssPropertySource"), (Layout::new::<AzCssPropertySource>(), "AzCssPropertySource"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexLayout>(), "AzVertexLayout"), (Layout::new::<AzVertexLayout>(), "AzVertexLayout"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexArrayObject>(), "AzVertexArrayObject"), (Layout::new::<AzVertexArrayObject>(), "AzVertexArrayObject"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexBuffer>(), "AzVertexBuffer"), (Layout::new::<AzVertexBuffer>(), "AzVertexBuffer"));
-        assert_eq!((Layout::new::<azul_impl::resources::ImageMask>(), "AzImageMask"), (Layout::new::<AzImageMask>(), "AzImageMask"));
         assert_eq!((Layout::new::<azul_impl::resources::FontSource>(), "AzFontSource"), (Layout::new::<AzFontSource>(), "AzFontSource"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgPathElement>(), "AzSvgPathElement"), (Layout::new::<AzSvgPathElement>(), "AzSvgPathElement"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgStyle>(), "AzSvgStyle"), (Layout::new::<AzSvgStyle>(), "AzSvgStyle"));
-        assert_eq!((Layout::new::<azul_impl::task::Timer>(), "AzTimer"), (Layout::new::<AzTimer>(), "AzTimer"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowsWindowOptions>(), "AzWindowsWindowOptions"), (Layout::new::<AzWindowsWindowOptions>(), "AzWindowsWindowOptions"));
-        assert_eq!((Layout::new::<azul_impl::window::LinuxWindowOptions>(), "AzLinuxWindowOptions"), (Layout::new::<AzLinuxWindowOptions>(), "AzLinuxWindowOptions"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"), (Layout::new::<AzStyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVec>(), "AzSvgPathElementVec"), (Layout::new::<AzSvgPathElementVec>(), "AzSvgPathElementVec"));
-        assert_eq!((Layout::new::<azul_impl::dom::CallbackDataVec>(), "AzCallbackDataVec"), (Layout::new::<AzCallbackDataVec>(), "AzCallbackDataVec"));
-        assert_eq!((Layout::new::<azul_impl::resources::OptionImageMask>(), "AzOptionImageMask"), (Layout::new::<AzOptionImageMask>(), "AzOptionImageMask"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygon>(), "AzSvgMultiPolygon"), (Layout::new::<AzSvgMultiPolygon>(), "AzSvgMultiPolygon"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyVec>(), "AzCssPropertyVec"), (Layout::new::<AzCssPropertyVec>(), "AzCssPropertyVec"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"), (Layout::new::<AzSvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlTextError>(), "AzXmlTextError"), (Layout::new::<AzXmlTextError>(), "AzXmlTextError"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPathSelector>(), "AzCssPathSelector"), (Layout::new::<AzCssPathSelector>(), "AzCssPathSelector"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundContentVec>>(), "AzStyleBackgroundContentVecValue"), (Layout::new::<AzStyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssProperty>(), "AzCssProperty"), (Layout::new::<AzCssProperty>(), "AzCssProperty"));
-        assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssProperty>(), "AzNodeDataInlineCssProperty"), (Layout::new::<AzNodeDataInlineCssProperty>(), "AzNodeDataInlineCssProperty"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgPath>(), "AzSvgPath"), (Layout::new::<AzSvgPath>(), "AzSvgPath"));
         assert_eq!((Layout::new::<azul_impl::window::PlatformSpecificOptions>(), "AzPlatformSpecificOptions"), (Layout::new::<AzPlatformSpecificOptions>(), "AzPlatformSpecificOptions"));
         assert_eq!((Layout::new::<azul_impl::window::WindowState>(), "AzWindowState"), (Layout::new::<AzWindowState>(), "AzWindowState"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowCreateOptions>(), "AzWindowCreateOptions"), (Layout::new::<AzWindowCreateOptions>(), "AzWindowCreateOptions"));
-        assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"), (Layout::new::<AzNodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyVec>(), "AzCssPropertyVec"), (Layout::new::<AzCssPropertyVec>(), "AzCssPropertyVec"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgPathVec>(), "AzSvgPathVec"), (Layout::new::<AzSvgPathVec>(), "AzSvgPathVec"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPathSelectorVec>(), "AzCssPathSelectorVec"), (Layout::new::<AzCssPathSelectorVec>(), "AzCssPathSelectorVec"));
-        assert_eq!((Layout::new::<azul_impl::xml::XmlParseError>(), "AzXmlParseError"), (Layout::new::<AzXmlParseError>(), "AzXmlParseError"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::FocusTargetPath>(), "AzFocusTargetPath"), (Layout::new::<AzFocusTargetPath>(), "AzFocusTargetPath"));
         assert_eq!((Layout::new::<azul_impl::callbacks::CallbackInfo>(), "AzCallbackInfo"), (Layout::new::<AzCallbackInfo>(), "AzCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackInfo>(), "AzTimerCallbackInfo"), (Layout::new::<AzTimerCallbackInfo>(), "AzTimerCallbackInfo"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssProperty>(), "AzNodeDataInlineCssProperty"), (Layout::new::<AzNodeDataInlineCssProperty>(), "AzNodeDataInlineCssProperty"));
         assert_eq!((Layout::new::<azul_impl::css::DynamicCssProperty>(), "AzDynamicCssProperty"), (Layout::new::<AzDynamicCssProperty>(), "AzDynamicCssProperty"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPath>(), "AzCssPath"), (Layout::new::<AzCssPath>(), "AzCssPath"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::CssPropertySource>(), "AzCssPropertySource"), (Layout::new::<AzCssPropertySource>(), "AzCssPropertySource"));
-        assert_eq!((Layout::new::<azul_impl::dom::NodeData>(), "AzNodeData"), (Layout::new::<AzNodeData>(), "AzNodeData"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygon>(), "AzSvgMultiPolygon"), (Layout::new::<AzSvgMultiPolygon>(), "AzSvgMultiPolygon"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"), (Layout::new::<AzSvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"));
-        assert_eq!((Layout::new::<azul_impl::dom::NodeDataVec>(), "AzNodeDataVec"), (Layout::new::<AzNodeDataVec>(), "AzNodeDataVec"));
-        assert_eq!((Layout::new::<azul_impl::xml::XmlError>(), "AzXmlError"), (Layout::new::<AzXmlError>(), "AzXmlError"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::FocusTargetPath>(), "AzFocusTargetPath"), (Layout::new::<AzFocusTargetPath>(), "AzFocusTargetPath"));
-        assert_eq!((Layout::new::<azul_impl::css::CssDeclaration>(), "AzCssDeclaration"), (Layout::new::<AzCssDeclaration>(), "AzCssDeclaration"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledDom>(), "AzStyledDom"), (Layout::new::<AzStyledDom>(), "AzStyledDom"));
-        assert_eq!((Layout::new::<azul_impl::dom::Dom>(), "AzDom"), (Layout::new::<AzDom>(), "AzDom"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgNode>(), "AzSvgNode"), (Layout::new::<AzSvgNode>(), "AzSvgNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStyledNode>(), "AzSvgStyledNode"), (Layout::new::<AzSvgStyledNode>(), "AzSvgStyledNode"));
-        assert_eq!((Layout::new::<azul_impl::dom::DomVec>(), "AzDomVec"), (Layout::new::<AzDomVec>(), "AzDomVec"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"), (Layout::new::<AzNodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"));
+        assert_eq!((Layout::new::<azul_impl::xml::XmlParseError>(), "AzXmlParseError"), (Layout::new::<AzXmlParseError>(), "AzXmlParseError"));
+        assert_eq!((Layout::new::<azul_impl::window::WindowCreateOptions>(), "AzWindowCreateOptions"), (Layout::new::<AzWindowCreateOptions>(), "AzWindowCreateOptions"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::FocusTarget>(), "AzFocusTarget"), (Layout::new::<AzFocusTarget>(), "AzFocusTarget"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeData>(), "AzNodeData"), (Layout::new::<AzNodeData>(), "AzNodeData"));
+        assert_eq!((Layout::new::<azul_impl::css::CssDeclaration>(), "AzCssDeclaration"), (Layout::new::<AzCssDeclaration>(), "AzCssDeclaration"));
         assert_eq!((Layout::new::<azul_impl::css::CssDeclarationVec>(), "AzCssDeclarationVec"), (Layout::new::<AzCssDeclarationVec>(), "AzCssDeclarationVec"));
+        assert_eq!((Layout::new::<azul_impl::dom::NodeDataVec>(), "AzNodeDataVec"), (Layout::new::<AzNodeDataVec>(), "AzNodeDataVec"));
+        assert_eq!((Layout::new::<azul_impl::xml::XmlError>(), "AzXmlError"), (Layout::new::<AzXmlError>(), "AzXmlError"));
+        assert_eq!((Layout::new::<azul_impl::dom::Dom>(), "AzDom"), (Layout::new::<AzDom>(), "AzDom"));
+        assert_eq!((Layout::new::<azul_impl::css::CssRuleBlock>(), "AzCssRuleBlock"), (Layout::new::<AzCssRuleBlock>(), "AzCssRuleBlock"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::StyledDom>(), "AzStyledDom"), (Layout::new::<AzStyledDom>(), "AzStyledDom"));
+        assert_eq!((Layout::new::<azul_impl::dom::DomVec>(), "AzDomVec"), (Layout::new::<AzDomVec>(), "AzDomVec"));
+        assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVec>(), "AzCssRuleBlockVec"), (Layout::new::<AzCssRuleBlockVec>(), "AzCssRuleBlockVec"));
         assert_eq!((Layout::new::<azul_impl::dom::OptionDom>(), "AzOptionDom"), (Layout::new::<AzOptionDom>(), "AzOptionDom"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgParseError>(), "AzSvgParseError"), (Layout::new::<AzSvgParseError>(), "AzSvgParseError"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::FocusTarget>(), "AzFocusTarget"), (Layout::new::<AzFocusTarget>(), "AzFocusTarget"));
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackReturn>(), "AzIFrameCallbackReturn"), (Layout::new::<AzIFrameCallbackReturn>(), "AzIFrameCallbackReturn"));
-        assert_eq!((Layout::new::<azul_impl::css::CssRuleBlock>(), "AzCssRuleBlock"), (Layout::new::<AzCssRuleBlock>(), "AzCssRuleBlock"));
-        assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVec>(), "AzCssRuleBlockVec"), (Layout::new::<AzCssRuleBlockVec>(), "AzCssRuleBlockVec"));
-        assert_eq!((Layout::new::<azul_impl::svg::ResultSvgSvgParseError>(), "AzResultSvgSvgParseError"), (Layout::new::<AzResultSvgSvgParseError>(), "AzResultSvgSvgParseError"));
         assert_eq!((Layout::new::<azul_impl::css::Stylesheet>(), "AzStylesheet"), (Layout::new::<AzStylesheet>(), "AzStylesheet"));
         assert_eq!((Layout::new::<azul_impl::css::StylesheetVec>(), "AzStylesheetVec"), (Layout::new::<AzStylesheetVec>(), "AzStylesheetVec"));
+        assert_eq!((Layout::new::<azul_impl::svg::ResultSvgSvgParseError>(), "AzResultSvgSvgParseError"), (Layout::new::<AzResultSvgSvgParseError>(), "AzResultSvgSvgParseError"));
         assert_eq!((Layout::new::<azul_impl::css::Css>(), "AzCss"), (Layout::new::<AzCss>(), "AzCss"));
     }
 }
