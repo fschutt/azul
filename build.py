@@ -1376,8 +1376,8 @@ def generate_docs():
                     api_page_contents += "<p class=\"class doc\">" + format_doc(c["doc"]) + "</p>"
 
                 if "enum_fields" in c.keys():
-                    api_page_contents += "<li class=\"st e\" id=\"" + module_name + ".st.e." + class_name + "\">"
-                    api_page_contents += "<h4>enum <a href=\"#" + module_name + ".st.e." + class_name + "\">" + class_name + "</a></h4>"
+                    api_page_contents += "<li class=\"st e\" id=\"st." + class_name + "\">"
+                    api_page_contents += "<h4>enum <a href=\"#st." + class_name + "\">" + class_name + "</a></h4>"
                     for enum_variant in c["enum_fields"]:
                         enum_variant_name = list(enum_variant.keys())[0]
                         if "doc" in enum_variant[enum_variant_name]:
@@ -1385,30 +1385,45 @@ def generate_docs():
 
                         if "type" in enum_variant[enum_variant_name]:
                             enum_variant_type = enum_variant[enum_variant_name]["type"]
-                            api_page_contents += "<p class=\"f\">" + enum_variant_name + "(<a href=\"#\">" + enum_variant_type + "</a>)</p>"
+                            analyzed_variant_type = analyze_type(enum_variant_type)
+
+                            if is_primitive_arg(analyzed_variant_type[1]):
+                                api_page_contents += "<p class=\"f\">" + enum_variant_name + "(" + enum_variant_type + ")</p>"
+                            else:
+                                api_page_contents += "<p class=\"f\">" + enum_variant_name + "(" + analyzed_variant_type[0] + "<a href=\"#st." + analyzed_variant_type[1] + "\">" + analyzed_variant_type[1] +"</a>" + analyzed_variant_type[2] + ")</p>"
                         else:
                             api_page_contents += "<p class=\"f\">" + enum_variant_name + "</p>"
 
                 elif "struct_fields" in c.keys():
-                    api_page_contents += "<li class=\"st s\" id=\"" + module_name + ".st.s." + class_name + "\">"
-                    api_page_contents += "<h4>struct <a href=\"#" + module_name + ".st.s." + class_name + "\">" + class_name + "</a></h4>"
+                    api_page_contents += "<li class=\"st s\" id=\"st." + class_name + "\">"
+                    api_page_contents += "<h4>struct <a href=\"#st." + class_name + "\">" + class_name + "</a></h4>"
                     for struct_field in c["struct_fields"]:
                         struct_field_name = list(struct_field.keys())[0]
                         struct_type = struct_field[struct_field_name]["type"]
+                        analyzed_struct_type = analyze_type(struct_type)
+
                         if "doc" in struct_field[struct_field_name]:
                             api_page_contents += "<p class=\"f doc\">" + format_doc(struct_field[struct_field_name]["doc"]) + "</p>"
-                        api_page_contents += "<p class=\"f\">" + struct_field_name + ": <a href=\"#\">" + struct_type + "</a></p>"
+
+                        if is_primitive_arg(analyzed_struct_type[1]):
+                            api_page_contents += "<p class=\"f\">" + struct_field_name + ": " + struct_type + "</p>"
+                        else:
+                            api_page_contents += "<p class=\"f\">" + struct_field_name + ": " + analyzed_struct_type[0] + "<a href=\"#st." + analyzed_struct_type[1] + "\">" + analyzed_struct_type[1] +"</a>" + analyzed_struct_type[2] + "</p>"
 
                 elif "callback_typedef" in c.keys():
-                    api_page_contents += "<li class=\"fnty\" id=\"" + module_name + ".fnty." + class_name + "\">"
-                    api_page_contents += "<h4>fnptr <a href=\"#" + module_name + ".fnty." + class_name + "\">" + class_name + "</a></h4>"
+                    api_page_contents += "<li class=\"fnty\" id=\"st." + class_name + "\">"
+                    api_page_contents += "<h4>fnptr <a href=\"#fnty." + class_name + "\">" + class_name + "</a></h4>"
                     callback_typedef = c["callback_typedef"]
+
                     if "fn_args" in callback_typedef:
+                        api_page_contents += "<ul>"
                         for fn_arg in callback_typedef["fn_args"]:
+
                             if "doc" in fn_arg.keys():
                                 api_page_contents += "<p class=\"arg doc\">" + format_doc(fn_arg["doc"]) + "</p>"
-                            # struct_field_name = list(struct_field.keys())[0]
+
                             fn_arg_type = fn_arg["type"]
+                            analyzed_fn_arg_type = analyze_type(fn_arg_type)
                             fn_arg_ref = fn_arg["ref"]
 
                             fn_arg_ref_html = ""
@@ -1419,18 +1434,64 @@ def generate_docs():
                             elif (fn_arg_ref == "refmut"):
                                 fn_arg_ref_html = "&mut "
 
-                            api_page_contents += "<p class=\"fnty arg\">" + fn_arg_ref_html + " <a href=\"#\">" + fn_arg_type + "</a></p>"
+                            if is_primitive_arg(analyzed_fn_arg_type[1]):
+                                api_page_contents += "<li><p class=\"f\">arg " + analyzed_fn_arg_type[1] + "</p></li>"
+                            else:
+                                api_page_contents += "<li><p class=\"fnty arg\">arg " + fn_arg_ref_html + " <a href=\"#st." + analyzed_fn_arg_type[1] + "\">" + fn_arg_type + "</a></p></li>"
+                        api_page_contents += "</ul>"
+
                     if "returns" in callback_typedef.keys():
                         if "doc" in callback_typedef["returns"].keys():
                             api_page_contents += "<p class=\"ret doc\">" + format_doc(callback_typedef["returns"]["doc"]) + "</p>"
-                        api_page_contents += "<p class=\"fnty ret\">-&gt;&nbsp;" + format_doc(callback_typedef["returns"]["type"]) + "</p>"
+                        return_type = callback_typedef["returns"]["type"]
+                        analyzed_return_type = analyze_type(return_type)
+                        if is_primitive_arg(analyzed_fn_arg_type[1]):
+                            api_page_contents += "<p class=\"fnty ret\">-&gt;&nbsp;" + analyzed_return_type[1] + "</p>"
+                        else:
+                            api_page_contents += "<p class=\"fnty ret\">-&gt;&nbsp;<a href=\"#st." + analyzed_return_type[1] + "\">" + analyzed_return_type[1] + "</a></p>"
 
                 if "constructors" in c.keys():
                     api_page_contents += "<ul>"
-                    for constructor_name in c["constructors"]:
-                        if "doc" in c["constructors"][constructor_name]:
-                            api_page_contents += "<p class=\"cn doc\">" + format_doc(c["constructors"][constructor_name]["doc"]) + "</p>"
-                        api_page_contents += "<li class=\"cn\" id=\"" + constructor_name + "\"><p>constructor " + constructor_name + "():</p></li>"
+                    for function_name in c["constructors"]:
+                        f = c["constructors"][function_name]
+                        if "doc" in f:
+                            api_page_contents += "<p class=\"cn doc\">" + format_doc(c["constructors"][function_name]["doc"]) + "</p>"
+                        arg_string = ""
+                        if "fn_args" in f:
+                            args = f["fn_args"]
+                            for arg in args:
+                                arg_name = list(arg.keys())[0]
+                                arg_val = arg[arg_name]
+                                if "doc" in arg.keys():
+                                    arg_string += "<p class=\"arg doc\">" + arg["doc"] + "</p>"
+
+                                analyzed_arg_val = analyze_type(arg_val)
+                                if is_primitive_arg(analyzed_arg_val[1]):
+                                    arg_string += "<li><p class=\"arg\">arg " + arg_name + ": " + analyzed_arg_val[1] + "</p></li>"
+                                else:
+                                    arg_string += "<li><p class=\"arg\">arg " + arg_name + ": " + analyzed_arg_val[0] + "<a href=\"#st." + analyzed_arg_val[1] + "\">" + analyzed_arg_val[1] + "</a>" + analyzed_arg_val[2] + "</p></li>"
+
+                        api_page_contents += "<li class=\"cn\" id=\"" + class_name + "." + function_name + "\">"
+                        api_page_contents += "<p>constructor <a href=\"#" + class_name + "." + function_name + "\">" + function_name + "</a>:</p>"
+                        api_page_contents += "<ul>"
+                        if not(len(arg_string) == 0):
+                            api_page_contents += arg_string
+                        if "returns" in f.keys():
+                            api_page_contents += "<li>"
+                            if "doc" in f["returns"].keys():
+                                api_page_contents += "<p class=\"ret doc\">" + format_doc(f["returns"]["doc"]) + "</p>"
+                            return_type = f["returns"]["type"]
+                            analyzed_return_type = analyze_type(return_type)
+                            if is_primitive_arg(analyzed_return_type[1]):
+                                api_page_contents += "<p class=\"cn ret\">-&gt;&nbsp;" + analyzed_return_type[1] + "</p>"
+                            else:
+                                api_page_contents += "<p class=\"cn ret\">-&gt;&nbsp;" + analyzed_return_type[0] + "<a href=\"#st."+ analyzed_return_type[1] + "\">" + analyzed_return_type[1] + "</a>" + analyzed_return_type[2] + "</p>"
+                            api_page_contents += "</li>"
+
+                        api_page_contents += "<li><p class=\"ret\">-&gt;&nbsp;<a href=\"#st." + class_name + "\">" + class_name + "</a></p></li>"
+                        api_page_contents += "</ul>"
+                        api_page_contents += "</li>"
+
                     api_page_contents += "</ul>"
 
                 if "functions" in c.keys():
@@ -1439,24 +1500,30 @@ def generate_docs():
                         f = c["functions"][function_name]
                         if "doc" in f:
                             api_page_contents += "<p class=\"fn doc\">" + format_doc(c["functions"][function_name]["doc"]) + "</p>"
-                        args = f["fn_args"]
                         arg_string = ""
                         self_arg = ""
-                        for arg in args:
-                            arg_name = list(arg.keys())[0]
-                            arg_val = arg[arg_name]
+                        if "fn_args" in f:
+                            args = f["fn_args"]
+                            for arg in args:
+                                arg_name = list(arg.keys())[0]
+                                arg_val = arg[arg_name]
 
-                            if arg_name == "self":
-                                if arg_val == "value":
-                                    self_arg = "self"
-                                elif arg_val == "ref":
-                                    self_arg = "&self"
-                                elif arg_val == "refmut":
-                                    self_arg = "&mut self"
-                            else:
-                                if "doc" in arg.keys():
-                                    arg_string += "<p class=\"arg doc\">" + arg["doc"] + "</p>"
-                                arg_string += "<li><p class=\"arg\">arg " + arg_name + ": <a href=\"#\">" + arg_val + "</a></p></li>"
+                                if arg_name == "self":
+                                    if arg_val == "value":
+                                        self_arg = "self"
+                                    elif arg_val == "ref":
+                                        self_arg = "&self"
+                                    elif arg_val == "refmut":
+                                        self_arg = "&mut self"
+                                else:
+                                    if "doc" in arg.keys():
+                                        arg_string += "<p class=\"arg doc\">" + arg["doc"] + "</p>"
+
+                                    analyzed_arg_val = analyze_type(arg_val)
+                                    if is_primitive_arg(analyzed_arg_val[1]):
+                                        arg_string += "<li><p class=\"arg\">arg " + arg_name + ": " + analyzed_arg_val[1] + "</p></li>"
+                                    else:
+                                        arg_string += "<li><p class=\"arg\">arg " + arg_name + ": " + analyzed_arg_val[0] + "<a href=\"#st." + analyzed_arg_val[1] + "\">" + analyzed_arg_val[1] + "</a>" + analyzed_arg_val[2] + "</p></li>"
 
                         api_page_contents += "<li class=\"fn\" id=\"" + class_name + "." + function_name + "\">"
                         api_page_contents += "<p>fn <a href=\"#" + class_name + "." + function_name + "\">" + function_name + "</a>:</p>"
@@ -1468,7 +1535,12 @@ def generate_docs():
                             api_page_contents += "<li>"
                             if "doc" in f["returns"].keys():
                                 api_page_contents += "<p class=\"ret doc\">" + format_doc(f["returns"]["doc"]) + "</p>"
-                            api_page_contents += "<p class=\"fn ret\">-&gt;&nbsp;" + format_doc(f["returns"]["type"]) + "</p>"
+                            return_type = f["returns"]["type"]
+                            analyzed_return_type = analyze_type(return_type)
+                            if is_primitive_arg(analyzed_return_type[1]):
+                                api_page_contents += "<p class=\"fn ret\">-&gt;&nbsp;" + analyzed_return_type[1] + "</p>"
+                            else:
+                                api_page_contents += "<p class=\"fn ret\">-&gt;&nbsp;" + analyzed_return_type[0] + "<a href=\"#st."+ analyzed_return_type[1] + "\">" + analyzed_return_type[1] + "</a>" + analyzed_return_type[2] + "</p>"
                             api_page_contents += "</li>"
 
                         api_page_contents += "</ul>"
