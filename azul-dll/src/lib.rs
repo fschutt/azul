@@ -136,6 +136,10 @@ pub use AzLogicalRectTT as AzLogicalRect;
 pub type AzLogicalPositionTT = azul_impl::window::LogicalPosition;
 pub use AzLogicalPositionTT as AzLogicalPosition;
 
+/// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
+pub type AzLogicalSizeTT = azul_impl::window::LogicalSize;
+pub use AzLogicalSizeTT as AzLogicalSize;
+
 /// Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.
 pub type AzIconKeyTT = azul_impl::window::IconKey;
 pub use AzIconKeyTT as AzIconKey;
@@ -228,23 +232,23 @@ pub use AzWasmWindowOptionsTT as AzWasmWindowOptions;
 pub type AzFullScreenModeTT = azul_impl::window::FullScreenMode;
 pub use AzFullScreenModeTT as AzFullScreenMode;
 
-/// Re-export of rust-allocated (stack based) `WindowTheme` struct
+/// Window theme, set by the operating system or `WindowCreateOptions.theme` on startup
 pub type AzWindowThemeTT = azul_impl::window::WindowTheme;
 pub use AzWindowThemeTT as AzWindowTheme;
 
-/// Re-export of rust-allocated (stack based) `WindowPosition` struct
+/// Position of the top left corner of the window relative to the top left of the monitor
 pub type AzWindowPositionTT = azul_impl::window::WindowPosition;
 pub use AzWindowPositionTT as AzWindowPosition;
 
-/// Re-export of rust-allocated (stack based) `ImePosition` struct
+/// Position of the virtual keyboard necessary to insert CJK characters
 pub type AzImePositionTT = azul_impl::window::ImePosition;
 pub use AzImePositionTT as AzImePosition;
 
-/// Re-export of rust-allocated (stack based) `TouchState` struct
+/// Current state of touch devices / touch inputs
 pub type AzTouchStateTT = azul_impl::window::TouchState;
 pub use AzTouchStateTT as AzTouchState;
 
-/// Re-export of rust-allocated (stack based) `MonitorHandle` struct
+/// Monitor handle abstraction, only for azul-internal use
 pub type AzMonitorHandleTT = azul_impl::window::Monitor;
 pub use AzMonitorHandleTT as AzMonitorHandle;
 /// Destructor: Takes ownership of the `MonitorHandle` pointer and deletes it.
@@ -252,66 +256,30 @@ pub use AzMonitorHandleTT as AzMonitorHandle;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_monitor_handle_deep_copy(object: &AzMonitorHandle) -> AzMonitorHandle { object.clone() }
 
-/// Re-export of rust-allocated (stack based) `Monitor` struct
+/// Information about a single (or many) monitors, useful for dock widgets
 pub type AzMonitorTT = azul_impl::window::Monitor;
 pub use AzMonitorTT as AzMonitor;
 
-/// Re-export of rust-allocated (stack based) `VideoMode` struct
+/// Describes a rendering configuration for a monitor
 pub type AzVideoModeTT = azul_impl::window::VideoMode;
 pub use AzVideoModeTT as AzVideoMode;
 
 /// Re-export of rust-allocated (stack based) `WindowState` struct
 pub type AzWindowStateTT = azul_impl::window::WindowState;
 pub use AzWindowStateTT as AzWindowState;
-/// Creates a new `WindowState` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `WindowState::new()` constructor.
+/// Creates a new WindowState with default settings and a custom layout callback
 #[no_mangle] pub extern "C" fn az_window_state_new(layout_callback: AzLayoutCallbackType) -> AzWindowState { WindowState::new(layout_callback) }
-/// Creates a new `WindowState` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `WindowState::default()` constructor.
+/// Creates a default WindowState with an empty layout callback - useful only if you use the Rust `WindowState { .. WindowState::default() }` intialization syntax.
 #[no_mangle] pub extern "C" fn az_window_state_default() -> AzWindowState { WindowState::default() }
 
-/// Re-export of rust-allocated (stack based) `LogicalSize` struct
-pub type AzLogicalSizeTT = azul_impl::window::LogicalSize;
-pub use AzLogicalSizeTT as AzLogicalSize;
-
-/// Re-export of rust-allocated (stack based) `LayoutCallback` struct
+/// C-ABI stable wrapper over a `LayoutCallbackType`
 pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
 pub use AzLayoutCallbackTT as AzLayoutCallback;
 
 pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutInfo) -> AzStyledDom;
-/// Re-export of rust-allocated (stack based) `Callback` struct
+/// C-ABI stable wrapper over a `CallbackType`
 pub type AzCallbackTT = azul_impl::callbacks::Callback;
 pub use AzCallbackTT as AzCallback;
-
-/// Re-export of rust-allocated (stack based) `NodeId` struct
-pub type AzNodeIdTT = azul_impl::styled_dom::AzNodeId;
-pub use AzNodeIdTT as AzNodeId;
-
-/// Re-export of rust-allocated (stack based) `DomId` struct
-pub type AzDomIdTT = azul_impl::styled_dom::DomId;
-pub use AzDomIdTT as AzDomId;
-
-/// Re-export of rust-allocated (stack based) `DomNodeId` struct
-pub type AzDomNodeIdTT = azul_impl::callbacks::DomNodeId;
-pub use AzDomNodeIdTT as AzDomNodeId;
-
-/// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
-pub type AzHidpiAdjustedBoundsTT = azul_impl::callbacks::HidpiAdjustedBounds;
-pub use AzHidpiAdjustedBoundsTT as AzHidpiAdjustedBounds;
-/// Returns the size of the bounds in logical units
-#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_logical_size(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> AzLogicalSize { hidpiadjustedbounds.get_logical_size() }
-/// Returns the size of the bounds in physical units
-#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_physical_size(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32 { hidpiadjustedbounds.get_physical_size() }
-/// Returns the hidpi factor of the bounds
-#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_hidpi_factor(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> f32 { hidpiadjustedbounds.get_hidpi_factor() }
-
-/// Defines the focus target for the next frame
-pub type AzFocusTargetTT = azul_impl::callbacks::FocusTarget;
-pub use AzFocusTargetTT as AzFocusTarget;
-
-/// Re-export of rust-allocated (stack based) `FocusTargetPath` struct
-pub type AzFocusTargetPathTT = azul_impl::callbacks::FocusTargetPath;
-pub use AzFocusTargetPathTT as AzFocusTargetPath;
 
 pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
 /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
@@ -347,7 +315,7 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 #[no_mangle] pub extern "C" fn az_callback_info_set_window_state(callbackinfo: &mut AzCallbackInfo, new_state: AzWindowState) { callbackinfo.set_window_state(new_state); }
 /// Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.
 #[no_mangle] pub extern "C" fn az_callback_info_set_focus(callbackinfo: &mut AzCallbackInfo, target: AzFocusTarget) { callbackinfo.set_focus(target); }
-/// Sets a `CssProperty` on a given ndoe to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
+/// Sets a `CssProperty` on a given node to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
 #[no_mangle] pub extern "C" fn az_callback_info_set_css_property(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_property: AzCssProperty) { callbackinfo.set_css_property(node_id, new_property);  }
 /// Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.
 #[no_mangle] pub extern "C" fn az_callback_info_stop_propagation(callbackinfo: &mut AzCallbackInfo) { callbackinfo.stop_propagation(); }
@@ -362,7 +330,37 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 pub type AzUpdateScreenTT = azul_impl::callbacks::UpdateScreen;
 pub use AzUpdateScreenTT as AzUpdateScreen;
 
-/// Re-export of rust-allocated (stack based) `IFrameCallback` struct
+/// Index of a Node in the internal `NodeDataContainer`
+pub type AzNodeIdTT = azul_impl::styled_dom::AzNodeId;
+pub use AzNodeIdTT as AzNodeId;
+
+/// ID of a DOM - one window can contain multiple, nested DOMs (such as iframes)
+pub type AzDomIdTT = azul_impl::styled_dom::DomId;
+pub use AzDomIdTT as AzDomId;
+
+/// Combination of node ID + DOM ID, both together can identify a node
+pub type AzDomNodeIdTT = azul_impl::callbacks::DomNodeId;
+pub use AzDomNodeIdTT as AzDomNodeId;
+
+/// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
+pub type AzHidpiAdjustedBoundsTT = azul_impl::callbacks::HidpiAdjustedBounds;
+pub use AzHidpiAdjustedBoundsTT as AzHidpiAdjustedBounds;
+/// Returns the size of the bounds in logical units
+#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_logical_size(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> AzLogicalSize { hidpiadjustedbounds.get_logical_size() }
+/// Returns the size of the bounds in physical units
+#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_physical_size(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32 { hidpiadjustedbounds.get_physical_size() }
+/// Returns the hidpi factor of the bounds
+#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_hidpi_factor(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> f32 { hidpiadjustedbounds.get_hidpi_factor() }
+
+/// Defines the keyboard input focus target
+pub type AzFocusTargetTT = azul_impl::callbacks::FocusTarget;
+pub use AzFocusTargetTT as AzFocusTarget;
+
+/// CSS path to set the keyboard input focus
+pub type AzFocusTargetPathTT = azul_impl::callbacks::FocusTargetPath;
+pub use AzFocusTargetPathTT as AzFocusTargetPath;
+
+/// C-ABI wrapper over an `IFrameCallbackType`
 pub type AzIFrameCallbackTT = azul_impl::callbacks::IFrameCallback;
 pub use AzIFrameCallbackTT as AzIFrameCallback;
 
@@ -3222,12 +3220,12 @@ mod test_sizes {
         SlowWindowed,
         FastWindowed,
     }
-    /// Re-export of rust-allocated (stack based) `WindowTheme` struct
+    /// Window theme, set by the operating system or `WindowCreateOptions.theme` on startup
     #[repr(C)]     pub enum AzWindowTheme {
         DarkMode,
         LightMode,
     }
-    /// Re-export of rust-allocated (stack based) `MonitorHandle` struct
+    /// Monitor handle abstraction, only for azul-internal use
     #[repr(C)]     pub struct AzMonitorHandle {
         pub(crate) ptr: *mut c_void,
     }
@@ -3947,6 +3945,11 @@ mod test_sizes {
         pub x: f32,
         pub y: f32,
     }
+    /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
+    #[repr(C)]     pub struct AzLogicalSize {
+        pub width: f32,
+        pub height: f32,
+    }
     /// Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.
     #[repr(C)]     pub struct AzIconKey {
         pub id: usize,
@@ -4016,48 +4019,43 @@ mod test_sizes {
     #[repr(C)]     pub struct AzWasmWindowOptions {
         pub _reserved: u8,
     }
-    /// Re-export of rust-allocated (stack based) `WindowPosition` struct
+    /// Position of the top left corner of the window relative to the top left of the monitor
     #[repr(C, u8)]     pub enum AzWindowPosition {
         Uninitialized,
         Initialized(AzPhysicalPositionI32),
     }
-    /// Re-export of rust-allocated (stack based) `ImePosition` struct
+    /// Position of the virtual keyboard necessary to insert CJK characters
     #[repr(C, u8)]     pub enum AzImePosition {
         Uninitialized,
         Initialized(AzLogicalPosition),
     }
-    /// Re-export of rust-allocated (stack based) `TouchState` struct
+    /// Current state of touch devices / touch inputs
     #[repr(C)]     pub struct AzTouchState {
         pub unused: u8,
     }
-    /// Re-export of rust-allocated (stack based) `VideoMode` struct
+    /// Describes a rendering configuration for a monitor
     #[repr(C)]     pub struct AzVideoMode {
         pub size: AzLayoutSize,
         pub bit_depth: u16,
         pub refresh_rate: u16,
     }
-    /// Re-export of rust-allocated (stack based) `LogicalSize` struct
-    #[repr(C)]     pub struct AzLogicalSize {
-        pub width: f32,
-        pub height: f32,
-    }
-    /// Re-export of rust-allocated (stack based) `LayoutCallback` struct
+    /// C-ABI stable wrapper over a `LayoutCallbackType`
     #[repr(C)]     pub struct AzLayoutCallback {
         pub cb: AzLayoutCallbackType,
     }
-    /// Re-export of rust-allocated (stack based) `Callback` struct
+    /// C-ABI stable wrapper over a `CallbackType`
     #[repr(C)]     pub struct AzCallback {
         pub cb: AzCallbackType,
     }
-    /// Re-export of rust-allocated (stack based) `NodeId` struct
+    /// Index of a Node in the internal `NodeDataContainer`
     #[repr(C)]     pub struct AzNodeId {
         pub inner: usize,
     }
-    /// Re-export of rust-allocated (stack based) `DomId` struct
+    /// ID of a DOM - one window can contain multiple, nested DOMs (such as iframes)
     #[repr(C)]     pub struct AzDomId {
         pub inner: usize,
     }
-    /// Re-export of rust-allocated (stack based) `DomNodeId` struct
+    /// Combination of node ID + DOM ID, both together can identify a node
     #[repr(C)]     pub struct AzDomNodeId {
         pub dom: AzDomId,
         pub node: AzNodeId,
@@ -4067,7 +4065,7 @@ mod test_sizes {
         pub logical_size: AzLogicalSize,
         pub hidpi_factor: f32,
     }
-    /// Re-export of rust-allocated (stack based) `IFrameCallback` struct
+    /// C-ABI wrapper over an `IFrameCallbackType`
     #[repr(C)]     pub struct AzIFrameCallback {
         pub cb: AzIFrameCallbackType,
     }
@@ -6185,7 +6183,7 @@ mod test_sizes {
         pub key: AzString,
         pub value: AzString,
     }
-    /// Re-export of rust-allocated (stack based) `Monitor` struct
+    /// Information about a single (or many) monitors, useful for dock widgets
     #[repr(C)]     pub struct AzMonitor {
         pub handle: AzMonitorHandle,
         pub name: AzOptionString,
@@ -6614,11 +6612,6 @@ mod test_sizes {
         pub layout_callback: AzLayoutCallback,
         pub close_callback: AzOptionCallback,
     }
-    /// Re-export of rust-allocated (stack based) `FocusTargetPath` struct
-    #[repr(C)]     pub struct AzFocusTargetPath {
-        pub dom: AzDomId,
-        pub css_path: AzCssPath,
-    }
     /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
     #[repr(C)]     pub struct AzCallbackInfo {
         pub current_window_state: *const c_void,
@@ -6647,6 +6640,11 @@ mod test_sizes {
         pub hit_dom_node: AzDomNodeId,
         pub cursor_relative_to_item: AzOptionLayoutPoint,
         pub cursor_in_viewport: AzOptionLayoutPoint,
+    }
+    /// CSS path to set the keyboard input focus
+    #[repr(C)]     pub struct AzFocusTargetPath {
+        pub dom: AzDomId,
+        pub css_path: AzCssPath,
     }
     /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
     #[repr(C)]     pub struct AzTimerCallbackInfo {
@@ -6707,7 +6705,7 @@ mod test_sizes {
         pub theme: AzOptionWindowTheme,
         pub create_callback: AzOptionCallback,
     }
-    /// Defines the focus target for the next frame
+    /// Defines the keyboard input focus target
     #[repr(C, u8)]     pub enum AzFocusTarget {
         Id(AzDomNodeId),
         Path(AzFocusTargetPath),
@@ -6928,6 +6926,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::PhysicalPosition<i32>>(), "AzPhysicalPositionI32"), (Layout::new::<AzPhysicalPositionI32>(), "AzPhysicalPositionI32"));
         assert_eq!((Layout::new::<azul_impl::window::PhysicalSize<u32>>(), "AzPhysicalSizeU32"), (Layout::new::<AzPhysicalSizeU32>(), "AzPhysicalSizeU32"));
         assert_eq!((Layout::new::<azul_impl::window::LogicalPosition>(), "AzLogicalPosition"), (Layout::new::<AzLogicalPosition>(), "AzLogicalPosition"));
+        assert_eq!((Layout::new::<azul_impl::window::LogicalSize>(), "AzLogicalSize"), (Layout::new::<AzLogicalSize>(), "AzLogicalSize"));
         assert_eq!((Layout::new::<azul_impl::window::IconKey>(), "AzIconKey"), (Layout::new::<AzIconKey>(), "AzIconKey"));
         assert_eq!((Layout::new::<azul_impl::window::AcceleratorKey>(), "AzAcceleratorKey"), (Layout::new::<AzAcceleratorKey>(), "AzAcceleratorKey"));
         assert_eq!((Layout::new::<azul_impl::window::WindowFlags>(), "AzWindowFlags"), (Layout::new::<AzWindowFlags>(), "AzWindowFlags"));
@@ -6939,7 +6938,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::ImePosition>(), "AzImePosition"), (Layout::new::<AzImePosition>(), "AzImePosition"));
         assert_eq!((Layout::new::<azul_impl::window::TouchState>(), "AzTouchState"), (Layout::new::<AzTouchState>(), "AzTouchState"));
         assert_eq!((Layout::new::<azul_impl::window::VideoMode>(), "AzVideoMode"), (Layout::new::<AzVideoMode>(), "AzVideoMode"));
-        assert_eq!((Layout::new::<azul_impl::window::LogicalSize>(), "AzLogicalSize"), (Layout::new::<AzLogicalSize>(), "AzLogicalSize"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallback>(), "AzLayoutCallback"), (Layout::new::<AzLayoutCallback>(), "AzLayoutCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::Callback>(), "AzCallback"), (Layout::new::<AzCallback>(), "AzCallback"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeId>(), "AzNodeId"), (Layout::new::<AzNodeId>(), "AzNodeId"));
@@ -7338,8 +7336,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::xml::XmlTextError>(), "AzXmlTextError"), (Layout::new::<AzXmlTextError>(), "AzXmlTextError"));
         assert_eq!((Layout::new::<azul_impl::window::PlatformSpecificOptions>(), "AzPlatformSpecificOptions"), (Layout::new::<AzPlatformSpecificOptions>(), "AzPlatformSpecificOptions"));
         assert_eq!((Layout::new::<azul_impl::window::WindowState>(), "AzWindowState"), (Layout::new::<AzWindowState>(), "AzWindowState"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::FocusTargetPath>(), "AzFocusTargetPath"), (Layout::new::<AzFocusTargetPath>(), "AzFocusTargetPath"));
         assert_eq!((Layout::new::<azul_impl::callbacks::CallbackInfo>(), "AzCallbackInfo"), (Layout::new::<AzCallbackInfo>(), "AzCallbackInfo"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::FocusTargetPath>(), "AzFocusTargetPath"), (Layout::new::<AzFocusTargetPath>(), "AzFocusTargetPath"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackInfo>(), "AzTimerCallbackInfo"), (Layout::new::<AzTimerCallbackInfo>(), "AzTimerCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssProperty>(), "AzNodeDataInlineCssProperty"), (Layout::new::<AzNodeDataInlineCssProperty>(), "AzNodeDataInlineCssProperty"));
         assert_eq!((Layout::new::<azul_impl::css::DynamicCssProperty>(), "AzDynamicCssProperty"), (Layout::new::<AzDynamicCssProperty>(), "AzDynamicCssProperty"));

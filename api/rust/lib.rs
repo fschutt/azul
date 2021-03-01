@@ -422,12 +422,12 @@ mod dll {
         SlowWindowed,
         FastWindowed,
     }
-    /// Re-export of rust-allocated (stack based) `WindowTheme` struct
+    /// Window theme, set by the operating system or `WindowCreateOptions.theme` on startup
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzWindowTheme {
         DarkMode,
         LightMode,
     }
-    /// Re-export of rust-allocated (stack based) `MonitorHandle` struct
+    /// Monitor handle abstraction, only for azul-internal use
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzMonitorHandle {
         pub(crate) ptr: *mut c_void,
     }
@@ -1147,6 +1147,11 @@ mod dll {
         pub x: f32,
         pub y: f32,
     }
+    /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLogicalSize {
+        pub width: f32,
+        pub height: f32,
+    }
     /// Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzIconKey {
         pub id: usize,
@@ -1216,48 +1221,43 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzWasmWindowOptions {
         pub _reserved: u8,
     }
-    /// Re-export of rust-allocated (stack based) `WindowPosition` struct
+    /// Position of the top left corner of the window relative to the top left of the monitor
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzWindowPosition {
         Uninitialized,
         Initialized(AzPhysicalPositionI32),
     }
-    /// Re-export of rust-allocated (stack based) `ImePosition` struct
+    /// Position of the virtual keyboard necessary to insert CJK characters
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzImePosition {
         Uninitialized,
         Initialized(AzLogicalPosition),
     }
-    /// Re-export of rust-allocated (stack based) `TouchState` struct
+    /// Current state of touch devices / touch inputs
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzTouchState {
         pub unused: u8,
     }
-    /// Re-export of rust-allocated (stack based) `VideoMode` struct
+    /// Describes a rendering configuration for a monitor
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzVideoMode {
         pub size: AzLayoutSize,
         pub bit_depth: u16,
         pub refresh_rate: u16,
     }
-    /// Re-export of rust-allocated (stack based) `LogicalSize` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLogicalSize {
-        pub width: f32,
-        pub height: f32,
-    }
-    /// Re-export of rust-allocated (stack based) `LayoutCallback` struct
+    /// C-ABI stable wrapper over a `LayoutCallbackType`
     #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzLayoutCallback {
         pub cb: AzLayoutCallbackType,
     }
-    /// Re-export of rust-allocated (stack based) `Callback` struct
+    /// C-ABI stable wrapper over a `CallbackType`
     #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzCallback {
         pub cb: AzCallbackType,
     }
-    /// Re-export of rust-allocated (stack based) `NodeId` struct
+    /// Index of a Node in the internal `NodeDataContainer`
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzNodeId {
         pub inner: usize,
     }
-    /// Re-export of rust-allocated (stack based) `DomId` struct
+    /// ID of a DOM - one window can contain multiple, nested DOMs (such as iframes)
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzDomId {
         pub inner: usize,
     }
-    /// Re-export of rust-allocated (stack based) `DomNodeId` struct
+    /// Combination of node ID + DOM ID, both together can identify a node
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzDomNodeId {
         pub dom: AzDomId,
         pub node: AzNodeId,
@@ -1267,7 +1267,7 @@ mod dll {
         pub logical_size: AzLogicalSize,
         pub hidpi_factor: f32,
     }
-    /// Re-export of rust-allocated (stack based) `IFrameCallback` struct
+    /// C-ABI wrapper over an `IFrameCallbackType`
     #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzIFrameCallback {
         pub cb: AzIFrameCallbackType,
     }
@@ -3385,7 +3385,7 @@ mod dll {
         pub key: AzString,
         pub value: AzString,
     }
-    /// Re-export of rust-allocated (stack based) `Monitor` struct
+    /// Information about a single (or many) monitors, useful for dock widgets
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzMonitor {
         pub handle: AzMonitorHandle,
         pub name: AzOptionString,
@@ -3814,11 +3814,6 @@ mod dll {
         pub layout_callback: AzLayoutCallback,
         pub close_callback: AzOptionCallback,
     }
-    /// Re-export of rust-allocated (stack based) `FocusTargetPath` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFocusTargetPath {
-        pub dom: AzDomId,
-        pub css_path: AzCssPath,
-    }
     /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzCallbackInfo {
         pub current_window_state: *const c_void,
@@ -3847,6 +3842,11 @@ mod dll {
         pub hit_dom_node: AzDomNodeId,
         pub cursor_relative_to_item: AzOptionLayoutPoint,
         pub cursor_in_viewport: AzOptionLayoutPoint,
+    }
+    /// CSS path to set the keyboard input focus
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFocusTargetPath {
+        pub dom: AzDomId,
+        pub css_path: AzCssPath,
     }
     /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTimerCallbackInfo {
@@ -3907,7 +3907,7 @@ mod dll {
         pub theme: AzOptionWindowTheme,
         pub create_callback: AzOptionCallback,
     }
-    /// Defines the focus target for the next frame
+    /// Defines the keyboard input focus target
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzFocusTarget {
         Id(AzDomNodeId),
         Path(AzFocusTargetPath),
@@ -4055,9 +4055,6 @@ mod dll {
         pub(crate) fn az_monitor_handle_deep_copy(_:  &AzMonitorHandle) -> AzMonitorHandle;
         pub(crate) fn az_window_state_new(_:  AzLayoutCallbackType) -> AzWindowState;
         pub(crate) fn az_window_state_default() -> AzWindowState;
-        pub(crate) fn az_hidpi_adjusted_bounds_get_logical_size(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize;
-        pub(crate) fn az_hidpi_adjusted_bounds_get_physical_size(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32;
-        pub(crate) fn az_hidpi_adjusted_bounds_get_hidpi_factor(_:  &AzHidpiAdjustedBounds) -> f32;
         pub(crate) fn az_callback_info_get_hit_node(_:  &AzCallbackInfo) -> AzDomNodeId;
         pub(crate) fn az_callback_info_get_cursor_relative_to_viewport(_:  &AzCallbackInfo) -> AzOptionLayoutPoint;
         pub(crate) fn az_callback_info_get_cursor_relative_to_node(_:  &AzCallbackInfo) -> AzOptionLayoutPoint;
@@ -4078,6 +4075,9 @@ mod dll {
         pub(crate) fn az_callback_info_create_window(_:  &mut AzCallbackInfo, _:  AzWindowCreateOptions);
         pub(crate) fn az_callback_info_start_thread(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallbackType);
         pub(crate) fn az_callback_info_start_timer(_:  &mut AzCallbackInfo, _:  AzTimerId, _:  AzTimer);
+        pub(crate) fn az_hidpi_adjusted_bounds_get_logical_size(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize;
+        pub(crate) fn az_hidpi_adjusted_bounds_get_physical_size(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32;
+        pub(crate) fn az_hidpi_adjusted_bounds_get_hidpi_factor(_:  &AzHidpiAdjustedBounds) -> f32;
         pub(crate) fn az_i_frame_callback_info_get_bounds(_:  &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds;
         pub(crate) fn az_gl_callback_info_get_gl_context(_:  &AzGlCallbackInfo) -> AzOptionGlContextPtr;
         pub(crate) fn az_gl_callback_info_get_bounds(_:  &AzGlCallbackInfo) -> AzHidpiAdjustedBounds;
@@ -4608,6 +4608,9 @@ pub mod window {
     /// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
     
 #[doc(inline)] pub use crate::dll::AzLogicalPosition as LogicalPosition;
+    /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
+    
+#[doc(inline)] pub use crate::dll::AzLogicalSize as LogicalSize;
     /// Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.
     
 #[doc(inline)] pub use crate::dll::AzIconKey as IconKey;
@@ -4677,42 +4680,39 @@ pub mod window {
     /// `FullScreenMode` struct
     
 #[doc(inline)] pub use crate::dll::AzFullScreenMode as FullScreenMode;
-    /// `WindowTheme` struct
+    /// Window theme, set by the operating system or `WindowCreateOptions.theme` on startup
     
 #[doc(inline)] pub use crate::dll::AzWindowTheme as WindowTheme;
-    /// `WindowPosition` struct
+    /// Position of the top left corner of the window relative to the top left of the monitor
     
 #[doc(inline)] pub use crate::dll::AzWindowPosition as WindowPosition;
-    /// `ImePosition` struct
+    /// Position of the virtual keyboard necessary to insert CJK characters
     
 #[doc(inline)] pub use crate::dll::AzImePosition as ImePosition;
-    /// `TouchState` struct
+    /// Current state of touch devices / touch inputs
     
 #[doc(inline)] pub use crate::dll::AzTouchState as TouchState;
-    /// `MonitorHandle` struct
+    /// Monitor handle abstraction, only for azul-internal use
     
 #[doc(inline)] pub use crate::dll::AzMonitorHandle as MonitorHandle;
     impl Clone for MonitorHandle { fn clone(&self) -> Self { unsafe { crate::dll::az_monitor_handle_deep_copy(self) } } }
     impl Drop for MonitorHandle { fn drop(&mut self) { unsafe { crate::dll::az_monitor_handle_delete(self) } } }
-    /// `Monitor` struct
+    /// Information about a single (or many) monitors, useful for dock widgets
     
 #[doc(inline)] pub use crate::dll::AzMonitor as Monitor;
-    /// `VideoMode` struct
+    /// Describes a rendering configuration for a monitor
     
 #[doc(inline)] pub use crate::dll::AzVideoMode as VideoMode;
     /// `WindowState` struct
     
 #[doc(inline)] pub use crate::dll::AzWindowState as WindowState;
     impl WindowState {
-        /// Creates a new `WindowState` instance.
+        /// Creates a new WindowState with default settings and a custom layout callback
         pub fn new(layout_callback: LayoutCallbackType) -> Self { unsafe { crate::dll::az_window_state_new(layout_callback) } }
-        /// Creates a new `WindowState` instance.
+        /// Creates a default WindowState with an empty layout callback - useful only if you use the Rust `WindowState { .. WindowState::default() }` intialization syntax.
         pub fn default() -> Self { unsafe { crate::dll::az_window_state_default() } }
     }
 
-    /// `LogicalSize` struct
-    
-#[doc(inline)] pub use crate::dll::AzLogicalSize as LogicalSize;
 }
 
 pub mod callbacks {
@@ -4849,43 +4849,16 @@ pub mod callbacks {
     use crate::css::CssProperty;
     use crate::task::{ThreadId, Timer, TimerId};
     use crate::str::String;
-    /// `LayoutCallback` struct
+    /// C-ABI stable wrapper over a `LayoutCallbackType`
     
 #[doc(inline)] pub use crate::dll::AzLayoutCallback as LayoutCallback;
     /// Main callback to layout the UI. azul will only call this callback when necessary (usually when one of the callback or timer returns `RegenerateStyledDomForCurrentWindow`), however azul may also call this callback at any given time, so it should be performant. This is the main entry point for your app UI.
     
 #[doc(inline)] pub use crate::dll::AzLayoutCallbackType as LayoutCallbackType;
-    /// `Callback` struct
+    /// C-ABI stable wrapper over a `CallbackType`
     
 #[doc(inline)] pub use crate::dll::AzCallback as Callback;
-    /// `NodeId` struct
-    
-#[doc(inline)] pub use crate::dll::AzNodeId as NodeId;
-    /// `DomId` struct
-    
-#[doc(inline)] pub use crate::dll::AzDomId as DomId;
-    /// `DomNodeId` struct
-    
-#[doc(inline)] pub use crate::dll::AzDomNodeId as DomNodeId;
-    /// `HidpiAdjustedBounds` struct
-    
-#[doc(inline)] pub use crate::dll::AzHidpiAdjustedBounds as HidpiAdjustedBounds;
-    impl HidpiAdjustedBounds {
-        /// Returns the size of the bounds in logical units
-        pub fn get_logical_size(&self)  -> crate::window::LogicalSize { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_logical_size(self) } }
-        /// Returns the size of the bounds in physical units
-        pub fn get_physical_size(&self)  -> crate::window::PhysicalSizeU32 { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_physical_size(self) } }
-        /// Returns the hidpi factor of the bounds
-        pub fn get_hidpi_factor(&self)  -> f32 { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_hidpi_factor(self) } }
-    }
-
-    /// Defines the focus target for the next frame
-    
-#[doc(inline)] pub use crate::dll::AzFocusTarget as FocusTarget;
-    /// `FocusTargetPath` struct
-    
-#[doc(inline)] pub use crate::dll::AzFocusTargetPath as FocusTargetPath;
-    /// `CallbackType` struct
+    /// Generic UI callback function pointer: called when the `EventFilter` is active
     
 #[doc(inline)] pub use crate::dll::AzCallbackType as CallbackType;
     /// `CallbackInfo` struct
@@ -4922,7 +4895,7 @@ pub mod callbacks {
         pub fn set_window_state(&mut self, new_state: WindowState)  { unsafe { crate::dll::az_callback_info_set_window_state(self, new_state) } }
         /// Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.
         pub fn set_focus(&mut self, target: FocusTarget)  { unsafe { crate::dll::az_callback_info_set_focus(self, target) } }
-        /// Sets a `CssProperty` on a given ndoe to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
+        /// Sets a `CssProperty` on a given node to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
         pub fn set_css_property(&mut self, node_id: DomNodeId, new_property: CssProperty)  { unsafe { crate::dll::az_callback_info_set_css_property(self, node_id, new_property) } }
         /// Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.
         pub fn stop_propagation(&mut self)  { unsafe { crate::dll::az_callback_info_stop_propagation(self) } }
@@ -4937,10 +4910,37 @@ pub mod callbacks {
     /// Specifies if the screen should be updated after the callback function has returned
     
 #[doc(inline)] pub use crate::dll::AzUpdateScreen as UpdateScreen;
-    /// `IFrameCallback` struct
+    /// Index of a Node in the internal `NodeDataContainer`
+    
+#[doc(inline)] pub use crate::dll::AzNodeId as NodeId;
+    /// ID of a DOM - one window can contain multiple, nested DOMs (such as iframes)
+    
+#[doc(inline)] pub use crate::dll::AzDomId as DomId;
+    /// Combination of node ID + DOM ID, both together can identify a node
+    
+#[doc(inline)] pub use crate::dll::AzDomNodeId as DomNodeId;
+    /// `HidpiAdjustedBounds` struct
+    
+#[doc(inline)] pub use crate::dll::AzHidpiAdjustedBounds as HidpiAdjustedBounds;
+    impl HidpiAdjustedBounds {
+        /// Returns the size of the bounds in logical units
+        pub fn get_logical_size(&self)  -> crate::window::LogicalSize { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_logical_size(self) } }
+        /// Returns the size of the bounds in physical units
+        pub fn get_physical_size(&self)  -> crate::window::PhysicalSizeU32 { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_physical_size(self) } }
+        /// Returns the hidpi factor of the bounds
+        pub fn get_hidpi_factor(&self)  -> f32 { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_hidpi_factor(self) } }
+    }
+
+    /// Defines the keyboard input focus target
+    
+#[doc(inline)] pub use crate::dll::AzFocusTarget as FocusTarget;
+    /// CSS path to set the keyboard input focus
+    
+#[doc(inline)] pub use crate::dll::AzFocusTargetPath as FocusTargetPath;
+    /// C-ABI wrapper over an `IFrameCallbackType`
     
 #[doc(inline)] pub use crate::dll::AzIFrameCallback as IFrameCallback;
-    /// `IFrameCallbackType` struct
+    /// For rendering large or infinite datasets such as tables or lists, azul uses `IFrameCallbacks` that allow the library user to only render the visible portion of DOM nodes, not the entire set. IFrames are rendered after the screen has been laid out, but before it gets composited. IFrames can be used recursively (i.e. iframes within iframes are possible). IFrames are re-rendered once the user scrolls to the bounds (see `IFrameCallbackReturn` on how to set the bounds) or the parent DOM was re-rendered.
     
 #[doc(inline)] pub use crate::dll::AzIFrameCallbackType as IFrameCallbackType;
     /// `IFrameCallbackInfo` struct

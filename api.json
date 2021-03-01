@@ -302,6 +302,15 @@
 						{"y": {"type": "f32"}}
 					]
 				},
+				"LogicalSize": {
+					"doc": "A size in \"logical\" (non-HiDPI-adjusted) pixels in floating-point units",
+					"external": "azul_impl::window::LogicalSize",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"width": {"type": "f32"}},
+						{"height": {"type": "f32"}}
+					]
+				},
 				"IconKey": {
 					"doc": "Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.",
 					"external": "azul_impl::window::IconKey",
@@ -796,22 +805,25 @@
 					]
 				},
 				"WindowTheme": {
+					"doc": "Window theme, set by the operating system or `WindowCreateOptions.theme` on startup",
 					"external": "azul_impl::window::WindowTheme",
 					"derive": ["Copy"],
 					"enum_fields": [
-						{"DarkMode": {}},
-						{"LightMode": {}}
+						{"DarkMode": {"doc": "Dark mode theme"}},
+						{"LightMode": {"doc": "Light mode theme (default)"}}
 					]
 				},
 				"WindowPosition": {
+					"doc": "Position of the top left corner of the window relative to the top left of the monitor",
 					"external": "azul_impl::window::WindowPosition",
 					"derive": ["Copy"],
 					"enum_fields": [
-						{"Uninitialized": {}},
-						{"Initialized": {"type": "PhysicalPositionI32"}}
+						{"Uninitialized": {"doc": "Window position has not been initialized yet (default, only set on startup)"}},
+						{"Initialized": {"type": "PhysicalPositionI32", "doc": "Initialized window position: modifying this value will move the window"}}
 					]
 				},
 				"ImePosition": {
+					"doc": "Position of the virtual keyboard necessary to insert CJK characters",
 					"external": "azul_impl::window::ImePosition",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -820,6 +832,7 @@
 					]
 				},
 				"TouchState": {
+					"doc": "Current state of touch devices / touch inputs",
 					"external": "azul_impl::window::TouchState",
 					"derive": ["Copy"],
 					"struct_fields": [
@@ -827,30 +840,33 @@
 					]
 				},
 				"MonitorHandle": {
+					"doc": "Monitor handle abstraction, only for azul-internal use",
 					"external": "azul_impl::window::Monitor",
 					"is_boxed_object": true,
 					"struct_fields": [
-						{"ptr": {"type": "*mut c_void"}}
+						{"ptr": {"type": "*mut c_void", "doc": "Monitor implementation can vary from platform to platform"}}
 					]
 				},
 				"Monitor": {
+					"doc": "Information about a single (or many) monitors, useful for dock widgets",
 					"external": "azul_impl::window::Monitor",
 					"struct_fields": [
-						{"handle": {"type": "MonitorHandle"}},
-						{"name": {"type": "OptionString"}},
-						{"size": {"type": "LayoutSize"}},
-						{"position": {"type": "LayoutPoint"}},
-						{"scale_factor": {"type": "f64"}},
-						{"video_modes": {"type": "VideoModeVec"}},
-						{"is_primary_monitor": {"type": "bool"}}
+						{"handle": {"type": "MonitorHandle", "doc": "Opaque handle to the monitor, platform-dependent"}},
+						{"name": {"type": "OptionString", "doc": "Name of the Monitor"}},
+						{"size": {"type": "LayoutSize", "doc": "Size of the monitor. Note that this does not say anything about DPI (i.e. the physical, real-world size of the monitor)."}},
+						{"position": {"type": "LayoutPoint", "doc": "Position relative to the top left of the \"virtual\" monitor size (if two or more monitors are connected, this area will usually be a union of all monitors)"}},
+						{"scale_factor": {"type": "f64", "doc": "HiDPI scale factor of this monitor"}},
+						{"video_modes": {"type": "VideoModeVec", "doc": "List of video modes supported by this monitor"}},
+						{"is_primary_monitor": {"type": "bool", "doc": "Whether this monitor is set as the primary monitor"}}
 					]
 				},
 				"VideoMode": {
+					"doc": "Describes a rendering configuration for a monitor",
 					"external": "azul_impl::window::VideoMode",
 					"struct_fields": [
-						{"size": {"type": "LayoutSize"}},
-						{"bit_depth": {"type": "u16"}},
-						{"refresh_rate": {"type": "u16"}}
+						{"size": {"type": "LayoutSize", "doc": "Screen resolution in pixels"}},
+						{"bit_depth": {"type": "u16", "doc": "Returns the bit depth of this video mode, as in how many bits you have available per color. This is generally 24 bits or 32 bits on modern systems, depending on whether the alpha channel is counted or not.\r\nWayland: always returns 32.\r\niOS: always returns 32."}},
+						{"refresh_rate": {"type": "u16", "doc": "Returns the refresh rate of this video mode. Note: the returned refresh rate is an integer approximation, and you shouldn't rely on this value to be exact."}}
 					]
 				},
 				"WindowState": {
@@ -875,24 +891,18 @@
 					],
 					"constructors": {
 						"new": {
+							"doc": "Creates a new WindowState with default settings and a custom layout callback",
 							"fn_args":[
 								{"layout_callback": "LayoutCallbackType"}
 							],
 							"fn_body": "WindowState::new(layout_callback)"
 						},
 						"default": {
+							"doc": "Creates a default WindowState with an empty layout callback - useful only if you use the Rust `WindowState { .. WindowState::default() }` intialization syntax.",
 							"fn_args": [],
 							"fn_body": "WindowState::default()"
 						}
 					}
-				},
-				"LogicalSize": {
-					"external": "azul_impl::window::LogicalSize",
-					"derive": ["Copy"],
-					"struct_fields": [
-						{"width": {"type": "f32"}},
-						{"height": {"type": "f32"}}
-					]
 				}
 			}
 		},
@@ -900,6 +910,7 @@
 			"doc": "Callback type definitions + struct definitions of `CallbackInfo`s",
 			"classes": {
 				"LayoutCallback": {
+					"doc": "C-ABI stable wrapper over a `LayoutCallbackType`",
 					"external": "azul_impl::callbacks::LayoutCallback",
 					"derive": ["Copy"],
 					"struct_fields": [
@@ -917,95 +928,21 @@
 					}
 				},
 				"Callback": {
+					"doc": "C-ABI stable wrapper over a `CallbackType`",
 					"external": "azul_impl::callbacks::Callback",
 					"derive": ["Copy"],
 					"struct_fields": [
 						{"cb": {"type": "CallbackType"}}
 					]
 				},
-				"NodeId": {
-					"external": "azul_impl::styled_dom::AzNodeId",
-					"derive": ["Copy"],
-					"struct_fields": [
-						{"inner": {"type": "usize"}}
-					]
-				},
-				"DomId": {
-					"external": "azul_impl::styled_dom::DomId",
-					"derive": ["Copy"],
-					"struct_fields": [
-						{"inner": {"type": "usize"}}
-					]
-				},
-				"DomNodeId": {
-					"external": "azul_impl::callbacks::DomNodeId",
-					"derive": ["Copy"],
-					"struct_fields": [
-						{"dom": {"type": "DomId"}},
-						{"node": {"type": "NodeId"}}
-					]
-				},
-				"HidpiAdjustedBounds": {
-					"external": "azul_impl::callbacks::HidpiAdjustedBounds",
-					"derive": ["Copy"],
-					"struct_fields": [
-						{"logical_size": {"type": "LogicalSize"}},
-						{"hidpi_factor": {"type": "f32"}}
-					],
-					"functions": {
-						"get_logical_size": {
-							"doc": "Returns the size of the bounds in logical units",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "LogicalSize"},
-							"fn_body": "hidpiadjustedbounds.get_logical_size()"
-						},
-						"get_physical_size": {
-							"doc": "Returns the size of the bounds in physical units",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "PhysicalSizeU32"},
-							"fn_body": "hidpiadjustedbounds.get_physical_size()"
-						},
-						"get_hidpi_factor": {
-							"doc": "Returns the hidpi factor of the bounds",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "f32"},
-							"fn_body": "hidpiadjustedbounds.get_hidpi_factor()"
-						}
-					}
-				},
-				"FocusTarget": {
-					"external": "azul_impl::callbacks::FocusTarget",
-					"doc": "Defines the focus target for the next frame",
-					"enum_fields": [
-						{"Id": {"type": "DomNodeId"}},
-						{"Path": {"type": "FocusTargetPath"}},
-						{"Previous": {}},
-						{"Next": {}},
-						{"First": {}},
-						{"Last": {}},
-						{"NoFocus": {}}
-					]
-				},
-				"FocusTargetPath": {
-					"external": "azul_impl::callbacks::FocusTargetPath",
-					"struct_fields": [
-						{"dom": {"type": "DomId"}},
-						{"css_path": {"type": "CssPath"}}
-					]
-				},
 				"CallbackType": {
+					"doc": "Generic UI callback function pointer: called when the `EventFilter` is active",
 					"callback_typedef": {
 						"fn_args": [
-							{"type": "RefAny", "ref": "refmut"},
-							{"type": "CallbackInfo", "ref": "value"}
+							{"type": "RefAny", "ref": "refmut", "doc": "Reference counted opaque pointer to the data set in the `CallbackData` for the hit DOM node"},
+							{"type": "CallbackInfo", "ref": "value", "doc": "Context struct to allow the callback to manipulate UI structures"}
 						],
-						"returns": {"type": "UpdateScreen"}
+						"returns": {"type": "UpdateScreen", "doc": "Whether this callback has modified the application state in such a way that a full UI redraw is unavoidable. If any callback returns true, the `LayoutCallback` of the window will be called again to render the next frame."}
 					}
 				},
 				"CallbackInfo": {
@@ -1166,7 +1103,7 @@
 							"fn_body": "callbackinfo.set_focus(target);"
 						},
 						"set_css_property": {
-							"doc": "Sets a `CssProperty` on a given ndoe to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.",
+							"doc": "Sets a `CssProperty` on a given node to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.",
 							"fn_args": [
 								{"self": "refmut"},
 								{"node_id": "DomNodeId"},
@@ -1212,8 +1149,8 @@
 					}
 				},
 				"UpdateScreen": {
-					"external": "azul_impl::callbacks::UpdateScreen",
 					"doc": "Specifies if the screen should be updated after the callback function has returned",
+					"external": "azul_impl::callbacks::UpdateScreen",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{"DoNothing": {"doc": "The screen does not need to redraw after the callback has been called"}},
@@ -1221,7 +1158,88 @@
 						{"RegenerateStyledDomForAllWindows": {"doc": "After the callback is called, the layout() function needs to be called again for ALL windows"}}
 					]
 				},
+				"NodeId": {
+					"doc": "Index of a Node in the internal `NodeDataContainer`",
+					"external": "azul_impl::styled_dom::AzNodeId",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"inner": {"type": "usize", "doc": "Index of the node into the vector.\r\n**Note:** the `index` is offset by 1:\r\n\r\n`0 = None`\r\n\r\n`1 = Some(0)`\r\n\r\n`2 = Some(1)`"}}
+					]
+				},
+				"DomId": {
+					"doc": "ID of a DOM - one window can contain multiple, nested DOMs (such as iframes)",
+					"external": "azul_impl::styled_dom::DomId",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"inner": {"type": "usize", "doc": "Index of the dom into the `StyledDomVec`"}}
+					]
+				},
+				"DomNodeId": {
+					"doc": "Combination of node ID + DOM ID, both together can identify a node",
+					"external": "azul_impl::callbacks::DomNodeId",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"dom": {"type": "DomId"}},
+						{"node": {"type": "NodeId"}}
+					]
+				},
+				"HidpiAdjustedBounds": {
+					"external": "azul_impl::callbacks::HidpiAdjustedBounds",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"logical_size": {"type": "LogicalSize"}},
+						{"hidpi_factor": {"type": "f32"}}
+					],
+					"functions": {
+						"get_logical_size": {
+							"doc": "Returns the size of the bounds in logical units",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "LogicalSize"},
+							"fn_body": "hidpiadjustedbounds.get_logical_size()"
+						},
+						"get_physical_size": {
+							"doc": "Returns the size of the bounds in physical units",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "PhysicalSizeU32"},
+							"fn_body": "hidpiadjustedbounds.get_physical_size()"
+						},
+						"get_hidpi_factor": {
+							"doc": "Returns the hidpi factor of the bounds",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "f32"},
+							"fn_body": "hidpiadjustedbounds.get_hidpi_factor()"
+						}
+					}
+				},
+				"FocusTarget": {
+					"doc": "Defines the keyboard input focus target",
+					"external": "azul_impl::callbacks::FocusTarget",
+					"enum_fields": [
+						{"Id": {"type": "DomNodeId", "doc": "Set the focus by its DOM + Node ID"}},
+						{"Path": {"type": "FocusTargetPath", "doc": "Set the focus by a CSS path"}},
+						{"Previous": {"doc": "Sets the focus to the previous focusable node in the DOM or `None` if this was the first focusable DOM node"}},
+						{"Next": {"doc": "Sets the focus to the next focusable node in the DOM or `None` if this was the last focusable DOM node"}},
+						{"First": {"doc": "Set the focus to the first focusable DOM or `None` if no nodes are focusable"}},
+						{"Last": {"doc": "Set the focus to the last focusable DOM or `None` if no nodes are focusable"}},
+						{"NoFocus": {"doc": "Unset the keyboard focus"}}
+					]
+				},
+				"FocusTargetPath": {
+					"doc": "CSS path to set the keyboard input focus",
+					"external": "azul_impl::callbacks::FocusTargetPath",
+					"struct_fields": [
+						{"dom": {"type": "DomId"}},
+						{"css_path": {"type": "CssPath"}}
+					]
+				},
 				"IFrameCallback": {
+					"doc": "C-ABI wrapper over an `IFrameCallbackType`",
 					"external": "azul_impl::callbacks::IFrameCallback",
 					"derive": ["Copy"],
 					"struct_fields": [
@@ -1229,12 +1247,13 @@
 					]
 				},
 				"IFrameCallbackType": {
+					"doc": "For rendering large or infinite datasets such as tables or lists, azul uses `IFrameCallbacks` that allow the library user to only render the visible portion of DOM nodes, not the entire set. IFrames are rendered after the screen has been laid out, but before it gets composited. IFrames can be used recursively (i.e. iframes within iframes are possible). IFrames are re-rendered once the user scrolls to the bounds (see `IFrameCallbackReturn` on how to set the bounds) or the parent DOM was recreated.",
 					"callback_typedef": {
 						"fn_args": [
-							{"type": "RefAny", "ref": "refmut"},
-							{"type": "IFrameCallbackInfo", "ref": "value"}
+							{"type": "RefAny", "ref": "refmut", "doc": "An `IFrameCallback` can have some data passed along from the parent DOM - usually this would be struct containing the widget state"},
+							{"type": "IFrameCallbackInfo", "ref": "value", "doc": "Similar to `LayoutInfo`, but carries an additional `bounds` field which has information about the size / current scroll position of the IFrame."}
 						],
-						"returns": {"type": "IFrameCallbackReturn"}
+						"returns": {"type": "IFrameCallbackReturn", "doc": "Contains the returned `StyledDom` as well as information about the initial scroll position of the new DOM plus scrollbar / overflow information"}
 					}
 				},
 				"IFrameCallbackInfo": {
