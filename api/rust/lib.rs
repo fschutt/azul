@@ -843,6 +843,19 @@ mod dll {
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzCssPropertyCache {
         pub(crate) ptr: *mut c_void,
     }
+    /// Re-export of rust-allocated (stack based) `GlContextPtr` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlContextPtr {
+        pub(crate) ptr: *const c_void,
+        pub renderer_type: AzRendererType,
+    }
+    /// Re-export of rust-allocated (stack based) `Texture` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTexture {
+        pub texture_id: u32,
+        pub format: AzRawImageFormat,
+        pub flags: AzTextureFlags,
+        pub size: AzPhysicalSizeU32,
+        pub gl_context: AzGlContextPtr,
+    }
     /// Re-export of rust-allocated (stack based) `VertexAttributeType` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzVertexAttributeType {
         Float,
@@ -868,19 +881,6 @@ mod dll {
     /// C-ABI stable reexport of `*const gleam::gl::GLsync`
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLsyncPtr {
         pub(crate) ptr: *const c_void,
-    }
-    /// Re-export of rust-allocated (stack based) `GlContextPtr` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlContextPtr {
-        pub(crate) ptr: *const c_void,
-        pub renderer_type: AzRendererType,
-    }
-    /// Re-export of rust-allocated (stack based) `Texture` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTexture {
-        pub texture_id: u32,
-        pub format: AzRawImageFormat,
-        pub flags: AzTextureFlags,
-        pub size: AzPhysicalSizeU32,
-        pub gl_context: AzGlContextPtr,
     }
     /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzRawImageFormat {
@@ -4056,7 +4056,6 @@ mod dll {
         pub(crate) fn az_styled_dom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn az_styled_dom_append(_:  &mut AzStyledDom, _:  AzStyledDom);
         pub(crate) fn az_styled_dom_node_count(_:  &AzStyledDom) -> usize;
-        pub(crate) fn az_g_lsync_ptr_delete(_:  &mut AzGLsyncPtr);
         pub(crate) fn az_gl_context_ptr_get_type(_:  &AzGlContextPtr) -> AzGlType;
         pub(crate) fn az_gl_context_ptr_buffer_data_untyped(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32);
         pub(crate) fn az_gl_context_ptr_buffer_sub_data_untyped(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  *const c_void);
@@ -4281,6 +4280,7 @@ mod dll {
         pub(crate) fn az_gl_context_ptr_delete(_:  &mut AzGlContextPtr);
         pub(crate) fn az_gl_context_ptr_deep_copy(_:  &AzGlContextPtr) -> AzGlContextPtr;
         pub(crate) fn az_texture_delete(_:  &mut AzTexture);
+        pub(crate) fn az_g_lsync_ptr_delete(_:  &mut AzGLsyncPtr);
         pub(crate) fn az_texture_flags_default() -> AzTextureFlags;
         pub(crate) fn az_image_id_new() -> AzImageId;
         pub(crate) fn az_font_id_new() -> AzFontId;
@@ -8202,82 +8202,6 @@ pub mod gl {
 
     use crate::vec::{GLuintVec, StringVec};
     use crate::option::OptionU8VecRef;
-    /// `GlShaderPrecisionFormatReturn` struct
-    
-#[doc(inline)] pub use crate::dll::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;
-    /// `VertexAttributeType` struct
-    
-#[doc(inline)] pub use crate::dll::AzVertexAttributeType as VertexAttributeType;
-    /// `VertexAttribute` struct
-    
-#[doc(inline)] pub use crate::dll::AzVertexAttribute as VertexAttribute;
-    /// `VertexLayout` struct
-    
-#[doc(inline)] pub use crate::dll::AzVertexLayout as VertexLayout;
-    /// `VertexArrayObject` struct
-    
-#[doc(inline)] pub use crate::dll::AzVertexArrayObject as VertexArrayObject;
-    /// `IndexBufferFormat` struct
-    
-#[doc(inline)] pub use crate::dll::AzIndexBufferFormat as IndexBufferFormat;
-    /// `VertexBuffer` struct
-    
-#[doc(inline)] pub use crate::dll::AzVertexBuffer as VertexBuffer;
-    /// `GlType` struct
-    
-#[doc(inline)] pub use crate::dll::AzGlType as GlType;
-    /// `DebugMessage` struct
-    
-#[doc(inline)] pub use crate::dll::AzDebugMessage as DebugMessage;
-    /// C-ABI stable reexport of `&[u8]`
-    
-#[doc(inline)] pub use crate::dll::AzU8VecRef as U8VecRef;
-    /// C-ABI stable reexport of `&mut [u8]`
-    
-#[doc(inline)] pub use crate::dll::AzU8VecRefMut as U8VecRefMut;
-    /// C-ABI stable reexport of `&[f32]`
-    
-#[doc(inline)] pub use crate::dll::AzF32VecRef as F32VecRef;
-    /// C-ABI stable reexport of `&[i32]`
-    
-#[doc(inline)] pub use crate::dll::AzI32VecRef as I32VecRef;
-    /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
-    
-#[doc(inline)] pub use crate::dll::AzGLuintVecRef as GLuintVecRef;
-    /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
-    
-#[doc(inline)] pub use crate::dll::AzGLenumVecRef as GLenumVecRef;
-    /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
-    
-#[doc(inline)] pub use crate::dll::AzGLintVecRefMut as GLintVecRefMut;
-    /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
-    
-#[doc(inline)] pub use crate::dll::AzGLint64VecRefMut as GLint64VecRefMut;
-    /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
-    
-#[doc(inline)] pub use crate::dll::AzGLbooleanVecRefMut as GLbooleanVecRefMut;
-    /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
-    
-#[doc(inline)] pub use crate::dll::AzGLfloatVecRefMut as GLfloatVecRefMut;
-    /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
-    
-#[doc(inline)] pub use crate::dll::AzRefstrVecRef as RefstrVecRef;
-    /// C-ABI stable reexport of `&str`
-    
-#[doc(inline)] pub use crate::dll::AzRefstr as Refstr;
-    /// C-ABI stable reexport of `(U8Vec, u32)`
-    
-#[doc(inline)] pub use crate::dll::AzGetProgramBinaryReturn as GetProgramBinaryReturn;
-    /// C-ABI stable reexport of `(i32, u32, AzString)`
-    
-#[doc(inline)] pub use crate::dll::AzGetActiveAttribReturn as GetActiveAttribReturn;
-    /// C-ABI stable reexport of `*const gleam::gl::GLsync`
-    
-#[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
-    impl Drop for GLsyncPtr { fn drop(&mut self) { unsafe { crate::dll::az_g_lsync_ptr_delete(self) } } }
-    /// C-ABI stable reexport of `(i32, u32, AzString)`
-    
-#[doc(inline)] pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;
     /// `GlContextPtr` struct
     
 #[doc(inline)] pub use crate::dll::AzGlContextPtr as GlContextPtr;
@@ -8732,6 +8656,82 @@ pub mod gl {
     
 #[doc(inline)] pub use crate::dll::AzTexture as Texture;
     impl Drop for Texture { fn drop(&mut self) { unsafe { crate::dll::az_texture_delete(self) } } }
+    /// `GlShaderPrecisionFormatReturn` struct
+    
+#[doc(inline)] pub use crate::dll::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;
+    /// `VertexAttributeType` struct
+    
+#[doc(inline)] pub use crate::dll::AzVertexAttributeType as VertexAttributeType;
+    /// `VertexAttribute` struct
+    
+#[doc(inline)] pub use crate::dll::AzVertexAttribute as VertexAttribute;
+    /// `VertexLayout` struct
+    
+#[doc(inline)] pub use crate::dll::AzVertexLayout as VertexLayout;
+    /// `VertexArrayObject` struct
+    
+#[doc(inline)] pub use crate::dll::AzVertexArrayObject as VertexArrayObject;
+    /// `IndexBufferFormat` struct
+    
+#[doc(inline)] pub use crate::dll::AzIndexBufferFormat as IndexBufferFormat;
+    /// `VertexBuffer` struct
+    
+#[doc(inline)] pub use crate::dll::AzVertexBuffer as VertexBuffer;
+    /// `GlType` struct
+    
+#[doc(inline)] pub use crate::dll::AzGlType as GlType;
+    /// `DebugMessage` struct
+    
+#[doc(inline)] pub use crate::dll::AzDebugMessage as DebugMessage;
+    /// C-ABI stable reexport of `&[u8]`
+    
+#[doc(inline)] pub use crate::dll::AzU8VecRef as U8VecRef;
+    /// C-ABI stable reexport of `&mut [u8]`
+    
+#[doc(inline)] pub use crate::dll::AzU8VecRefMut as U8VecRefMut;
+    /// C-ABI stable reexport of `&[f32]`
+    
+#[doc(inline)] pub use crate::dll::AzF32VecRef as F32VecRef;
+    /// C-ABI stable reexport of `&[i32]`
+    
+#[doc(inline)] pub use crate::dll::AzI32VecRef as I32VecRef;
+    /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
+    
+#[doc(inline)] pub use crate::dll::AzGLuintVecRef as GLuintVecRef;
+    /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
+    
+#[doc(inline)] pub use crate::dll::AzGLenumVecRef as GLenumVecRef;
+    /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
+    
+#[doc(inline)] pub use crate::dll::AzGLintVecRefMut as GLintVecRefMut;
+    /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
+    
+#[doc(inline)] pub use crate::dll::AzGLint64VecRefMut as GLint64VecRefMut;
+    /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
+    
+#[doc(inline)] pub use crate::dll::AzGLbooleanVecRefMut as GLbooleanVecRefMut;
+    /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
+    
+#[doc(inline)] pub use crate::dll::AzGLfloatVecRefMut as GLfloatVecRefMut;
+    /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
+    
+#[doc(inline)] pub use crate::dll::AzRefstrVecRef as RefstrVecRef;
+    /// C-ABI stable reexport of `&str`
+    
+#[doc(inline)] pub use crate::dll::AzRefstr as Refstr;
+    /// C-ABI stable reexport of `(U8Vec, u32)`
+    
+#[doc(inline)] pub use crate::dll::AzGetProgramBinaryReturn as GetProgramBinaryReturn;
+    /// C-ABI stable reexport of `(i32, u32, AzString)`
+    
+#[doc(inline)] pub use crate::dll::AzGetActiveAttribReturn as GetActiveAttribReturn;
+    /// C-ABI stable reexport of `*const gleam::gl::GLsync`
+    
+#[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
+    impl Drop for GLsyncPtr { fn drop(&mut self) { unsafe { crate::dll::az_g_lsync_ptr_delete(self) } } }
+    /// C-ABI stable reexport of `(i32, u32, AzString)`
+    
+#[doc(inline)] pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;
     /// `TextureFlags` struct
     
 #[doc(inline)] pub use crate::dll::AzTextureFlags as TextureFlags;

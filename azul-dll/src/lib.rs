@@ -1298,108 +1298,6 @@ pub use AzStyledDomTT as AzStyledDom;
 /// Returns the number of nodes in the styled DOM
 #[no_mangle] pub extern "C" fn az_styled_dom_node_count(styleddom: &AzStyledDom) -> usize { styleddom.node_count() }
 
-/// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
-pub type AzGlShaderPrecisionFormatReturnTT = azul_impl::gl::GlShaderPrecisionFormatReturn;
-pub use AzGlShaderPrecisionFormatReturnTT as AzGlShaderPrecisionFormatReturn;
-
-/// Re-export of rust-allocated (stack based) `VertexAttributeType` struct
-pub type AzVertexAttributeTypeTT = azul_impl::gl::VertexAttributeType;
-pub use AzVertexAttributeTypeTT as AzVertexAttributeType;
-
-/// Re-export of rust-allocated (stack based) `VertexAttribute` struct
-pub type AzVertexAttributeTT = azul_impl::gl::VertexAttribute;
-pub use AzVertexAttributeTT as AzVertexAttribute;
-
-/// Re-export of rust-allocated (stack based) `VertexLayout` struct
-pub type AzVertexLayoutTT = azul_impl::gl::VertexLayout;
-pub use AzVertexLayoutTT as AzVertexLayout;
-
-/// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
-pub type AzVertexArrayObjectTT = azul_impl::gl::VertexArrayObject;
-pub use AzVertexArrayObjectTT as AzVertexArrayObject;
-
-/// Re-export of rust-allocated (stack based) `IndexBufferFormat` struct
-pub type AzIndexBufferFormatTT = azul_impl::gl::IndexBufferFormat;
-pub use AzIndexBufferFormatTT as AzIndexBufferFormat;
-
-/// Re-export of rust-allocated (stack based) `VertexBuffer` struct
-pub type AzVertexBufferTT = azul_impl::gl::VertexBuffer;
-pub use AzVertexBufferTT as AzVertexBuffer;
-
-/// Re-export of rust-allocated (stack based) `GlType` struct
-pub type AzGlTypeTT = azul_impl::gl::AzGlType;
-pub use AzGlTypeTT as AzGlType;
-
-/// Re-export of rust-allocated (stack based) `DebugMessage` struct
-pub type AzDebugMessageTT = azul_impl::gl::AzDebugMessage;
-pub use AzDebugMessageTT as AzDebugMessage;
-
-/// C-ABI stable reexport of `&[u8]`
-pub type AzU8VecRefTT = azul_impl::gl::U8VecRef;
-pub use AzU8VecRefTT as AzU8VecRef;
-
-/// C-ABI stable reexport of `&mut [u8]`
-pub type AzU8VecRefMutTT = azul_impl::gl::U8VecRefMut;
-pub use AzU8VecRefMutTT as AzU8VecRefMut;
-
-/// C-ABI stable reexport of `&[f32]`
-pub type AzF32VecRefTT = azul_impl::gl::F32VecRef;
-pub use AzF32VecRefTT as AzF32VecRef;
-
-/// C-ABI stable reexport of `&[i32]`
-pub type AzI32VecRefTT = azul_impl::gl::I32VecRef;
-pub use AzI32VecRefTT as AzI32VecRef;
-
-/// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
-pub type AzGLuintVecRefTT = azul_impl::gl::GLuintVecRef;
-pub use AzGLuintVecRefTT as AzGLuintVecRef;
-
-/// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
-pub type AzGLenumVecRefTT = azul_impl::gl::GLenumVecRef;
-pub use AzGLenumVecRefTT as AzGLenumVecRef;
-
-/// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
-pub type AzGLintVecRefMutTT = azul_impl::gl::GLintVecRefMut;
-pub use AzGLintVecRefMutTT as AzGLintVecRefMut;
-
-/// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
-pub type AzGLint64VecRefMutTT = azul_impl::gl::GLint64VecRefMut;
-pub use AzGLint64VecRefMutTT as AzGLint64VecRefMut;
-
-/// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
-pub type AzGLbooleanVecRefMutTT = azul_impl::gl::GLbooleanVecRefMut;
-pub use AzGLbooleanVecRefMutTT as AzGLbooleanVecRefMut;
-
-/// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
-pub type AzGLfloatVecRefMutTT = azul_impl::gl::GLfloatVecRefMut;
-pub use AzGLfloatVecRefMutTT as AzGLfloatVecRefMut;
-
-/// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
-pub type AzRefstrVecRefTT = azul_impl::gl::RefstrVecRef;
-pub use AzRefstrVecRefTT as AzRefstrVecRef;
-
-/// C-ABI stable reexport of `&str`
-pub type AzRefstrTT = azul_impl::gl::Refstr;
-pub use AzRefstrTT as AzRefstr;
-
-/// C-ABI stable reexport of `(U8Vec, u32)`
-pub type AzGetProgramBinaryReturnTT = azul_impl::gl::GetProgramBinaryReturn;
-pub use AzGetProgramBinaryReturnTT as AzGetProgramBinaryReturn;
-
-/// C-ABI stable reexport of `(i32, u32, AzString)`
-pub type AzGetActiveAttribReturnTT = azul_impl::gl::GetActiveAttribReturn;
-pub use AzGetActiveAttribReturnTT as AzGetActiveAttribReturn;
-
-/// C-ABI stable reexport of `*const gleam::gl::GLsync`
-pub type AzGLsyncPtrTT = azul_impl::gl::GLsyncPtr;
-pub use AzGLsyncPtrTT as AzGLsyncPtr;
-/// Destructor: Takes ownership of the `GLsyncPtr` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_g_lsync_ptr_delete(object: &mut AzGLsyncPtr) {  unsafe { core::ptr::drop_in_place(object); } }
-
-/// C-ABI stable reexport of `(i32, u32, AzString)`
-pub type AzGetActiveUniformReturnTT = azul_impl::gl::GetActiveUniformReturn;
-pub use AzGetActiveUniformReturnTT as AzGetActiveUniformReturn;
-
 /// Re-export of rust-allocated (stack based) `GlContextPtr` struct
 pub type AzGlContextPtrTT = azul_impl::gl::GlContextPtr;
 pub use AzGlContextPtrTT as AzGlContextPtr;
@@ -1855,6 +1753,108 @@ pub type AzTextureTT = azul_impl::gl::Texture;
 pub use AzTextureTT as AzTexture;
 /// Destructor: Takes ownership of the `Texture` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_texture_delete(object: &mut AzTexture) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
+pub type AzGlShaderPrecisionFormatReturnTT = azul_impl::gl::GlShaderPrecisionFormatReturn;
+pub use AzGlShaderPrecisionFormatReturnTT as AzGlShaderPrecisionFormatReturn;
+
+/// Re-export of rust-allocated (stack based) `VertexAttributeType` struct
+pub type AzVertexAttributeTypeTT = azul_impl::gl::VertexAttributeType;
+pub use AzVertexAttributeTypeTT as AzVertexAttributeType;
+
+/// Re-export of rust-allocated (stack based) `VertexAttribute` struct
+pub type AzVertexAttributeTT = azul_impl::gl::VertexAttribute;
+pub use AzVertexAttributeTT as AzVertexAttribute;
+
+/// Re-export of rust-allocated (stack based) `VertexLayout` struct
+pub type AzVertexLayoutTT = azul_impl::gl::VertexLayout;
+pub use AzVertexLayoutTT as AzVertexLayout;
+
+/// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
+pub type AzVertexArrayObjectTT = azul_impl::gl::VertexArrayObject;
+pub use AzVertexArrayObjectTT as AzVertexArrayObject;
+
+/// Re-export of rust-allocated (stack based) `IndexBufferFormat` struct
+pub type AzIndexBufferFormatTT = azul_impl::gl::IndexBufferFormat;
+pub use AzIndexBufferFormatTT as AzIndexBufferFormat;
+
+/// Re-export of rust-allocated (stack based) `VertexBuffer` struct
+pub type AzVertexBufferTT = azul_impl::gl::VertexBuffer;
+pub use AzVertexBufferTT as AzVertexBuffer;
+
+/// Re-export of rust-allocated (stack based) `GlType` struct
+pub type AzGlTypeTT = azul_impl::gl::AzGlType;
+pub use AzGlTypeTT as AzGlType;
+
+/// Re-export of rust-allocated (stack based) `DebugMessage` struct
+pub type AzDebugMessageTT = azul_impl::gl::AzDebugMessage;
+pub use AzDebugMessageTT as AzDebugMessage;
+
+/// C-ABI stable reexport of `&[u8]`
+pub type AzU8VecRefTT = azul_impl::gl::U8VecRef;
+pub use AzU8VecRefTT as AzU8VecRef;
+
+/// C-ABI stable reexport of `&mut [u8]`
+pub type AzU8VecRefMutTT = azul_impl::gl::U8VecRefMut;
+pub use AzU8VecRefMutTT as AzU8VecRefMut;
+
+/// C-ABI stable reexport of `&[f32]`
+pub type AzF32VecRefTT = azul_impl::gl::F32VecRef;
+pub use AzF32VecRefTT as AzF32VecRef;
+
+/// C-ABI stable reexport of `&[i32]`
+pub type AzI32VecRefTT = azul_impl::gl::I32VecRef;
+pub use AzI32VecRefTT as AzI32VecRef;
+
+/// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
+pub type AzGLuintVecRefTT = azul_impl::gl::GLuintVecRef;
+pub use AzGLuintVecRefTT as AzGLuintVecRef;
+
+/// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
+pub type AzGLenumVecRefTT = azul_impl::gl::GLenumVecRef;
+pub use AzGLenumVecRefTT as AzGLenumVecRef;
+
+/// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
+pub type AzGLintVecRefMutTT = azul_impl::gl::GLintVecRefMut;
+pub use AzGLintVecRefMutTT as AzGLintVecRefMut;
+
+/// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
+pub type AzGLint64VecRefMutTT = azul_impl::gl::GLint64VecRefMut;
+pub use AzGLint64VecRefMutTT as AzGLint64VecRefMut;
+
+/// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
+pub type AzGLbooleanVecRefMutTT = azul_impl::gl::GLbooleanVecRefMut;
+pub use AzGLbooleanVecRefMutTT as AzGLbooleanVecRefMut;
+
+/// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
+pub type AzGLfloatVecRefMutTT = azul_impl::gl::GLfloatVecRefMut;
+pub use AzGLfloatVecRefMutTT as AzGLfloatVecRefMut;
+
+/// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
+pub type AzRefstrVecRefTT = azul_impl::gl::RefstrVecRef;
+pub use AzRefstrVecRefTT as AzRefstrVecRef;
+
+/// C-ABI stable reexport of `&str`
+pub type AzRefstrTT = azul_impl::gl::Refstr;
+pub use AzRefstrTT as AzRefstr;
+
+/// C-ABI stable reexport of `(U8Vec, u32)`
+pub type AzGetProgramBinaryReturnTT = azul_impl::gl::GetProgramBinaryReturn;
+pub use AzGetProgramBinaryReturnTT as AzGetProgramBinaryReturn;
+
+/// C-ABI stable reexport of `(i32, u32, AzString)`
+pub type AzGetActiveAttribReturnTT = azul_impl::gl::GetActiveAttribReturn;
+pub use AzGetActiveAttribReturnTT as AzGetActiveAttribReturn;
+
+/// C-ABI stable reexport of `*const gleam::gl::GLsync`
+pub type AzGLsyncPtrTT = azul_impl::gl::GLsyncPtr;
+pub use AzGLsyncPtrTT as AzGLsyncPtr;
+/// Destructor: Takes ownership of the `GLsyncPtr` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_g_lsync_ptr_delete(object: &mut AzGLsyncPtr) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// C-ABI stable reexport of `(i32, u32, AzString)`
+pub type AzGetActiveUniformReturnTT = azul_impl::gl::GetActiveUniformReturn;
+pub use AzGetActiveUniformReturnTT as AzGetActiveUniformReturn;
 
 /// Re-export of rust-allocated (stack based) `TextureFlags` struct
 pub type AzTextureFlagsTT = azul_impl::gl::TextureFlags;
@@ -3607,6 +3607,19 @@ mod test_sizes {
     #[repr(C)]     pub struct AzCssPropertyCache {
         pub(crate) ptr: *mut c_void,
     }
+    /// Re-export of rust-allocated (stack based) `GlContextPtr` struct
+    #[repr(C)]     pub struct AzGlContextPtr {
+        pub(crate) ptr: *const c_void,
+        pub renderer_type: AzRendererType,
+    }
+    /// Re-export of rust-allocated (stack based) `Texture` struct
+    #[repr(C)]     pub struct AzTexture {
+        pub texture_id: u32,
+        pub format: AzRawImageFormat,
+        pub flags: AzTextureFlags,
+        pub size: AzPhysicalSizeU32,
+        pub gl_context: AzGlContextPtr,
+    }
     /// Re-export of rust-allocated (stack based) `VertexAttributeType` struct
     #[repr(C)]     pub enum AzVertexAttributeType {
         Float,
@@ -3632,19 +3645,6 @@ mod test_sizes {
     /// C-ABI stable reexport of `*const gleam::gl::GLsync`
     #[repr(C)]     pub struct AzGLsyncPtr {
         pub(crate) ptr: *const c_void,
-    }
-    /// Re-export of rust-allocated (stack based) `GlContextPtr` struct
-    #[repr(C)]     pub struct AzGlContextPtr {
-        pub(crate) ptr: *const c_void,
-        pub renderer_type: AzRendererType,
-    }
-    /// Re-export of rust-allocated (stack based) `Texture` struct
-    #[repr(C)]     pub struct AzTexture {
-        pub texture_id: u32,
-        pub format: AzRawImageFormat,
-        pub flags: AzTextureFlags,
-        pub size: AzPhysicalSizeU32,
-        pub gl_context: AzGlContextPtr,
     }
     /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
     #[repr(C)]     pub enum AzRawImageFormat {
@@ -6805,12 +6805,12 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"), (Layout::new::<AzStyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTextAlignmentHorz>(), "AzStyleTextAlignmentHorz"), (Layout::new::<AzStyleTextAlignmentHorz>(), "AzStyleTextAlignmentHorz"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::CssPropertyCachePtr>(), "AzCssPropertyCache"), (Layout::new::<AzCssPropertyCache>(), "AzCssPropertyCache"));
+        assert_eq!((Layout::new::<azul_impl::gl::GlContextPtr>(), "AzGlContextPtr"), (Layout::new::<AzGlContextPtr>(), "AzGlContextPtr"));
+        assert_eq!((Layout::new::<azul_impl::gl::Texture>(), "AzTexture"), (Layout::new::<AzTexture>(), "AzTexture"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttributeType>(), "AzVertexAttributeType"), (Layout::new::<AzVertexAttributeType>(), "AzVertexAttributeType"));
         assert_eq!((Layout::new::<azul_impl::gl::IndexBufferFormat>(), "AzIndexBufferFormat"), (Layout::new::<AzIndexBufferFormat>(), "AzIndexBufferFormat"));
         assert_eq!((Layout::new::<azul_impl::gl::AzGlType>(), "AzGlType"), (Layout::new::<AzGlType>(), "AzGlType"));
         assert_eq!((Layout::new::<azul_impl::gl::GLsyncPtr>(), "AzGLsyncPtr"), (Layout::new::<AzGLsyncPtr>(), "AzGLsyncPtr"));
-        assert_eq!((Layout::new::<azul_impl::gl::GlContextPtr>(), "AzGlContextPtr"), (Layout::new::<AzGlContextPtr>(), "AzGlContextPtr"));
-        assert_eq!((Layout::new::<azul_impl::gl::Texture>(), "AzTexture"), (Layout::new::<AzTexture>(), "AzTexture"));
         assert_eq!((Layout::new::<azul_impl::resources::RawImageFormat>(), "AzRawImageFormat"), (Layout::new::<AzRawImageFormat>(), "AzRawImageFormat"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgLineCap>(), "AzSvgLineCap"), (Layout::new::<AzSvgLineCap>(), "AzSvgLineCap"));
         assert_eq!((Layout::new::<azul_impl::svg::ShapeRendering>(), "AzShapeRendering"), (Layout::new::<AzShapeRendering>(), "AzShapeRendering"));

@@ -3772,235 +3772,6 @@
 		"gl": {
 			"doc": "OpenGl helper types (`Texture`, `GlContext`, etc.)",
 			"classes": {
-				"GlShaderPrecisionFormatReturn": {
-					"external": "azul_impl::gl::GlShaderPrecisionFormatReturn",
-					"derive": ["Copy"],
-					"struct_fields": [
-						{"_0": {"type": "i32"}},
-						{"_1": {"type": "i32"}},
-						{"_2": {"type": "i32"}}
-					]
-				},
-				"VertexAttributeType": {
-					"external": "azul_impl::gl::VertexAttributeType",
-					"derive": ["Copy"],
-					"enum_fields": [
-						{"Float": {"doc": "Vertex attribute has type `f32`"}},
-						{"Double": {"doc": "Vertex attribute has type `f64`"}},
-						{"UnsignedByte": {"doc": "Vertex attribute has type `u8`"}},
-						{"UnsignedShort": {"doc": "Vertex attribute has type `u16`"}},
-						{"UnsignedInt": {"doc": "Vertex attribute has type `u32`"}}
-					]
-				},
-				"VertexAttribute": {
-					"external": "azul_impl::gl::VertexAttribute",
-					"struct_fields": [
-						{"name": {"type": "String"}},
-						{"layout_location": {"type": "OptionUsize"}},
-						{"attribute_type": {"type": "VertexAttributeType"}},
-						{"item_count": {"type": "usize"}}
-					]
-				},
-				"VertexLayout": {
-					"external": "azul_impl::gl::VertexLayout",
-					"struct_fields": [
-						{"fields": {"type": "VertexAttributeVec"}}
-					]
-				},
-				"VertexArrayObject": {
-					"external": "azul_impl::gl::VertexArrayObject",
-					"clone": false,
-					"struct_fields": [
-						{"vertex_layout": {"type": "VertexLayout"}},
-						{"vao_id": {"type": "u32"}},
-						{"gl_context": {"type": "GlContextPtr"}}
-					]
-				},
-				"IndexBufferFormat": {
-					"external": "azul_impl::gl::IndexBufferFormat",
-					"derive": ["Copy"],
-					"enum_fields": [
-					    {"Points": {}},
-					    {"Lines": {}},
-					    {"LineStrip": {}},
-					    {"Triangles": {}},
-					    {"TriangleStrip": {}},
-					    {"TriangleFan": {}}
-					]
-				},
-				"VertexBuffer": {
-					"external": "azul_impl::gl::VertexBuffer",
-					"clone": false,
-					"struct_fields": [
-						{"vertex_buffer_id": {"type": "u32"}},
-						{"vertex_buffer_len": {"type": "usize"}},
-						{"vao": {"type": "VertexArrayObject"}},
-						{"index_buffer_id": {"type": "u32"}},
-						{"index_buffer_len": {"type": "usize"}},
-						{"index_buffer_format": {"type": "IndexBufferFormat"}}
-					]
-				},
-				"GlType": {
-					"external": "azul_impl::gl::AzGlType",
-					"derive": ["Copy"],
-					"enum_fields": [
-						{"Gl": {}},
-						{"Gles": {}}
-					]
-				},
-				"DebugMessage": {
-					"external": "azul_impl::gl::AzDebugMessage",
-					"struct_fields": [
-						{"message": {"type": "String"}},
-						{"source": {"type": "u32"}},
-						{"ty": {"type": "u32"}},
-						{"id": {"type": "u32"}},
-						{"severity": {"type": "u32"}}
-					]
-				},
-				"U8VecRef": {
-					"external": "azul_impl::gl::U8VecRef",
-					"doc": "C-ABI stable reexport of `&[u8]`",
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*const u8"}},
-						{"len": {"type": "usize"}}
-					]
-				},
-				"U8VecRefMut": {
-					"external": "azul_impl::gl::U8VecRefMut",
-					"doc": "C-ABI stable reexport of `&mut [u8]`",
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*mut u8"}},
-						{"len": {"type": "usize"}}
-					]
-				},
-				"F32VecRef": {
-					"external": "azul_impl::gl::F32VecRef",
-					"doc": "C-ABI stable reexport of `&[f32]`",
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*const f32"}},
-						{"len": {"type": "usize"}}
-					]
-				},
-				"I32VecRef": {
-					"external": "azul_impl::gl::I32VecRef",
-					"doc": "C-ABI stable reexport of `&[i32]`",
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*const i32"}},
-						{"len": {"type": "usize"}}
-					]
-				},
-				"GLuintVecRef": {
-					"external": "azul_impl::gl::GLuintVecRef",
-					"doc": "C-ABI stable reexport of `&[GLuint]` aka `&[u32]`",
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*const u32"}},
-						{"len": {"type": "usize"}}
-					]
-				},
-				"GLenumVecRef": {
-					"external": "azul_impl::gl::GLenumVecRef",
-					"doc": "C-ABI stable reexport of `&[GLenum]` aka `&[u32]`",
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*const u32"}},
-						{"len": {"type": "usize"}}
-					]
-				},
-				"GLintVecRefMut": {
-					"external": "azul_impl::gl::GLintVecRefMut",
-					"doc": "C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`",
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*mut i32"}},
-						{"len": {"type": "usize"}}
-					]
-				},
-				"GLint64VecRefMut": {
-					"external": "azul_impl::gl::GLint64VecRefMut",
-					"doc": "C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`",
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*mut i64"}},
-						{"len": {"type": "usize"}}
-					]
-				},
-				"GLbooleanVecRefMut": {
-					"external": "azul_impl::gl::GLbooleanVecRefMut",
-					"doc": "C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`",
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*mut u8"}},
-						{"len": {"type": "usize"}}
-					]
-				},
-				"GLfloatVecRefMut": {
-					"external": "azul_impl::gl::GLfloatVecRefMut",
-					"doc": "C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`",
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*mut f32"}},
-						{"len": {"type": "usize"}}
-					]
-				},
-				"RefstrVecRef": {
-					"external": "azul_impl::gl::RefstrVecRef",
-					"doc": "C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`",
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*const Refstr"}},
-						{"len": {"type": "usize"}}
-					]
-				},
-				"Refstr": {
-					"external": "azul_impl::gl::Refstr",
-					"doc": "C-ABI stable reexport of `&str`",
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*const u8"}},
-						{"len": {"type": "usize"}}
-					]
-				},
-				"GetProgramBinaryReturn": {
-					"external": "azul_impl::gl::GetProgramBinaryReturn",
-					"doc": "C-ABI stable reexport of `(U8Vec, u32)`",
-					"struct_fields": [
-						{"_0": {"type": "U8Vec"}},
-						{"_1": {"type": "u32"}}
-					]
-				},
-				"GetActiveAttribReturn": {
-					"external": "azul_impl::gl::GetActiveAttribReturn",
-					"doc": "C-ABI stable reexport of `(i32, u32, AzString)`",
-					"struct_fields": [
-						{"_0": {"type": "i32"}},
-						{"_1": {"type": "u32"}},
-						{"_2": {"type": "String"}}
-					]
-				},
-				"GLsyncPtr": {
-					"external": "azul_impl::gl::GLsyncPtr",
-					"doc": "C-ABI stable reexport of `*const gleam::gl::GLsync`",
-					"is_boxed_object": true,
-					"clone": false,
-					"struct_fields": [
-						{"ptr": {"type": "*const c_void"}}
-					]
-				},
-				"GetActiveUniformReturn": {
-					"external": "azul_impl::gl::GetActiveUniformReturn",
-					"doc": "C-ABI stable reexport of `(i32, u32, AzString)`",
-					"struct_fields": [
-						{"_0": {"type": "i32"}},
-						{"_1": {"type": "u32"}},
-						{"_2": {"type": "String"}}
-					]
-				},
 				"GlContextPtr": {
 					"external": "azul_impl::gl::GlContextPtr",
 					"is_boxed_object": true,
@@ -5767,6 +5538,235 @@
 						{"flags": {"type": "TextureFlags", "doc": "Hints and flags for optimization purposes"}},
 						{"size": {"type": "PhysicalSizeU32", "doc": "Size of this texture (in pixels)"}},
 						{"gl_context": {"type": "GlContextPtr", "doc": "A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)"}}
+					]
+				},
+				"GlShaderPrecisionFormatReturn": {
+					"external": "azul_impl::gl::GlShaderPrecisionFormatReturn",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"_0": {"type": "i32"}},
+						{"_1": {"type": "i32"}},
+						{"_2": {"type": "i32"}}
+					]
+				},
+				"VertexAttributeType": {
+					"external": "azul_impl::gl::VertexAttributeType",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Float": {"doc": "Vertex attribute has type `f32`"}},
+						{"Double": {"doc": "Vertex attribute has type `f64`"}},
+						{"UnsignedByte": {"doc": "Vertex attribute has type `u8`"}},
+						{"UnsignedShort": {"doc": "Vertex attribute has type `u16`"}},
+						{"UnsignedInt": {"doc": "Vertex attribute has type `u32`"}}
+					]
+				},
+				"VertexAttribute": {
+					"external": "azul_impl::gl::VertexAttribute",
+					"struct_fields": [
+						{"name": {"type": "String"}},
+						{"layout_location": {"type": "OptionUsize"}},
+						{"attribute_type": {"type": "VertexAttributeType"}},
+						{"item_count": {"type": "usize"}}
+					]
+				},
+				"VertexLayout": {
+					"external": "azul_impl::gl::VertexLayout",
+					"struct_fields": [
+						{"fields": {"type": "VertexAttributeVec"}}
+					]
+				},
+				"VertexArrayObject": {
+					"external": "azul_impl::gl::VertexArrayObject",
+					"clone": false,
+					"struct_fields": [
+						{"vertex_layout": {"type": "VertexLayout"}},
+						{"vao_id": {"type": "u32"}},
+						{"gl_context": {"type": "GlContextPtr"}}
+					]
+				},
+				"IndexBufferFormat": {
+					"external": "azul_impl::gl::IndexBufferFormat",
+					"derive": ["Copy"],
+					"enum_fields": [
+					    {"Points": {}},
+					    {"Lines": {}},
+					    {"LineStrip": {}},
+					    {"Triangles": {}},
+					    {"TriangleStrip": {}},
+					    {"TriangleFan": {}}
+					]
+				},
+				"VertexBuffer": {
+					"external": "azul_impl::gl::VertexBuffer",
+					"clone": false,
+					"struct_fields": [
+						{"vertex_buffer_id": {"type": "u32"}},
+						{"vertex_buffer_len": {"type": "usize"}},
+						{"vao": {"type": "VertexArrayObject"}},
+						{"index_buffer_id": {"type": "u32"}},
+						{"index_buffer_len": {"type": "usize"}},
+						{"index_buffer_format": {"type": "IndexBufferFormat"}}
+					]
+				},
+				"GlType": {
+					"external": "azul_impl::gl::AzGlType",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Gl": {}},
+						{"Gles": {}}
+					]
+				},
+				"DebugMessage": {
+					"external": "azul_impl::gl::AzDebugMessage",
+					"struct_fields": [
+						{"message": {"type": "String"}},
+						{"source": {"type": "u32"}},
+						{"ty": {"type": "u32"}},
+						{"id": {"type": "u32"}},
+						{"severity": {"type": "u32"}}
+					]
+				},
+				"U8VecRef": {
+					"external": "azul_impl::gl::U8VecRef",
+					"doc": "C-ABI stable reexport of `&[u8]`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*const u8"}},
+						{"len": {"type": "usize"}}
+					]
+				},
+				"U8VecRefMut": {
+					"external": "azul_impl::gl::U8VecRefMut",
+					"doc": "C-ABI stable reexport of `&mut [u8]`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*mut u8"}},
+						{"len": {"type": "usize"}}
+					]
+				},
+				"F32VecRef": {
+					"external": "azul_impl::gl::F32VecRef",
+					"doc": "C-ABI stable reexport of `&[f32]`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*const f32"}},
+						{"len": {"type": "usize"}}
+					]
+				},
+				"I32VecRef": {
+					"external": "azul_impl::gl::I32VecRef",
+					"doc": "C-ABI stable reexport of `&[i32]`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*const i32"}},
+						{"len": {"type": "usize"}}
+					]
+				},
+				"GLuintVecRef": {
+					"external": "azul_impl::gl::GLuintVecRef",
+					"doc": "C-ABI stable reexport of `&[GLuint]` aka `&[u32]`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*const u32"}},
+						{"len": {"type": "usize"}}
+					]
+				},
+				"GLenumVecRef": {
+					"external": "azul_impl::gl::GLenumVecRef",
+					"doc": "C-ABI stable reexport of `&[GLenum]` aka `&[u32]`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*const u32"}},
+						{"len": {"type": "usize"}}
+					]
+				},
+				"GLintVecRefMut": {
+					"external": "azul_impl::gl::GLintVecRefMut",
+					"doc": "C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*mut i32"}},
+						{"len": {"type": "usize"}}
+					]
+				},
+				"GLint64VecRefMut": {
+					"external": "azul_impl::gl::GLint64VecRefMut",
+					"doc": "C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*mut i64"}},
+						{"len": {"type": "usize"}}
+					]
+				},
+				"GLbooleanVecRefMut": {
+					"external": "azul_impl::gl::GLbooleanVecRefMut",
+					"doc": "C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*mut u8"}},
+						{"len": {"type": "usize"}}
+					]
+				},
+				"GLfloatVecRefMut": {
+					"external": "azul_impl::gl::GLfloatVecRefMut",
+					"doc": "C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*mut f32"}},
+						{"len": {"type": "usize"}}
+					]
+				},
+				"RefstrVecRef": {
+					"external": "azul_impl::gl::RefstrVecRef",
+					"doc": "C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*const Refstr"}},
+						{"len": {"type": "usize"}}
+					]
+				},
+				"Refstr": {
+					"external": "azul_impl::gl::Refstr",
+					"doc": "C-ABI stable reexport of `&str`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*const u8"}},
+						{"len": {"type": "usize"}}
+					]
+				},
+				"GetProgramBinaryReturn": {
+					"external": "azul_impl::gl::GetProgramBinaryReturn",
+					"doc": "C-ABI stable reexport of `(U8Vec, u32)`",
+					"struct_fields": [
+						{"_0": {"type": "U8Vec"}},
+						{"_1": {"type": "u32"}}
+					]
+				},
+				"GetActiveAttribReturn": {
+					"external": "azul_impl::gl::GetActiveAttribReturn",
+					"doc": "C-ABI stable reexport of `(i32, u32, AzString)`",
+					"struct_fields": [
+						{"_0": {"type": "i32"}},
+						{"_1": {"type": "u32"}},
+						{"_2": {"type": "String"}}
+					]
+				},
+				"GLsyncPtr": {
+					"external": "azul_impl::gl::GLsyncPtr",
+					"doc": "C-ABI stable reexport of `*const gleam::gl::GLsync`",
+					"is_boxed_object": true,
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*const c_void"}}
+					]
+				},
+				"GetActiveUniformReturn": {
+					"external": "azul_impl::gl::GetActiveUniformReturn",
+					"doc": "C-ABI stable reexport of `(i32, u32, AzString)`",
+					"struct_fields": [
+						{"_0": {"type": "i32"}},
+						{"_1": {"type": "u32"}},
+						{"_2": {"type": "String"}}
 					]
 				},
 				"TextureFlags": {
