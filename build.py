@@ -1575,10 +1575,9 @@ def generate_docs():
         body > .center > main > div > ul > li.m > ul > li.st .v.doc { margin-left: 20px; }\
         body > .center > main > div > ul > li.m > ul > li.st .cn { margin-left: 20px; color: #07a; }\
         body > .center > main > div > ul > li.m > ul > li.st .fn { margin-left: 20px; color: #004e92; }\
-        body > .center > main > div > ul > li.m > ul > li .arg,\
-        body > .center > main > div > ul > li.m > ul > li .arg.doc,\
-        body > .center > main > div > ul > li.m > ul > li .ret,\
-        body > .center > main > div > ul > li.m > ul > li .ret.doc { margin-left: 10px; }\
+        body > .center > main > div > ul > li.m > ul > li p.ret,\
+        body > .center > main > div > ul > li.m > ul > li p.fn.ret,\
+        body > .center > main > div > ul > li.m > ul > li p.ret.doc { margin-left: 0px; }\
         body > .center > main > div p.doc { margin-top: 5px !important; color: black !important; max-width: 70ch !important; font-weight: bolder; }\
         body > .center > main > div a { color: inherit !important; }\
         "
