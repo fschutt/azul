@@ -4789,7 +4789,7 @@ pub mod callbacks {
     /// `LayoutCallback` struct
     
 #[doc(inline)] pub use crate::dll::AzLayoutCallback as LayoutCallback;
-    /// `LayoutCallbackType` struct
+    /// Main callback to layout the UI. azul will only call this callback when necessary (usually when one of the callback or timer returns `RegenerateStyledDomForCurrentWindow`), however azul may also call this callback at any given time, so it should be performant. This is the main entry point for your app UI.
     
 #[doc(inline)] pub use crate::dll::AzLayoutCallbackType as LayoutCallbackType;
     /// `Callback` struct

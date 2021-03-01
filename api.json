@@ -855,12 +855,13 @@
 					]
 				},
 				"LayoutCallbackType": {
+					"doc": "Main callback to layout the UI. azul will only call this callback when necessary (usually when one of the callback or timer returns `RegenerateStyledDomForCurrentWindow`), however azul may also call this callback at any given time, so it should be performant. This is the main entry point for your app UI.",
 					"callback_typedef": {
 						"fn_args": [
-							{"type": "RefAny", "ref": "refmut"},
-							{"type": "LayoutInfo", "ref": "value"}
+							{"type": "RefAny", "ref": "refmut", "doc": "Application state of the `App`"},
+							{"type": "LayoutInfo", "ref": "value", "doc": "Useful information to contitionally return the structure of the DOM based on the width / height of the window" }
 						],
-						"returns": "StyledDom"
+						"returns": {"type": "StyledDom", "doc": "The styled DOM rendered from the application state"}
 					}
 				},
 				"Callback": {
@@ -905,7 +906,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "LogicalSize",
+							"returns": {"type": "LogicalSize"},
 							"fn_body": "hidpiadjustedbounds.get_logical_size()"
 						},
 						"get_physical_size": {
@@ -913,7 +914,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "PhysicalSizeU32",
+							"returns": {"type": "PhysicalSizeU32"},
 							"fn_body": "hidpiadjustedbounds.get_physical_size()"
 						},
 						"get_hidpi_factor": {
@@ -921,7 +922,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "f32",
+							"returns": {"type": "f32"},
 							"fn_body": "hidpiadjustedbounds.get_hidpi_factor()"
 						}
 					}
@@ -952,7 +953,7 @@
 							{"type": "RefAny", "ref": "refmut"},
 							{"type": "CallbackInfo", "ref": "value"}
 						],
-						"returns": "UpdateScreen"
+						"returns": {"type": "UpdateScreen"}
 					}
 				},
 				"CallbackInfo": {
@@ -992,7 +993,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "DomNodeId",
+							"returns": {"type": "DomNodeId"},
 							"fn_body": "callbackinfo.get_hit_node()"
 						},
 						"get_cursor_relative_to_viewport": {
@@ -1000,7 +1001,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "OptionLayoutPoint",
+							"returns": {"type": "OptionLayoutPoint"},
 							"fn_body": "callbackinfo.get_cursor_relative_to_viewport()"
 						},
 						"get_cursor_relative_to_node": {
@@ -1008,7 +1009,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "OptionLayoutPoint",
+							"returns": {"type": "OptionLayoutPoint"},
 							"fn_body": "callbackinfo.get_cursor_relative_to_node()"
 						},
 						"get_parent": {
@@ -1017,7 +1018,7 @@
 								{"self": "refmut"},
 								{"node_id": "DomNodeId"}
 							],
-							"returns": "OptionDomNodeId",
+							"returns": {"type": "OptionDomNodeId"},
 							"fn_body": "callbackinfo.get_parent(node_id).into()"
 						},
 						"get_previous_sibling": {
@@ -1026,7 +1027,7 @@
 								{"self": "refmut"},
 								{"node_id": "DomNodeId"}
 							],
-							"returns": "OptionDomNodeId",
+							"returns": {"type": "OptionDomNodeId"},
 							"fn_body": "callbackinfo.get_previous_sibling(node_id).into()"
 						},
 						"get_next_sibling": {
@@ -1035,7 +1036,7 @@
 								{"self": "refmut"},
 								{"node_id": "DomNodeId"}
 							],
-							"returns": "OptionDomNodeId",
+							"returns": {"type": "OptionDomNodeId"},
 							"fn_body": "callbackinfo.get_next_sibling(node_id).into()"
 						},
 						"get_first_child": {
@@ -1044,7 +1045,7 @@
 								{"self": "refmut"},
 								{"node_id": "DomNodeId"}
 							],
-							"returns": "OptionDomNodeId",
+							"returns": {"type": "OptionDomNodeId"},
 							"fn_body": "callbackinfo.get_first_child(node_id).into()"
 						},
 						"get_last_child": {
@@ -1053,7 +1054,7 @@
 								{"self": "refmut"},
 								{"node_id": "DomNodeId"}
 							],
-							"returns": "OptionDomNodeId",
+							"returns": {"type": "OptionDomNodeId"},
 							"fn_body": "callbackinfo.get_last_child(node_id).into()"
 						},
 						"get_window_state": {
@@ -1061,7 +1062,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "WindowState",
+							"returns": {"type": "WindowState"},
 							"fn_body": "callbackinfo.get_window_state()"
 						},
 						"get_keyboard_state": {
@@ -1069,7 +1070,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "KeyboardState",
+							"returns": {"type": "KeyboardState"},
 							"fn_body": "callbackinfo.get_keyboard_state()"
 						},
 						"get_mouse_state": {
@@ -1077,7 +1078,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "MouseState",
+							"returns": {"type": "MouseState"},
 							"fn_body": "callbackinfo.get_mouse_state()"
 						},
 						"get_current_window_handle": {
@@ -1085,7 +1086,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "RawWindowHandle",
+							"returns": {"type": "RawWindowHandle"},
 							"fn_body": "callbackinfo.get_current_window_handle()"
 						},
 						"get_gl_context": {
@@ -1093,7 +1094,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "OptionGlContextPtr",
+							"returns": {"type": "OptionGlContextPtr"},
 							"fn_body": "callbackinfo.get_gl_context()"
 						},
 						"set_window_state": {
@@ -1181,7 +1182,7 @@
 							{"type": "RefAny", "ref": "refmut"},
 							{"type": "IFrameCallbackInfo", "ref": "value"}
 						],
-						"returns": "IFrameCallbackReturn"
+						"returns": {"type": "IFrameCallbackReturn"}
 					}
 				},
 				"IFrameCallbackInfo": {
@@ -1197,7 +1198,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "HidpiAdjustedBounds",
+							"returns": {"type": "HidpiAdjustedBounds"},
 							"fn_body": "iframecallbackinfo.get_bounds()"
 						}
 					}
@@ -1224,7 +1225,7 @@
 							{"type": "RefAny", "ref": "refmut"},
 							{"type": "GlCallbackInfo", "ref": "value"}
 						],
-						"returns": "GlCallbackReturn"
+						"returns": {"type": "GlCallbackReturn"}
 					}
 				},
 				"GlCallbackInfo": {
@@ -1247,7 +1248,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "OptionGlContextPtr",
+							"returns": {"type": "OptionGlContextPtr"},
 							"fn_body": "glcallbackinfo.get_gl_context().into()"
 						},
 						"get_bounds": {
@@ -1255,7 +1256,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "HidpiAdjustedBounds",
+							"returns": {"type": "HidpiAdjustedBounds"},
 							"fn_body": "glcallbackinfo.get_bounds()"
 						}
 					}
@@ -1282,7 +1283,7 @@
 							{"type": "RefAny", "ref": "refmut"},
 							{"type": "TimerCallbackInfo", "ref": "value"}
 						],
-						"returns": "TimerCallbackReturn"
+						"returns": {"type": "TimerCallbackReturn"}
 					}
 				},
 				"TimerCallbackInfo": {
@@ -1309,7 +1310,7 @@
 							{"type": "RefAny", "ref": "value"},
 							{"type": "CallbackInfo", "ref": "value"}
 						],
-						"returns": "UpdateScreen"
+						"returns": {"type": "UpdateScreen"}
 					}
 				},
 				"WriteBackCallback": {
@@ -1360,14 +1361,14 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "bool",
+							"returns": {"type": "bool"},
 							"fn_body": "refcount.can_be_shared()"
 						},
 						"can_be_shared_mut": {
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "bool",
+							"returns": {"type": "bool"},
 							"fn_body": "refcount.can_be_shared_mut()"
 						},
 						"increase_ref": {
@@ -1424,21 +1425,21 @@
 								{"self": "ref"},
 								{"type_id": "u64"}
 							],
-							"returns": "bool",
+							"returns": {"type": "bool"},
 							"fn_body": "refany.is_type(type_id)"
 						},
 						"get_type_name": {
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "String",
+							"returns": {"type": "String"},
 							"fn_body": "refany.get_type_name()"
 						},
 						"clone": {
 							"fn_args": [
 								{"self": "refmut"}
 							],
-							"returns": "RefAny",
+							"returns": {"type": "RefAny"},
 							"fn_body": "refany.clone_into_library_memory()"
 						}
 					}
@@ -1458,7 +1459,7 @@
 								{"self": "refmut"},
 								{"width": "f32"}
 							],
-							"returns": "bool",
+							"returns": {"type": "bool"},
 							"fn_body": "layoutinfo.window_width_larger_than(width)"
 						},
 						"window_width_smaller_than": {
@@ -1466,7 +1467,7 @@
 								{"self": "refmut"},
 								{"width": "f32"}
 							],
-							"returns": "bool",
+							"returns": {"type": "bool"},
 							"fn_body": "layoutinfo.window_width_smaller_than(width)"
 						},
 						"window_height_larger_than": {
@@ -1474,7 +1475,7 @@
 								{"self": "refmut"},
 								{"width": "f32"}
 							],
-							"returns": "bool",
+							"returns": {"type": "bool"},
 							"fn_body": "layoutinfo.window_height_larger_than(width)"
 						},
 						"window_height_smaller_than": {
@@ -1482,7 +1483,7 @@
 								{"self": "refmut"},
 								{"width": "f32"}
 							],
-							"returns": "bool",
+							"returns": {"type": "bool"},
 							"fn_body": "layoutinfo.window_height_smaller_than(width)"
 						}
 					}
@@ -1506,7 +1507,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "usize",
+							"returns": {"type": "usize"},
 							"fn_body": "dom.node_count()"
 						}
 					}
@@ -1596,7 +1597,7 @@
 							"fn_args": [
 								{"self": "value"}
 							],
-							"returns": "EventFilter",
+							"returns": {"type": "EventFilter"},
 							"fn_body": "on.into()"
 						}
 					}
@@ -1980,7 +1981,7 @@
 							"fn_args":[
 								{"self": "ref"}
 							],
-							"returns": "String",
+							"returns": {"type": "String"},
 							"fn_body": "coloru.to_hash().into()"
 						}
 					}
@@ -3762,7 +3763,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "usize",
+							"returns": {"type": "usize"},
 							"fn_body": "styleddom.node_count()"
 						}
 					}
@@ -3785,7 +3786,7 @@
 					            {"self": "ref"}
 					        ],
 					        "fn_body": "glcontextptr.get_type()",
-					        "returns": "GlType"
+					        "returns": {"type": "GlType"}
 					    },
 					    "buffer_data_untyped": {
 					        "fn_args": [
@@ -3814,7 +3815,7 @@
 					            {"access": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.map_buffer(target, access)",
-					        "returns": "*mut c_void"
+					        "returns": {"type": "*mut c_void"}
 					    },
 					    "map_buffer_range": {
 					        "fn_args": [
@@ -3825,7 +3826,7 @@
 					            {"access": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.map_buffer_range(target, offset, length, access)",
-					        "returns": "*mut c_void"
+					        "returns": {"type": "*mut c_void"}
 					    },
 					    "unmap_buffer": {
 					        "fn_args": [
@@ -3833,7 +3834,7 @@
 					            {"target": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.unmap_buffer(target)",
-					        "returns": "u8"
+					        "returns": {"type": "u8"}
 					    },
 					    "tex_buffer": {
 					        "fn_args": [
@@ -3883,7 +3884,7 @@
 					            {"pixel_type": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.read_pixels(x, y, width, height, format, pixel_type)",
-					        "returns": "U8Vec"
+					        "returns": {"type": "U8Vec"}
 					    },
 					    "read_pixels_into_pbo": {
 					        "fn_args": [
@@ -3927,7 +3928,7 @@
 					            {"n": "i32"}
 					        ],
 					        "fn_body": "glcontextptr.gen_buffers(n)",
-					        "returns": "GLuintVec"
+					        "returns": {"type": "GLuintVec"}
 					    },
 					    "gen_renderbuffers": {
 					        "fn_args": [
@@ -3935,7 +3936,7 @@
 					            {"n": "i32"}
 					        ],
 					        "fn_body": "glcontextptr.gen_renderbuffers(n)",
-					        "returns": "GLuintVec"
+					        "returns": {"type": "GLuintVec"}
 					    },
 					    "gen_framebuffers": {
 					        "fn_args": [
@@ -3943,7 +3944,7 @@
 					            {"n": "i32"}
 					        ],
 					        "fn_body": "glcontextptr.gen_framebuffers(n)",
-					        "returns": "GLuintVec"
+					        "returns": {"type": "GLuintVec"}
 					    },
 					    "gen_textures": {
 					        "fn_args": [
@@ -3951,7 +3952,7 @@
 					            {"n": "i32"}
 					        ],
 					        "fn_body": "glcontextptr.gen_textures(n)",
-					        "returns": "GLuintVec"
+					        "returns": {"type": "GLuintVec"}
 					    },
 					    "gen_vertex_arrays": {
 					        "fn_args": [
@@ -3959,7 +3960,7 @@
 					            {"n": "i32"}
 					        ],
 					        "fn_body": "glcontextptr.gen_vertex_arrays(n)",
-					        "returns": "GLuintVec"
+					        "returns": {"type": "GLuintVec"}
 					    },
 					    "gen_queries": {
 					        "fn_args": [
@@ -3967,7 +3968,7 @@
 					            {"n": "i32"}
 					        ],
 					        "fn_body": "glcontextptr.gen_queries(n)",
-					        "returns": "GLuintVec"
+					        "returns": {"type": "GLuintVec"}
 					    },
 					    "begin_query": {
 					        "fn_args": [
@@ -3999,7 +4000,7 @@
 					            {"pname": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_query_object_iv(id, pname)",
-					        "returns": "i32"
+					        "returns": {"type": "i32"}
 					    },
 					    "get_query_object_uiv": {
 					        "fn_args": [
@@ -4008,7 +4009,7 @@
 					            {"pname": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_query_object_uiv(id, pname)",
-					        "returns": "u32"
+					        "returns": {"type": "u32"}
 					    },
 					    "get_query_object_i64v": {
 					        "fn_args": [
@@ -4017,7 +4018,7 @@
 					            {"pname": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_query_object_i64v(id, pname)",
-					        "returns": "i64"
+					        "returns": {"type": "i64"}
 					    },
 					    "get_query_object_ui64v": {
 					        "fn_args": [
@@ -4026,7 +4027,7 @@
 					            {"pname": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_query_object_ui64v(id, pname)",
-					        "returns": "u64"
+					        "returns": {"type": "u64"}
 					    },
 					    "delete_queries": {
 					        "fn_args": [
@@ -4146,7 +4147,7 @@
 					            {"name": "Refstr"}
 					        ],
 					        "fn_body": "glcontextptr.get_uniform_block_index(program, name)",
-					        "returns": "u32"
+					        "returns": {"type": "u32"}
 					    },
 					    "get_uniform_indices": {
 					        "fn_args": [
@@ -4155,7 +4156,7 @@
 					            {"names": "RefstrVecRef"}
 					        ],
 					        "fn_body": "glcontextptr.get_uniform_indices(program, names)",
-					        "returns": "GLuintVec"
+					        "returns": {"type": "GLuintVec"}
 					    },
 					    "bind_buffer_base": {
 					        "fn_args": [
@@ -4477,7 +4478,7 @@
 					            {"target": "u32"}, {"attachment": "u32"}, {"pname": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_framebuffer_attachment_parameter_iv(target, attachment, pname)",
-					        "returns": "i32"
+					        "returns": {"type": "i32"}
 					    },
 					    "get_renderbuffer_parameter_iv": {
 					        "fn_args": [
@@ -4485,7 +4486,7 @@
 					            {"target": "u32"}, {"pname": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_renderbuffer_parameter_iv(target, pname)",
-					        "returns": "i32"
+					        "returns": {"type": "i32"}
 					    },
 					    "get_tex_parameter_iv": {
 					        "fn_args": [
@@ -4493,7 +4494,7 @@
 					            {"target": "u32"}, {"name": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_tex_parameter_iv(target, name)",
-					        "returns": "i32"
+					        "returns": {"type": "i32"}
 					    },
 					    "get_tex_parameter_fv": {
 					        "fn_args": [
@@ -4501,7 +4502,7 @@
 					            {"target": "u32"}, {"name": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_tex_parameter_fv(target, name)",
-					        "returns": "f32"
+					        "returns": {"type": "f32"}
 					    },
 					    "tex_parameter_i": {
 					        "fn_args": [
@@ -4725,7 +4726,7 @@
 					            {"cap": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.is_enabled(cap)",
-					        "returns": "u8"
+					        "returns": {"type": "u8"}
 					    },
 					    "is_shader": {
 					        "fn_args": [
@@ -4733,7 +4734,7 @@
 					            {"shader": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.is_shader(shader)",
-					        "returns": "u8"
+					        "returns": {"type": "u8"}
 					    },
 					    "is_texture": {
 					        "fn_args": [
@@ -4741,7 +4742,7 @@
 					            {"texture": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.is_texture(texture)",
-					        "returns": "u8"
+					        "returns": {"type": "u8"}
 					    },
 					    "is_framebuffer": {
 					        "fn_args": [
@@ -4749,7 +4750,7 @@
 					            {"framebuffer": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.is_framebuffer(framebuffer)",
-					        "returns": "u8"
+					        "returns": {"type": "u8"}
 					    },
 					    "is_renderbuffer": {
 					        "fn_args": [
@@ -4757,7 +4758,7 @@
 					            {"renderbuffer": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.is_renderbuffer(renderbuffer)",
-					        "returns": "u8"
+					        "returns": {"type": "u8"}
 					    },
 					    "check_frame_buffer_status": {
 					        "fn_args": [
@@ -4765,7 +4766,7 @@
 					            {"target": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.check_frame_buffer_status(target)",
-					        "returns": "u32"
+					        "returns": {"type": "u32"}
 					    },
 					    "enable_vertex_attrib_array": {
 					        "fn_args": [
@@ -4962,7 +4963,7 @@
 					            {"program": "u32"}, {"index": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_active_attrib(program, index)",
-					        "returns": "GetActiveAttribReturn"
+					        "returns": {"type": "GetActiveAttribReturn"}
 					    },
 					    "get_active_uniform": {
 					        "fn_args": [
@@ -4970,7 +4971,7 @@
 					            {"program": "u32"}, {"index": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_active_uniform(program, index)",
-					        "returns": "GetActiveUniformReturn"
+					        "returns": {"type": "GetActiveUniformReturn"}
 					    },
 					    "get_active_uniforms_iv": {
 					        "fn_args": [
@@ -4978,7 +4979,7 @@
 					            {"program": "u32"}, {"indices": "GLuintVec"}, {"pname": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_active_uniforms_iv(program, indices, pname)",
-					        "returns": "GLintVec"
+					        "returns": {"type": "GLintVec"}
 					    },
 					    "get_active_uniform_block_i": {
 					        "fn_args": [
@@ -4986,7 +4987,7 @@
 					            {"program": "u32"}, {"index": "u32"}, {"pname": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_active_uniform_block_i(program, index, pname)",
-					        "returns": "i32"
+					        "returns": {"type": "i32"}
 					    },
 					    "get_active_uniform_block_iv": {
 					        "fn_args": [
@@ -4994,7 +4995,7 @@
 					            {"program": "u32"}, {"index": "u32"}, {"pname": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_active_uniform_block_iv(program, index, pname)",
-					        "returns": "GLintVec"
+					        "returns": {"type": "GLintVec"}
 					    },
 					    "get_active_uniform_block_name": {
 					        "fn_args": [
@@ -5002,7 +5003,7 @@
 					            {"program": "u32"}, {"index": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_active_uniform_block_name(program, index)",
-					        "returns": "String"
+					        "returns": {"type": "String"}
 					    },
 					    "get_attrib_location": {
 					        "fn_args": [
@@ -5010,7 +5011,7 @@
 					            {"program": "u32"}, {"name": "Refstr"}
 					        ],
 					        "fn_body": "glcontextptr.get_attrib_location(program, name)",
-					        "returns": "i32"
+					        "returns": {"type": "i32"}
 					    },
 					    "get_frag_data_location": {
 					        "fn_args": [
@@ -5018,7 +5019,7 @@
 					            {"program": "u32"}, {"name": "Refstr"}
 					        ],
 					        "fn_body": "glcontextptr.get_frag_data_location(program, name)",
-					        "returns": "i32"
+					        "returns": {"type": "i32"}
 					    },
 					    "get_uniform_location": {
 					        "fn_args": [
@@ -5026,7 +5027,7 @@
 					            {"program": "u32"}, {"name": "Refstr"}
 					        ],
 					        "fn_body": "glcontextptr.get_uniform_location(program, name)",
-					        "returns": "i32"
+					        "returns": {"type": "i32"}
 					    },
 					    "get_program_info_log": {
 					        "fn_args": [
@@ -5034,7 +5035,7 @@
 					            {"program": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_program_info_log(program)",
-					        "returns": "String"
+					        "returns": {"type": "String"}
 					    },
 					    "get_program_iv": {
 					        "fn_args": [
@@ -5049,7 +5050,7 @@
 					            {"program": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_program_binary(program)",
-					        "returns": "GetProgramBinaryReturn"
+					        "returns": {"type": "GetProgramBinaryReturn"}
 					    },
 					    "program_binary": {
 					        "fn_args": [
@@ -5085,7 +5086,7 @@
 					            {"index": "u32"}, {"pname": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_vertex_attrib_pointer_v(index, pname)",
-					        "returns": "isize"
+					        "returns": {"type": "isize"}
 					    },
 					    "get_buffer_parameter_iv": {
 					        "fn_args": [
@@ -5093,7 +5094,7 @@
 					            {"target": "u32"}, {"pname": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_buffer_parameter_iv(target, pname)",
-					        "returns": "i32"
+					        "returns": {"type": "i32"}
 					    },
 					    "get_shader_info_log": {
 					        "fn_args": [
@@ -5101,7 +5102,7 @@
 					            {"shader": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_shader_info_log(shader)",
-					        "returns": "String"
+					        "returns": {"type": "String"}
 					    },
 					    "get_string": {
 					        "fn_args": [
@@ -5109,7 +5110,7 @@
 					            {"which": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_string(which)",
-					        "returns": "String"
+					        "returns": {"type": "String"}
 					    },
 					    "get_string_i": {
 					        "fn_args": [
@@ -5117,7 +5118,7 @@
 					            {"which": "u32"}, {"index": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_string_i(which, index)",
-					        "returns": "String"
+					        "returns": {"type": "String"}
 					    },
 					    "get_shader_iv": {
 					        "fn_args": [
@@ -5132,7 +5133,7 @@
 					            {"shader_type": "u32"}, {"precision_type": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_shader_precision_format(shader_type, precision_type)",
-					        "returns": "GlShaderPrecisionFormatReturn"
+					        "returns": {"type": "GlShaderPrecisionFormatReturn"}
 					    },
 					    "compile_shader": {
 					        "fn_args": [
@@ -5146,7 +5147,7 @@
 					            {"self": "ref"}
 					        ],
 					        "fn_body": "glcontextptr.create_program()",
-					        "returns": "u32"
+					        "returns": {"type": "u32"}
 					    },
 					    "delete_program": {
 					        "fn_args": [
@@ -5161,7 +5162,7 @@
 					            {"shader_type": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.create_shader(shader_type)",
-					        "returns": "u32"
+					        "returns": {"type": "u32"}
 					    },
 					    "delete_shader": {
 					        "fn_args": [
@@ -5229,7 +5230,7 @@
 					            {"self": "ref"}
 					        ],
 					        "fn_body": "glcontextptr.get_error()",
-					        "returns": "u32"
+					        "returns": {"type": "u32"}
 					    },
 					    "stencil_mask": {
 					        "fn_args": [
@@ -5333,14 +5334,14 @@
 					            {"condition": "u32"}, {"flags": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.fence_sync(condition, flags)",
-					        "returns": "GLsyncPtr"
+					        "returns": {"type": "GLsyncPtr"}
 					    },
 					    "client_wait_sync": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"sync": "GLsyncPtr"}, {"flags": "u32"}, {"timeout": "u64"}
 					        ],
-					        "returns": "u32",
+					        "returns": {"type": "u32"},
 					        "fn_body": "glcontextptr.client_wait_sync(sync, flags, timeout)"
 					    },
 					    "wait_sync": {
@@ -5370,7 +5371,7 @@
 					            {"n": "i32"}
 					        ],
 					        "fn_body": "glcontextptr.gen_fences_apple(n)",
-					        "returns": "GLuintVec"
+					        "returns": {"type": "GLuintVec"}
 					    },
 					    "delete_fences_apple": {
 					        "fn_args": [
@@ -5406,7 +5407,7 @@
 					            {"object": "u32"}, {"name": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.test_object_apple(object, name)",
-					        "returns": "u8"
+					        "returns": {"type": "u8"}
 					    },
 					    "finish_object_apple": {
 					        "fn_args": [
@@ -5421,7 +5422,7 @@
 					            {"program": "u32"}, {"name": "Refstr"}
 					        ],
 					        "fn_body": "glcontextptr.get_frag_data_index(program, name)",
-					        "returns": "i32"
+					        "returns": {"type": "i32"}
 					    },
 					    "blend_barrier_khr": {
 					        "fn_args": [
@@ -5441,7 +5442,7 @@
 					            {"self": "ref"}
 					        ],
 					        "fn_body": "glcontextptr.get_debug_messages()",
-					        "returns": "DebugMessageVec"
+					        "returns": {"type": "DebugMessageVec"}
 					    },
 					    "provoking_vertex_angle": {
 					        "fn_args": [
@@ -5456,7 +5457,7 @@
 					            {"n": "i32"}
 					        ],
 					        "fn_body": "glcontextptr.gen_vertex_arrays_apple(n)",
-					        "returns": "GLuintVec"
+					        "returns": {"type": "GLuintVec"}
 					    },
 					    "bind_vertex_array_apple": {
 					        "fn_args": [
@@ -6122,7 +6123,7 @@
 								{"svg_bytes": "U8VecRef"},
 								{"parse_options": "SvgParseOptions"}
 							],
-							"returns": "ResultSvgSvgParseError",
+							"returns": {"type": "ResultSvgSvgParseError"},
 							"fn_body": "azul_impl::svg::Svg::parse(svg_bytes.as_slice(), parse_options).into()"
 						}
 					}
@@ -6235,7 +6236,7 @@
 								{"self": "value"},
 								{"delay": "Duration"}
 							],
-							"returns": "Timer",
+							"returns": {"type": "Timer"},
 							"fn_body": "timer.with_delay(delay)"
 						},
 						"with_interval": {
@@ -6243,7 +6244,7 @@
 								{"self": "value"},
 								{"interval": "Duration"}
 							],
-							"returns": "Timer",
+							"returns": {"type": "Timer"},
 							"fn_body": "timer.with_interval(interval)"
 						},
 						"with_timeout": {
@@ -6251,7 +6252,7 @@
 								{"self": "value"},
 								{"timeout": "Duration"}
 							],
-							"returns": "Timer",
+							"returns": {"type": "Timer"},
 							"fn_body": "timer.with_timeout(timeout)"
 						}
 					}
@@ -6302,7 +6303,7 @@
 								{"self": "refmut"},
 								{"msg": "ThreadReceiveMsg"}
 							],
-							"returns": "bool",
+							"returns": {"type": "bool"},
 							"fn_body": "threadsender.send(msg)"
 						}
 					}
@@ -6321,7 +6322,7 @@
 							"fn_args": [
 								{"self": "refmut"}
 							],
-							"returns": "OptionThreadSendMsg",
+							"returns": {"type": "OptionThreadSendMsg"},
 							"fn_body": "threadreceiver.recv().into()"
 						}
 					}
@@ -6357,7 +6358,7 @@
 							{"type": "RefAny", "ref": "value"},
 							{"type": "ThreadCallbackType", "ref": "value"}
 						],
-						"returns": "Thread"
+						"returns": {"type": "Thread"}
 					}
 				},
 				"CreateThreadFn": {
@@ -6369,7 +6370,7 @@
 				"GetSystemTimeFnType": {
 					"callback_typedef": {
 						"fn_args": [],
-						"returns": "Instant"
+						"returns": {"type": "Instant"}
 					}
 				},
 				"GetSystemTimeFn": {
@@ -6384,7 +6385,7 @@
 						"fn_args": [
 							{"type": "c_void", "ref": "ref"}
 						],
-						"returns": "bool"
+						"returns": {"type": "bool"}
 					}
 				},
 				"CheckThreadFinishedFn": {
@@ -6400,7 +6401,7 @@
 							{"type": "c_void", "ref": "refmut"},
 							{"type": "ThreadSendMsg", "ref": "value"}
 						],
-						"returns": "bool"
+						"returns": {"type": "bool"}
 					}
 				},
 				"LibrarySendThreadMsgFn": {
@@ -6415,7 +6416,7 @@
 						"fn_args": [
 							{"type": "c_void", "ref": "refmut"}
 						],
-						"returns": "OptionThreadReceiveMsg"
+						"returns": {"type": "OptionThreadReceiveMsg"}
 					}
 				},
 				"LibraryReceiveThreadMsgFn": {
@@ -6430,7 +6431,7 @@
 						"fn_args": [
 							{"type": "c_void", "ref": "refmut"}
 						],
-						"returns": "OptionThreadSendMsg"
+						"returns": {"type": "OptionThreadSendMsg"}
 					}
 				},
 				"ThreadRecvFn": {
@@ -6446,7 +6447,7 @@
 							{"type": "c_void", "ref": "refmut"},
 							{"type": "ThreadReceiveMsg", "ref": "value"}
 						],
-						"returns": "bool"
+						"returns": {"type": "bool"}
 					}
 				},
 				"ThreadSendFn": {
@@ -8056,7 +8057,7 @@
 						"fn_args": [
 							{"type": "c_void", "ref": "ref"}
 						],
-						"returns": "InstantPtr"
+						"returns": {"type": "InstantPtr"}
 					}
 				},
 				"InstantPtrCloneFn": {

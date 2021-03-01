@@ -519,7 +519,7 @@ def generate_rust_dll(api_data):
 
                     returns = class_ptr_name
                     if "returns" in const.keys():
-                        return_type = const["returns"]
+                        return_type = const["returns"]["type"]
                         analyzed_return_type = analyze_type(return_type)
                         if is_primitive_arg(analyzed_return_type[1]):
                             returns = return_type
@@ -554,7 +554,7 @@ def generate_rust_dll(api_data):
 
                     returns = ""
                     if "returns" in f.keys():
-                        return_type = f["returns"]
+                        return_type = f["returns"]["type"]
                         analyzed_return_type = analyze_type(return_type)
                         if is_primitive_arg(analyzed_return_type[1]):
                             returns = return_type
@@ -996,7 +996,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
 
                         returns = "Self"
                         if "returns" in const.keys():
-                            return_type = const["returns"]
+                            return_type = const["returns"]["type"]
                             returns = return_type
                             analyzed_return_type = analyze_type(return_type)
                             if is_primitive_arg(analyzed_return_type[1]):
@@ -1039,7 +1039,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
 
                         returns = ""
                         if "returns" in f.keys():
-                            return_type = f["returns"]
+                            return_type = f["returns"]["type"]
                             returns = " -> " + return_type
                             analyzed_return_type = analyze_type(return_type)
                             if is_primitive_arg(analyzed_return_type[1]):
@@ -1127,7 +1127,7 @@ def generate_rust_callback_fn_type(api_data, callback_typedef):
 
     if "returns" in callback_typedef.keys():
         fn_string += " -> "
-        fn_arg_type = callback_typedef["returns"]
+        fn_arg_type = callback_typedef["returns"]["type"]
         search_result = search_for_class_by_class_name(api_data, fn_arg_type)
         fn_arg_class = fn_arg_type
 
@@ -1358,14 +1358,14 @@ def generate_docs():
 
         for module_name in apiData[version].keys():
 
-            api_page_contents += "<li class=\"m\" id=\"" + module_name + "\">"
+            api_page_contents += "<li class=\"m\" id=\"m." + module_name + "\">"
 
             module = apiData[version][module_name]
 
             if "doc" in module.keys():
-                api_page_contents += "<p class=\"module doc\">" + format_doc(module["doc"]) + "</p>"
+                api_page_contents += "<p class=\"m doc\">" + format_doc(module["doc"]) + "</p>"
 
-            api_page_contents += "<h3>mod " + module_name + ":</h3>"
+            api_page_contents += "<h3>mod <a href=\"#m." + module_name + "\">" + module_name + "</a>:</h3>"
 
             api_page_contents += "<ul>"
 
@@ -1398,6 +1398,32 @@ def generate_docs():
                         if "doc" in struct_field[struct_field_name]:
                             api_page_contents += "<p class=\"f doc\">" + format_doc(struct_field[struct_field_name]["doc"]) + "</p>"
                         api_page_contents += "<p class=\"f\">" + struct_field_name + ": <a href=\"#\">" + struct_type + "</a></p>"
+
+                elif "callback_typedef" in c.keys():
+                    api_page_contents += "<li class=\"fnty\" id=\"" + module_name + ".fnty." + class_name + "\">"
+                    api_page_contents += "<h4>fnptr <a href=\"#" + module_name + ".fnty." + class_name + "\">" + class_name + "</a></h4>"
+                    callback_typedef = c["callback_typedef"]
+                    if "fn_args" in callback_typedef:
+                        for fn_arg in callback_typedef["fn_args"]:
+                            if "doc" in fn_arg.keys():
+                                api_page_contents += "<p class=\"arg doc\">" + format_doc(fn_arg["doc"]) + "</p>"
+                            # struct_field_name = list(struct_field.keys())[0]
+                            fn_arg_type = fn_arg["type"]
+                            fn_arg_ref = fn_arg["ref"]
+
+                            fn_arg_ref_html = ""
+                            if (fn_arg_ref == "value"):
+                                fn_arg_ref_html = ""
+                            elif (fn_arg_ref == "ref"):
+                                fn_arg_ref_html = "&"
+                            elif (fn_arg_ref == "refmut"):
+                                fn_arg_ref_html = "&mut "
+
+                            api_page_contents += "<p class=\"fnty arg\">" + fn_arg_ref_html + " <a href=\"#\">" + fn_arg_type + "</a></p>"
+                    if "returns" in callback_typedef:
+                        if "doc" in fn_arg.keys():
+                            api_page_contents += "<p class=\"ret doc\">" + format_doc(callback_typedef["returns"]["doc"]) + "</p>"
+                        api_page_contents += "<p class=\"fnty ret\">-&gt;&nbsp;" + format_doc(callback_typedef["returns"]["type"]) + "</p>"
 
                 if "constructors" in c.keys():
                     api_page_contents += "<ul>"
@@ -1459,14 +1485,19 @@ def generate_docs():
         extra_css = "\
         body > .center > main > div > ul * { font-size: 12px; font-weight: normal; list-style-type: none; font-family: monospace; }\
         body > .center > main > div > ul > li ul { margin-left: 20px; }\
-        body > .center > main > div > ul > li.m { margin-bottom: 10px; }\
-        body > .center > main > div > ul > li.m > ul > li.st { margin-bottom: 15px; }\
+        body > .center > main > div > ul > li.m { margin-top: 40px; margin-bottom: 20px; }\
+        body > .center > main > div > ul > li.m > ul > li { margin-bottom: 15px; }\
         body > .center > main > div > ul > li.m > ul > li.st.e { color: #690; }\
         body > .center > main > div > ul > li.m > ul > li.st.s { color: #905; }\
+        body > .center > main > div > ul > li.m > ul > li.fnty { color: #ff5722; }\
         body > .center > main > div > ul > li.m > ul > li.st .f { margin-left: 20px; }\
         body > .center > main > div > ul > li.m > ul > li.st .v.doc { margin-left: 20px; }\
         body > .center > main > div > ul > li.m > ul > li.st .cn { margin-left: 20px; color: #07a; }\
         body > .center > main > div > ul > li.m > ul > li.st .fn { margin-left: 20px; color: #004e92; }\
+        body > .center > main > div > ul > li.m > ul > li .arg,\
+        body > .center > main > div > ul > li.m > ul > li .arg.doc,\
+        body > .center > main > div > ul > li.m > ul > li .ret,\
+        body > .center > main > div > ul > li.m > ul > li .ret.doc { margin-left: 40px; }\
         body > .center > main > div p.doc { margin-top: 5px !important; color: black !important; max-width: 70ch !important; font-weight: bolder; }\
         body > .center > main > div a { color: inherit !important; }\
         "
