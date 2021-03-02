@@ -1219,27 +1219,12 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
             #     opt_derive_clone = ""
             #     opt_derive_other = ""
 
-            typedef_function_pointers = []
-
-            for field in struct:
-                if "type" in list(field.values())[0]:
-                    analyzed_arg_type = analyze_type(list(field.values())[0]["type"])
-                    if not(is_primitive_arg(analyzed_arg_type[1])):
-                        field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
-                        if field_type_class_path is None:
-                            print("no field_type_class_path found for " + str(analyzed_arg_type))
-                        found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
-                        found_c_is_callback_typedef = "callback_typedef" in found_c.keys() and found_c["callback_typedef"]
-                        if found_c_is_callback_typedef:
-                            typedef_function_pointers.append(field_type_class_path[1])
-                            opt_derive_debug = ""
-                            opt_derive_other = ""
-
-            for td in typedef_function_pointers:
-                code += "typedef " + prefix + td + ";"
-
             # code += "    #[repr(C)] "  + opt_derive_debug + " " + opt_derive_clone + " " + opt_derive_other + " " + opt_derive_copy + " pub struct " + struct_name + " {\r\n"
-            code += "\r\ntypedef struct {\r\n"
+            if struct_name in already_forward_declared:
+                # https://stackoverflow.com/questions/65043140/how-to-forward-declare-structs-in-c
+                code += "\r\ntypedef struct " + struct_name + "{\r\n"
+            else:
+                code += "\r\ntypedef struct {\r\n"
 
             for field in struct:
                 if type(field) is str:
@@ -1249,15 +1234,28 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
                 if "type" in field_type:
                     field_type = field_type["type"]
                     analyzed_arg_type = analyze_type(field_type)
+
+                    # arrays: convert blah: [BlahType;4] to BlahType blah[4]
+                    is_array = False
+                    if (len(analyzed_arg_type[2]) == 3 and analyzed_arg_type[2].startswith(";")):
+                        analyzed_arg_type[2] = analyzed_arg_type[2][1:]
+                        is_array = True
+
                     if is_primitive_arg(analyzed_arg_type[1]):
-                        code += "    " + replace_primitive_ctype(analyzed_arg_type[1]) + replace_primitive_ctype(analyzed_arg_type[0]) + analyzed_arg_type[2] + field_name + ";\r\n"
+                        if is_array:
+                            code += "    " + replace_primitive_ctype(analyzed_arg_type[1]) + " " + field_name + replace_primitive_ctype(analyzed_arg_type[0]).strip() + analyzed_arg_type[2] + ";\r\n"
+                        else:
+                            code += "    " + replace_primitive_ctype(analyzed_arg_type[1]) + replace_primitive_ctype(analyzed_arg_type[0]).strip() + analyzed_arg_type[2] + " " + field_name + ";\r\n"
                     else:
                         field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
                         if field_type_class_path is None:
                             print("no field_type_class_path found for " + str(analyzed_arg_type))
 
                         found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
-                        code += "    " + prefix + field_type_class_path[1] + replace_primitive_ctype(analyzed_arg_type[0]) + analyzed_arg_type[2] + field_name + ";\r\n"
+                        if is_array:
+                            code += "    " + prefix + field_type_class_path[1] + " " + field_name + replace_primitive_ctype(analyzed_arg_type[0]).strip() + analyzed_arg_type[2] + ";\r\n"
+                        else:
+                            code += "    " + prefix + field_type_class_path[1] + replace_primitive_ctype(analyzed_arg_type[0]).strip()  + analyzed_arg_type[2]+ " " + field_name + ";\r\n"
                 else:
                     print("struct " + struct_name + " does not have a type on field " + field_name)
                     raise Exception("error")
@@ -1285,10 +1283,11 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
 
             enum_is_c_enum = True
             for variant in enum:
-                variant = list(variant.values())[0]
-                if "type" in variant.keys():
-                    variant_type = variant["type"]
-                    enum_is_c_enum = False
+                variant_name = list(variant.keys())[0]
+                variant_real = list(variant.values())[0]
+                if "type" in variant_real.keys():
+                    enum_is_c_enum = False # enum is tagged union
+            #        variant_type = variant["type"]
             #        analyzed_arg_type = analyze_type(variant_type)
             #        if not(is_primitive_arg(analyzed_arg_type[1])):
             #            field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
@@ -1300,24 +1299,52 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
             #                opt_derive_debug = ""
             #                opt_derive_other = ""
 
-            code += "\r\ntypedef enum {\r\n"
-            for variant in enum:
-                variant_name = list(variant.keys())[0]
-                variant = list(variant.values())[0]
-                if "type" in variant.keys():
-                    variant_type = variant["type"]
-                    if is_primitive_arg(variant_type):
-                        code += "    " + variant_name + "(" + variant_type + "),\r\n"
-                    else:
-                        analyzed_arg_type = analyze_type(variant_type)
-                        field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
-                        if field_type_class_path is None:
-                            print("variant_type not found: " + variant_type + " in " + struct_name)
-                        found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
-                        code += "        " + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + "),\r\n"
-                else:
+            if enum_is_c_enum:
+                code += "\r\ntypedef enum {\r\n"
+                for variant in enum:
+                    variant_name = list(variant.keys())[0]
+                    variant_real = list(variant.values())[0]
                     code += "   " + struct_name + "_" + variant_name + ",\r\n"
-            code += "} " + struct_name + ";\r\n"
+                code += "} " + struct_name + ";\r\n"
+            else:
+                # generate union tag
+                code += "\r\ntypedef enum {\r\n"
+                for variant in enum:
+                    variant_name = list(variant.keys())[0]
+                    code += "   " + struct_name + "Tag_" + variant_name + ",\r\n"
+                code += "} " + struct_name + "Tag;\r\n"
+
+                # generate union variants
+                for variant in enum:
+                    variant_name = list(variant.keys())[0]
+                    variant_real = list(variant.values())[0]
+                    c_type = ""
+                    if "type" in variant_real.keys():
+                        variant_type = variant_real["type"]
+                        analyzed_variant_type = analyze_type(variant_type)
+                        variant_prefix = prefix
+                        if is_primitive_arg(analyzed_variant_type[1]):
+                            variant_prefix = ""
+
+                        # arrays: convert blah: [BlahType;4] to BlahType blah[4]
+                        is_array = False
+                        if (len(analyzed_variant_type[2]) == 3 and analyzed_variant_type[2].startswith(";")):
+                            analyzed_variant_type[2] = analyzed_variant_type[2][1:]
+                            is_array = True
+
+                        if is_array:
+                            c_type = " " + variant_prefix + replace_primitive_ctype(analyzed_variant_type[1]).strip()  + " payload" + replace_primitive_ctype(analyzed_variant_type[0]).strip() + analyzed_variant_type[2] + ";"
+                        else:
+                            c_type = " " + variant_prefix + replace_primitive_ctype(analyzed_variant_type[1]).strip() + replace_primitive_ctype(analyzed_variant_type[0]).strip() + analyzed_variant_type[2] + " payload;"
+
+                    code += "\r\ntypedef struct { " + struct_name + "Tag tag;" + c_type + " } " + struct_name + "Variant_" + variant_name + ";"
+
+                # generate union
+                code += "\r\n\r\ntypedef union {\r\n"
+                for variant in enum:
+                    variant_name = list(variant.keys())[0]
+                    code += "    " + struct_name + "Variant_" + variant_name + " " + variant_name + ";\r\n"
+                code += "} " + struct_name + ";\r\n"
 
     return code
 
@@ -1429,7 +1456,11 @@ def generate_c_api(api_data, structs_map, functions_map):
     code += "\r\n"
     code += "#include <stdbool.h>\r\n" # bool
     code += "#include <stdint.h>\r\n" # uint8_t, ...
-    code += "#include <stddef.h>\r\n" # size_t, ssize_t
+    code += "#include <stddef.h>\r\n" # size_t
+    code += "\r\n"
+    code += "// ssize_t and size_t have the same size\r\n"
+    code += "// but ssize_t is signed\r\n"
+    code += "#define ssize_t size_t\r\n" # size_t
     # code += "#include <stdarg.h>\r\n"
     # code += "#include <stdlib.h>\r\n"
     # code += "\r\n"
@@ -1437,6 +1468,8 @@ def generate_c_api(api_data, structs_map, functions_map):
     code += generate_c_structs(myapi_data, structs_map, forward_delcarations)
 
     code += "\r\n"
+    code += "\r\n"
+    code += "#undef ssize_t\r\n" # size_t
     code += "\r\n"
     code += "#endif // AZUL_H\r\n"
     return code
