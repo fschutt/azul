@@ -1180,12 +1180,14 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
                     continue
                 if not(arg_type in already_forward_declared):
                     function_pointer_string += "\r\nstruct " + prefix + arg_type + ";"
+                    function_pointer_string += "\r\ntypedef struct " + prefix + arg_type + " " + prefix + arg_type + ";"
                     already_forward_declared.append(arg_type)
         if "returns" in fnptr[0].keys():
             return_type = fnptr[0]["returns"]["type"]
             if not(is_primitive_arg(analyze_type(return_type)[1])):
                 if not(return_type in already_forward_declared):
                     function_pointer_string += "\r\nstruct " + prefix + return_type + ";"
+                    function_pointer_string += "\r\ntypedef struct " + prefix + return_type + " " + prefix + return_type + ";"
                     already_forward_declared.append(return_type)
         function_pointer_string += "\r\n"
         function_pointer_string += fnptr[1]
@@ -1269,7 +1271,8 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
                     print("struct " + struct_name + " does not have a type on field " + field_name)
                     raise Exception("error")
             code += "};\r\n"
-            code += "typedef struct " + struct_name + " " + struct_name + ";\r\n"
+            if not(struct_name in already_forward_declared):
+                code += "typedef struct " + struct_name + " " + struct_name + ";\r\n"
 
         elif "enum" in struct.keys():
             enum = struct["enum"]
