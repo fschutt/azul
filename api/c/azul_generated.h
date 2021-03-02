@@ -5430,6 +5430,16 @@ struct AzVideoModeVec {
 };
 typedef struct AzVideoModeVec AzVideoModeVec;
 
+struct AzDom;
+typedef struct AzDom AzDom;
+struct AzDomVec {
+    AzDom* const ptr;
+    size_t len;
+    size_t cap;
+    AzDomVecDestructor destructor;
+};
+typedef struct AzDomVec AzDomVec;
+
 struct AzStyleBackgroundPositionVec {
     AzStyleBackgroundPosition* const ptr;
     size_t len;
@@ -8472,14 +8482,6 @@ struct AzStyledDom {
     AzCssPropertyCache css_property_cache;
 };
 typedef struct AzStyledDom AzStyledDom;
-
-struct AzDomVec {
-    AzDom* const ptr;
-    size_t len;
-    size_t cap;
-    AzDomVecDestructor destructor;
-};
-typedef struct AzDomVec AzDomVec;
 
 struct AzCssRuleBlockVec {
     AzCssRuleBlock* const ptr;

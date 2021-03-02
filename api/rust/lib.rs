@@ -2646,6 +2646,13 @@ mod dll {
         pub cap: usize,
         pub destructor: AzVideoModeVecDestructor,
     }
+    /// Wrapper over a Rust-allocated `Vec<Dom>`
+    #[repr(C)]     pub struct AzDomVec {
+        pub(crate) ptr: *const AzDom,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzDomVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
     #[repr(C)]     pub struct AzStyleBackgroundPositionVec {
         pub(crate) ptr: *const AzStyleBackgroundPosition,
@@ -3990,13 +3997,6 @@ mod dll {
         pub tag_ids_to_node_ids: AzTagIdsToNodeIdsMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub css_property_cache: AzCssPropertyCache,
-    }
-    /// Wrapper over a Rust-allocated `Vec<Dom>`
-    #[repr(C)]     pub struct AzDomVec {
-        pub(crate) ptr: *const AzDom,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzDomVecDestructor,
     }
     /// Wrapper over a Rust-allocated `CssRuleBlock`
     #[repr(C)]     pub struct AzCssRuleBlockVec {

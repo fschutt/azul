@@ -5448,6 +5448,13 @@ mod test_sizes {
         pub cap: usize,
         pub destructor: AzVideoModeVecDestructor,
     }
+    /// Wrapper over a Rust-allocated `Vec<Dom>`
+    #[repr(C)]     pub struct AzDomVec {
+        pub(crate) ptr: *const AzDom,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzDomVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
     #[repr(C)]     pub struct AzStyleBackgroundPositionVec {
         pub(crate) ptr: *const AzStyleBackgroundPosition,
@@ -6793,13 +6800,6 @@ mod test_sizes {
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub css_property_cache: AzCssPropertyCache,
     }
-    /// Wrapper over a Rust-allocated `Vec<Dom>`
-    #[repr(C)]     pub struct AzDomVec {
-        pub(crate) ptr: *const AzDom,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzDomVecDestructor,
-    }
     /// Wrapper over a Rust-allocated `CssRuleBlock`
     #[repr(C)]     pub struct AzCssRuleBlockVec {
         pub(crate) ptr: *const AzCssRuleBlock,
@@ -7185,6 +7185,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadSender>(), "AzThreadSender"), (Layout::new::<AzThreadSender>(), "AzThreadSender"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiver>(), "AzThreadReceiver"), (Layout::new::<AzThreadReceiver>(), "AzThreadReceiver"));
         assert_eq!((Layout::new::<azul_impl::window::VideoModeVec>(), "AzVideoModeVec"), (Layout::new::<AzVideoModeVec>(), "AzVideoModeVec"));
+        assert_eq!((Layout::new::<azul_impl::dom::DomVec>(), "AzDomVec"), (Layout::new::<AzDomVec>(), "AzDomVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"), (Layout::new::<AzStyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"), (Layout::new::<AzStyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"), (Layout::new::<AzStyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"));
@@ -7364,7 +7365,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::Dom>(), "AzDom"), (Layout::new::<AzDom>(), "AzDom"));
         assert_eq!((Layout::new::<azul_impl::css::CssRuleBlock>(), "AzCssRuleBlock"), (Layout::new::<AzCssRuleBlock>(), "AzCssRuleBlock"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledDom>(), "AzStyledDom"), (Layout::new::<AzStyledDom>(), "AzStyledDom"));
-        assert_eq!((Layout::new::<azul_impl::dom::DomVec>(), "AzDomVec"), (Layout::new::<AzDomVec>(), "AzDomVec"));
         assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVec>(), "AzCssRuleBlockVec"), (Layout::new::<AzCssRuleBlockVec>(), "AzCssRuleBlockVec"));
         assert_eq!((Layout::new::<azul_impl::dom::OptionDom>(), "AzOptionDom"), (Layout::new::<AzOptionDom>(), "AzOptionDom"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgParseError>(), "AzSvgParseError"), (Layout::new::<AzSvgParseError>(), "AzSvgParseError"));

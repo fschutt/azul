@@ -613,8 +613,12 @@ def sort_structs_map(api_data, structs_map):
 
     # From Python 3.6 onwards, the standard dict type maintains insertion order by default.
     sorted_class_map = OrderedDict([])
-    # when encountering the class "DomVec", you must forward-declare the class "Dom"
-    forward_delcarations = OrderedDict([("DomVec", "Dom")])
+
+    # when encountering the class "DomVec", you must forward-declare the class "Dom",
+    # because the type is recursive
+    extra_forward_delcarations = {"AzDomVec": {"type": "struct", "name": "AzDom"}}
+    forward_delcarations = OrderedDict([("AzDomVec", "Dom")])
+
     classes_not_found = OrderedDict([])
 
     # first, insert all types that only have primitive types as fields
@@ -624,6 +628,7 @@ def sort_structs_map(api_data, structs_map):
 
         found_c_is_callback_typedef = "callback_typedef" in clazz.keys() and (len(clazz["callback_typedef"].keys()) > 0)
         found_c_is_boxed_object = "is_boxed_object" in clazz.keys() and clazz["is_boxed_object"]
+        class_in_forward_decl = class_name in forward_delcarations.keys()
 
         if found_c_is_callback_typedef:
             pass
@@ -636,7 +641,7 @@ def sort_structs_map(api_data, structs_map):
                 if not(is_primitive_arg(field_type)):
                     found_c = search_for_class_by_class_name(api_data, field_type)
                     field_is_fn_ptr = class_is_typedef(get_class(api_data, found_c[0], found_c[1]))
-                    if not(field_is_fn_ptr):
+                    if not(class_in_forward_decl and field_type == forward_delcarations[class_name]) and not(field_is_fn_ptr):
                         should_insert_struct = False
         elif "enum" in clazz.keys():
             enum = clazz["enum"]
@@ -648,7 +653,7 @@ def sort_structs_map(api_data, structs_map):
                     if not(is_primitive_arg(variant_type)):
                         found_c = search_for_class_by_class_name(api_data, variant_type)
                         field_is_fn_ptr = class_is_typedef(get_class(api_data, found_c[0], found_c[1]))
-                        if not(field_is_fn_ptr):
+                        if not(class_in_forward_decl and variant_type == forward_delcarations[class_name]) and not(field_is_fn_ptr):
                             should_insert_struct = False
         else:
             raise Exception("sort_structs_map: not enum nor struct nor typedef" + class_name + "")
@@ -669,7 +674,7 @@ def sort_structs_map(api_data, structs_map):
             clazz = classes_not_found[class_name]
             should_insert_struct = True
             found_c_is_callback_typedef = "callback_typedef" in clazz.keys() and (len(clazz["callback_typedef"].keys()) > 0)
-
+            class_in_forward_decl = class_name in forward_delcarations.keys()
             if found_c_is_callback_typedef:
                 pass
             elif "struct" in clazz.keys():
@@ -681,7 +686,7 @@ def sort_structs_map(api_data, structs_map):
                     if not(is_primitive_arg(field_type)):
                         found_c = search_for_class_by_class_name(api_data, field_type)
                         field_is_fn_ptr = class_is_typedef(get_class(api_data, found_c[0], found_c[1]))
-                        if not(field_type in forward_delcarations.keys()) and not(field_is_fn_ptr):
+                        if not(class_in_forward_decl and field_type == forward_delcarations[class_name]) and not(field_is_fn_ptr):
                             field_type = prefix + field_type
                             if not(field_type in sorted_class_map.keys()):
                                 should_insert_struct = False
@@ -695,7 +700,7 @@ def sort_structs_map(api_data, structs_map):
                         if not(is_primitive_arg(variant_type)):
                             found_c = search_for_class_by_class_name(api_data, variant_type)
                             field_is_fn_ptr = class_is_typedef(get_class(api_data, found_c[0], found_c[1]))
-                            if not(variant_type in forward_delcarations.keys()) and not(field_is_fn_ptr):
+                            if not(class_in_forward_decl and variant_type == forward_delcarations[class_name]) and not(field_is_fn_ptr):
                                 variant_type = prefix + variant_type
                                 if not(variant_type in sorted_class_map.keys()):
                                     should_insert_struct = False
@@ -716,7 +721,7 @@ def sort_structs_map(api_data, structs_map):
         if iteration_count > 500:
             raise Exception("infinite recursion detected in sort_structs_map: " + str(len(current_classes_not_found.keys())) + " unresolved structs = " + str(current_classes_not_found.keys()) + "\r\n")
 
-    return [sorted_class_map, forward_delcarations]
+    return [sorted_class_map, forward_delcarations, extra_forward_delcarations]
 
 # Generate the RUST code for the struct layout of the final API
 # This function has to be called twice in order to ensure that the layout of the struct
@@ -1157,7 +1162,7 @@ def generate_rust_callback_fn_type(api_data, callback_typedef):
     return fn_string
 
 # Generate the C coded for the struct layout of the final API
-def generate_c_structs(api_data, structs_map, forward_declarations):
+def generate_c_structs(api_data, structs_map, forward_declarations, extra_forward_delcarations):
     code = ""
 
     # Put all function pointers at the top and forward-declare all the structs
@@ -1227,6 +1232,11 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
 
         is_boxed_object = "is_boxed_object" in struct.keys() and struct["is_boxed_object"]
         treat_external_as_ptr = "external" in struct.keys() and is_boxed_object
+
+        if struct_name in extra_forward_delcarations.keys():
+            struct_forward_decl = extra_forward_delcarations[struct_name]
+            code += "\r\n" + struct_forward_decl["type"] + " " + struct_forward_decl["name"] + ";"
+            code += "\r\ntypedef " + struct_forward_decl["type"] + " " + struct_forward_decl["name"] + " " + struct_forward_decl["name"] + ";"
 
         if class_is_callback_typedef:
             # function_pointers += generate_c_callback_fn_type(api_data, struct["callback_typedef"], struct_name)
@@ -1493,11 +1503,11 @@ def replace_primitive_ctype(input):
 def generate_c_api(api_data, structs_map, functions_map):
     code = ""
 
-
     version = list(api_data.keys())[-1]
     myapi_data = api_data[version]
 
     structs_map = sort_structs_map(myapi_data, structs_map)
+    extra_forward_delcarations = structs_map[2]
     forward_delcarations = structs_map[1]
     structs_map = structs_map[0]
 
@@ -1514,7 +1524,7 @@ def generate_c_api(api_data, structs_map, functions_map):
     # code += "#include <stdlib.h>\r\n"
     # code += "\r\n"
 
-    code += generate_c_structs(myapi_data, structs_map, forward_delcarations)
+    code += generate_c_structs(myapi_data, structs_map, forward_delcarations, extra_forward_delcarations)
 
     code += "\r\n"
     code += "\r\n"
@@ -1993,7 +2003,7 @@ def full_test():
     os.system('cd "' + root_folder + "/examples && cargo run --bin layout_tests -- --nocapture")
 
 def debug_test_compile_c():
-    os.system('cd "' + root_folder + '/api/c" && gcc -ansi main.c')
+    os.system('cd "' + root_folder + '/api/c" && gcc ./main.c')
 
 def main():
     print("removing old azul.dll...")
