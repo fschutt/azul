@@ -5,8 +5,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// ssize_t and size_t have the same size
-// but ssize_t is signed
+/* ssize_t and size_t have the same size but ssize_t is signed */
 #define ssize_t size_t
 
 struct AzRefAny;
@@ -8529,4 +8528,4 @@ typedef struct AzCss AzCss;
 
 #undef ssize_t
 
-#endif // AZUL_H
+#endif /* AZUL_H */

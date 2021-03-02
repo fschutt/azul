@@ -1461,8 +1461,7 @@ def generate_c_api(api_data, structs_map, functions_map):
     code += "#include <stdint.h>\r\n" # uint8_t, ...
     code += "#include <stddef.h>\r\n" # size_t
     code += "\r\n"
-    code += "// ssize_t and size_t have the same size\r\n"
-    code += "// but ssize_t is signed\r\n"
+    code += "/* ssize_t and size_t have the same size but ssize_t is signed */\r\n"
     code += "#define ssize_t size_t\r\n" # size_t
     # code += "#include <stdarg.h>\r\n"
     # code += "#include <stdlib.h>\r\n"
@@ -1474,7 +1473,7 @@ def generate_c_api(api_data, structs_map, functions_map):
     code += "\r\n"
     code += "#undef ssize_t\r\n" # size_t
     code += "\r\n"
-    code += "#endif // AZUL_H\r\n"
+    code += "#endif /* AZUL_H */\r\n"
     return code
 
 # generate a test function that asserts that the struct layout in the DLL
@@ -1947,7 +1946,7 @@ def full_test():
     os.system('cd "' + root_folder + "/examples && cargo run --bin layout_tests -- --nocapture")
 
 def debug_test_compile_c():
-    os.system('cd "' + root_folder + '/api/c" && gcc main.c')
+    os.system('cd "' + root_folder + '/api/c" && gcc -ansi main.c')
 
 def main():
     print("removing old azul.dll...")
