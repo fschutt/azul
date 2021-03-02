@@ -1220,11 +1220,8 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
             #     opt_derive_other = ""
 
             # code += "    #[repr(C)] "  + opt_derive_debug + " " + opt_derive_clone + " " + opt_derive_other + " " + opt_derive_copy + " pub struct " + struct_name + " {\r\n"
-            if struct_name in already_forward_declared:
-                # https://stackoverflow.com/questions/65043140/how-to-forward-declare-structs-in-c
-                code += "\r\ntypedef struct " + struct_name + "{\r\n"
-            else:
-                code += "\r\ntypedef struct {\r\n"
+            # https://stackoverflow.com/questions/65043140/how-to-forward-declare-structs-in-c
+            code += "\r\nstruct " + struct_name + " {\r\n"
 
             for field in struct:
                 if type(field) is str:
@@ -1259,7 +1256,9 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
                 else:
                     print("struct " + struct_name + " does not have a type on field " + field_name)
                     raise Exception("error")
-            code += "} " + struct_name + ";\r\n"
+            code += "};\r\n"
+            code += "typedef struct " + struct_name + " " + struct_name + ";\r\n"
+
         elif "enum" in struct.keys():
             enum = struct["enum"]
 
@@ -1300,19 +1299,21 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
             #                opt_derive_other = ""
 
             if enum_is_c_enum:
-                code += "\r\ntypedef enum {\r\n"
+                code += "\r\nenum " + struct_name + " {\r\n"
                 for variant in enum:
                     variant_name = list(variant.keys())[0]
                     variant_real = list(variant.values())[0]
                     code += "   " + struct_name + "_" + variant_name + ",\r\n"
-                code += "} " + struct_name + ";\r\n"
+                code += "};\r\n"
+                code += "typedef enum " + struct_name + " " + struct_name + ";\r\n"
             else:
                 # generate union tag
-                code += "\r\ntypedef enum {\r\n"
+                code += "\r\nenum " + struct_name + "Tag {\r\n"
                 for variant in enum:
                     variant_name = list(variant.keys())[0]
                     code += "   " + struct_name + "Tag_" + variant_name + ",\r\n"
-                code += "} " + struct_name + "Tag;\r\n"
+                code += "};\r\n"
+                code += "typedef enum " + struct_name + "Tag " + struct_name + "Tag;\r\n"
 
                 # generate union variants
                 for variant in enum:
@@ -1337,14 +1338,16 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
                         else:
                             c_type = " " + variant_prefix + replace_primitive_ctype(analyzed_variant_type[1]).strip() + replace_primitive_ctype(analyzed_variant_type[0]).strip() + analyzed_variant_type[2] + " payload;"
 
-                    code += "\r\ntypedef struct { " + struct_name + "Tag tag;" + c_type + " } " + struct_name + "Variant_" + variant_name + ";"
+                    code += "\r\nstruct " + struct_name + "Variant_" + variant_name + " { " + struct_name + "Tag tag;" + c_type + " };\r\n"
+                    code += "typedef struct " + struct_name + "Variant_" + variant_name + " " + struct_name + "Variant_" + variant_name + ";\r\n"
 
                 # generate union
-                code += "\r\n\r\ntypedef union {\r\n"
+                code += "\r\n\r\nunion " + struct_name + " {\r\n"
                 for variant in enum:
                     variant_name = list(variant.keys())[0]
                     code += "    " + struct_name + "Variant_" + variant_name + " " + variant_name + ";\r\n"
-                code += "} " + struct_name + ";\r\n"
+                code += "};\r\n"
+                code += "typedef union " + struct_name + " " + struct_name + ";\r\n"
 
     return code
 
