@@ -5,8 +5,30 @@
 #include <stdint.h>
 #include <stddef.h>
 
-/* ssize_t and size_t have the same size but ssize_t is signed */
-#define ssize_t size_t
+/* C89 port for "restrict" keyword from C99 */
+
+#if __STDC__ != 1
+#    define restrict __restrict
+#else
+#    ifndef __STDC_VERSION__
+#        define restrict __restrict
+#    else
+#        if __STDC_VERSION__ < 199901L
+#            define restrict __restrict
+#        endif
+#    endif
+#endif
+
+/* cross-platform define for ssize_t (signed size_t) */
+#ifdef __unix__
+   #include <sys/types.h>
+   #define ssize_t size_t
+#elif defined(_WIN32) || defined(WIN32)
+   #define ssize_t SSIZE_T
+#else
+   #define ssize_t size_t
+#endif
+
 
 struct AzRefAny;
 typedef struct AzRefAny AzRefAny;
@@ -8592,8 +8614,5 @@ struct AzCss {
     AzStylesheetVec stylesheets;
 };
 typedef struct AzCss AzCss;
-
-
-#undef ssize_t
 
 #endif /* AZUL_H */

@@ -1244,26 +1244,6 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
             pass
         elif "struct" in struct.keys():
             struct = struct["struct"]
-
-            # for LayoutCallback and RefAny, etc. the #[derive(Debug)] has to be implemented manually
-            # opt_derive_debug = "#[derive(Debug)]"
-            # opt_derive_clone = "#[derive(Clone)]"
-            # opt_derive_copy = "#[derive(Copy)]"
-            # opt_derive_other = "#[derive(PartialEq, PartialOrd)]"
-            #
-            # if not(class_can_be_copied):
-            #     opt_derive_copy = ""
-            #
-            # if not(class_can_be_cloned) or (treat_external_as_ptr and class_can_be_cloned):
-            #     opt_derive_clone = ""
-            #
-            # if class_has_custom_destructor or struct_name == "AzRefCount" or struct_name == "AzU8VecRef":
-            #     opt_derive_copy = ""
-            #     opt_derive_debug = ""
-            #     opt_derive_clone = ""
-            #     opt_derive_other = ""
-
-            # code += "    #[repr(C)] "  + opt_derive_debug + " " + opt_derive_clone + " " + opt_derive_other + " " + opt_derive_copy + " pub struct " + struct_name + " {\r\n"
             # https://stackoverflow.com/questions/65043140/how-to-forward-declare-structs-in-c
             code += "\r\nstruct " + struct_name + " {\r\n"
 
@@ -1306,38 +1286,6 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
 
         elif "enum" in struct.keys():
             enum = struct["enum"]
-
-            # # don't derive(Debug) for enums with function pointers in their variants
-            # opt_derive_debug = "#[derive(Debug)]"
-            # opt_derive_clone = "#[derive(Clone)]"
-            # opt_derive_copy = "#[derive(Copy)]"
-            # opt_derive_other = "#[derive(PartialEq, PartialOrd)]"
-            #
-            # if not(class_can_be_copied):
-            #     opt_derive_copy = ""
-            #
-            # if not(class_can_be_cloned) or (treat_external_as_ptr and class_can_be_cloned):
-            #     opt_derive_clone = ""
-            #
-            # if class_has_custom_destructor:
-            #     opt_derive_copy = ""
-            #     opt_derive_debug = ""
-            #     opt_derive_clone = ""
-            #     opt_derive_other = ""
-
-
-            #        variant_type = variant["type"]
-            #        analyzed_arg_type = analyze_type(variant_type)
-            #        if not(is_primitive_arg(analyzed_arg_type[1])):
-            #            field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
-            #            if field_type_class_path is None:
-            #                print("no field_type_class_path found for " + str(analyzed_arg_type))
-            #            found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
-            #            found_c_is_callback_typedef = "callback_typedef" in found_c.keys() and found_c["callback_typedef"]
-            #            if found_c_is_callback_typedef:
-            #                opt_derive_debug = ""
-            #                opt_derive_other = ""
-
             if not(enum_is_union(enum)):
                 code += "\r\nenum " + struct_name + " {\r\n"
                 for variant in enum:
@@ -1500,6 +1448,9 @@ def replace_primitive_ctype(input):
     }
     return switcher.get(input, input + " ")
 
+def generate_c_functions(api_data, functions):
+    return ""
+
 def generate_c_api(api_data, structs_map, functions_map):
     code = ""
 
@@ -1518,17 +1469,35 @@ def generate_c_api(api_data, structs_map, functions_map):
     code += "#include <stdint.h>\r\n" # uint8_t, ...
     code += "#include <stddef.h>\r\n" # size_t
     code += "\r\n"
-    code += "/* ssize_t and size_t have the same size but ssize_t is signed */\r\n"
-    code += "#define ssize_t size_t\r\n" # size_t
-    # code += "#include <stdarg.h>\r\n"
-    # code += "#include <stdlib.h>\r\n"
-    # code += "\r\n"
+    code += "/* C89 port for \"restrict\" keyword from C99 */\r\n"
+    code += """
+#if __STDC__ != 1
+#    define restrict __restrict
+#else
+#    ifndef __STDC_VERSION__
+#        define restrict __restrict
+#    else
+#        if __STDC_VERSION__ < 199901L
+#            define restrict __restrict
+#        endif
+#    endif
+#endif
+"""
+    code += "\r\n"
+    code += "/* cross-platform define for ssize_t (signed size_t) */\r\n"
+    code += "#ifdef __unix__\r\n"
+    code += "   #include <sys/types.h>\r\n"
+    code += "   #define ssize_t size_t\r\n"
+    code += "#elif defined(_WIN32) || defined(WIN32)\r\n"
+    code += "   #define ssize_t SSIZE_T\r\n"
+    code += "#else\r\n"
+    code += "   #define ssize_t size_t\r\n"
+    code += "#endif\r\n"
+    code += "\r\n"
 
     code += generate_c_structs(myapi_data, structs_map, forward_delcarations, extra_forward_delcarations)
+    code += generate_c_functions(myapi_data, functions_map)
 
-    code += "\r\n"
-    code += "\r\n"
-    code += "#undef ssize_t\r\n" # size_t
     code += "\r\n"
     code += "#endif /* AZUL_H */\r\n"
     return code
@@ -2003,7 +1972,7 @@ def full_test():
     os.system('cd "' + root_folder + "/examples && cargo run --bin layout_tests -- --nocapture")
 
 def debug_test_compile_c():
-    os.system('cd "' + root_folder + '/api/c" && gcc ./main.c')
+    os.system('cd "' + root_folder + '/api/c" && gcc -ansi ./main.c')
 
 def main():
     print("removing old azul.dll...")
