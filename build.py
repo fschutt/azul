@@ -1393,6 +1393,7 @@ def generate_c_callback_fn_type(api_data, callback_typedef, callback_name):
 
     if "fn_args" in callback_typedef.keys():
         fn_args = callback_typedef["fn_args"]
+        fn_arg_idx = 0
         for fn_arg in fn_args:
             fn_arg_type = fn_arg["type"]
             fn_arg_ref = fn_arg["ref"]
@@ -1422,7 +1423,10 @@ def generate_c_callback_fn_type(api_data, callback_typedef, callback_name):
                 else:
                     raise Exception("wrong fn_arg_ref on " + fn_arg_type)
 
+            fn_string += " "
+            fn_string += chr(fn_arg_idx + 65)
             fn_string += ", "
+            fn_arg_idx += 1
 
         if len(fn_args) > 0:
             fn_string = fn_string[:-2] # trim last comma

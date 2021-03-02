@@ -11,183 +11,183 @@
 struct AzRefAny;
 struct AzLayoutInfo;
 struct AzStyledDom;
-typedef AzStyledDom (*AzLayoutCallbackType)(AzRefAny* restrict, AzLayoutInfo);
+typedef AzStyledDom (*AzLayoutCallbackType)(AzRefAny* restrict A, AzLayoutInfo B);
 
 struct AzCallbackInfo;
 struct AzUpdateScreen;
-typedef AzUpdateScreen (*AzCallbackType)(AzRefAny* restrict, AzCallbackInfo);
+typedef AzUpdateScreen (*AzCallbackType)(AzRefAny* restrict A, AzCallbackInfo B);
 
 struct AzIFrameCallbackInfo;
 struct AzIFrameCallbackReturn;
-typedef AzIFrameCallbackReturn (*AzIFrameCallbackType)(AzRefAny* restrict, AzIFrameCallbackInfo);
+typedef AzIFrameCallbackReturn (*AzIFrameCallbackType)(AzRefAny* restrict A, AzIFrameCallbackInfo B);
 
 struct AzGlCallbackInfo;
 struct AzGlCallbackReturn;
-typedef AzGlCallbackReturn (*AzGlCallbackType)(AzRefAny* restrict, AzGlCallbackInfo);
+typedef AzGlCallbackReturn (*AzGlCallbackType)(AzRefAny* restrict A, AzGlCallbackInfo B);
 
 struct AzTimerCallbackInfo;
 struct AzTimerCallbackReturn;
-typedef AzTimerCallbackReturn (*AzTimerCallbackType)(AzRefAny* restrict, AzRefAny* restrict, AzTimerCallbackInfo);
+typedef AzTimerCallbackReturn (*AzTimerCallbackType)(AzRefAny* restrict A, AzRefAny* restrict B, AzTimerCallbackInfo C);
 
-typedef AzUpdateScreen (*AzWriteBackCallbackType)(AzRefAny* restrict, AzRefAny, AzCallbackInfo);
+typedef AzUpdateScreen (*AzWriteBackCallbackType)(AzRefAny* restrict A, AzRefAny B, AzCallbackInfo C);
 
 struct AzThreadSender;
 struct AzThreadReceiver;
-typedef void (*AzThreadCallbackType)(AzRefAny, AzThreadSender, AzThreadReceiver);
+typedef void (*AzThreadCallbackType)(AzRefAny A, AzThreadSender B, AzThreadReceiver C);
 
-typedef void (*AzRefAnyDestructorType)(void* restrict);
+typedef void (*AzRefAnyDestructorType)(void* restrict A);
 
 struct AzThreadCallbackType;
 struct AzThread;
-typedef AzThread (*AzCreateThreadFnType)(AzRefAny, AzRefAny, AzThreadCallbackType);
+typedef AzThread (*AzCreateThreadFnType)(AzRefAny A, AzRefAny B, AzThreadCallbackType C);
 
 struct AzInstant;
 typedef AzInstant (*AzGetSystemTimeFnType)();
 
-typedef bool (*AzCheckThreadFinishedFnType)(void* const);
+typedef bool (*AzCheckThreadFinishedFnType)(void* const A);
 
 struct AzThreadSendMsg;
-typedef bool (*AzLibrarySendThreadMsgFnType)(void* restrict, AzThreadSendMsg);
+typedef bool (*AzLibrarySendThreadMsgFnType)(void* restrict A, AzThreadSendMsg B);
 
 struct AzOptionThreadReceiveMsg;
-typedef AzOptionThreadReceiveMsg (*AzLibraryReceiveThreadMsgFnType)(void* restrict);
+typedef AzOptionThreadReceiveMsg (*AzLibraryReceiveThreadMsgFnType)(void* restrict A);
 
 struct AzOptionThreadSendMsg;
-typedef AzOptionThreadSendMsg (*AzThreadRecvFnType)(void* restrict);
+typedef AzOptionThreadSendMsg (*AzThreadRecvFnType)(void* restrict A);
 
 struct AzThreadReceiveMsg;
-typedef bool (*AzThreadSendFnType)(void* restrict, AzThreadReceiveMsg);
+typedef bool (*AzThreadSendFnType)(void* restrict A, AzThreadReceiveMsg B);
 
-typedef void (*AzThreadDestructorFnType)(void* restrict, void* restrict, void* restrict, void* restrict);
+typedef void (*AzThreadDestructorFnType)(void* restrict A, void* restrict B, void* restrict C, void* restrict D);
 
-typedef void (*AzThreadReceiverDestructorFnType)(AzThreadReceiver* restrict);
+typedef void (*AzThreadReceiverDestructorFnType)(AzThreadReceiver* restrict A);
 
-typedef void (*AzThreadSenderDestructorFnType)(AzThreadSender* restrict);
+typedef void (*AzThreadSenderDestructorFnType)(AzThreadSender* restrict A);
 
 struct AzMonitorVec;
-typedef void (*AzMonitorVecDestructorType)(AzMonitorVec* restrict);
+typedef void (*AzMonitorVecDestructorType)(AzMonitorVec* restrict A);
 
 struct AzVideoModeVec;
-typedef void (*AzVideoModeVecDestructorType)(AzVideoModeVec* restrict);
+typedef void (*AzVideoModeVecDestructorType)(AzVideoModeVec* restrict A);
 
 struct AzDomVec;
-typedef void (*AzDomVecDestructorType)(AzDomVec* restrict);
+typedef void (*AzDomVecDestructorType)(AzDomVec* restrict A);
 
 struct AzIdOrClassVec;
-typedef void (*AzIdOrClassVecDestructorType)(AzIdOrClassVec* restrict);
+typedef void (*AzIdOrClassVecDestructorType)(AzIdOrClassVec* restrict A);
 
 struct AzNodeDataInlineCssPropertyVec;
-typedef void (*AzNodeDataInlineCssPropertyVecDestructorType)(AzNodeDataInlineCssPropertyVec* restrict);
+typedef void (*AzNodeDataInlineCssPropertyVecDestructorType)(AzNodeDataInlineCssPropertyVec* restrict A);
 
 struct AzStyleBackgroundContentVec;
-typedef void (*AzStyleBackgroundContentVecDestructorType)(AzStyleBackgroundContentVec* restrict);
+typedef void (*AzStyleBackgroundContentVecDestructorType)(AzStyleBackgroundContentVec* restrict A);
 
 struct AzStyleBackgroundPositionVec;
-typedef void (*AzStyleBackgroundPositionVecDestructorType)(AzStyleBackgroundPositionVec* restrict);
+typedef void (*AzStyleBackgroundPositionVecDestructorType)(AzStyleBackgroundPositionVec* restrict A);
 
 struct AzStyleBackgroundRepeatVec;
-typedef void (*AzStyleBackgroundRepeatVecDestructorType)(AzStyleBackgroundRepeatVec* restrict);
+typedef void (*AzStyleBackgroundRepeatVecDestructorType)(AzStyleBackgroundRepeatVec* restrict A);
 
 struct AzStyleBackgroundSizeVec;
-typedef void (*AzStyleBackgroundSizeVecDestructorType)(AzStyleBackgroundSizeVec* restrict);
+typedef void (*AzStyleBackgroundSizeVecDestructorType)(AzStyleBackgroundSizeVec* restrict A);
 
 struct AzStyleTransformVec;
-typedef void (*AzStyleTransformVecDestructorType)(AzStyleTransformVec* restrict);
+typedef void (*AzStyleTransformVecDestructorType)(AzStyleTransformVec* restrict A);
 
 struct AzCssPropertyVec;
-typedef void (*AzCssPropertyVecDestructorType)(AzCssPropertyVec* restrict);
+typedef void (*AzCssPropertyVecDestructorType)(AzCssPropertyVec* restrict A);
 
 struct AzSvgMultiPolygonVec;
-typedef void (*AzSvgMultiPolygonVecDestructorType)(AzSvgMultiPolygonVec* restrict);
+typedef void (*AzSvgMultiPolygonVecDestructorType)(AzSvgMultiPolygonVec* restrict A);
 
 struct AzSvgPathVec;
-typedef void (*AzSvgPathVecDestructorType)(AzSvgPathVec* restrict);
+typedef void (*AzSvgPathVecDestructorType)(AzSvgPathVec* restrict A);
 
 struct AzVertexAttributeVec;
-typedef void (*AzVertexAttributeVecDestructorType)(AzVertexAttributeVec* restrict);
+typedef void (*AzVertexAttributeVecDestructorType)(AzVertexAttributeVec* restrict A);
 
 struct AzSvgPathElementVec;
-typedef void (*AzSvgPathElementVecDestructorType)(AzSvgPathElementVec* restrict);
+typedef void (*AzSvgPathElementVecDestructorType)(AzSvgPathElementVec* restrict A);
 
 struct AzSvgVertexVec;
-typedef void (*AzSvgVertexVecDestructorType)(AzSvgVertexVec* restrict);
+typedef void (*AzSvgVertexVecDestructorType)(AzSvgVertexVec* restrict A);
 
 struct AzU32Vec;
-typedef void (*AzU32VecDestructorType)(AzU32Vec* restrict);
+typedef void (*AzU32VecDestructorType)(AzU32Vec* restrict A);
 
 struct AzXWindowTypeVec;
-typedef void (*AzXWindowTypeVecDestructorType)(AzXWindowTypeVec* restrict);
+typedef void (*AzXWindowTypeVecDestructorType)(AzXWindowTypeVec* restrict A);
 
 struct AzVirtualKeyCodeVec;
-typedef void (*AzVirtualKeyCodeVecDestructorType)(AzVirtualKeyCodeVec* restrict);
+typedef void (*AzVirtualKeyCodeVecDestructorType)(AzVirtualKeyCodeVec* restrict A);
 
 struct AzCascadeInfoVec;
-typedef void (*AzCascadeInfoVecDestructorType)(AzCascadeInfoVec* restrict);
+typedef void (*AzCascadeInfoVecDestructorType)(AzCascadeInfoVec* restrict A);
 
 struct AzScanCodeVec;
-typedef void (*AzScanCodeVecDestructorType)(AzScanCodeVec* restrict);
+typedef void (*AzScanCodeVecDestructorType)(AzScanCodeVec* restrict A);
 
 struct AzCssDeclarationVec;
-typedef void (*AzCssDeclarationVecDestructorType)(AzCssDeclarationVec* restrict);
+typedef void (*AzCssDeclarationVecDestructorType)(AzCssDeclarationVec* restrict A);
 
 struct AzCssPathSelectorVec;
-typedef void (*AzCssPathSelectorVecDestructorType)(AzCssPathSelectorVec* restrict);
+typedef void (*AzCssPathSelectorVecDestructorType)(AzCssPathSelectorVec* restrict A);
 
 struct AzStylesheetVec;
-typedef void (*AzStylesheetVecDestructorType)(AzStylesheetVec* restrict);
+typedef void (*AzStylesheetVecDestructorType)(AzStylesheetVec* restrict A);
 
 struct AzCssRuleBlockVec;
-typedef void (*AzCssRuleBlockVecDestructorType)(AzCssRuleBlockVec* restrict);
+typedef void (*AzCssRuleBlockVecDestructorType)(AzCssRuleBlockVec* restrict A);
 
 struct AzU8Vec;
-typedef void (*AzU8VecDestructorType)(AzU8Vec* restrict);
+typedef void (*AzU8VecDestructorType)(AzU8Vec* restrict A);
 
 struct AzCallbackDataVec;
-typedef void (*AzCallbackDataVecDestructorType)(AzCallbackDataVec* restrict);
+typedef void (*AzCallbackDataVecDestructorType)(AzCallbackDataVec* restrict A);
 
 struct AzDebugMessageVec;
-typedef void (*AzDebugMessageVecDestructorType)(AzDebugMessageVec* restrict);
+typedef void (*AzDebugMessageVecDestructorType)(AzDebugMessageVec* restrict A);
 
 struct AzGLuintVec;
-typedef void (*AzGLuintVecDestructorType)(AzGLuintVec* restrict);
+typedef void (*AzGLuintVecDestructorType)(AzGLuintVec* restrict A);
 
 struct AzGLintVec;
-typedef void (*AzGLintVecDestructorType)(AzGLintVec* restrict);
+typedef void (*AzGLintVecDestructorType)(AzGLintVec* restrict A);
 
 struct AzStringVec;
-typedef void (*AzStringVecDestructorType)(AzStringVec* restrict);
+typedef void (*AzStringVecDestructorType)(AzStringVec* restrict A);
 
 struct AzStringPairVec;
-typedef void (*AzStringPairVecDestructorType)(AzStringPairVec* restrict);
+typedef void (*AzStringPairVecDestructorType)(AzStringPairVec* restrict A);
 
 struct AzLinearColorStopVec;
-typedef void (*AzLinearColorStopVecDestructorType)(AzLinearColorStopVec* restrict);
+typedef void (*AzLinearColorStopVecDestructorType)(AzLinearColorStopVec* restrict A);
 
 struct AzRadialColorStopVec;
-typedef void (*AzRadialColorStopVecDestructorType)(AzRadialColorStopVec* restrict);
+typedef void (*AzRadialColorStopVecDestructorType)(AzRadialColorStopVec* restrict A);
 
 struct AzNodeIdVec;
-typedef void (*AzNodeIdVecDestructorType)(AzNodeIdVec* restrict);
+typedef void (*AzNodeIdVecDestructorType)(AzNodeIdVec* restrict A);
 
 struct AzNodeVec;
-typedef void (*AzNodeVecDestructorType)(AzNodeVec* restrict);
+typedef void (*AzNodeVecDestructorType)(AzNodeVec* restrict A);
 
 struct AzStyledNodeVec;
-typedef void (*AzStyledNodeVecDestructorType)(AzStyledNodeVec* restrict);
+typedef void (*AzStyledNodeVecDestructorType)(AzStyledNodeVec* restrict A);
 
 struct AzTagIdsToNodeIdsMappingVec;
-typedef void (*AzTagIdsToNodeIdsMappingVecDestructorType)(AzTagIdsToNodeIdsMappingVec* restrict);
+typedef void (*AzTagIdsToNodeIdsMappingVecDestructorType)(AzTagIdsToNodeIdsMappingVec* restrict A);
 
 struct AzParentWithNodeDepthVec;
-typedef void (*AzParentWithNodeDepthVecDestructorType)(AzParentWithNodeDepthVec* restrict);
+typedef void (*AzParentWithNodeDepthVecDestructorType)(AzParentWithNodeDepthVec* restrict A);
 
 struct AzNodeDataVec;
-typedef void (*AzNodeDataVecDestructorType)(AzNodeDataVec* restrict);
+typedef void (*AzNodeDataVecDestructorType)(AzNodeDataVec* restrict A);
 
 struct AzInstantPtr;
-typedef AzInstantPtr (*AzInstantPtrCloneFnType)(void* const);
+typedef AzInstantPtr (*AzInstantPtrCloneFnType)(void* const A);
 
-typedef void (*AzInstantPtrDestructorFnType)(void* restrict);
+typedef void (*AzInstantPtrDestructorFnType)(void* restrict A);
 
 
 struct AzApp {
