@@ -1172,23 +1172,43 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
 
     function_pointer_string = ""
     already_forward_declared = []
+
     for fnptr in function_pointers:
         if "fn_args" in fnptr[0].keys():
             for arg in fnptr[0]["fn_args"]:
-                arg_type = arg["type"]
+                arg_type = analyze_type(arg["type"])[1]
                 if is_primitive_arg(analyze_type(arg_type)[1]):
                     continue
                 if not(arg_type in already_forward_declared):
-                    function_pointer_string += "\r\nstruct " + prefix + arg_type + ";"
-                    function_pointer_string += "\r\ntypedef struct " + prefix + arg_type + " " + prefix + arg_type + ";"
+                    # forward declare the correct type (struct, enum, union)
+                    arg_type_type = "struct"
+                    found_c = search_for_class_by_class_name(api_data, arg_type)
+                    c = get_class(api_data, found_c[0], found_c[1])
+                    if "enum_fields" in c.keys():
+                        arg_type_type = "enum"
+                        if enum_is_union(c["enum_fields"]):
+                            arg_type_type = "union"
+                    function_pointer_string += "\r\n" + arg_type_type + " " + prefix + arg_type + ";"
+                    function_pointer_string += "\r\ntypedef " + arg_type_type + " " + prefix + arg_type + " " + prefix + arg_type + ";"
                     already_forward_declared.append(arg_type)
+
         if "returns" in fnptr[0].keys():
             return_type = fnptr[0]["returns"]["type"]
-            if not(is_primitive_arg(analyze_type(return_type)[1])):
+            return_type = analyze_type(return_type)[1]
+            if not(is_primitive_arg(return_type)):
                 if not(return_type in already_forward_declared):
-                    function_pointer_string += "\r\nstruct " + prefix + return_type + ";"
-                    function_pointer_string += "\r\ntypedef struct " + prefix + return_type + " " + prefix + return_type + ";"
+                    # forward declare the correct type (struct, enum, union)
+                    arg_type_type = "struct"
+                    found_c = search_for_class_by_class_name(api_data, return_type)
+                    c = get_class(api_data, found_c[0], found_c[1])
+                    if "enum_fields" in c.keys():
+                        arg_type_type = "enum"
+                        if enum_is_union(c["enum_fields"]):
+                            arg_type_type = "union"
+                    function_pointer_string += "\r\n" + arg_type_type + " " + prefix + return_type + ";"
+                    function_pointer_string += "\r\ntypedef " + arg_type_type + " " + prefix + return_type + " " + prefix + return_type + ";"
                     already_forward_declared.append(return_type)
+
         function_pointer_string += "\r\n"
         function_pointer_string += fnptr[1]
         function_pointer_string += "\r\n"
@@ -1295,12 +1315,7 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
             #     opt_derive_clone = ""
             #     opt_derive_other = ""
 
-            enum_is_c_enum = True
-            for variant in enum:
-                variant_name = list(variant.keys())[0]
-                variant_real = list(variant.values())[0]
-                if "type" in variant_real.keys():
-                    enum_is_c_enum = False # enum is tagged union
+
             #        variant_type = variant["type"]
             #        analyzed_arg_type = analyze_type(variant_type)
             #        if not(is_primitive_arg(analyzed_arg_type[1])):
@@ -1313,14 +1328,15 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
             #                opt_derive_debug = ""
             #                opt_derive_other = ""
 
-            if enum_is_c_enum:
+            if not(enum_is_union(enum)):
                 code += "\r\nenum " + struct_name + " {\r\n"
                 for variant in enum:
                     variant_name = list(variant.keys())[0]
                     variant_real = list(variant.values())[0]
                     code += "   " + struct_name + "_" + variant_name + ",\r\n"
                 code += "};\r\n"
-                code += "typedef enum " + struct_name + " " + struct_name + ";\r\n"
+                if not(struct_name in already_forward_declared):
+                    code += "typedef enum " + struct_name + " " + struct_name + ";\r\n"
             else:
                 # generate union tag
                 code += "\r\nenum " + struct_name + "Tag {\r\n"
@@ -1362,9 +1378,20 @@ def generate_c_structs(api_data, structs_map, forward_declarations):
                     variant_name = list(variant.keys())[0]
                     code += "    " + struct_name + "Variant_" + variant_name + " " + variant_name + ";\r\n"
                 code += "};\r\n"
-                code += "typedef union " + struct_name + " " + struct_name + ";\r\n"
+                if not(struct_name in already_forward_declared):
+                    code += "typedef union " + struct_name + " " + struct_name + ";\r\n"
 
     return code
+
+# returns whether an enum is a union
+def enum_is_union(enum):
+    enum_is_c_enum = True
+    for variant in enum:
+        variant_name = list(variant.keys())[0]
+        variant_real = list(variant.values())[0]
+        if "type" in variant_real.keys():
+            enum_is_c_enum = False # enum is tagged union
+    return not(enum_is_c_enum)
 
 # takes the api data and a function callback and returns
 # the C function pointer typedef, i.e.:

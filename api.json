@@ -1133,7 +1133,7 @@
 								{"id": "ThreadId"},
 								{"thread_initialize_data": "RefAny"},
 								{"writeback_data": "RefAny"},
-								{"callback": "ThreadCallbackType"}
+								{"callback": "ThreadCallback"}
 							],
 							"fn_body": "callbackinfo.start_thread(id, thread_initialize_data, writeback_data, callback);"
 						},
@@ -1388,6 +1388,12 @@
 					"external": "azul_impl::callbacks::WriteBackCallback",
 					"struct_fields": [
 						{"cb": {"type": "WriteBackCallbackType"}}
+					]
+				},
+				"ThreadCallback": {
+					"external": "azul_impl::callbacks::ThreadCallback",
+					"struct_fields": [
+						{"cb": {"type": "ThreadCallbackType"}}
 					]
 				},
 				"ThreadCallbackType": {
@@ -6435,7 +6441,7 @@
 						"fn_args": [
 							{"type": "RefAny", "ref": "value"},
 							{"type": "RefAny", "ref": "value"},
-							{"type": "ThreadCallbackType", "ref": "value"}
+							{"type": "ThreadCallback", "ref": "value"}
 						],
 						"returns": {"type": "Thread"}
 					}

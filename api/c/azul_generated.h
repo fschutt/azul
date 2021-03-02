@@ -18,8 +18,8 @@ typedef AzStyledDom (*AzLayoutCallbackType)(AzRefAny* restrict A, AzLayoutInfo B
 
 struct AzCallbackInfo;
 typedef struct AzCallbackInfo AzCallbackInfo;
-struct AzUpdateScreen;
-typedef struct AzUpdateScreen AzUpdateScreen;
+enum AzUpdateScreen;
+typedef enum AzUpdateScreen AzUpdateScreen;
 typedef AzUpdateScreen (*AzCallbackType)(AzRefAny* restrict A, AzCallbackInfo B);
 
 struct AzIFrameCallbackInfo;
@@ -50,32 +50,32 @@ typedef void (*AzThreadCallbackType)(AzRefAny A, AzThreadSender B, AzThreadRecei
 
 typedef void (*AzRefAnyDestructorType)(void* restrict A);
 
-struct AzThreadCallbackType;
-typedef struct AzThreadCallbackType AzThreadCallbackType;
+struct AzThreadCallback;
+typedef struct AzThreadCallback AzThreadCallback;
 struct AzThread;
 typedef struct AzThread AzThread;
-typedef AzThread (*AzCreateThreadFnType)(AzRefAny A, AzRefAny B, AzThreadCallbackType C);
+typedef AzThread (*AzCreateThreadFnType)(AzRefAny A, AzRefAny B, AzThreadCallback C);
 
-struct AzInstant;
-typedef struct AzInstant AzInstant;
+union AzInstant;
+typedef union AzInstant AzInstant;
 typedef AzInstant (*AzGetSystemTimeFnType)();
 
 typedef bool (*AzCheckThreadFinishedFnType)(void* const A);
 
-struct AzThreadSendMsg;
-typedef struct AzThreadSendMsg AzThreadSendMsg;
+enum AzThreadSendMsg;
+typedef enum AzThreadSendMsg AzThreadSendMsg;
 typedef bool (*AzLibrarySendThreadMsgFnType)(void* restrict A, AzThreadSendMsg B);
 
-struct AzOptionThreadReceiveMsg;
-typedef struct AzOptionThreadReceiveMsg AzOptionThreadReceiveMsg;
+union AzOptionThreadReceiveMsg;
+typedef union AzOptionThreadReceiveMsg AzOptionThreadReceiveMsg;
 typedef AzOptionThreadReceiveMsg (*AzLibraryReceiveThreadMsgFnType)(void* restrict A);
 
-struct AzOptionThreadSendMsg;
-typedef struct AzOptionThreadSendMsg AzOptionThreadSendMsg;
+union AzOptionThreadSendMsg;
+typedef union AzOptionThreadSendMsg AzOptionThreadSendMsg;
 typedef AzOptionThreadSendMsg (*AzThreadRecvFnType)(void* restrict A);
 
-struct AzThreadReceiveMsg;
-typedef struct AzThreadReceiveMsg AzThreadReceiveMsg;
+union AzThreadReceiveMsg;
+typedef union AzThreadReceiveMsg AzThreadReceiveMsg;
 typedef bool (*AzThreadSendFnType)(void* restrict A, AzThreadReceiveMsg B);
 
 typedef void (*AzThreadDestructorFnType)(void* restrict A, void* restrict B, void* restrict C, void* restrict D);
@@ -728,6 +728,11 @@ struct AzWriteBackCallback {
     AzWriteBackCallbackType cb;
 };
 typedef struct AzWriteBackCallback AzWriteBackCallback;
+
+struct AzThreadCallback {
+    AzThreadCallbackType cb;
+};
+typedef struct AzThreadCallback AzThreadCallback;
 
 enum AzOn {
    AzOn_MouseOver,

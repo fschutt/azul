@@ -610,6 +610,10 @@ mod dll {
     #[repr(C)]  #[derive(Clone)]   pub struct AzWriteBackCallback {
         pub cb: AzWriteBackCallbackType,
     }
+    /// Re-export of rust-allocated (stack based) `ThreadCallback` struct
+    #[repr(C)]  #[derive(Clone)]   pub struct AzThreadCallback {
+        pub cb: AzThreadCallbackType,
+    }
     /// `AzThreadCallbackType` struct
     pub type AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver);
     /// `AzRefAnyDestructorType` struct
@@ -1260,7 +1264,7 @@ mod dll {
         Tick,
     }
     /// `AzCreateThreadFnType` struct
-    pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallbackType) -> AzThread;
+    pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallback) -> AzThread;
     /// Re-export of rust-allocated (stack based) `CreateThreadFn` struct
     #[repr(C)]  #[derive(Clone)]   pub struct AzCreateThreadFn {
         pub cb: AzCreateThreadFnType,
@@ -4073,7 +4077,7 @@ mod dll {
         pub(crate) fn az_callback_info_set_css_property(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzCssProperty);
         pub(crate) fn az_callback_info_stop_propagation(_:  &mut AzCallbackInfo);
         pub(crate) fn az_callback_info_create_window(_:  &mut AzCallbackInfo, _:  AzWindowCreateOptions);
-        pub(crate) fn az_callback_info_start_thread(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallbackType);
+        pub(crate) fn az_callback_info_start_thread(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallback);
         pub(crate) fn az_callback_info_start_timer(_:  &mut AzCallbackInfo, _:  AzTimerId, _:  AzTimer);
         pub(crate) fn az_hidpi_adjusted_bounds_get_logical_size(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize;
         pub(crate) fn az_hidpi_adjusted_bounds_get_physical_size(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32;
@@ -4902,7 +4906,7 @@ pub mod callbacks {
         /// Spawns a new window with the given `WindowCreateOptions`.
         pub fn create_window(&mut self, new_window: WindowCreateOptions)  { unsafe { crate::dll::az_callback_info_create_window(self, new_window) } }
         /// Starts a new `Thread` to the runtime. See the documentation for `Thread` for more information.
-        pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType)  { unsafe { crate::dll::az_callback_info_start_thread(self, id, thread_initialize_data, writeback_data, callback) } }
+        pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallback)  { unsafe { crate::dll::az_callback_info_start_thread(self, id, thread_initialize_data, writeback_data, callback) } }
         /// Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.
         pub fn start_timer(&mut self, id: TimerId, timer: Timer)  { unsafe { crate::dll::az_callback_info_start_timer(self, id, timer) } }
     }
@@ -4991,6 +4995,9 @@ pub mod callbacks {
     /// `WriteBackCallback` struct
     
 #[doc(inline)] pub use crate::dll::AzWriteBackCallback as WriteBackCallback;
+    /// `ThreadCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzThreadCallback as ThreadCallback;
     /// `ThreadCallbackType` struct
     
 #[doc(inline)] pub use crate::dll::AzThreadCallbackType as ThreadCallbackType;

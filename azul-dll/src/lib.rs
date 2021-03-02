@@ -322,7 +322,7 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Spawns a new window with the given `WindowCreateOptions`.
 #[no_mangle] pub extern "C" fn az_callback_info_create_window(callbackinfo: &mut AzCallbackInfo, new_window: AzWindowCreateOptions) { callbackinfo.create_window(new_window); }
 /// Starts a new `Thread` to the runtime. See the documentation for `Thread` for more information.
-#[no_mangle] pub extern "C" fn az_callback_info_start_thread(callbackinfo: &mut AzCallbackInfo, id: AzThreadId, thread_initialize_data: AzRefAny, writeback_data: AzRefAny, callback: AzThreadCallbackType) { callbackinfo.start_thread(id, thread_initialize_data, writeback_data, callback); }
+#[no_mangle] pub extern "C" fn az_callback_info_start_thread(callbackinfo: &mut AzCallbackInfo, id: AzThreadId, thread_initialize_data: AzRefAny, writeback_data: AzRefAny, callback: AzThreadCallback) { callbackinfo.start_thread(id, thread_initialize_data, writeback_data, callback); }
 /// Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.
 #[no_mangle] pub extern "C" fn az_callback_info_start_timer(callbackinfo: &mut AzCallbackInfo, id: AzTimerId, timer: AzTimer) { callbackinfo.start_timer(id, timer); }
 
@@ -409,6 +409,10 @@ pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCall
 /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
 pub type AzWriteBackCallbackTT = azul_impl::callbacks::WriteBackCallback;
 pub use AzWriteBackCallbackTT as AzWriteBackCallback;
+
+/// Re-export of rust-allocated (stack based) `ThreadCallback` struct
+pub type AzThreadCallbackTT = azul_impl::callbacks::ThreadCallback;
+pub use AzThreadCallbackTT as AzThreadCallback;
 
 pub type AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver);
 pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
@@ -2109,7 +2113,7 @@ pub use AzThreadReceiveMsgTT as AzThreadReceiveMsg;
 pub type AzThreadWriteBackMsgTT = azul_impl::task::ThreadWriteBackMsg;
 pub use AzThreadWriteBackMsgTT as AzThreadWriteBackMsg;
 
-pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallbackType) -> AzThread;
+pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallback) -> AzThread;
 /// Re-export of rust-allocated (stack based) `CreateThreadFn` struct
 pub type AzCreateThreadFnTT = azul_impl::task::CreateThreadCallback;
 pub use AzCreateThreadFnTT as AzCreateThreadFn;
@@ -3408,6 +3412,10 @@ mod test_sizes {
     #[repr(C)]     pub struct AzWriteBackCallback {
         pub cb: AzWriteBackCallbackType,
     }
+    /// Re-export of rust-allocated (stack based) `ThreadCallback` struct
+    #[repr(C)]     pub struct AzThreadCallback {
+        pub cb: AzThreadCallbackType,
+    }
     /// `AzThreadCallbackType` struct
     pub type AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver);
     /// `AzRefAnyDestructorType` struct
@@ -4058,7 +4066,7 @@ mod test_sizes {
         Tick,
     }
     /// `AzCreateThreadFnType` struct
-    pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallbackType) -> AzThread;
+    pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallback) -> AzThread;
     /// Re-export of rust-allocated (stack based) `CreateThreadFn` struct
     #[repr(C)]     pub struct AzCreateThreadFn {
         pub cb: AzCreateThreadFnType,
@@ -6886,6 +6894,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::GlCallback>(), "AzGlCallback"), (Layout::new::<AzGlCallback>(), "AzGlCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallback>(), "AzTimerCallback"), (Layout::new::<AzTimerCallback>(), "AzTimerCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::WriteBackCallback>(), "AzWriteBackCallback"), (Layout::new::<AzWriteBackCallback>(), "AzWriteBackCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::ThreadCallback>(), "AzThreadCallback"), (Layout::new::<AzThreadCallback>(), "AzThreadCallback"));
         assert_eq!((Layout::new::<azul_impl::dom::On>(), "AzOn"), (Layout::new::<AzOn>(), "AzOn"));
         assert_eq!((Layout::new::<azul_impl::dom::HoverEventFilter>(), "AzHoverEventFilter"), (Layout::new::<AzHoverEventFilter>(), "AzHoverEventFilter"));
         assert_eq!((Layout::new::<azul_impl::dom::FocusEventFilter>(), "AzFocusEventFilter"), (Layout::new::<AzFocusEventFilter>(), "AzFocusEventFilter"));
