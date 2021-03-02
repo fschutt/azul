@@ -223,6 +223,65 @@ enum AzHwAcceleration {
 };
 typedef enum AzHwAcceleration AzHwAcceleration;
 
+struct AzLayoutPoint {
+    ssize_t x;
+    ssize_t y;
+};
+typedef struct AzLayoutPoint AzLayoutPoint;
+
+struct AzLayoutSize {
+    ssize_t width;
+    ssize_t height;
+};
+typedef struct AzLayoutSize AzLayoutSize;
+
+struct AzIOSHandle {
+    void* restrict ui_window;
+    void* restrict ui_view;
+    void* restrict ui_view_controller;
+};
+typedef struct AzIOSHandle AzIOSHandle;
+
+struct AzMacOSHandle {
+    void* restrict ns_window;
+    void* restrict ns_view;
+};
+typedef struct AzMacOSHandle AzMacOSHandle;
+
+struct AzXlibHandle {
+    uint64_t window;
+    void* restrict display;
+};
+typedef struct AzXlibHandle AzXlibHandle;
+
+struct AzXcbHandle {
+    uint32_t window;
+    void* restrict connection;
+};
+typedef struct AzXcbHandle AzXcbHandle;
+
+struct AzWaylandHandle {
+    void* restrict surface;
+    void* restrict display;
+};
+typedef struct AzWaylandHandle AzWaylandHandle;
+
+struct AzWindowsHandle {
+    void* restrict hwnd;
+    void* restrict hinstance;
+};
+typedef struct AzWindowsHandle AzWindowsHandle;
+
+struct AzWebHandle {
+    uint32_t id;
+};
+typedef struct AzWebHandle AzWebHandle;
+
+struct AzAndroidHandle {
+    void* restrict a_native_window;
+};
+typedef struct AzAndroidHandle AzAndroidHandle;
+
 enum AzXWindowType {
    AzXWindowType_Desktop,
    AzXWindowType_Dock,
@@ -240,6 +299,35 @@ enum AzXWindowType {
    AzXWindowType_Normal,
 };
 typedef enum AzXWindowType AzXWindowType;
+
+struct AzPhysicalPositionI32 {
+    int32_t x;
+    int32_t y;
+};
+typedef struct AzPhysicalPositionI32 AzPhysicalPositionI32;
+
+struct AzPhysicalSizeU32 {
+    uint32_t width;
+    uint32_t height;
+};
+typedef struct AzPhysicalSizeU32 AzPhysicalSizeU32;
+
+struct AzLogicalPosition {
+    float x;
+    float y;
+};
+typedef struct AzLogicalPosition AzLogicalPosition;
+
+struct AzLogicalSize {
+    float width;
+    float height;
+};
+typedef struct AzLogicalSize AzLogicalSize;
+
+struct AzIconKey {
+    size_t id;
+};
+typedef struct AzIconKey AzIconKey;
 
 enum AzVirtualKeyCode {
    AzVirtualKeyCode_Key1,
@@ -408,6 +496,52 @@ enum AzVirtualKeyCode {
 };
 typedef enum AzVirtualKeyCode AzVirtualKeyCode;
 
+struct AzWindowFlags {
+    bool  is_maximized;
+    bool  is_minimized;
+    bool  is_about_to_close;
+    bool  is_fullscreen;
+    bool  has_decorations;
+    bool  is_visible;
+    bool  is_always_on_top;
+    bool  is_resizable;
+    bool  has_focus;
+    bool  has_extended_frame;
+    bool  has_blur_behind_window;
+};
+typedef struct AzWindowFlags AzWindowFlags;
+
+struct AzDebugState {
+    bool  profiler_dbg;
+    bool  render_target_dbg;
+    bool  texture_cache_dbg;
+    bool  gpu_time_queries;
+    bool  gpu_sample_queries;
+    bool  disable_batching;
+    bool  epochs;
+    bool  echo_driver_messages;
+    bool  show_overdraw;
+    bool  gpu_cache_dbg;
+    bool  texture_cache_dbg_clear_evicted;
+    bool  picture_caching_dbg;
+    bool  primitive_dbg;
+    bool  zoom_dbg;
+    bool  small_screen;
+    bool  disable_opaque_pass;
+    bool  disable_alpha_pass;
+    bool  disable_clip_masks;
+    bool  disable_text_prims;
+    bool  disable_gradient_prims;
+    bool  obscure_images;
+    bool  glyph_flashing;
+    bool  smart_profiler;
+    bool  invalidation_dbg;
+    bool  tile_cache_logging_dbg;
+    bool  profiler_capture;
+    bool  force_picture_invalidation;
+};
+typedef struct AzDebugState AzDebugState;
+
 enum AzMouseCursorType {
    AzMouseCursorType_Default,
    AzMouseCursorType_Crosshair,
@@ -453,6 +587,16 @@ enum AzRendererType {
 };
 typedef enum AzRendererType AzRendererType;
 
+struct AzMacWindowOptions {
+    uint8_t _reserved;
+};
+typedef struct AzMacWindowOptions AzMacWindowOptions;
+
+struct AzWasmWindowOptions {
+    uint8_t _reserved;
+};
+typedef struct AzWasmWindowOptions AzWasmWindowOptions;
+
 enum AzFullScreenMode {
    AzFullScreenMode_SlowFullScreen,
    AzFullScreenMode_FastFullScreen,
@@ -467,10 +611,25 @@ enum AzWindowTheme {
 };
 typedef enum AzWindowTheme AzWindowTheme;
 
+struct AzTouchState {
+    uint8_t unused;
+};
+typedef struct AzTouchState AzTouchState;
+
 struct AzMonitorHandle {
     void* restrict ptr;
 };
 typedef struct AzMonitorHandle AzMonitorHandle;
+
+struct AzLayoutCallback {
+    AzLayoutCallbackType cb;
+};
+typedef struct AzLayoutCallback AzLayoutCallback;
+
+struct AzCallback {
+    AzCallbackType cb;
+};
+typedef struct AzCallback AzCallback;
 
 enum AzUpdateScreen {
    AzUpdateScreen_DoNothing,
@@ -479,17 +638,35 @@ enum AzUpdateScreen {
 };
 typedef enum AzUpdateScreen AzUpdateScreen;
 
-struct AzRefCount {
-    AzRefCountInner* const ptr;
+struct AzNodeId {
+    size_t inner;
 };
-typedef struct AzRefCount AzRefCount;
+typedef struct AzNodeId AzNodeId;
 
-struct AzRefAny {
-    void* const _internal_ptr;
-    bool  is_dead;
-    AzRefCount sharing_info;
+struct AzDomId {
+    size_t inner;
 };
-typedef struct AzRefAny AzRefAny;
+typedef struct AzDomId AzDomId;
+
+struct AzIFrameCallback {
+    AzIFrameCallbackType cb;
+};
+typedef struct AzIFrameCallback AzIFrameCallback;
+
+struct AzGlCallback {
+    AzGlCallbackType cb;
+};
+typedef struct AzGlCallback AzGlCallback;
+
+struct AzTimerCallback {
+    AzTimerCallbackType cb;
+};
+typedef struct AzTimerCallback AzTimerCallback;
+
+struct AzWriteBackCallback {
+    AzWriteBackCallbackType cb;
+};
+typedef struct AzWriteBackCallback AzWriteBackCallback;
 
 enum AzOn {
    AzOn_MouseOver,
@@ -613,6 +790,30 @@ enum AzApplicationEventFilter {
 };
 typedef enum AzApplicationEventFilter AzApplicationEventFilter;
 
+enum AzTabIndexTag {
+   AzTabIndexTag_Auto,
+   AzTabIndexTag_OverrideInParent,
+   AzTabIndexTag_NoKeyboardFocus,
+};
+typedef enum AzTabIndexTag AzTabIndexTag;
+
+struct AzTabIndexVariant_Auto { AzTabIndexTag tag; };
+typedef struct AzTabIndexVariant_Auto AzTabIndexVariant_Auto;
+
+struct AzTabIndexVariant_OverrideInParent { AzTabIndexTag tag; uint32_t payload; };
+typedef struct AzTabIndexVariant_OverrideInParent AzTabIndexVariant_OverrideInParent;
+
+struct AzTabIndexVariant_NoKeyboardFocus { AzTabIndexTag tag; };
+typedef struct AzTabIndexVariant_NoKeyboardFocus AzTabIndexVariant_NoKeyboardFocus;
+
+
+union AzTabIndex {
+    AzTabIndexVariant_Auto Auto;
+    AzTabIndexVariant_OverrideInParent OverrideInParent;
+    AzTabIndexVariant_NoKeyboardFocus NoKeyboardFocus;
+};
+typedef union AzTabIndex AzTabIndex;
+
 enum AzNodeTypePath {
    AzNodeTypePath_Body,
    AzNodeTypePath_Div,
@@ -623,6 +824,12 @@ enum AzNodeTypePath {
    AzNodeTypePath_IFrame,
 };
 typedef enum AzNodeTypePath AzNodeTypePath;
+
+struct AzCssNthChildPattern {
+    uint32_t repeat;
+    uint32_t offset;
+};
+typedef struct AzCssNthChildPattern AzCssNthChildPattern;
 
 enum AzCssPropertyType {
    AzCssPropertyType_TextColor,
@@ -700,6 +907,14 @@ enum AzCssPropertyType {
 };
 typedef enum AzCssPropertyType AzCssPropertyType;
 
+struct AzColorU {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+    uint8_t a;
+};
+typedef struct AzColorU AzColorU;
+
 enum AzSizeMetric {
    AzSizeMetric_Px,
    AzSizeMetric_Pt,
@@ -707,6 +922,11 @@ enum AzSizeMetric {
    AzSizeMetric_Percent,
 };
 typedef enum AzSizeMetric AzSizeMetric;
+
+struct AzFloatValue {
+    ssize_t number;
+};
+typedef struct AzFloatValue AzFloatValue;
 
 enum AzBoxShadowClipMode {
    AzBoxShadowClipMode_Outset,
@@ -901,25 +1121,44 @@ enum AzStyleTextAlignmentHorz {
 };
 typedef enum AzStyleTextAlignmentHorz AzStyleTextAlignmentHorz;
 
+struct AzNode {
+    size_t parent;
+    size_t previous_sibling;
+    size_t next_sibling;
+    size_t last_child;
+};
+typedef struct AzNode AzNode;
+
+struct AzCascadeInfo {
+    uint32_t index_in_parent;
+    bool  is_last_child;
+};
+typedef struct AzCascadeInfo AzCascadeInfo;
+
+struct AzStyledNodeState {
+    bool  normal;
+    bool  hover;
+    bool  active;
+    bool  focused;
+};
+typedef struct AzStyledNodeState AzStyledNodeState;
+
+struct AzTagId {
+    uint64_t inner;
+};
+typedef struct AzTagId AzTagId;
+
 struct AzCssPropertyCache {
     void* restrict ptr;
 };
 typedef struct AzCssPropertyCache AzCssPropertyCache;
 
-struct AzGlContextPtr {
-    void* const ptr;
-    AzRendererType renderer_type;
+struct AzGlShaderPrecisionFormatReturn {
+    int32_t _0;
+    int32_t _1;
+    int32_t _2;
 };
-typedef struct AzGlContextPtr AzGlContextPtr;
-
-struct AzTexture {
-    uint32_t texture_id;
-    AzRawImageFormat format;
-    AzTextureFlags flags;
-    AzPhysicalSizeU32 size;
-    AzGlContextPtr gl_context;
-};
-typedef struct AzTexture AzTexture;
+typedef struct AzGlShaderPrecisionFormatReturn AzGlShaderPrecisionFormatReturn;
 
 enum AzVertexAttributeType {
    AzVertexAttributeType_Float,
@@ -946,10 +1185,82 @@ enum AzGlType {
 };
 typedef enum AzGlType AzGlType;
 
+struct AzU8VecRef {
+    uint8_t* const ptr;
+    size_t len;
+};
+typedef struct AzU8VecRef AzU8VecRef;
+
+struct AzU8VecRefMut {
+    uint8_t* restrict ptr;
+    size_t len;
+};
+typedef struct AzU8VecRefMut AzU8VecRefMut;
+
+struct AzF32VecRef {
+    float* const ptr;
+    size_t len;
+};
+typedef struct AzF32VecRef AzF32VecRef;
+
+struct AzI32VecRef {
+    int32_t* const ptr;
+    size_t len;
+};
+typedef struct AzI32VecRef AzI32VecRef;
+
+struct AzGLuintVecRef {
+    uint32_t* const ptr;
+    size_t len;
+};
+typedef struct AzGLuintVecRef AzGLuintVecRef;
+
+struct AzGLenumVecRef {
+    uint32_t* const ptr;
+    size_t len;
+};
+typedef struct AzGLenumVecRef AzGLenumVecRef;
+
+struct AzGLintVecRefMut {
+    int32_t* restrict ptr;
+    size_t len;
+};
+typedef struct AzGLintVecRefMut AzGLintVecRefMut;
+
+struct AzGLint64VecRefMut {
+    int64_t* restrict ptr;
+    size_t len;
+};
+typedef struct AzGLint64VecRefMut AzGLint64VecRefMut;
+
+struct AzGLbooleanVecRefMut {
+    uint8_t* restrict ptr;
+    size_t len;
+};
+typedef struct AzGLbooleanVecRefMut AzGLbooleanVecRefMut;
+
+struct AzGLfloatVecRefMut {
+    float* restrict ptr;
+    size_t len;
+};
+typedef struct AzGLfloatVecRefMut AzGLfloatVecRefMut;
+
+struct AzRefstr {
+    uint8_t* const ptr;
+    size_t len;
+};
+typedef struct AzRefstr AzRefstr;
+
 struct AzGLsyncPtr {
     void* const ptr;
 };
 typedef struct AzGLsyncPtr AzGLsyncPtr;
+
+struct AzTextureFlags {
+    bool  is_opaque;
+    bool  is_video_texture;
+};
+typedef struct AzTextureFlags AzTextureFlags;
 
 enum AzRawImageFormat {
    AzRawImageFormat_R8,
@@ -962,6 +1273,47 @@ enum AzRawImageFormat {
    AzRawImageFormat_RGBA8,
 };
 typedef enum AzRawImageFormat AzRawImageFormat;
+
+struct AzImageId {
+    size_t id;
+};
+typedef struct AzImageId AzImageId;
+
+struct AzFontId {
+    size_t id;
+};
+typedef struct AzFontId AzFontId;
+
+struct AzSvgCircle {
+    float center_x;
+    float center_y;
+    float radius;
+};
+typedef struct AzSvgCircle AzSvgCircle;
+
+struct AzSvgPoint {
+    float x;
+    float y;
+};
+typedef struct AzSvgPoint AzSvgPoint;
+
+struct AzSvgVertex {
+    float x;
+    float y;
+};
+typedef struct AzSvgVertex AzSvgVertex;
+
+struct AzSvgRect {
+    float width;
+    float height;
+    float x;
+    float y;
+    float radius_top_left;
+    float radius_top_right;
+    float radius_bottom_left;
+    float radius_bottom_right;
+};
+typedef struct AzSvgRect AzSvgRect;
 
 enum AzSvgLineCap {
    AzSvgLineCap_Butt,
@@ -996,6 +1348,35 @@ enum AzFontDatabase {
 };
 typedef enum AzFontDatabase AzFontDatabase;
 
+enum AzSvgFitToTag {
+   AzSvgFitToTag_Original,
+   AzSvgFitToTag_Width,
+   AzSvgFitToTag_Height,
+   AzSvgFitToTag_Zoom,
+};
+typedef enum AzSvgFitToTag AzSvgFitToTag;
+
+struct AzSvgFitToVariant_Original { AzSvgFitToTag tag; };
+typedef struct AzSvgFitToVariant_Original AzSvgFitToVariant_Original;
+
+struct AzSvgFitToVariant_Width { AzSvgFitToTag tag; uint32_t payload; };
+typedef struct AzSvgFitToVariant_Width AzSvgFitToVariant_Width;
+
+struct AzSvgFitToVariant_Height { AzSvgFitToTag tag; uint32_t payload; };
+typedef struct AzSvgFitToVariant_Height AzSvgFitToVariant_Height;
+
+struct AzSvgFitToVariant_Zoom { AzSvgFitToTag tag; float payload; };
+typedef struct AzSvgFitToVariant_Zoom AzSvgFitToVariant_Zoom;
+
+
+union AzSvgFitTo {
+    AzSvgFitToVariant_Original Original;
+    AzSvgFitToVariant_Width Width;
+    AzSvgFitToVariant_Height Height;
+    AzSvgFitToVariant_Zoom Zoom;
+};
+typedef union AzSvgFitTo AzSvgFitTo;
+
 struct AzSvg {
     void* restrict ptr;
 };
@@ -1014,25 +1395,32 @@ enum AzSvgLineJoin {
 };
 typedef enum AzSvgLineJoin AzSvgLineJoin;
 
+struct AzSvgDashPattern {
+    size_t offset;
+    size_t length_1;
+    size_t gap_1;
+    size_t length_2;
+    size_t gap_2;
+    size_t length_3;
+    size_t gap_3;
+};
+typedef struct AzSvgDashPattern AzSvgDashPattern;
+
+struct AzTimerId {
+    size_t id;
+};
+typedef struct AzTimerId AzTimerId;
+
 enum AzTerminateTimer {
    AzTerminateTimer_Terminate,
    AzTerminateTimer_Continue,
 };
 typedef enum AzTerminateTimer AzTerminateTimer;
 
-struct AzThreadSender {
-    void* restrict ptr;
-    AzThreadSendFn send_fn;
-    AzThreadSenderDestructorFn destructor;
+struct AzThreadId {
+    size_t id;
 };
-typedef struct AzThreadSender AzThreadSender;
-
-struct AzThreadReceiver {
-    void* restrict ptr;
-    AzThreadRecvFn recv_fn;
-    AzThreadReceiverDestructorFn destructor;
-};
-typedef struct AzThreadReceiver AzThreadReceiver;
+typedef struct AzThreadId AzThreadId;
 
 enum AzThreadSendMsg {
    AzThreadSendMsg_TerminateThread,
@@ -1040,12 +1428,1161 @@ enum AzThreadSendMsg {
 };
 typedef enum AzThreadSendMsg AzThreadSendMsg;
 
-struct AzInstantPtr {
-    void* const ptr;
-    AzInstantPtrCloneFn clone_fn;
-    AzInstantPtrDestructorFn destructor;
+struct AzCreateThreadFn {
+    AzCreateThreadFnType cb;
 };
-typedef struct AzInstantPtr AzInstantPtr;
+typedef struct AzCreateThreadFn AzCreateThreadFn;
+
+struct AzGetSystemTimeFn {
+    AzGetSystemTimeFnType cb;
+};
+typedef struct AzGetSystemTimeFn AzGetSystemTimeFn;
+
+struct AzCheckThreadFinishedFn {
+    AzCheckThreadFinishedFnType cb;
+};
+typedef struct AzCheckThreadFinishedFn AzCheckThreadFinishedFn;
+
+struct AzLibrarySendThreadMsgFn {
+    AzLibrarySendThreadMsgFnType cb;
+};
+typedef struct AzLibrarySendThreadMsgFn AzLibrarySendThreadMsgFn;
+
+struct AzLibraryReceiveThreadMsgFn {
+    AzLibraryReceiveThreadMsgFnType cb;
+};
+typedef struct AzLibraryReceiveThreadMsgFn AzLibraryReceiveThreadMsgFn;
+
+struct AzThreadRecvFn {
+    AzThreadRecvFnType cb;
+};
+typedef struct AzThreadRecvFn AzThreadRecvFn;
+
+struct AzThreadSendFn {
+    AzThreadSendFnType cb;
+};
+typedef struct AzThreadSendFn AzThreadSendFn;
+
+struct AzThreadDestructorFn {
+    AzThreadDestructorFnType cb;
+};
+typedef struct AzThreadDestructorFn AzThreadDestructorFn;
+
+struct AzThreadReceiverDestructorFn {
+    AzThreadReceiverDestructorFnType cb;
+};
+typedef struct AzThreadReceiverDestructorFn AzThreadReceiverDestructorFn;
+
+struct AzThreadSenderDestructorFn {
+    AzThreadSenderDestructorFnType cb;
+};
+typedef struct AzThreadSenderDestructorFn AzThreadSenderDestructorFn;
+
+enum AzMonitorVecDestructorTag {
+   AzMonitorVecDestructorTag_DefaultRust,
+   AzMonitorVecDestructorTag_NoDestructor,
+   AzMonitorVecDestructorTag_External,
+};
+typedef enum AzMonitorVecDestructorTag AzMonitorVecDestructorTag;
+
+struct AzMonitorVecDestructorVariant_DefaultRust { AzMonitorVecDestructorTag tag; };
+typedef struct AzMonitorVecDestructorVariant_DefaultRust AzMonitorVecDestructorVariant_DefaultRust;
+
+struct AzMonitorVecDestructorVariant_NoDestructor { AzMonitorVecDestructorTag tag; };
+typedef struct AzMonitorVecDestructorVariant_NoDestructor AzMonitorVecDestructorVariant_NoDestructor;
+
+struct AzMonitorVecDestructorVariant_External { AzMonitorVecDestructorTag tag; AzMonitorVecDestructorType payload; };
+typedef struct AzMonitorVecDestructorVariant_External AzMonitorVecDestructorVariant_External;
+
+
+union AzMonitorVecDestructor {
+    AzMonitorVecDestructorVariant_DefaultRust DefaultRust;
+    AzMonitorVecDestructorVariant_NoDestructor NoDestructor;
+    AzMonitorVecDestructorVariant_External External;
+};
+typedef union AzMonitorVecDestructor AzMonitorVecDestructor;
+
+enum AzVideoModeVecDestructorTag {
+   AzVideoModeVecDestructorTag_DefaultRust,
+   AzVideoModeVecDestructorTag_NoDestructor,
+   AzVideoModeVecDestructorTag_External,
+};
+typedef enum AzVideoModeVecDestructorTag AzVideoModeVecDestructorTag;
+
+struct AzVideoModeVecDestructorVariant_DefaultRust { AzVideoModeVecDestructorTag tag; };
+typedef struct AzVideoModeVecDestructorVariant_DefaultRust AzVideoModeVecDestructorVariant_DefaultRust;
+
+struct AzVideoModeVecDestructorVariant_NoDestructor { AzVideoModeVecDestructorTag tag; };
+typedef struct AzVideoModeVecDestructorVariant_NoDestructor AzVideoModeVecDestructorVariant_NoDestructor;
+
+struct AzVideoModeVecDestructorVariant_External { AzVideoModeVecDestructorTag tag; AzVideoModeVecDestructorType payload; };
+typedef struct AzVideoModeVecDestructorVariant_External AzVideoModeVecDestructorVariant_External;
+
+
+union AzVideoModeVecDestructor {
+    AzVideoModeVecDestructorVariant_DefaultRust DefaultRust;
+    AzVideoModeVecDestructorVariant_NoDestructor NoDestructor;
+    AzVideoModeVecDestructorVariant_External External;
+};
+typedef union AzVideoModeVecDestructor AzVideoModeVecDestructor;
+
+enum AzDomVecDestructorTag {
+   AzDomVecDestructorTag_DefaultRust,
+   AzDomVecDestructorTag_NoDestructor,
+   AzDomVecDestructorTag_External,
+};
+typedef enum AzDomVecDestructorTag AzDomVecDestructorTag;
+
+struct AzDomVecDestructorVariant_DefaultRust { AzDomVecDestructorTag tag; };
+typedef struct AzDomVecDestructorVariant_DefaultRust AzDomVecDestructorVariant_DefaultRust;
+
+struct AzDomVecDestructorVariant_NoDestructor { AzDomVecDestructorTag tag; };
+typedef struct AzDomVecDestructorVariant_NoDestructor AzDomVecDestructorVariant_NoDestructor;
+
+struct AzDomVecDestructorVariant_External { AzDomVecDestructorTag tag; AzDomVecDestructorType payload; };
+typedef struct AzDomVecDestructorVariant_External AzDomVecDestructorVariant_External;
+
+
+union AzDomVecDestructor {
+    AzDomVecDestructorVariant_DefaultRust DefaultRust;
+    AzDomVecDestructorVariant_NoDestructor NoDestructor;
+    AzDomVecDestructorVariant_External External;
+};
+typedef union AzDomVecDestructor AzDomVecDestructor;
+
+enum AzIdOrClassVecDestructorTag {
+   AzIdOrClassVecDestructorTag_DefaultRust,
+   AzIdOrClassVecDestructorTag_NoDestructor,
+   AzIdOrClassVecDestructorTag_External,
+};
+typedef enum AzIdOrClassVecDestructorTag AzIdOrClassVecDestructorTag;
+
+struct AzIdOrClassVecDestructorVariant_DefaultRust { AzIdOrClassVecDestructorTag tag; };
+typedef struct AzIdOrClassVecDestructorVariant_DefaultRust AzIdOrClassVecDestructorVariant_DefaultRust;
+
+struct AzIdOrClassVecDestructorVariant_NoDestructor { AzIdOrClassVecDestructorTag tag; };
+typedef struct AzIdOrClassVecDestructorVariant_NoDestructor AzIdOrClassVecDestructorVariant_NoDestructor;
+
+struct AzIdOrClassVecDestructorVariant_External { AzIdOrClassVecDestructorTag tag; AzIdOrClassVecDestructorType payload; };
+typedef struct AzIdOrClassVecDestructorVariant_External AzIdOrClassVecDestructorVariant_External;
+
+
+union AzIdOrClassVecDestructor {
+    AzIdOrClassVecDestructorVariant_DefaultRust DefaultRust;
+    AzIdOrClassVecDestructorVariant_NoDestructor NoDestructor;
+    AzIdOrClassVecDestructorVariant_External External;
+};
+typedef union AzIdOrClassVecDestructor AzIdOrClassVecDestructor;
+
+enum AzNodeDataInlineCssPropertyVecDestructorTag {
+   AzNodeDataInlineCssPropertyVecDestructorTag_DefaultRust,
+   AzNodeDataInlineCssPropertyVecDestructorTag_NoDestructor,
+   AzNodeDataInlineCssPropertyVecDestructorTag_External,
+};
+typedef enum AzNodeDataInlineCssPropertyVecDestructorTag AzNodeDataInlineCssPropertyVecDestructorTag;
+
+struct AzNodeDataInlineCssPropertyVecDestructorVariant_DefaultRust { AzNodeDataInlineCssPropertyVecDestructorTag tag; };
+typedef struct AzNodeDataInlineCssPropertyVecDestructorVariant_DefaultRust AzNodeDataInlineCssPropertyVecDestructorVariant_DefaultRust;
+
+struct AzNodeDataInlineCssPropertyVecDestructorVariant_NoDestructor { AzNodeDataInlineCssPropertyVecDestructorTag tag; };
+typedef struct AzNodeDataInlineCssPropertyVecDestructorVariant_NoDestructor AzNodeDataInlineCssPropertyVecDestructorVariant_NoDestructor;
+
+struct AzNodeDataInlineCssPropertyVecDestructorVariant_External { AzNodeDataInlineCssPropertyVecDestructorTag tag; AzNodeDataInlineCssPropertyVecDestructorType payload; };
+typedef struct AzNodeDataInlineCssPropertyVecDestructorVariant_External AzNodeDataInlineCssPropertyVecDestructorVariant_External;
+
+
+union AzNodeDataInlineCssPropertyVecDestructor {
+    AzNodeDataInlineCssPropertyVecDestructorVariant_DefaultRust DefaultRust;
+    AzNodeDataInlineCssPropertyVecDestructorVariant_NoDestructor NoDestructor;
+    AzNodeDataInlineCssPropertyVecDestructorVariant_External External;
+};
+typedef union AzNodeDataInlineCssPropertyVecDestructor AzNodeDataInlineCssPropertyVecDestructor;
+
+enum AzStyleBackgroundContentVecDestructorTag {
+   AzStyleBackgroundContentVecDestructorTag_DefaultRust,
+   AzStyleBackgroundContentVecDestructorTag_NoDestructor,
+   AzStyleBackgroundContentVecDestructorTag_External,
+};
+typedef enum AzStyleBackgroundContentVecDestructorTag AzStyleBackgroundContentVecDestructorTag;
+
+struct AzStyleBackgroundContentVecDestructorVariant_DefaultRust { AzStyleBackgroundContentVecDestructorTag tag; };
+typedef struct AzStyleBackgroundContentVecDestructorVariant_DefaultRust AzStyleBackgroundContentVecDestructorVariant_DefaultRust;
+
+struct AzStyleBackgroundContentVecDestructorVariant_NoDestructor { AzStyleBackgroundContentVecDestructorTag tag; };
+typedef struct AzStyleBackgroundContentVecDestructorVariant_NoDestructor AzStyleBackgroundContentVecDestructorVariant_NoDestructor;
+
+struct AzStyleBackgroundContentVecDestructorVariant_External { AzStyleBackgroundContentVecDestructorTag tag; AzStyleBackgroundContentVecDestructorType payload; };
+typedef struct AzStyleBackgroundContentVecDestructorVariant_External AzStyleBackgroundContentVecDestructorVariant_External;
+
+
+union AzStyleBackgroundContentVecDestructor {
+    AzStyleBackgroundContentVecDestructorVariant_DefaultRust DefaultRust;
+    AzStyleBackgroundContentVecDestructorVariant_NoDestructor NoDestructor;
+    AzStyleBackgroundContentVecDestructorVariant_External External;
+};
+typedef union AzStyleBackgroundContentVecDestructor AzStyleBackgroundContentVecDestructor;
+
+enum AzStyleBackgroundPositionVecDestructorTag {
+   AzStyleBackgroundPositionVecDestructorTag_DefaultRust,
+   AzStyleBackgroundPositionVecDestructorTag_NoDestructor,
+   AzStyleBackgroundPositionVecDestructorTag_External,
+};
+typedef enum AzStyleBackgroundPositionVecDestructorTag AzStyleBackgroundPositionVecDestructorTag;
+
+struct AzStyleBackgroundPositionVecDestructorVariant_DefaultRust { AzStyleBackgroundPositionVecDestructorTag tag; };
+typedef struct AzStyleBackgroundPositionVecDestructorVariant_DefaultRust AzStyleBackgroundPositionVecDestructorVariant_DefaultRust;
+
+struct AzStyleBackgroundPositionVecDestructorVariant_NoDestructor { AzStyleBackgroundPositionVecDestructorTag tag; };
+typedef struct AzStyleBackgroundPositionVecDestructorVariant_NoDestructor AzStyleBackgroundPositionVecDestructorVariant_NoDestructor;
+
+struct AzStyleBackgroundPositionVecDestructorVariant_External { AzStyleBackgroundPositionVecDestructorTag tag; AzStyleBackgroundPositionVecDestructorType payload; };
+typedef struct AzStyleBackgroundPositionVecDestructorVariant_External AzStyleBackgroundPositionVecDestructorVariant_External;
+
+
+union AzStyleBackgroundPositionVecDestructor {
+    AzStyleBackgroundPositionVecDestructorVariant_DefaultRust DefaultRust;
+    AzStyleBackgroundPositionVecDestructorVariant_NoDestructor NoDestructor;
+    AzStyleBackgroundPositionVecDestructorVariant_External External;
+};
+typedef union AzStyleBackgroundPositionVecDestructor AzStyleBackgroundPositionVecDestructor;
+
+enum AzStyleBackgroundRepeatVecDestructorTag {
+   AzStyleBackgroundRepeatVecDestructorTag_DefaultRust,
+   AzStyleBackgroundRepeatVecDestructorTag_NoDestructor,
+   AzStyleBackgroundRepeatVecDestructorTag_External,
+};
+typedef enum AzStyleBackgroundRepeatVecDestructorTag AzStyleBackgroundRepeatVecDestructorTag;
+
+struct AzStyleBackgroundRepeatVecDestructorVariant_DefaultRust { AzStyleBackgroundRepeatVecDestructorTag tag; };
+typedef struct AzStyleBackgroundRepeatVecDestructorVariant_DefaultRust AzStyleBackgroundRepeatVecDestructorVariant_DefaultRust;
+
+struct AzStyleBackgroundRepeatVecDestructorVariant_NoDestructor { AzStyleBackgroundRepeatVecDestructorTag tag; };
+typedef struct AzStyleBackgroundRepeatVecDestructorVariant_NoDestructor AzStyleBackgroundRepeatVecDestructorVariant_NoDestructor;
+
+struct AzStyleBackgroundRepeatVecDestructorVariant_External { AzStyleBackgroundRepeatVecDestructorTag tag; AzStyleBackgroundRepeatVecDestructorType payload; };
+typedef struct AzStyleBackgroundRepeatVecDestructorVariant_External AzStyleBackgroundRepeatVecDestructorVariant_External;
+
+
+union AzStyleBackgroundRepeatVecDestructor {
+    AzStyleBackgroundRepeatVecDestructorVariant_DefaultRust DefaultRust;
+    AzStyleBackgroundRepeatVecDestructorVariant_NoDestructor NoDestructor;
+    AzStyleBackgroundRepeatVecDestructorVariant_External External;
+};
+typedef union AzStyleBackgroundRepeatVecDestructor AzStyleBackgroundRepeatVecDestructor;
+
+enum AzStyleBackgroundSizeVecDestructorTag {
+   AzStyleBackgroundSizeVecDestructorTag_DefaultRust,
+   AzStyleBackgroundSizeVecDestructorTag_NoDestructor,
+   AzStyleBackgroundSizeVecDestructorTag_External,
+};
+typedef enum AzStyleBackgroundSizeVecDestructorTag AzStyleBackgroundSizeVecDestructorTag;
+
+struct AzStyleBackgroundSizeVecDestructorVariant_DefaultRust { AzStyleBackgroundSizeVecDestructorTag tag; };
+typedef struct AzStyleBackgroundSizeVecDestructorVariant_DefaultRust AzStyleBackgroundSizeVecDestructorVariant_DefaultRust;
+
+struct AzStyleBackgroundSizeVecDestructorVariant_NoDestructor { AzStyleBackgroundSizeVecDestructorTag tag; };
+typedef struct AzStyleBackgroundSizeVecDestructorVariant_NoDestructor AzStyleBackgroundSizeVecDestructorVariant_NoDestructor;
+
+struct AzStyleBackgroundSizeVecDestructorVariant_External { AzStyleBackgroundSizeVecDestructorTag tag; AzStyleBackgroundSizeVecDestructorType payload; };
+typedef struct AzStyleBackgroundSizeVecDestructorVariant_External AzStyleBackgroundSizeVecDestructorVariant_External;
+
+
+union AzStyleBackgroundSizeVecDestructor {
+    AzStyleBackgroundSizeVecDestructorVariant_DefaultRust DefaultRust;
+    AzStyleBackgroundSizeVecDestructorVariant_NoDestructor NoDestructor;
+    AzStyleBackgroundSizeVecDestructorVariant_External External;
+};
+typedef union AzStyleBackgroundSizeVecDestructor AzStyleBackgroundSizeVecDestructor;
+
+enum AzStyleTransformVecDestructorTag {
+   AzStyleTransformVecDestructorTag_DefaultRust,
+   AzStyleTransformVecDestructorTag_NoDestructor,
+   AzStyleTransformVecDestructorTag_External,
+};
+typedef enum AzStyleTransformVecDestructorTag AzStyleTransformVecDestructorTag;
+
+struct AzStyleTransformVecDestructorVariant_DefaultRust { AzStyleTransformVecDestructorTag tag; };
+typedef struct AzStyleTransformVecDestructorVariant_DefaultRust AzStyleTransformVecDestructorVariant_DefaultRust;
+
+struct AzStyleTransformVecDestructorVariant_NoDestructor { AzStyleTransformVecDestructorTag tag; };
+typedef struct AzStyleTransformVecDestructorVariant_NoDestructor AzStyleTransformVecDestructorVariant_NoDestructor;
+
+struct AzStyleTransformVecDestructorVariant_External { AzStyleTransformVecDestructorTag tag; AzStyleTransformVecDestructorType payload; };
+typedef struct AzStyleTransformVecDestructorVariant_External AzStyleTransformVecDestructorVariant_External;
+
+
+union AzStyleTransformVecDestructor {
+    AzStyleTransformVecDestructorVariant_DefaultRust DefaultRust;
+    AzStyleTransformVecDestructorVariant_NoDestructor NoDestructor;
+    AzStyleTransformVecDestructorVariant_External External;
+};
+typedef union AzStyleTransformVecDestructor AzStyleTransformVecDestructor;
+
+enum AzCssPropertyVecDestructorTag {
+   AzCssPropertyVecDestructorTag_DefaultRust,
+   AzCssPropertyVecDestructorTag_NoDestructor,
+   AzCssPropertyVecDestructorTag_External,
+};
+typedef enum AzCssPropertyVecDestructorTag AzCssPropertyVecDestructorTag;
+
+struct AzCssPropertyVecDestructorVariant_DefaultRust { AzCssPropertyVecDestructorTag tag; };
+typedef struct AzCssPropertyVecDestructorVariant_DefaultRust AzCssPropertyVecDestructorVariant_DefaultRust;
+
+struct AzCssPropertyVecDestructorVariant_NoDestructor { AzCssPropertyVecDestructorTag tag; };
+typedef struct AzCssPropertyVecDestructorVariant_NoDestructor AzCssPropertyVecDestructorVariant_NoDestructor;
+
+struct AzCssPropertyVecDestructorVariant_External { AzCssPropertyVecDestructorTag tag; AzCssPropertyVecDestructorType payload; };
+typedef struct AzCssPropertyVecDestructorVariant_External AzCssPropertyVecDestructorVariant_External;
+
+
+union AzCssPropertyVecDestructor {
+    AzCssPropertyVecDestructorVariant_DefaultRust DefaultRust;
+    AzCssPropertyVecDestructorVariant_NoDestructor NoDestructor;
+    AzCssPropertyVecDestructorVariant_External External;
+};
+typedef union AzCssPropertyVecDestructor AzCssPropertyVecDestructor;
+
+enum AzSvgMultiPolygonVecDestructorTag {
+   AzSvgMultiPolygonVecDestructorTag_DefaultRust,
+   AzSvgMultiPolygonVecDestructorTag_NoDestructor,
+   AzSvgMultiPolygonVecDestructorTag_External,
+};
+typedef enum AzSvgMultiPolygonVecDestructorTag AzSvgMultiPolygonVecDestructorTag;
+
+struct AzSvgMultiPolygonVecDestructorVariant_DefaultRust { AzSvgMultiPolygonVecDestructorTag tag; };
+typedef struct AzSvgMultiPolygonVecDestructorVariant_DefaultRust AzSvgMultiPolygonVecDestructorVariant_DefaultRust;
+
+struct AzSvgMultiPolygonVecDestructorVariant_NoDestructor { AzSvgMultiPolygonVecDestructorTag tag; };
+typedef struct AzSvgMultiPolygonVecDestructorVariant_NoDestructor AzSvgMultiPolygonVecDestructorVariant_NoDestructor;
+
+struct AzSvgMultiPolygonVecDestructorVariant_External { AzSvgMultiPolygonVecDestructorTag tag; AzSvgMultiPolygonVecDestructorType payload; };
+typedef struct AzSvgMultiPolygonVecDestructorVariant_External AzSvgMultiPolygonVecDestructorVariant_External;
+
+
+union AzSvgMultiPolygonVecDestructor {
+    AzSvgMultiPolygonVecDestructorVariant_DefaultRust DefaultRust;
+    AzSvgMultiPolygonVecDestructorVariant_NoDestructor NoDestructor;
+    AzSvgMultiPolygonVecDestructorVariant_External External;
+};
+typedef union AzSvgMultiPolygonVecDestructor AzSvgMultiPolygonVecDestructor;
+
+enum AzSvgPathVecDestructorTag {
+   AzSvgPathVecDestructorTag_DefaultRust,
+   AzSvgPathVecDestructorTag_NoDestructor,
+   AzSvgPathVecDestructorTag_External,
+};
+typedef enum AzSvgPathVecDestructorTag AzSvgPathVecDestructorTag;
+
+struct AzSvgPathVecDestructorVariant_DefaultRust { AzSvgPathVecDestructorTag tag; };
+typedef struct AzSvgPathVecDestructorVariant_DefaultRust AzSvgPathVecDestructorVariant_DefaultRust;
+
+struct AzSvgPathVecDestructorVariant_NoDestructor { AzSvgPathVecDestructorTag tag; };
+typedef struct AzSvgPathVecDestructorVariant_NoDestructor AzSvgPathVecDestructorVariant_NoDestructor;
+
+struct AzSvgPathVecDestructorVariant_External { AzSvgPathVecDestructorTag tag; AzSvgPathVecDestructorType payload; };
+typedef struct AzSvgPathVecDestructorVariant_External AzSvgPathVecDestructorVariant_External;
+
+
+union AzSvgPathVecDestructor {
+    AzSvgPathVecDestructorVariant_DefaultRust DefaultRust;
+    AzSvgPathVecDestructorVariant_NoDestructor NoDestructor;
+    AzSvgPathVecDestructorVariant_External External;
+};
+typedef union AzSvgPathVecDestructor AzSvgPathVecDestructor;
+
+enum AzVertexAttributeVecDestructorTag {
+   AzVertexAttributeVecDestructorTag_DefaultRust,
+   AzVertexAttributeVecDestructorTag_NoDestructor,
+   AzVertexAttributeVecDestructorTag_External,
+};
+typedef enum AzVertexAttributeVecDestructorTag AzVertexAttributeVecDestructorTag;
+
+struct AzVertexAttributeVecDestructorVariant_DefaultRust { AzVertexAttributeVecDestructorTag tag; };
+typedef struct AzVertexAttributeVecDestructorVariant_DefaultRust AzVertexAttributeVecDestructorVariant_DefaultRust;
+
+struct AzVertexAttributeVecDestructorVariant_NoDestructor { AzVertexAttributeVecDestructorTag tag; };
+typedef struct AzVertexAttributeVecDestructorVariant_NoDestructor AzVertexAttributeVecDestructorVariant_NoDestructor;
+
+struct AzVertexAttributeVecDestructorVariant_External { AzVertexAttributeVecDestructorTag tag; AzVertexAttributeVecDestructorType payload; };
+typedef struct AzVertexAttributeVecDestructorVariant_External AzVertexAttributeVecDestructorVariant_External;
+
+
+union AzVertexAttributeVecDestructor {
+    AzVertexAttributeVecDestructorVariant_DefaultRust DefaultRust;
+    AzVertexAttributeVecDestructorVariant_NoDestructor NoDestructor;
+    AzVertexAttributeVecDestructorVariant_External External;
+};
+typedef union AzVertexAttributeVecDestructor AzVertexAttributeVecDestructor;
+
+enum AzSvgPathElementVecDestructorTag {
+   AzSvgPathElementVecDestructorTag_DefaultRust,
+   AzSvgPathElementVecDestructorTag_NoDestructor,
+   AzSvgPathElementVecDestructorTag_External,
+};
+typedef enum AzSvgPathElementVecDestructorTag AzSvgPathElementVecDestructorTag;
+
+struct AzSvgPathElementVecDestructorVariant_DefaultRust { AzSvgPathElementVecDestructorTag tag; };
+typedef struct AzSvgPathElementVecDestructorVariant_DefaultRust AzSvgPathElementVecDestructorVariant_DefaultRust;
+
+struct AzSvgPathElementVecDestructorVariant_NoDestructor { AzSvgPathElementVecDestructorTag tag; };
+typedef struct AzSvgPathElementVecDestructorVariant_NoDestructor AzSvgPathElementVecDestructorVariant_NoDestructor;
+
+struct AzSvgPathElementVecDestructorVariant_External { AzSvgPathElementVecDestructorTag tag; AzSvgPathElementVecDestructorType payload; };
+typedef struct AzSvgPathElementVecDestructorVariant_External AzSvgPathElementVecDestructorVariant_External;
+
+
+union AzSvgPathElementVecDestructor {
+    AzSvgPathElementVecDestructorVariant_DefaultRust DefaultRust;
+    AzSvgPathElementVecDestructorVariant_NoDestructor NoDestructor;
+    AzSvgPathElementVecDestructorVariant_External External;
+};
+typedef union AzSvgPathElementVecDestructor AzSvgPathElementVecDestructor;
+
+enum AzSvgVertexVecDestructorTag {
+   AzSvgVertexVecDestructorTag_DefaultRust,
+   AzSvgVertexVecDestructorTag_NoDestructor,
+   AzSvgVertexVecDestructorTag_External,
+};
+typedef enum AzSvgVertexVecDestructorTag AzSvgVertexVecDestructorTag;
+
+struct AzSvgVertexVecDestructorVariant_DefaultRust { AzSvgVertexVecDestructorTag tag; };
+typedef struct AzSvgVertexVecDestructorVariant_DefaultRust AzSvgVertexVecDestructorVariant_DefaultRust;
+
+struct AzSvgVertexVecDestructorVariant_NoDestructor { AzSvgVertexVecDestructorTag tag; };
+typedef struct AzSvgVertexVecDestructorVariant_NoDestructor AzSvgVertexVecDestructorVariant_NoDestructor;
+
+struct AzSvgVertexVecDestructorVariant_External { AzSvgVertexVecDestructorTag tag; AzSvgVertexVecDestructorType payload; };
+typedef struct AzSvgVertexVecDestructorVariant_External AzSvgVertexVecDestructorVariant_External;
+
+
+union AzSvgVertexVecDestructor {
+    AzSvgVertexVecDestructorVariant_DefaultRust DefaultRust;
+    AzSvgVertexVecDestructorVariant_NoDestructor NoDestructor;
+    AzSvgVertexVecDestructorVariant_External External;
+};
+typedef union AzSvgVertexVecDestructor AzSvgVertexVecDestructor;
+
+enum AzU32VecDestructorTag {
+   AzU32VecDestructorTag_DefaultRust,
+   AzU32VecDestructorTag_NoDestructor,
+   AzU32VecDestructorTag_External,
+};
+typedef enum AzU32VecDestructorTag AzU32VecDestructorTag;
+
+struct AzU32VecDestructorVariant_DefaultRust { AzU32VecDestructorTag tag; };
+typedef struct AzU32VecDestructorVariant_DefaultRust AzU32VecDestructorVariant_DefaultRust;
+
+struct AzU32VecDestructorVariant_NoDestructor { AzU32VecDestructorTag tag; };
+typedef struct AzU32VecDestructorVariant_NoDestructor AzU32VecDestructorVariant_NoDestructor;
+
+struct AzU32VecDestructorVariant_External { AzU32VecDestructorTag tag; AzU32VecDestructorType payload; };
+typedef struct AzU32VecDestructorVariant_External AzU32VecDestructorVariant_External;
+
+
+union AzU32VecDestructor {
+    AzU32VecDestructorVariant_DefaultRust DefaultRust;
+    AzU32VecDestructorVariant_NoDestructor NoDestructor;
+    AzU32VecDestructorVariant_External External;
+};
+typedef union AzU32VecDestructor AzU32VecDestructor;
+
+enum AzXWindowTypeVecDestructorTag {
+   AzXWindowTypeVecDestructorTag_DefaultRust,
+   AzXWindowTypeVecDestructorTag_NoDestructor,
+   AzXWindowTypeVecDestructorTag_External,
+};
+typedef enum AzXWindowTypeVecDestructorTag AzXWindowTypeVecDestructorTag;
+
+struct AzXWindowTypeVecDestructorVariant_DefaultRust { AzXWindowTypeVecDestructorTag tag; };
+typedef struct AzXWindowTypeVecDestructorVariant_DefaultRust AzXWindowTypeVecDestructorVariant_DefaultRust;
+
+struct AzXWindowTypeVecDestructorVariant_NoDestructor { AzXWindowTypeVecDestructorTag tag; };
+typedef struct AzXWindowTypeVecDestructorVariant_NoDestructor AzXWindowTypeVecDestructorVariant_NoDestructor;
+
+struct AzXWindowTypeVecDestructorVariant_External { AzXWindowTypeVecDestructorTag tag; AzXWindowTypeVecDestructorType payload; };
+typedef struct AzXWindowTypeVecDestructorVariant_External AzXWindowTypeVecDestructorVariant_External;
+
+
+union AzXWindowTypeVecDestructor {
+    AzXWindowTypeVecDestructorVariant_DefaultRust DefaultRust;
+    AzXWindowTypeVecDestructorVariant_NoDestructor NoDestructor;
+    AzXWindowTypeVecDestructorVariant_External External;
+};
+typedef union AzXWindowTypeVecDestructor AzXWindowTypeVecDestructor;
+
+enum AzVirtualKeyCodeVecDestructorTag {
+   AzVirtualKeyCodeVecDestructorTag_DefaultRust,
+   AzVirtualKeyCodeVecDestructorTag_NoDestructor,
+   AzVirtualKeyCodeVecDestructorTag_External,
+};
+typedef enum AzVirtualKeyCodeVecDestructorTag AzVirtualKeyCodeVecDestructorTag;
+
+struct AzVirtualKeyCodeVecDestructorVariant_DefaultRust { AzVirtualKeyCodeVecDestructorTag tag; };
+typedef struct AzVirtualKeyCodeVecDestructorVariant_DefaultRust AzVirtualKeyCodeVecDestructorVariant_DefaultRust;
+
+struct AzVirtualKeyCodeVecDestructorVariant_NoDestructor { AzVirtualKeyCodeVecDestructorTag tag; };
+typedef struct AzVirtualKeyCodeVecDestructorVariant_NoDestructor AzVirtualKeyCodeVecDestructorVariant_NoDestructor;
+
+struct AzVirtualKeyCodeVecDestructorVariant_External { AzVirtualKeyCodeVecDestructorTag tag; AzVirtualKeyCodeVecDestructorType payload; };
+typedef struct AzVirtualKeyCodeVecDestructorVariant_External AzVirtualKeyCodeVecDestructorVariant_External;
+
+
+union AzVirtualKeyCodeVecDestructor {
+    AzVirtualKeyCodeVecDestructorVariant_DefaultRust DefaultRust;
+    AzVirtualKeyCodeVecDestructorVariant_NoDestructor NoDestructor;
+    AzVirtualKeyCodeVecDestructorVariant_External External;
+};
+typedef union AzVirtualKeyCodeVecDestructor AzVirtualKeyCodeVecDestructor;
+
+enum AzCascadeInfoVecDestructorTag {
+   AzCascadeInfoVecDestructorTag_DefaultRust,
+   AzCascadeInfoVecDestructorTag_NoDestructor,
+   AzCascadeInfoVecDestructorTag_External,
+};
+typedef enum AzCascadeInfoVecDestructorTag AzCascadeInfoVecDestructorTag;
+
+struct AzCascadeInfoVecDestructorVariant_DefaultRust { AzCascadeInfoVecDestructorTag tag; };
+typedef struct AzCascadeInfoVecDestructorVariant_DefaultRust AzCascadeInfoVecDestructorVariant_DefaultRust;
+
+struct AzCascadeInfoVecDestructorVariant_NoDestructor { AzCascadeInfoVecDestructorTag tag; };
+typedef struct AzCascadeInfoVecDestructorVariant_NoDestructor AzCascadeInfoVecDestructorVariant_NoDestructor;
+
+struct AzCascadeInfoVecDestructorVariant_External { AzCascadeInfoVecDestructorTag tag; AzCascadeInfoVecDestructorType payload; };
+typedef struct AzCascadeInfoVecDestructorVariant_External AzCascadeInfoVecDestructorVariant_External;
+
+
+union AzCascadeInfoVecDestructor {
+    AzCascadeInfoVecDestructorVariant_DefaultRust DefaultRust;
+    AzCascadeInfoVecDestructorVariant_NoDestructor NoDestructor;
+    AzCascadeInfoVecDestructorVariant_External External;
+};
+typedef union AzCascadeInfoVecDestructor AzCascadeInfoVecDestructor;
+
+enum AzScanCodeVecDestructorTag {
+   AzScanCodeVecDestructorTag_DefaultRust,
+   AzScanCodeVecDestructorTag_NoDestructor,
+   AzScanCodeVecDestructorTag_External,
+};
+typedef enum AzScanCodeVecDestructorTag AzScanCodeVecDestructorTag;
+
+struct AzScanCodeVecDestructorVariant_DefaultRust { AzScanCodeVecDestructorTag tag; };
+typedef struct AzScanCodeVecDestructorVariant_DefaultRust AzScanCodeVecDestructorVariant_DefaultRust;
+
+struct AzScanCodeVecDestructorVariant_NoDestructor { AzScanCodeVecDestructorTag tag; };
+typedef struct AzScanCodeVecDestructorVariant_NoDestructor AzScanCodeVecDestructorVariant_NoDestructor;
+
+struct AzScanCodeVecDestructorVariant_External { AzScanCodeVecDestructorTag tag; AzScanCodeVecDestructorType payload; };
+typedef struct AzScanCodeVecDestructorVariant_External AzScanCodeVecDestructorVariant_External;
+
+
+union AzScanCodeVecDestructor {
+    AzScanCodeVecDestructorVariant_DefaultRust DefaultRust;
+    AzScanCodeVecDestructorVariant_NoDestructor NoDestructor;
+    AzScanCodeVecDestructorVariant_External External;
+};
+typedef union AzScanCodeVecDestructor AzScanCodeVecDestructor;
+
+enum AzCssDeclarationVecDestructorTag {
+   AzCssDeclarationVecDestructorTag_DefaultRust,
+   AzCssDeclarationVecDestructorTag_NoDestructor,
+   AzCssDeclarationVecDestructorTag_External,
+};
+typedef enum AzCssDeclarationVecDestructorTag AzCssDeclarationVecDestructorTag;
+
+struct AzCssDeclarationVecDestructorVariant_DefaultRust { AzCssDeclarationVecDestructorTag tag; };
+typedef struct AzCssDeclarationVecDestructorVariant_DefaultRust AzCssDeclarationVecDestructorVariant_DefaultRust;
+
+struct AzCssDeclarationVecDestructorVariant_NoDestructor { AzCssDeclarationVecDestructorTag tag; };
+typedef struct AzCssDeclarationVecDestructorVariant_NoDestructor AzCssDeclarationVecDestructorVariant_NoDestructor;
+
+struct AzCssDeclarationVecDestructorVariant_External { AzCssDeclarationVecDestructorTag tag; AzCssDeclarationVecDestructorType payload; };
+typedef struct AzCssDeclarationVecDestructorVariant_External AzCssDeclarationVecDestructorVariant_External;
+
+
+union AzCssDeclarationVecDestructor {
+    AzCssDeclarationVecDestructorVariant_DefaultRust DefaultRust;
+    AzCssDeclarationVecDestructorVariant_NoDestructor NoDestructor;
+    AzCssDeclarationVecDestructorVariant_External External;
+};
+typedef union AzCssDeclarationVecDestructor AzCssDeclarationVecDestructor;
+
+enum AzCssPathSelectorVecDestructorTag {
+   AzCssPathSelectorVecDestructorTag_DefaultRust,
+   AzCssPathSelectorVecDestructorTag_NoDestructor,
+   AzCssPathSelectorVecDestructorTag_External,
+};
+typedef enum AzCssPathSelectorVecDestructorTag AzCssPathSelectorVecDestructorTag;
+
+struct AzCssPathSelectorVecDestructorVariant_DefaultRust { AzCssPathSelectorVecDestructorTag tag; };
+typedef struct AzCssPathSelectorVecDestructorVariant_DefaultRust AzCssPathSelectorVecDestructorVariant_DefaultRust;
+
+struct AzCssPathSelectorVecDestructorVariant_NoDestructor { AzCssPathSelectorVecDestructorTag tag; };
+typedef struct AzCssPathSelectorVecDestructorVariant_NoDestructor AzCssPathSelectorVecDestructorVariant_NoDestructor;
+
+struct AzCssPathSelectorVecDestructorVariant_External { AzCssPathSelectorVecDestructorTag tag; AzCssPathSelectorVecDestructorType payload; };
+typedef struct AzCssPathSelectorVecDestructorVariant_External AzCssPathSelectorVecDestructorVariant_External;
+
+
+union AzCssPathSelectorVecDestructor {
+    AzCssPathSelectorVecDestructorVariant_DefaultRust DefaultRust;
+    AzCssPathSelectorVecDestructorVariant_NoDestructor NoDestructor;
+    AzCssPathSelectorVecDestructorVariant_External External;
+};
+typedef union AzCssPathSelectorVecDestructor AzCssPathSelectorVecDestructor;
+
+enum AzStylesheetVecDestructorTag {
+   AzStylesheetVecDestructorTag_DefaultRust,
+   AzStylesheetVecDestructorTag_NoDestructor,
+   AzStylesheetVecDestructorTag_External,
+};
+typedef enum AzStylesheetVecDestructorTag AzStylesheetVecDestructorTag;
+
+struct AzStylesheetVecDestructorVariant_DefaultRust { AzStylesheetVecDestructorTag tag; };
+typedef struct AzStylesheetVecDestructorVariant_DefaultRust AzStylesheetVecDestructorVariant_DefaultRust;
+
+struct AzStylesheetVecDestructorVariant_NoDestructor { AzStylesheetVecDestructorTag tag; };
+typedef struct AzStylesheetVecDestructorVariant_NoDestructor AzStylesheetVecDestructorVariant_NoDestructor;
+
+struct AzStylesheetVecDestructorVariant_External { AzStylesheetVecDestructorTag tag; AzStylesheetVecDestructorType payload; };
+typedef struct AzStylesheetVecDestructorVariant_External AzStylesheetVecDestructorVariant_External;
+
+
+union AzStylesheetVecDestructor {
+    AzStylesheetVecDestructorVariant_DefaultRust DefaultRust;
+    AzStylesheetVecDestructorVariant_NoDestructor NoDestructor;
+    AzStylesheetVecDestructorVariant_External External;
+};
+typedef union AzStylesheetVecDestructor AzStylesheetVecDestructor;
+
+enum AzCssRuleBlockVecDestructorTag {
+   AzCssRuleBlockVecDestructorTag_DefaultRust,
+   AzCssRuleBlockVecDestructorTag_NoDestructor,
+   AzCssRuleBlockVecDestructorTag_External,
+};
+typedef enum AzCssRuleBlockVecDestructorTag AzCssRuleBlockVecDestructorTag;
+
+struct AzCssRuleBlockVecDestructorVariant_DefaultRust { AzCssRuleBlockVecDestructorTag tag; };
+typedef struct AzCssRuleBlockVecDestructorVariant_DefaultRust AzCssRuleBlockVecDestructorVariant_DefaultRust;
+
+struct AzCssRuleBlockVecDestructorVariant_NoDestructor { AzCssRuleBlockVecDestructorTag tag; };
+typedef struct AzCssRuleBlockVecDestructorVariant_NoDestructor AzCssRuleBlockVecDestructorVariant_NoDestructor;
+
+struct AzCssRuleBlockVecDestructorVariant_External { AzCssRuleBlockVecDestructorTag tag; AzCssRuleBlockVecDestructorType payload; };
+typedef struct AzCssRuleBlockVecDestructorVariant_External AzCssRuleBlockVecDestructorVariant_External;
+
+
+union AzCssRuleBlockVecDestructor {
+    AzCssRuleBlockVecDestructorVariant_DefaultRust DefaultRust;
+    AzCssRuleBlockVecDestructorVariant_NoDestructor NoDestructor;
+    AzCssRuleBlockVecDestructorVariant_External External;
+};
+typedef union AzCssRuleBlockVecDestructor AzCssRuleBlockVecDestructor;
+
+enum AzU8VecDestructorTag {
+   AzU8VecDestructorTag_DefaultRust,
+   AzU8VecDestructorTag_NoDestructor,
+   AzU8VecDestructorTag_External,
+};
+typedef enum AzU8VecDestructorTag AzU8VecDestructorTag;
+
+struct AzU8VecDestructorVariant_DefaultRust { AzU8VecDestructorTag tag; };
+typedef struct AzU8VecDestructorVariant_DefaultRust AzU8VecDestructorVariant_DefaultRust;
+
+struct AzU8VecDestructorVariant_NoDestructor { AzU8VecDestructorTag tag; };
+typedef struct AzU8VecDestructorVariant_NoDestructor AzU8VecDestructorVariant_NoDestructor;
+
+struct AzU8VecDestructorVariant_External { AzU8VecDestructorTag tag; AzU8VecDestructorType payload; };
+typedef struct AzU8VecDestructorVariant_External AzU8VecDestructorVariant_External;
+
+
+union AzU8VecDestructor {
+    AzU8VecDestructorVariant_DefaultRust DefaultRust;
+    AzU8VecDestructorVariant_NoDestructor NoDestructor;
+    AzU8VecDestructorVariant_External External;
+};
+typedef union AzU8VecDestructor AzU8VecDestructor;
+
+enum AzCallbackDataVecDestructorTag {
+   AzCallbackDataVecDestructorTag_DefaultRust,
+   AzCallbackDataVecDestructorTag_NoDestructor,
+   AzCallbackDataVecDestructorTag_External,
+};
+typedef enum AzCallbackDataVecDestructorTag AzCallbackDataVecDestructorTag;
+
+struct AzCallbackDataVecDestructorVariant_DefaultRust { AzCallbackDataVecDestructorTag tag; };
+typedef struct AzCallbackDataVecDestructorVariant_DefaultRust AzCallbackDataVecDestructorVariant_DefaultRust;
+
+struct AzCallbackDataVecDestructorVariant_NoDestructor { AzCallbackDataVecDestructorTag tag; };
+typedef struct AzCallbackDataVecDestructorVariant_NoDestructor AzCallbackDataVecDestructorVariant_NoDestructor;
+
+struct AzCallbackDataVecDestructorVariant_External { AzCallbackDataVecDestructorTag tag; AzCallbackDataVecDestructorType payload; };
+typedef struct AzCallbackDataVecDestructorVariant_External AzCallbackDataVecDestructorVariant_External;
+
+
+union AzCallbackDataVecDestructor {
+    AzCallbackDataVecDestructorVariant_DefaultRust DefaultRust;
+    AzCallbackDataVecDestructorVariant_NoDestructor NoDestructor;
+    AzCallbackDataVecDestructorVariant_External External;
+};
+typedef union AzCallbackDataVecDestructor AzCallbackDataVecDestructor;
+
+enum AzDebugMessageVecDestructorTag {
+   AzDebugMessageVecDestructorTag_DefaultRust,
+   AzDebugMessageVecDestructorTag_NoDestructor,
+   AzDebugMessageVecDestructorTag_External,
+};
+typedef enum AzDebugMessageVecDestructorTag AzDebugMessageVecDestructorTag;
+
+struct AzDebugMessageVecDestructorVariant_DefaultRust { AzDebugMessageVecDestructorTag tag; };
+typedef struct AzDebugMessageVecDestructorVariant_DefaultRust AzDebugMessageVecDestructorVariant_DefaultRust;
+
+struct AzDebugMessageVecDestructorVariant_NoDestructor { AzDebugMessageVecDestructorTag tag; };
+typedef struct AzDebugMessageVecDestructorVariant_NoDestructor AzDebugMessageVecDestructorVariant_NoDestructor;
+
+struct AzDebugMessageVecDestructorVariant_External { AzDebugMessageVecDestructorTag tag; AzDebugMessageVecDestructorType payload; };
+typedef struct AzDebugMessageVecDestructorVariant_External AzDebugMessageVecDestructorVariant_External;
+
+
+union AzDebugMessageVecDestructor {
+    AzDebugMessageVecDestructorVariant_DefaultRust DefaultRust;
+    AzDebugMessageVecDestructorVariant_NoDestructor NoDestructor;
+    AzDebugMessageVecDestructorVariant_External External;
+};
+typedef union AzDebugMessageVecDestructor AzDebugMessageVecDestructor;
+
+enum AzGLuintVecDestructorTag {
+   AzGLuintVecDestructorTag_DefaultRust,
+   AzGLuintVecDestructorTag_NoDestructor,
+   AzGLuintVecDestructorTag_External,
+};
+typedef enum AzGLuintVecDestructorTag AzGLuintVecDestructorTag;
+
+struct AzGLuintVecDestructorVariant_DefaultRust { AzGLuintVecDestructorTag tag; };
+typedef struct AzGLuintVecDestructorVariant_DefaultRust AzGLuintVecDestructorVariant_DefaultRust;
+
+struct AzGLuintVecDestructorVariant_NoDestructor { AzGLuintVecDestructorTag tag; };
+typedef struct AzGLuintVecDestructorVariant_NoDestructor AzGLuintVecDestructorVariant_NoDestructor;
+
+struct AzGLuintVecDestructorVariant_External { AzGLuintVecDestructorTag tag; AzGLuintVecDestructorType payload; };
+typedef struct AzGLuintVecDestructorVariant_External AzGLuintVecDestructorVariant_External;
+
+
+union AzGLuintVecDestructor {
+    AzGLuintVecDestructorVariant_DefaultRust DefaultRust;
+    AzGLuintVecDestructorVariant_NoDestructor NoDestructor;
+    AzGLuintVecDestructorVariant_External External;
+};
+typedef union AzGLuintVecDestructor AzGLuintVecDestructor;
+
+enum AzGLintVecDestructorTag {
+   AzGLintVecDestructorTag_DefaultRust,
+   AzGLintVecDestructorTag_NoDestructor,
+   AzGLintVecDestructorTag_External,
+};
+typedef enum AzGLintVecDestructorTag AzGLintVecDestructorTag;
+
+struct AzGLintVecDestructorVariant_DefaultRust { AzGLintVecDestructorTag tag; };
+typedef struct AzGLintVecDestructorVariant_DefaultRust AzGLintVecDestructorVariant_DefaultRust;
+
+struct AzGLintVecDestructorVariant_NoDestructor { AzGLintVecDestructorTag tag; };
+typedef struct AzGLintVecDestructorVariant_NoDestructor AzGLintVecDestructorVariant_NoDestructor;
+
+struct AzGLintVecDestructorVariant_External { AzGLintVecDestructorTag tag; AzGLintVecDestructorType payload; };
+typedef struct AzGLintVecDestructorVariant_External AzGLintVecDestructorVariant_External;
+
+
+union AzGLintVecDestructor {
+    AzGLintVecDestructorVariant_DefaultRust DefaultRust;
+    AzGLintVecDestructorVariant_NoDestructor NoDestructor;
+    AzGLintVecDestructorVariant_External External;
+};
+typedef union AzGLintVecDestructor AzGLintVecDestructor;
+
+enum AzStringVecDestructorTag {
+   AzStringVecDestructorTag_DefaultRust,
+   AzStringVecDestructorTag_NoDestructor,
+   AzStringVecDestructorTag_External,
+};
+typedef enum AzStringVecDestructorTag AzStringVecDestructorTag;
+
+struct AzStringVecDestructorVariant_DefaultRust { AzStringVecDestructorTag tag; };
+typedef struct AzStringVecDestructorVariant_DefaultRust AzStringVecDestructorVariant_DefaultRust;
+
+struct AzStringVecDestructorVariant_NoDestructor { AzStringVecDestructorTag tag; };
+typedef struct AzStringVecDestructorVariant_NoDestructor AzStringVecDestructorVariant_NoDestructor;
+
+struct AzStringVecDestructorVariant_External { AzStringVecDestructorTag tag; AzStringVecDestructorType payload; };
+typedef struct AzStringVecDestructorVariant_External AzStringVecDestructorVariant_External;
+
+
+union AzStringVecDestructor {
+    AzStringVecDestructorVariant_DefaultRust DefaultRust;
+    AzStringVecDestructorVariant_NoDestructor NoDestructor;
+    AzStringVecDestructorVariant_External External;
+};
+typedef union AzStringVecDestructor AzStringVecDestructor;
+
+enum AzStringPairVecDestructorTag {
+   AzStringPairVecDestructorTag_DefaultRust,
+   AzStringPairVecDestructorTag_NoDestructor,
+   AzStringPairVecDestructorTag_External,
+};
+typedef enum AzStringPairVecDestructorTag AzStringPairVecDestructorTag;
+
+struct AzStringPairVecDestructorVariant_DefaultRust { AzStringPairVecDestructorTag tag; };
+typedef struct AzStringPairVecDestructorVariant_DefaultRust AzStringPairVecDestructorVariant_DefaultRust;
+
+struct AzStringPairVecDestructorVariant_NoDestructor { AzStringPairVecDestructorTag tag; };
+typedef struct AzStringPairVecDestructorVariant_NoDestructor AzStringPairVecDestructorVariant_NoDestructor;
+
+struct AzStringPairVecDestructorVariant_External { AzStringPairVecDestructorTag tag; AzStringPairVecDestructorType payload; };
+typedef struct AzStringPairVecDestructorVariant_External AzStringPairVecDestructorVariant_External;
+
+
+union AzStringPairVecDestructor {
+    AzStringPairVecDestructorVariant_DefaultRust DefaultRust;
+    AzStringPairVecDestructorVariant_NoDestructor NoDestructor;
+    AzStringPairVecDestructorVariant_External External;
+};
+typedef union AzStringPairVecDestructor AzStringPairVecDestructor;
+
+enum AzLinearColorStopVecDestructorTag {
+   AzLinearColorStopVecDestructorTag_DefaultRust,
+   AzLinearColorStopVecDestructorTag_NoDestructor,
+   AzLinearColorStopVecDestructorTag_External,
+};
+typedef enum AzLinearColorStopVecDestructorTag AzLinearColorStopVecDestructorTag;
+
+struct AzLinearColorStopVecDestructorVariant_DefaultRust { AzLinearColorStopVecDestructorTag tag; };
+typedef struct AzLinearColorStopVecDestructorVariant_DefaultRust AzLinearColorStopVecDestructorVariant_DefaultRust;
+
+struct AzLinearColorStopVecDestructorVariant_NoDestructor { AzLinearColorStopVecDestructorTag tag; };
+typedef struct AzLinearColorStopVecDestructorVariant_NoDestructor AzLinearColorStopVecDestructorVariant_NoDestructor;
+
+struct AzLinearColorStopVecDestructorVariant_External { AzLinearColorStopVecDestructorTag tag; AzLinearColorStopVecDestructorType payload; };
+typedef struct AzLinearColorStopVecDestructorVariant_External AzLinearColorStopVecDestructorVariant_External;
+
+
+union AzLinearColorStopVecDestructor {
+    AzLinearColorStopVecDestructorVariant_DefaultRust DefaultRust;
+    AzLinearColorStopVecDestructorVariant_NoDestructor NoDestructor;
+    AzLinearColorStopVecDestructorVariant_External External;
+};
+typedef union AzLinearColorStopVecDestructor AzLinearColorStopVecDestructor;
+
+enum AzRadialColorStopVecDestructorTag {
+   AzRadialColorStopVecDestructorTag_DefaultRust,
+   AzRadialColorStopVecDestructorTag_NoDestructor,
+   AzRadialColorStopVecDestructorTag_External,
+};
+typedef enum AzRadialColorStopVecDestructorTag AzRadialColorStopVecDestructorTag;
+
+struct AzRadialColorStopVecDestructorVariant_DefaultRust { AzRadialColorStopVecDestructorTag tag; };
+typedef struct AzRadialColorStopVecDestructorVariant_DefaultRust AzRadialColorStopVecDestructorVariant_DefaultRust;
+
+struct AzRadialColorStopVecDestructorVariant_NoDestructor { AzRadialColorStopVecDestructorTag tag; };
+typedef struct AzRadialColorStopVecDestructorVariant_NoDestructor AzRadialColorStopVecDestructorVariant_NoDestructor;
+
+struct AzRadialColorStopVecDestructorVariant_External { AzRadialColorStopVecDestructorTag tag; AzRadialColorStopVecDestructorType payload; };
+typedef struct AzRadialColorStopVecDestructorVariant_External AzRadialColorStopVecDestructorVariant_External;
+
+
+union AzRadialColorStopVecDestructor {
+    AzRadialColorStopVecDestructorVariant_DefaultRust DefaultRust;
+    AzRadialColorStopVecDestructorVariant_NoDestructor NoDestructor;
+    AzRadialColorStopVecDestructorVariant_External External;
+};
+typedef union AzRadialColorStopVecDestructor AzRadialColorStopVecDestructor;
+
+enum AzNodeIdVecDestructorTag {
+   AzNodeIdVecDestructorTag_DefaultRust,
+   AzNodeIdVecDestructorTag_NoDestructor,
+   AzNodeIdVecDestructorTag_External,
+};
+typedef enum AzNodeIdVecDestructorTag AzNodeIdVecDestructorTag;
+
+struct AzNodeIdVecDestructorVariant_DefaultRust { AzNodeIdVecDestructorTag tag; };
+typedef struct AzNodeIdVecDestructorVariant_DefaultRust AzNodeIdVecDestructorVariant_DefaultRust;
+
+struct AzNodeIdVecDestructorVariant_NoDestructor { AzNodeIdVecDestructorTag tag; };
+typedef struct AzNodeIdVecDestructorVariant_NoDestructor AzNodeIdVecDestructorVariant_NoDestructor;
+
+struct AzNodeIdVecDestructorVariant_External { AzNodeIdVecDestructorTag tag; AzNodeIdVecDestructorType payload; };
+typedef struct AzNodeIdVecDestructorVariant_External AzNodeIdVecDestructorVariant_External;
+
+
+union AzNodeIdVecDestructor {
+    AzNodeIdVecDestructorVariant_DefaultRust DefaultRust;
+    AzNodeIdVecDestructorVariant_NoDestructor NoDestructor;
+    AzNodeIdVecDestructorVariant_External External;
+};
+typedef union AzNodeIdVecDestructor AzNodeIdVecDestructor;
+
+enum AzNodeVecDestructorTag {
+   AzNodeVecDestructorTag_DefaultRust,
+   AzNodeVecDestructorTag_NoDestructor,
+   AzNodeVecDestructorTag_External,
+};
+typedef enum AzNodeVecDestructorTag AzNodeVecDestructorTag;
+
+struct AzNodeVecDestructorVariant_DefaultRust { AzNodeVecDestructorTag tag; };
+typedef struct AzNodeVecDestructorVariant_DefaultRust AzNodeVecDestructorVariant_DefaultRust;
+
+struct AzNodeVecDestructorVariant_NoDestructor { AzNodeVecDestructorTag tag; };
+typedef struct AzNodeVecDestructorVariant_NoDestructor AzNodeVecDestructorVariant_NoDestructor;
+
+struct AzNodeVecDestructorVariant_External { AzNodeVecDestructorTag tag; AzNodeVecDestructorType payload; };
+typedef struct AzNodeVecDestructorVariant_External AzNodeVecDestructorVariant_External;
+
+
+union AzNodeVecDestructor {
+    AzNodeVecDestructorVariant_DefaultRust DefaultRust;
+    AzNodeVecDestructorVariant_NoDestructor NoDestructor;
+    AzNodeVecDestructorVariant_External External;
+};
+typedef union AzNodeVecDestructor AzNodeVecDestructor;
+
+enum AzStyledNodeVecDestructorTag {
+   AzStyledNodeVecDestructorTag_DefaultRust,
+   AzStyledNodeVecDestructorTag_NoDestructor,
+   AzStyledNodeVecDestructorTag_External,
+};
+typedef enum AzStyledNodeVecDestructorTag AzStyledNodeVecDestructorTag;
+
+struct AzStyledNodeVecDestructorVariant_DefaultRust { AzStyledNodeVecDestructorTag tag; };
+typedef struct AzStyledNodeVecDestructorVariant_DefaultRust AzStyledNodeVecDestructorVariant_DefaultRust;
+
+struct AzStyledNodeVecDestructorVariant_NoDestructor { AzStyledNodeVecDestructorTag tag; };
+typedef struct AzStyledNodeVecDestructorVariant_NoDestructor AzStyledNodeVecDestructorVariant_NoDestructor;
+
+struct AzStyledNodeVecDestructorVariant_External { AzStyledNodeVecDestructorTag tag; AzStyledNodeVecDestructorType payload; };
+typedef struct AzStyledNodeVecDestructorVariant_External AzStyledNodeVecDestructorVariant_External;
+
+
+union AzStyledNodeVecDestructor {
+    AzStyledNodeVecDestructorVariant_DefaultRust DefaultRust;
+    AzStyledNodeVecDestructorVariant_NoDestructor NoDestructor;
+    AzStyledNodeVecDestructorVariant_External External;
+};
+typedef union AzStyledNodeVecDestructor AzStyledNodeVecDestructor;
+
+enum AzTagIdsToNodeIdsMappingVecDestructorTag {
+   AzTagIdsToNodeIdsMappingVecDestructorTag_DefaultRust,
+   AzTagIdsToNodeIdsMappingVecDestructorTag_NoDestructor,
+   AzTagIdsToNodeIdsMappingVecDestructorTag_External,
+};
+typedef enum AzTagIdsToNodeIdsMappingVecDestructorTag AzTagIdsToNodeIdsMappingVecDestructorTag;
+
+struct AzTagIdsToNodeIdsMappingVecDestructorVariant_DefaultRust { AzTagIdsToNodeIdsMappingVecDestructorTag tag; };
+typedef struct AzTagIdsToNodeIdsMappingVecDestructorVariant_DefaultRust AzTagIdsToNodeIdsMappingVecDestructorVariant_DefaultRust;
+
+struct AzTagIdsToNodeIdsMappingVecDestructorVariant_NoDestructor { AzTagIdsToNodeIdsMappingVecDestructorTag tag; };
+typedef struct AzTagIdsToNodeIdsMappingVecDestructorVariant_NoDestructor AzTagIdsToNodeIdsMappingVecDestructorVariant_NoDestructor;
+
+struct AzTagIdsToNodeIdsMappingVecDestructorVariant_External { AzTagIdsToNodeIdsMappingVecDestructorTag tag; AzTagIdsToNodeIdsMappingVecDestructorType payload; };
+typedef struct AzTagIdsToNodeIdsMappingVecDestructorVariant_External AzTagIdsToNodeIdsMappingVecDestructorVariant_External;
+
+
+union AzTagIdsToNodeIdsMappingVecDestructor {
+    AzTagIdsToNodeIdsMappingVecDestructorVariant_DefaultRust DefaultRust;
+    AzTagIdsToNodeIdsMappingVecDestructorVariant_NoDestructor NoDestructor;
+    AzTagIdsToNodeIdsMappingVecDestructorVariant_External External;
+};
+typedef union AzTagIdsToNodeIdsMappingVecDestructor AzTagIdsToNodeIdsMappingVecDestructor;
+
+enum AzParentWithNodeDepthVecDestructorTag {
+   AzParentWithNodeDepthVecDestructorTag_DefaultRust,
+   AzParentWithNodeDepthVecDestructorTag_NoDestructor,
+   AzParentWithNodeDepthVecDestructorTag_External,
+};
+typedef enum AzParentWithNodeDepthVecDestructorTag AzParentWithNodeDepthVecDestructorTag;
+
+struct AzParentWithNodeDepthVecDestructorVariant_DefaultRust { AzParentWithNodeDepthVecDestructorTag tag; };
+typedef struct AzParentWithNodeDepthVecDestructorVariant_DefaultRust AzParentWithNodeDepthVecDestructorVariant_DefaultRust;
+
+struct AzParentWithNodeDepthVecDestructorVariant_NoDestructor { AzParentWithNodeDepthVecDestructorTag tag; };
+typedef struct AzParentWithNodeDepthVecDestructorVariant_NoDestructor AzParentWithNodeDepthVecDestructorVariant_NoDestructor;
+
+struct AzParentWithNodeDepthVecDestructorVariant_External { AzParentWithNodeDepthVecDestructorTag tag; AzParentWithNodeDepthVecDestructorType payload; };
+typedef struct AzParentWithNodeDepthVecDestructorVariant_External AzParentWithNodeDepthVecDestructorVariant_External;
+
+
+union AzParentWithNodeDepthVecDestructor {
+    AzParentWithNodeDepthVecDestructorVariant_DefaultRust DefaultRust;
+    AzParentWithNodeDepthVecDestructorVariant_NoDestructor NoDestructor;
+    AzParentWithNodeDepthVecDestructorVariant_External External;
+};
+typedef union AzParentWithNodeDepthVecDestructor AzParentWithNodeDepthVecDestructor;
+
+enum AzNodeDataVecDestructorTag {
+   AzNodeDataVecDestructorTag_DefaultRust,
+   AzNodeDataVecDestructorTag_NoDestructor,
+   AzNodeDataVecDestructorTag_External,
+};
+typedef enum AzNodeDataVecDestructorTag AzNodeDataVecDestructorTag;
+
+struct AzNodeDataVecDestructorVariant_DefaultRust { AzNodeDataVecDestructorTag tag; };
+typedef struct AzNodeDataVecDestructorVariant_DefaultRust AzNodeDataVecDestructorVariant_DefaultRust;
+
+struct AzNodeDataVecDestructorVariant_NoDestructor { AzNodeDataVecDestructorTag tag; };
+typedef struct AzNodeDataVecDestructorVariant_NoDestructor AzNodeDataVecDestructorVariant_NoDestructor;
+
+struct AzNodeDataVecDestructorVariant_External { AzNodeDataVecDestructorTag tag; AzNodeDataVecDestructorType payload; };
+typedef struct AzNodeDataVecDestructorVariant_External AzNodeDataVecDestructorVariant_External;
+
+
+union AzNodeDataVecDestructor {
+    AzNodeDataVecDestructorVariant_DefaultRust DefaultRust;
+    AzNodeDataVecDestructorVariant_NoDestructor NoDestructor;
+    AzNodeDataVecDestructorVariant_External External;
+};
+typedef union AzNodeDataVecDestructor AzNodeDataVecDestructor;
+
+enum AzOptionHwndHandleTag {
+   AzOptionHwndHandleTag_None,
+   AzOptionHwndHandleTag_Some,
+};
+typedef enum AzOptionHwndHandleTag AzOptionHwndHandleTag;
+
+struct AzOptionHwndHandleVariant_None { AzOptionHwndHandleTag tag; };
+typedef struct AzOptionHwndHandleVariant_None AzOptionHwndHandleVariant_None;
+
+struct AzOptionHwndHandleVariant_Some { AzOptionHwndHandleTag tag; void* restrict payload; };
+typedef struct AzOptionHwndHandleVariant_Some AzOptionHwndHandleVariant_Some;
+
+
+union AzOptionHwndHandle {
+    AzOptionHwndHandleVariant_None None;
+    AzOptionHwndHandleVariant_Some Some;
+};
+typedef union AzOptionHwndHandle AzOptionHwndHandle;
+
+enum AzOptionX11VisualTag {
+   AzOptionX11VisualTag_None,
+   AzOptionX11VisualTag_Some,
+};
+typedef enum AzOptionX11VisualTag AzOptionX11VisualTag;
+
+struct AzOptionX11VisualVariant_None { AzOptionX11VisualTag tag; };
+typedef struct AzOptionX11VisualVariant_None AzOptionX11VisualVariant_None;
+
+struct AzOptionX11VisualVariant_Some { AzOptionX11VisualTag tag; void* const payload; };
+typedef struct AzOptionX11VisualVariant_Some AzOptionX11VisualVariant_Some;
+
+
+union AzOptionX11Visual {
+    AzOptionX11VisualVariant_None None;
+    AzOptionX11VisualVariant_Some Some;
+};
+typedef union AzOptionX11Visual AzOptionX11Visual;
+
+enum AzOptionI32Tag {
+   AzOptionI32Tag_None,
+   AzOptionI32Tag_Some,
+};
+typedef enum AzOptionI32Tag AzOptionI32Tag;
+
+struct AzOptionI32Variant_None { AzOptionI32Tag tag; };
+typedef struct AzOptionI32Variant_None AzOptionI32Variant_None;
+
+struct AzOptionI32Variant_Some { AzOptionI32Tag tag; int32_t payload; };
+typedef struct AzOptionI32Variant_Some AzOptionI32Variant_Some;
+
+
+union AzOptionI32 {
+    AzOptionI32Variant_None None;
+    AzOptionI32Variant_Some Some;
+};
+typedef union AzOptionI32 AzOptionI32;
+
+enum AzOptionF32Tag {
+   AzOptionF32Tag_None,
+   AzOptionF32Tag_Some,
+};
+typedef enum AzOptionF32Tag AzOptionF32Tag;
+
+struct AzOptionF32Variant_None { AzOptionF32Tag tag; };
+typedef struct AzOptionF32Variant_None AzOptionF32Variant_None;
+
+struct AzOptionF32Variant_Some { AzOptionF32Tag tag; float payload; };
+typedef struct AzOptionF32Variant_Some AzOptionF32Variant_Some;
+
+
+union AzOptionF32 {
+    AzOptionF32Variant_None None;
+    AzOptionF32Variant_Some Some;
+};
+typedef union AzOptionF32 AzOptionF32;
+
+enum AzOptionCharTag {
+   AzOptionCharTag_None,
+   AzOptionCharTag_Some,
+};
+typedef enum AzOptionCharTag AzOptionCharTag;
+
+struct AzOptionCharVariant_None { AzOptionCharTag tag; };
+typedef struct AzOptionCharVariant_None AzOptionCharVariant_None;
+
+struct AzOptionCharVariant_Some { AzOptionCharTag tag; uint32_t payload; };
+typedef struct AzOptionCharVariant_Some AzOptionCharVariant_Some;
+
+
+union AzOptionChar {
+    AzOptionCharVariant_None None;
+    AzOptionCharVariant_Some Some;
+};
+typedef union AzOptionChar AzOptionChar;
+
+enum AzOptionUsizeTag {
+   AzOptionUsizeTag_None,
+   AzOptionUsizeTag_Some,
+};
+typedef enum AzOptionUsizeTag AzOptionUsizeTag;
+
+struct AzOptionUsizeVariant_None { AzOptionUsizeTag tag; };
+typedef struct AzOptionUsizeVariant_None AzOptionUsizeVariant_None;
+
+struct AzOptionUsizeVariant_Some { AzOptionUsizeTag tag; size_t payload; };
+typedef struct AzOptionUsizeVariant_Some AzOptionUsizeVariant_Some;
+
+
+union AzOptionUsize {
+    AzOptionUsizeVariant_None None;
+    AzOptionUsizeVariant_Some Some;
+};
+typedef union AzOptionUsize AzOptionUsize;
+
+struct AzSvgParseErrorPosition {
+    uint32_t row;
+    uint32_t col;
+};
+typedef struct AzSvgParseErrorPosition AzSvgParseErrorPosition;
+
+struct AzInstantPtrCloneFn {
+    AzInstantPtrCloneFnType cb;
+};
+typedef struct AzInstantPtrCloneFn AzInstantPtrCloneFn;
+
+struct AzInstantPtrDestructorFn {
+    AzInstantPtrDestructorFnType cb;
+};
+typedef struct AzInstantPtrDestructorFn AzInstantPtrDestructorFn;
+
+struct AzSystemTick {
+    uint64_t tick_counter;
+};
+typedef struct AzSystemTick AzSystemTick;
+
+struct AzSystemTimeDiff {
+    uint64_t secs;
+    uint32_t nanos;
+};
+typedef struct AzSystemTimeDiff AzSystemTimeDiff;
+
+struct AzSystemTickDiff {
+    uint64_t tick_diff;
+};
+typedef struct AzSystemTickDiff AzSystemTickDiff;
 
 struct AzRendererOptions {
     AzVsync vsync;
@@ -1054,99 +2591,71 @@ struct AzRendererOptions {
 };
 typedef struct AzRendererOptions AzRendererOptions;
 
-struct AzLayoutPoint {
-    ssize_t x;
-    ssize_t y;
-};
-typedef struct AzLayoutPoint AzLayoutPoint;
-
-struct AzLayoutSize {
-    ssize_t width;
-    ssize_t height;
-};
-typedef struct AzLayoutSize AzLayoutSize;
-
 struct AzLayoutRect {
     AzLayoutPoint origin;
     AzLayoutSize size;
 };
 typedef struct AzLayoutRect AzLayoutRect;
 
-struct AzIOSHandle {
-    void* restrict ui_window;
-    void* restrict ui_view;
-    void* restrict ui_view_controller;
+enum AzRawWindowHandleTag {
+   AzRawWindowHandleTag_IOS,
+   AzRawWindowHandleTag_MacOS,
+   AzRawWindowHandleTag_Xlib,
+   AzRawWindowHandleTag_Xcb,
+   AzRawWindowHandleTag_Wayland,
+   AzRawWindowHandleTag_Windows,
+   AzRawWindowHandleTag_Web,
+   AzRawWindowHandleTag_Android,
+   AzRawWindowHandleTag_Unsupported,
 };
-typedef struct AzIOSHandle AzIOSHandle;
+typedef enum AzRawWindowHandleTag AzRawWindowHandleTag;
 
-struct AzMacOSHandle {
-    void* restrict ns_window;
-    void* restrict ns_view;
-};
-typedef struct AzMacOSHandle AzMacOSHandle;
+struct AzRawWindowHandleVariant_IOS { AzRawWindowHandleTag tag; AzIOSHandle payload; };
+typedef struct AzRawWindowHandleVariant_IOS AzRawWindowHandleVariant_IOS;
 
-struct AzXlibHandle {
-    uint64_t window;
-    void* restrict display;
-};
-typedef struct AzXlibHandle AzXlibHandle;
+struct AzRawWindowHandleVariant_MacOS { AzRawWindowHandleTag tag; AzMacOSHandle payload; };
+typedef struct AzRawWindowHandleVariant_MacOS AzRawWindowHandleVariant_MacOS;
 
-struct AzXcbHandle {
-    uint32_t window;
-    void* restrict connection;
-};
-typedef struct AzXcbHandle AzXcbHandle;
+struct AzRawWindowHandleVariant_Xlib { AzRawWindowHandleTag tag; AzXlibHandle payload; };
+typedef struct AzRawWindowHandleVariant_Xlib AzRawWindowHandleVariant_Xlib;
 
-struct AzWaylandHandle {
-    void* restrict surface;
-    void* restrict display;
-};
-typedef struct AzWaylandHandle AzWaylandHandle;
+struct AzRawWindowHandleVariant_Xcb { AzRawWindowHandleTag tag; AzXcbHandle payload; };
+typedef struct AzRawWindowHandleVariant_Xcb AzRawWindowHandleVariant_Xcb;
 
-struct AzWindowsHandle {
-    void* restrict hwnd;
-    void* restrict hinstance;
-};
-typedef struct AzWindowsHandle AzWindowsHandle;
+struct AzRawWindowHandleVariant_Wayland { AzRawWindowHandleTag tag; AzWaylandHandle payload; };
+typedef struct AzRawWindowHandleVariant_Wayland AzRawWindowHandleVariant_Wayland;
 
-struct AzWebHandle {
-    uint32_t id;
-};
-typedef struct AzWebHandle AzWebHandle;
+struct AzRawWindowHandleVariant_Windows { AzRawWindowHandleTag tag; AzWindowsHandle payload; };
+typedef struct AzRawWindowHandleVariant_Windows AzRawWindowHandleVariant_Windows;
 
-struct AzAndroidHandle {
-    void* restrict a_native_window;
-};
-typedef struct AzAndroidHandle AzAndroidHandle;
+struct AzRawWindowHandleVariant_Web { AzRawWindowHandleTag tag; AzWebHandle payload; };
+typedef struct AzRawWindowHandleVariant_Web AzRawWindowHandleVariant_Web;
 
-struct AzPhysicalPositionI32 {
-    int32_t x;
-    int32_t y;
-};
-typedef struct AzPhysicalPositionI32 AzPhysicalPositionI32;
+struct AzRawWindowHandleVariant_Android { AzRawWindowHandleTag tag; AzAndroidHandle payload; };
+typedef struct AzRawWindowHandleVariant_Android AzRawWindowHandleVariant_Android;
 
-struct AzPhysicalSizeU32 {
-    uint32_t width;
-    uint32_t height;
-};
-typedef struct AzPhysicalSizeU32 AzPhysicalSizeU32;
+struct AzRawWindowHandleVariant_Unsupported { AzRawWindowHandleTag tag; };
+typedef struct AzRawWindowHandleVariant_Unsupported AzRawWindowHandleVariant_Unsupported;
 
-struct AzLogicalPosition {
-    float x;
-    float y;
-};
-typedef struct AzLogicalPosition AzLogicalPosition;
 
-struct AzLogicalSize {
-    float width;
-    float height;
+union AzRawWindowHandle {
+    AzRawWindowHandleVariant_IOS IOS;
+    AzRawWindowHandleVariant_MacOS MacOS;
+    AzRawWindowHandleVariant_Xlib Xlib;
+    AzRawWindowHandleVariant_Xcb Xcb;
+    AzRawWindowHandleVariant_Wayland Wayland;
+    AzRawWindowHandleVariant_Windows Windows;
+    AzRawWindowHandleVariant_Web Web;
+    AzRawWindowHandleVariant_Android Android;
+    AzRawWindowHandleVariant_Unsupported Unsupported;
 };
-typedef struct AzLogicalSize AzLogicalSize;
+typedef union AzRawWindowHandle AzRawWindowHandle;
 
-struct AzIconKey {
-    size_t id;
+struct AzLogicalRect {
+    AzLogicalPosition origin;
+    AzLogicalSize size;
 };
-typedef struct AzIconKey AzIconKey;
+typedef struct AzLogicalRect AzLogicalRect;
 
 enum AzAcceleratorKeyTag {
    AzAcceleratorKeyTag_Ctrl,
@@ -1177,52 +2686,6 @@ union AzAcceleratorKey {
 };
 typedef union AzAcceleratorKey AzAcceleratorKey;
 
-struct AzWindowFlags {
-    bool  is_maximized;
-    bool  is_minimized;
-    bool  is_about_to_close;
-    bool  is_fullscreen;
-    bool  has_decorations;
-    bool  is_visible;
-    bool  is_always_on_top;
-    bool  is_resizable;
-    bool  has_focus;
-    bool  has_extended_frame;
-    bool  has_blur_behind_window;
-};
-typedef struct AzWindowFlags AzWindowFlags;
-
-struct AzDebugState {
-    bool  profiler_dbg;
-    bool  render_target_dbg;
-    bool  texture_cache_dbg;
-    bool  gpu_time_queries;
-    bool  gpu_sample_queries;
-    bool  disable_batching;
-    bool  epochs;
-    bool  echo_driver_messages;
-    bool  show_overdraw;
-    bool  gpu_cache_dbg;
-    bool  texture_cache_dbg_clear_evicted;
-    bool  picture_caching_dbg;
-    bool  primitive_dbg;
-    bool  zoom_dbg;
-    bool  small_screen;
-    bool  disable_opaque_pass;
-    bool  disable_alpha_pass;
-    bool  disable_clip_masks;
-    bool  disable_text_prims;
-    bool  disable_gradient_prims;
-    bool  obscure_images;
-    bool  glyph_flashing;
-    bool  smart_profiler;
-    bool  invalidation_dbg;
-    bool  tile_cache_logging_dbg;
-    bool  profiler_capture;
-    bool  force_picture_invalidation;
-};
-typedef struct AzDebugState AzDebugState;
-
 enum AzCursorPositionTag {
    AzCursorPositionTag_OutOfWindow,
    AzCursorPositionTag_Uninitialized,
@@ -1246,16 +2709,6 @@ union AzCursorPosition {
     AzCursorPositionVariant_InWindow InWindow;
 };
 typedef union AzCursorPosition AzCursorPosition;
-
-struct AzMacWindowOptions {
-    uint8_t _reserved;
-};
-typedef struct AzMacWindowOptions AzMacWindowOptions;
-
-struct AzWasmWindowOptions {
-    uint8_t _reserved;
-};
-typedef struct AzWasmWindowOptions AzWasmWindowOptions;
 
 enum AzWindowPositionTag {
    AzWindowPositionTag_Uninitialized,
@@ -1295,37 +2748,12 @@ union AzImePosition {
 };
 typedef union AzImePosition AzImePosition;
 
-struct AzTouchState {
-    uint8_t unused;
-};
-typedef struct AzTouchState AzTouchState;
-
 struct AzVideoMode {
     AzLayoutSize size;
     uint16_t bit_depth;
     uint16_t refresh_rate;
 };
 typedef struct AzVideoMode AzVideoMode;
-
-struct AzLayoutCallback {
-    AzLayoutCallbackType cb;
-};
-typedef struct AzLayoutCallback AzLayoutCallback;
-
-struct AzCallback {
-    AzCallbackType cb;
-};
-typedef struct AzCallback AzCallback;
-
-struct AzNodeId {
-    size_t inner;
-};
-typedef struct AzNodeId AzNodeId;
-
-struct AzDomId {
-    size_t inner;
-};
-typedef struct AzDomId AzDomId;
 
 struct AzDomNodeId {
     AzDomId dom;
@@ -1339,26 +2767,11 @@ struct AzHidpiAdjustedBounds {
 };
 typedef struct AzHidpiAdjustedBounds AzHidpiAdjustedBounds;
 
-struct AzIFrameCallback {
-    AzIFrameCallbackType cb;
-};
-typedef struct AzIFrameCallback AzIFrameCallback;
-
 struct AzIFrameCallbackInfo {
     void* const resources;
     AzHidpiAdjustedBounds bounds;
 };
 typedef struct AzIFrameCallbackInfo AzIFrameCallbackInfo;
-
-struct AzGlCallback {
-    AzGlCallbackType cb;
-};
-typedef struct AzGlCallback AzGlCallback;
-
-struct AzTimerCallback {
-    AzTimerCallbackType cb;
-};
-typedef struct AzTimerCallback AzTimerCallback;
 
 struct AzTimerCallbackReturn {
     AzUpdateScreen should_update;
@@ -1366,22 +2779,11 @@ struct AzTimerCallbackReturn {
 };
 typedef struct AzTimerCallbackReturn AzTimerCallbackReturn;
 
-struct AzWriteBackCallback {
-    AzWriteBackCallbackType cb;
+struct AzSystemCallbacks {
+    AzCreateThreadFn create_thread_fn;
+    AzGetSystemTimeFn get_system_time_fn;
 };
-typedef struct AzWriteBackCallback AzWriteBackCallback;
-
-struct AzGlTextureNode {
-    AzGlCallback callback;
-    AzRefAny data;
-};
-typedef struct AzGlTextureNode AzGlTextureNode;
-
-struct AzIFrameNode {
-    AzIFrameCallback callback;
-    AzRefAny data;
-};
-typedef struct AzIFrameNode AzIFrameNode;
+typedef struct AzSystemCallbacks AzSystemCallbacks;
 
 enum AzNotEventFilterTag {
    AzNotEventFilterTag_Hover,
@@ -1402,48 +2804,34 @@ union AzNotEventFilter {
 };
 typedef union AzNotEventFilter AzNotEventFilter;
 
-enum AzTabIndexTag {
-   AzTabIndexTag_Auto,
-   AzTabIndexTag_OverrideInParent,
-   AzTabIndexTag_NoKeyboardFocus,
+enum AzCssNthChildSelectorTag {
+   AzCssNthChildSelectorTag_Number,
+   AzCssNthChildSelectorTag_Even,
+   AzCssNthChildSelectorTag_Odd,
+   AzCssNthChildSelectorTag_Pattern,
 };
-typedef enum AzTabIndexTag AzTabIndexTag;
+typedef enum AzCssNthChildSelectorTag AzCssNthChildSelectorTag;
 
-struct AzTabIndexVariant_Auto { AzTabIndexTag tag; };
-typedef struct AzTabIndexVariant_Auto AzTabIndexVariant_Auto;
+struct AzCssNthChildSelectorVariant_Number { AzCssNthChildSelectorTag tag; uint32_t payload; };
+typedef struct AzCssNthChildSelectorVariant_Number AzCssNthChildSelectorVariant_Number;
 
-struct AzTabIndexVariant_OverrideInParent { AzTabIndexTag tag; uint32_t payload; };
-typedef struct AzTabIndexVariant_OverrideInParent AzTabIndexVariant_OverrideInParent;
+struct AzCssNthChildSelectorVariant_Even { AzCssNthChildSelectorTag tag; };
+typedef struct AzCssNthChildSelectorVariant_Even AzCssNthChildSelectorVariant_Even;
 
-struct AzTabIndexVariant_NoKeyboardFocus { AzTabIndexTag tag; };
-typedef struct AzTabIndexVariant_NoKeyboardFocus AzTabIndexVariant_NoKeyboardFocus;
+struct AzCssNthChildSelectorVariant_Odd { AzCssNthChildSelectorTag tag; };
+typedef struct AzCssNthChildSelectorVariant_Odd AzCssNthChildSelectorVariant_Odd;
+
+struct AzCssNthChildSelectorVariant_Pattern { AzCssNthChildSelectorTag tag; AzCssNthChildPattern payload; };
+typedef struct AzCssNthChildSelectorVariant_Pattern AzCssNthChildSelectorVariant_Pattern;
 
 
-union AzTabIndex {
-    AzTabIndexVariant_Auto Auto;
-    AzTabIndexVariant_OverrideInParent OverrideInParent;
-    AzTabIndexVariant_NoKeyboardFocus NoKeyboardFocus;
+union AzCssNthChildSelector {
+    AzCssNthChildSelectorVariant_Number Number;
+    AzCssNthChildSelectorVariant_Even Even;
+    AzCssNthChildSelectorVariant_Odd Odd;
+    AzCssNthChildSelectorVariant_Pattern Pattern;
 };
-typedef union AzTabIndex AzTabIndex;
-
-struct AzCssNthChildPattern {
-    uint32_t repeat;
-    uint32_t offset;
-};
-typedef struct AzCssNthChildPattern AzCssNthChildPattern;
-
-struct AzColorU {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-    uint8_t a;
-};
-typedef struct AzColorU AzColorU;
-
-struct AzFloatValue {
-    ssize_t number;
-};
-typedef struct AzFloatValue AzFloatValue;
+typedef union AzCssNthChildSelector AzCssNthChildSelector;
 
 struct AzPixelValue {
     AzSizeMetric metric;
@@ -3892,146 +5280,45 @@ union AzStyleBackfaceVisibilityValue {
 };
 typedef union AzStyleBackfaceVisibilityValue AzStyleBackfaceVisibilityValue;
 
-struct AzNode {
-    size_t parent;
-    size_t previous_sibling;
-    size_t next_sibling;
-    size_t last_child;
-};
-typedef struct AzNode AzNode;
-
-struct AzCascadeInfo {
-    uint32_t index_in_parent;
-    bool  is_last_child;
-};
-typedef struct AzCascadeInfo AzCascadeInfo;
-
-struct AzStyledNodeState {
-    bool  normal;
-    bool  hover;
-    bool  active;
-    bool  focused;
-};
-typedef struct AzStyledNodeState AzStyledNodeState;
-
-struct AzTagId {
-    uint64_t inner;
-};
-typedef struct AzTagId AzTagId;
-
 struct AzParentWithNodeDepth {
     size_t depth;
     AzNodeId node_id;
 };
 typedef struct AzParentWithNodeDepth AzParentWithNodeDepth;
 
-struct AzGlShaderPrecisionFormatReturn {
-    int32_t _0;
-    int32_t _1;
-    int32_t _2;
+struct AzGlContextPtr {
+    void* const ptr;
+    AzRendererType renderer_type;
 };
-typedef struct AzGlShaderPrecisionFormatReturn AzGlShaderPrecisionFormatReturn;
+typedef struct AzGlContextPtr AzGlContextPtr;
 
-struct AzU8VecRef {
-    uint8_t* const ptr;
+struct AzTexture {
+    uint32_t texture_id;
+    AzRawImageFormat format;
+    AzTextureFlags flags;
+    AzPhysicalSizeU32 size;
+    AzGlContextPtr gl_context;
+};
+typedef struct AzTexture AzTexture;
+
+struct AzRefstrVecRef {
+    AzRefstr* const ptr;
     size_t len;
 };
-typedef struct AzU8VecRef AzU8VecRef;
+typedef struct AzRefstrVecRef AzRefstrVecRef;
 
-struct AzU8VecRefMut {
-    uint8_t* restrict ptr;
-    size_t len;
+struct AzImageMask {
+    AzImageId image;
+    AzLogicalRect rect;
+    bool  repeat;
 };
-typedef struct AzU8VecRefMut AzU8VecRefMut;
+typedef struct AzImageMask AzImageMask;
 
-struct AzF32VecRef {
-    float* const ptr;
-    size_t len;
+struct AzSvgLine {
+    AzSvgPoint start;
+    AzSvgPoint end;
 };
-typedef struct AzF32VecRef AzF32VecRef;
-
-struct AzI32VecRef {
-    int32_t* const ptr;
-    size_t len;
-};
-typedef struct AzI32VecRef AzI32VecRef;
-
-struct AzGLuintVecRef {
-    uint32_t* const ptr;
-    size_t len;
-};
-typedef struct AzGLuintVecRef AzGLuintVecRef;
-
-struct AzGLenumVecRef {
-    uint32_t* const ptr;
-    size_t len;
-};
-typedef struct AzGLenumVecRef AzGLenumVecRef;
-
-struct AzGLintVecRefMut {
-    int32_t* restrict ptr;
-    size_t len;
-};
-typedef struct AzGLintVecRefMut AzGLintVecRefMut;
-
-struct AzGLint64VecRefMut {
-    int64_t* restrict ptr;
-    size_t len;
-};
-typedef struct AzGLint64VecRefMut AzGLint64VecRefMut;
-
-struct AzGLbooleanVecRefMut {
-    uint8_t* restrict ptr;
-    size_t len;
-};
-typedef struct AzGLbooleanVecRefMut AzGLbooleanVecRefMut;
-
-struct AzGLfloatVecRefMut {
-    float* restrict ptr;
-    size_t len;
-};
-typedef struct AzGLfloatVecRefMut AzGLfloatVecRefMut;
-
-struct AzRefstr {
-    uint8_t* const ptr;
-    size_t len;
-};
-typedef struct AzRefstr AzRefstr;
-
-struct AzTextureFlags {
-    bool  is_opaque;
-    bool  is_video_texture;
-};
-typedef struct AzTextureFlags AzTextureFlags;
-
-struct AzImageId {
-    size_t id;
-};
-typedef struct AzImageId AzImageId;
-
-struct AzFontId {
-    size_t id;
-};
-typedef struct AzFontId AzFontId;
-
-struct AzSvgCircle {
-    float center_x;
-    float center_y;
-    float radius;
-};
-typedef struct AzSvgCircle AzSvgCircle;
-
-struct AzSvgPoint {
-    float x;
-    float y;
-};
-typedef struct AzSvgPoint AzSvgPoint;
-
-struct AzSvgVertex {
-    float x;
-    float y;
-};
-typedef struct AzSvgVertex AzSvgVertex;
+typedef struct AzSvgLine AzSvgLine;
 
 struct AzSvgQuadraticCurve {
     AzSvgPoint start;
@@ -4048,58 +5335,6 @@ struct AzSvgCubicCurve {
 };
 typedef struct AzSvgCubicCurve AzSvgCubicCurve;
 
-struct AzSvgRect {
-    float width;
-    float height;
-    float x;
-    float y;
-    float radius_top_left;
-    float radius_top_right;
-    float radius_bottom_left;
-    float radius_bottom_right;
-};
-typedef struct AzSvgRect AzSvgRect;
-
-enum AzSvgFitToTag {
-   AzSvgFitToTag_Original,
-   AzSvgFitToTag_Width,
-   AzSvgFitToTag_Height,
-   AzSvgFitToTag_Zoom,
-};
-typedef enum AzSvgFitToTag AzSvgFitToTag;
-
-struct AzSvgFitToVariant_Original { AzSvgFitToTag tag; };
-typedef struct AzSvgFitToVariant_Original AzSvgFitToVariant_Original;
-
-struct AzSvgFitToVariant_Width { AzSvgFitToTag tag; uint32_t payload; };
-typedef struct AzSvgFitToVariant_Width AzSvgFitToVariant_Width;
-
-struct AzSvgFitToVariant_Height { AzSvgFitToTag tag; uint32_t payload; };
-typedef struct AzSvgFitToVariant_Height AzSvgFitToVariant_Height;
-
-struct AzSvgFitToVariant_Zoom { AzSvgFitToTag tag; float payload; };
-typedef struct AzSvgFitToVariant_Zoom AzSvgFitToVariant_Zoom;
-
-
-union AzSvgFitTo {
-    AzSvgFitToVariant_Original Original;
-    AzSvgFitToVariant_Width Width;
-    AzSvgFitToVariant_Height Height;
-    AzSvgFitToVariant_Zoom Zoom;
-};
-typedef union AzSvgFitTo AzSvgFitTo;
-
-struct AzSvgDashPattern {
-    size_t offset;
-    size_t length_1;
-    size_t gap_1;
-    size_t length_2;
-    size_t gap_2;
-    size_t length_3;
-    size_t gap_3;
-};
-typedef struct AzSvgDashPattern AzSvgDashPattern;
-
 struct AzSvgFillStyle {
     AzSvgLineJoin line_join;
     size_t miter_limit;
@@ -4107,1031 +5342,147 @@ struct AzSvgFillStyle {
 };
 typedef struct AzSvgFillStyle AzSvgFillStyle;
 
-struct AzTimerId {
-    size_t id;
+struct AzThreadSender {
+    void* restrict ptr;
+    AzThreadSendFn send_fn;
+    AzThreadSenderDestructorFn destructor;
 };
-typedef struct AzTimerId AzTimerId;
-
-struct AzThreadId {
-    size_t id;
-};
-typedef struct AzThreadId AzThreadId;
-
-struct AzThreadWriteBackMsg {
-    AzRefAny data;
-    AzWriteBackCallback callback;
-};
-typedef struct AzThreadWriteBackMsg AzThreadWriteBackMsg;
-
-struct AzCreateThreadFn {
-    AzCreateThreadFnType cb;
-};
-typedef struct AzCreateThreadFn AzCreateThreadFn;
-
-struct AzGetSystemTimeFn {
-    AzGetSystemTimeFnType cb;
-};
-typedef struct AzGetSystemTimeFn AzGetSystemTimeFn;
-
-struct AzCheckThreadFinishedFn {
-    AzCheckThreadFinishedFnType cb;
-};
-typedef struct AzCheckThreadFinishedFn AzCheckThreadFinishedFn;
-
-struct AzLibrarySendThreadMsgFn {
-    AzLibrarySendThreadMsgFnType cb;
-};
-typedef struct AzLibrarySendThreadMsgFn AzLibrarySendThreadMsgFn;
-
-struct AzLibraryReceiveThreadMsgFn {
-    AzLibraryReceiveThreadMsgFnType cb;
-};
-typedef struct AzLibraryReceiveThreadMsgFn AzLibraryReceiveThreadMsgFn;
-
-struct AzThreadRecvFn {
-    AzThreadRecvFnType cb;
-};
-typedef struct AzThreadRecvFn AzThreadRecvFn;
-
-struct AzThreadSendFn {
-    AzThreadSendFnType cb;
-};
-typedef struct AzThreadSendFn AzThreadSendFn;
-
-struct AzThreadDestructorFn {
-    AzThreadDestructorFnType cb;
-};
-typedef struct AzThreadDestructorFn AzThreadDestructorFn;
-
-struct AzThreadReceiverDestructorFn {
-    AzThreadReceiverDestructorFnType cb;
-};
-typedef struct AzThreadReceiverDestructorFn AzThreadReceiverDestructorFn;
-
-struct AzThreadSenderDestructorFn {
-    AzThreadSenderDestructorFnType cb;
-};
-typedef struct AzThreadSenderDestructorFn AzThreadSenderDestructorFn;
-
-enum AzMonitorVecDestructorTag {
-   AzMonitorVecDestructorTag_DefaultRust,
-   AzMonitorVecDestructorTag_NoDestructor,
-   AzMonitorVecDestructorTag_External,
-};
-typedef enum AzMonitorVecDestructorTag AzMonitorVecDestructorTag;
-
-struct AzMonitorVecDestructorVariant_DefaultRust { AzMonitorVecDestructorTag tag; };
-typedef struct AzMonitorVecDestructorVariant_DefaultRust AzMonitorVecDestructorVariant_DefaultRust;
-
-struct AzMonitorVecDestructorVariant_NoDestructor { AzMonitorVecDestructorTag tag; };
-typedef struct AzMonitorVecDestructorVariant_NoDestructor AzMonitorVecDestructorVariant_NoDestructor;
-
-struct AzMonitorVecDestructorVariant_External { AzMonitorVecDestructorTag tag; AzMonitorVecDestructorType payload; };
-typedef struct AzMonitorVecDestructorVariant_External AzMonitorVecDestructorVariant_External;
-
-
-union AzMonitorVecDestructor {
-    AzMonitorVecDestructorVariant_DefaultRust DefaultRust;
-    AzMonitorVecDestructorVariant_NoDestructor NoDestructor;
-    AzMonitorVecDestructorVariant_External External;
-};
-typedef union AzMonitorVecDestructor AzMonitorVecDestructor;
-
-enum AzVideoModeVecDestructorTag {
-   AzVideoModeVecDestructorTag_DefaultRust,
-   AzVideoModeVecDestructorTag_NoDestructor,
-   AzVideoModeVecDestructorTag_External,
-};
-typedef enum AzVideoModeVecDestructorTag AzVideoModeVecDestructorTag;
-
-struct AzVideoModeVecDestructorVariant_DefaultRust { AzVideoModeVecDestructorTag tag; };
-typedef struct AzVideoModeVecDestructorVariant_DefaultRust AzVideoModeVecDestructorVariant_DefaultRust;
-
-struct AzVideoModeVecDestructorVariant_NoDestructor { AzVideoModeVecDestructorTag tag; };
-typedef struct AzVideoModeVecDestructorVariant_NoDestructor AzVideoModeVecDestructorVariant_NoDestructor;
-
-struct AzVideoModeVecDestructorVariant_External { AzVideoModeVecDestructorTag tag; AzVideoModeVecDestructorType payload; };
-typedef struct AzVideoModeVecDestructorVariant_External AzVideoModeVecDestructorVariant_External;
-
-
-union AzVideoModeVecDestructor {
-    AzVideoModeVecDestructorVariant_DefaultRust DefaultRust;
-    AzVideoModeVecDestructorVariant_NoDestructor NoDestructor;
-    AzVideoModeVecDestructorVariant_External External;
-};
-typedef union AzVideoModeVecDestructor AzVideoModeVecDestructor;
-
-enum AzDomVecDestructorTag {
-   AzDomVecDestructorTag_DefaultRust,
-   AzDomVecDestructorTag_NoDestructor,
-   AzDomVecDestructorTag_External,
-};
-typedef enum AzDomVecDestructorTag AzDomVecDestructorTag;
-
-struct AzDomVecDestructorVariant_DefaultRust { AzDomVecDestructorTag tag; };
-typedef struct AzDomVecDestructorVariant_DefaultRust AzDomVecDestructorVariant_DefaultRust;
-
-struct AzDomVecDestructorVariant_NoDestructor { AzDomVecDestructorTag tag; };
-typedef struct AzDomVecDestructorVariant_NoDestructor AzDomVecDestructorVariant_NoDestructor;
-
-struct AzDomVecDestructorVariant_External { AzDomVecDestructorTag tag; AzDomVecDestructorType payload; };
-typedef struct AzDomVecDestructorVariant_External AzDomVecDestructorVariant_External;
-
-
-union AzDomVecDestructor {
-    AzDomVecDestructorVariant_DefaultRust DefaultRust;
-    AzDomVecDestructorVariant_NoDestructor NoDestructor;
-    AzDomVecDestructorVariant_External External;
-};
-typedef union AzDomVecDestructor AzDomVecDestructor;
-
-enum AzIdOrClassVecDestructorTag {
-   AzIdOrClassVecDestructorTag_DefaultRust,
-   AzIdOrClassVecDestructorTag_NoDestructor,
-   AzIdOrClassVecDestructorTag_External,
-};
-typedef enum AzIdOrClassVecDestructorTag AzIdOrClassVecDestructorTag;
-
-struct AzIdOrClassVecDestructorVariant_DefaultRust { AzIdOrClassVecDestructorTag tag; };
-typedef struct AzIdOrClassVecDestructorVariant_DefaultRust AzIdOrClassVecDestructorVariant_DefaultRust;
-
-struct AzIdOrClassVecDestructorVariant_NoDestructor { AzIdOrClassVecDestructorTag tag; };
-typedef struct AzIdOrClassVecDestructorVariant_NoDestructor AzIdOrClassVecDestructorVariant_NoDestructor;
-
-struct AzIdOrClassVecDestructorVariant_External { AzIdOrClassVecDestructorTag tag; AzIdOrClassVecDestructorType payload; };
-typedef struct AzIdOrClassVecDestructorVariant_External AzIdOrClassVecDestructorVariant_External;
-
-
-union AzIdOrClassVecDestructor {
-    AzIdOrClassVecDestructorVariant_DefaultRust DefaultRust;
-    AzIdOrClassVecDestructorVariant_NoDestructor NoDestructor;
-    AzIdOrClassVecDestructorVariant_External External;
-};
-typedef union AzIdOrClassVecDestructor AzIdOrClassVecDestructor;
-
-enum AzNodeDataInlineCssPropertyVecDestructorTag {
-   AzNodeDataInlineCssPropertyVecDestructorTag_DefaultRust,
-   AzNodeDataInlineCssPropertyVecDestructorTag_NoDestructor,
-   AzNodeDataInlineCssPropertyVecDestructorTag_External,
-};
-typedef enum AzNodeDataInlineCssPropertyVecDestructorTag AzNodeDataInlineCssPropertyVecDestructorTag;
-
-struct AzNodeDataInlineCssPropertyVecDestructorVariant_DefaultRust { AzNodeDataInlineCssPropertyVecDestructorTag tag; };
-typedef struct AzNodeDataInlineCssPropertyVecDestructorVariant_DefaultRust AzNodeDataInlineCssPropertyVecDestructorVariant_DefaultRust;
-
-struct AzNodeDataInlineCssPropertyVecDestructorVariant_NoDestructor { AzNodeDataInlineCssPropertyVecDestructorTag tag; };
-typedef struct AzNodeDataInlineCssPropertyVecDestructorVariant_NoDestructor AzNodeDataInlineCssPropertyVecDestructorVariant_NoDestructor;
-
-struct AzNodeDataInlineCssPropertyVecDestructorVariant_External { AzNodeDataInlineCssPropertyVecDestructorTag tag; AzNodeDataInlineCssPropertyVecDestructorType payload; };
-typedef struct AzNodeDataInlineCssPropertyVecDestructorVariant_External AzNodeDataInlineCssPropertyVecDestructorVariant_External;
-
-
-union AzNodeDataInlineCssPropertyVecDestructor {
-    AzNodeDataInlineCssPropertyVecDestructorVariant_DefaultRust DefaultRust;
-    AzNodeDataInlineCssPropertyVecDestructorVariant_NoDestructor NoDestructor;
-    AzNodeDataInlineCssPropertyVecDestructorVariant_External External;
-};
-typedef union AzNodeDataInlineCssPropertyVecDestructor AzNodeDataInlineCssPropertyVecDestructor;
-
-enum AzStyleBackgroundContentVecDestructorTag {
-   AzStyleBackgroundContentVecDestructorTag_DefaultRust,
-   AzStyleBackgroundContentVecDestructorTag_NoDestructor,
-   AzStyleBackgroundContentVecDestructorTag_External,
-};
-typedef enum AzStyleBackgroundContentVecDestructorTag AzStyleBackgroundContentVecDestructorTag;
-
-struct AzStyleBackgroundContentVecDestructorVariant_DefaultRust { AzStyleBackgroundContentVecDestructorTag tag; };
-typedef struct AzStyleBackgroundContentVecDestructorVariant_DefaultRust AzStyleBackgroundContentVecDestructorVariant_DefaultRust;
-
-struct AzStyleBackgroundContentVecDestructorVariant_NoDestructor { AzStyleBackgroundContentVecDestructorTag tag; };
-typedef struct AzStyleBackgroundContentVecDestructorVariant_NoDestructor AzStyleBackgroundContentVecDestructorVariant_NoDestructor;
-
-struct AzStyleBackgroundContentVecDestructorVariant_External { AzStyleBackgroundContentVecDestructorTag tag; AzStyleBackgroundContentVecDestructorType payload; };
-typedef struct AzStyleBackgroundContentVecDestructorVariant_External AzStyleBackgroundContentVecDestructorVariant_External;
-
-
-union AzStyleBackgroundContentVecDestructor {
-    AzStyleBackgroundContentVecDestructorVariant_DefaultRust DefaultRust;
-    AzStyleBackgroundContentVecDestructorVariant_NoDestructor NoDestructor;
-    AzStyleBackgroundContentVecDestructorVariant_External External;
-};
-typedef union AzStyleBackgroundContentVecDestructor AzStyleBackgroundContentVecDestructor;
-
-enum AzStyleBackgroundPositionVecDestructorTag {
-   AzStyleBackgroundPositionVecDestructorTag_DefaultRust,
-   AzStyleBackgroundPositionVecDestructorTag_NoDestructor,
-   AzStyleBackgroundPositionVecDestructorTag_External,
-};
-typedef enum AzStyleBackgroundPositionVecDestructorTag AzStyleBackgroundPositionVecDestructorTag;
-
-struct AzStyleBackgroundPositionVecDestructorVariant_DefaultRust { AzStyleBackgroundPositionVecDestructorTag tag; };
-typedef struct AzStyleBackgroundPositionVecDestructorVariant_DefaultRust AzStyleBackgroundPositionVecDestructorVariant_DefaultRust;
-
-struct AzStyleBackgroundPositionVecDestructorVariant_NoDestructor { AzStyleBackgroundPositionVecDestructorTag tag; };
-typedef struct AzStyleBackgroundPositionVecDestructorVariant_NoDestructor AzStyleBackgroundPositionVecDestructorVariant_NoDestructor;
-
-struct AzStyleBackgroundPositionVecDestructorVariant_External { AzStyleBackgroundPositionVecDestructorTag tag; AzStyleBackgroundPositionVecDestructorType payload; };
-typedef struct AzStyleBackgroundPositionVecDestructorVariant_External AzStyleBackgroundPositionVecDestructorVariant_External;
-
-
-union AzStyleBackgroundPositionVecDestructor {
-    AzStyleBackgroundPositionVecDestructorVariant_DefaultRust DefaultRust;
-    AzStyleBackgroundPositionVecDestructorVariant_NoDestructor NoDestructor;
-    AzStyleBackgroundPositionVecDestructorVariant_External External;
-};
-typedef union AzStyleBackgroundPositionVecDestructor AzStyleBackgroundPositionVecDestructor;
-
-enum AzStyleBackgroundRepeatVecDestructorTag {
-   AzStyleBackgroundRepeatVecDestructorTag_DefaultRust,
-   AzStyleBackgroundRepeatVecDestructorTag_NoDestructor,
-   AzStyleBackgroundRepeatVecDestructorTag_External,
-};
-typedef enum AzStyleBackgroundRepeatVecDestructorTag AzStyleBackgroundRepeatVecDestructorTag;
-
-struct AzStyleBackgroundRepeatVecDestructorVariant_DefaultRust { AzStyleBackgroundRepeatVecDestructorTag tag; };
-typedef struct AzStyleBackgroundRepeatVecDestructorVariant_DefaultRust AzStyleBackgroundRepeatVecDestructorVariant_DefaultRust;
-
-struct AzStyleBackgroundRepeatVecDestructorVariant_NoDestructor { AzStyleBackgroundRepeatVecDestructorTag tag; };
-typedef struct AzStyleBackgroundRepeatVecDestructorVariant_NoDestructor AzStyleBackgroundRepeatVecDestructorVariant_NoDestructor;
-
-struct AzStyleBackgroundRepeatVecDestructorVariant_External { AzStyleBackgroundRepeatVecDestructorTag tag; AzStyleBackgroundRepeatVecDestructorType payload; };
-typedef struct AzStyleBackgroundRepeatVecDestructorVariant_External AzStyleBackgroundRepeatVecDestructorVariant_External;
-
-
-union AzStyleBackgroundRepeatVecDestructor {
-    AzStyleBackgroundRepeatVecDestructorVariant_DefaultRust DefaultRust;
-    AzStyleBackgroundRepeatVecDestructorVariant_NoDestructor NoDestructor;
-    AzStyleBackgroundRepeatVecDestructorVariant_External External;
-};
-typedef union AzStyleBackgroundRepeatVecDestructor AzStyleBackgroundRepeatVecDestructor;
-
-enum AzStyleBackgroundSizeVecDestructorTag {
-   AzStyleBackgroundSizeVecDestructorTag_DefaultRust,
-   AzStyleBackgroundSizeVecDestructorTag_NoDestructor,
-   AzStyleBackgroundSizeVecDestructorTag_External,
-};
-typedef enum AzStyleBackgroundSizeVecDestructorTag AzStyleBackgroundSizeVecDestructorTag;
-
-struct AzStyleBackgroundSizeVecDestructorVariant_DefaultRust { AzStyleBackgroundSizeVecDestructorTag tag; };
-typedef struct AzStyleBackgroundSizeVecDestructorVariant_DefaultRust AzStyleBackgroundSizeVecDestructorVariant_DefaultRust;
-
-struct AzStyleBackgroundSizeVecDestructorVariant_NoDestructor { AzStyleBackgroundSizeVecDestructorTag tag; };
-typedef struct AzStyleBackgroundSizeVecDestructorVariant_NoDestructor AzStyleBackgroundSizeVecDestructorVariant_NoDestructor;
-
-struct AzStyleBackgroundSizeVecDestructorVariant_External { AzStyleBackgroundSizeVecDestructorTag tag; AzStyleBackgroundSizeVecDestructorType payload; };
-typedef struct AzStyleBackgroundSizeVecDestructorVariant_External AzStyleBackgroundSizeVecDestructorVariant_External;
-
-
-union AzStyleBackgroundSizeVecDestructor {
-    AzStyleBackgroundSizeVecDestructorVariant_DefaultRust DefaultRust;
-    AzStyleBackgroundSizeVecDestructorVariant_NoDestructor NoDestructor;
-    AzStyleBackgroundSizeVecDestructorVariant_External External;
-};
-typedef union AzStyleBackgroundSizeVecDestructor AzStyleBackgroundSizeVecDestructor;
-
-enum AzStyleTransformVecDestructorTag {
-   AzStyleTransformVecDestructorTag_DefaultRust,
-   AzStyleTransformVecDestructorTag_NoDestructor,
-   AzStyleTransformVecDestructorTag_External,
-};
-typedef enum AzStyleTransformVecDestructorTag AzStyleTransformVecDestructorTag;
-
-struct AzStyleTransformVecDestructorVariant_DefaultRust { AzStyleTransformVecDestructorTag tag; };
-typedef struct AzStyleTransformVecDestructorVariant_DefaultRust AzStyleTransformVecDestructorVariant_DefaultRust;
-
-struct AzStyleTransformVecDestructorVariant_NoDestructor { AzStyleTransformVecDestructorTag tag; };
-typedef struct AzStyleTransformVecDestructorVariant_NoDestructor AzStyleTransformVecDestructorVariant_NoDestructor;
-
-struct AzStyleTransformVecDestructorVariant_External { AzStyleTransformVecDestructorTag tag; AzStyleTransformVecDestructorType payload; };
-typedef struct AzStyleTransformVecDestructorVariant_External AzStyleTransformVecDestructorVariant_External;
-
-
-union AzStyleTransformVecDestructor {
-    AzStyleTransformVecDestructorVariant_DefaultRust DefaultRust;
-    AzStyleTransformVecDestructorVariant_NoDestructor NoDestructor;
-    AzStyleTransformVecDestructorVariant_External External;
-};
-typedef union AzStyleTransformVecDestructor AzStyleTransformVecDestructor;
-
-enum AzCssPropertyVecDestructorTag {
-   AzCssPropertyVecDestructorTag_DefaultRust,
-   AzCssPropertyVecDestructorTag_NoDestructor,
-   AzCssPropertyVecDestructorTag_External,
-};
-typedef enum AzCssPropertyVecDestructorTag AzCssPropertyVecDestructorTag;
-
-struct AzCssPropertyVecDestructorVariant_DefaultRust { AzCssPropertyVecDestructorTag tag; };
-typedef struct AzCssPropertyVecDestructorVariant_DefaultRust AzCssPropertyVecDestructorVariant_DefaultRust;
-
-struct AzCssPropertyVecDestructorVariant_NoDestructor { AzCssPropertyVecDestructorTag tag; };
-typedef struct AzCssPropertyVecDestructorVariant_NoDestructor AzCssPropertyVecDestructorVariant_NoDestructor;
-
-struct AzCssPropertyVecDestructorVariant_External { AzCssPropertyVecDestructorTag tag; AzCssPropertyVecDestructorType payload; };
-typedef struct AzCssPropertyVecDestructorVariant_External AzCssPropertyVecDestructorVariant_External;
-
-
-union AzCssPropertyVecDestructor {
-    AzCssPropertyVecDestructorVariant_DefaultRust DefaultRust;
-    AzCssPropertyVecDestructorVariant_NoDestructor NoDestructor;
-    AzCssPropertyVecDestructorVariant_External External;
-};
-typedef union AzCssPropertyVecDestructor AzCssPropertyVecDestructor;
-
-enum AzSvgMultiPolygonVecDestructorTag {
-   AzSvgMultiPolygonVecDestructorTag_DefaultRust,
-   AzSvgMultiPolygonVecDestructorTag_NoDestructor,
-   AzSvgMultiPolygonVecDestructorTag_External,
-};
-typedef enum AzSvgMultiPolygonVecDestructorTag AzSvgMultiPolygonVecDestructorTag;
-
-struct AzSvgMultiPolygonVecDestructorVariant_DefaultRust { AzSvgMultiPolygonVecDestructorTag tag; };
-typedef struct AzSvgMultiPolygonVecDestructorVariant_DefaultRust AzSvgMultiPolygonVecDestructorVariant_DefaultRust;
-
-struct AzSvgMultiPolygonVecDestructorVariant_NoDestructor { AzSvgMultiPolygonVecDestructorTag tag; };
-typedef struct AzSvgMultiPolygonVecDestructorVariant_NoDestructor AzSvgMultiPolygonVecDestructorVariant_NoDestructor;
-
-struct AzSvgMultiPolygonVecDestructorVariant_External { AzSvgMultiPolygonVecDestructorTag tag; AzSvgMultiPolygonVecDestructorType payload; };
-typedef struct AzSvgMultiPolygonVecDestructorVariant_External AzSvgMultiPolygonVecDestructorVariant_External;
-
-
-union AzSvgMultiPolygonVecDestructor {
-    AzSvgMultiPolygonVecDestructorVariant_DefaultRust DefaultRust;
-    AzSvgMultiPolygonVecDestructorVariant_NoDestructor NoDestructor;
-    AzSvgMultiPolygonVecDestructorVariant_External External;
-};
-typedef union AzSvgMultiPolygonVecDestructor AzSvgMultiPolygonVecDestructor;
-
-enum AzSvgPathVecDestructorTag {
-   AzSvgPathVecDestructorTag_DefaultRust,
-   AzSvgPathVecDestructorTag_NoDestructor,
-   AzSvgPathVecDestructorTag_External,
-};
-typedef enum AzSvgPathVecDestructorTag AzSvgPathVecDestructorTag;
-
-struct AzSvgPathVecDestructorVariant_DefaultRust { AzSvgPathVecDestructorTag tag; };
-typedef struct AzSvgPathVecDestructorVariant_DefaultRust AzSvgPathVecDestructorVariant_DefaultRust;
-
-struct AzSvgPathVecDestructorVariant_NoDestructor { AzSvgPathVecDestructorTag tag; };
-typedef struct AzSvgPathVecDestructorVariant_NoDestructor AzSvgPathVecDestructorVariant_NoDestructor;
-
-struct AzSvgPathVecDestructorVariant_External { AzSvgPathVecDestructorTag tag; AzSvgPathVecDestructorType payload; };
-typedef struct AzSvgPathVecDestructorVariant_External AzSvgPathVecDestructorVariant_External;
-
-
-union AzSvgPathVecDestructor {
-    AzSvgPathVecDestructorVariant_DefaultRust DefaultRust;
-    AzSvgPathVecDestructorVariant_NoDestructor NoDestructor;
-    AzSvgPathVecDestructorVariant_External External;
-};
-typedef union AzSvgPathVecDestructor AzSvgPathVecDestructor;
-
-enum AzVertexAttributeVecDestructorTag {
-   AzVertexAttributeVecDestructorTag_DefaultRust,
-   AzVertexAttributeVecDestructorTag_NoDestructor,
-   AzVertexAttributeVecDestructorTag_External,
-};
-typedef enum AzVertexAttributeVecDestructorTag AzVertexAttributeVecDestructorTag;
-
-struct AzVertexAttributeVecDestructorVariant_DefaultRust { AzVertexAttributeVecDestructorTag tag; };
-typedef struct AzVertexAttributeVecDestructorVariant_DefaultRust AzVertexAttributeVecDestructorVariant_DefaultRust;
-
-struct AzVertexAttributeVecDestructorVariant_NoDestructor { AzVertexAttributeVecDestructorTag tag; };
-typedef struct AzVertexAttributeVecDestructorVariant_NoDestructor AzVertexAttributeVecDestructorVariant_NoDestructor;
-
-struct AzVertexAttributeVecDestructorVariant_External { AzVertexAttributeVecDestructorTag tag; AzVertexAttributeVecDestructorType payload; };
-typedef struct AzVertexAttributeVecDestructorVariant_External AzVertexAttributeVecDestructorVariant_External;
-
-
-union AzVertexAttributeVecDestructor {
-    AzVertexAttributeVecDestructorVariant_DefaultRust DefaultRust;
-    AzVertexAttributeVecDestructorVariant_NoDestructor NoDestructor;
-    AzVertexAttributeVecDestructorVariant_External External;
-};
-typedef union AzVertexAttributeVecDestructor AzVertexAttributeVecDestructor;
-
-enum AzSvgPathElementVecDestructorTag {
-   AzSvgPathElementVecDestructorTag_DefaultRust,
-   AzSvgPathElementVecDestructorTag_NoDestructor,
-   AzSvgPathElementVecDestructorTag_External,
-};
-typedef enum AzSvgPathElementVecDestructorTag AzSvgPathElementVecDestructorTag;
-
-struct AzSvgPathElementVecDestructorVariant_DefaultRust { AzSvgPathElementVecDestructorTag tag; };
-typedef struct AzSvgPathElementVecDestructorVariant_DefaultRust AzSvgPathElementVecDestructorVariant_DefaultRust;
-
-struct AzSvgPathElementVecDestructorVariant_NoDestructor { AzSvgPathElementVecDestructorTag tag; };
-typedef struct AzSvgPathElementVecDestructorVariant_NoDestructor AzSvgPathElementVecDestructorVariant_NoDestructor;
-
-struct AzSvgPathElementVecDestructorVariant_External { AzSvgPathElementVecDestructorTag tag; AzSvgPathElementVecDestructorType payload; };
-typedef struct AzSvgPathElementVecDestructorVariant_External AzSvgPathElementVecDestructorVariant_External;
-
-
-union AzSvgPathElementVecDestructor {
-    AzSvgPathElementVecDestructorVariant_DefaultRust DefaultRust;
-    AzSvgPathElementVecDestructorVariant_NoDestructor NoDestructor;
-    AzSvgPathElementVecDestructorVariant_External External;
-};
-typedef union AzSvgPathElementVecDestructor AzSvgPathElementVecDestructor;
-
-enum AzSvgVertexVecDestructorTag {
-   AzSvgVertexVecDestructorTag_DefaultRust,
-   AzSvgVertexVecDestructorTag_NoDestructor,
-   AzSvgVertexVecDestructorTag_External,
-};
-typedef enum AzSvgVertexVecDestructorTag AzSvgVertexVecDestructorTag;
-
-struct AzSvgVertexVecDestructorVariant_DefaultRust { AzSvgVertexVecDestructorTag tag; };
-typedef struct AzSvgVertexVecDestructorVariant_DefaultRust AzSvgVertexVecDestructorVariant_DefaultRust;
-
-struct AzSvgVertexVecDestructorVariant_NoDestructor { AzSvgVertexVecDestructorTag tag; };
-typedef struct AzSvgVertexVecDestructorVariant_NoDestructor AzSvgVertexVecDestructorVariant_NoDestructor;
-
-struct AzSvgVertexVecDestructorVariant_External { AzSvgVertexVecDestructorTag tag; AzSvgVertexVecDestructorType payload; };
-typedef struct AzSvgVertexVecDestructorVariant_External AzSvgVertexVecDestructorVariant_External;
-
-
-union AzSvgVertexVecDestructor {
-    AzSvgVertexVecDestructorVariant_DefaultRust DefaultRust;
-    AzSvgVertexVecDestructorVariant_NoDestructor NoDestructor;
-    AzSvgVertexVecDestructorVariant_External External;
-};
-typedef union AzSvgVertexVecDestructor AzSvgVertexVecDestructor;
-
-enum AzU32VecDestructorTag {
-   AzU32VecDestructorTag_DefaultRust,
-   AzU32VecDestructorTag_NoDestructor,
-   AzU32VecDestructorTag_External,
-};
-typedef enum AzU32VecDestructorTag AzU32VecDestructorTag;
-
-struct AzU32VecDestructorVariant_DefaultRust { AzU32VecDestructorTag tag; };
-typedef struct AzU32VecDestructorVariant_DefaultRust AzU32VecDestructorVariant_DefaultRust;
-
-struct AzU32VecDestructorVariant_NoDestructor { AzU32VecDestructorTag tag; };
-typedef struct AzU32VecDestructorVariant_NoDestructor AzU32VecDestructorVariant_NoDestructor;
-
-struct AzU32VecDestructorVariant_External { AzU32VecDestructorTag tag; AzU32VecDestructorType payload; };
-typedef struct AzU32VecDestructorVariant_External AzU32VecDestructorVariant_External;
-
-
-union AzU32VecDestructor {
-    AzU32VecDestructorVariant_DefaultRust DefaultRust;
-    AzU32VecDestructorVariant_NoDestructor NoDestructor;
-    AzU32VecDestructorVariant_External External;
-};
-typedef union AzU32VecDestructor AzU32VecDestructor;
-
-enum AzXWindowTypeVecDestructorTag {
-   AzXWindowTypeVecDestructorTag_DefaultRust,
-   AzXWindowTypeVecDestructorTag_NoDestructor,
-   AzXWindowTypeVecDestructorTag_External,
-};
-typedef enum AzXWindowTypeVecDestructorTag AzXWindowTypeVecDestructorTag;
-
-struct AzXWindowTypeVecDestructorVariant_DefaultRust { AzXWindowTypeVecDestructorTag tag; };
-typedef struct AzXWindowTypeVecDestructorVariant_DefaultRust AzXWindowTypeVecDestructorVariant_DefaultRust;
-
-struct AzXWindowTypeVecDestructorVariant_NoDestructor { AzXWindowTypeVecDestructorTag tag; };
-typedef struct AzXWindowTypeVecDestructorVariant_NoDestructor AzXWindowTypeVecDestructorVariant_NoDestructor;
-
-struct AzXWindowTypeVecDestructorVariant_External { AzXWindowTypeVecDestructorTag tag; AzXWindowTypeVecDestructorType payload; };
-typedef struct AzXWindowTypeVecDestructorVariant_External AzXWindowTypeVecDestructorVariant_External;
-
-
-union AzXWindowTypeVecDestructor {
-    AzXWindowTypeVecDestructorVariant_DefaultRust DefaultRust;
-    AzXWindowTypeVecDestructorVariant_NoDestructor NoDestructor;
-    AzXWindowTypeVecDestructorVariant_External External;
-};
-typedef union AzXWindowTypeVecDestructor AzXWindowTypeVecDestructor;
-
-enum AzVirtualKeyCodeVecDestructorTag {
-   AzVirtualKeyCodeVecDestructorTag_DefaultRust,
-   AzVirtualKeyCodeVecDestructorTag_NoDestructor,
-   AzVirtualKeyCodeVecDestructorTag_External,
-};
-typedef enum AzVirtualKeyCodeVecDestructorTag AzVirtualKeyCodeVecDestructorTag;
-
-struct AzVirtualKeyCodeVecDestructorVariant_DefaultRust { AzVirtualKeyCodeVecDestructorTag tag; };
-typedef struct AzVirtualKeyCodeVecDestructorVariant_DefaultRust AzVirtualKeyCodeVecDestructorVariant_DefaultRust;
-
-struct AzVirtualKeyCodeVecDestructorVariant_NoDestructor { AzVirtualKeyCodeVecDestructorTag tag; };
-typedef struct AzVirtualKeyCodeVecDestructorVariant_NoDestructor AzVirtualKeyCodeVecDestructorVariant_NoDestructor;
-
-struct AzVirtualKeyCodeVecDestructorVariant_External { AzVirtualKeyCodeVecDestructorTag tag; AzVirtualKeyCodeVecDestructorType payload; };
-typedef struct AzVirtualKeyCodeVecDestructorVariant_External AzVirtualKeyCodeVecDestructorVariant_External;
-
-
-union AzVirtualKeyCodeVecDestructor {
-    AzVirtualKeyCodeVecDestructorVariant_DefaultRust DefaultRust;
-    AzVirtualKeyCodeVecDestructorVariant_NoDestructor NoDestructor;
-    AzVirtualKeyCodeVecDestructorVariant_External External;
-};
-typedef union AzVirtualKeyCodeVecDestructor AzVirtualKeyCodeVecDestructor;
-
-enum AzCascadeInfoVecDestructorTag {
-   AzCascadeInfoVecDestructorTag_DefaultRust,
-   AzCascadeInfoVecDestructorTag_NoDestructor,
-   AzCascadeInfoVecDestructorTag_External,
-};
-typedef enum AzCascadeInfoVecDestructorTag AzCascadeInfoVecDestructorTag;
-
-struct AzCascadeInfoVecDestructorVariant_DefaultRust { AzCascadeInfoVecDestructorTag tag; };
-typedef struct AzCascadeInfoVecDestructorVariant_DefaultRust AzCascadeInfoVecDestructorVariant_DefaultRust;
-
-struct AzCascadeInfoVecDestructorVariant_NoDestructor { AzCascadeInfoVecDestructorTag tag; };
-typedef struct AzCascadeInfoVecDestructorVariant_NoDestructor AzCascadeInfoVecDestructorVariant_NoDestructor;
-
-struct AzCascadeInfoVecDestructorVariant_External { AzCascadeInfoVecDestructorTag tag; AzCascadeInfoVecDestructorType payload; };
-typedef struct AzCascadeInfoVecDestructorVariant_External AzCascadeInfoVecDestructorVariant_External;
-
-
-union AzCascadeInfoVecDestructor {
-    AzCascadeInfoVecDestructorVariant_DefaultRust DefaultRust;
-    AzCascadeInfoVecDestructorVariant_NoDestructor NoDestructor;
-    AzCascadeInfoVecDestructorVariant_External External;
-};
-typedef union AzCascadeInfoVecDestructor AzCascadeInfoVecDestructor;
-
-enum AzScanCodeVecDestructorTag {
-   AzScanCodeVecDestructorTag_DefaultRust,
-   AzScanCodeVecDestructorTag_NoDestructor,
-   AzScanCodeVecDestructorTag_External,
-};
-typedef enum AzScanCodeVecDestructorTag AzScanCodeVecDestructorTag;
-
-struct AzScanCodeVecDestructorVariant_DefaultRust { AzScanCodeVecDestructorTag tag; };
-typedef struct AzScanCodeVecDestructorVariant_DefaultRust AzScanCodeVecDestructorVariant_DefaultRust;
-
-struct AzScanCodeVecDestructorVariant_NoDestructor { AzScanCodeVecDestructorTag tag; };
-typedef struct AzScanCodeVecDestructorVariant_NoDestructor AzScanCodeVecDestructorVariant_NoDestructor;
-
-struct AzScanCodeVecDestructorVariant_External { AzScanCodeVecDestructorTag tag; AzScanCodeVecDestructorType payload; };
-typedef struct AzScanCodeVecDestructorVariant_External AzScanCodeVecDestructorVariant_External;
-
-
-union AzScanCodeVecDestructor {
-    AzScanCodeVecDestructorVariant_DefaultRust DefaultRust;
-    AzScanCodeVecDestructorVariant_NoDestructor NoDestructor;
-    AzScanCodeVecDestructorVariant_External External;
-};
-typedef union AzScanCodeVecDestructor AzScanCodeVecDestructor;
-
-enum AzCssDeclarationVecDestructorTag {
-   AzCssDeclarationVecDestructorTag_DefaultRust,
-   AzCssDeclarationVecDestructorTag_NoDestructor,
-   AzCssDeclarationVecDestructorTag_External,
-};
-typedef enum AzCssDeclarationVecDestructorTag AzCssDeclarationVecDestructorTag;
-
-struct AzCssDeclarationVecDestructorVariant_DefaultRust { AzCssDeclarationVecDestructorTag tag; };
-typedef struct AzCssDeclarationVecDestructorVariant_DefaultRust AzCssDeclarationVecDestructorVariant_DefaultRust;
-
-struct AzCssDeclarationVecDestructorVariant_NoDestructor { AzCssDeclarationVecDestructorTag tag; };
-typedef struct AzCssDeclarationVecDestructorVariant_NoDestructor AzCssDeclarationVecDestructorVariant_NoDestructor;
-
-struct AzCssDeclarationVecDestructorVariant_External { AzCssDeclarationVecDestructorTag tag; AzCssDeclarationVecDestructorType payload; };
-typedef struct AzCssDeclarationVecDestructorVariant_External AzCssDeclarationVecDestructorVariant_External;
-
-
-union AzCssDeclarationVecDestructor {
-    AzCssDeclarationVecDestructorVariant_DefaultRust DefaultRust;
-    AzCssDeclarationVecDestructorVariant_NoDestructor NoDestructor;
-    AzCssDeclarationVecDestructorVariant_External External;
-};
-typedef union AzCssDeclarationVecDestructor AzCssDeclarationVecDestructor;
-
-enum AzCssPathSelectorVecDestructorTag {
-   AzCssPathSelectorVecDestructorTag_DefaultRust,
-   AzCssPathSelectorVecDestructorTag_NoDestructor,
-   AzCssPathSelectorVecDestructorTag_External,
-};
-typedef enum AzCssPathSelectorVecDestructorTag AzCssPathSelectorVecDestructorTag;
-
-struct AzCssPathSelectorVecDestructorVariant_DefaultRust { AzCssPathSelectorVecDestructorTag tag; };
-typedef struct AzCssPathSelectorVecDestructorVariant_DefaultRust AzCssPathSelectorVecDestructorVariant_DefaultRust;
-
-struct AzCssPathSelectorVecDestructorVariant_NoDestructor { AzCssPathSelectorVecDestructorTag tag; };
-typedef struct AzCssPathSelectorVecDestructorVariant_NoDestructor AzCssPathSelectorVecDestructorVariant_NoDestructor;
-
-struct AzCssPathSelectorVecDestructorVariant_External { AzCssPathSelectorVecDestructorTag tag; AzCssPathSelectorVecDestructorType payload; };
-typedef struct AzCssPathSelectorVecDestructorVariant_External AzCssPathSelectorVecDestructorVariant_External;
-
-
-union AzCssPathSelectorVecDestructor {
-    AzCssPathSelectorVecDestructorVariant_DefaultRust DefaultRust;
-    AzCssPathSelectorVecDestructorVariant_NoDestructor NoDestructor;
-    AzCssPathSelectorVecDestructorVariant_External External;
-};
-typedef union AzCssPathSelectorVecDestructor AzCssPathSelectorVecDestructor;
-
-enum AzStylesheetVecDestructorTag {
-   AzStylesheetVecDestructorTag_DefaultRust,
-   AzStylesheetVecDestructorTag_NoDestructor,
-   AzStylesheetVecDestructorTag_External,
-};
-typedef enum AzStylesheetVecDestructorTag AzStylesheetVecDestructorTag;
-
-struct AzStylesheetVecDestructorVariant_DefaultRust { AzStylesheetVecDestructorTag tag; };
-typedef struct AzStylesheetVecDestructorVariant_DefaultRust AzStylesheetVecDestructorVariant_DefaultRust;
-
-struct AzStylesheetVecDestructorVariant_NoDestructor { AzStylesheetVecDestructorTag tag; };
-typedef struct AzStylesheetVecDestructorVariant_NoDestructor AzStylesheetVecDestructorVariant_NoDestructor;
-
-struct AzStylesheetVecDestructorVariant_External { AzStylesheetVecDestructorTag tag; AzStylesheetVecDestructorType payload; };
-typedef struct AzStylesheetVecDestructorVariant_External AzStylesheetVecDestructorVariant_External;
-
-
-union AzStylesheetVecDestructor {
-    AzStylesheetVecDestructorVariant_DefaultRust DefaultRust;
-    AzStylesheetVecDestructorVariant_NoDestructor NoDestructor;
-    AzStylesheetVecDestructorVariant_External External;
-};
-typedef union AzStylesheetVecDestructor AzStylesheetVecDestructor;
-
-enum AzCssRuleBlockVecDestructorTag {
-   AzCssRuleBlockVecDestructorTag_DefaultRust,
-   AzCssRuleBlockVecDestructorTag_NoDestructor,
-   AzCssRuleBlockVecDestructorTag_External,
-};
-typedef enum AzCssRuleBlockVecDestructorTag AzCssRuleBlockVecDestructorTag;
-
-struct AzCssRuleBlockVecDestructorVariant_DefaultRust { AzCssRuleBlockVecDestructorTag tag; };
-typedef struct AzCssRuleBlockVecDestructorVariant_DefaultRust AzCssRuleBlockVecDestructorVariant_DefaultRust;
-
-struct AzCssRuleBlockVecDestructorVariant_NoDestructor { AzCssRuleBlockVecDestructorTag tag; };
-typedef struct AzCssRuleBlockVecDestructorVariant_NoDestructor AzCssRuleBlockVecDestructorVariant_NoDestructor;
-
-struct AzCssRuleBlockVecDestructorVariant_External { AzCssRuleBlockVecDestructorTag tag; AzCssRuleBlockVecDestructorType payload; };
-typedef struct AzCssRuleBlockVecDestructorVariant_External AzCssRuleBlockVecDestructorVariant_External;
-
-
-union AzCssRuleBlockVecDestructor {
-    AzCssRuleBlockVecDestructorVariant_DefaultRust DefaultRust;
-    AzCssRuleBlockVecDestructorVariant_NoDestructor NoDestructor;
-    AzCssRuleBlockVecDestructorVariant_External External;
-};
-typedef union AzCssRuleBlockVecDestructor AzCssRuleBlockVecDestructor;
-
-enum AzU8VecDestructorTag {
-   AzU8VecDestructorTag_DefaultRust,
-   AzU8VecDestructorTag_NoDestructor,
-   AzU8VecDestructorTag_External,
-};
-typedef enum AzU8VecDestructorTag AzU8VecDestructorTag;
-
-struct AzU8VecDestructorVariant_DefaultRust { AzU8VecDestructorTag tag; };
-typedef struct AzU8VecDestructorVariant_DefaultRust AzU8VecDestructorVariant_DefaultRust;
-
-struct AzU8VecDestructorVariant_NoDestructor { AzU8VecDestructorTag tag; };
-typedef struct AzU8VecDestructorVariant_NoDestructor AzU8VecDestructorVariant_NoDestructor;
-
-struct AzU8VecDestructorVariant_External { AzU8VecDestructorTag tag; AzU8VecDestructorType payload; };
-typedef struct AzU8VecDestructorVariant_External AzU8VecDestructorVariant_External;
-
-
-union AzU8VecDestructor {
-    AzU8VecDestructorVariant_DefaultRust DefaultRust;
-    AzU8VecDestructorVariant_NoDestructor NoDestructor;
-    AzU8VecDestructorVariant_External External;
-};
-typedef union AzU8VecDestructor AzU8VecDestructor;
-
-enum AzCallbackDataVecDestructorTag {
-   AzCallbackDataVecDestructorTag_DefaultRust,
-   AzCallbackDataVecDestructorTag_NoDestructor,
-   AzCallbackDataVecDestructorTag_External,
-};
-typedef enum AzCallbackDataVecDestructorTag AzCallbackDataVecDestructorTag;
-
-struct AzCallbackDataVecDestructorVariant_DefaultRust { AzCallbackDataVecDestructorTag tag; };
-typedef struct AzCallbackDataVecDestructorVariant_DefaultRust AzCallbackDataVecDestructorVariant_DefaultRust;
-
-struct AzCallbackDataVecDestructorVariant_NoDestructor { AzCallbackDataVecDestructorTag tag; };
-typedef struct AzCallbackDataVecDestructorVariant_NoDestructor AzCallbackDataVecDestructorVariant_NoDestructor;
-
-struct AzCallbackDataVecDestructorVariant_External { AzCallbackDataVecDestructorTag tag; AzCallbackDataVecDestructorType payload; };
-typedef struct AzCallbackDataVecDestructorVariant_External AzCallbackDataVecDestructorVariant_External;
-
-
-union AzCallbackDataVecDestructor {
-    AzCallbackDataVecDestructorVariant_DefaultRust DefaultRust;
-    AzCallbackDataVecDestructorVariant_NoDestructor NoDestructor;
-    AzCallbackDataVecDestructorVariant_External External;
-};
-typedef union AzCallbackDataVecDestructor AzCallbackDataVecDestructor;
-
-enum AzDebugMessageVecDestructorTag {
-   AzDebugMessageVecDestructorTag_DefaultRust,
-   AzDebugMessageVecDestructorTag_NoDestructor,
-   AzDebugMessageVecDestructorTag_External,
-};
-typedef enum AzDebugMessageVecDestructorTag AzDebugMessageVecDestructorTag;
-
-struct AzDebugMessageVecDestructorVariant_DefaultRust { AzDebugMessageVecDestructorTag tag; };
-typedef struct AzDebugMessageVecDestructorVariant_DefaultRust AzDebugMessageVecDestructorVariant_DefaultRust;
-
-struct AzDebugMessageVecDestructorVariant_NoDestructor { AzDebugMessageVecDestructorTag tag; };
-typedef struct AzDebugMessageVecDestructorVariant_NoDestructor AzDebugMessageVecDestructorVariant_NoDestructor;
-
-struct AzDebugMessageVecDestructorVariant_External { AzDebugMessageVecDestructorTag tag; AzDebugMessageVecDestructorType payload; };
-typedef struct AzDebugMessageVecDestructorVariant_External AzDebugMessageVecDestructorVariant_External;
-
-
-union AzDebugMessageVecDestructor {
-    AzDebugMessageVecDestructorVariant_DefaultRust DefaultRust;
-    AzDebugMessageVecDestructorVariant_NoDestructor NoDestructor;
-    AzDebugMessageVecDestructorVariant_External External;
-};
-typedef union AzDebugMessageVecDestructor AzDebugMessageVecDestructor;
-
-enum AzGLuintVecDestructorTag {
-   AzGLuintVecDestructorTag_DefaultRust,
-   AzGLuintVecDestructorTag_NoDestructor,
-   AzGLuintVecDestructorTag_External,
-};
-typedef enum AzGLuintVecDestructorTag AzGLuintVecDestructorTag;
-
-struct AzGLuintVecDestructorVariant_DefaultRust { AzGLuintVecDestructorTag tag; };
-typedef struct AzGLuintVecDestructorVariant_DefaultRust AzGLuintVecDestructorVariant_DefaultRust;
-
-struct AzGLuintVecDestructorVariant_NoDestructor { AzGLuintVecDestructorTag tag; };
-typedef struct AzGLuintVecDestructorVariant_NoDestructor AzGLuintVecDestructorVariant_NoDestructor;
-
-struct AzGLuintVecDestructorVariant_External { AzGLuintVecDestructorTag tag; AzGLuintVecDestructorType payload; };
-typedef struct AzGLuintVecDestructorVariant_External AzGLuintVecDestructorVariant_External;
-
-
-union AzGLuintVecDestructor {
-    AzGLuintVecDestructorVariant_DefaultRust DefaultRust;
-    AzGLuintVecDestructorVariant_NoDestructor NoDestructor;
-    AzGLuintVecDestructorVariant_External External;
+typedef struct AzThreadSender AzThreadSender;
+
+struct AzThreadReceiver {
+    void* restrict ptr;
+    AzThreadRecvFn recv_fn;
+    AzThreadReceiverDestructorFn destructor;
 };
-typedef union AzGLuintVecDestructor AzGLuintVecDestructor;
-
-enum AzGLintVecDestructorTag {
-   AzGLintVecDestructorTag_DefaultRust,
-   AzGLintVecDestructorTag_NoDestructor,
-   AzGLintVecDestructorTag_External,
-};
-typedef enum AzGLintVecDestructorTag AzGLintVecDestructorTag;
-
-struct AzGLintVecDestructorVariant_DefaultRust { AzGLintVecDestructorTag tag; };
-typedef struct AzGLintVecDestructorVariant_DefaultRust AzGLintVecDestructorVariant_DefaultRust;
-
-struct AzGLintVecDestructorVariant_NoDestructor { AzGLintVecDestructorTag tag; };
-typedef struct AzGLintVecDestructorVariant_NoDestructor AzGLintVecDestructorVariant_NoDestructor;
-
-struct AzGLintVecDestructorVariant_External { AzGLintVecDestructorTag tag; AzGLintVecDestructorType payload; };
-typedef struct AzGLintVecDestructorVariant_External AzGLintVecDestructorVariant_External;
-
-
-union AzGLintVecDestructor {
-    AzGLintVecDestructorVariant_DefaultRust DefaultRust;
-    AzGLintVecDestructorVariant_NoDestructor NoDestructor;
-    AzGLintVecDestructorVariant_External External;
-};
-typedef union AzGLintVecDestructor AzGLintVecDestructor;
-
-enum AzStringVecDestructorTag {
-   AzStringVecDestructorTag_DefaultRust,
-   AzStringVecDestructorTag_NoDestructor,
-   AzStringVecDestructorTag_External,
-};
-typedef enum AzStringVecDestructorTag AzStringVecDestructorTag;
-
-struct AzStringVecDestructorVariant_DefaultRust { AzStringVecDestructorTag tag; };
-typedef struct AzStringVecDestructorVariant_DefaultRust AzStringVecDestructorVariant_DefaultRust;
-
-struct AzStringVecDestructorVariant_NoDestructor { AzStringVecDestructorTag tag; };
-typedef struct AzStringVecDestructorVariant_NoDestructor AzStringVecDestructorVariant_NoDestructor;
-
-struct AzStringVecDestructorVariant_External { AzStringVecDestructorTag tag; AzStringVecDestructorType payload; };
-typedef struct AzStringVecDestructorVariant_External AzStringVecDestructorVariant_External;
-
-
-union AzStringVecDestructor {
-    AzStringVecDestructorVariant_DefaultRust DefaultRust;
-    AzStringVecDestructorVariant_NoDestructor NoDestructor;
-    AzStringVecDestructorVariant_External External;
-};
-typedef union AzStringVecDestructor AzStringVecDestructor;
-
-enum AzStringPairVecDestructorTag {
-   AzStringPairVecDestructorTag_DefaultRust,
-   AzStringPairVecDestructorTag_NoDestructor,
-   AzStringPairVecDestructorTag_External,
-};
-typedef enum AzStringPairVecDestructorTag AzStringPairVecDestructorTag;
-
-struct AzStringPairVecDestructorVariant_DefaultRust { AzStringPairVecDestructorTag tag; };
-typedef struct AzStringPairVecDestructorVariant_DefaultRust AzStringPairVecDestructorVariant_DefaultRust;
-
-struct AzStringPairVecDestructorVariant_NoDestructor { AzStringPairVecDestructorTag tag; };
-typedef struct AzStringPairVecDestructorVariant_NoDestructor AzStringPairVecDestructorVariant_NoDestructor;
-
-struct AzStringPairVecDestructorVariant_External { AzStringPairVecDestructorTag tag; AzStringPairVecDestructorType payload; };
-typedef struct AzStringPairVecDestructorVariant_External AzStringPairVecDestructorVariant_External;
-
-
-union AzStringPairVecDestructor {
-    AzStringPairVecDestructorVariant_DefaultRust DefaultRust;
-    AzStringPairVecDestructorVariant_NoDestructor NoDestructor;
-    AzStringPairVecDestructorVariant_External External;
-};
-typedef union AzStringPairVecDestructor AzStringPairVecDestructor;
-
-enum AzLinearColorStopVecDestructorTag {
-   AzLinearColorStopVecDestructorTag_DefaultRust,
-   AzLinearColorStopVecDestructorTag_NoDestructor,
-   AzLinearColorStopVecDestructorTag_External,
-};
-typedef enum AzLinearColorStopVecDestructorTag AzLinearColorStopVecDestructorTag;
-
-struct AzLinearColorStopVecDestructorVariant_DefaultRust { AzLinearColorStopVecDestructorTag tag; };
-typedef struct AzLinearColorStopVecDestructorVariant_DefaultRust AzLinearColorStopVecDestructorVariant_DefaultRust;
-
-struct AzLinearColorStopVecDestructorVariant_NoDestructor { AzLinearColorStopVecDestructorTag tag; };
-typedef struct AzLinearColorStopVecDestructorVariant_NoDestructor AzLinearColorStopVecDestructorVariant_NoDestructor;
-
-struct AzLinearColorStopVecDestructorVariant_External { AzLinearColorStopVecDestructorTag tag; AzLinearColorStopVecDestructorType payload; };
-typedef struct AzLinearColorStopVecDestructorVariant_External AzLinearColorStopVecDestructorVariant_External;
-
-
-union AzLinearColorStopVecDestructor {
-    AzLinearColorStopVecDestructorVariant_DefaultRust DefaultRust;
-    AzLinearColorStopVecDestructorVariant_NoDestructor NoDestructor;
-    AzLinearColorStopVecDestructorVariant_External External;
-};
-typedef union AzLinearColorStopVecDestructor AzLinearColorStopVecDestructor;
-
-enum AzRadialColorStopVecDestructorTag {
-   AzRadialColorStopVecDestructorTag_DefaultRust,
-   AzRadialColorStopVecDestructorTag_NoDestructor,
-   AzRadialColorStopVecDestructorTag_External,
-};
-typedef enum AzRadialColorStopVecDestructorTag AzRadialColorStopVecDestructorTag;
-
-struct AzRadialColorStopVecDestructorVariant_DefaultRust { AzRadialColorStopVecDestructorTag tag; };
-typedef struct AzRadialColorStopVecDestructorVariant_DefaultRust AzRadialColorStopVecDestructorVariant_DefaultRust;
-
-struct AzRadialColorStopVecDestructorVariant_NoDestructor { AzRadialColorStopVecDestructorTag tag; };
-typedef struct AzRadialColorStopVecDestructorVariant_NoDestructor AzRadialColorStopVecDestructorVariant_NoDestructor;
-
-struct AzRadialColorStopVecDestructorVariant_External { AzRadialColorStopVecDestructorTag tag; AzRadialColorStopVecDestructorType payload; };
-typedef struct AzRadialColorStopVecDestructorVariant_External AzRadialColorStopVecDestructorVariant_External;
-
-
-union AzRadialColorStopVecDestructor {
-    AzRadialColorStopVecDestructorVariant_DefaultRust DefaultRust;
-    AzRadialColorStopVecDestructorVariant_NoDestructor NoDestructor;
-    AzRadialColorStopVecDestructorVariant_External External;
-};
-typedef union AzRadialColorStopVecDestructor AzRadialColorStopVecDestructor;
-
-enum AzNodeIdVecDestructorTag {
-   AzNodeIdVecDestructorTag_DefaultRust,
-   AzNodeIdVecDestructorTag_NoDestructor,
-   AzNodeIdVecDestructorTag_External,
-};
-typedef enum AzNodeIdVecDestructorTag AzNodeIdVecDestructorTag;
-
-struct AzNodeIdVecDestructorVariant_DefaultRust { AzNodeIdVecDestructorTag tag; };
-typedef struct AzNodeIdVecDestructorVariant_DefaultRust AzNodeIdVecDestructorVariant_DefaultRust;
-
-struct AzNodeIdVecDestructorVariant_NoDestructor { AzNodeIdVecDestructorTag tag; };
-typedef struct AzNodeIdVecDestructorVariant_NoDestructor AzNodeIdVecDestructorVariant_NoDestructor;
-
-struct AzNodeIdVecDestructorVariant_External { AzNodeIdVecDestructorTag tag; AzNodeIdVecDestructorType payload; };
-typedef struct AzNodeIdVecDestructorVariant_External AzNodeIdVecDestructorVariant_External;
-
-
-union AzNodeIdVecDestructor {
-    AzNodeIdVecDestructorVariant_DefaultRust DefaultRust;
-    AzNodeIdVecDestructorVariant_NoDestructor NoDestructor;
-    AzNodeIdVecDestructorVariant_External External;
-};
-typedef union AzNodeIdVecDestructor AzNodeIdVecDestructor;
-
-enum AzNodeVecDestructorTag {
-   AzNodeVecDestructorTag_DefaultRust,
-   AzNodeVecDestructorTag_NoDestructor,
-   AzNodeVecDestructorTag_External,
-};
-typedef enum AzNodeVecDestructorTag AzNodeVecDestructorTag;
-
-struct AzNodeVecDestructorVariant_DefaultRust { AzNodeVecDestructorTag tag; };
-typedef struct AzNodeVecDestructorVariant_DefaultRust AzNodeVecDestructorVariant_DefaultRust;
-
-struct AzNodeVecDestructorVariant_NoDestructor { AzNodeVecDestructorTag tag; };
-typedef struct AzNodeVecDestructorVariant_NoDestructor AzNodeVecDestructorVariant_NoDestructor;
-
-struct AzNodeVecDestructorVariant_External { AzNodeVecDestructorTag tag; AzNodeVecDestructorType payload; };
-typedef struct AzNodeVecDestructorVariant_External AzNodeVecDestructorVariant_External;
-
-
-union AzNodeVecDestructor {
-    AzNodeVecDestructorVariant_DefaultRust DefaultRust;
-    AzNodeVecDestructorVariant_NoDestructor NoDestructor;
-    AzNodeVecDestructorVariant_External External;
-};
-typedef union AzNodeVecDestructor AzNodeVecDestructor;
-
-enum AzStyledNodeVecDestructorTag {
-   AzStyledNodeVecDestructorTag_DefaultRust,
-   AzStyledNodeVecDestructorTag_NoDestructor,
-   AzStyledNodeVecDestructorTag_External,
-};
-typedef enum AzStyledNodeVecDestructorTag AzStyledNodeVecDestructorTag;
-
-struct AzStyledNodeVecDestructorVariant_DefaultRust { AzStyledNodeVecDestructorTag tag; };
-typedef struct AzStyledNodeVecDestructorVariant_DefaultRust AzStyledNodeVecDestructorVariant_DefaultRust;
-
-struct AzStyledNodeVecDestructorVariant_NoDestructor { AzStyledNodeVecDestructorTag tag; };
-typedef struct AzStyledNodeVecDestructorVariant_NoDestructor AzStyledNodeVecDestructorVariant_NoDestructor;
-
-struct AzStyledNodeVecDestructorVariant_External { AzStyledNodeVecDestructorTag tag; AzStyledNodeVecDestructorType payload; };
-typedef struct AzStyledNodeVecDestructorVariant_External AzStyledNodeVecDestructorVariant_External;
-
-
-union AzStyledNodeVecDestructor {
-    AzStyledNodeVecDestructorVariant_DefaultRust DefaultRust;
-    AzStyledNodeVecDestructorVariant_NoDestructor NoDestructor;
-    AzStyledNodeVecDestructorVariant_External External;
+typedef struct AzThreadReceiver AzThreadReceiver;
+
+struct AzVideoModeVec {
+    AzVideoMode* const ptr;
+    size_t len;
+    size_t cap;
+    AzVideoModeVecDestructor destructor;
 };
-typedef union AzStyledNodeVecDestructor AzStyledNodeVecDestructor;
-
-enum AzTagIdsToNodeIdsMappingVecDestructorTag {
-   AzTagIdsToNodeIdsMappingVecDestructorTag_DefaultRust,
-   AzTagIdsToNodeIdsMappingVecDestructorTag_NoDestructor,
-   AzTagIdsToNodeIdsMappingVecDestructorTag_External,
-};
-typedef enum AzTagIdsToNodeIdsMappingVecDestructorTag AzTagIdsToNodeIdsMappingVecDestructorTag;
-
-struct AzTagIdsToNodeIdsMappingVecDestructorVariant_DefaultRust { AzTagIdsToNodeIdsMappingVecDestructorTag tag; };
-typedef struct AzTagIdsToNodeIdsMappingVecDestructorVariant_DefaultRust AzTagIdsToNodeIdsMappingVecDestructorVariant_DefaultRust;
-
-struct AzTagIdsToNodeIdsMappingVecDestructorVariant_NoDestructor { AzTagIdsToNodeIdsMappingVecDestructorTag tag; };
-typedef struct AzTagIdsToNodeIdsMappingVecDestructorVariant_NoDestructor AzTagIdsToNodeIdsMappingVecDestructorVariant_NoDestructor;
-
-struct AzTagIdsToNodeIdsMappingVecDestructorVariant_External { AzTagIdsToNodeIdsMappingVecDestructorTag tag; AzTagIdsToNodeIdsMappingVecDestructorType payload; };
-typedef struct AzTagIdsToNodeIdsMappingVecDestructorVariant_External AzTagIdsToNodeIdsMappingVecDestructorVariant_External;
-
-
-union AzTagIdsToNodeIdsMappingVecDestructor {
-    AzTagIdsToNodeIdsMappingVecDestructorVariant_DefaultRust DefaultRust;
-    AzTagIdsToNodeIdsMappingVecDestructorVariant_NoDestructor NoDestructor;
-    AzTagIdsToNodeIdsMappingVecDestructorVariant_External External;
-};
-typedef union AzTagIdsToNodeIdsMappingVecDestructor AzTagIdsToNodeIdsMappingVecDestructor;
-
-enum AzParentWithNodeDepthVecDestructorTag {
-   AzParentWithNodeDepthVecDestructorTag_DefaultRust,
-   AzParentWithNodeDepthVecDestructorTag_NoDestructor,
-   AzParentWithNodeDepthVecDestructorTag_External,
-};
-typedef enum AzParentWithNodeDepthVecDestructorTag AzParentWithNodeDepthVecDestructorTag;
-
-struct AzParentWithNodeDepthVecDestructorVariant_DefaultRust { AzParentWithNodeDepthVecDestructorTag tag; };
-typedef struct AzParentWithNodeDepthVecDestructorVariant_DefaultRust AzParentWithNodeDepthVecDestructorVariant_DefaultRust;
-
-struct AzParentWithNodeDepthVecDestructorVariant_NoDestructor { AzParentWithNodeDepthVecDestructorTag tag; };
-typedef struct AzParentWithNodeDepthVecDestructorVariant_NoDestructor AzParentWithNodeDepthVecDestructorVariant_NoDestructor;
-
-struct AzParentWithNodeDepthVecDestructorVariant_External { AzParentWithNodeDepthVecDestructorTag tag; AzParentWithNodeDepthVecDestructorType payload; };
-typedef struct AzParentWithNodeDepthVecDestructorVariant_External AzParentWithNodeDepthVecDestructorVariant_External;
-
-
-union AzParentWithNodeDepthVecDestructor {
-    AzParentWithNodeDepthVecDestructorVariant_DefaultRust DefaultRust;
-    AzParentWithNodeDepthVecDestructorVariant_NoDestructor NoDestructor;
-    AzParentWithNodeDepthVecDestructorVariant_External External;
-};
-typedef union AzParentWithNodeDepthVecDestructor AzParentWithNodeDepthVecDestructor;
-
-enum AzNodeDataVecDestructorTag {
-   AzNodeDataVecDestructorTag_DefaultRust,
-   AzNodeDataVecDestructorTag_NoDestructor,
-   AzNodeDataVecDestructorTag_External,
+typedef struct AzVideoModeVec AzVideoModeVec;
+
+struct AzStyleBackgroundPositionVec {
+    AzStyleBackgroundPosition* const ptr;
+    size_t len;
+    size_t cap;
+    AzStyleBackgroundPositionVecDestructor destructor;
 };
-typedef enum AzNodeDataVecDestructorTag AzNodeDataVecDestructorTag;
-
-struct AzNodeDataVecDestructorVariant_DefaultRust { AzNodeDataVecDestructorTag tag; };
-typedef struct AzNodeDataVecDestructorVariant_DefaultRust AzNodeDataVecDestructorVariant_DefaultRust;
-
-struct AzNodeDataVecDestructorVariant_NoDestructor { AzNodeDataVecDestructorTag tag; };
-typedef struct AzNodeDataVecDestructorVariant_NoDestructor AzNodeDataVecDestructorVariant_NoDestructor;
-
-struct AzNodeDataVecDestructorVariant_External { AzNodeDataVecDestructorTag tag; AzNodeDataVecDestructorType payload; };
-typedef struct AzNodeDataVecDestructorVariant_External AzNodeDataVecDestructorVariant_External;
-
-
-union AzNodeDataVecDestructor {
-    AzNodeDataVecDestructorVariant_DefaultRust DefaultRust;
-    AzNodeDataVecDestructorVariant_NoDestructor NoDestructor;
-    AzNodeDataVecDestructorVariant_External External;
+typedef struct AzStyleBackgroundPositionVec AzStyleBackgroundPositionVec;
+
+struct AzStyleBackgroundRepeatVec {
+    AzStyleBackgroundRepeat* const ptr;
+    size_t len;
+    size_t cap;
+    AzStyleBackgroundRepeatVecDestructor destructor;
 };
-typedef union AzNodeDataVecDestructor AzNodeDataVecDestructor;
+typedef struct AzStyleBackgroundRepeatVec AzStyleBackgroundRepeatVec;
+
+struct AzStyleBackgroundSizeVec {
+    AzStyleBackgroundSize* const ptr;
+    size_t len;
+    size_t cap;
+    AzStyleBackgroundSizeVecDestructor destructor;
+};
+typedef struct AzStyleBackgroundSizeVec AzStyleBackgroundSizeVec;
+
+struct AzSvgVertexVec {
+    AzSvgVertex* const ptr;
+    size_t len;
+    size_t cap;
+    AzSvgVertexVecDestructor destructor;
+};
+typedef struct AzSvgVertexVec AzSvgVertexVec;
+
+struct AzU32Vec {
+    uint32_t* const ptr;
+    size_t len;
+    size_t cap;
+    AzU32VecDestructor destructor;
+};
+typedef struct AzU32Vec AzU32Vec;
+
+struct AzXWindowTypeVec {
+    AzXWindowType* const ptr;
+    size_t len;
+    size_t cap;
+    AzXWindowTypeVecDestructor destructor;
+};
+typedef struct AzXWindowTypeVec AzXWindowTypeVec;
+
+struct AzVirtualKeyCodeVec {
+    AzVirtualKeyCode* const ptr;
+    size_t len;
+    size_t cap;
+    AzVirtualKeyCodeVecDestructor destructor;
+};
+typedef struct AzVirtualKeyCodeVec AzVirtualKeyCodeVec;
+
+struct AzCascadeInfoVec {
+    AzCascadeInfo* const ptr;
+    size_t len;
+    size_t cap;
+    AzCascadeInfoVecDestructor destructor;
+};
+typedef struct AzCascadeInfoVec AzCascadeInfoVec;
+
+struct AzScanCodeVec {
+    uint32_t* const ptr;
+    size_t len;
+    size_t cap;
+    AzScanCodeVecDestructor destructor;
+};
+typedef struct AzScanCodeVec AzScanCodeVec;
+
+struct AzU8Vec {
+    uint8_t* const ptr;
+    size_t len;
+    size_t cap;
+    AzU8VecDestructor destructor;
+};
+typedef struct AzU8Vec AzU8Vec;
+
+struct AzGLuintVec {
+    uint32_t* const ptr;
+    size_t len;
+    size_t cap;
+    AzGLuintVecDestructor destructor;
+};
+typedef struct AzGLuintVec AzGLuintVec;
+
+struct AzGLintVec {
+    int32_t* const ptr;
+    size_t len;
+    size_t cap;
+    AzGLintVecDestructor destructor;
+};
+typedef struct AzGLintVec AzGLintVec;
+
+struct AzNodeIdVec {
+    AzNodeId* const ptr;
+    size_t len;
+    size_t cap;
+    AzNodeIdVecDestructor destructor;
+};
+typedef struct AzNodeIdVec AzNodeIdVec;
+
+struct AzNodeVec {
+    AzNode* const ptr;
+    size_t len;
+    size_t cap;
+    AzNodeVecDestructor destructor;
+};
+typedef struct AzNodeVec AzNodeVec;
+
+struct AzParentWithNodeDepthVec {
+    AzParentWithNodeDepth* const ptr;
+    size_t len;
+    size_t cap;
+    AzParentWithNodeDepthVecDestructor destructor;
+};
+typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
 
 enum AzOptionGlContextPtrTag {
    AzOptionGlContextPtrTag_None,
@@ -5266,25 +5617,6 @@ union AzOptionLayoutRect {
 };
 typedef union AzOptionLayoutRect AzOptionLayoutRect;
 
-enum AzOptionRefAnyTag {
-   AzOptionRefAnyTag_None,
-   AzOptionRefAnyTag_Some,
-};
-typedef enum AzOptionRefAnyTag AzOptionRefAnyTag;
-
-struct AzOptionRefAnyVariant_None { AzOptionRefAnyTag tag; };
-typedef struct AzOptionRefAnyVariant_None AzOptionRefAnyVariant_None;
-
-struct AzOptionRefAnyVariant_Some { AzOptionRefAnyTag tag; AzRefAny payload; };
-typedef struct AzOptionRefAnyVariant_Some AzOptionRefAnyVariant_Some;
-
-
-union AzOptionRefAny {
-    AzOptionRefAnyVariant_None None;
-    AzOptionRefAnyVariant_Some Some;
-};
-typedef union AzOptionRefAny AzOptionRefAny;
-
 enum AzOptionLayoutPointTag {
    AzOptionLayoutPointTag_None,
    AzOptionLayoutPointTag_Some,
@@ -5399,25 +5731,6 @@ union AzOptionSvgDashPattern {
 };
 typedef union AzOptionSvgDashPattern AzOptionSvgDashPattern;
 
-enum AzOptionHwndHandleTag {
-   AzOptionHwndHandleTag_None,
-   AzOptionHwndHandleTag_Some,
-};
-typedef enum AzOptionHwndHandleTag AzOptionHwndHandleTag;
-
-struct AzOptionHwndHandleVariant_None { AzOptionHwndHandleTag tag; };
-typedef struct AzOptionHwndHandleVariant_None AzOptionHwndHandleVariant_None;
-
-struct AzOptionHwndHandleVariant_Some { AzOptionHwndHandleTag tag; void* restrict payload; };
-typedef struct AzOptionHwndHandleVariant_Some AzOptionHwndHandleVariant_Some;
-
-
-union AzOptionHwndHandle {
-    AzOptionHwndHandleVariant_None None;
-    AzOptionHwndHandleVariant_Some Some;
-};
-typedef union AzOptionHwndHandle AzOptionHwndHandle;
-
 enum AzOptionLogicalPositionTag {
    AzOptionLogicalPositionTag_None,
    AzOptionLogicalPositionTag_Some,
@@ -5455,63 +5768,6 @@ union AzOptionPhysicalPositionI32 {
     AzOptionPhysicalPositionI32Variant_Some Some;
 };
 typedef union AzOptionPhysicalPositionI32 AzOptionPhysicalPositionI32;
-
-enum AzOptionX11VisualTag {
-   AzOptionX11VisualTag_None,
-   AzOptionX11VisualTag_Some,
-};
-typedef enum AzOptionX11VisualTag AzOptionX11VisualTag;
-
-struct AzOptionX11VisualVariant_None { AzOptionX11VisualTag tag; };
-typedef struct AzOptionX11VisualVariant_None AzOptionX11VisualVariant_None;
-
-struct AzOptionX11VisualVariant_Some { AzOptionX11VisualTag tag; void* const payload; };
-typedef struct AzOptionX11VisualVariant_Some AzOptionX11VisualVariant_Some;
-
-
-union AzOptionX11Visual {
-    AzOptionX11VisualVariant_None None;
-    AzOptionX11VisualVariant_Some Some;
-};
-typedef union AzOptionX11Visual AzOptionX11Visual;
-
-enum AzOptionI32Tag {
-   AzOptionI32Tag_None,
-   AzOptionI32Tag_Some,
-};
-typedef enum AzOptionI32Tag AzOptionI32Tag;
-
-struct AzOptionI32Variant_None { AzOptionI32Tag tag; };
-typedef struct AzOptionI32Variant_None AzOptionI32Variant_None;
-
-struct AzOptionI32Variant_Some { AzOptionI32Tag tag; int32_t payload; };
-typedef struct AzOptionI32Variant_Some AzOptionI32Variant_Some;
-
-
-union AzOptionI32 {
-    AzOptionI32Variant_None None;
-    AzOptionI32Variant_Some Some;
-};
-typedef union AzOptionI32 AzOptionI32;
-
-enum AzOptionF32Tag {
-   AzOptionF32Tag_None,
-   AzOptionF32Tag_Some,
-};
-typedef enum AzOptionF32Tag AzOptionF32Tag;
-
-struct AzOptionF32Variant_None { AzOptionF32Tag tag; };
-typedef struct AzOptionF32Variant_None AzOptionF32Variant_None;
-
-struct AzOptionF32Variant_Some { AzOptionF32Tag tag; float payload; };
-typedef struct AzOptionF32Variant_Some AzOptionF32Variant_Some;
-
-
-union AzOptionF32 {
-    AzOptionF32Variant_None None;
-    AzOptionF32Variant_Some Some;
-};
-typedef union AzOptionF32 AzOptionF32;
 
 enum AzOptionMouseCursorTypeTag {
    AzOptionMouseCursorTypeTag_None,
@@ -5551,25 +5807,6 @@ union AzOptionLogicalSize {
 };
 typedef union AzOptionLogicalSize AzOptionLogicalSize;
 
-enum AzOptionCharTag {
-   AzOptionCharTag_None,
-   AzOptionCharTag_Some,
-};
-typedef enum AzOptionCharTag AzOptionCharTag;
-
-struct AzOptionCharVariant_None { AzOptionCharTag tag; };
-typedef struct AzOptionCharVariant_None AzOptionCharVariant_None;
-
-struct AzOptionCharVariant_Some { AzOptionCharTag tag; uint32_t payload; };
-typedef struct AzOptionCharVariant_Some AzOptionCharVariant_Some;
-
-
-union AzOptionChar {
-    AzOptionCharVariant_None None;
-    AzOptionCharVariant_Some Some;
-};
-typedef union AzOptionChar AzOptionChar;
-
 enum AzOptionVirtualKeyCodeTag {
    AzOptionVirtualKeyCodeTag_None,
    AzOptionVirtualKeyCodeTag_Some,
@@ -5607,6 +5844,25 @@ union AzOptionTexture {
     AzOptionTextureVariant_Some Some;
 };
 typedef union AzOptionTexture AzOptionTexture;
+
+enum AzOptionImageMaskTag {
+   AzOptionImageMaskTag_None,
+   AzOptionImageMaskTag_Some,
+};
+typedef enum AzOptionImageMaskTag AzOptionImageMaskTag;
+
+struct AzOptionImageMaskVariant_None { AzOptionImageMaskTag tag; };
+typedef struct AzOptionImageMaskVariant_None AzOptionImageMaskVariant_None;
+
+struct AzOptionImageMaskVariant_Some { AzOptionImageMaskTag tag; AzImageMask payload; };
+typedef struct AzOptionImageMaskVariant_Some AzOptionImageMaskVariant_Some;
+
+
+union AzOptionImageMask {
+    AzOptionImageMaskVariant_None None;
+    AzOptionImageMaskVariant_Some Some;
+};
+typedef union AzOptionImageMask AzOptionImageMask;
 
 enum AzOptionTabIndexTag {
    AzOptionTabIndexTag_None,
@@ -5646,25 +5902,6 @@ union AzOptionTagId {
 };
 typedef union AzOptionTagId AzOptionTagId;
 
-enum AzOptionUsizeTag {
-   AzOptionUsizeTag_None,
-   AzOptionUsizeTag_Some,
-};
-typedef enum AzOptionUsizeTag AzOptionUsizeTag;
-
-struct AzOptionUsizeVariant_None { AzOptionUsizeTag tag; };
-typedef struct AzOptionUsizeVariant_None AzOptionUsizeVariant_None;
-
-struct AzOptionUsizeVariant_Some { AzOptionUsizeTag tag; size_t payload; };
-typedef struct AzOptionUsizeVariant_Some AzOptionUsizeVariant_Some;
-
-
-union AzOptionUsize {
-    AzOptionUsizeVariant_None None;
-    AzOptionUsizeVariant_Some Some;
-};
-typedef union AzOptionUsize AzOptionUsize;
-
 enum AzOptionU8VecRefTag {
    AzOptionU8VecRefTag_None,
    AzOptionU8VecRefTag_Some,
@@ -5684,97 +5921,109 @@ union AzOptionU8VecRef {
 };
 typedef union AzOptionU8VecRef AzOptionU8VecRef;
 
-struct AzSvgParseErrorPosition {
-    uint32_t row;
-    uint32_t col;
+struct AzNonXmlCharError {
+    uint32_t ch;
+    AzSvgParseErrorPosition pos;
 };
-typedef struct AzSvgParseErrorPosition AzSvgParseErrorPosition;
+typedef struct AzNonXmlCharError AzNonXmlCharError;
 
-struct AzInstantPtrCloneFn {
-    AzInstantPtrCloneFnType cb;
+struct AzInvalidCharError {
+    uint8_t expected;
+    uint8_t got;
+    AzSvgParseErrorPosition pos;
 };
-typedef struct AzInstantPtrCloneFn AzInstantPtrCloneFn;
+typedef struct AzInvalidCharError AzInvalidCharError;
 
-struct AzInstantPtrDestructorFn {
-    AzInstantPtrDestructorFnType cb;
+struct AzInvalidCharMultipleError {
+    uint8_t expected;
+    AzU8Vec got;
+    AzSvgParseErrorPosition pos;
 };
-typedef struct AzInstantPtrDestructorFn AzInstantPtrDestructorFn;
+typedef struct AzInvalidCharMultipleError AzInvalidCharMultipleError;
 
-struct AzSystemTick {
-    uint64_t tick_counter;
+struct AzInvalidQuoteError {
+    uint8_t got;
+    AzSvgParseErrorPosition pos;
 };
-typedef struct AzSystemTick AzSystemTick;
+typedef struct AzInvalidQuoteError AzInvalidQuoteError;
 
-struct AzSystemTimeDiff {
-    uint64_t secs;
-    uint32_t nanos;
+struct AzInvalidSpaceError {
+    uint8_t got;
+    AzSvgParseErrorPosition pos;
 };
-typedef struct AzSystemTimeDiff AzSystemTimeDiff;
+typedef struct AzInvalidSpaceError AzInvalidSpaceError;
 
-struct AzSystemTickDiff {
-    uint64_t tick_diff;
+struct AzInstantPtr {
+    void* const ptr;
+    AzInstantPtrCloneFn clone_fn;
+    AzInstantPtrDestructorFn destructor;
 };
-typedef struct AzSystemTickDiff AzSystemTickDiff;
+typedef struct AzInstantPtr AzInstantPtr;
 
-enum AzRawWindowHandleTag {
-   AzRawWindowHandleTag_IOS,
-   AzRawWindowHandleTag_MacOS,
-   AzRawWindowHandleTag_Xlib,
-   AzRawWindowHandleTag_Xcb,
-   AzRawWindowHandleTag_Wayland,
-   AzRawWindowHandleTag_Windows,
-   AzRawWindowHandleTag_Web,
-   AzRawWindowHandleTag_Android,
-   AzRawWindowHandleTag_Unsupported,
+enum AzDurationTag {
+   AzDurationTag_System,
+   AzDurationTag_Tick,
 };
-typedef enum AzRawWindowHandleTag AzRawWindowHandleTag;
+typedef enum AzDurationTag AzDurationTag;
 
-struct AzRawWindowHandleVariant_IOS { AzRawWindowHandleTag tag; AzIOSHandle payload; };
-typedef struct AzRawWindowHandleVariant_IOS AzRawWindowHandleVariant_IOS;
+struct AzDurationVariant_System { AzDurationTag tag; AzSystemTimeDiff payload; };
+typedef struct AzDurationVariant_System AzDurationVariant_System;
 
-struct AzRawWindowHandleVariant_MacOS { AzRawWindowHandleTag tag; AzMacOSHandle payload; };
-typedef struct AzRawWindowHandleVariant_MacOS AzRawWindowHandleVariant_MacOS;
-
-struct AzRawWindowHandleVariant_Xlib { AzRawWindowHandleTag tag; AzXlibHandle payload; };
-typedef struct AzRawWindowHandleVariant_Xlib AzRawWindowHandleVariant_Xlib;
-
-struct AzRawWindowHandleVariant_Xcb { AzRawWindowHandleTag tag; AzXcbHandle payload; };
-typedef struct AzRawWindowHandleVariant_Xcb AzRawWindowHandleVariant_Xcb;
-
-struct AzRawWindowHandleVariant_Wayland { AzRawWindowHandleTag tag; AzWaylandHandle payload; };
-typedef struct AzRawWindowHandleVariant_Wayland AzRawWindowHandleVariant_Wayland;
-
-struct AzRawWindowHandleVariant_Windows { AzRawWindowHandleTag tag; AzWindowsHandle payload; };
-typedef struct AzRawWindowHandleVariant_Windows AzRawWindowHandleVariant_Windows;
-
-struct AzRawWindowHandleVariant_Web { AzRawWindowHandleTag tag; AzWebHandle payload; };
-typedef struct AzRawWindowHandleVariant_Web AzRawWindowHandleVariant_Web;
-
-struct AzRawWindowHandleVariant_Android { AzRawWindowHandleTag tag; AzAndroidHandle payload; };
-typedef struct AzRawWindowHandleVariant_Android AzRawWindowHandleVariant_Android;
-
-struct AzRawWindowHandleVariant_Unsupported { AzRawWindowHandleTag tag; };
-typedef struct AzRawWindowHandleVariant_Unsupported AzRawWindowHandleVariant_Unsupported;
+struct AzDurationVariant_Tick { AzDurationTag tag; AzSystemTickDiff payload; };
+typedef struct AzDurationVariant_Tick AzDurationVariant_Tick;
 
 
-union AzRawWindowHandle {
-    AzRawWindowHandleVariant_IOS IOS;
-    AzRawWindowHandleVariant_MacOS MacOS;
-    AzRawWindowHandleVariant_Xlib Xlib;
-    AzRawWindowHandleVariant_Xcb Xcb;
-    AzRawWindowHandleVariant_Wayland Wayland;
-    AzRawWindowHandleVariant_Windows Windows;
-    AzRawWindowHandleVariant_Web Web;
-    AzRawWindowHandleVariant_Android Android;
-    AzRawWindowHandleVariant_Unsupported Unsupported;
+union AzDuration {
+    AzDurationVariant_System System;
+    AzDurationVariant_Tick Tick;
 };
-typedef union AzRawWindowHandle AzRawWindowHandle;
+typedef union AzDuration AzDuration;
 
-struct AzLogicalRect {
-    AzLogicalPosition origin;
-    AzLogicalSize size;
+struct AzAppConfig {
+    AzAppLogLevel log_level;
+    bool  enable_visual_panic_hook;
+    bool  enable_logging_on_panic;
+    bool  enable_tab_navigation;
+    AzSystemCallbacks system_callbacks;
 };
-typedef struct AzLogicalRect AzLogicalRect;
+typedef struct AzAppConfig AzAppConfig;
+
+struct AzSmallWindowIconBytes {
+    AzIconKey key;
+    AzU8Vec rgba_bytes;
+};
+typedef struct AzSmallWindowIconBytes AzSmallWindowIconBytes;
+
+struct AzLargeWindowIconBytes {
+    AzIconKey key;
+    AzU8Vec rgba_bytes;
+};
+typedef struct AzLargeWindowIconBytes AzLargeWindowIconBytes;
+
+enum AzWindowIconTag {
+   AzWindowIconTag_Small,
+   AzWindowIconTag_Large,
+};
+typedef enum AzWindowIconTag AzWindowIconTag;
+
+struct AzWindowIconVariant_Small { AzWindowIconTag tag; AzSmallWindowIconBytes payload; };
+typedef struct AzWindowIconVariant_Small AzWindowIconVariant_Small;
+
+struct AzWindowIconVariant_Large { AzWindowIconTag tag; AzLargeWindowIconBytes payload; };
+typedef struct AzWindowIconVariant_Large AzWindowIconVariant_Large;
+
+
+union AzWindowIcon {
+    AzWindowIconVariant_Small Small;
+    AzWindowIconVariant_Large Large;
+};
+typedef union AzWindowIcon AzWindowIcon;
+
+struct AzTaskBarIcon {
+    AzIconKey key;
+    AzU8Vec rgba_bytes;
+};
+typedef struct AzTaskBarIcon AzTaskBarIcon;
 
 struct AzWindowSize {
     AzLogicalSize dimensions;
@@ -5784,6 +6033,18 @@ struct AzWindowSize {
     AzOptionLogicalSize max_dimensions;
 };
 typedef struct AzWindowSize AzWindowSize;
+
+struct AzKeyboardState {
+    bool  shift_down;
+    bool  ctrl_down;
+    bool  alt_down;
+    bool  super_down;
+    AzOptionChar current_char;
+    AzOptionVirtualKeyCode current_virtual_keycode;
+    AzVirtualKeyCodeVec pressed_virtual_keycodes;
+    AzScanCodeVec pressed_scancodes;
+};
+typedef struct AzKeyboardState AzKeyboardState;
 
 struct AzMouseState {
     AzOptionMouseCursorType mouse_cursor_type;
@@ -5797,6 +6058,19 @@ struct AzMouseState {
 };
 typedef struct AzMouseState AzMouseState;
 
+struct AzGlCallbackInfo {
+    AzDomNodeId callback_node_id;
+    AzHidpiAdjustedBounds bounds;
+    AzGlContextPtr* const gl_context;
+    void* const resources;
+    AzNodeVec* const node_hierarchy;
+    void* const words_cache;
+    void* const shaped_words_cache;
+    void* const positioned_words_cache;
+    void* const positioned_rects;
+};
+typedef struct AzGlCallbackInfo AzGlCallbackInfo;
+
 struct AzGlCallbackReturn {
     AzOptionTexture texture;
 };
@@ -5809,12 +6083,6 @@ struct AzLayoutInfo {
     void* const resources;
 };
 typedef struct AzLayoutInfo AzLayoutInfo;
-
-struct AzSystemCallbacks {
-    AzCreateThreadFn create_thread_fn;
-    AzGetSystemTimeFn get_system_time_fn;
-};
-typedef struct AzSystemCallbacks AzSystemCallbacks;
 
 enum AzEventFilterTag {
    AzEventFilterTag_Hover,
@@ -5855,34 +6123,44 @@ union AzEventFilter {
 };
 typedef union AzEventFilter AzEventFilter;
 
-enum AzCssNthChildSelectorTag {
-   AzCssNthChildSelectorTag_Number,
-   AzCssNthChildSelectorTag_Even,
-   AzCssNthChildSelectorTag_Odd,
-   AzCssNthChildSelectorTag_Pattern,
+enum AzCssPathPseudoSelectorTag {
+   AzCssPathPseudoSelectorTag_First,
+   AzCssPathPseudoSelectorTag_Last,
+   AzCssPathPseudoSelectorTag_NthChild,
+   AzCssPathPseudoSelectorTag_Hover,
+   AzCssPathPseudoSelectorTag_Active,
+   AzCssPathPseudoSelectorTag_Focus,
 };
-typedef enum AzCssNthChildSelectorTag AzCssNthChildSelectorTag;
+typedef enum AzCssPathPseudoSelectorTag AzCssPathPseudoSelectorTag;
 
-struct AzCssNthChildSelectorVariant_Number { AzCssNthChildSelectorTag tag; uint32_t payload; };
-typedef struct AzCssNthChildSelectorVariant_Number AzCssNthChildSelectorVariant_Number;
+struct AzCssPathPseudoSelectorVariant_First { AzCssPathPseudoSelectorTag tag; };
+typedef struct AzCssPathPseudoSelectorVariant_First AzCssPathPseudoSelectorVariant_First;
 
-struct AzCssNthChildSelectorVariant_Even { AzCssNthChildSelectorTag tag; };
-typedef struct AzCssNthChildSelectorVariant_Even AzCssNthChildSelectorVariant_Even;
+struct AzCssPathPseudoSelectorVariant_Last { AzCssPathPseudoSelectorTag tag; };
+typedef struct AzCssPathPseudoSelectorVariant_Last AzCssPathPseudoSelectorVariant_Last;
 
-struct AzCssNthChildSelectorVariant_Odd { AzCssNthChildSelectorTag tag; };
-typedef struct AzCssNthChildSelectorVariant_Odd AzCssNthChildSelectorVariant_Odd;
+struct AzCssPathPseudoSelectorVariant_NthChild { AzCssPathPseudoSelectorTag tag; AzCssNthChildSelector payload; };
+typedef struct AzCssPathPseudoSelectorVariant_NthChild AzCssPathPseudoSelectorVariant_NthChild;
 
-struct AzCssNthChildSelectorVariant_Pattern { AzCssNthChildSelectorTag tag; AzCssNthChildPattern payload; };
-typedef struct AzCssNthChildSelectorVariant_Pattern AzCssNthChildSelectorVariant_Pattern;
+struct AzCssPathPseudoSelectorVariant_Hover { AzCssPathPseudoSelectorTag tag; };
+typedef struct AzCssPathPseudoSelectorVariant_Hover AzCssPathPseudoSelectorVariant_Hover;
+
+struct AzCssPathPseudoSelectorVariant_Active { AzCssPathPseudoSelectorTag tag; };
+typedef struct AzCssPathPseudoSelectorVariant_Active AzCssPathPseudoSelectorVariant_Active;
+
+struct AzCssPathPseudoSelectorVariant_Focus { AzCssPathPseudoSelectorTag tag; };
+typedef struct AzCssPathPseudoSelectorVariant_Focus AzCssPathPseudoSelectorVariant_Focus;
 
 
-union AzCssNthChildSelector {
-    AzCssNthChildSelectorVariant_Number Number;
-    AzCssNthChildSelectorVariant_Even Even;
-    AzCssNthChildSelectorVariant_Odd Odd;
-    AzCssNthChildSelectorVariant_Pattern Pattern;
+union AzCssPathPseudoSelector {
+    AzCssPathPseudoSelectorVariant_First First;
+    AzCssPathPseudoSelectorVariant_Last Last;
+    AzCssPathPseudoSelectorVariant_NthChild NthChild;
+    AzCssPathPseudoSelectorVariant_Hover Hover;
+    AzCssPathPseudoSelectorVariant_Active Active;
+    AzCssPathPseudoSelectorVariant_Focus Focus;
 };
-typedef union AzCssNthChildSelector AzCssNthChildSelector;
+typedef union AzCssPathPseudoSelector AzCssPathPseudoSelector;
 
 struct AzLinearColorStop {
     AzOptionPercentageValue offset;
@@ -6010,505 +6288,6 @@ union AzStyleTransform {
 };
 typedef union AzStyleTransform AzStyleTransform;
 
-struct AzStyledNode {
-    AzStyledNodeState state;
-    AzOptionTagId tag_id;
-};
-typedef struct AzStyledNode AzStyledNode;
-
-struct AzTagIdToNodeIdMapping {
-    AzTagId tag_id;
-    AzNodeId node_id;
-    AzOptionTabIndex tab_index;
-};
-typedef struct AzTagIdToNodeIdMapping AzTagIdToNodeIdMapping;
-
-struct AzRefstrVecRef {
-    AzRefstr* const ptr;
-    size_t len;
-};
-typedef struct AzRefstrVecRef AzRefstrVecRef;
-
-struct AzImageMask {
-    AzImageId image;
-    AzLogicalRect rect;
-    bool  repeat;
-};
-typedef struct AzImageMask AzImageMask;
-
-struct AzSvgLine {
-    AzSvgPoint start;
-    AzSvgPoint end;
-};
-typedef struct AzSvgLine AzSvgLine;
-
-struct AzSvgRenderOptions {
-    AzOptionColorU background_color;
-    AzSvgFitTo fit;
-};
-typedef struct AzSvgRenderOptions AzSvgRenderOptions;
-
-struct AzSvgStrokeStyle {
-    AzSvgLineCap start_cap;
-    AzSvgLineCap end_cap;
-    AzSvgLineJoin line_join;
-    AzOptionSvgDashPattern dash_pattern;
-    size_t line_width;
-    size_t miter_limit;
-    size_t tolerance;
-    bool  apply_line_width;
-};
-typedef struct AzSvgStrokeStyle AzSvgStrokeStyle;
-
-struct AzThread {
-    void* restrict thread_handle;
-    void* restrict sender;
-    void* restrict receiver;
-    AzRefAny writeback_data;
-    void* restrict dropcheck;
-    AzCheckThreadFinishedFn check_thread_finished_fn;
-    AzLibrarySendThreadMsgFn send_thread_msg_fn;
-    AzLibraryReceiveThreadMsgFn receive_thread_msg_fn;
-    AzThreadDestructorFn thread_destructor_fn;
-};
-typedef struct AzThread AzThread;
-
-enum AzThreadReceiveMsgTag {
-   AzThreadReceiveMsgTag_WriteBack,
-   AzThreadReceiveMsgTag_Update,
-};
-typedef enum AzThreadReceiveMsgTag AzThreadReceiveMsgTag;
-
-struct AzThreadReceiveMsgVariant_WriteBack { AzThreadReceiveMsgTag tag; AzThreadWriteBackMsg payload; };
-typedef struct AzThreadReceiveMsgVariant_WriteBack AzThreadReceiveMsgVariant_WriteBack;
-
-struct AzThreadReceiveMsgVariant_Update { AzThreadReceiveMsgTag tag; AzUpdateScreen payload; };
-typedef struct AzThreadReceiveMsgVariant_Update AzThreadReceiveMsgVariant_Update;
-
-
-union AzThreadReceiveMsg {
-    AzThreadReceiveMsgVariant_WriteBack WriteBack;
-    AzThreadReceiveMsgVariant_Update Update;
-};
-typedef union AzThreadReceiveMsg AzThreadReceiveMsg;
-
-struct AzVideoModeVec {
-    AzVideoMode* const ptr;
-    size_t len;
-    size_t cap;
-    AzVideoModeVecDestructor destructor;
-};
-typedef struct AzVideoModeVec AzVideoModeVec;
-
-struct AzStyleBackgroundPositionVec {
-    AzStyleBackgroundPosition* const ptr;
-    size_t len;
-    size_t cap;
-    AzStyleBackgroundPositionVecDestructor destructor;
-};
-typedef struct AzStyleBackgroundPositionVec AzStyleBackgroundPositionVec;
-
-struct AzStyleBackgroundRepeatVec {
-    AzStyleBackgroundRepeat* const ptr;
-    size_t len;
-    size_t cap;
-    AzStyleBackgroundRepeatVecDestructor destructor;
-};
-typedef struct AzStyleBackgroundRepeatVec AzStyleBackgroundRepeatVec;
-
-struct AzStyleBackgroundSizeVec {
-    AzStyleBackgroundSize* const ptr;
-    size_t len;
-    size_t cap;
-    AzStyleBackgroundSizeVecDestructor destructor;
-};
-typedef struct AzStyleBackgroundSizeVec AzStyleBackgroundSizeVec;
-
-struct AzStyleTransformVec {
-    AzStyleTransform* const ptr;
-    size_t len;
-    size_t cap;
-    AzStyleTransformVecDestructor destructor;
-};
-typedef struct AzStyleTransformVec AzStyleTransformVec;
-
-struct AzSvgVertexVec {
-    AzSvgVertex* const ptr;
-    size_t len;
-    size_t cap;
-    AzSvgVertexVecDestructor destructor;
-};
-typedef struct AzSvgVertexVec AzSvgVertexVec;
-
-struct AzU32Vec {
-    uint32_t* const ptr;
-    size_t len;
-    size_t cap;
-    AzU32VecDestructor destructor;
-};
-typedef struct AzU32Vec AzU32Vec;
-
-struct AzXWindowTypeVec {
-    AzXWindowType* const ptr;
-    size_t len;
-    size_t cap;
-    AzXWindowTypeVecDestructor destructor;
-};
-typedef struct AzXWindowTypeVec AzXWindowTypeVec;
-
-struct AzVirtualKeyCodeVec {
-    AzVirtualKeyCode* const ptr;
-    size_t len;
-    size_t cap;
-    AzVirtualKeyCodeVecDestructor destructor;
-};
-typedef struct AzVirtualKeyCodeVec AzVirtualKeyCodeVec;
-
-struct AzCascadeInfoVec {
-    AzCascadeInfo* const ptr;
-    size_t len;
-    size_t cap;
-    AzCascadeInfoVecDestructor destructor;
-};
-typedef struct AzCascadeInfoVec AzCascadeInfoVec;
-
-struct AzScanCodeVec {
-    uint32_t* const ptr;
-    size_t len;
-    size_t cap;
-    AzScanCodeVecDestructor destructor;
-};
-typedef struct AzScanCodeVec AzScanCodeVec;
-
-struct AzU8Vec {
-    uint8_t* const ptr;
-    size_t len;
-    size_t cap;
-    AzU8VecDestructor destructor;
-};
-typedef struct AzU8Vec AzU8Vec;
-
-struct AzGLuintVec {
-    uint32_t* const ptr;
-    size_t len;
-    size_t cap;
-    AzGLuintVecDestructor destructor;
-};
-typedef struct AzGLuintVec AzGLuintVec;
-
-struct AzGLintVec {
-    int32_t* const ptr;
-    size_t len;
-    size_t cap;
-    AzGLintVecDestructor destructor;
-};
-typedef struct AzGLintVec AzGLintVec;
-
-struct AzLinearColorStopVec {
-    AzLinearColorStop* const ptr;
-    size_t len;
-    size_t cap;
-    AzLinearColorStopVecDestructor destructor;
-};
-typedef struct AzLinearColorStopVec AzLinearColorStopVec;
-
-struct AzRadialColorStopVec {
-    AzRadialColorStop* const ptr;
-    size_t len;
-    size_t cap;
-    AzRadialColorStopVecDestructor destructor;
-};
-typedef struct AzRadialColorStopVec AzRadialColorStopVec;
-
-struct AzNodeIdVec {
-    AzNodeId* const ptr;
-    size_t len;
-    size_t cap;
-    AzNodeIdVecDestructor destructor;
-};
-typedef struct AzNodeIdVec AzNodeIdVec;
-
-struct AzNodeVec {
-    AzNode* const ptr;
-    size_t len;
-    size_t cap;
-    AzNodeVecDestructor destructor;
-};
-typedef struct AzNodeVec AzNodeVec;
-
-struct AzStyledNodeVec {
-    AzStyledNode* const ptr;
-    size_t len;
-    size_t cap;
-    AzStyledNodeVecDestructor destructor;
-};
-typedef struct AzStyledNodeVec AzStyledNodeVec;
-
-struct AzTagIdsToNodeIdsMappingVec {
-    AzTagIdToNodeIdMapping* const ptr;
-    size_t len;
-    size_t cap;
-    AzTagIdsToNodeIdsMappingVecDestructor destructor;
-};
-typedef struct AzTagIdsToNodeIdsMappingVec AzTagIdsToNodeIdsMappingVec;
-
-struct AzParentWithNodeDepthVec {
-    AzParentWithNodeDepth* const ptr;
-    size_t len;
-    size_t cap;
-    AzParentWithNodeDepthVecDestructor destructor;
-};
-typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
-
-enum AzOptionThreadReceiveMsgTag {
-   AzOptionThreadReceiveMsgTag_None,
-   AzOptionThreadReceiveMsgTag_Some,
-};
-typedef enum AzOptionThreadReceiveMsgTag AzOptionThreadReceiveMsgTag;
-
-struct AzOptionThreadReceiveMsgVariant_None { AzOptionThreadReceiveMsgTag tag; };
-typedef struct AzOptionThreadReceiveMsgVariant_None AzOptionThreadReceiveMsgVariant_None;
-
-struct AzOptionThreadReceiveMsgVariant_Some { AzOptionThreadReceiveMsgTag tag; AzThreadReceiveMsg payload; };
-typedef struct AzOptionThreadReceiveMsgVariant_Some AzOptionThreadReceiveMsgVariant_Some;
-
-
-union AzOptionThreadReceiveMsg {
-    AzOptionThreadReceiveMsgVariant_None None;
-    AzOptionThreadReceiveMsgVariant_Some Some;
-};
-typedef union AzOptionThreadReceiveMsg AzOptionThreadReceiveMsg;
-
-enum AzOptionImageMaskTag {
-   AzOptionImageMaskTag_None,
-   AzOptionImageMaskTag_Some,
-};
-typedef enum AzOptionImageMaskTag AzOptionImageMaskTag;
-
-struct AzOptionImageMaskVariant_None { AzOptionImageMaskTag tag; };
-typedef struct AzOptionImageMaskVariant_None AzOptionImageMaskVariant_None;
-
-struct AzOptionImageMaskVariant_Some { AzOptionImageMaskTag tag; AzImageMask payload; };
-typedef struct AzOptionImageMaskVariant_Some AzOptionImageMaskVariant_Some;
-
-
-union AzOptionImageMask {
-    AzOptionImageMaskVariant_None None;
-    AzOptionImageMaskVariant_Some Some;
-};
-typedef union AzOptionImageMask AzOptionImageMask;
-
-struct AzNonXmlCharError {
-    uint32_t ch;
-    AzSvgParseErrorPosition pos;
-};
-typedef struct AzNonXmlCharError AzNonXmlCharError;
-
-struct AzInvalidCharError {
-    uint8_t expected;
-    uint8_t got;
-    AzSvgParseErrorPosition pos;
-};
-typedef struct AzInvalidCharError AzInvalidCharError;
-
-struct AzInvalidCharMultipleError {
-    uint8_t expected;
-    AzU8Vec got;
-    AzSvgParseErrorPosition pos;
-};
-typedef struct AzInvalidCharMultipleError AzInvalidCharMultipleError;
-
-struct AzInvalidQuoteError {
-    uint8_t got;
-    AzSvgParseErrorPosition pos;
-};
-typedef struct AzInvalidQuoteError AzInvalidQuoteError;
-
-struct AzInvalidSpaceError {
-    uint8_t got;
-    AzSvgParseErrorPosition pos;
-};
-typedef struct AzInvalidSpaceError AzInvalidSpaceError;
-
-enum AzInstantTag {
-   AzInstantTag_System,
-   AzInstantTag_Tick,
-};
-typedef enum AzInstantTag AzInstantTag;
-
-struct AzInstantVariant_System { AzInstantTag tag; AzInstantPtr payload; };
-typedef struct AzInstantVariant_System AzInstantVariant_System;
-
-struct AzInstantVariant_Tick { AzInstantTag tag; AzSystemTick payload; };
-typedef struct AzInstantVariant_Tick AzInstantVariant_Tick;
-
-
-union AzInstant {
-    AzInstantVariant_System System;
-    AzInstantVariant_Tick Tick;
-};
-typedef union AzInstant AzInstant;
-
-enum AzDurationTag {
-   AzDurationTag_System,
-   AzDurationTag_Tick,
-};
-typedef enum AzDurationTag AzDurationTag;
-
-struct AzDurationVariant_System { AzDurationTag tag; AzSystemTimeDiff payload; };
-typedef struct AzDurationVariant_System AzDurationVariant_System;
-
-struct AzDurationVariant_Tick { AzDurationTag tag; AzSystemTickDiff payload; };
-typedef struct AzDurationVariant_Tick AzDurationVariant_Tick;
-
-
-union AzDuration {
-    AzDurationVariant_System System;
-    AzDurationVariant_Tick Tick;
-};
-typedef union AzDuration AzDuration;
-
-struct AzAppConfig {
-    AzAppLogLevel log_level;
-    bool  enable_visual_panic_hook;
-    bool  enable_logging_on_panic;
-    bool  enable_tab_navigation;
-    AzSystemCallbacks system_callbacks;
-};
-typedef struct AzAppConfig AzAppConfig;
-
-struct AzSmallWindowIconBytes {
-    AzIconKey key;
-    AzU8Vec rgba_bytes;
-};
-typedef struct AzSmallWindowIconBytes AzSmallWindowIconBytes;
-
-struct AzLargeWindowIconBytes {
-    AzIconKey key;
-    AzU8Vec rgba_bytes;
-};
-typedef struct AzLargeWindowIconBytes AzLargeWindowIconBytes;
-
-enum AzWindowIconTag {
-   AzWindowIconTag_Small,
-   AzWindowIconTag_Large,
-};
-typedef enum AzWindowIconTag AzWindowIconTag;
-
-struct AzWindowIconVariant_Small { AzWindowIconTag tag; AzSmallWindowIconBytes payload; };
-typedef struct AzWindowIconVariant_Small AzWindowIconVariant_Small;
-
-struct AzWindowIconVariant_Large { AzWindowIconTag tag; AzLargeWindowIconBytes payload; };
-typedef struct AzWindowIconVariant_Large AzWindowIconVariant_Large;
-
-
-union AzWindowIcon {
-    AzWindowIconVariant_Small Small;
-    AzWindowIconVariant_Large Large;
-};
-typedef union AzWindowIcon AzWindowIcon;
-
-struct AzTaskBarIcon {
-    AzIconKey key;
-    AzU8Vec rgba_bytes;
-};
-typedef struct AzTaskBarIcon AzTaskBarIcon;
-
-struct AzKeyboardState {
-    bool  shift_down;
-    bool  ctrl_down;
-    bool  alt_down;
-    bool  super_down;
-    AzOptionChar current_char;
-    AzOptionVirtualKeyCode current_virtual_keycode;
-    AzVirtualKeyCodeVec pressed_virtual_keycodes;
-    AzScanCodeVec pressed_scancodes;
-};
-typedef struct AzKeyboardState AzKeyboardState;
-
-struct AzGlCallbackInfo {
-    AzDomNodeId callback_node_id;
-    AzHidpiAdjustedBounds bounds;
-    AzGlContextPtr* const gl_context;
-    void* const resources;
-    AzNodeVec* const node_hierarchy;
-    void* const words_cache;
-    void* const shaped_words_cache;
-    void* const positioned_words_cache;
-    void* const positioned_rects;
-};
-typedef struct AzGlCallbackInfo AzGlCallbackInfo;
-
-struct AzCallbackData {
-    AzEventFilter event;
-    AzCallback callback;
-    AzRefAny data;
-};
-typedef struct AzCallbackData AzCallbackData;
-
-enum AzCssPathPseudoSelectorTag {
-   AzCssPathPseudoSelectorTag_First,
-   AzCssPathPseudoSelectorTag_Last,
-   AzCssPathPseudoSelectorTag_NthChild,
-   AzCssPathPseudoSelectorTag_Hover,
-   AzCssPathPseudoSelectorTag_Active,
-   AzCssPathPseudoSelectorTag_Focus,
-};
-typedef enum AzCssPathPseudoSelectorTag AzCssPathPseudoSelectorTag;
-
-struct AzCssPathPseudoSelectorVariant_First { AzCssPathPseudoSelectorTag tag; };
-typedef struct AzCssPathPseudoSelectorVariant_First AzCssPathPseudoSelectorVariant_First;
-
-struct AzCssPathPseudoSelectorVariant_Last { AzCssPathPseudoSelectorTag tag; };
-typedef struct AzCssPathPseudoSelectorVariant_Last AzCssPathPseudoSelectorVariant_Last;
-
-struct AzCssPathPseudoSelectorVariant_NthChild { AzCssPathPseudoSelectorTag tag; AzCssNthChildSelector payload; };
-typedef struct AzCssPathPseudoSelectorVariant_NthChild AzCssPathPseudoSelectorVariant_NthChild;
-
-struct AzCssPathPseudoSelectorVariant_Hover { AzCssPathPseudoSelectorTag tag; };
-typedef struct AzCssPathPseudoSelectorVariant_Hover AzCssPathPseudoSelectorVariant_Hover;
-
-struct AzCssPathPseudoSelectorVariant_Active { AzCssPathPseudoSelectorTag tag; };
-typedef struct AzCssPathPseudoSelectorVariant_Active AzCssPathPseudoSelectorVariant_Active;
-
-struct AzCssPathPseudoSelectorVariant_Focus { AzCssPathPseudoSelectorTag tag; };
-typedef struct AzCssPathPseudoSelectorVariant_Focus AzCssPathPseudoSelectorVariant_Focus;
-
-
-union AzCssPathPseudoSelector {
-    AzCssPathPseudoSelectorVariant_First First;
-    AzCssPathPseudoSelectorVariant_Last Last;
-    AzCssPathPseudoSelectorVariant_NthChild NthChild;
-    AzCssPathPseudoSelectorVariant_Hover Hover;
-    AzCssPathPseudoSelectorVariant_Active Active;
-    AzCssPathPseudoSelectorVariant_Focus Focus;
-};
-typedef union AzCssPathPseudoSelector AzCssPathPseudoSelector;
-
-struct AzLinearGradient {
-    AzDirection direction;
-    AzExtendMode extend_mode;
-    AzLinearColorStopVec stops;
-};
-typedef struct AzLinearGradient AzLinearGradient;
-
-struct AzRadialGradient {
-    AzShape shape;
-    AzRadialGradientSize size;
-    AzStyleBackgroundPosition position;
-    AzExtendMode extend_mode;
-    AzLinearColorStopVec stops;
-};
-typedef struct AzRadialGradient AzRadialGradient;
-
-struct AzConicGradient {
-    AzExtendMode extend_mode;
-    AzStyleBackgroundPosition center;
-    AzAngleValue angle;
-    AzRadialColorStopVec stops;
-};
-typedef struct AzConicGradient AzConicGradient;
-
 enum AzStyleBackgroundPositionVecValueTag {
    AzStyleBackgroundPositionVecValueTag_Auto,
    AzStyleBackgroundPositionVecValueTag_None,
@@ -6611,39 +6390,18 @@ union AzStyleBackgroundSizeVecValue {
 };
 typedef union AzStyleBackgroundSizeVecValue AzStyleBackgroundSizeVecValue;
 
-enum AzStyleTransformVecValueTag {
-   AzStyleTransformVecValueTag_Auto,
-   AzStyleTransformVecValueTag_None,
-   AzStyleTransformVecValueTag_Inherit,
-   AzStyleTransformVecValueTag_Initial,
-   AzStyleTransformVecValueTag_Exact,
+struct AzStyledNode {
+    AzStyledNodeState state;
+    AzOptionTagId tag_id;
 };
-typedef enum AzStyleTransformVecValueTag AzStyleTransformVecValueTag;
+typedef struct AzStyledNode AzStyledNode;
 
-struct AzStyleTransformVecValueVariant_Auto { AzStyleTransformVecValueTag tag; };
-typedef struct AzStyleTransformVecValueVariant_Auto AzStyleTransformVecValueVariant_Auto;
-
-struct AzStyleTransformVecValueVariant_None { AzStyleTransformVecValueTag tag; };
-typedef struct AzStyleTransformVecValueVariant_None AzStyleTransformVecValueVariant_None;
-
-struct AzStyleTransformVecValueVariant_Inherit { AzStyleTransformVecValueTag tag; };
-typedef struct AzStyleTransformVecValueVariant_Inherit AzStyleTransformVecValueVariant_Inherit;
-
-struct AzStyleTransformVecValueVariant_Initial { AzStyleTransformVecValueTag tag; };
-typedef struct AzStyleTransformVecValueVariant_Initial AzStyleTransformVecValueVariant_Initial;
-
-struct AzStyleTransformVecValueVariant_Exact { AzStyleTransformVecValueTag tag; AzStyleTransformVec payload; };
-typedef struct AzStyleTransformVecValueVariant_Exact AzStyleTransformVecValueVariant_Exact;
-
-
-union AzStyleTransformVecValue {
-    AzStyleTransformVecValueVariant_Auto Auto;
-    AzStyleTransformVecValueVariant_None None;
-    AzStyleTransformVecValueVariant_Inherit Inherit;
-    AzStyleTransformVecValueVariant_Initial Initial;
-    AzStyleTransformVecValueVariant_Exact Exact;
+struct AzTagIdToNodeIdMapping {
+    AzTagId tag_id;
+    AzNodeId node_id;
+    AzOptionTabIndex tab_index;
 };
-typedef union AzStyleTransformVecValue AzStyleTransformVecValue;
+typedef struct AzTagIdToNodeIdMapping AzTagIdToNodeIdMapping;
 
 struct AzGetProgramBinaryReturn {
     AzU8Vec _0;
@@ -6689,29 +6447,36 @@ struct AzTesselatedCPUSvgNode {
 };
 typedef struct AzTesselatedCPUSvgNode AzTesselatedCPUSvgNode;
 
-enum AzSvgStyleTag {
-   AzSvgStyleTag_Fill,
-   AzSvgStyleTag_Stroke,
+struct AzSvgRenderOptions {
+    AzOptionColorU background_color;
+    AzSvgFitTo fit;
 };
-typedef enum AzSvgStyleTag AzSvgStyleTag;
+typedef struct AzSvgRenderOptions AzSvgRenderOptions;
 
-struct AzSvgStyleVariant_Fill { AzSvgStyleTag tag; AzSvgFillStyle payload; };
-typedef struct AzSvgStyleVariant_Fill AzSvgStyleVariant_Fill;
-
-struct AzSvgStyleVariant_Stroke { AzSvgStyleTag tag; AzSvgStrokeStyle payload; };
-typedef struct AzSvgStyleVariant_Stroke AzSvgStyleVariant_Stroke;
-
-
-union AzSvgStyle {
-    AzSvgStyleVariant_Fill Fill;
-    AzSvgStyleVariant_Stroke Stroke;
+struct AzSvgStrokeStyle {
+    AzSvgLineCap start_cap;
+    AzSvgLineCap end_cap;
+    AzSvgLineJoin line_join;
+    AzOptionSvgDashPattern dash_pattern;
+    size_t line_width;
+    size_t miter_limit;
+    size_t tolerance;
+    bool  apply_line_width;
 };
-typedef union AzSvgStyle AzSvgStyle;
+typedef struct AzSvgStrokeStyle AzSvgStrokeStyle;
 
 struct AzString {
     AzU8Vec vec;
 };
 typedef struct AzString AzString;
+
+struct AzStyleTransformVec {
+    AzStyleTransform* const ptr;
+    size_t len;
+    size_t cap;
+    AzStyleTransformVecDestructor destructor;
+};
+typedef struct AzStyleTransformVec AzStyleTransformVec;
 
 struct AzSvgPathElementVec {
     AzSvgPathElement* const ptr;
@@ -6721,14 +6486,6 @@ struct AzSvgPathElementVec {
 };
 typedef struct AzSvgPathElementVec AzSvgPathElementVec;
 
-struct AzCallbackDataVec {
-    AzCallbackData* const ptr;
-    size_t len;
-    size_t cap;
-    AzCallbackDataVecDestructor destructor;
-};
-typedef struct AzCallbackDataVec AzCallbackDataVec;
-
 struct AzStringVec {
     AzString* const ptr;
     size_t len;
@@ -6736,6 +6493,38 @@ struct AzStringVec {
     AzStringVecDestructor destructor;
 };
 typedef struct AzStringVec AzStringVec;
+
+struct AzLinearColorStopVec {
+    AzLinearColorStop* const ptr;
+    size_t len;
+    size_t cap;
+    AzLinearColorStopVecDestructor destructor;
+};
+typedef struct AzLinearColorStopVec AzLinearColorStopVec;
+
+struct AzRadialColorStopVec {
+    AzRadialColorStop* const ptr;
+    size_t len;
+    size_t cap;
+    AzRadialColorStopVecDestructor destructor;
+};
+typedef struct AzRadialColorStopVec AzRadialColorStopVec;
+
+struct AzStyledNodeVec {
+    AzStyledNode* const ptr;
+    size_t len;
+    size_t cap;
+    AzStyledNodeVecDestructor destructor;
+};
+typedef struct AzStyledNodeVec AzStyledNodeVec;
+
+struct AzTagIdsToNodeIdsMappingVec {
+    AzTagIdToNodeIdMapping* const ptr;
+    size_t len;
+    size_t cap;
+    AzTagIdsToNodeIdsMappingVecDestructor destructor;
+};
+typedef struct AzTagIdsToNodeIdsMappingVec AzTagIdsToNodeIdsMappingVec;
 
 enum AzOptionRawImageTag {
    AzOptionRawImageTag_None,
@@ -6832,25 +6621,6 @@ union AzOptionDuration {
 };
 typedef union AzOptionDuration AzOptionDuration;
 
-enum AzOptionInstantTag {
-   AzOptionInstantTag_None,
-   AzOptionInstantTag_Some,
-};
-typedef enum AzOptionInstantTag AzOptionInstantTag;
-
-struct AzOptionInstantVariant_None { AzOptionInstantTag tag; };
-typedef struct AzOptionInstantVariant_None AzOptionInstantVariant_None;
-
-struct AzOptionInstantVariant_Some { AzOptionInstantTag tag; AzInstant payload; };
-typedef struct AzOptionInstantVariant_Some AzOptionInstantVariant_Some;
-
-
-union AzOptionInstant {
-    AzOptionInstantVariant_None None;
-    AzOptionInstantVariant_Some Some;
-};
-typedef union AzOptionInstant AzOptionInstant;
-
 struct AzDuplicatedNamespaceError {
     AzString ns;
     AzSvgParseErrorPosition pos;
@@ -6887,6 +6657,25 @@ struct AzInvalidStringError {
     AzSvgParseErrorPosition pos;
 };
 typedef struct AzInvalidStringError AzInvalidStringError;
+
+enum AzInstantTag {
+   AzInstantTag_System,
+   AzInstantTag_Tick,
+};
+typedef enum AzInstantTag AzInstantTag;
+
+struct AzInstantVariant_System { AzInstantTag tag; AzInstantPtr payload; };
+typedef struct AzInstantVariant_System AzInstantVariant_System;
+
+struct AzInstantVariant_Tick { AzInstantTag tag; AzSystemTick payload; };
+typedef struct AzInstantVariant_Tick AzInstantVariant_Tick;
+
+
+union AzInstant {
+    AzInstantVariant_System System;
+    AzInstantVariant_Tick Tick;
+};
+typedef union AzInstant AzInstant;
 
 struct AzWindowsWindowOptions {
     bool  allow_drag_drop;
@@ -6974,6 +6763,37 @@ struct AzRefCountInner {
     AzRefAnyDestructorType custom_destructor;
 };
 typedef struct AzRefCountInner AzRefCountInner;
+
+struct AzRefCount {
+    AzRefCountInner* const ptr;
+};
+typedef struct AzRefCount AzRefCount;
+
+struct AzRefAny {
+    void* const _internal_ptr;
+    bool  is_dead;
+    AzRefCount sharing_info;
+};
+typedef struct AzRefAny AzRefAny;
+
+struct AzGlTextureNode {
+    AzGlCallback callback;
+    AzRefAny data;
+};
+typedef struct AzGlTextureNode AzGlTextureNode;
+
+struct AzIFrameNode {
+    AzIFrameCallback callback;
+    AzRefAny data;
+};
+typedef struct AzIFrameNode AzIFrameNode;
+
+struct AzCallbackData {
+    AzEventFilter event;
+    AzCallback callback;
+    AzRefAny data;
+};
+typedef struct AzCallbackData AzCallbackData;
 
 enum AzNodeTypeTag {
    AzNodeTypeTag_Div,
@@ -7081,6 +6901,30 @@ union AzCssPathSelector {
     AzCssPathSelectorVariant_Children Children;
 };
 typedef union AzCssPathSelector AzCssPathSelector;
+
+struct AzLinearGradient {
+    AzDirection direction;
+    AzExtendMode extend_mode;
+    AzLinearColorStopVec stops;
+};
+typedef struct AzLinearGradient AzLinearGradient;
+
+struct AzRadialGradient {
+    AzShape shape;
+    AzRadialGradientSize size;
+    AzStyleBackgroundPosition position;
+    AzExtendMode extend_mode;
+    AzLinearColorStopVec stops;
+};
+typedef struct AzRadialGradient AzRadialGradient;
+
+struct AzConicGradient {
+    AzExtendMode extend_mode;
+    AzStyleBackgroundPosition center;
+    AzAngleValue angle;
+    AzRadialColorStopVec stops;
+};
+typedef struct AzConicGradient AzConicGradient;
 
 struct AzCssImageId {
     AzString inner;
@@ -7212,6 +7056,40 @@ union AzStyleFontFamilyValue {
 };
 typedef union AzStyleFontFamilyValue AzStyleFontFamilyValue;
 
+enum AzStyleTransformVecValueTag {
+   AzStyleTransformVecValueTag_Auto,
+   AzStyleTransformVecValueTag_None,
+   AzStyleTransformVecValueTag_Inherit,
+   AzStyleTransformVecValueTag_Initial,
+   AzStyleTransformVecValueTag_Exact,
+};
+typedef enum AzStyleTransformVecValueTag AzStyleTransformVecValueTag;
+
+struct AzStyleTransformVecValueVariant_Auto { AzStyleTransformVecValueTag tag; };
+typedef struct AzStyleTransformVecValueVariant_Auto AzStyleTransformVecValueVariant_Auto;
+
+struct AzStyleTransformVecValueVariant_None { AzStyleTransformVecValueTag tag; };
+typedef struct AzStyleTransformVecValueVariant_None AzStyleTransformVecValueVariant_None;
+
+struct AzStyleTransformVecValueVariant_Inherit { AzStyleTransformVecValueTag tag; };
+typedef struct AzStyleTransformVecValueVariant_Inherit AzStyleTransformVecValueVariant_Inherit;
+
+struct AzStyleTransformVecValueVariant_Initial { AzStyleTransformVecValueTag tag; };
+typedef struct AzStyleTransformVecValueVariant_Initial AzStyleTransformVecValueVariant_Initial;
+
+struct AzStyleTransformVecValueVariant_Exact { AzStyleTransformVecValueTag tag; AzStyleTransformVec payload; };
+typedef struct AzStyleTransformVecValueVariant_Exact AzStyleTransformVecValueVariant_Exact;
+
+
+union AzStyleTransformVecValue {
+    AzStyleTransformVecValueVariant_Auto Auto;
+    AzStyleTransformVecValueVariant_None None;
+    AzStyleTransformVecValueVariant_Inherit Inherit;
+    AzStyleTransformVecValueVariant_Initial Initial;
+    AzStyleTransformVecValueVariant_Exact Exact;
+};
+typedef union AzStyleTransformVecValue AzStyleTransformVecValue;
+
 struct AzVertexAttribute {
     AzString name;
     AzOptionUsize layout_location;
@@ -7306,17 +7184,43 @@ struct AzSvgParseOptions {
 };
 typedef struct AzSvgParseOptions AzSvgParseOptions;
 
-struct AzTimer {
-    AzRefAny data;
-    AzInstant created;
-    AzOptionInstant last_run;
-    size_t run_count;
-    AzOptionDuration delay;
-    AzOptionDuration interval;
-    AzOptionDuration timeout;
-    AzTimerCallback callback;
+enum AzSvgStyleTag {
+   AzSvgStyleTag_Fill,
+   AzSvgStyleTag_Stroke,
 };
-typedef struct AzTimer AzTimer;
+typedef enum AzSvgStyleTag AzSvgStyleTag;
+
+struct AzSvgStyleVariant_Fill { AzSvgStyleTag tag; AzSvgFillStyle payload; };
+typedef struct AzSvgStyleVariant_Fill AzSvgStyleVariant_Fill;
+
+struct AzSvgStyleVariant_Stroke { AzSvgStyleTag tag; AzSvgStrokeStyle payload; };
+typedef struct AzSvgStyleVariant_Stroke AzSvgStyleVariant_Stroke;
+
+
+union AzSvgStyle {
+    AzSvgStyleVariant_Fill Fill;
+    AzSvgStyleVariant_Stroke Stroke;
+};
+typedef union AzSvgStyle AzSvgStyle;
+
+struct AzThread {
+    void* restrict thread_handle;
+    void* restrict sender;
+    void* restrict receiver;
+    AzRefAny writeback_data;
+    void* restrict dropcheck;
+    AzCheckThreadFinishedFn check_thread_finished_fn;
+    AzLibrarySendThreadMsgFn send_thread_msg_fn;
+    AzLibraryReceiveThreadMsgFn receive_thread_msg_fn;
+    AzThreadDestructorFn thread_destructor_fn;
+};
+typedef struct AzThread AzThread;
+
+struct AzThreadWriteBackMsg {
+    AzRefAny data;
+    AzWriteBackCallback callback;
+};
+typedef struct AzThreadWriteBackMsg AzThreadWriteBackMsg;
 
 struct AzMonitorVec {
     AzMonitor* const ptr;
@@ -7366,6 +7270,14 @@ struct AzCssPathSelectorVec {
 };
 typedef struct AzCssPathSelectorVec AzCssPathSelectorVec;
 
+struct AzCallbackDataVec {
+    AzCallbackData* const ptr;
+    size_t len;
+    size_t cap;
+    AzCallbackDataVecDestructor destructor;
+};
+typedef struct AzCallbackDataVec AzCallbackDataVec;
+
 struct AzDebugMessageVec {
     AzDebugMessage* const ptr;
     size_t len;
@@ -7381,6 +7293,25 @@ struct AzStringPairVec {
     AzStringPairVecDestructor destructor;
 };
 typedef struct AzStringPairVec AzStringPairVec;
+
+enum AzOptionRefAnyTag {
+   AzOptionRefAnyTag_None,
+   AzOptionRefAnyTag_Some,
+};
+typedef enum AzOptionRefAnyTag AzOptionRefAnyTag;
+
+struct AzOptionRefAnyVariant_None { AzOptionRefAnyTag tag; };
+typedef struct AzOptionRefAnyVariant_None AzOptionRefAnyVariant_None;
+
+struct AzOptionRefAnyVariant_Some { AzOptionRefAnyTag tag; AzRefAny payload; };
+typedef struct AzOptionRefAnyVariant_Some AzOptionRefAnyVariant_Some;
+
+
+union AzOptionRefAny {
+    AzOptionRefAnyVariant_None None;
+    AzOptionRefAnyVariant_Some Some;
+};
+typedef union AzOptionRefAny AzOptionRefAny;
 
 enum AzOptionWaylandThemeTag {
    AzOptionWaylandThemeTag_None,
@@ -7400,6 +7331,25 @@ union AzOptionWaylandTheme {
     AzOptionWaylandThemeVariant_Some Some;
 };
 typedef union AzOptionWaylandTheme AzOptionWaylandTheme;
+
+enum AzOptionInstantTag {
+   AzOptionInstantTag_None,
+   AzOptionInstantTag_Some,
+};
+typedef enum AzOptionInstantTag AzOptionInstantTag;
+
+struct AzOptionInstantVariant_None { AzOptionInstantTag tag; };
+typedef struct AzOptionInstantVariant_None AzOptionInstantVariant_None;
+
+struct AzOptionInstantVariant_Some { AzOptionInstantTag tag; AzInstant payload; };
+typedef struct AzOptionInstantVariant_Some AzOptionInstantVariant_Some;
+
+
+union AzOptionInstant {
+    AzOptionInstantVariant_None None;
+    AzOptionInstantVariant_Some Some;
+};
+typedef union AzOptionInstant AzOptionInstant;
 
 enum AzXmlStreamErrorTag {
    AzXmlStreamErrorTag_UnexpectedEndOfStream,
@@ -7959,6 +7909,37 @@ struct AzSvgMultiPolygon {
 };
 typedef struct AzSvgMultiPolygon AzSvgMultiPolygon;
 
+struct AzTimer {
+    AzRefAny data;
+    AzInstant created;
+    AzOptionInstant last_run;
+    size_t run_count;
+    AzOptionDuration delay;
+    AzOptionDuration interval;
+    AzOptionDuration timeout;
+    AzTimerCallback callback;
+};
+typedef struct AzTimer AzTimer;
+
+enum AzThreadReceiveMsgTag {
+   AzThreadReceiveMsgTag_WriteBack,
+   AzThreadReceiveMsgTag_Update,
+};
+typedef enum AzThreadReceiveMsgTag AzThreadReceiveMsgTag;
+
+struct AzThreadReceiveMsgVariant_WriteBack { AzThreadReceiveMsgTag tag; AzThreadWriteBackMsg payload; };
+typedef struct AzThreadReceiveMsgVariant_WriteBack AzThreadReceiveMsgVariant_WriteBack;
+
+struct AzThreadReceiveMsgVariant_Update { AzThreadReceiveMsgTag tag; AzUpdateScreen payload; };
+typedef struct AzThreadReceiveMsgVariant_Update AzThreadReceiveMsgVariant_Update;
+
+
+union AzThreadReceiveMsg {
+    AzThreadReceiveMsgVariant_WriteBack WriteBack;
+    AzThreadReceiveMsgVariant_Update Update;
+};
+typedef union AzThreadReceiveMsg AzThreadReceiveMsg;
+
 struct AzCssPropertyVec {
     AzCssProperty* const ptr;
     size_t len;
@@ -7974,6 +7955,25 @@ struct AzSvgMultiPolygonVec {
     AzSvgMultiPolygonVecDestructor destructor;
 };
 typedef struct AzSvgMultiPolygonVec AzSvgMultiPolygonVec;
+
+enum AzOptionThreadReceiveMsgTag {
+   AzOptionThreadReceiveMsgTag_None,
+   AzOptionThreadReceiveMsgTag_Some,
+};
+typedef enum AzOptionThreadReceiveMsgTag AzOptionThreadReceiveMsgTag;
+
+struct AzOptionThreadReceiveMsgVariant_None { AzOptionThreadReceiveMsgTag tag; };
+typedef struct AzOptionThreadReceiveMsgVariant_None AzOptionThreadReceiveMsgVariant_None;
+
+struct AzOptionThreadReceiveMsgVariant_Some { AzOptionThreadReceiveMsgTag tag; AzThreadReceiveMsg payload; };
+typedef struct AzOptionThreadReceiveMsgVariant_Some AzOptionThreadReceiveMsgVariant_Some;
+
+
+union AzOptionThreadReceiveMsg {
+    AzOptionThreadReceiveMsgVariant_None None;
+    AzOptionThreadReceiveMsgVariant_Some Some;
+};
+typedef union AzOptionThreadReceiveMsg AzOptionThreadReceiveMsg;
 
 struct AzXmlTextError {
     AzXmlStreamError stream_error;
