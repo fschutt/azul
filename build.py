@@ -1691,20 +1691,24 @@ def format_doc(docstring):
     newdoc = newdoc.replace("\r\n", "<br/>")
     return newdoc
 
-def render_example(partial, example):
+def render_example(partial, example, replace=True):
     jsex = example["code"]
-    jsex = jsex.replace("#", "&pound;")
     jsex = jsex.replace(">", "&gt;")
     jsex = jsex.replace("<", "&lt;")
-    jsex = jsex.replace("\"", "&quot;")
-    jsex = jsex.replace("\n", "<br/>")
-    jsex = jsex.replace("\r\n", "<br/>")
-    jsex = jsex.replace(" ", "&nbsp;")
+    if replace:
+        partial = partial.replace("\"", "\\\"")
+    if replace:
+        # jsex = jsex.replace("#", "%23")
+        jsex = jsex.replace("\"", "&quot;")
+        jsex = jsex.replace("\n", "<br/>")
+        jsex = jsex.replace("\r\n", "<br/>")
+        jsex = jsex.replace(" ", "&nbsp;")
     descr = example["description"]
-    descr = descr.replace("\"", "&quot;")
-    descr = descr.replace("\n", "")
-    descr = descr.replace("\r\n", "")
-    descr = descr.replace("#", "&pound;")
+    if replace:
+        descr = descr.replace("\"", "&quot;")
+        descr = descr.replace("\n", "")
+        descr = descr.replace("\r\n", "")
+        descr = descr.replace("#", "&pound;")
     partial = partial.replace("$$CODE$$", jsex)
     partial = partial.replace("$$ID$$", example["id"])
     partial = partial.replace("$$IMAGE_SOURCE$$", example["screenshot"])
@@ -1738,6 +1742,7 @@ def generate_docs():
 
     # copy files
     # copy_file(, )
+    copy_file(root_folder + "/api/_patches/html/logo.svg", root_folder + "/target/html/logo.svg")
     copy_file(root_folder + "/api/_patches/html/main.css", root_folder + "/target/html/main.css")
     copy_file(root_folder + "/examples/assets/fonts/Morris Jenson Initialen.ttf", root_folder + "/target/html/fonts/Morris Jenson Initialen.ttf")
     copy_file(root_folder + "/examples/assets/fonts/SourceSerifPro-Regular.ttf", root_folder + "/target/html/fonts/SourceSerifPro-Regular.ttf")
@@ -1836,9 +1841,10 @@ def generate_docs():
     # $$CONTENT_SECTION_MAIN$$
 
     first_example = index_examples[0]
-    index_html = index_template.replace("$$CONTENT_SECTION_MAIN$$", render_example(index_partial, first_example))
+    index_html = index_template.replace("$$CONTENT_SECTION_MAIN$$", render_example(index_partial, first_example, replace=False))
     js_examples = ""
     for ex in index_examples:
+        copy_file(ex["screenshot"], root_folder + "/target/html/images/" + ex["id"] + ".png")
         jsex = render_example(index_partial, ex)
         js_examples += "\"" + jsex + "\",\r\n"
     index_html = index_html.replace("$$JAVASCRIPT_EXAMPLES$$", js_examples)

@@ -47,6 +47,25 @@
       max-width: 500px;
       float: right;
     }
+    body > .center > main > section > .col-1 code {
+      display: block;
+    }
+    @media screen and (max-width: 720px) {
+      body > .center > main > section > .col-2 {
+        max-width: none;
+        float: none;
+        margin-bottom: 0px;
+      }
+      body > .center > main > section > .col-1 {
+        float: none;
+        margin-right: 0px;
+        margin-bottom: 20px;
+      }
+      body > .center > aside {
+        float: none;
+        position: static !important;
+      }
+    }
     main section .col-2 img {
       max-width: 100%;
       margin-bottom: 10px;
@@ -94,19 +113,7 @@
   <aside>
     <header>
       <h1 style="display:none;">Azul GUI Framework</h1>
-      <svg width="100" height="100" version="1.1" viewBox="0 0 26.458 26.458" xmlns="http://www.w3.org/2000/svg">
-       <defs>
-        <clipPath id="a_clip">
-         <rect x="-103.9" y="110.66" width="10.146" height="8.6313" rx="0" ry="0"/>
-        </clipPath>
-       </defs>
-       <g transform="translate(0 -270.54)" fill="none" stroke="white">
-        <path d="m1.9902 284.71v6.1165c0 2.412 1.9553 4.3674 4.3674 4.3674s4.3674-1.9553 4.3674-4.3674v-6.0314" stroke-width="4.149" style="paint-order:markers stroke fill"/>
-        <path transform="matrix(1.3553 0 0 1.3553 140.71 120.94)" d="m-95.471 120-3.7063-6.4442-3.2859 6.3476" clip-path="url(#a_clip)" stroke-linecap="square" stroke-width="2.85"/>
-        <path d="m26.407 281.13h-8.8649l5.6491-9.1131h-8.2728" stroke-width="2.9879"/>
-        <path d="m16.581 284.81v10.468h10.224" stroke-width="3.4376"/>
-       </g>
-      </svg>
+      <img src="./logo.svg">
     </header>
     <nav>
       <ul>
@@ -137,16 +144,22 @@
     var current_example = 0;
 
     function render_example() {
-      document.getElementById("main").innerHtml = examples[current_example];
+      document.getElementById("main").innerHTML = examples[current_example];
     }
 
     function next() {
       current_example += 1;
+      if (current_example >= examples.length) {
+        current_example = 0;
+      }
       render_example();
     }
 
     function previous() {
       current_example -= 1;
+      if (current_example < 0) {
+        current_example = examples.length;
+      }
       render_example();
     }
   </script>
