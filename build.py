@@ -62,9 +62,9 @@ rust_api_patches = {
 
 # ---------------------------------------------------------------------------------------------
 
-def to_snake_case(name):
-    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
-    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+def snake_case_to_lower_camel(snake_str):
+    first, *others = snake_str.split('_')
+    return ''.join([first.lower(), *map(str.title, others)])
 
 # turns a list of function args into function pointer args
 # ex. "mut dom: AzDom, event: AzEventFilter, data: AzRefAny, callback: AzCallback"
@@ -201,6 +201,42 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
                     raise Exception("type not found: " + arg_type)
                 arg_type = arg_type_new[1]
                 fn_args += arg_name + ": " + ptr_type + prefix + arg_type + ", " # no postfix
+        fn_args = fn_args[:-2]
+
+    return fn_args
+
+def c_fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg):
+    fn_args = ""
+
+    if self_as_first_arg:
+        self_val = list(f["fn_args"][0].values())[0]
+        if (self_val == "value"):
+            fn_args += "const " + class_ptr_name + " " + class_name.lower() + ", "
+        elif (self_val == "mut value"):
+            fn_args += "restrict " + class_ptr_name + ": " + class_name.lower() + ", "
+        elif (self_val == "refmut"):
+            fn_args += class_ptr_name + "* restrict " + class_name.lower() + ", "
+        elif (self_val == "ref"):
+            fn_args += class_ptr_name + "* const " + class_name.lower() + ", "
+        else:
+            raise Exception("wrong self value " + self_val)
+
+    if "fn_args" in f.keys():
+        for arg_object in f["fn_args"]:
+            arg_name = list(arg_object.keys())[0]
+            if arg_name == "self":
+                continue
+            arg_type = arg_object[arg_name]
+
+            analyzed_arg_type = analyze_type(arg_type)
+            ptr_type = analyzed_arg_type[0]
+            arg_type = analyzed_arg_type[1]
+
+            if is_primitive_arg(arg_type):
+                fn_args += replace_primitive_ctype(arg_type) + replace_primitive_ctype(ptr_type).strip() + " " + arg_name + ", " # no pre, no postfix
+            else:
+                fn_args += prefix + replace_primitive_ctype(arg_type) + replace_primitive_ctype(ptr_type).strip() + " " + arg_name + ", " # no postfix
+
         fn_args = fn_args[:-2]
 
     return fn_args
@@ -402,8 +438,8 @@ def generate_rust_dll(api_data):
 
     myapi_data = api_data[version]
 
-    structs_map = {}
-    functions_map = {}
+    structs_map = OrderedDict({})
+    rust_functions_map = OrderedDict({})
 
     code += """
         extern crate azul_core;
@@ -536,8 +572,8 @@ def generate_rust_dll(api_data):
 
                     fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, myapi_data)
 
-                    functions_map[str(to_snake_case(class_ptr_name) + "_" + fn_name)] = [fn_args, returns];
-                    code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_" + fn_name + "(" + fn_args + ") -> " + returns + " { "
+                    rust_functions_map[str(class_ptr_name + "_" + fn_name)] = [fn_args, returns];
+                    code += "#[no_mangle] pub extern \"C\" fn " + class_ptr_name + "_" + fn_name + "(" + fn_args + ") -> " + returns + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -568,9 +604,9 @@ def generate_rust_dll(api_data):
 
                             returns = analyzed_return_type[0] + prefix + return_type_class[1] + analyzed_return_type[2] # no postfix
 
-                    functions_map[str(to_snake_case(class_ptr_name) + "_" + fn_name)] = [fn_args, returns];
+                    rust_functions_map[str(class_ptr_name + "_" + fn_name)] = [fn_args, returns];
                     return_arrow = "" if returns == "" else " -> "
-                    code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_" + fn_name + "(" + fn_args + ")" + return_arrow + returns + " { "
+                    code += "#[no_mangle] pub extern \"C\" fn " + class_ptr_name + "_" + fn_name + "(" + fn_args + ")" + return_arrow + returns + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -581,16 +617,16 @@ def generate_rust_dll(api_data):
                 elif class_has_custom_destructor or treat_external_as_ptr:
                     # az_item_delete()
                     code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-                    functions_map[str(to_snake_case(class_ptr_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
-                    code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_delete(object: &mut " + class_ptr_name + ") { "
+                    rust_functions_map[str(class_ptr_name + "_delete")] = ["object: &mut " + class_ptr_name, ""];
+                    code += "#[no_mangle] pub extern \"C\" fn " + class_ptr_name + "_delete(object: &mut " + class_ptr_name + ") { "
                     code += " unsafe { core::ptr::drop_in_place(object); } "
                     code += "}\r\n"
 
                 if treat_external_as_ptr and class_can_be_cloned:
-                    # az_item_deep_copy()
+                    # az_item_deepCopy()
                     code += "/// Clones the object\r\n"
-                    functions_map[str(to_snake_case(class_ptr_name) + "_deep_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
-                    code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_deep_copy(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
+                    rust_functions_map[str(class_ptr_name + "_deepCopy")] = ["object: &" + class_ptr_name, class_ptr_name];
+                    code += "#[no_mangle] pub extern \"C\" fn " + class_ptr_name + "_deepCopy(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
                     code += "object.clone()"
                     code += " }\r\n"
             else:
@@ -603,7 +639,7 @@ def generate_rust_dll(api_data):
     code += "\r\n\r\n"
     code += generate_size_test(myapi_data, structs_map)
 
-    return [code, structs_map, functions_map, forward_delcarations]
+    return [code, structs_map, rust_functions_map, forward_delcarations]
 
 # Returns a sorted structs map where the structs are sorted
 # so that all structs that a class depends on as fields appear
@@ -978,8 +1014,6 @@ def generate_rust_api(api_data, structs_map, functions_map):
 
             c_is_stack_allocated = not(class_is_boxed_object)
             class_ptr_name = prefix + class_name
-            if c_is_stack_allocated:
-                class_ptr_name = prefix + class_name
 
             if "doc" in c.keys():
                 code += "    /// " + c["doc"] + "\r\n    "
@@ -996,7 +1030,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
                     for fn_name in c["constructors"]:
                         const = c["constructors"][fn_name]
 
-                        c_fn_name = to_snake_case(class_ptr_name) + "_" + fn_name
+                        c_fn_name = class_ptr_name + "_" + fn_name
                         fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False, myapi_data)
                         fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False, myapi_data, class_is_boxed_object)
 
@@ -1036,7 +1070,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
 
                         fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True, myapi_data)
                         fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True, myapi_data, class_is_boxed_object)
-                        c_fn_name = to_snake_case(class_ptr_name) + "_" + fn_name
+                        c_fn_name = class_ptr_name + "_" + fn_name
 
                         fn_body = ""
 
@@ -1076,9 +1110,9 @@ def generate_rust_api(api_data, structs_map, functions_map):
                 code += "    }\r\n\r\n" # end of class
 
             if treat_external_as_ptr and class_can_be_cloned:
-                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_deep_copy(self) } } }\r\n"
+                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { unsafe { crate::dll::" + class_ptr_name + "_deepCopy(self) } } }\r\n"
             if treat_external_as_ptr:
-                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { unsafe { crate::dll::" + to_snake_case(class_ptr_name) + "_delete(self) } } }\r\n"
+                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { unsafe { crate::dll::" + class_ptr_name + "_delete(self) } } }\r\n"
 
 
         module_file_map[module_name] = code
@@ -1451,10 +1485,76 @@ def replace_primitive_ctype(input):
     }
     return switcher.get(input, input + " ")
 
-def generate_c_functions(api_data, functions):
-    return ""
+# Generates the functions to put in the C header file
+# assumes that all structs / data types have already been declared previously
+def generate_c_functions(api_data):
 
-def generate_c_api(api_data, structs_map, functions_map):
+    code = ""
+
+    version = list(api_data.keys())[-1]
+    myapi_data = api_data[version]
+
+    code += "\r\n"
+    code += "\r\n/* FUNCTIONS from azul.dll / libazul.so */"
+
+    for module_name in myapi_data.keys():
+        module = myapi_data[module_name]["classes"]
+        for class_name in module.keys():
+            c = module[class_name]
+
+            c_is_stack_allocated = class_is_stack_allocated(c)
+            class_can_be_copied = "derive" in c.keys() and "Copy" in c["derive"]
+            class_has_custom_destructor = "custom_destructor" in c.keys() and c["custom_destructor"]
+            is_boxed_object = "is_boxed_object" in c.keys() and c["is_boxed_object"]
+            treat_external_as_ptr = "external" in c.keys() and is_boxed_object
+            class_can_be_cloned = True
+            if "clone" in c.keys():
+                class_can_be_cloned = c["clone"]
+
+            class_ptr_name = prefix + class_name
+            print_separator = False
+
+            if "constructors" in c.keys():
+                print_separator = True
+                for constructor_name in c["constructors"].keys():
+                    const = c["constructors"][constructor_name]
+                    fn_args = c_fn_args_c_api(const, class_name, class_ptr_name, False)
+                    code += "\r\nextern DLLIMPORT " + class_ptr_name + " " + class_ptr_name + "_" + snake_case_to_lower_camel(constructor_name) + "(" + fn_args + ");"
+
+            if "functions" in c.keys():
+                print_separator = True
+                for function_name in c["functions"].keys():
+                    function = c["functions"][function_name]
+                    fn_args = c_fn_args_c_api(function, class_name, class_ptr_name, True)
+
+                    return_val = "void"
+                    if "returns" in function.keys():
+                        analyzed_return_type = analyze_type(function["returns"]["type"])
+                        if is_primitive_arg(analyzed_return_type[1]):
+                            return_val = replace_primitive_ctype(analyzed_return_type[1])
+                        else:
+                            return_val = prefix + analyzed_return_type[1]
+
+                    code += "\r\nextern DLLIMPORT " + return_val + " "+ class_ptr_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args + ");"
+
+            if c_is_stack_allocated:
+                if class_can_be_copied:
+                    # intentionally empty, no destructor necessary
+                    pass
+                elif class_has_custom_destructor or treat_external_as_ptr:
+                    print_separator = True
+                    code += "\r\nextern DLLIMPORT void " + class_ptr_name + "_delete(" + class_ptr_name + "* restrict instance);"
+
+                if treat_external_as_ptr and class_can_be_cloned:
+                    print_separator = True
+                    code += "\r\nextern DLLIMPORT " + class_ptr_name + " " + class_ptr_name + "_deepCopy(" + class_ptr_name + "* const instance);"
+
+            # if print_separator:
+            #   code += "\r\n"
+
+    return code
+
+def generate_c_api(api_data, structs_map):
     code = ""
 
     version = list(api_data.keys())[-1]
@@ -1473,33 +1573,37 @@ def generate_c_api(api_data, structs_map, functions_map):
     code += "#include <stddef.h>\r\n" # size_t
     code += "\r\n"
     code += "/* C89 port for \"restrict\" keyword from C99 */\r\n"
-    code += """
-#if __STDC__ != 1
-#    define restrict __restrict
-#else
-#    ifndef __STDC_VERSION__
-#        define restrict __restrict
-#    else
-#        if __STDC_VERSION__ < 199901L
-#            define restrict __restrict
-#        endif
-#    endif
-#endif
-"""
-    code += "\r\n"
-    code += "/* cross-platform define for ssize_t (signed size_t) */\r\n"
-    code += "#ifdef __unix__\r\n"
-    code += "   #include <sys/types.h>\r\n"
-    code += "   #define ssize_t size_t\r\n"
-    code += "#elif defined(_WIN32) || defined(WIN32)\r\n"
-    code += "   #define ssize_t SSIZE_T\r\n"
+    code += "#if __STDC__ != 1\r\n"
+    code += "#    define restrict __restrict\r\n"
     code += "#else\r\n"
-    code += "   #define ssize_t size_t\r\n"
+    code += "#    ifndef __STDC_VERSION__\r\n"
+    code += "#        define restrict __restrict\r\n"
+    code += "#    else\r\n"
+    code += "#        if __STDC_VERSION__ < 199901L\r\n"
+    code += "#            define restrict __restrict\r\n"
+    code += "#        endif\r\n"
+    code += "#    endif\r\n"
     code += "#endif\r\n"
     code += "\r\n"
+    code += "/* cross-platform define for ssize_t (signed size_t) */\r\n"
+    code += "#ifdef _WIN32\r\n"
+    code += "    #include <windows.h>\r\n"
+    code += "    #ifdef _MSC_VER\r\n"
+    code += "        typedef SSIZE_T ssize_t;\r\n"
+    code += "    #endif\r\n"
+    code += "#else\r\n"
+    code += "    #include <sys/types.h>\r\n"
+    code += "#endif\r\n"
+    code += "\r\n"
+    code += "/* cross-platform define for __declspec(dllimport) */\r\n"
+    code += "#ifdef _WIN32\r\n"
+    code += "    #define DLLIMPORT __declspec(dllimport)\r\n"
+    code += "#else\r\n"
+    code += "    #define DLLIMPORT\r\n"
+    code += "#endif\r\n"
 
     code += generate_c_structs(myapi_data, structs_map, forward_delcarations, extra_forward_delcarations)
-    code += generate_c_functions(myapi_data, functions_map)
+    code += generate_c_functions(api_data)
 
     code += "\r\n"
     code += "#endif /* AZUL_H */\r\n"
@@ -1576,7 +1680,7 @@ def generate_api():
 
     write_file(rust_dll_code, root_folder + "/azul-dll/src/lib.rs")
     write_file(generate_rust_api(apiData, structs_map, functions_map), root_folder + "/api/rust/lib.rs")
-    write_file(generate_c_api(apiData, structs_map, functions_map), root_folder + "/api/c/azul_generated.h")
+    write_file(generate_c_api(apiData, structs_map), root_folder + "/api/c/azul.h")
     # write_file(generate_cpp_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/cpp/azul.h")
     # write_file(generate_cpp_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/python/azul.py")
 
@@ -1620,7 +1724,7 @@ def run_size_test():
     subprocess.Popen(['cargo', 'test', '--all-features', '--release'], env=d, cwd=cwd).wait()
 
 def build_examples():
-    cwd = root_folder + "/examples"
+    cwd = root_folder + "/examples/rust"
     examples = [
         # "async",
         # "calculator",
@@ -1957,7 +2061,11 @@ def generate_docs():
                     api_page_contents += "<li class=\"st e pbi\" id=\"st." + class_name + "\">"
                     if "doc" in c.keys():
                         api_page_contents += "<p class=\"class doc\">" + format_doc(c["doc"]) + "</p>"
-                    api_page_contents += "<h4>enum <a href=\"#st." + class_name + "\">" + class_name + "</a></h4>"
+                    enum_type = "enum"
+                    if enum_is_union(c["enum_fields"]):
+                        enum_type = "union enum"
+
+                    api_page_contents += "<h4>" + enum_type + " <a href=\"#st." + class_name + "\">" + class_name + "</a></h4>"
                     for enum_variant in c["enum_fields"]:
                         enum_variant_name = list(enum_variant.keys())[0]
                         if "doc" in enum_variant[enum_variant_name]:
@@ -2197,7 +2305,12 @@ def full_test():
     os.system('cd "' + root_folder + "/examples && cargo run --bin layout_tests -- --nocapture")
 
 def debug_test_compile_c():
-    os.system('cd "' + root_folder + '/api/c" && gcc -ansi ./main.c')
+    if platform == "linux" or platform == "linux2":
+        os.system('cd "' + root_folder + '/api/c" && gcc -ansi ./main.c')
+    elif platform == "win32":
+        os.system("cd \"" + root_folder + "/api/c\" && clang -ansi ./main.c -lazul -I\"" + root_folder + "/target/release/x86_64-unknown-windows-msvc/\" ")
+    else:
+        pass
 
 def main():
     print("removing old azul.dll...")
@@ -2208,16 +2321,16 @@ def main():
     generate_api()
     print("generating documentation in /target/html...")
     generate_docs()
-    debug_test_compile_c()
     print("building azulc (release mode)...")
-    # build_azulc()
+    build_azulc()
     print("building azul-dll (release mode)...")
-    # build_dll()
+    build_dll()
     print("checking azul-dll for struct size integrity...")
-    # run_size_test()
+    run_size_test()
     print("building examples...")
-    # build_examples()
-    print("building docs (output_dir = /target/doc)...")
+    build_examples()
+    print("building and linking C examples from /examples/c/...")
+    debug_test_compile_c()
     # full_test()
     # release_on_cargo()
     # make_debian_release_package()

@@ -26,21 +26,21 @@
 pub type AzAppTT = azul_impl::app::AzAppPtr;
 pub use AzAppTT as AzApp;
 /// Creates a new App instance from the given `AppConfig`
-#[no_mangle] pub extern "C" fn az_app_new(data: AzRefAny, config: AzAppConfig) -> AzApp { azul_impl::app::AzAppPtr::new(App::new(data, config)) }
+#[no_mangle] pub extern "C" fn AzApp_new(data: AzRefAny, config: AzAppConfig) -> AzApp { azul_impl::app::AzAppPtr::new(App::new(data, config)) }
 /// Spawn a new window on the screen when the app is run.
-#[no_mangle] pub extern "C" fn az_app_add_window(app: &mut AzApp, window: AzWindowCreateOptions) { app.downcast_modify(|a| a.add_window(window)) }
+#[no_mangle] pub extern "C" fn AzApp_add_window(app: &mut AzApp, window: AzWindowCreateOptions) { app.downcast_modify(|a| a.add_window(window)) }
 /// Returns a list of monitors - useful for setting the monitor that a window should spawn on.
-#[no_mangle] pub extern "C" fn az_app_get_monitors(app: &AzApp) -> AzMonitorVec { app.get().get_monitors() }
+#[no_mangle] pub extern "C" fn AzApp_get_monitors(app: &AzApp) -> AzMonitorVec { app.get().get_monitors() }
 /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-#[no_mangle] pub extern "C" fn az_app_run(app: AzApp, window: AzWindowCreateOptions) { app.get().run(window) }
+#[no_mangle] pub extern "C" fn AzApp_run(app: AzApp, window: AzWindowCreateOptions) { app.get().run(window) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_app_delete(object: &mut AzApp) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzApp_delete(object: &mut AzApp) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 pub type AzAppConfigTT = azul_impl::resources::AppConfig;
 pub use AzAppConfigTT as AzAppConfig;
 /// Creates a new AppConfig with default values
-#[no_mangle] pub extern "C" fn az_app_config_default() -> AzAppConfig { AppConfig::default() }
+#[no_mangle] pub extern "C" fn AzAppConfig_default() -> AzAppConfig { AppConfig::default() }
 
 /// Configuration to set which messages should be logged.
 pub type AzAppLogLevelTT = azul_impl::resources::AppLogLevel;
@@ -50,7 +50,7 @@ pub use AzAppLogLevelTT as AzAppLogLevel;
 pub type AzWindowCreateOptionsTT = azul_impl::window::WindowCreateOptions;
 pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
 /// Creates a new window configuration with a custom layout callback
-#[no_mangle] pub extern "C" fn az_window_create_options_new(layout_callback: AzLayoutCallbackType) -> AzWindowCreateOptions { WindowCreateOptions::new(layout_callback) }
+#[no_mangle] pub extern "C" fn AzWindowCreateOptions_new(layout_callback: AzLayoutCallbackType) -> AzWindowCreateOptions { WindowCreateOptions::new(layout_callback) }
 
 /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
 pub type AzRendererOptionsTT = azul_impl::window::RendererOptions;
@@ -252,9 +252,9 @@ pub use AzTouchStateTT as AzTouchState;
 pub type AzMonitorHandleTT = azul_impl::window::Monitor;
 pub use AzMonitorHandleTT as AzMonitorHandle;
 /// Destructor: Takes ownership of the `MonitorHandle` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_monitor_handle_delete(object: &mut AzMonitorHandle) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzMonitorHandle_delete(object: &mut AzMonitorHandle) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
-#[no_mangle] pub extern "C" fn az_monitor_handle_deep_copy(object: &AzMonitorHandle) -> AzMonitorHandle { object.clone() }
+#[no_mangle] pub extern "C" fn AzMonitorHandle_deepCopy(object: &AzMonitorHandle) -> AzMonitorHandle { object.clone() }
 
 /// Information about a single (or many) monitors, useful for dock widgets
 pub type AzMonitorTT = azul_impl::window::Monitor;
@@ -268,9 +268,9 @@ pub use AzVideoModeTT as AzVideoMode;
 pub type AzWindowStateTT = azul_impl::window::WindowState;
 pub use AzWindowStateTT as AzWindowState;
 /// Creates a new WindowState with default settings and a custom layout callback
-#[no_mangle] pub extern "C" fn az_window_state_new(layout_callback: AzLayoutCallbackType) -> AzWindowState { WindowState::new(layout_callback) }
+#[no_mangle] pub extern "C" fn AzWindowState_new(layout_callback: AzLayoutCallbackType) -> AzWindowState { WindowState::new(layout_callback) }
 /// Creates a default WindowState with an empty layout callback - useful only if you use the Rust `WindowState { .. WindowState::default() }` intialization syntax.
-#[no_mangle] pub extern "C" fn az_window_state_default() -> AzWindowState { WindowState::default() }
+#[no_mangle] pub extern "C" fn AzWindowState_default() -> AzWindowState { WindowState::default() }
 
 /// C-ABI stable wrapper over a `LayoutCallbackType`
 pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
@@ -286,45 +286,45 @@ pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpda
 pub type AzCallbackInfoTT = azul_impl::callbacks::CallbackInfo;
 pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Returns the `DomNodeId` of the element that the callback was attached to.
-#[no_mangle] pub extern "C" fn az_callback_info_get_hit_node(callbackinfo: &AzCallbackInfo) -> AzDomNodeId { callbackinfo.get_hit_node() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_hit_node(callbackinfo: &AzCallbackInfo) -> AzDomNodeId { callbackinfo.get_hit_node() }
 /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not in the current window.
-#[no_mangle] pub extern "C" fn az_callback_info_get_cursor_relative_to_viewport(callbackinfo: &AzCallbackInfo) -> AzOptionLayoutPoint { callbackinfo.get_cursor_relative_to_viewport() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_cursor_relative_to_viewport(callbackinfo: &AzCallbackInfo) -> AzOptionLayoutPoint { callbackinfo.get_cursor_relative_to_viewport() }
 /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.
-#[no_mangle] pub extern "C" fn az_callback_info_get_cursor_relative_to_node(callbackinfo: &AzCallbackInfo) -> AzOptionLayoutPoint { callbackinfo.get_cursor_relative_to_node() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_cursor_relative_to_node(callbackinfo: &AzCallbackInfo) -> AzOptionLayoutPoint { callbackinfo.get_cursor_relative_to_node() }
 /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn az_callback_info_get_parent(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_parent(node_id).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_parent(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_parent(node_id).into() }
 /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn az_callback_info_get_previous_sibling(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_previous_sibling(node_id).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_previous_sibling(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_previous_sibling(node_id).into() }
 /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn az_callback_info_get_next_sibling(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_next_sibling(node_id).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_next_sibling(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_next_sibling(node_id).into() }
 /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn az_callback_info_get_first_child(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_first_child(node_id).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_first_child(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_first_child(node_id).into() }
 /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn az_callback_info_get_last_child(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_last_child(node_id).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_last_child(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_last_child(node_id).into() }
 /// Returns a copy of the current windows `WindowState`.
-#[no_mangle] pub extern "C" fn az_callback_info_get_window_state(callbackinfo: &AzCallbackInfo) -> AzWindowState { callbackinfo.get_window_state() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_window_state(callbackinfo: &AzCallbackInfo) -> AzWindowState { callbackinfo.get_window_state() }
 /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
-#[no_mangle] pub extern "C" fn az_callback_info_get_keyboard_state(callbackinfo: &AzCallbackInfo) -> AzKeyboardState { callbackinfo.get_keyboard_state() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_keyboard_state(callbackinfo: &AzCallbackInfo) -> AzKeyboardState { callbackinfo.get_keyboard_state() }
 /// Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`
-#[no_mangle] pub extern "C" fn az_callback_info_get_mouse_state(callbackinfo: &AzCallbackInfo) -> AzMouseState { callbackinfo.get_mouse_state() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_mouse_state(callbackinfo: &AzCallbackInfo) -> AzMouseState { callbackinfo.get_mouse_state() }
 /// Returns a copy of the current windows `RawWindowHandle`.
-#[no_mangle] pub extern "C" fn az_callback_info_get_current_window_handle(callbackinfo: &AzCallbackInfo) -> AzRawWindowHandle { callbackinfo.get_current_window_handle() }
-/// Returns a **reference-counted copy** of the current windows `GlContextPtr`. You can use this to render OpenGL textures.
-#[no_mangle] pub extern "C" fn az_callback_info_get_gl_context(callbackinfo: &AzCallbackInfo) -> AzOptionGlContextPtr { callbackinfo.get_gl_context() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_current_window_handle(callbackinfo: &AzCallbackInfo) -> AzRawWindowHandle { callbackinfo.get_current_window_handle() }
+/// Returns a **reference-counted copy** of the current windows' `Gl` (context). You can use this to render OpenGL textures.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_get_gl_context(callbackinfo: &AzCallbackInfo) -> AzOptionGl { callbackinfo.get_gl_context() }
 /// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
-#[no_mangle] pub extern "C" fn az_callback_info_set_window_state(callbackinfo: &mut AzCallbackInfo, new_state: AzWindowState) { callbackinfo.set_window_state(new_state); }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_set_window_state(callbackinfo: &mut AzCallbackInfo, new_state: AzWindowState) { callbackinfo.set_window_state(new_state); }
 /// Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.
-#[no_mangle] pub extern "C" fn az_callback_info_set_focus(callbackinfo: &mut AzCallbackInfo, target: AzFocusTarget) { callbackinfo.set_focus(target); }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_set_focus(callbackinfo: &mut AzCallbackInfo, target: AzFocusTarget) { callbackinfo.set_focus(target); }
 /// Sets a `CssProperty` on a given node to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
-#[no_mangle] pub extern "C" fn az_callback_info_set_css_property(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_property: AzCssProperty) { callbackinfo.set_css_property(node_id, new_property);  }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_set_css_property(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_property: AzCssProperty) { callbackinfo.set_css_property(node_id, new_property);  }
 /// Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.
-#[no_mangle] pub extern "C" fn az_callback_info_stop_propagation(callbackinfo: &mut AzCallbackInfo) { callbackinfo.stop_propagation(); }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_stop_propagation(callbackinfo: &mut AzCallbackInfo) { callbackinfo.stop_propagation(); }
 /// Spawns a new window with the given `WindowCreateOptions`.
-#[no_mangle] pub extern "C" fn az_callback_info_create_window(callbackinfo: &mut AzCallbackInfo, new_window: AzWindowCreateOptions) { callbackinfo.create_window(new_window); }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_create_window(callbackinfo: &mut AzCallbackInfo, new_window: AzWindowCreateOptions) { callbackinfo.create_window(new_window); }
 /// Starts a new `Thread` to the runtime. See the documentation for `Thread` for more information.
-#[no_mangle] pub extern "C" fn az_callback_info_start_thread(callbackinfo: &mut AzCallbackInfo, id: AzThreadId, thread_initialize_data: AzRefAny, writeback_data: AzRefAny, callback: AzThreadCallback) { callbackinfo.start_thread(id, thread_initialize_data, writeback_data, callback); }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_start_thread(callbackinfo: &mut AzCallbackInfo, id: AzThreadId, thread_initialize_data: AzRefAny, writeback_data: AzRefAny, callback: AzThreadCallback) { callbackinfo.start_thread(id, thread_initialize_data, writeback_data, callback); }
 /// Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.
-#[no_mangle] pub extern "C" fn az_callback_info_start_timer(callbackinfo: &mut AzCallbackInfo, id: AzTimerId, timer: AzTimer) { callbackinfo.start_timer(id, timer); }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_start_timer(callbackinfo: &mut AzCallbackInfo, id: AzTimerId, timer: AzTimer) { callbackinfo.start_timer(id, timer); }
 
 /// Specifies if the screen should be updated after the callback function has returned
 pub type AzUpdateScreenTT = azul_impl::callbacks::UpdateScreen;
@@ -346,11 +346,11 @@ pub use AzDomNodeIdTT as AzDomNodeId;
 pub type AzHidpiAdjustedBoundsTT = azul_impl::callbacks::HidpiAdjustedBounds;
 pub use AzHidpiAdjustedBoundsTT as AzHidpiAdjustedBounds;
 /// Returns the size of the bounds in logical units
-#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_logical_size(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> AzLogicalSize { hidpiadjustedbounds.get_logical_size() }
+#[no_mangle] pub extern "C" fn AzHidpiAdjustedBounds_get_logical_size(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> AzLogicalSize { hidpiadjustedbounds.get_logical_size() }
 /// Returns the size of the bounds in physical units
-#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_physical_size(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32 { hidpiadjustedbounds.get_physical_size() }
+#[no_mangle] pub extern "C" fn AzHidpiAdjustedBounds_get_physical_size(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32 { hidpiadjustedbounds.get_physical_size() }
 /// Returns the hidpi factor of the bounds
-#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_hidpi_factor(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> f32 { hidpiadjustedbounds.get_hidpi_factor() }
+#[no_mangle] pub extern "C" fn AzHidpiAdjustedBounds_get_hidpi_factor(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> f32 { hidpiadjustedbounds.get_hidpi_factor() }
 
 /// Defines the keyboard input focus target
 pub type AzFocusTargetTT = azul_impl::callbacks::FocusTarget;
@@ -369,7 +369,7 @@ pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, AzIFrameCallbackInf
 pub type AzIFrameCallbackInfoTT = azul_impl::callbacks::IFrameCallbackInfo;
 pub use AzIFrameCallbackInfoTT as AzIFrameCallbackInfo;
 /// Returns a copy of the internal `HidpiAdjustedBounds`
-#[no_mangle] pub extern "C" fn az_i_frame_callback_info_get_bounds(iframecallbackinfo: &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds { iframecallbackinfo.get_bounds() }
+#[no_mangle] pub extern "C" fn AzIFrameCallbackInfo_get_bounds(iframecallbackinfo: &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds { iframecallbackinfo.get_bounds() }
 
 /// Re-export of rust-allocated (stack based) `IFrameCallbackReturn` struct
 pub type AzIFrameCallbackReturnTT = azul_impl::callbacks::IFrameCallbackReturn;
@@ -383,10 +383,10 @@ pub type AzGlCallbackType = extern "C" fn(&mut AzRefAny, AzGlCallbackInfo) -> Az
 /// Re-export of rust-allocated (stack based) `GlCallbackInfo` struct
 pub type AzGlCallbackInfoTT = azul_impl::callbacks::GlCallbackInfo;
 pub use AzGlCallbackInfoTT as AzGlCallbackInfo;
-/// Returns a copy of the internal `GlContextPtr`
-#[no_mangle] pub extern "C" fn az_gl_callback_info_get_gl_context(glcallbackinfo: &AzGlCallbackInfo) -> AzOptionGlContextPtr { glcallbackinfo.get_gl_context().into() }
+/// Returns a copy of the internal `Gl`
+#[no_mangle] pub extern "C" fn AzGlCallbackInfo_get_gl_context(glcallbackinfo: &AzGlCallbackInfo) -> AzOptionGl { glcallbackinfo.get_gl_context().into() }
 /// Returns a copy of the internal `HidpiAdjustedBounds`
-#[no_mangle] pub extern "C" fn az_gl_callback_info_get_bounds(glcallbackinfo: &AzGlCallbackInfo) -> AzHidpiAdjustedBounds { glcallbackinfo.get_bounds() }
+#[no_mangle] pub extern "C" fn AzGlCallbackInfo_get_bounds(glcallbackinfo: &AzGlCallbackInfo) -> AzHidpiAdjustedBounds { glcallbackinfo.get_bounds() }
 
 /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
 pub type AzGlCallbackReturnTT = azul_impl::callbacks::GlCallbackReturn;
@@ -424,48 +424,48 @@ pub use AzRefCountInnerTT as AzRefCountInner;
 pub type AzRefCountTT = azul_impl::callbacks::RefCount;
 pub use AzRefCountTT as AzRefCount;
 /// Equivalent to the Rust `RefCount::can_be_shared()` function.
-#[no_mangle] pub extern "C" fn az_ref_count_can_be_shared(refcount: &AzRefCount) -> bool { refcount.can_be_shared() }
+#[no_mangle] pub extern "C" fn AzRefCount_can_be_shared(refcount: &AzRefCount) -> bool { refcount.can_be_shared() }
 /// Equivalent to the Rust `RefCount::can_be_shared_mut()` function.
-#[no_mangle] pub extern "C" fn az_ref_count_can_be_shared_mut(refcount: &AzRefCount) -> bool { refcount.can_be_shared_mut() }
+#[no_mangle] pub extern "C" fn AzRefCount_can_be_shared_mut(refcount: &AzRefCount) -> bool { refcount.can_be_shared_mut() }
 /// Equivalent to the Rust `RefCount::increase_ref()` function.
-#[no_mangle] pub extern "C" fn az_ref_count_increase_ref(refcount: &mut AzRefCount) { refcount.increase_ref() }
+#[no_mangle] pub extern "C" fn AzRefCount_increase_ref(refcount: &mut AzRefCount) { refcount.increase_ref() }
 /// Equivalent to the Rust `RefCount::decrease_ref()` function.
-#[no_mangle] pub extern "C" fn az_ref_count_decrease_ref(refcount: &mut AzRefCount) { refcount.decrease_ref() }
+#[no_mangle] pub extern "C" fn AzRefCount_decrease_ref(refcount: &mut AzRefCount) { refcount.decrease_ref() }
 /// Equivalent to the Rust `RefCount::increase_refmut()` function.
-#[no_mangle] pub extern "C" fn az_ref_count_increase_refmut(refcount: &mut AzRefCount) { refcount.increase_refmut() }
+#[no_mangle] pub extern "C" fn AzRefCount_increase_refmut(refcount: &mut AzRefCount) { refcount.increase_refmut() }
 /// Equivalent to the Rust `RefCount::decrease_refmut()` function.
-#[no_mangle] pub extern "C" fn az_ref_count_decrease_refmut(refcount: &mut AzRefCount) { refcount.decrease_refmut() }
+#[no_mangle] pub extern "C" fn AzRefCount_decrease_refmut(refcount: &mut AzRefCount) { refcount.decrease_refmut() }
 /// Destructor: Takes ownership of the `RefCount` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_ref_count_delete(object: &mut AzRefCount) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzRefCount_delete(object: &mut AzRefCount) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
-#[no_mangle] pub extern "C" fn az_ref_count_deep_copy(object: &AzRefCount) -> AzRefCount { object.clone() }
+#[no_mangle] pub extern "C" fn AzRefCount_deepCopy(object: &AzRefCount) -> AzRefCount { object.clone() }
 
 /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
 pub type AzRefAnyTT = azul_impl::callbacks::RefAny;
 pub use AzRefAnyTT as AzRefAny;
 /// Creates a new `RefAny` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `RefAny::new_c()` constructor.
-#[no_mangle] pub extern "C" fn az_ref_any_new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, destructor: AzRefAnyDestructorType) -> AzRefAny { RefAny::new_c(ptr, len, type_id, type_name, destructor) }
+#[no_mangle] pub extern "C" fn AzRefAny_new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, destructor: AzRefAnyDestructorType) -> AzRefAny { RefAny::new_c(ptr, len, type_id, type_name, destructor) }
 /// Equivalent to the Rust `RefAny::is_type()` function.
-#[no_mangle] pub extern "C" fn az_ref_any_is_type(refany: &AzRefAny, type_id: u64) -> bool { refany.is_type(type_id) }
+#[no_mangle] pub extern "C" fn AzRefAny_is_type(refany: &AzRefAny, type_id: u64) -> bool { refany.is_type(type_id) }
 /// Equivalent to the Rust `RefAny::get_type_name()` function.
-#[no_mangle] pub extern "C" fn az_ref_any_get_type_name(refany: &AzRefAny) -> AzString { refany.get_type_name() }
+#[no_mangle] pub extern "C" fn AzRefAny_get_type_name(refany: &AzRefAny) -> AzString { refany.get_type_name() }
 /// Equivalent to the Rust `RefAny::clone()` function.
-#[no_mangle] pub extern "C" fn az_ref_any_clone(refany: &mut AzRefAny) -> AzRefAny { refany.clone_into_library_memory() }
+#[no_mangle] pub extern "C" fn AzRefAny_clone(refany: &mut AzRefAny) -> AzRefAny { refany.clone_into_library_memory() }
 /// Destructor: Takes ownership of the `RefAny` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_ref_any_delete(object: &mut AzRefAny) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzRefAny_delete(object: &mut AzRefAny) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
 pub type AzLayoutInfoTT = azul_impl::callbacks::LayoutInfo;
 pub use AzLayoutInfoTT as AzLayoutInfo;
 /// Equivalent to the Rust `LayoutInfo::window_width_larger_than()` function.
-#[no_mangle] pub extern "C" fn az_layout_info_window_width_larger_than(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_width_larger_than(width) }
+#[no_mangle] pub extern "C" fn AzLayoutInfo_window_width_larger_than(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_width_larger_than(width) }
 /// Equivalent to the Rust `LayoutInfo::window_width_smaller_than()` function.
-#[no_mangle] pub extern "C" fn az_layout_info_window_width_smaller_than(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_width_smaller_than(width) }
+#[no_mangle] pub extern "C" fn AzLayoutInfo_window_width_smaller_than(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_width_smaller_than(width) }
 /// Equivalent to the Rust `LayoutInfo::window_height_larger_than()` function.
-#[no_mangle] pub extern "C" fn az_layout_info_window_height_larger_than(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_height_larger_than(width) }
+#[no_mangle] pub extern "C" fn AzLayoutInfo_window_height_larger_than(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_height_larger_than(width) }
 /// Equivalent to the Rust `LayoutInfo::window_height_smaller_than()` function.
-#[no_mangle] pub extern "C" fn az_layout_info_window_height_smaller_than(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_height_smaller_than(width) }
+#[no_mangle] pub extern "C" fn AzLayoutInfo_window_height_smaller_than(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_height_smaller_than(width) }
 
 /// External system callbacks to get the system time or create / manage threads
 pub type AzSystemCallbacksTT = azul_impl::task::ExternalSystemCallbacks;
@@ -475,7 +475,7 @@ pub use AzSystemCallbacksTT as AzSystemCallbacks;
 pub type AzDomTT = azul_impl::dom::Dom;
 pub use AzDomTT as AzDom;
 /// Returns the number of nodes in the DOM
-#[no_mangle] pub extern "C" fn az_dom_node_count(dom: &AzDom) -> usize { dom.node_count() }
+#[no_mangle] pub extern "C" fn AzDom_node_count(dom: &AzDom) -> usize { dom.node_count() }
 
 /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
 pub type AzGlTextureNodeTT = azul_impl::dom::GlTextureNode;
@@ -501,7 +501,7 @@ pub use AzNodeTypeTT as AzNodeType;
 pub type AzOnTT = azul_impl::dom::On;
 pub use AzOnTT as AzOn;
 /// Converts the `On` shorthand into a `EventFilter`
-#[no_mangle] pub extern "C" fn az_on_into_event_filter(on: AzOn) -> AzEventFilter { on.into() }
+#[no_mangle] pub extern "C" fn AzOn_into_event_filter(on: AzOn) -> AzEventFilter { on.into() }
 
 /// Re-export of rust-allocated (stack based) `EventFilter` struct
 pub type AzEventFilterTT = azul_impl::dom::EventFilter;
@@ -587,9 +587,9 @@ pub use AzStylesheetTT as AzStylesheet;
 pub type AzCssTT = azul_impl::css::Css;
 pub use AzCssTT as AzCss;
 /// Returns an empty CSS style
-#[no_mangle] pub extern "C" fn az_css_empty() -> AzCss { AzCss::empty() }
+#[no_mangle] pub extern "C" fn AzCss_empty() -> AzCss { AzCss::empty() }
 /// Returns a CSS style parsed from a `String`
-#[no_mangle] pub extern "C" fn az_css_from_string(s: AzString) -> AzCss { css::from_str(s.as_str()).unwrap_or_default() }
+#[no_mangle] pub extern "C" fn AzCss_from_string(s: AzString) -> AzCss { css::from_str(s.as_str()).unwrap_or_default() }
 
 /// Re-export of rust-allocated (stack based) `CssPropertyType` struct
 pub type AzCssPropertyTypeTT = azul_impl::css::CssPropertyType;
@@ -600,9 +600,9 @@ pub type AzColorUTT = azul_impl::css::ColorU;
 pub use AzColorUTT as AzColorU;
 /// Creates a new `ColorU` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `ColorU::from_str()` constructor.
-#[no_mangle] pub extern "C" fn az_color_u_from_str(string: AzString) -> AzColorU { azul_impl::css::css_parser::parse_css_color(string.as_str()).ok().unwrap_or(ColorU::BLACK) }
+#[no_mangle] pub extern "C" fn AzColorU_from_str(string: AzString) -> AzColorU { azul_impl::css::css_parser::parse_css_color(string.as_str()).ok().unwrap_or(ColorU::BLACK) }
 /// Equivalent to the Rust `ColorU::to_hash()` function.
-#[no_mangle] pub extern "C" fn az_color_u_to_hash(coloru: &AzColorU) -> AzString { coloru.to_hash().into() }
+#[no_mangle] pub extern "C" fn AzColorU_to_hash(coloru: &AzColorU) -> AzString { coloru.to_hash().into() }
 
 /// Re-export of rust-allocated (stack based) `SizeMetric` struct
 pub type AzSizeMetricTT = azul_impl::css::SizeMetric;
@@ -1300,475 +1300,475 @@ pub use AzParentWithNodeDepthTT as AzParentWithNodeDepth;
 pub type AzCssPropertyCacheTT = azul_impl::styled_dom::CssPropertyCachePtr;
 pub use AzCssPropertyCacheTT as AzCssPropertyCache;
 /// Destructor: Takes ownership of the `CssPropertyCache` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_css_property_cache_delete(object: &mut AzCssPropertyCache) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzCssPropertyCache_delete(object: &mut AzCssPropertyCache) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
-#[no_mangle] pub extern "C" fn az_css_property_cache_deep_copy(object: &AzCssPropertyCache) -> AzCssPropertyCache { object.clone() }
+#[no_mangle] pub extern "C" fn AzCssPropertyCache_deepCopy(object: &AzCssPropertyCache) -> AzCssPropertyCache { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `StyledDom` struct
 pub type AzStyledDomTT = azul_impl::styled_dom::StyledDom;
 pub use AzStyledDomTT as AzStyledDom;
 /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
-#[no_mangle] pub extern "C" fn az_styled_dom_new(dom: AzDom, css: AzCss) -> AzStyledDom { AzStyledDom::new(dom, css) }
+#[no_mangle] pub extern "C" fn AzStyledDom_new(dom: AzDom, css: AzCss) -> AzStyledDom { AzStyledDom::new(dom, css) }
 /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
-#[no_mangle] pub extern "C" fn az_styled_dom_append(styleddom: &mut AzStyledDom, dom: AzStyledDom) { styleddom.append(dom); }
+#[no_mangle] pub extern "C" fn AzStyledDom_append(styleddom: &mut AzStyledDom, dom: AzStyledDom) { styleddom.append(dom); }
 /// Returns the number of nodes in the styled DOM
-#[no_mangle] pub extern "C" fn az_styled_dom_node_count(styleddom: &AzStyledDom) -> usize { styleddom.node_count() }
+#[no_mangle] pub extern "C" fn AzStyledDom_node_count(styleddom: &AzStyledDom) -> usize { styleddom.node_count() }
 
-/// Re-export of rust-allocated (stack based) `GlContextPtr` struct
-pub type AzGlContextPtrTT = azul_impl::gl::GlContextPtr;
-pub use AzGlContextPtrTT as AzGlContextPtr;
-/// Equivalent to the Rust `GlContextPtr::get_type()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_type(glcontextptr: &AzGlContextPtr) -> AzGlType { glcontextptr.get_type() }
-/// Equivalent to the Rust `GlContextPtr::buffer_data_untyped()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_buffer_data_untyped(glcontextptr: &AzGlContextPtr, target: u32, size: isize, data: *const c_void, usage: u32) { glcontextptr.buffer_data_untyped(target, size, data, usage) }
-/// Equivalent to the Rust `GlContextPtr::buffer_sub_data_untyped()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_buffer_sub_data_untyped(glcontextptr: &AzGlContextPtr, target: u32, offset: isize, size: isize, data: *const c_void) { glcontextptr.buffer_sub_data_untyped(target, offset, size, data) }
-/// Equivalent to the Rust `GlContextPtr::map_buffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_map_buffer(glcontextptr: &AzGlContextPtr, target: u32, access: u32) -> *mut c_void { glcontextptr.map_buffer(target, access) }
-/// Equivalent to the Rust `GlContextPtr::map_buffer_range()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_map_buffer_range(glcontextptr: &AzGlContextPtr, target: u32, offset: isize, length: isize, access: u32) -> *mut c_void { glcontextptr.map_buffer_range(target, offset, length, access) }
-/// Equivalent to the Rust `GlContextPtr::unmap_buffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_unmap_buffer(glcontextptr: &AzGlContextPtr, target: u32) -> u8 { glcontextptr.unmap_buffer(target) }
-/// Equivalent to the Rust `GlContextPtr::tex_buffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_buffer(glcontextptr: &AzGlContextPtr, target: u32, internal_format: u32, buffer: u32) { glcontextptr.tex_buffer(target, internal_format, buffer) }
-/// Equivalent to the Rust `GlContextPtr::shader_source()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_shader_source(glcontextptr: &AzGlContextPtr, shader: u32, strings: AzStringVec) { glcontextptr.shader_source(shader, strings) }
-/// Equivalent to the Rust `GlContextPtr::read_buffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_read_buffer(glcontextptr: &AzGlContextPtr, mode: u32) { glcontextptr.read_buffer(mode) }
-/// Equivalent to the Rust `GlContextPtr::read_pixels_into_buffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_read_pixels_into_buffer(glcontextptr: &AzGlContextPtr, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32, dst_buffer: AzU8VecRefMut) { glcontextptr.read_pixels_into_buffer(x, y, width, height, format, pixel_type, dst_buffer) }
-/// Equivalent to the Rust `GlContextPtr::read_pixels()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_read_pixels(glcontextptr: &AzGlContextPtr, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32) -> AzU8Vec { glcontextptr.read_pixels(x, y, width, height, format, pixel_type) }
-/// Equivalent to the Rust `GlContextPtr::read_pixels_into_pbo()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_read_pixels_into_pbo(glcontextptr: &AzGlContextPtr, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32) { glcontextptr.read_pixels_into_pbo(x, y, width, height, format, pixel_type) }
-/// Equivalent to the Rust `GlContextPtr::sample_coverage()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_sample_coverage(glcontextptr: &AzGlContextPtr, value: f32, invert: bool) { glcontextptr.sample_coverage(value, invert) }
-/// Equivalent to the Rust `GlContextPtr::polygon_offset()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_polygon_offset(glcontextptr: &AzGlContextPtr, factor: f32, units: f32) { glcontextptr.polygon_offset(factor, units) }
-/// Equivalent to the Rust `GlContextPtr::pixel_store_i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_pixel_store_i(glcontextptr: &AzGlContextPtr, name: u32, param: i32) { glcontextptr.pixel_store_i(name, param) }
-/// Equivalent to the Rust `GlContextPtr::gen_buffers()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_gen_buffers(glcontextptr: &AzGlContextPtr, n: i32) -> AzGLuintVec { glcontextptr.gen_buffers(n) }
-/// Equivalent to the Rust `GlContextPtr::gen_renderbuffers()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_gen_renderbuffers(glcontextptr: &AzGlContextPtr, n: i32) -> AzGLuintVec { glcontextptr.gen_renderbuffers(n) }
-/// Equivalent to the Rust `GlContextPtr::gen_framebuffers()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_gen_framebuffers(glcontextptr: &AzGlContextPtr, n: i32) -> AzGLuintVec { glcontextptr.gen_framebuffers(n) }
-/// Equivalent to the Rust `GlContextPtr::gen_textures()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_gen_textures(glcontextptr: &AzGlContextPtr, n: i32) -> AzGLuintVec { glcontextptr.gen_textures(n) }
-/// Equivalent to the Rust `GlContextPtr::gen_vertex_arrays()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_gen_vertex_arrays(glcontextptr: &AzGlContextPtr, n: i32) -> AzGLuintVec { glcontextptr.gen_vertex_arrays(n) }
-/// Equivalent to the Rust `GlContextPtr::gen_queries()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_gen_queries(glcontextptr: &AzGlContextPtr, n: i32) -> AzGLuintVec { glcontextptr.gen_queries(n) }
-/// Equivalent to the Rust `GlContextPtr::begin_query()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_begin_query(glcontextptr: &AzGlContextPtr, target: u32, id: u32) { glcontextptr.begin_query(target, id) }
-/// Equivalent to the Rust `GlContextPtr::end_query()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_end_query(glcontextptr: &AzGlContextPtr, target: u32) { glcontextptr.end_query(target) }
-/// Equivalent to the Rust `GlContextPtr::query_counter()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_query_counter(glcontextptr: &AzGlContextPtr, id: u32, target: u32) { glcontextptr.query_counter(id, target) }
-/// Equivalent to the Rust `GlContextPtr::get_query_object_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_query_object_iv(glcontextptr: &AzGlContextPtr, id: u32, pname: u32) -> i32 { glcontextptr.get_query_object_iv(id, pname) }
-/// Equivalent to the Rust `GlContextPtr::get_query_object_uiv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_query_object_uiv(glcontextptr: &AzGlContextPtr, id: u32, pname: u32) -> u32 { glcontextptr.get_query_object_uiv(id, pname) }
-/// Equivalent to the Rust `GlContextPtr::get_query_object_i64v()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_query_object_i64v(glcontextptr: &AzGlContextPtr, id: u32, pname: u32) -> i64 { glcontextptr.get_query_object_i64v(id, pname) }
-/// Equivalent to the Rust `GlContextPtr::get_query_object_ui64v()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_query_object_ui64v(glcontextptr: &AzGlContextPtr, id: u32, pname: u32) -> u64 { glcontextptr.get_query_object_ui64v(id, pname) }
-/// Equivalent to the Rust `GlContextPtr::delete_queries()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_queries(glcontextptr: &AzGlContextPtr, queries: AzGLuintVecRef) { glcontextptr.delete_queries(queries) }
-/// Equivalent to the Rust `GlContextPtr::delete_vertex_arrays()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_vertex_arrays(glcontextptr: &AzGlContextPtr, vertex_arrays: AzGLuintVecRef) { glcontextptr.delete_vertex_arrays(vertex_arrays) }
-/// Equivalent to the Rust `GlContextPtr::delete_buffers()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_buffers(glcontextptr: &AzGlContextPtr, buffers: AzGLuintVecRef) { glcontextptr.delete_buffers(buffers) }
-/// Equivalent to the Rust `GlContextPtr::delete_renderbuffers()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_renderbuffers(glcontextptr: &AzGlContextPtr, renderbuffers: AzGLuintVecRef) { glcontextptr.delete_renderbuffers(renderbuffers) }
-/// Equivalent to the Rust `GlContextPtr::delete_framebuffers()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_framebuffers(glcontextptr: &AzGlContextPtr, framebuffers: AzGLuintVecRef) { glcontextptr.delete_framebuffers(framebuffers) }
-/// Equivalent to the Rust `GlContextPtr::delete_textures()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_textures(glcontextptr: &AzGlContextPtr, textures: AzGLuintVecRef) { glcontextptr.delete_textures(textures) }
-/// Equivalent to the Rust `GlContextPtr::framebuffer_renderbuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_framebuffer_renderbuffer(glcontextptr: &AzGlContextPtr, target: u32, attachment: u32, renderbuffertarget: u32, renderbuffer: u32) { glcontextptr.framebuffer_renderbuffer(target, attachment, renderbuffertarget, renderbuffer) }
-/// Equivalent to the Rust `GlContextPtr::renderbuffer_storage()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_renderbuffer_storage(glcontextptr: &AzGlContextPtr, target: u32, internalformat: u32, width: i32, height: i32) { glcontextptr.renderbuffer_storage(target, internalformat, width, height) }
-/// Equivalent to the Rust `GlContextPtr::depth_func()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_depth_func(glcontextptr: &AzGlContextPtr, func: u32) { glcontextptr.depth_func(func) }
-/// Equivalent to the Rust `GlContextPtr::active_texture()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_active_texture(glcontextptr: &AzGlContextPtr, texture: u32) { glcontextptr.active_texture(texture) }
-/// Equivalent to the Rust `GlContextPtr::attach_shader()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_attach_shader(glcontextptr: &AzGlContextPtr, program: u32, shader: u32) { glcontextptr.attach_shader(program, shader) }
-/// Equivalent to the Rust `GlContextPtr::bind_attrib_location()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_attrib_location(glcontextptr: &AzGlContextPtr, program: u32, index: u32, name: AzRefstr) { glcontextptr.bind_attrib_location(program, index, name) }
-/// Equivalent to the Rust `GlContextPtr::get_uniform_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_uniform_iv(glcontextptr: &AzGlContextPtr, program: u32, location: i32, result: AzGLintVecRefMut) { glcontextptr.get_uniform_iv(program, location, result) }
-/// Equivalent to the Rust `GlContextPtr::get_uniform_fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_uniform_fv(glcontextptr: &AzGlContextPtr, program: u32, location: i32, result: AzGLfloatVecRefMut) { glcontextptr.get_uniform_fv(program, location, result) }
-/// Equivalent to the Rust `GlContextPtr::get_uniform_block_index()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_uniform_block_index(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> u32 { glcontextptr.get_uniform_block_index(program, name) }
-/// Equivalent to the Rust `GlContextPtr::get_uniform_indices()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_uniform_indices(glcontextptr: &AzGlContextPtr, program: u32, names: AzRefstrVecRef) -> AzGLuintVec { glcontextptr.get_uniform_indices(program, names) }
-/// Equivalent to the Rust `GlContextPtr::bind_buffer_base()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_buffer_base(glcontextptr: &AzGlContextPtr, target: u32, index: u32, buffer: u32) { glcontextptr.bind_buffer_base(target, index, buffer) }
-/// Equivalent to the Rust `GlContextPtr::bind_buffer_range()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_buffer_range(glcontextptr: &AzGlContextPtr, target: u32, index: u32, buffer: u32, offset: isize, size: isize) { glcontextptr.bind_buffer_range(target, index, buffer, offset, size) }
-/// Equivalent to the Rust `GlContextPtr::uniform_block_binding()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_block_binding(glcontextptr: &AzGlContextPtr, program: u32, uniform_block_index: u32, uniform_block_binding: u32) { glcontextptr.uniform_block_binding(program, uniform_block_index, uniform_block_binding) }
-/// Equivalent to the Rust `GlContextPtr::bind_buffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_buffer(glcontextptr: &AzGlContextPtr, target: u32, buffer: u32) { glcontextptr.bind_buffer(target, buffer) }
-/// Equivalent to the Rust `GlContextPtr::bind_vertex_array()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_vertex_array(glcontextptr: &AzGlContextPtr, vao: u32) { glcontextptr.bind_vertex_array(vao) }
-/// Equivalent to the Rust `GlContextPtr::bind_renderbuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_renderbuffer(glcontextptr: &AzGlContextPtr, target: u32, renderbuffer: u32) { glcontextptr.bind_renderbuffer(target, renderbuffer) }
-/// Equivalent to the Rust `GlContextPtr::bind_framebuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_framebuffer(glcontextptr: &AzGlContextPtr, target: u32, framebuffer: u32) { glcontextptr.bind_framebuffer(target, framebuffer) }
-/// Equivalent to the Rust `GlContextPtr::bind_texture()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_texture(glcontextptr: &AzGlContextPtr, target: u32, texture: u32) { glcontextptr.bind_texture(target, texture) }
-/// Equivalent to the Rust `GlContextPtr::draw_buffers()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_buffers(glcontextptr: &AzGlContextPtr, bufs: AzGLenumVecRef) { glcontextptr.draw_buffers(bufs) }
-/// Equivalent to the Rust `GlContextPtr::tex_image_2d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_image_2d(glcontextptr: &AzGlContextPtr, target: u32, level: i32, internal_format: i32, width: i32, height: i32, border: i32, format: u32, ty: u32, opt_data: AzOptionU8VecRef) { glcontextptr.tex_image_2d(target, level, internal_format, width, height, border, format, ty, opt_data) }
-/// Equivalent to the Rust `GlContextPtr::compressed_tex_image_2d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_compressed_tex_image_2d(glcontextptr: &AzGlContextPtr, target: u32, level: i32, internal_format: u32, width: i32, height: i32, border: i32, data: AzU8VecRef) { glcontextptr.compressed_tex_image_2d(target, level, internal_format, width, height, border, data) }
-/// Equivalent to the Rust `GlContextPtr::compressed_tex_sub_image_2d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_compressed_tex_sub_image_2d(glcontextptr: &AzGlContextPtr, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, data: AzU8VecRef) { glcontextptr.compressed_tex_sub_image_2d(target, level, xoffset, yoffset, width, height, format, data) }
-/// Equivalent to the Rust `GlContextPtr::tex_image_3d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_image_3d(glcontextptr: &AzGlContextPtr, target: u32, level: i32, internal_format: i32, width: i32, height: i32, depth: i32, border: i32, format: u32, ty: u32, opt_data: AzOptionU8VecRef) { glcontextptr.tex_image_3d(target, level, internal_format, width, height, depth, border, format, ty, opt_data) }
-/// Equivalent to the Rust `GlContextPtr::copy_tex_image_2d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_tex_image_2d(glcontextptr: &AzGlContextPtr, target: u32, level: i32, internal_format: u32, x: i32, y: i32, width: i32, height: i32, border: i32) { glcontextptr.copy_tex_image_2d(target, level, internal_format, x, y, width, height, border) }
-/// Equivalent to the Rust `GlContextPtr::copy_tex_sub_image_2d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_tex_sub_image_2d(glcontextptr: &AzGlContextPtr, target: u32, level: i32, xoffset: i32, yoffset: i32, x: i32, y: i32, width: i32, height: i32) { glcontextptr.copy_tex_sub_image_2d(target, level, xoffset, yoffset, x, y, width, height) }
-/// Equivalent to the Rust `GlContextPtr::copy_tex_sub_image_3d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_tex_sub_image_3d(glcontextptr: &AzGlContextPtr, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, x: i32, y: i32, width: i32, height: i32) { glcontextptr.copy_tex_sub_image_3d(target, level, xoffset, yoffset, zoffset, x, y, width, height) }
-/// Equivalent to the Rust `GlContextPtr::tex_sub_image_2d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_sub_image_2d(glcontextptr: &AzGlContextPtr, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, data: AzU8VecRef) { glcontextptr.tex_sub_image_2d(target, level, xoffset, yoffset, width, height, format, ty, data) }
-/// Equivalent to the Rust `GlContextPtr::tex_sub_image_2d_pbo()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_sub_image_2d_pbo(glcontextptr: &AzGlContextPtr, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, offset: usize) { glcontextptr.tex_sub_image_2d_pbo(target, level, xoffset, yoffset, width, height, format, ty, offset) }
-/// Equivalent to the Rust `GlContextPtr::tex_sub_image_3d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_sub_image_3d(glcontextptr: &AzGlContextPtr, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: AzU8VecRef) { glcontextptr.tex_sub_image_3d(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, data) }
-/// Equivalent to the Rust `GlContextPtr::tex_sub_image_3d_pbo()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_sub_image_3d_pbo(glcontextptr: &AzGlContextPtr, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, offset: usize) { glcontextptr.tex_sub_image_3d_pbo(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset) }
-/// Equivalent to the Rust `GlContextPtr::tex_storage_2d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_storage_2d(glcontextptr: &AzGlContextPtr, target: u32, levels: i32, internal_format: u32, width: i32, height: i32) { glcontextptr.tex_storage_2d(target, levels, internal_format, width, height) }
-/// Equivalent to the Rust `GlContextPtr::tex_storage_3d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_storage_3d(glcontextptr: &AzGlContextPtr, target: u32, levels: i32, internal_format: u32, width: i32, height: i32, depth: i32) { glcontextptr.tex_storage_3d(target, levels, internal_format, width, height, depth) }
-/// Equivalent to the Rust `GlContextPtr::get_tex_image_into_buffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_tex_image_into_buffer(glcontextptr: &AzGlContextPtr, target: u32, level: i32, format: u32, ty: u32, output: AzU8VecRefMut) { glcontextptr.get_tex_image_into_buffer(target, level, format, ty, output) }
-/// Equivalent to the Rust `GlContextPtr::copy_image_sub_data()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_image_sub_data(glcontextptr: &AzGlContextPtr, src_name: u32, src_target: u32, src_level: i32, src_x: i32, src_y: i32, src_z: i32, dst_name: u32, dst_target: u32, dst_level: i32, dst_x: i32, dst_y: i32, dst_z: i32, src_width: i32, src_height: i32, src_depth: i32) { glcontextptr.copy_image_sub_data(src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth) }
-/// Equivalent to the Rust `GlContextPtr::invalidate_framebuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_invalidate_framebuffer(glcontextptr: &AzGlContextPtr, target: u32, attachments: AzGLenumVecRef) { glcontextptr.invalidate_framebuffer(target, attachments) }
-/// Equivalent to the Rust `GlContextPtr::invalidate_sub_framebuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_invalidate_sub_framebuffer(glcontextptr: &AzGlContextPtr, target: u32, attachments: AzGLenumVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32) { glcontextptr.invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height) }
-/// Equivalent to the Rust `GlContextPtr::get_integer_v()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLintVecRefMut) { glcontextptr.get_integer_v(name, result) }
-/// Equivalent to the Rust `GlContextPtr::get_integer_64v()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_64v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLint64VecRefMut) { glcontextptr.get_integer_64v(name, result) }
-/// Equivalent to the Rust `GlContextPtr::get_integer_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_iv(glcontextptr: &AzGlContextPtr, name: u32, index: u32, result: AzGLintVecRefMut) { glcontextptr.get_integer_iv(name, index, result) }
-/// Equivalent to the Rust `GlContextPtr::get_integer_64iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_64iv(glcontextptr: &AzGlContextPtr, name: u32, index: u32, result: AzGLint64VecRefMut) { glcontextptr.get_integer_64iv(name, index, result) }
-/// Equivalent to the Rust `GlContextPtr::get_boolean_v()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_boolean_v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLbooleanVecRefMut) { glcontextptr.get_boolean_v(name, result) }
-/// Equivalent to the Rust `GlContextPtr::get_float_v()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_float_v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLfloatVecRefMut) { glcontextptr.get_float_v(name, result) }
-/// Equivalent to the Rust `GlContextPtr::get_framebuffer_attachment_parameter_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_framebuffer_attachment_parameter_iv(glcontextptr: &AzGlContextPtr, target: u32, attachment: u32, pname: u32) -> i32 { glcontextptr.get_framebuffer_attachment_parameter_iv(target, attachment, pname) }
-/// Equivalent to the Rust `GlContextPtr::get_renderbuffer_parameter_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_renderbuffer_parameter_iv(glcontextptr: &AzGlContextPtr, target: u32, pname: u32) -> i32 { glcontextptr.get_renderbuffer_parameter_iv(target, pname) }
-/// Equivalent to the Rust `GlContextPtr::get_tex_parameter_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_tex_parameter_iv(glcontextptr: &AzGlContextPtr, target: u32, name: u32) -> i32 { glcontextptr.get_tex_parameter_iv(target, name) }
-/// Equivalent to the Rust `GlContextPtr::get_tex_parameter_fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_tex_parameter_fv(glcontextptr: &AzGlContextPtr, target: u32, name: u32) -> f32 { glcontextptr.get_tex_parameter_fv(target, name) }
-/// Equivalent to the Rust `GlContextPtr::tex_parameter_i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_parameter_i(glcontextptr: &AzGlContextPtr, target: u32, pname: u32, param: i32) { glcontextptr.tex_parameter_i(target, pname, param) }
-/// Equivalent to the Rust `GlContextPtr::tex_parameter_f()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_parameter_f(glcontextptr: &AzGlContextPtr, target: u32, pname: u32, param: f32) { glcontextptr.tex_parameter_f(target, pname, param) }
-/// Equivalent to the Rust `GlContextPtr::framebuffer_texture_2d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_framebuffer_texture_2d(glcontextptr: &AzGlContextPtr, target: u32, attachment: u32, textarget: u32, texture: u32, level: i32) { glcontextptr.framebuffer_texture_2d(target, attachment, textarget, texture, level) }
-/// Equivalent to the Rust `GlContextPtr::framebuffer_texture_layer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_framebuffer_texture_layer(glcontextptr: &AzGlContextPtr, target: u32, attachment: u32, texture: u32, level: i32, layer: i32) { glcontextptr.framebuffer_texture_layer(target, attachment, texture, level, layer) }
-/// Equivalent to the Rust `GlContextPtr::blit_framebuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blit_framebuffer(glcontextptr: &AzGlContextPtr, src_x0: i32, src_y0: i32, src_x1: i32, src_y1: i32, dst_x0: i32, dst_y0: i32, dst_x1: i32, dst_y1: i32, mask: u32, filter: u32) { glcontextptr.blit_framebuffer(src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter) }
-/// Equivalent to the Rust `GlContextPtr::vertex_attrib_4f()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_4f(glcontextptr: &AzGlContextPtr, index: u32, x: f32, y: f32, z: f32, w: f32) { glcontextptr.vertex_attrib_4f(index, x, y, z, w) }
-/// Equivalent to the Rust `GlContextPtr::vertex_attrib_pointer_f32()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_pointer_f32(glcontextptr: &AzGlContextPtr, index: u32, size: i32, normalized: bool, stride: i32, offset: u32) { glcontextptr.vertex_attrib_pointer_f32(index, size, normalized, stride, offset) }
-/// Equivalent to the Rust `GlContextPtr::vertex_attrib_pointer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_pointer(glcontextptr: &AzGlContextPtr, index: u32, size: i32, type_: u32, normalized: bool, stride: i32, offset: u32) { glcontextptr.vertex_attrib_pointer(index, size, type_, normalized, stride, offset) }
-/// Equivalent to the Rust `GlContextPtr::vertex_attrib_i_pointer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_i_pointer(glcontextptr: &AzGlContextPtr, index: u32, size: i32, type_: u32, stride: i32, offset: u32) { glcontextptr.vertex_attrib_i_pointer(index, size, type_, stride, offset) }
-/// Equivalent to the Rust `GlContextPtr::vertex_attrib_divisor()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_divisor(glcontextptr: &AzGlContextPtr, index: u32, divisor: u32) { glcontextptr.vertex_attrib_divisor(index, divisor) }
-/// Equivalent to the Rust `GlContextPtr::viewport()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_viewport(glcontextptr: &AzGlContextPtr, x: i32, y: i32, width: i32, height: i32) { glcontextptr.viewport(x, y, width, height) }
-/// Equivalent to the Rust `GlContextPtr::scissor()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_scissor(glcontextptr: &AzGlContextPtr, x: i32, y: i32, width: i32, height: i32) { glcontextptr.scissor(x, y, width, height) }
-/// Equivalent to the Rust `GlContextPtr::line_width()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_line_width(glcontextptr: &AzGlContextPtr, width: f32) { glcontextptr.line_width(width) }
-/// Equivalent to the Rust `GlContextPtr::use_program()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_use_program(glcontextptr: &AzGlContextPtr, program: u32) { glcontextptr.use_program(program) }
-/// Equivalent to the Rust `GlContextPtr::validate_program()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_validate_program(glcontextptr: &AzGlContextPtr, program: u32) { glcontextptr.validate_program(program) }
-/// Equivalent to the Rust `GlContextPtr::draw_arrays()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_arrays(glcontextptr: &AzGlContextPtr, mode: u32, first: i32, count: i32) { glcontextptr.draw_arrays(mode, first, count) }
-/// Equivalent to the Rust `GlContextPtr::draw_arrays_instanced()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_arrays_instanced(glcontextptr: &AzGlContextPtr, mode: u32, first: i32, count: i32, primcount: i32) { glcontextptr.draw_arrays_instanced(mode, first, count, primcount) }
-/// Equivalent to the Rust `GlContextPtr::draw_elements()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_elements(glcontextptr: &AzGlContextPtr, mode: u32, count: i32, element_type: u32, indices_offset: u32) { glcontextptr.draw_elements(mode, count, element_type, indices_offset) }
-/// Equivalent to the Rust `GlContextPtr::draw_elements_instanced()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_elements_instanced(glcontextptr: &AzGlContextPtr, mode: u32, count: i32, element_type: u32, indices_offset: u32, primcount: i32) { glcontextptr.draw_elements_instanced(mode, count, element_type, indices_offset, primcount) }
-/// Equivalent to the Rust `GlContextPtr::blend_color()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_color(glcontextptr: &AzGlContextPtr, r: f32, g: f32, b: f32, a: f32) { glcontextptr.blend_color(r, g, b, a) }
-/// Equivalent to the Rust `GlContextPtr::blend_func()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_func(glcontextptr: &AzGlContextPtr, sfactor: u32, dfactor: u32) { glcontextptr.blend_func(sfactor, dfactor) }
-/// Equivalent to the Rust `GlContextPtr::blend_func_separate()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_func_separate(glcontextptr: &AzGlContextPtr, src_rgb: u32, dest_rgb: u32, src_alpha: u32, dest_alpha: u32) { glcontextptr.blend_func_separate(src_rgb, dest_rgb, src_alpha, dest_alpha) }
-/// Equivalent to the Rust `GlContextPtr::blend_equation()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_equation(glcontextptr: &AzGlContextPtr, mode: u32) { glcontextptr.blend_equation(mode) }
-/// Equivalent to the Rust `GlContextPtr::blend_equation_separate()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_equation_separate(glcontextptr: &AzGlContextPtr, mode_rgb: u32, mode_alpha: u32) { glcontextptr.blend_equation_separate(mode_rgb, mode_alpha) }
-/// Equivalent to the Rust `GlContextPtr::color_mask()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_color_mask(glcontextptr: &AzGlContextPtr, r: bool, g: bool, b: bool, a: bool) { glcontextptr.color_mask(r, g, b, a) }
-/// Equivalent to the Rust `GlContextPtr::cull_face()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_cull_face(glcontextptr: &AzGlContextPtr, mode: u32) { glcontextptr.cull_face(mode) }
-/// Equivalent to the Rust `GlContextPtr::front_face()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_front_face(glcontextptr: &AzGlContextPtr, mode: u32) { glcontextptr.front_face(mode) }
-/// Equivalent to the Rust `GlContextPtr::enable()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_enable(glcontextptr: &AzGlContextPtr, cap: u32) { glcontextptr.enable(cap) }
-/// Equivalent to the Rust `GlContextPtr::disable()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_disable(glcontextptr: &AzGlContextPtr, cap: u32) { glcontextptr.disable(cap) }
-/// Equivalent to the Rust `GlContextPtr::hint()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_hint(glcontextptr: &AzGlContextPtr, param_name: u32, param_val: u32) { glcontextptr.hint(param_name, param_val) }
-/// Equivalent to the Rust `GlContextPtr::is_enabled()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_enabled(glcontextptr: &AzGlContextPtr, cap: u32) -> u8 { glcontextptr.is_enabled(cap) }
-/// Equivalent to the Rust `GlContextPtr::is_shader()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_shader(glcontextptr: &AzGlContextPtr, shader: u32) -> u8 { glcontextptr.is_shader(shader) }
-/// Equivalent to the Rust `GlContextPtr::is_texture()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_texture(glcontextptr: &AzGlContextPtr, texture: u32) -> u8 { glcontextptr.is_texture(texture) }
-/// Equivalent to the Rust `GlContextPtr::is_framebuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_framebuffer(glcontextptr: &AzGlContextPtr, framebuffer: u32) -> u8 { glcontextptr.is_framebuffer(framebuffer) }
-/// Equivalent to the Rust `GlContextPtr::is_renderbuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_renderbuffer(glcontextptr: &AzGlContextPtr, renderbuffer: u32) -> u8 { glcontextptr.is_renderbuffer(renderbuffer) }
-/// Equivalent to the Rust `GlContextPtr::check_frame_buffer_status()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_check_frame_buffer_status(glcontextptr: &AzGlContextPtr, target: u32) -> u32 { glcontextptr.check_frame_buffer_status(target) }
-/// Equivalent to the Rust `GlContextPtr::enable_vertex_attrib_array()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_enable_vertex_attrib_array(glcontextptr: &AzGlContextPtr, index: u32) { glcontextptr.enable_vertex_attrib_array(index) }
-/// Equivalent to the Rust `GlContextPtr::disable_vertex_attrib_array()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_disable_vertex_attrib_array(glcontextptr: &AzGlContextPtr, index: u32) { glcontextptr.disable_vertex_attrib_array(index) }
-/// Equivalent to the Rust `GlContextPtr::uniform_1f()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1f(glcontextptr: &AzGlContextPtr, location: i32, v0: f32) { glcontextptr.uniform_1f(location, v0) }
-/// Equivalent to the Rust `GlContextPtr::uniform_1fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1fv(glcontextptr: &AzGlContextPtr, location: i32, values: AzF32VecRef) { glcontextptr.uniform_1fv(location, values) }
-/// Equivalent to the Rust `GlContextPtr::uniform_1i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1i(glcontextptr: &AzGlContextPtr, location: i32, v0: i32) { glcontextptr.uniform_1i(location, v0) }
-/// Equivalent to the Rust `GlContextPtr::uniform_1iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1iv(glcontextptr: &AzGlContextPtr, location: i32, values: AzI32VecRef) { glcontextptr.uniform_1iv(location, values) }
-/// Equivalent to the Rust `GlContextPtr::uniform_1ui()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1ui(glcontextptr: &AzGlContextPtr, location: i32, v0: u32) { glcontextptr.uniform_1ui(location, v0) }
-/// Equivalent to the Rust `GlContextPtr::uniform_2f()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2f(glcontextptr: &AzGlContextPtr, location: i32, v0: f32, v1: f32) { glcontextptr.uniform_2f(location, v0, v1) }
-/// Equivalent to the Rust `GlContextPtr::uniform_2fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2fv(glcontextptr: &AzGlContextPtr, location: i32, values: AzF32VecRef) { glcontextptr.uniform_2fv(location, values) }
-/// Equivalent to the Rust `GlContextPtr::uniform_2i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2i(glcontextptr: &AzGlContextPtr, location: i32, v0: i32, v1: i32) { glcontextptr.uniform_2i(location, v0, v1) }
-/// Equivalent to the Rust `GlContextPtr::uniform_2iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2iv(glcontextptr: &AzGlContextPtr, location: i32, values: AzI32VecRef) { glcontextptr.uniform_2iv(location, values) }
-/// Equivalent to the Rust `GlContextPtr::uniform_2ui()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2ui(glcontextptr: &AzGlContextPtr, location: i32, v0: u32, v1: u32) { glcontextptr.uniform_2ui(location, v0, v1) }
-/// Equivalent to the Rust `GlContextPtr::uniform_3f()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3f(glcontextptr: &AzGlContextPtr, location: i32, v0: f32, v1: f32, v2: f32) { glcontextptr.uniform_3f(location, v0, v1, v2) }
-/// Equivalent to the Rust `GlContextPtr::uniform_3fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3fv(glcontextptr: &AzGlContextPtr, location: i32, values: AzF32VecRef) { glcontextptr.uniform_3fv(location, values) }
-/// Equivalent to the Rust `GlContextPtr::uniform_3i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3i(glcontextptr: &AzGlContextPtr, location: i32, v0: i32, v1: i32, v2: i32) { glcontextptr.uniform_3i(location, v0, v1, v2) }
-/// Equivalent to the Rust `GlContextPtr::uniform_3iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3iv(glcontextptr: &AzGlContextPtr, location: i32, values: AzI32VecRef) { glcontextptr.uniform_3iv(location, values) }
-/// Equivalent to the Rust `GlContextPtr::uniform_3ui()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3ui(glcontextptr: &AzGlContextPtr, location: i32, v0: u32, v1: u32, v2: u32) { glcontextptr.uniform_3ui(location, v0, v1, v2) }
-/// Equivalent to the Rust `GlContextPtr::uniform_4f()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4f(glcontextptr: &AzGlContextPtr, location: i32, x: f32, y: f32, z: f32, w: f32) { glcontextptr.uniform_4f(location, x, y, z, w) }
-/// Equivalent to the Rust `GlContextPtr::uniform_4i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4i(glcontextptr: &AzGlContextPtr, location: i32, x: i32, y: i32, z: i32, w: i32) { glcontextptr.uniform_4i(location, x, y, z, w) }
-/// Equivalent to the Rust `GlContextPtr::uniform_4iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4iv(glcontextptr: &AzGlContextPtr, location: i32, values: AzI32VecRef) { glcontextptr.uniform_4iv(location, values) }
-/// Equivalent to the Rust `GlContextPtr::uniform_4ui()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4ui(glcontextptr: &AzGlContextPtr, location: i32, x: u32, y: u32, z: u32, w: u32) { glcontextptr.uniform_4ui(location, x, y, z, w) }
-/// Equivalent to the Rust `GlContextPtr::uniform_4fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4fv(glcontextptr: &AzGlContextPtr, location: i32, values: AzF32VecRef) { glcontextptr.uniform_4fv(location, values) }
-/// Equivalent to the Rust `GlContextPtr::uniform_matrix_2fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_matrix_2fv(glcontextptr: &AzGlContextPtr, location: i32, transpose: bool, value: AzF32VecRef) { glcontextptr.uniform_matrix_2fv(location, transpose, value) }
-/// Equivalent to the Rust `GlContextPtr::uniform_matrix_3fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_matrix_3fv(glcontextptr: &AzGlContextPtr, location: i32, transpose: bool, value: AzF32VecRef) { glcontextptr.uniform_matrix_3fv(location, transpose, value) }
-/// Equivalent to the Rust `GlContextPtr::uniform_matrix_4fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_matrix_4fv(glcontextptr: &AzGlContextPtr, location: i32, transpose: bool, value: AzF32VecRef) { glcontextptr.uniform_matrix_4fv(location, transpose, value) }
-/// Equivalent to the Rust `GlContextPtr::depth_mask()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_depth_mask(glcontextptr: &AzGlContextPtr, flag: bool) { glcontextptr.depth_mask(flag) }
-/// Equivalent to the Rust `GlContextPtr::depth_range()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_depth_range(glcontextptr: &AzGlContextPtr, near: f64, far: f64) { glcontextptr.depth_range(near, far) }
-/// Equivalent to the Rust `GlContextPtr::get_active_attrib()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_attrib(glcontextptr: &AzGlContextPtr, program: u32, index: u32) -> AzGetActiveAttribReturn { glcontextptr.get_active_attrib(program, index) }
-/// Equivalent to the Rust `GlContextPtr::get_active_uniform()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniform(glcontextptr: &AzGlContextPtr, program: u32, index: u32) -> AzGetActiveUniformReturn { glcontextptr.get_active_uniform(program, index) }
-/// Equivalent to the Rust `GlContextPtr::get_active_uniforms_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniforms_iv(glcontextptr: &AzGlContextPtr, program: u32, indices: AzGLuintVec, pname: u32) -> AzGLintVec { glcontextptr.get_active_uniforms_iv(program, indices, pname) }
-/// Equivalent to the Rust `GlContextPtr::get_active_uniform_block_i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniform_block_i(glcontextptr: &AzGlContextPtr, program: u32, index: u32, pname: u32) -> i32 { glcontextptr.get_active_uniform_block_i(program, index, pname) }
-/// Equivalent to the Rust `GlContextPtr::get_active_uniform_block_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniform_block_iv(glcontextptr: &AzGlContextPtr, program: u32, index: u32, pname: u32) -> AzGLintVec { glcontextptr.get_active_uniform_block_iv(program, index, pname) }
-/// Equivalent to the Rust `GlContextPtr::get_active_uniform_block_name()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniform_block_name(glcontextptr: &AzGlContextPtr, program: u32, index: u32) -> AzString { glcontextptr.get_active_uniform_block_name(program, index) }
-/// Equivalent to the Rust `GlContextPtr::get_attrib_location()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_attrib_location(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> i32 { glcontextptr.get_attrib_location(program, name) }
-/// Equivalent to the Rust `GlContextPtr::get_frag_data_location()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_frag_data_location(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> i32 { glcontextptr.get_frag_data_location(program, name) }
-/// Equivalent to the Rust `GlContextPtr::get_uniform_location()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_uniform_location(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> i32 { glcontextptr.get_uniform_location(program, name) }
-/// Equivalent to the Rust `GlContextPtr::get_program_info_log()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_program_info_log(glcontextptr: &AzGlContextPtr, program: u32) -> AzString { glcontextptr.get_program_info_log(program) }
-/// Equivalent to the Rust `GlContextPtr::get_program_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_program_iv(glcontextptr: &AzGlContextPtr, program: u32, pname: u32, result: AzGLintVecRefMut) { glcontextptr.get_program_iv(program, pname, result) }
-/// Equivalent to the Rust `GlContextPtr::get_program_binary()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_program_binary(glcontextptr: &AzGlContextPtr, program: u32) -> AzGetProgramBinaryReturn { glcontextptr.get_program_binary(program) }
-/// Equivalent to the Rust `GlContextPtr::program_binary()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_program_binary(glcontextptr: &AzGlContextPtr, program: u32, format: u32, binary: AzU8VecRef) { glcontextptr.program_binary(program, format, binary) }
-/// Equivalent to the Rust `GlContextPtr::program_parameter_i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_program_parameter_i(glcontextptr: &AzGlContextPtr, program: u32, pname: u32, value: i32) { glcontextptr.program_parameter_i(program, pname, value) }
-/// Equivalent to the Rust `GlContextPtr::get_vertex_attrib_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_vertex_attrib_iv(glcontextptr: &AzGlContextPtr, index: u32, pname: u32, result: AzGLintVecRefMut) { glcontextptr.get_vertex_attrib_iv(index, pname, result) }
-/// Equivalent to the Rust `GlContextPtr::get_vertex_attrib_fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_vertex_attrib_fv(glcontextptr: &AzGlContextPtr, index: u32, pname: u32, result: AzGLfloatVecRefMut) { glcontextptr.get_vertex_attrib_fv(index, pname, result) }
-/// Equivalent to the Rust `GlContextPtr::get_vertex_attrib_pointer_v()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_vertex_attrib_pointer_v(glcontextptr: &AzGlContextPtr, index: u32, pname: u32) -> isize { glcontextptr.get_vertex_attrib_pointer_v(index, pname) }
-/// Equivalent to the Rust `GlContextPtr::get_buffer_parameter_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_buffer_parameter_iv(glcontextptr: &AzGlContextPtr, target: u32, pname: u32) -> i32 { glcontextptr.get_buffer_parameter_iv(target, pname) }
-/// Equivalent to the Rust `GlContextPtr::get_shader_info_log()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_shader_info_log(glcontextptr: &AzGlContextPtr, shader: u32) -> AzString { glcontextptr.get_shader_info_log(shader) }
-/// Equivalent to the Rust `GlContextPtr::get_string()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_string(glcontextptr: &AzGlContextPtr, which: u32) -> AzString { glcontextptr.get_string(which) }
-/// Equivalent to the Rust `GlContextPtr::get_string_i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_string_i(glcontextptr: &AzGlContextPtr, which: u32, index: u32) -> AzString { glcontextptr.get_string_i(which, index) }
-/// Equivalent to the Rust `GlContextPtr::get_shader_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_shader_iv(glcontextptr: &AzGlContextPtr, shader: u32, pname: u32, result: AzGLintVecRefMut) { glcontextptr.get_shader_iv(shader, pname, result) }
-/// Equivalent to the Rust `GlContextPtr::get_shader_precision_format()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_shader_precision_format(glcontextptr: &AzGlContextPtr, shader_type: u32, precision_type: u32) -> AzGlShaderPrecisionFormatReturn { glcontextptr.get_shader_precision_format(shader_type, precision_type) }
-/// Equivalent to the Rust `GlContextPtr::compile_shader()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_compile_shader(glcontextptr: &AzGlContextPtr, shader: u32) { glcontextptr.compile_shader(shader) }
-/// Equivalent to the Rust `GlContextPtr::create_program()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_create_program(glcontextptr: &AzGlContextPtr) -> u32 { glcontextptr.create_program() }
-/// Equivalent to the Rust `GlContextPtr::delete_program()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_program(glcontextptr: &AzGlContextPtr, program: u32) { glcontextptr.delete_program(program) }
-/// Equivalent to the Rust `GlContextPtr::create_shader()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_create_shader(glcontextptr: &AzGlContextPtr, shader_type: u32) -> u32 { glcontextptr.create_shader(shader_type) }
-/// Equivalent to the Rust `GlContextPtr::delete_shader()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_shader(glcontextptr: &AzGlContextPtr, shader: u32) { glcontextptr.delete_shader(shader) }
-/// Equivalent to the Rust `GlContextPtr::detach_shader()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_detach_shader(glcontextptr: &AzGlContextPtr, program: u32, shader: u32) { glcontextptr.detach_shader(program, shader) }
-/// Equivalent to the Rust `GlContextPtr::link_program()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_link_program(glcontextptr: &AzGlContextPtr, program: u32) { glcontextptr.link_program(program) }
-/// Equivalent to the Rust `GlContextPtr::clear_color()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_clear_color(glcontextptr: &AzGlContextPtr, r: f32, g: f32, b: f32, a: f32) { glcontextptr.clear_color(r, g, b, a) }
-/// Equivalent to the Rust `GlContextPtr::clear()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_clear(glcontextptr: &AzGlContextPtr, buffer_mask: u32) { glcontextptr.clear(buffer_mask) }
-/// Equivalent to the Rust `GlContextPtr::clear_depth()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_clear_depth(glcontextptr: &AzGlContextPtr, depth: f64) { glcontextptr.clear_depth(depth) }
-/// Equivalent to the Rust `GlContextPtr::clear_stencil()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_clear_stencil(glcontextptr: &AzGlContextPtr, s: i32) { glcontextptr.clear_stencil(s) }
-/// Equivalent to the Rust `GlContextPtr::flush()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_flush(glcontextptr: &AzGlContextPtr) { glcontextptr.flush() }
-/// Equivalent to the Rust `GlContextPtr::finish()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_finish(glcontextptr: &AzGlContextPtr) { glcontextptr.finish() }
-/// Equivalent to the Rust `GlContextPtr::get_error()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_error(glcontextptr: &AzGlContextPtr) -> u32 { glcontextptr.get_error() }
-/// Equivalent to the Rust `GlContextPtr::stencil_mask()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_mask(glcontextptr: &AzGlContextPtr, mask: u32) { glcontextptr.stencil_mask(mask) }
-/// Equivalent to the Rust `GlContextPtr::stencil_mask_separate()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_mask_separate(glcontextptr: &AzGlContextPtr, face: u32, mask: u32) { glcontextptr.stencil_mask_separate(face, mask) }
-/// Equivalent to the Rust `GlContextPtr::stencil_func()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_func(glcontextptr: &AzGlContextPtr, func: u32, ref_: i32, mask: u32) { glcontextptr.stencil_func(func, ref_, mask) }
-/// Equivalent to the Rust `GlContextPtr::stencil_func_separate()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_func_separate(glcontextptr: &AzGlContextPtr, face: u32, func: u32, ref_: i32, mask: u32) { glcontextptr.stencil_func_separate(face, func, ref_, mask) }
-/// Equivalent to the Rust `GlContextPtr::stencil_op()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_op(glcontextptr: &AzGlContextPtr, sfail: u32, dpfail: u32, dppass: u32) { glcontextptr.stencil_op(sfail, dpfail, dppass) }
-/// Equivalent to the Rust `GlContextPtr::stencil_op_separate()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_op_separate(glcontextptr: &AzGlContextPtr, face: u32, sfail: u32, dpfail: u32, dppass: u32) { glcontextptr.stencil_op_separate(face, sfail, dpfail, dppass) }
-/// Equivalent to the Rust `GlContextPtr::egl_image_target_texture2d_oes()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_egl_image_target_texture2d_oes(glcontextptr: &AzGlContextPtr, target: u32, image: *const c_void) { glcontextptr.egl_image_target_texture2d_oes(target, image) }
-/// Equivalent to the Rust `GlContextPtr::generate_mipmap()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_generate_mipmap(glcontextptr: &AzGlContextPtr, target: u32) { glcontextptr.generate_mipmap(target) }
-/// Equivalent to the Rust `GlContextPtr::insert_event_marker_ext()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_insert_event_marker_ext(glcontextptr: &AzGlContextPtr, message: AzRefstr) { glcontextptr.insert_event_marker_ext(message) }
-/// Equivalent to the Rust `GlContextPtr::push_group_marker_ext()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_push_group_marker_ext(glcontextptr: &AzGlContextPtr, message: AzRefstr) { glcontextptr.push_group_marker_ext(message) }
-/// Equivalent to the Rust `GlContextPtr::pop_group_marker_ext()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_pop_group_marker_ext(glcontextptr: &AzGlContextPtr) { glcontextptr.pop_group_marker_ext() }
-/// Equivalent to the Rust `GlContextPtr::debug_message_insert_khr()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_debug_message_insert_khr(glcontextptr: &AzGlContextPtr, source: u32, type_: u32, id: u32, severity: u32, message: AzRefstr) { glcontextptr.debug_message_insert_khr(source, type_, id, severity, message) }
-/// Equivalent to the Rust `GlContextPtr::push_debug_group_khr()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_push_debug_group_khr(glcontextptr: &AzGlContextPtr, source: u32, id: u32, message: AzRefstr) { glcontextptr.push_debug_group_khr(source, id, message) }
-/// Equivalent to the Rust `GlContextPtr::pop_debug_group_khr()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_pop_debug_group_khr(glcontextptr: &AzGlContextPtr) { glcontextptr.pop_debug_group_khr() }
-/// Equivalent to the Rust `GlContextPtr::fence_sync()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_fence_sync(glcontextptr: &AzGlContextPtr, condition: u32, flags: u32) -> AzGLsyncPtr { glcontextptr.fence_sync(condition, flags) }
-/// Equivalent to the Rust `GlContextPtr::client_wait_sync()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_client_wait_sync(glcontextptr: &AzGlContextPtr, sync: AzGLsyncPtr, flags: u32, timeout: u64) -> u32 { glcontextptr.client_wait_sync(sync, flags, timeout) }
-/// Equivalent to the Rust `GlContextPtr::wait_sync()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_wait_sync(glcontextptr: &AzGlContextPtr, sync: AzGLsyncPtr, flags: u32, timeout: u64) { glcontextptr.wait_sync(sync, flags, timeout) }
-/// Equivalent to the Rust `GlContextPtr::delete_sync()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_sync(glcontextptr: &AzGlContextPtr, sync: AzGLsyncPtr) { glcontextptr.delete_sync(sync) }
-/// Equivalent to the Rust `GlContextPtr::texture_range_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_texture_range_apple(glcontextptr: &AzGlContextPtr, target: u32, data: AzU8VecRef) { glcontextptr.texture_range_apple(target, data) }
-/// Equivalent to the Rust `GlContextPtr::gen_fences_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_gen_fences_apple(glcontextptr: &AzGlContextPtr, n: i32) -> AzGLuintVec { glcontextptr.gen_fences_apple(n) }
-/// Equivalent to the Rust `GlContextPtr::delete_fences_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_fences_apple(glcontextptr: &AzGlContextPtr, fences: AzGLuintVecRef) { glcontextptr.delete_fences_apple(fences) }
-/// Equivalent to the Rust `GlContextPtr::set_fence_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_set_fence_apple(glcontextptr: &AzGlContextPtr, fence: u32) { glcontextptr.set_fence_apple(fence) }
-/// Equivalent to the Rust `GlContextPtr::finish_fence_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_finish_fence_apple(glcontextptr: &AzGlContextPtr, fence: u32) { glcontextptr.finish_fence_apple(fence) }
-/// Equivalent to the Rust `GlContextPtr::test_fence_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_test_fence_apple(glcontextptr: &AzGlContextPtr, fence: u32) { glcontextptr.test_fence_apple(fence) }
-/// Equivalent to the Rust `GlContextPtr::test_object_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_test_object_apple(glcontextptr: &AzGlContextPtr, object: u32, name: u32) -> u8 { glcontextptr.test_object_apple(object, name) }
-/// Equivalent to the Rust `GlContextPtr::finish_object_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_finish_object_apple(glcontextptr: &AzGlContextPtr, object: u32, name: u32) { glcontextptr.finish_object_apple(object, name) }
-/// Equivalent to the Rust `GlContextPtr::get_frag_data_index()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_frag_data_index(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> i32 { glcontextptr.get_frag_data_index(program, name) }
-/// Equivalent to the Rust `GlContextPtr::blend_barrier_khr()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_barrier_khr(glcontextptr: &AzGlContextPtr) { glcontextptr.blend_barrier_khr() }
-/// Equivalent to the Rust `GlContextPtr::bind_frag_data_location_indexed()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_frag_data_location_indexed(glcontextptr: &AzGlContextPtr, program: u32, color_number: u32, index: u32, name: AzRefstr) { glcontextptr.bind_frag_data_location_indexed(program, color_number, index, name) }
-/// Equivalent to the Rust `GlContextPtr::get_debug_messages()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_debug_messages(glcontextptr: &AzGlContextPtr) -> AzDebugMessageVec { glcontextptr.get_debug_messages() }
-/// Equivalent to the Rust `GlContextPtr::provoking_vertex_angle()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_provoking_vertex_angle(glcontextptr: &AzGlContextPtr, mode: u32) { glcontextptr.provoking_vertex_angle(mode) }
-/// Equivalent to the Rust `GlContextPtr::gen_vertex_arrays_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_gen_vertex_arrays_apple(glcontextptr: &AzGlContextPtr, n: i32) -> AzGLuintVec { glcontextptr.gen_vertex_arrays_apple(n) }
-/// Equivalent to the Rust `GlContextPtr::bind_vertex_array_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_vertex_array_apple(glcontextptr: &AzGlContextPtr, vao: u32) { glcontextptr.bind_vertex_array_apple(vao) }
-/// Equivalent to the Rust `GlContextPtr::delete_vertex_arrays_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_vertex_arrays_apple(glcontextptr: &AzGlContextPtr, vertex_arrays: AzGLuintVecRef) { glcontextptr.delete_vertex_arrays_apple(vertex_arrays) }
-/// Equivalent to the Rust `GlContextPtr::copy_texture_chromium()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_texture_chromium(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glcontextptr.copy_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
-/// Equivalent to the Rust `GlContextPtr::copy_sub_texture_chromium()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_sub_texture_chromium(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, x: i32, y: i32, width: i32, height: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glcontextptr.copy_sub_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
-/// Equivalent to the Rust `GlContextPtr::egl_image_target_renderbuffer_storage_oes()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes(glcontextptr: &AzGlContextPtr, target: u32, image: *const c_void) { glcontextptr.egl_image_target_renderbuffer_storage_oes(target, image) }
-/// Equivalent to the Rust `GlContextPtr::copy_texture_3d_angle()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_texture_3d_angle(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glcontextptr.copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
-/// Equivalent to the Rust `GlContextPtr::copy_sub_texture_3d_angle()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_sub_texture_3d_angle(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glcontextptr.copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
-/// Equivalent to the Rust `GlContextPtr::buffer_storage()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_buffer_storage(glcontextptr: &AzGlContextPtr, target: u32, size: isize, data: *const c_void, flags: u32) { glcontextptr.buffer_storage(target, size, data, flags) }
-/// Equivalent to the Rust `GlContextPtr::flush_mapped_buffer_range()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_flush_mapped_buffer_range(glcontextptr: &AzGlContextPtr, target: u32, offset: isize, length: isize) { glcontextptr.flush_mapped_buffer_range(target, offset, length) }
-/// Destructor: Takes ownership of the `GlContextPtr` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete(object: &mut AzGlContextPtr) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Re-export of rust-allocated (stack based) `Gl` struct
+pub type AzGlTT = azul_impl::gl::GlContextPtr;
+pub use AzGlTT as AzGl;
+/// Equivalent to the Rust `Gl::get_type()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_type(gl: &AzGl) -> AzGlType { gl.get_type() }
+/// Equivalent to the Rust `Gl::buffer_data_untyped()` function.
+#[no_mangle] pub extern "C" fn AzGl_buffer_data_untyped(gl: &AzGl, target: u32, size: isize, data: *const c_void, usage: u32) { gl.buffer_data_untyped(target, size, data, usage) }
+/// Equivalent to the Rust `Gl::buffer_sub_data_untyped()` function.
+#[no_mangle] pub extern "C" fn AzGl_buffer_sub_data_untyped(gl: &AzGl, target: u32, offset: isize, size: isize, data: *const c_void) { gl.buffer_sub_data_untyped(target, offset, size, data) }
+/// Equivalent to the Rust `Gl::map_buffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_map_buffer(gl: &AzGl, target: u32, access: u32) -> *mut c_void { gl.map_buffer(target, access) }
+/// Equivalent to the Rust `Gl::map_buffer_range()` function.
+#[no_mangle] pub extern "C" fn AzGl_map_buffer_range(gl: &AzGl, target: u32, offset: isize, length: isize, access: u32) -> *mut c_void { gl.map_buffer_range(target, offset, length, access) }
+/// Equivalent to the Rust `Gl::unmap_buffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_unmap_buffer(gl: &AzGl, target: u32) -> u8 { gl.unmap_buffer(target) }
+/// Equivalent to the Rust `Gl::tex_buffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_tex_buffer(gl: &AzGl, target: u32, internal_format: u32, buffer: u32) { gl.tex_buffer(target, internal_format, buffer) }
+/// Equivalent to the Rust `Gl::shader_source()` function.
+#[no_mangle] pub extern "C" fn AzGl_shader_source(gl: &AzGl, shader: u32, strings: AzStringVec) { gl.shader_source(shader, strings) }
+/// Equivalent to the Rust `Gl::read_buffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_read_buffer(gl: &AzGl, mode: u32) { gl.read_buffer(mode) }
+/// Equivalent to the Rust `Gl::read_pixels_into_buffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_read_pixels_into_buffer(gl: &AzGl, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32, dst_buffer: AzU8VecRefMut) { gl.read_pixels_into_buffer(x, y, width, height, format, pixel_type, dst_buffer) }
+/// Equivalent to the Rust `Gl::read_pixels()` function.
+#[no_mangle] pub extern "C" fn AzGl_read_pixels(gl: &AzGl, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32) -> AzU8Vec { gl.read_pixels(x, y, width, height, format, pixel_type) }
+/// Equivalent to the Rust `Gl::read_pixels_into_pbo()` function.
+#[no_mangle] pub extern "C" fn AzGl_read_pixels_into_pbo(gl: &AzGl, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32) { gl.read_pixels_into_pbo(x, y, width, height, format, pixel_type) }
+/// Equivalent to the Rust `Gl::sample_coverage()` function.
+#[no_mangle] pub extern "C" fn AzGl_sample_coverage(gl: &AzGl, value: f32, invert: bool) { gl.sample_coverage(value, invert) }
+/// Equivalent to the Rust `Gl::polygon_offset()` function.
+#[no_mangle] pub extern "C" fn AzGl_polygon_offset(gl: &AzGl, factor: f32, units: f32) { gl.polygon_offset(factor, units) }
+/// Equivalent to the Rust `Gl::pixel_store_i()` function.
+#[no_mangle] pub extern "C" fn AzGl_pixel_store_i(gl: &AzGl, name: u32, param: i32) { gl.pixel_store_i(name, param) }
+/// Equivalent to the Rust `Gl::gen_buffers()` function.
+#[no_mangle] pub extern "C" fn AzGl_gen_buffers(gl: &AzGl, n: i32) -> AzGLuintVec { gl.gen_buffers(n) }
+/// Equivalent to the Rust `Gl::gen_renderbuffers()` function.
+#[no_mangle] pub extern "C" fn AzGl_gen_renderbuffers(gl: &AzGl, n: i32) -> AzGLuintVec { gl.gen_renderbuffers(n) }
+/// Equivalent to the Rust `Gl::gen_framebuffers()` function.
+#[no_mangle] pub extern "C" fn AzGl_gen_framebuffers(gl: &AzGl, n: i32) -> AzGLuintVec { gl.gen_framebuffers(n) }
+/// Equivalent to the Rust `Gl::gen_textures()` function.
+#[no_mangle] pub extern "C" fn AzGl_gen_textures(gl: &AzGl, n: i32) -> AzGLuintVec { gl.gen_textures(n) }
+/// Equivalent to the Rust `Gl::gen_vertex_arrays()` function.
+#[no_mangle] pub extern "C" fn AzGl_gen_vertex_arrays(gl: &AzGl, n: i32) -> AzGLuintVec { gl.gen_vertex_arrays(n) }
+/// Equivalent to the Rust `Gl::gen_queries()` function.
+#[no_mangle] pub extern "C" fn AzGl_gen_queries(gl: &AzGl, n: i32) -> AzGLuintVec { gl.gen_queries(n) }
+/// Equivalent to the Rust `Gl::begin_query()` function.
+#[no_mangle] pub extern "C" fn AzGl_begin_query(gl: &AzGl, target: u32, id: u32) { gl.begin_query(target, id) }
+/// Equivalent to the Rust `Gl::end_query()` function.
+#[no_mangle] pub extern "C" fn AzGl_end_query(gl: &AzGl, target: u32) { gl.end_query(target) }
+/// Equivalent to the Rust `Gl::query_counter()` function.
+#[no_mangle] pub extern "C" fn AzGl_query_counter(gl: &AzGl, id: u32, target: u32) { gl.query_counter(id, target) }
+/// Equivalent to the Rust `Gl::get_query_object_iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_query_object_iv(gl: &AzGl, id: u32, pname: u32) -> i32 { gl.get_query_object_iv(id, pname) }
+/// Equivalent to the Rust `Gl::get_query_object_uiv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_query_object_uiv(gl: &AzGl, id: u32, pname: u32) -> u32 { gl.get_query_object_uiv(id, pname) }
+/// Equivalent to the Rust `Gl::get_query_object_i64v()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_query_object_i64v(gl: &AzGl, id: u32, pname: u32) -> i64 { gl.get_query_object_i64v(id, pname) }
+/// Equivalent to the Rust `Gl::get_query_object_ui64v()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_query_object_ui64v(gl: &AzGl, id: u32, pname: u32) -> u64 { gl.get_query_object_ui64v(id, pname) }
+/// Equivalent to the Rust `Gl::delete_queries()` function.
+#[no_mangle] pub extern "C" fn AzGl_delete_queries(gl: &AzGl, queries: AzGLuintVecRef) { gl.delete_queries(queries) }
+/// Equivalent to the Rust `Gl::delete_vertex_arrays()` function.
+#[no_mangle] pub extern "C" fn AzGl_delete_vertex_arrays(gl: &AzGl, vertex_arrays: AzGLuintVecRef) { gl.delete_vertex_arrays(vertex_arrays) }
+/// Equivalent to the Rust `Gl::delete_buffers()` function.
+#[no_mangle] pub extern "C" fn AzGl_delete_buffers(gl: &AzGl, buffers: AzGLuintVecRef) { gl.delete_buffers(buffers) }
+/// Equivalent to the Rust `Gl::delete_renderbuffers()` function.
+#[no_mangle] pub extern "C" fn AzGl_delete_renderbuffers(gl: &AzGl, renderbuffers: AzGLuintVecRef) { gl.delete_renderbuffers(renderbuffers) }
+/// Equivalent to the Rust `Gl::delete_framebuffers()` function.
+#[no_mangle] pub extern "C" fn AzGl_delete_framebuffers(gl: &AzGl, framebuffers: AzGLuintVecRef) { gl.delete_framebuffers(framebuffers) }
+/// Equivalent to the Rust `Gl::delete_textures()` function.
+#[no_mangle] pub extern "C" fn AzGl_delete_textures(gl: &AzGl, textures: AzGLuintVecRef) { gl.delete_textures(textures) }
+/// Equivalent to the Rust `Gl::framebuffer_renderbuffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_framebuffer_renderbuffer(gl: &AzGl, target: u32, attachment: u32, renderbuffertarget: u32, renderbuffer: u32) { gl.framebuffer_renderbuffer(target, attachment, renderbuffertarget, renderbuffer) }
+/// Equivalent to the Rust `Gl::renderbuffer_storage()` function.
+#[no_mangle] pub extern "C" fn AzGl_renderbuffer_storage(gl: &AzGl, target: u32, internalformat: u32, width: i32, height: i32) { gl.renderbuffer_storage(target, internalformat, width, height) }
+/// Equivalent to the Rust `Gl::depth_func()` function.
+#[no_mangle] pub extern "C" fn AzGl_depth_func(gl: &AzGl, func: u32) { gl.depth_func(func) }
+/// Equivalent to the Rust `Gl::active_texture()` function.
+#[no_mangle] pub extern "C" fn AzGl_active_texture(gl: &AzGl, texture: u32) { gl.active_texture(texture) }
+/// Equivalent to the Rust `Gl::attach_shader()` function.
+#[no_mangle] pub extern "C" fn AzGl_attach_shader(gl: &AzGl, program: u32, shader: u32) { gl.attach_shader(program, shader) }
+/// Equivalent to the Rust `Gl::bind_attrib_location()` function.
+#[no_mangle] pub extern "C" fn AzGl_bind_attrib_location(gl: &AzGl, program: u32, index: u32, name: AzRefstr) { gl.bind_attrib_location(program, index, name) }
+/// Equivalent to the Rust `Gl::get_uniform_iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_uniform_iv(gl: &AzGl, program: u32, location: i32, result: AzGLintVecRefMut) { gl.get_uniform_iv(program, location, result) }
+/// Equivalent to the Rust `Gl::get_uniform_fv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_uniform_fv(gl: &AzGl, program: u32, location: i32, result: AzGLfloatVecRefMut) { gl.get_uniform_fv(program, location, result) }
+/// Equivalent to the Rust `Gl::get_uniform_block_index()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_uniform_block_index(gl: &AzGl, program: u32, name: AzRefstr) -> u32 { gl.get_uniform_block_index(program, name) }
+/// Equivalent to the Rust `Gl::get_uniform_indices()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_uniform_indices(gl: &AzGl, program: u32, names: AzRefstrVecRef) -> AzGLuintVec { gl.get_uniform_indices(program, names) }
+/// Equivalent to the Rust `Gl::bind_buffer_base()` function.
+#[no_mangle] pub extern "C" fn AzGl_bind_buffer_base(gl: &AzGl, target: u32, index: u32, buffer: u32) { gl.bind_buffer_base(target, index, buffer) }
+/// Equivalent to the Rust `Gl::bind_buffer_range()` function.
+#[no_mangle] pub extern "C" fn AzGl_bind_buffer_range(gl: &AzGl, target: u32, index: u32, buffer: u32, offset: isize, size: isize) { gl.bind_buffer_range(target, index, buffer, offset, size) }
+/// Equivalent to the Rust `Gl::uniform_block_binding()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_block_binding(gl: &AzGl, program: u32, uniform_block_index: u32, uniform_block_binding: u32) { gl.uniform_block_binding(program, uniform_block_index, uniform_block_binding) }
+/// Equivalent to the Rust `Gl::bind_buffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_bind_buffer(gl: &AzGl, target: u32, buffer: u32) { gl.bind_buffer(target, buffer) }
+/// Equivalent to the Rust `Gl::bind_vertex_array()` function.
+#[no_mangle] pub extern "C" fn AzGl_bind_vertex_array(gl: &AzGl, vao: u32) { gl.bind_vertex_array(vao) }
+/// Equivalent to the Rust `Gl::bind_renderbuffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_bind_renderbuffer(gl: &AzGl, target: u32, renderbuffer: u32) { gl.bind_renderbuffer(target, renderbuffer) }
+/// Equivalent to the Rust `Gl::bind_framebuffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_bind_framebuffer(gl: &AzGl, target: u32, framebuffer: u32) { gl.bind_framebuffer(target, framebuffer) }
+/// Equivalent to the Rust `Gl::bind_texture()` function.
+#[no_mangle] pub extern "C" fn AzGl_bind_texture(gl: &AzGl, target: u32, texture: u32) { gl.bind_texture(target, texture) }
+/// Equivalent to the Rust `Gl::draw_buffers()` function.
+#[no_mangle] pub extern "C" fn AzGl_draw_buffers(gl: &AzGl, bufs: AzGLenumVecRef) { gl.draw_buffers(bufs) }
+/// Equivalent to the Rust `Gl::tex_image_2d()` function.
+#[no_mangle] pub extern "C" fn AzGl_tex_image_2d(gl: &AzGl, target: u32, level: i32, internal_format: i32, width: i32, height: i32, border: i32, format: u32, ty: u32, opt_data: AzOptionU8VecRef) { gl.tex_image_2d(target, level, internal_format, width, height, border, format, ty, opt_data) }
+/// Equivalent to the Rust `Gl::compressed_tex_image_2d()` function.
+#[no_mangle] pub extern "C" fn AzGl_compressed_tex_image_2d(gl: &AzGl, target: u32, level: i32, internal_format: u32, width: i32, height: i32, border: i32, data: AzU8VecRef) { gl.compressed_tex_image_2d(target, level, internal_format, width, height, border, data) }
+/// Equivalent to the Rust `Gl::compressed_tex_sub_image_2d()` function.
+#[no_mangle] pub extern "C" fn AzGl_compressed_tex_sub_image_2d(gl: &AzGl, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, data: AzU8VecRef) { gl.compressed_tex_sub_image_2d(target, level, xoffset, yoffset, width, height, format, data) }
+/// Equivalent to the Rust `Gl::tex_image_3d()` function.
+#[no_mangle] pub extern "C" fn AzGl_tex_image_3d(gl: &AzGl, target: u32, level: i32, internal_format: i32, width: i32, height: i32, depth: i32, border: i32, format: u32, ty: u32, opt_data: AzOptionU8VecRef) { gl.tex_image_3d(target, level, internal_format, width, height, depth, border, format, ty, opt_data) }
+/// Equivalent to the Rust `Gl::copy_tex_image_2d()` function.
+#[no_mangle] pub extern "C" fn AzGl_copy_tex_image_2d(gl: &AzGl, target: u32, level: i32, internal_format: u32, x: i32, y: i32, width: i32, height: i32, border: i32) { gl.copy_tex_image_2d(target, level, internal_format, x, y, width, height, border) }
+/// Equivalent to the Rust `Gl::copy_tex_sub_image_2d()` function.
+#[no_mangle] pub extern "C" fn AzGl_copy_tex_sub_image_2d(gl: &AzGl, target: u32, level: i32, xoffset: i32, yoffset: i32, x: i32, y: i32, width: i32, height: i32) { gl.copy_tex_sub_image_2d(target, level, xoffset, yoffset, x, y, width, height) }
+/// Equivalent to the Rust `Gl::copy_tex_sub_image_3d()` function.
+#[no_mangle] pub extern "C" fn AzGl_copy_tex_sub_image_3d(gl: &AzGl, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, x: i32, y: i32, width: i32, height: i32) { gl.copy_tex_sub_image_3d(target, level, xoffset, yoffset, zoffset, x, y, width, height) }
+/// Equivalent to the Rust `Gl::tex_sub_image_2d()` function.
+#[no_mangle] pub extern "C" fn AzGl_tex_sub_image_2d(gl: &AzGl, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, data: AzU8VecRef) { gl.tex_sub_image_2d(target, level, xoffset, yoffset, width, height, format, ty, data) }
+/// Equivalent to the Rust `Gl::tex_sub_image_2d_pbo()` function.
+#[no_mangle] pub extern "C" fn AzGl_tex_sub_image_2d_pbo(gl: &AzGl, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, offset: usize) { gl.tex_sub_image_2d_pbo(target, level, xoffset, yoffset, width, height, format, ty, offset) }
+/// Equivalent to the Rust `Gl::tex_sub_image_3d()` function.
+#[no_mangle] pub extern "C" fn AzGl_tex_sub_image_3d(gl: &AzGl, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: AzU8VecRef) { gl.tex_sub_image_3d(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, data) }
+/// Equivalent to the Rust `Gl::tex_sub_image_3d_pbo()` function.
+#[no_mangle] pub extern "C" fn AzGl_tex_sub_image_3d_pbo(gl: &AzGl, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, offset: usize) { gl.tex_sub_image_3d_pbo(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset) }
+/// Equivalent to the Rust `Gl::tex_storage_2d()` function.
+#[no_mangle] pub extern "C" fn AzGl_tex_storage_2d(gl: &AzGl, target: u32, levels: i32, internal_format: u32, width: i32, height: i32) { gl.tex_storage_2d(target, levels, internal_format, width, height) }
+/// Equivalent to the Rust `Gl::tex_storage_3d()` function.
+#[no_mangle] pub extern "C" fn AzGl_tex_storage_3d(gl: &AzGl, target: u32, levels: i32, internal_format: u32, width: i32, height: i32, depth: i32) { gl.tex_storage_3d(target, levels, internal_format, width, height, depth) }
+/// Equivalent to the Rust `Gl::get_tex_image_into_buffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_tex_image_into_buffer(gl: &AzGl, target: u32, level: i32, format: u32, ty: u32, output: AzU8VecRefMut) { gl.get_tex_image_into_buffer(target, level, format, ty, output) }
+/// Equivalent to the Rust `Gl::copy_image_sub_data()` function.
+#[no_mangle] pub extern "C" fn AzGl_copy_image_sub_data(gl: &AzGl, src_name: u32, src_target: u32, src_level: i32, src_x: i32, src_y: i32, src_z: i32, dst_name: u32, dst_target: u32, dst_level: i32, dst_x: i32, dst_y: i32, dst_z: i32, src_width: i32, src_height: i32, src_depth: i32) { gl.copy_image_sub_data(src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth) }
+/// Equivalent to the Rust `Gl::invalidate_framebuffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_invalidate_framebuffer(gl: &AzGl, target: u32, attachments: AzGLenumVecRef) { gl.invalidate_framebuffer(target, attachments) }
+/// Equivalent to the Rust `Gl::invalidate_sub_framebuffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_invalidate_sub_framebuffer(gl: &AzGl, target: u32, attachments: AzGLenumVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32) { gl.invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height) }
+/// Equivalent to the Rust `Gl::get_integer_v()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_integer_v(gl: &AzGl, name: u32, result: AzGLintVecRefMut) { gl.get_integer_v(name, result) }
+/// Equivalent to the Rust `Gl::get_integer_64v()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_integer_64v(gl: &AzGl, name: u32, result: AzGLint64VecRefMut) { gl.get_integer_64v(name, result) }
+/// Equivalent to the Rust `Gl::get_integer_iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_integer_iv(gl: &AzGl, name: u32, index: u32, result: AzGLintVecRefMut) { gl.get_integer_iv(name, index, result) }
+/// Equivalent to the Rust `Gl::get_integer_64iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_integer_64iv(gl: &AzGl, name: u32, index: u32, result: AzGLint64VecRefMut) { gl.get_integer_64iv(name, index, result) }
+/// Equivalent to the Rust `Gl::get_boolean_v()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_boolean_v(gl: &AzGl, name: u32, result: AzGLbooleanVecRefMut) { gl.get_boolean_v(name, result) }
+/// Equivalent to the Rust `Gl::get_float_v()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_float_v(gl: &AzGl, name: u32, result: AzGLfloatVecRefMut) { gl.get_float_v(name, result) }
+/// Equivalent to the Rust `Gl::get_framebuffer_attachment_parameter_iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_framebuffer_attachment_parameter_iv(gl: &AzGl, target: u32, attachment: u32, pname: u32) -> i32 { gl.get_framebuffer_attachment_parameter_iv(target, attachment, pname) }
+/// Equivalent to the Rust `Gl::get_renderbuffer_parameter_iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_renderbuffer_parameter_iv(gl: &AzGl, target: u32, pname: u32) -> i32 { gl.get_renderbuffer_parameter_iv(target, pname) }
+/// Equivalent to the Rust `Gl::get_tex_parameter_iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_tex_parameter_iv(gl: &AzGl, target: u32, name: u32) -> i32 { gl.get_tex_parameter_iv(target, name) }
+/// Equivalent to the Rust `Gl::get_tex_parameter_fv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_tex_parameter_fv(gl: &AzGl, target: u32, name: u32) -> f32 { gl.get_tex_parameter_fv(target, name) }
+/// Equivalent to the Rust `Gl::tex_parameter_i()` function.
+#[no_mangle] pub extern "C" fn AzGl_tex_parameter_i(gl: &AzGl, target: u32, pname: u32, param: i32) { gl.tex_parameter_i(target, pname, param) }
+/// Equivalent to the Rust `Gl::tex_parameter_f()` function.
+#[no_mangle] pub extern "C" fn AzGl_tex_parameter_f(gl: &AzGl, target: u32, pname: u32, param: f32) { gl.tex_parameter_f(target, pname, param) }
+/// Equivalent to the Rust `Gl::framebuffer_texture_2d()` function.
+#[no_mangle] pub extern "C" fn AzGl_framebuffer_texture_2d(gl: &AzGl, target: u32, attachment: u32, textarget: u32, texture: u32, level: i32) { gl.framebuffer_texture_2d(target, attachment, textarget, texture, level) }
+/// Equivalent to the Rust `Gl::framebuffer_texture_layer()` function.
+#[no_mangle] pub extern "C" fn AzGl_framebuffer_texture_layer(gl: &AzGl, target: u32, attachment: u32, texture: u32, level: i32, layer: i32) { gl.framebuffer_texture_layer(target, attachment, texture, level, layer) }
+/// Equivalent to the Rust `Gl::blit_framebuffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_blit_framebuffer(gl: &AzGl, src_x0: i32, src_y0: i32, src_x1: i32, src_y1: i32, dst_x0: i32, dst_y0: i32, dst_x1: i32, dst_y1: i32, mask: u32, filter: u32) { gl.blit_framebuffer(src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter) }
+/// Equivalent to the Rust `Gl::vertex_attrib_4f()` function.
+#[no_mangle] pub extern "C" fn AzGl_vertex_attrib_4f(gl: &AzGl, index: u32, x: f32, y: f32, z: f32, w: f32) { gl.vertex_attrib_4f(index, x, y, z, w) }
+/// Equivalent to the Rust `Gl::vertex_attrib_pointer_f32()` function.
+#[no_mangle] pub extern "C" fn AzGl_vertex_attrib_pointer_f32(gl: &AzGl, index: u32, size: i32, normalized: bool, stride: i32, offset: u32) { gl.vertex_attrib_pointer_f32(index, size, normalized, stride, offset) }
+/// Equivalent to the Rust `Gl::vertex_attrib_pointer()` function.
+#[no_mangle] pub extern "C" fn AzGl_vertex_attrib_pointer(gl: &AzGl, index: u32, size: i32, type_: u32, normalized: bool, stride: i32, offset: u32) { gl.vertex_attrib_pointer(index, size, type_, normalized, stride, offset) }
+/// Equivalent to the Rust `Gl::vertex_attrib_i_pointer()` function.
+#[no_mangle] pub extern "C" fn AzGl_vertex_attrib_i_pointer(gl: &AzGl, index: u32, size: i32, type_: u32, stride: i32, offset: u32) { gl.vertex_attrib_i_pointer(index, size, type_, stride, offset) }
+/// Equivalent to the Rust `Gl::vertex_attrib_divisor()` function.
+#[no_mangle] pub extern "C" fn AzGl_vertex_attrib_divisor(gl: &AzGl, index: u32, divisor: u32) { gl.vertex_attrib_divisor(index, divisor) }
+/// Equivalent to the Rust `Gl::viewport()` function.
+#[no_mangle] pub extern "C" fn AzGl_viewport(gl: &AzGl, x: i32, y: i32, width: i32, height: i32) { gl.viewport(x, y, width, height) }
+/// Equivalent to the Rust `Gl::scissor()` function.
+#[no_mangle] pub extern "C" fn AzGl_scissor(gl: &AzGl, x: i32, y: i32, width: i32, height: i32) { gl.scissor(x, y, width, height) }
+/// Equivalent to the Rust `Gl::line_width()` function.
+#[no_mangle] pub extern "C" fn AzGl_line_width(gl: &AzGl, width: f32) { gl.line_width(width) }
+/// Equivalent to the Rust `Gl::use_program()` function.
+#[no_mangle] pub extern "C" fn AzGl_use_program(gl: &AzGl, program: u32) { gl.use_program(program) }
+/// Equivalent to the Rust `Gl::validate_program()` function.
+#[no_mangle] pub extern "C" fn AzGl_validate_program(gl: &AzGl, program: u32) { gl.validate_program(program) }
+/// Equivalent to the Rust `Gl::draw_arrays()` function.
+#[no_mangle] pub extern "C" fn AzGl_draw_arrays(gl: &AzGl, mode: u32, first: i32, count: i32) { gl.draw_arrays(mode, first, count) }
+/// Equivalent to the Rust `Gl::draw_arrays_instanced()` function.
+#[no_mangle] pub extern "C" fn AzGl_draw_arrays_instanced(gl: &AzGl, mode: u32, first: i32, count: i32, primcount: i32) { gl.draw_arrays_instanced(mode, first, count, primcount) }
+/// Equivalent to the Rust `Gl::draw_elements()` function.
+#[no_mangle] pub extern "C" fn AzGl_draw_elements(gl: &AzGl, mode: u32, count: i32, element_type: u32, indices_offset: u32) { gl.draw_elements(mode, count, element_type, indices_offset) }
+/// Equivalent to the Rust `Gl::draw_elements_instanced()` function.
+#[no_mangle] pub extern "C" fn AzGl_draw_elements_instanced(gl: &AzGl, mode: u32, count: i32, element_type: u32, indices_offset: u32, primcount: i32) { gl.draw_elements_instanced(mode, count, element_type, indices_offset, primcount) }
+/// Equivalent to the Rust `Gl::blend_color()` function.
+#[no_mangle] pub extern "C" fn AzGl_blend_color(gl: &AzGl, r: f32, g: f32, b: f32, a: f32) { gl.blend_color(r, g, b, a) }
+/// Equivalent to the Rust `Gl::blend_func()` function.
+#[no_mangle] pub extern "C" fn AzGl_blend_func(gl: &AzGl, sfactor: u32, dfactor: u32) { gl.blend_func(sfactor, dfactor) }
+/// Equivalent to the Rust `Gl::blend_func_separate()` function.
+#[no_mangle] pub extern "C" fn AzGl_blend_func_separate(gl: &AzGl, src_rgb: u32, dest_rgb: u32, src_alpha: u32, dest_alpha: u32) { gl.blend_func_separate(src_rgb, dest_rgb, src_alpha, dest_alpha) }
+/// Equivalent to the Rust `Gl::blend_equation()` function.
+#[no_mangle] pub extern "C" fn AzGl_blend_equation(gl: &AzGl, mode: u32) { gl.blend_equation(mode) }
+/// Equivalent to the Rust `Gl::blend_equation_separate()` function.
+#[no_mangle] pub extern "C" fn AzGl_blend_equation_separate(gl: &AzGl, mode_rgb: u32, mode_alpha: u32) { gl.blend_equation_separate(mode_rgb, mode_alpha) }
+/// Equivalent to the Rust `Gl::color_mask()` function.
+#[no_mangle] pub extern "C" fn AzGl_color_mask(gl: &AzGl, r: bool, g: bool, b: bool, a: bool) { gl.color_mask(r, g, b, a) }
+/// Equivalent to the Rust `Gl::cull_face()` function.
+#[no_mangle] pub extern "C" fn AzGl_cull_face(gl: &AzGl, mode: u32) { gl.cull_face(mode) }
+/// Equivalent to the Rust `Gl::front_face()` function.
+#[no_mangle] pub extern "C" fn AzGl_front_face(gl: &AzGl, mode: u32) { gl.front_face(mode) }
+/// Equivalent to the Rust `Gl::enable()` function.
+#[no_mangle] pub extern "C" fn AzGl_enable(gl: &AzGl, cap: u32) { gl.enable(cap) }
+/// Equivalent to the Rust `Gl::disable()` function.
+#[no_mangle] pub extern "C" fn AzGl_disable(gl: &AzGl, cap: u32) { gl.disable(cap) }
+/// Equivalent to the Rust `Gl::hint()` function.
+#[no_mangle] pub extern "C" fn AzGl_hint(gl: &AzGl, param_name: u32, param_val: u32) { gl.hint(param_name, param_val) }
+/// Equivalent to the Rust `Gl::is_enabled()` function.
+#[no_mangle] pub extern "C" fn AzGl_is_enabled(gl: &AzGl, cap: u32) -> u8 { gl.is_enabled(cap) }
+/// Equivalent to the Rust `Gl::is_shader()` function.
+#[no_mangle] pub extern "C" fn AzGl_is_shader(gl: &AzGl, shader: u32) -> u8 { gl.is_shader(shader) }
+/// Equivalent to the Rust `Gl::is_texture()` function.
+#[no_mangle] pub extern "C" fn AzGl_is_texture(gl: &AzGl, texture: u32) -> u8 { gl.is_texture(texture) }
+/// Equivalent to the Rust `Gl::is_framebuffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_is_framebuffer(gl: &AzGl, framebuffer: u32) -> u8 { gl.is_framebuffer(framebuffer) }
+/// Equivalent to the Rust `Gl::is_renderbuffer()` function.
+#[no_mangle] pub extern "C" fn AzGl_is_renderbuffer(gl: &AzGl, renderbuffer: u32) -> u8 { gl.is_renderbuffer(renderbuffer) }
+/// Equivalent to the Rust `Gl::check_frame_buffer_status()` function.
+#[no_mangle] pub extern "C" fn AzGl_check_frame_buffer_status(gl: &AzGl, target: u32) -> u32 { gl.check_frame_buffer_status(target) }
+/// Equivalent to the Rust `Gl::enable_vertex_attrib_array()` function.
+#[no_mangle] pub extern "C" fn AzGl_enable_vertex_attrib_array(gl: &AzGl, index: u32) { gl.enable_vertex_attrib_array(index) }
+/// Equivalent to the Rust `Gl::disable_vertex_attrib_array()` function.
+#[no_mangle] pub extern "C" fn AzGl_disable_vertex_attrib_array(gl: &AzGl, index: u32) { gl.disable_vertex_attrib_array(index) }
+/// Equivalent to the Rust `Gl::uniform_1f()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_1f(gl: &AzGl, location: i32, v0: f32) { gl.uniform_1f(location, v0) }
+/// Equivalent to the Rust `Gl::uniform_1fv()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_1fv(gl: &AzGl, location: i32, values: AzF32VecRef) { gl.uniform_1fv(location, values) }
+/// Equivalent to the Rust `Gl::uniform_1i()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_1i(gl: &AzGl, location: i32, v0: i32) { gl.uniform_1i(location, v0) }
+/// Equivalent to the Rust `Gl::uniform_1iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_1iv(gl: &AzGl, location: i32, values: AzI32VecRef) { gl.uniform_1iv(location, values) }
+/// Equivalent to the Rust `Gl::uniform_1ui()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_1ui(gl: &AzGl, location: i32, v0: u32) { gl.uniform_1ui(location, v0) }
+/// Equivalent to the Rust `Gl::uniform_2f()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_2f(gl: &AzGl, location: i32, v0: f32, v1: f32) { gl.uniform_2f(location, v0, v1) }
+/// Equivalent to the Rust `Gl::uniform_2fv()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_2fv(gl: &AzGl, location: i32, values: AzF32VecRef) { gl.uniform_2fv(location, values) }
+/// Equivalent to the Rust `Gl::uniform_2i()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_2i(gl: &AzGl, location: i32, v0: i32, v1: i32) { gl.uniform_2i(location, v0, v1) }
+/// Equivalent to the Rust `Gl::uniform_2iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_2iv(gl: &AzGl, location: i32, values: AzI32VecRef) { gl.uniform_2iv(location, values) }
+/// Equivalent to the Rust `Gl::uniform_2ui()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_2ui(gl: &AzGl, location: i32, v0: u32, v1: u32) { gl.uniform_2ui(location, v0, v1) }
+/// Equivalent to the Rust `Gl::uniform_3f()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_3f(gl: &AzGl, location: i32, v0: f32, v1: f32, v2: f32) { gl.uniform_3f(location, v0, v1, v2) }
+/// Equivalent to the Rust `Gl::uniform_3fv()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_3fv(gl: &AzGl, location: i32, values: AzF32VecRef) { gl.uniform_3fv(location, values) }
+/// Equivalent to the Rust `Gl::uniform_3i()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_3i(gl: &AzGl, location: i32, v0: i32, v1: i32, v2: i32) { gl.uniform_3i(location, v0, v1, v2) }
+/// Equivalent to the Rust `Gl::uniform_3iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_3iv(gl: &AzGl, location: i32, values: AzI32VecRef) { gl.uniform_3iv(location, values) }
+/// Equivalent to the Rust `Gl::uniform_3ui()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_3ui(gl: &AzGl, location: i32, v0: u32, v1: u32, v2: u32) { gl.uniform_3ui(location, v0, v1, v2) }
+/// Equivalent to the Rust `Gl::uniform_4f()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_4f(gl: &AzGl, location: i32, x: f32, y: f32, z: f32, w: f32) { gl.uniform_4f(location, x, y, z, w) }
+/// Equivalent to the Rust `Gl::uniform_4i()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_4i(gl: &AzGl, location: i32, x: i32, y: i32, z: i32, w: i32) { gl.uniform_4i(location, x, y, z, w) }
+/// Equivalent to the Rust `Gl::uniform_4iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_4iv(gl: &AzGl, location: i32, values: AzI32VecRef) { gl.uniform_4iv(location, values) }
+/// Equivalent to the Rust `Gl::uniform_4ui()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_4ui(gl: &AzGl, location: i32, x: u32, y: u32, z: u32, w: u32) { gl.uniform_4ui(location, x, y, z, w) }
+/// Equivalent to the Rust `Gl::uniform_4fv()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_4fv(gl: &AzGl, location: i32, values: AzF32VecRef) { gl.uniform_4fv(location, values) }
+/// Equivalent to the Rust `Gl::uniform_matrix_2fv()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_matrix_2fv(gl: &AzGl, location: i32, transpose: bool, value: AzF32VecRef) { gl.uniform_matrix_2fv(location, transpose, value) }
+/// Equivalent to the Rust `Gl::uniform_matrix_3fv()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_matrix_3fv(gl: &AzGl, location: i32, transpose: bool, value: AzF32VecRef) { gl.uniform_matrix_3fv(location, transpose, value) }
+/// Equivalent to the Rust `Gl::uniform_matrix_4fv()` function.
+#[no_mangle] pub extern "C" fn AzGl_uniform_matrix_4fv(gl: &AzGl, location: i32, transpose: bool, value: AzF32VecRef) { gl.uniform_matrix_4fv(location, transpose, value) }
+/// Equivalent to the Rust `Gl::depth_mask()` function.
+#[no_mangle] pub extern "C" fn AzGl_depth_mask(gl: &AzGl, flag: bool) { gl.depth_mask(flag) }
+/// Equivalent to the Rust `Gl::depth_range()` function.
+#[no_mangle] pub extern "C" fn AzGl_depth_range(gl: &AzGl, near: f64, far: f64) { gl.depth_range(near, far) }
+/// Equivalent to the Rust `Gl::get_active_attrib()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_active_attrib(gl: &AzGl, program: u32, index: u32) -> AzGetActiveAttribReturn { gl.get_active_attrib(program, index) }
+/// Equivalent to the Rust `Gl::get_active_uniform()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_active_uniform(gl: &AzGl, program: u32, index: u32) -> AzGetActiveUniformReturn { gl.get_active_uniform(program, index) }
+/// Equivalent to the Rust `Gl::get_active_uniforms_iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_active_uniforms_iv(gl: &AzGl, program: u32, indices: AzGLuintVec, pname: u32) -> AzGLintVec { gl.get_active_uniforms_iv(program, indices, pname) }
+/// Equivalent to the Rust `Gl::get_active_uniform_block_i()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_active_uniform_block_i(gl: &AzGl, program: u32, index: u32, pname: u32) -> i32 { gl.get_active_uniform_block_i(program, index, pname) }
+/// Equivalent to the Rust `Gl::get_active_uniform_block_iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_active_uniform_block_iv(gl: &AzGl, program: u32, index: u32, pname: u32) -> AzGLintVec { gl.get_active_uniform_block_iv(program, index, pname) }
+/// Equivalent to the Rust `Gl::get_active_uniform_block_name()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_active_uniform_block_name(gl: &AzGl, program: u32, index: u32) -> AzString { gl.get_active_uniform_block_name(program, index) }
+/// Equivalent to the Rust `Gl::get_attrib_location()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_attrib_location(gl: &AzGl, program: u32, name: AzRefstr) -> i32 { gl.get_attrib_location(program, name) }
+/// Equivalent to the Rust `Gl::get_frag_data_location()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_frag_data_location(gl: &AzGl, program: u32, name: AzRefstr) -> i32 { gl.get_frag_data_location(program, name) }
+/// Equivalent to the Rust `Gl::get_uniform_location()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_uniform_location(gl: &AzGl, program: u32, name: AzRefstr) -> i32 { gl.get_uniform_location(program, name) }
+/// Equivalent to the Rust `Gl::get_program_info_log()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_program_info_log(gl: &AzGl, program: u32) -> AzString { gl.get_program_info_log(program) }
+/// Equivalent to the Rust `Gl::get_program_iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_program_iv(gl: &AzGl, program: u32, pname: u32, result: AzGLintVecRefMut) { gl.get_program_iv(program, pname, result) }
+/// Equivalent to the Rust `Gl::get_program_binary()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_program_binary(gl: &AzGl, program: u32) -> AzGetProgramBinaryReturn { gl.get_program_binary(program) }
+/// Equivalent to the Rust `Gl::program_binary()` function.
+#[no_mangle] pub extern "C" fn AzGl_program_binary(gl: &AzGl, program: u32, format: u32, binary: AzU8VecRef) { gl.program_binary(program, format, binary) }
+/// Equivalent to the Rust `Gl::program_parameter_i()` function.
+#[no_mangle] pub extern "C" fn AzGl_program_parameter_i(gl: &AzGl, program: u32, pname: u32, value: i32) { gl.program_parameter_i(program, pname, value) }
+/// Equivalent to the Rust `Gl::get_vertex_attrib_iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_vertex_attrib_iv(gl: &AzGl, index: u32, pname: u32, result: AzGLintVecRefMut) { gl.get_vertex_attrib_iv(index, pname, result) }
+/// Equivalent to the Rust `Gl::get_vertex_attrib_fv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_vertex_attrib_fv(gl: &AzGl, index: u32, pname: u32, result: AzGLfloatVecRefMut) { gl.get_vertex_attrib_fv(index, pname, result) }
+/// Equivalent to the Rust `Gl::get_vertex_attrib_pointer_v()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_vertex_attrib_pointer_v(gl: &AzGl, index: u32, pname: u32) -> isize { gl.get_vertex_attrib_pointer_v(index, pname) }
+/// Equivalent to the Rust `Gl::get_buffer_parameter_iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_buffer_parameter_iv(gl: &AzGl, target: u32, pname: u32) -> i32 { gl.get_buffer_parameter_iv(target, pname) }
+/// Equivalent to the Rust `Gl::get_shader_info_log()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_shader_info_log(gl: &AzGl, shader: u32) -> AzString { gl.get_shader_info_log(shader) }
+/// Equivalent to the Rust `Gl::get_string()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_string(gl: &AzGl, which: u32) -> AzString { gl.get_string(which) }
+/// Equivalent to the Rust `Gl::get_string_i()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_string_i(gl: &AzGl, which: u32, index: u32) -> AzString { gl.get_string_i(which, index) }
+/// Equivalent to the Rust `Gl::get_shader_iv()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_shader_iv(gl: &AzGl, shader: u32, pname: u32, result: AzGLintVecRefMut) { gl.get_shader_iv(shader, pname, result) }
+/// Equivalent to the Rust `Gl::get_shader_precision_format()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_shader_precision_format(gl: &AzGl, shader_type: u32, precision_type: u32) -> AzGlShaderPrecisionFormatReturn { gl.get_shader_precision_format(shader_type, precision_type) }
+/// Equivalent to the Rust `Gl::compile_shader()` function.
+#[no_mangle] pub extern "C" fn AzGl_compile_shader(gl: &AzGl, shader: u32) { gl.compile_shader(shader) }
+/// Equivalent to the Rust `Gl::create_program()` function.
+#[no_mangle] pub extern "C" fn AzGl_create_program(gl: &AzGl) -> u32 { gl.create_program() }
+/// Equivalent to the Rust `Gl::delete_program()` function.
+#[no_mangle] pub extern "C" fn AzGl_delete_program(gl: &AzGl, program: u32) { gl.delete_program(program) }
+/// Equivalent to the Rust `Gl::create_shader()` function.
+#[no_mangle] pub extern "C" fn AzGl_create_shader(gl: &AzGl, shader_type: u32) -> u32 { gl.create_shader(shader_type) }
+/// Equivalent to the Rust `Gl::delete_shader()` function.
+#[no_mangle] pub extern "C" fn AzGl_delete_shader(gl: &AzGl, shader: u32) { gl.delete_shader(shader) }
+/// Equivalent to the Rust `Gl::detach_shader()` function.
+#[no_mangle] pub extern "C" fn AzGl_detach_shader(gl: &AzGl, program: u32, shader: u32) { gl.detach_shader(program, shader) }
+/// Equivalent to the Rust `Gl::link_program()` function.
+#[no_mangle] pub extern "C" fn AzGl_link_program(gl: &AzGl, program: u32) { gl.link_program(program) }
+/// Equivalent to the Rust `Gl::clear_color()` function.
+#[no_mangle] pub extern "C" fn AzGl_clear_color(gl: &AzGl, r: f32, g: f32, b: f32, a: f32) { gl.clear_color(r, g, b, a) }
+/// Equivalent to the Rust `Gl::clear()` function.
+#[no_mangle] pub extern "C" fn AzGl_clear(gl: &AzGl, buffer_mask: u32) { gl.clear(buffer_mask) }
+/// Equivalent to the Rust `Gl::clear_depth()` function.
+#[no_mangle] pub extern "C" fn AzGl_clear_depth(gl: &AzGl, depth: f64) { gl.clear_depth(depth) }
+/// Equivalent to the Rust `Gl::clear_stencil()` function.
+#[no_mangle] pub extern "C" fn AzGl_clear_stencil(gl: &AzGl, s: i32) { gl.clear_stencil(s) }
+/// Equivalent to the Rust `Gl::flush()` function.
+#[no_mangle] pub extern "C" fn AzGl_flush(gl: &AzGl) { gl.flush() }
+/// Equivalent to the Rust `Gl::finish()` function.
+#[no_mangle] pub extern "C" fn AzGl_finish(gl: &AzGl) { gl.finish() }
+/// Equivalent to the Rust `Gl::get_error()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_error(gl: &AzGl) -> u32 { gl.get_error() }
+/// Equivalent to the Rust `Gl::stencil_mask()` function.
+#[no_mangle] pub extern "C" fn AzGl_stencil_mask(gl: &AzGl, mask: u32) { gl.stencil_mask(mask) }
+/// Equivalent to the Rust `Gl::stencil_mask_separate()` function.
+#[no_mangle] pub extern "C" fn AzGl_stencil_mask_separate(gl: &AzGl, face: u32, mask: u32) { gl.stencil_mask_separate(face, mask) }
+/// Equivalent to the Rust `Gl::stencil_func()` function.
+#[no_mangle] pub extern "C" fn AzGl_stencil_func(gl: &AzGl, func: u32, ref_: i32, mask: u32) { gl.stencil_func(func, ref_, mask) }
+/// Equivalent to the Rust `Gl::stencil_func_separate()` function.
+#[no_mangle] pub extern "C" fn AzGl_stencil_func_separate(gl: &AzGl, face: u32, func: u32, ref_: i32, mask: u32) { gl.stencil_func_separate(face, func, ref_, mask) }
+/// Equivalent to the Rust `Gl::stencil_op()` function.
+#[no_mangle] pub extern "C" fn AzGl_stencil_op(gl: &AzGl, sfail: u32, dpfail: u32, dppass: u32) { gl.stencil_op(sfail, dpfail, dppass) }
+/// Equivalent to the Rust `Gl::stencil_op_separate()` function.
+#[no_mangle] pub extern "C" fn AzGl_stencil_op_separate(gl: &AzGl, face: u32, sfail: u32, dpfail: u32, dppass: u32) { gl.stencil_op_separate(face, sfail, dpfail, dppass) }
+/// Equivalent to the Rust `Gl::egl_image_target_texture2d_oes()` function.
+#[no_mangle] pub extern "C" fn AzGl_egl_image_target_texture2d_oes(gl: &AzGl, target: u32, image: *const c_void) { gl.egl_image_target_texture2d_oes(target, image) }
+/// Equivalent to the Rust `Gl::generate_mipmap()` function.
+#[no_mangle] pub extern "C" fn AzGl_generate_mipmap(gl: &AzGl, target: u32) { gl.generate_mipmap(target) }
+/// Equivalent to the Rust `Gl::insert_event_marker_ext()` function.
+#[no_mangle] pub extern "C" fn AzGl_insert_event_marker_ext(gl: &AzGl, message: AzRefstr) { gl.insert_event_marker_ext(message) }
+/// Equivalent to the Rust `Gl::push_group_marker_ext()` function.
+#[no_mangle] pub extern "C" fn AzGl_push_group_marker_ext(gl: &AzGl, message: AzRefstr) { gl.push_group_marker_ext(message) }
+/// Equivalent to the Rust `Gl::pop_group_marker_ext()` function.
+#[no_mangle] pub extern "C" fn AzGl_pop_group_marker_ext(gl: &AzGl) { gl.pop_group_marker_ext() }
+/// Equivalent to the Rust `Gl::debug_message_insert_khr()` function.
+#[no_mangle] pub extern "C" fn AzGl_debug_message_insert_khr(gl: &AzGl, source: u32, type_: u32, id: u32, severity: u32, message: AzRefstr) { gl.debug_message_insert_khr(source, type_, id, severity, message) }
+/// Equivalent to the Rust `Gl::push_debug_group_khr()` function.
+#[no_mangle] pub extern "C" fn AzGl_push_debug_group_khr(gl: &AzGl, source: u32, id: u32, message: AzRefstr) { gl.push_debug_group_khr(source, id, message) }
+/// Equivalent to the Rust `Gl::pop_debug_group_khr()` function.
+#[no_mangle] pub extern "C" fn AzGl_pop_debug_group_khr(gl: &AzGl) { gl.pop_debug_group_khr() }
+/// Equivalent to the Rust `Gl::fence_sync()` function.
+#[no_mangle] pub extern "C" fn AzGl_fence_sync(gl: &AzGl, condition: u32, flags: u32) -> AzGLsyncPtr { gl.fence_sync(condition, flags) }
+/// Equivalent to the Rust `Gl::client_wait_sync()` function.
+#[no_mangle] pub extern "C" fn AzGl_client_wait_sync(gl: &AzGl, sync: AzGLsyncPtr, flags: u32, timeout: u64) -> u32 { gl.client_wait_sync(sync, flags, timeout) }
+/// Equivalent to the Rust `Gl::wait_sync()` function.
+#[no_mangle] pub extern "C" fn AzGl_wait_sync(gl: &AzGl, sync: AzGLsyncPtr, flags: u32, timeout: u64) { gl.wait_sync(sync, flags, timeout) }
+/// Equivalent to the Rust `Gl::delete_sync()` function.
+#[no_mangle] pub extern "C" fn AzGl_delete_sync(gl: &AzGl, sync: AzGLsyncPtr) { gl.delete_sync(sync) }
+/// Equivalent to the Rust `Gl::texture_range_apple()` function.
+#[no_mangle] pub extern "C" fn AzGl_texture_range_apple(gl: &AzGl, target: u32, data: AzU8VecRef) { gl.texture_range_apple(target, data) }
+/// Equivalent to the Rust `Gl::gen_fences_apple()` function.
+#[no_mangle] pub extern "C" fn AzGl_gen_fences_apple(gl: &AzGl, n: i32) -> AzGLuintVec { gl.gen_fences_apple(n) }
+/// Equivalent to the Rust `Gl::delete_fences_apple()` function.
+#[no_mangle] pub extern "C" fn AzGl_delete_fences_apple(gl: &AzGl, fences: AzGLuintVecRef) { gl.delete_fences_apple(fences) }
+/// Equivalent to the Rust `Gl::set_fence_apple()` function.
+#[no_mangle] pub extern "C" fn AzGl_set_fence_apple(gl: &AzGl, fence: u32) { gl.set_fence_apple(fence) }
+/// Equivalent to the Rust `Gl::finish_fence_apple()` function.
+#[no_mangle] pub extern "C" fn AzGl_finish_fence_apple(gl: &AzGl, fence: u32) { gl.finish_fence_apple(fence) }
+/// Equivalent to the Rust `Gl::test_fence_apple()` function.
+#[no_mangle] pub extern "C" fn AzGl_test_fence_apple(gl: &AzGl, fence: u32) { gl.test_fence_apple(fence) }
+/// Equivalent to the Rust `Gl::test_object_apple()` function.
+#[no_mangle] pub extern "C" fn AzGl_test_object_apple(gl: &AzGl, object: u32, name: u32) -> u8 { gl.test_object_apple(object, name) }
+/// Equivalent to the Rust `Gl::finish_object_apple()` function.
+#[no_mangle] pub extern "C" fn AzGl_finish_object_apple(gl: &AzGl, object: u32, name: u32) { gl.finish_object_apple(object, name) }
+/// Equivalent to the Rust `Gl::get_frag_data_index()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_frag_data_index(gl: &AzGl, program: u32, name: AzRefstr) -> i32 { gl.get_frag_data_index(program, name) }
+/// Equivalent to the Rust `Gl::blend_barrier_khr()` function.
+#[no_mangle] pub extern "C" fn AzGl_blend_barrier_khr(gl: &AzGl) { gl.blend_barrier_khr() }
+/// Equivalent to the Rust `Gl::bind_frag_data_location_indexed()` function.
+#[no_mangle] pub extern "C" fn AzGl_bind_frag_data_location_indexed(gl: &AzGl, program: u32, color_number: u32, index: u32, name: AzRefstr) { gl.bind_frag_data_location_indexed(program, color_number, index, name) }
+/// Equivalent to the Rust `Gl::get_debug_messages()` function.
+#[no_mangle] pub extern "C" fn AzGl_get_debug_messages(gl: &AzGl) -> AzDebugMessageVec { gl.get_debug_messages() }
+/// Equivalent to the Rust `Gl::provoking_vertex_angle()` function.
+#[no_mangle] pub extern "C" fn AzGl_provoking_vertex_angle(gl: &AzGl, mode: u32) { gl.provoking_vertex_angle(mode) }
+/// Equivalent to the Rust `Gl::gen_vertex_arrays_apple()` function.
+#[no_mangle] pub extern "C" fn AzGl_gen_vertex_arrays_apple(gl: &AzGl, n: i32) -> AzGLuintVec { gl.gen_vertex_arrays_apple(n) }
+/// Equivalent to the Rust `Gl::bind_vertex_array_apple()` function.
+#[no_mangle] pub extern "C" fn AzGl_bind_vertex_array_apple(gl: &AzGl, vao: u32) { gl.bind_vertex_array_apple(vao) }
+/// Equivalent to the Rust `Gl::delete_vertex_arrays_apple()` function.
+#[no_mangle] pub extern "C" fn AzGl_delete_vertex_arrays_apple(gl: &AzGl, vertex_arrays: AzGLuintVecRef) { gl.delete_vertex_arrays_apple(vertex_arrays) }
+/// Equivalent to the Rust `Gl::copy_texture_chromium()` function.
+#[no_mangle] pub extern "C" fn AzGl_copy_texture_chromium(gl: &AzGl, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { gl.copy_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+/// Equivalent to the Rust `Gl::copy_sub_texture_chromium()` function.
+#[no_mangle] pub extern "C" fn AzGl_copy_sub_texture_chromium(gl: &AzGl, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, x: i32, y: i32, width: i32, height: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { gl.copy_sub_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+/// Equivalent to the Rust `Gl::egl_image_target_renderbuffer_storage_oes()` function.
+#[no_mangle] pub extern "C" fn AzGl_egl_image_target_renderbuffer_storage_oes(gl: &AzGl, target: u32, image: *const c_void) { gl.egl_image_target_renderbuffer_storage_oes(target, image) }
+/// Equivalent to the Rust `Gl::copy_texture_3d_angle()` function.
+#[no_mangle] pub extern "C" fn AzGl_copy_texture_3d_angle(gl: &AzGl, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { gl.copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+/// Equivalent to the Rust `Gl::copy_sub_texture_3d_angle()` function.
+#[no_mangle] pub extern "C" fn AzGl_copy_sub_texture_3d_angle(gl: &AzGl, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { gl.copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+/// Equivalent to the Rust `Gl::buffer_storage()` function.
+#[no_mangle] pub extern "C" fn AzGl_buffer_storage(gl: &AzGl, target: u32, size: isize, data: *const c_void, flags: u32) { gl.buffer_storage(target, size, data, flags) }
+/// Equivalent to the Rust `Gl::flush_mapped_buffer_range()` function.
+#[no_mangle] pub extern "C" fn AzGl_flush_mapped_buffer_range(gl: &AzGl, target: u32, offset: isize, length: isize) { gl.flush_mapped_buffer_range(target, offset, length) }
+/// Destructor: Takes ownership of the `Gl` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzGl_delete(object: &mut AzGl) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_deep_copy(object: &AzGlContextPtr) -> AzGlContextPtr { object.clone() }
+#[no_mangle] pub extern "C" fn AzGl_deepCopy(object: &AzGl) -> AzGl { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `Texture` struct
 pub type AzTextureTT = azul_impl::gl::Texture;
 pub use AzTextureTT as AzTexture;
 /// Destructor: Takes ownership of the `Texture` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_texture_delete(object: &mut AzTexture) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzTexture_delete(object: &mut AzTexture) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
 pub type AzGlShaderPrecisionFormatReturnTT = azul_impl::gl::GlShaderPrecisionFormatReturn;
@@ -1866,7 +1866,7 @@ pub use AzGetActiveAttribReturnTT as AzGetActiveAttribReturn;
 pub type AzGLsyncPtrTT = azul_impl::gl::GLsyncPtr;
 pub use AzGLsyncPtrTT as AzGLsyncPtr;
 /// Destructor: Takes ownership of the `GLsyncPtr` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_g_lsync_ptr_delete(object: &mut AzGLsyncPtr) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzGLsyncPtr_delete(object: &mut AzGLsyncPtr) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// C-ABI stable reexport of `(i32, u32, AzString)`
 pub type AzGetActiveUniformReturnTT = azul_impl::gl::GetActiveUniformReturn;
@@ -1876,7 +1876,7 @@ pub use AzGetActiveUniformReturnTT as AzGetActiveUniformReturn;
 pub type AzTextureFlagsTT = azul_impl::gl::TextureFlags;
 pub use AzTextureFlagsTT as AzTextureFlags;
 /// Default texture flags (not opaque, not a video texture)
-#[no_mangle] pub extern "C" fn az_texture_flags_default() -> AzTextureFlags { TextureFlags::default() }
+#[no_mangle] pub extern "C" fn AzTextureFlags_default() -> AzTextureFlags { TextureFlags::default() }
 
 /// Re-export of rust-allocated (stack based) `ImageMask` struct
 pub type AzImageMaskTT = azul_impl::resources::ImageMask;
@@ -1890,13 +1890,13 @@ pub use AzRawImageFormatTT as AzRawImageFormat;
 pub type AzImageIdTT = azul_impl::resources::ImageId;
 pub use AzImageIdTT as AzImageId;
 /// Creates a new, unique `ImageId`
-#[no_mangle] pub extern "C" fn az_image_id_new() -> AzImageId { ImageId::new() }
+#[no_mangle] pub extern "C" fn AzImageId_new() -> AzImageId { ImageId::new() }
 
 /// Re-export of rust-allocated (stack based) `FontId` struct
 pub type AzFontIdTT = azul_impl::resources::FontId;
 pub use AzFontIdTT as AzFontId;
 /// Creates a new, unique `FontId`
-#[no_mangle] pub extern "C" fn az_font_id_new() -> AzFontId { FontId::new() }
+#[no_mangle] pub extern "C" fn AzFontId_new() -> AzFontId { FontId::new() }
 
 /// Re-export of rust-allocated (stack based) `ImageSource` struct
 pub type AzImageSourceTT = azul_impl::resources::ImageSource;
@@ -1922,7 +1922,7 @@ pub use AzSystemFontSourceTT as AzSystemFontSource;
 pub type AzRawImageTT = azul_impl::resources::RawImage;
 pub use AzRawImageTT as AzRawImage;
 /// Creates a new `RawImage` by loading the decoded bytes
-#[no_mangle] pub extern "C" fn az_raw_image_new(decoded_pixels: AzU8Vec, width: usize, height: usize, data_format: AzRawImageFormat) -> AzRawImage { RawImage { pixels: decoded_pixels, width, height, data_format: data_format } }
+#[no_mangle] pub extern "C" fn AzRawImage_new(decoded_pixels: AzU8Vec, width: usize, height: usize, data_format: AzRawImageFormat) -> AzRawImage { RawImage { pixels: decoded_pixels, width, height, data_format: data_format } }
 
 /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
 pub type AzSvgMultiPolygonTT = azul_impl::svg::SvgMultiPolygon;
@@ -1985,7 +1985,7 @@ pub type AzSvgParseOptionsTT = azul_impl::svg::SvgParseOptions;
 pub use AzSvgParseOptionsTT as AzSvgParseOptions;
 /// Creates a new `SvgParseOptions` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `SvgParseOptions::default()` constructor.
-#[no_mangle] pub extern "C" fn az_svg_parse_options_default() -> AzSvgParseOptions { AzSvgParseOptions::default() }
+#[no_mangle] pub extern "C" fn AzSvgParseOptions_default() -> AzSvgParseOptions { AzSvgParseOptions::default() }
 
 /// Re-export of rust-allocated (stack based) `ShapeRendering` struct
 pub type AzShapeRenderingTT = azul_impl::svg::ShapeRendering;
@@ -2008,7 +2008,7 @@ pub type AzSvgRenderOptionsTT = azul_impl::svg::SvgRenderOptions;
 pub use AzSvgRenderOptionsTT as AzSvgRenderOptions;
 /// Creates a new `SvgRenderOptions` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `SvgRenderOptions::default()` constructor.
-#[no_mangle] pub extern "C" fn az_svg_render_options_default() -> AzSvgRenderOptions { AzSvgRenderOptions::default() }
+#[no_mangle] pub extern "C" fn AzSvgRenderOptions_default() -> AzSvgRenderOptions { AzSvgRenderOptions::default() }
 
 /// Re-export of rust-allocated (stack based) `SvgFitTo` struct
 pub type AzSvgFitToTT = azul_impl::svg::SvgFitTo;
@@ -2019,19 +2019,19 @@ pub type AzSvgTT = azul_impl::svg::Svg;
 pub use AzSvgTT as AzSvg;
 /// Creates a new `Svg` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `Svg::parse()` constructor.
-#[no_mangle] pub extern "C" fn az_svg_parse(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzResultSvgSvgParseError { azul_impl::svg::Svg::parse(svg_bytes.as_slice(), parse_options).into() }
+#[no_mangle] pub extern "C" fn AzSvg_parse(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzResultSvgSvgParseError { azul_impl::svg::Svg::parse(svg_bytes.as_slice(), parse_options).into() }
 /// Destructor: Takes ownership of the `Svg` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_svg_delete(object: &mut AzSvg) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzSvg_delete(object: &mut AzSvg) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
-#[no_mangle] pub extern "C" fn az_svg_deep_copy(object: &AzSvg) -> AzSvg { object.clone() }
+#[no_mangle] pub extern "C" fn AzSvg_deepCopy(object: &AzSvg) -> AzSvg { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
 pub type AzSvgXmlNodeTT = azul_impl::svg::SvgXmlNode;
 pub use AzSvgXmlNodeTT as AzSvgXmlNode;
 /// Destructor: Takes ownership of the `SvgXmlNode` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_svg_xml_node_delete(object: &mut AzSvgXmlNode) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzSvgXmlNode_delete(object: &mut AzSvgXmlNode) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
-#[no_mangle] pub extern "C" fn az_svg_xml_node_deep_copy(object: &AzSvgXmlNode) -> AzSvgXmlNode { object.clone() }
+#[no_mangle] pub extern "C" fn AzSvgXmlNode_deepCopy(object: &AzSvgXmlNode) -> AzSvgXmlNode { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `SvgLineJoin` struct
 pub type AzSvgLineJoinTT = azul_impl::svg::SvgLineJoin;
@@ -2058,20 +2058,20 @@ pub type AzTimerIdTT = azul_impl::task::TimerId;
 pub use AzTimerIdTT as AzTimerId;
 /// Creates a new `TimerId` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `TimerId::unique()` constructor.
-#[no_mangle] pub extern "C" fn az_timer_id_unique() -> AzTimerId { TimerId::unique() }
+#[no_mangle] pub extern "C" fn AzTimerId_unique() -> AzTimerId { TimerId::unique() }
 
 /// Re-export of rust-allocated (stack based) `Timer` struct
 pub type AzTimerTT = azul_impl::task::Timer;
 pub use AzTimerTT as AzTimer;
 /// Creates a new `Timer` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `Timer::new()` constructor.
-#[no_mangle] pub extern "C" fn az_timer_new(timer_data: AzRefAny, callback: AzTimerCallbackType, get_system_time_fn: AzGetSystemTimeFn) -> AzTimer { Timer::new(timer_data, callback, get_system_time_fn) }
+#[no_mangle] pub extern "C" fn AzTimer_new(timer_data: AzRefAny, callback: AzTimerCallbackType, get_system_time_fn: AzGetSystemTimeFn) -> AzTimer { Timer::new(timer_data, callback, get_system_time_fn) }
 /// Equivalent to the Rust `Timer::with_delay()` function.
-#[no_mangle] pub extern "C" fn az_timer_with_delay(timer: AzTimer, delay: AzDuration) -> AzTimer { timer.with_delay(delay) }
+#[no_mangle] pub extern "C" fn AzTimer_with_delay(timer: AzTimer, delay: AzDuration) -> AzTimer { timer.with_delay(delay) }
 /// Equivalent to the Rust `Timer::with_interval()` function.
-#[no_mangle] pub extern "C" fn az_timer_with_interval(timer: AzTimer, interval: AzDuration) -> AzTimer { timer.with_interval(interval) }
+#[no_mangle] pub extern "C" fn AzTimer_with_interval(timer: AzTimer, interval: AzDuration) -> AzTimer { timer.with_interval(interval) }
 /// Equivalent to the Rust `Timer::with_timeout()` function.
-#[no_mangle] pub extern "C" fn az_timer_with_timeout(timer: AzTimer, timeout: AzDuration) -> AzTimer { timer.with_timeout(timeout) }
+#[no_mangle] pub extern "C" fn AzTimer_with_timeout(timer: AzTimer, timeout: AzDuration) -> AzTimer { timer.with_timeout(timeout) }
 
 /// Should a timer terminate or not - used to remove active timers
 pub type AzTerminateTimerTT = azul_impl::task::TerminateTimer;
@@ -2089,17 +2089,17 @@ pub use AzThreadTT as AzThread;
 pub type AzThreadSenderTT = azul_impl::task::ThreadSender;
 pub use AzThreadSenderTT as AzThreadSender;
 /// Equivalent to the Rust `ThreadSender::send()` function.
-#[no_mangle] pub extern "C" fn az_thread_sender_send(threadsender: &mut AzThreadSender, msg: AzThreadReceiveMsg) -> bool { threadsender.send(msg) }
+#[no_mangle] pub extern "C" fn AzThreadSender_send(threadsender: &mut AzThreadSender, msg: AzThreadReceiveMsg) -> bool { threadsender.send(msg) }
 /// Destructor: Takes ownership of the `ThreadSender` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_thread_sender_delete(object: &mut AzThreadSender) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzThreadSender_delete(object: &mut AzThreadSender) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
 pub type AzThreadReceiverTT = azul_impl::task::ThreadReceiver;
 pub use AzThreadReceiverTT as AzThreadReceiver;
 /// Equivalent to the Rust `ThreadReceiver::receive()` function.
-#[no_mangle] pub extern "C" fn az_thread_receiver_receive(threadreceiver: &mut AzThreadReceiver) -> AzOptionThreadSendMsg { threadreceiver.recv().into() }
+#[no_mangle] pub extern "C" fn AzThreadReceiver_receive(threadreceiver: &mut AzThreadReceiver) -> AzOptionThreadSendMsg { threadreceiver.recv().into() }
 /// Destructor: Takes ownership of the `ThreadReceiver` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_thread_receiver_delete(object: &mut AzThreadReceiver) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzThreadReceiver_delete(object: &mut AzThreadReceiver) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ThreadSendMsg` struct
 pub type AzThreadSendMsgTT = azul_impl::task::ThreadSendMsg;
@@ -2171,241 +2171,241 @@ pub use AzStringTT as AzString;
 pub type AzMonitorVecTT = azul_impl::window::MonitorVec;
 pub use AzMonitorVecTT as AzMonitorVec;
 /// Destructor: Takes ownership of the `MonitorVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_monitor_vec_delete(object: &mut AzMonitorVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzMonitorVec_delete(object: &mut AzMonitorVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<VideoMode>`
 pub type AzVideoModeVecTT = azul_impl::window::VideoModeVec;
 pub use AzVideoModeVecTT as AzVideoModeVec;
 /// Destructor: Takes ownership of the `VideoModeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_video_mode_vec_delete(object: &mut AzVideoModeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzVideoModeVec_delete(object: &mut AzVideoModeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<Dom>`
 pub type AzDomVecTT = azul_impl::dom::DomVec;
 pub use AzDomVecTT as AzDomVec;
 /// Destructor: Takes ownership of the `DomVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_dom_vec_delete(object: &mut AzDomVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzDomVec_delete(object: &mut AzDomVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
 pub type AzIdOrClassVecTT = azul_impl::dom::IdOrClassVec;
 pub use AzIdOrClassVecTT as AzIdOrClassVec;
 /// Destructor: Takes ownership of the `IdOrClassVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_id_or_class_vec_delete(object: &mut AzIdOrClassVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzIdOrClassVec_delete(object: &mut AzIdOrClassVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
 pub type AzNodeDataInlineCssPropertyVecTT = azul_impl::dom::NodeDataInlineCssPropertyVec;
 pub use AzNodeDataInlineCssPropertyVecTT as AzNodeDataInlineCssPropertyVec;
 /// Destructor: Takes ownership of the `NodeDataInlineCssPropertyVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_node_data_inline_css_property_vec_delete(object: &mut AzNodeDataInlineCssPropertyVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzNodeDataInlineCssPropertyVec_delete(object: &mut AzNodeDataInlineCssPropertyVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
 pub type AzStyleBackgroundContentVecTT = azul_impl::css::StyleBackgroundContentVec;
 pub use AzStyleBackgroundContentVecTT as AzStyleBackgroundContentVec;
 /// Destructor: Takes ownership of the `StyleBackgroundContentVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_style_background_content_vec_delete(object: &mut AzStyleBackgroundContentVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzStyleBackgroundContentVec_delete(object: &mut AzStyleBackgroundContentVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
 pub type AzStyleBackgroundPositionVecTT = azul_impl::css::StyleBackgroundPositionVec;
 pub use AzStyleBackgroundPositionVecTT as AzStyleBackgroundPositionVec;
 /// Destructor: Takes ownership of the `StyleBackgroundPositionVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_style_background_position_vec_delete(object: &mut AzStyleBackgroundPositionVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzStyleBackgroundPositionVec_delete(object: &mut AzStyleBackgroundPositionVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
 pub type AzStyleBackgroundRepeatVecTT = azul_impl::css::StyleBackgroundRepeatVec;
 pub use AzStyleBackgroundRepeatVecTT as AzStyleBackgroundRepeatVec;
 /// Destructor: Takes ownership of the `StyleBackgroundRepeatVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_style_background_repeat_vec_delete(object: &mut AzStyleBackgroundRepeatVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzStyleBackgroundRepeatVec_delete(object: &mut AzStyleBackgroundRepeatVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
 pub type AzStyleBackgroundSizeVecTT = azul_impl::css::StyleBackgroundSizeVec;
 pub use AzStyleBackgroundSizeVecTT as AzStyleBackgroundSizeVec;
 /// Destructor: Takes ownership of the `StyleBackgroundSizeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_style_background_size_vec_delete(object: &mut AzStyleBackgroundSizeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzStyleBackgroundSizeVec_delete(object: &mut AzStyleBackgroundSizeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
 pub type AzStyleTransformVecTT = azul_impl::css::StyleTransformVec;
 pub use AzStyleTransformVecTT as AzStyleTransformVec;
 /// Destructor: Takes ownership of the `StyleTransformVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_style_transform_vec_delete(object: &mut AzStyleTransformVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzStyleTransformVec_delete(object: &mut AzStyleTransformVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<CssProperty>`
 pub type AzCssPropertyVecTT = azul_impl::css::CssPropertyVec;
 pub use AzCssPropertyVecTT as AzCssPropertyVec;
 /// Destructor: Takes ownership of the `CssPropertyVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_css_property_vec_delete(object: &mut AzCssPropertyVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzCssPropertyVec_delete(object: &mut AzCssPropertyVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
 pub type AzSvgMultiPolygonVecTT = azul_impl::svg::SvgMultiPolygonVec;
 pub use AzSvgMultiPolygonVecTT as AzSvgMultiPolygonVec;
 /// Destructor: Takes ownership of the `SvgMultiPolygonVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_svg_multi_polygon_vec_delete(object: &mut AzSvgMultiPolygonVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzSvgMultiPolygonVec_delete(object: &mut AzSvgMultiPolygonVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<SvgPath>`
 pub type AzSvgPathVecTT = azul_impl::svg::SvgPathVec;
 pub use AzSvgPathVecTT as AzSvgPathVec;
 /// Destructor: Takes ownership of the `SvgPathVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_svg_path_vec_delete(object: &mut AzSvgPathVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzSvgPathVec_delete(object: &mut AzSvgPathVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
 pub type AzVertexAttributeVecTT = azul_impl::gl::VertexAttributeVec;
 pub use AzVertexAttributeVecTT as AzVertexAttributeVec;
 /// Destructor: Takes ownership of the `VertexAttributeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_vertex_attribute_vec_delete(object: &mut AzVertexAttributeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzVertexAttributeVec_delete(object: &mut AzVertexAttributeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `VertexAttribute`
 pub type AzSvgPathElementVecTT = azul_impl::svg::SvgPathElementVec;
 pub use AzSvgPathElementVecTT as AzSvgPathElementVec;
 /// Destructor: Takes ownership of the `SvgPathElementVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_svg_path_element_vec_delete(object: &mut AzSvgPathElementVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzSvgPathElementVec_delete(object: &mut AzSvgPathElementVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `SvgVertex`
 pub type AzSvgVertexVecTT = azul_impl::svg::SvgVertexVec;
 pub use AzSvgVertexVecTT as AzSvgVertexVec;
 /// Destructor: Takes ownership of the `SvgVertexVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_svg_vertex_vec_delete(object: &mut AzSvgVertexVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzSvgVertexVec_delete(object: &mut AzSvgVertexVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<u32>`
 pub type AzU32VecTT = azul_impl::css::U32Vec;
 pub use AzU32VecTT as AzU32Vec;
 /// Destructor: Takes ownership of the `U32Vec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_u32_vec_delete(object: &mut AzU32Vec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzU32Vec_delete(object: &mut AzU32Vec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `XWindowType`
 pub type AzXWindowTypeVecTT = azul_impl::window::XWindowTypeVec;
 pub use AzXWindowTypeVecTT as AzXWindowTypeVec;
 /// Destructor: Takes ownership of the `XWindowTypeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_x_window_type_vec_delete(object: &mut AzXWindowTypeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzXWindowTypeVec_delete(object: &mut AzXWindowTypeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `VirtualKeyCode`
 pub type AzVirtualKeyCodeVecTT = azul_impl::window::VirtualKeyCodeVec;
 pub use AzVirtualKeyCodeVecTT as AzVirtualKeyCodeVec;
 /// Destructor: Takes ownership of the `VirtualKeyCodeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_virtual_key_code_vec_delete(object: &mut AzVirtualKeyCodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzVirtualKeyCodeVec_delete(object: &mut AzVirtualKeyCodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `CascadeInfo`
 pub type AzCascadeInfoVecTT = azul_impl::style::CascadeInfoVec;
 pub use AzCascadeInfoVecTT as AzCascadeInfoVec;
 /// Destructor: Takes ownership of the `CascadeInfoVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_cascade_info_vec_delete(object: &mut AzCascadeInfoVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzCascadeInfoVec_delete(object: &mut AzCascadeInfoVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `ScanCode`
 pub type AzScanCodeVecTT = azul_impl::window::ScanCodeVec;
 pub use AzScanCodeVecTT as AzScanCodeVec;
 /// Destructor: Takes ownership of the `ScanCodeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_scan_code_vec_delete(object: &mut AzScanCodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzScanCodeVec_delete(object: &mut AzScanCodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `CssDeclaration`
 pub type AzCssDeclarationVecTT = azul_impl::css::CssDeclarationVec;
 pub use AzCssDeclarationVecTT as AzCssDeclarationVec;
 /// Destructor: Takes ownership of the `CssDeclarationVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_css_declaration_vec_delete(object: &mut AzCssDeclarationVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzCssDeclarationVec_delete(object: &mut AzCssDeclarationVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `CssPathSelector`
 pub type AzCssPathSelectorVecTT = azul_impl::css::CssPathSelectorVec;
 pub use AzCssPathSelectorVecTT as AzCssPathSelectorVec;
 /// Destructor: Takes ownership of the `CssPathSelectorVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_css_path_selector_vec_delete(object: &mut AzCssPathSelectorVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzCssPathSelectorVec_delete(object: &mut AzCssPathSelectorVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Stylesheet`
 pub type AzStylesheetVecTT = azul_impl::css::StylesheetVec;
 pub use AzStylesheetVecTT as AzStylesheetVec;
 /// Destructor: Takes ownership of the `StylesheetVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_stylesheet_vec_delete(object: &mut AzStylesheetVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzStylesheetVec_delete(object: &mut AzStylesheetVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `CssRuleBlock`
 pub type AzCssRuleBlockVecTT = azul_impl::css::CssRuleBlockVec;
 pub use AzCssRuleBlockVecTT as AzCssRuleBlockVec;
 /// Destructor: Takes ownership of the `CssRuleBlockVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_css_rule_block_vec_delete(object: &mut AzCssRuleBlockVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzCssRuleBlockVec_delete(object: &mut AzCssRuleBlockVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `U8Vec`
 pub type AzU8VecTT = azul_impl::css::U8Vec;
 pub use AzU8VecTT as AzU8Vec;
 /// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_u8_vec_delete(object: &mut AzU8Vec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzU8Vec_delete(object: &mut AzU8Vec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `CallbackData`
 pub type AzCallbackDataVecTT = azul_impl::dom::CallbackDataVec;
 pub use AzCallbackDataVecTT as AzCallbackDataVec;
 /// Destructor: Takes ownership of the `CallbackDataVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_callback_data_vec_delete(object: &mut AzCallbackDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzCallbackDataVec_delete(object: &mut AzCallbackDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
 pub type AzDebugMessageVecTT = azul_impl::gl::AzDebugMessageVec;
 pub use AzDebugMessageVecTT as AzDebugMessageVec;
 /// Destructor: Takes ownership of the `DebugMessageVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_debug_message_vec_delete(object: &mut AzDebugMessageVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzDebugMessageVec_delete(object: &mut AzDebugMessageVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `U32Vec`
 pub type AzGLuintVecTT = azul_impl::gl::GLuintVec;
 pub use AzGLuintVecTT as AzGLuintVec;
 /// Destructor: Takes ownership of the `GLuintVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_g_luint_vec_delete(object: &mut AzGLuintVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzGLuintVec_delete(object: &mut AzGLuintVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `GLintVec`
 pub type AzGLintVecTT = azul_impl::gl::GLintVec;
 pub use AzGLintVecTT as AzGLintVec;
 /// Destructor: Takes ownership of the `GLintVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_g_lint_vec_delete(object: &mut AzGLintVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzGLintVec_delete(object: &mut AzGLintVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `StringVec`
 pub type AzStringVecTT = azul_impl::css::StringVec;
 pub use AzStringVecTT as AzStringVec;
 /// Destructor: Takes ownership of the `StringVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_string_vec_delete(object: &mut AzStringVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzStringVec_delete(object: &mut AzStringVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `StringPairVec`
 pub type AzStringPairVecTT = azul_impl::window::StringPairVec;
 pub use AzStringPairVecTT as AzStringPairVec;
 /// Destructor: Takes ownership of the `StringPairVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_string_pair_vec_delete(object: &mut AzStringPairVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzStringPairVec_delete(object: &mut AzStringPairVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `LinearColorStopVec`
 pub type AzLinearColorStopVecTT = azul_impl::css::LinearColorStopVec;
 pub use AzLinearColorStopVecTT as AzLinearColorStopVec;
 /// Destructor: Takes ownership of the `LinearColorStopVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_linear_color_stop_vec_delete(object: &mut AzLinearColorStopVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzLinearColorStopVec_delete(object: &mut AzLinearColorStopVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `RadialColorStopVec`
 pub type AzRadialColorStopVecTT = azul_impl::css::RadialColorStopVec;
 pub use AzRadialColorStopVecTT as AzRadialColorStopVec;
 /// Destructor: Takes ownership of the `RadialColorStopVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_radial_color_stop_vec_delete(object: &mut AzRadialColorStopVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzRadialColorStopVec_delete(object: &mut AzRadialColorStopVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `NodeIdVec`
 pub type AzNodeIdVecTT = azul_impl::styled_dom::NodeIdVec;
 pub use AzNodeIdVecTT as AzNodeIdVec;
 /// Destructor: Takes ownership of the `NodeIdVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_node_id_vec_delete(object: &mut AzNodeIdVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzNodeIdVec_delete(object: &mut AzNodeIdVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `NodeVec`
 pub type AzNodeVecTT = azul_impl::styled_dom::AzNodeVec;
 pub use AzNodeVecTT as AzNodeVec;
 /// Destructor: Takes ownership of the `NodeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_node_vec_delete(object: &mut AzNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzNodeVec_delete(object: &mut AzNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `StyledNodeVec`
 pub type AzStyledNodeVecTT = azul_impl::styled_dom::StyledNodeVec;
 pub use AzStyledNodeVecTT as AzStyledNodeVec;
 /// Destructor: Takes ownership of the `StyledNodeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_styled_node_vec_delete(object: &mut AzStyledNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzStyledNodeVec_delete(object: &mut AzStyledNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
 pub type AzTagIdsToNodeIdsMappingVecTT = azul_impl::styled_dom::TagIdsToNodeIdsMappingVec;
 pub use AzTagIdsToNodeIdsMappingVecTT as AzTagIdsToNodeIdsMappingVec;
 /// Destructor: Takes ownership of the `TagIdsToNodeIdsMappingVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_delete(object: &mut AzTagIdsToNodeIdsMappingVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzTagIdsToNodeIdsMappingVec_delete(object: &mut AzTagIdsToNodeIdsMappingVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
 pub type AzParentWithNodeDepthVecTT = azul_impl::styled_dom::ParentWithNodeDepthVec;
 pub use AzParentWithNodeDepthVecTT as AzParentWithNodeDepthVec;
 /// Destructor: Takes ownership of the `ParentWithNodeDepthVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_parent_with_node_depth_vec_delete(object: &mut AzParentWithNodeDepthVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzParentWithNodeDepthVec_delete(object: &mut AzParentWithNodeDepthVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `NodeDataVec`
 pub type AzNodeDataVecTT = azul_impl::dom::NodeDataVec;
 pub use AzNodeDataVecTT as AzNodeDataVec;
 /// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_node_data_vec_delete(object: &mut AzNodeDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzNodeDataVec_delete(object: &mut AzNodeDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `MonitorVecDestructor` struct
 pub type AzMonitorVecDestructorTT = azul_impl::window::MonitorVecDestructor;
@@ -2607,9 +2607,9 @@ pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
-/// Re-export of rust-allocated (stack based) `OptionGlContextPtr` struct
-pub type AzOptionGlContextPtrTT = azul_impl::gl::OptionGlContextPtr;
-pub use AzOptionGlContextPtrTT as AzOptionGlContextPtr;
+/// Re-export of rust-allocated (stack based) `OptionGl` struct
+pub type AzOptionGlTT = azul_impl::gl::OptionGlContextPtr;
+pub use AzOptionGlTT as AzOptionGl;
 
 /// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
 pub type AzOptionThreadReceiveMsgTT = azul_impl::task::OptionThreadReceiveMsg;
@@ -2843,9 +2843,9 @@ pub use AzInstantTT as AzInstant;
 pub type AzInstantPtrTT = azul_impl::task::AzInstantPtr;
 pub use AzInstantPtrTT as AzInstantPtr;
 /// Destructor: Takes ownership of the `InstantPtr` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_instant_ptr_delete(object: &mut AzInstantPtr) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzInstantPtr_delete(object: &mut AzInstantPtr) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
-#[no_mangle] pub extern "C" fn az_instant_ptr_deep_copy(object: &AzInstantPtr) -> AzInstantPtr { object.clone() }
+#[no_mangle] pub extern "C" fn AzInstantPtr_deepCopy(object: &AzInstantPtr) -> AzInstantPtr { object.clone() }
 
 pub type AzInstantPtrCloneFnType = extern "C" fn(&c_void) -> AzInstantPtr;
 /// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
@@ -5381,8 +5381,8 @@ mod test_sizes {
         pub depth: usize,
         pub node_id: AzNodeId,
     }
-    /// Re-export of rust-allocated (stack based) `GlContextPtr` struct
-    #[repr(C)]     pub struct AzGlContextPtr {
+    /// Re-export of rust-allocated (stack based) `Gl` struct
+    #[repr(C)]     pub struct AzGl {
         pub(crate) ptr: *const c_void,
         pub renderer_type: AzRendererType,
     }
@@ -5392,7 +5392,7 @@ mod test_sizes {
         pub format: AzRawImageFormat,
         pub flags: AzTextureFlags,
         pub size: AzPhysicalSizeU32,
-        pub gl_context: AzGlContextPtr,
+        pub gl_context: AzGl,
     }
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
     #[repr(C)]     pub struct AzRefstrVecRef {
@@ -5560,10 +5560,10 @@ mod test_sizes {
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
     }
-    /// Re-export of rust-allocated (stack based) `OptionGlContextPtr` struct
-    #[repr(C, u8)]     pub enum AzOptionGlContextPtr {
+    /// Re-export of rust-allocated (stack based) `OptionGl` struct
+    #[repr(C, u8)]     pub enum AzOptionGl {
         None,
-        Some(AzGlContextPtr),
+        Some(AzGl),
     }
     /// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
     #[repr(C, u8)]     pub enum AzOptionPercentageValue {
@@ -5775,7 +5775,7 @@ mod test_sizes {
     #[repr(C)]     pub struct AzGlCallbackInfo {
         pub callback_node_id: AzDomNodeId,
         pub bounds: AzHidpiAdjustedBounds,
-        pub gl_context: *const AzGlContextPtr,
+        pub gl_context: *const AzOptionGl,
         pub resources: *const c_void,
         pub node_hierarchy: *const AzNodeVec,
         pub words_cache: *const c_void,
@@ -6540,7 +6540,7 @@ mod test_sizes {
     #[repr(C)]     pub struct AzVertexArrayObject {
         pub vertex_layout: AzVertexLayout,
         pub vao_id: u32,
-        pub gl_context: AzGlContextPtr,
+        pub gl_context: AzGl,
     }
     /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
     #[repr(C)]     pub struct AzVertexBuffer {
@@ -6631,7 +6631,7 @@ mod test_sizes {
     #[repr(C)]     pub struct AzCallbackInfo {
         pub current_window_state: *const c_void,
         pub modifiable_window_state: *mut AzWindowState,
-        pub gl_context: *const AzGlContextPtr,
+        pub gl_context: *const AzOptionGl,
         pub resources: *mut c_void,
         pub timers: *mut c_void,
         pub threads: *mut c_void,
@@ -7174,7 +7174,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StylePerspectiveOrigin>>(), "AzStylePerspectiveOriginValue"), (Layout::new::<AzStylePerspectiveOriginValue>(), "AzStylePerspectiveOriginValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackfaceVisibility>>(), "AzStyleBackfaceVisibilityValue"), (Layout::new::<AzStyleBackfaceVisibilityValue>(), "AzStyleBackfaceVisibilityValue"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepth>(), "AzParentWithNodeDepth"), (Layout::new::<AzParentWithNodeDepth>(), "AzParentWithNodeDepth"));
-        assert_eq!((Layout::new::<azul_impl::gl::GlContextPtr>(), "AzGlContextPtr"), (Layout::new::<AzGlContextPtr>(), "AzGlContextPtr"));
+        assert_eq!((Layout::new::<azul_impl::gl::GlContextPtr>(), "AzGl"), (Layout::new::<AzGl>(), "AzGl"));
         assert_eq!((Layout::new::<azul_impl::gl::Texture>(), "AzTexture"), (Layout::new::<AzTexture>(), "AzTexture"));
         assert_eq!((Layout::new::<azul_impl::gl::RefstrVecRef>(), "AzRefstrVecRef"), (Layout::new::<AzRefstrVecRef>(), "AzRefstrVecRef"));
         assert_eq!((Layout::new::<azul_impl::resources::ImageMask>(), "AzImageMask"), (Layout::new::<AzImageMask>(), "AzImageMask"));
@@ -7201,7 +7201,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
-        assert_eq!((Layout::new::<azul_impl::gl::OptionGlContextPtr>(), "AzOptionGlContextPtr"), (Layout::new::<AzOptionGlContextPtr>(), "AzOptionGlContextPtr"));
+        assert_eq!((Layout::new::<azul_impl::gl::OptionGlContextPtr>(), "AzOptionGl"), (Layout::new::<AzOptionGl>(), "AzOptionGl"));
         assert_eq!((Layout::new::<azul_impl::css::OptionPercentageValue>(), "AzOptionPercentageValue"), (Layout::new::<AzOptionPercentageValue>(), "AzOptionPercentageValue"));
         assert_eq!((Layout::new::<azul_impl::css::OptionAngleValue>(), "AzOptionAngleValue"), (Layout::new::<AzOptionAngleValue>(), "AzOptionAngleValue"));
         assert_eq!((Layout::new::<azul_impl::window::OptionRendererOptions>(), "AzOptionRendererOptions"), (Layout::new::<AzOptionRendererOptions>(), "AzOptionRendererOptions"));

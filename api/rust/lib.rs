@@ -2579,8 +2579,8 @@ mod dll {
         pub depth: usize,
         pub node_id: AzNodeId,
     }
-    /// Re-export of rust-allocated (stack based) `GlContextPtr` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlContextPtr {
+    /// Re-export of rust-allocated (stack based) `Gl` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGl {
         pub(crate) ptr: *const c_void,
         pub renderer_type: AzRendererType,
     }
@@ -2590,7 +2590,7 @@ mod dll {
         pub format: AzRawImageFormat,
         pub flags: AzTextureFlags,
         pub size: AzPhysicalSizeU32,
-        pub gl_context: AzGlContextPtr,
+        pub gl_context: AzGl,
     }
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRefstrVecRef {
@@ -2758,10 +2758,10 @@ mod dll {
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
     }
-    /// Re-export of rust-allocated (stack based) `OptionGlContextPtr` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionGlContextPtr {
+    /// Re-export of rust-allocated (stack based) `OptionGl` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionGl {
         None,
-        Some(AzGlContextPtr),
+        Some(AzGl),
     }
     /// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionPercentageValue {
@@ -2973,7 +2973,7 @@ mod dll {
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlCallbackInfo {
         pub callback_node_id: AzDomNodeId,
         pub bounds: AzHidpiAdjustedBounds,
-        pub gl_context: *const AzGlContextPtr,
+        pub gl_context: *const AzOptionGl,
         pub resources: *const c_void,
         pub node_hierarchy: *const AzNodeVec,
         pub words_cache: *const c_void,
@@ -3738,7 +3738,7 @@ mod dll {
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzVertexArrayObject {
         pub vertex_layout: AzVertexLayout,
         pub vao_id: u32,
-        pub gl_context: AzGlContextPtr,
+        pub gl_context: AzGl,
     }
     /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzVertexBuffer {
@@ -3829,7 +3829,7 @@ mod dll {
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzCallbackInfo {
         pub current_window_state: *const c_void,
         pub modifiable_window_state: *mut AzWindowState,
-        pub gl_context: *const AzGlContextPtr,
+        pub gl_context: *const AzOptionGl,
         pub resources: *mut c_void,
         pub timers: *mut c_void,
         pub threads: *mut c_void,
@@ -4048,358 +4048,358 @@ mod dll {
     #[cfg_attr(target_os = "windows", link(name="azul.dll"))] // https://github.com/rust-lang/cargo/issues/9082
     #[cfg_attr(not(target_os = "windows"), link(name="azul"))] // https://github.com/rust-lang/cargo/issues/9082
     extern "C" {
-        pub(crate) fn az_app_new(_:  AzRefAny, _:  AzAppConfig) -> AzApp;
-        pub(crate) fn az_app_add_window(_:  &mut AzApp, _:  AzWindowCreateOptions);
-        pub(crate) fn az_app_get_monitors(_:  &AzApp) -> AzMonitorVec;
-        pub(crate) fn az_app_run(_:  AzApp, _:  AzWindowCreateOptions);
-        pub(crate) fn az_app_delete(_:  &mut AzApp);
-        pub(crate) fn az_app_config_default() -> AzAppConfig;
-        pub(crate) fn az_window_create_options_new(_:  AzLayoutCallbackType) -> AzWindowCreateOptions;
-        pub(crate) fn az_monitor_handle_delete(_:  &mut AzMonitorHandle);
-        pub(crate) fn az_monitor_handle_deep_copy(_:  &AzMonitorHandle) -> AzMonitorHandle;
-        pub(crate) fn az_window_state_new(_:  AzLayoutCallbackType) -> AzWindowState;
-        pub(crate) fn az_window_state_default() -> AzWindowState;
-        pub(crate) fn az_callback_info_get_hit_node(_:  &AzCallbackInfo) -> AzDomNodeId;
-        pub(crate) fn az_callback_info_get_cursor_relative_to_viewport(_:  &AzCallbackInfo) -> AzOptionLayoutPoint;
-        pub(crate) fn az_callback_info_get_cursor_relative_to_node(_:  &AzCallbackInfo) -> AzOptionLayoutPoint;
-        pub(crate) fn az_callback_info_get_parent(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
-        pub(crate) fn az_callback_info_get_previous_sibling(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
-        pub(crate) fn az_callback_info_get_next_sibling(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
-        pub(crate) fn az_callback_info_get_first_child(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
-        pub(crate) fn az_callback_info_get_last_child(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
-        pub(crate) fn az_callback_info_get_window_state(_:  &AzCallbackInfo) -> AzWindowState;
-        pub(crate) fn az_callback_info_get_keyboard_state(_:  &AzCallbackInfo) -> AzKeyboardState;
-        pub(crate) fn az_callback_info_get_mouse_state(_:  &AzCallbackInfo) -> AzMouseState;
-        pub(crate) fn az_callback_info_get_current_window_handle(_:  &AzCallbackInfo) -> AzRawWindowHandle;
-        pub(crate) fn az_callback_info_get_gl_context(_:  &AzCallbackInfo) -> AzOptionGlContextPtr;
-        pub(crate) fn az_callback_info_set_window_state(_:  &mut AzCallbackInfo, _:  AzWindowState);
-        pub(crate) fn az_callback_info_set_focus(_:  &mut AzCallbackInfo, _:  AzFocusTarget);
-        pub(crate) fn az_callback_info_set_css_property(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzCssProperty);
-        pub(crate) fn az_callback_info_stop_propagation(_:  &mut AzCallbackInfo);
-        pub(crate) fn az_callback_info_create_window(_:  &mut AzCallbackInfo, _:  AzWindowCreateOptions);
-        pub(crate) fn az_callback_info_start_thread(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallback);
-        pub(crate) fn az_callback_info_start_timer(_:  &mut AzCallbackInfo, _:  AzTimerId, _:  AzTimer);
-        pub(crate) fn az_hidpi_adjusted_bounds_get_logical_size(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize;
-        pub(crate) fn az_hidpi_adjusted_bounds_get_physical_size(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32;
-        pub(crate) fn az_hidpi_adjusted_bounds_get_hidpi_factor(_:  &AzHidpiAdjustedBounds) -> f32;
-        pub(crate) fn az_i_frame_callback_info_get_bounds(_:  &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds;
-        pub(crate) fn az_gl_callback_info_get_gl_context(_:  &AzGlCallbackInfo) -> AzOptionGlContextPtr;
-        pub(crate) fn az_gl_callback_info_get_bounds(_:  &AzGlCallbackInfo) -> AzHidpiAdjustedBounds;
-        pub(crate) fn az_ref_count_can_be_shared(_:  &AzRefCount) -> bool;
-        pub(crate) fn az_ref_count_can_be_shared_mut(_:  &AzRefCount) -> bool;
-        pub(crate) fn az_ref_count_increase_ref(_:  &mut AzRefCount);
-        pub(crate) fn az_ref_count_decrease_ref(_:  &mut AzRefCount);
-        pub(crate) fn az_ref_count_increase_refmut(_:  &mut AzRefCount);
-        pub(crate) fn az_ref_count_decrease_refmut(_:  &mut AzRefCount);
-        pub(crate) fn az_ref_count_delete(_:  &mut AzRefCount);
-        pub(crate) fn az_ref_count_deep_copy(_:  &AzRefCount) -> AzRefCount;
-        pub(crate) fn az_ref_any_new_c(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny;
-        pub(crate) fn az_ref_any_is_type(_:  &AzRefAny, _:  u64) -> bool;
-        pub(crate) fn az_ref_any_get_type_name(_:  &AzRefAny) -> AzString;
-        pub(crate) fn az_ref_any_clone(_:  &mut AzRefAny) -> AzRefAny;
-        pub(crate) fn az_ref_any_delete(_:  &mut AzRefAny);
-        pub(crate) fn az_layout_info_window_width_larger_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
-        pub(crate) fn az_layout_info_window_width_smaller_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
-        pub(crate) fn az_layout_info_window_height_larger_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
-        pub(crate) fn az_layout_info_window_height_smaller_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
-        pub(crate) fn az_dom_node_count(_:  &AzDom) -> usize;
-        pub(crate) fn az_on_into_event_filter(_:  AzOn) -> AzEventFilter;
-        pub(crate) fn az_css_empty() -> AzCss;
-        pub(crate) fn az_css_from_string(_:  AzString) -> AzCss;
-        pub(crate) fn az_color_u_from_str(_:  AzString) -> AzColorU;
-        pub(crate) fn az_color_u_to_hash(_:  &AzColorU) -> AzString;
-        pub(crate) fn az_css_property_cache_delete(_:  &mut AzCssPropertyCache);
-        pub(crate) fn az_css_property_cache_deep_copy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
-        pub(crate) fn az_styled_dom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
-        pub(crate) fn az_styled_dom_append(_:  &mut AzStyledDom, _:  AzStyledDom);
-        pub(crate) fn az_styled_dom_node_count(_:  &AzStyledDom) -> usize;
-        pub(crate) fn az_gl_context_ptr_get_type(_:  &AzGlContextPtr) -> AzGlType;
-        pub(crate) fn az_gl_context_ptr_buffer_data_untyped(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32);
-        pub(crate) fn az_gl_context_ptr_buffer_sub_data_untyped(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  *const c_void);
-        pub(crate) fn az_gl_context_ptr_map_buffer(_:  &AzGlContextPtr, _:  u32, _:  u32) -> *mut c_void;
-        pub(crate) fn az_gl_context_ptr_map_buffer_range(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  u32) -> *mut c_void;
-        pub(crate) fn az_gl_context_ptr_unmap_buffer(_:  &AzGlContextPtr, _:  u32) -> u8;
-        pub(crate) fn az_gl_context_ptr_tex_buffer(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_shader_source(_:  &AzGlContextPtr, _:  u32, _:  AzStringVec);
-        pub(crate) fn az_gl_context_ptr_read_buffer(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_read_pixels_into_buffer(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut);
-        pub(crate) fn az_gl_context_ptr_read_pixels(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32) -> AzU8Vec;
-        pub(crate) fn az_gl_context_ptr_read_pixels_into_pbo(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_sample_coverage(_:  &AzGlContextPtr, _:  f32, _:  bool);
-        pub(crate) fn az_gl_context_ptr_polygon_offset(_:  &AzGlContextPtr, _:  f32, _:  f32);
-        pub(crate) fn az_gl_context_ptr_pixel_store_i(_:  &AzGlContextPtr, _:  u32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_gen_buffers(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
-        pub(crate) fn az_gl_context_ptr_gen_renderbuffers(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
-        pub(crate) fn az_gl_context_ptr_gen_framebuffers(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
-        pub(crate) fn az_gl_context_ptr_gen_textures(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
-        pub(crate) fn az_gl_context_ptr_gen_vertex_arrays(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
-        pub(crate) fn az_gl_context_ptr_gen_queries(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
-        pub(crate) fn az_gl_context_ptr_begin_query(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_end_query(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_query_counter(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_get_query_object_iv(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32;
-        pub(crate) fn az_gl_context_ptr_get_query_object_uiv(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u32;
-        pub(crate) fn az_gl_context_ptr_get_query_object_i64v(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i64;
-        pub(crate) fn az_gl_context_ptr_get_query_object_ui64v(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u64;
-        pub(crate) fn az_gl_context_ptr_delete_queries(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
-        pub(crate) fn az_gl_context_ptr_delete_vertex_arrays(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
-        pub(crate) fn az_gl_context_ptr_delete_buffers(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
-        pub(crate) fn az_gl_context_ptr_delete_renderbuffers(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
-        pub(crate) fn az_gl_context_ptr_delete_framebuffers(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
-        pub(crate) fn az_gl_context_ptr_delete_textures(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
-        pub(crate) fn az_gl_context_ptr_framebuffer_renderbuffer(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_renderbuffer_storage(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_depth_func(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_active_texture(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_attach_shader(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_bind_attrib_location(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzRefstr);
-        pub(crate) fn az_gl_context_ptr_get_uniform_iv(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  AzGLintVecRefMut);
-        pub(crate) fn az_gl_context_ptr_get_uniform_fv(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  AzGLfloatVecRefMut);
-        pub(crate) fn az_gl_context_ptr_get_uniform_block_index(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> u32;
-        pub(crate) fn az_gl_context_ptr_get_uniform_indices(_:  &AzGlContextPtr, _:  u32, _:  AzRefstrVecRef) -> AzGLuintVec;
-        pub(crate) fn az_gl_context_ptr_bind_buffer_base(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_bind_buffer_range(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  isize, _:  isize);
-        pub(crate) fn az_gl_context_ptr_uniform_block_binding(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_bind_buffer(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_bind_vertex_array(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_bind_renderbuffer(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_bind_framebuffer(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_bind_texture(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_draw_buffers(_:  &AzGlContextPtr, _:  AzGLenumVecRef);
-        pub(crate) fn az_gl_context_ptr_tex_image_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef);
-        pub(crate) fn az_gl_context_ptr_compressed_tex_image_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  AzU8VecRef);
-        pub(crate) fn az_gl_context_ptr_compressed_tex_sub_image_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  AzU8VecRef);
-        pub(crate) fn az_gl_context_ptr_tex_image_3d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef);
-        pub(crate) fn az_gl_context_ptr_copy_tex_image_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_copy_tex_sub_image_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_copy_tex_sub_image_3d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_tex_sub_image_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef);
-        pub(crate) fn az_gl_context_ptr_tex_sub_image_2d_pbo(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize);
-        pub(crate) fn az_gl_context_ptr_tex_sub_image_3d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef);
-        pub(crate) fn az_gl_context_ptr_tex_sub_image_3d_pbo(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize);
-        pub(crate) fn az_gl_context_ptr_tex_storage_2d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_tex_storage_3d(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_get_tex_image_into_buffer(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut);
-        pub(crate) fn az_gl_context_ptr_copy_image_sub_data(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_invalidate_framebuffer(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef);
-        pub(crate) fn az_gl_context_ptr_invalidate_sub_framebuffer(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef, _:  i32, _:  i32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_get_integer_v(_:  &AzGlContextPtr, _:  u32, _:  AzGLintVecRefMut);
-        pub(crate) fn az_gl_context_ptr_get_integer_64v(_:  &AzGlContextPtr, _:  u32, _:  AzGLint64VecRefMut);
-        pub(crate) fn az_gl_context_ptr_get_integer_iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut);
-        pub(crate) fn az_gl_context_ptr_get_integer_64iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLint64VecRefMut);
-        pub(crate) fn az_gl_context_ptr_get_boolean_v(_:  &AzGlContextPtr, _:  u32, _:  AzGLbooleanVecRefMut);
-        pub(crate) fn az_gl_context_ptr_get_float_v(_:  &AzGlContextPtr, _:  u32, _:  AzGLfloatVecRefMut);
-        pub(crate) fn az_gl_context_ptr_get_framebuffer_attachment_parameter_iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> i32;
-        pub(crate) fn az_gl_context_ptr_get_renderbuffer_parameter_iv(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32;
-        pub(crate) fn az_gl_context_ptr_get_tex_parameter_iv(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32;
-        pub(crate) fn az_gl_context_ptr_get_tex_parameter_fv(_:  &AzGlContextPtr, _:  u32, _:  u32) -> f32;
-        pub(crate) fn az_gl_context_ptr_tex_parameter_i(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_tex_parameter_f(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  f32);
-        pub(crate) fn az_gl_context_ptr_framebuffer_texture_2d(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_framebuffer_texture_layer(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_blit_framebuffer(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_vertex_attrib_4f(_:  &AzGlContextPtr, _:  u32, _:  f32, _:  f32, _:  f32, _:  f32);
-        pub(crate) fn az_gl_context_ptr_vertex_attrib_pointer_f32(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  bool, _:  i32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_vertex_attrib_pointer(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  bool, _:  i32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_vertex_attrib_i_pointer(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_vertex_attrib_divisor(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_viewport(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_scissor(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_line_width(_:  &AzGlContextPtr, _:  f32);
-        pub(crate) fn az_gl_context_ptr_use_program(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_validate_program(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_draw_arrays(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_draw_arrays_instanced(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_draw_elements(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_draw_elements_instanced(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_blend_color(_:  &AzGlContextPtr, _:  f32, _:  f32, _:  f32, _:  f32);
-        pub(crate) fn az_gl_context_ptr_blend_func(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_blend_func_separate(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_blend_equation(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_blend_equation_separate(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_color_mask(_:  &AzGlContextPtr, _:  bool, _:  bool, _:  bool, _:  bool);
-        pub(crate) fn az_gl_context_ptr_cull_face(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_front_face(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_enable(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_disable(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_hint(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_is_enabled(_:  &AzGlContextPtr, _:  u32) -> u8;
-        pub(crate) fn az_gl_context_ptr_is_shader(_:  &AzGlContextPtr, _:  u32) -> u8;
-        pub(crate) fn az_gl_context_ptr_is_texture(_:  &AzGlContextPtr, _:  u32) -> u8;
-        pub(crate) fn az_gl_context_ptr_is_framebuffer(_:  &AzGlContextPtr, _:  u32) -> u8;
-        pub(crate) fn az_gl_context_ptr_is_renderbuffer(_:  &AzGlContextPtr, _:  u32) -> u8;
-        pub(crate) fn az_gl_context_ptr_check_frame_buffer_status(_:  &AzGlContextPtr, _:  u32) -> u32;
-        pub(crate) fn az_gl_context_ptr_enable_vertex_attrib_array(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_disable_vertex_attrib_array(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_uniform_1f(_:  &AzGlContextPtr, _:  i32, _:  f32);
-        pub(crate) fn az_gl_context_ptr_uniform_1fv(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef);
-        pub(crate) fn az_gl_context_ptr_uniform_1i(_:  &AzGlContextPtr, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_uniform_1iv(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef);
-        pub(crate) fn az_gl_context_ptr_uniform_1ui(_:  &AzGlContextPtr, _:  i32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_uniform_2f(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32);
-        pub(crate) fn az_gl_context_ptr_uniform_2fv(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef);
-        pub(crate) fn az_gl_context_ptr_uniform_2i(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_uniform_2iv(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef);
-        pub(crate) fn az_gl_context_ptr_uniform_2ui(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_uniform_3f(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32, _:  f32);
-        pub(crate) fn az_gl_context_ptr_uniform_3fv(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef);
-        pub(crate) fn az_gl_context_ptr_uniform_3i(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_uniform_3iv(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef);
-        pub(crate) fn az_gl_context_ptr_uniform_3ui(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_uniform_4f(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32, _:  f32, _:  f32);
-        pub(crate) fn az_gl_context_ptr_uniform_4i(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_uniform_4iv(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef);
-        pub(crate) fn az_gl_context_ptr_uniform_4ui(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_uniform_4fv(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef);
-        pub(crate) fn az_gl_context_ptr_uniform_matrix_2fv(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef);
-        pub(crate) fn az_gl_context_ptr_uniform_matrix_3fv(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef);
-        pub(crate) fn az_gl_context_ptr_uniform_matrix_4fv(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef);
-        pub(crate) fn az_gl_context_ptr_depth_mask(_:  &AzGlContextPtr, _:  bool);
-        pub(crate) fn az_gl_context_ptr_depth_range(_:  &AzGlContextPtr, _:  f64, _:  f64);
-        pub(crate) fn az_gl_context_ptr_get_active_attrib(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGetActiveAttribReturn;
-        pub(crate) fn az_gl_context_ptr_get_active_uniform(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGetActiveUniformReturn;
-        pub(crate) fn az_gl_context_ptr_get_active_uniforms_iv(_:  &AzGlContextPtr, _:  u32, _:  AzGLuintVec, _:  u32) -> AzGLintVec;
-        pub(crate) fn az_gl_context_ptr_get_active_uniform_block_i(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> i32;
-        pub(crate) fn az_gl_context_ptr_get_active_uniform_block_iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> AzGLintVec;
-        pub(crate) fn az_gl_context_ptr_get_active_uniform_block_name(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString;
-        pub(crate) fn az_gl_context_ptr_get_attrib_location(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32;
-        pub(crate) fn az_gl_context_ptr_get_frag_data_location(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32;
-        pub(crate) fn az_gl_context_ptr_get_uniform_location(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32;
-        pub(crate) fn az_gl_context_ptr_get_program_info_log(_:  &AzGlContextPtr, _:  u32) -> AzString;
-        pub(crate) fn az_gl_context_ptr_get_program_iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut);
-        pub(crate) fn az_gl_context_ptr_get_program_binary(_:  &AzGlContextPtr, _:  u32) -> AzGetProgramBinaryReturn;
-        pub(crate) fn az_gl_context_ptr_program_binary(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzU8VecRef);
-        pub(crate) fn az_gl_context_ptr_program_parameter_i(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32);
-        pub(crate) fn az_gl_context_ptr_get_vertex_attrib_iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut);
-        pub(crate) fn az_gl_context_ptr_get_vertex_attrib_fv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLfloatVecRefMut);
-        pub(crate) fn az_gl_context_ptr_get_vertex_attrib_pointer_v(_:  &AzGlContextPtr, _:  u32, _:  u32) -> isize;
-        pub(crate) fn az_gl_context_ptr_get_buffer_parameter_iv(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32;
-        pub(crate) fn az_gl_context_ptr_get_shader_info_log(_:  &AzGlContextPtr, _:  u32) -> AzString;
-        pub(crate) fn az_gl_context_ptr_get_string(_:  &AzGlContextPtr, _:  u32) -> AzString;
-        pub(crate) fn az_gl_context_ptr_get_string_i(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString;
-        pub(crate) fn az_gl_context_ptr_get_shader_iv(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut);
-        pub(crate) fn az_gl_context_ptr_get_shader_precision_format(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGlShaderPrecisionFormatReturn;
-        pub(crate) fn az_gl_context_ptr_compile_shader(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_create_program(_:  &AzGlContextPtr) -> u32;
-        pub(crate) fn az_gl_context_ptr_delete_program(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_create_shader(_:  &AzGlContextPtr, _:  u32) -> u32;
-        pub(crate) fn az_gl_context_ptr_delete_shader(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_detach_shader(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_link_program(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_clear_color(_:  &AzGlContextPtr, _:  f32, _:  f32, _:  f32, _:  f32);
-        pub(crate) fn az_gl_context_ptr_clear(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_clear_depth(_:  &AzGlContextPtr, _:  f64);
-        pub(crate) fn az_gl_context_ptr_clear_stencil(_:  &AzGlContextPtr, _:  i32);
-        pub(crate) fn az_gl_context_ptr_flush(_:  &AzGlContextPtr);
-        pub(crate) fn az_gl_context_ptr_finish(_:  &AzGlContextPtr);
-        pub(crate) fn az_gl_context_ptr_get_error(_:  &AzGlContextPtr) -> u32;
-        pub(crate) fn az_gl_context_ptr_stencil_mask(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_stencil_mask_separate(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_stencil_func(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_stencil_func_separate(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_stencil_op(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_stencil_op_separate(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_egl_image_target_texture2d_oes(_:  &AzGlContextPtr, _:  u32, _:  *const c_void);
-        pub(crate) fn az_gl_context_ptr_generate_mipmap(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_insert_event_marker_ext(_:  &AzGlContextPtr, _:  AzRefstr);
-        pub(crate) fn az_gl_context_ptr_push_group_marker_ext(_:  &AzGlContextPtr, _:  AzRefstr);
-        pub(crate) fn az_gl_context_ptr_pop_group_marker_ext(_:  &AzGlContextPtr);
-        pub(crate) fn az_gl_context_ptr_debug_message_insert_khr(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32, _:  AzRefstr);
-        pub(crate) fn az_gl_context_ptr_push_debug_group_khr(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzRefstr);
-        pub(crate) fn az_gl_context_ptr_pop_debug_group_khr(_:  &AzGlContextPtr);
-        pub(crate) fn az_gl_context_ptr_fence_sync(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGLsyncPtr;
-        pub(crate) fn az_gl_context_ptr_client_wait_sync(_:  &AzGlContextPtr, _:  AzGLsyncPtr, _:  u32, _:  u64) -> u32;
-        pub(crate) fn az_gl_context_ptr_wait_sync(_:  &AzGlContextPtr, _:  AzGLsyncPtr, _:  u32, _:  u64);
-        pub(crate) fn az_gl_context_ptr_delete_sync(_:  &AzGlContextPtr, _:  AzGLsyncPtr);
-        pub(crate) fn az_gl_context_ptr_texture_range_apple(_:  &AzGlContextPtr, _:  u32, _:  AzU8VecRef);
-        pub(crate) fn az_gl_context_ptr_gen_fences_apple(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
-        pub(crate) fn az_gl_context_ptr_delete_fences_apple(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
-        pub(crate) fn az_gl_context_ptr_set_fence_apple(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_finish_fence_apple(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_test_fence_apple(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_test_object_apple(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u8;
-        pub(crate) fn az_gl_context_ptr_finish_object_apple(_:  &AzGlContextPtr, _:  u32, _:  u32);
-        pub(crate) fn az_gl_context_ptr_get_frag_data_index(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32;
-        pub(crate) fn az_gl_context_ptr_blend_barrier_khr(_:  &AzGlContextPtr);
-        pub(crate) fn az_gl_context_ptr_bind_frag_data_location_indexed(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  AzRefstr);
-        pub(crate) fn az_gl_context_ptr_get_debug_messages(_:  &AzGlContextPtr) -> AzDebugMessageVec;
-        pub(crate) fn az_gl_context_ptr_provoking_vertex_angle(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_gen_vertex_arrays_apple(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec;
-        pub(crate) fn az_gl_context_ptr_bind_vertex_array_apple(_:  &AzGlContextPtr, _:  u32);
-        pub(crate) fn az_gl_context_ptr_delete_vertex_arrays_apple(_:  &AzGlContextPtr, _:  AzGLuintVecRef);
-        pub(crate) fn az_gl_context_ptr_copy_texture_chromium(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8);
-        pub(crate) fn az_gl_context_ptr_copy_sub_texture_chromium(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8);
-        pub(crate) fn az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes(_:  &AzGlContextPtr, _:  u32, _:  *const c_void);
-        pub(crate) fn az_gl_context_ptr_copy_texture_3d_angle(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8);
-        pub(crate) fn az_gl_context_ptr_copy_sub_texture_3d_angle(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8);
-        pub(crate) fn az_gl_context_ptr_buffer_storage(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32);
-        pub(crate) fn az_gl_context_ptr_flush_mapped_buffer_range(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize);
-        pub(crate) fn az_gl_context_ptr_delete(_:  &mut AzGlContextPtr);
-        pub(crate) fn az_gl_context_ptr_deep_copy(_:  &AzGlContextPtr) -> AzGlContextPtr;
-        pub(crate) fn az_texture_delete(_:  &mut AzTexture);
-        pub(crate) fn az_g_lsync_ptr_delete(_:  &mut AzGLsyncPtr);
-        pub(crate) fn az_texture_flags_default() -> AzTextureFlags;
-        pub(crate) fn az_image_id_new() -> AzImageId;
-        pub(crate) fn az_font_id_new() -> AzFontId;
-        pub(crate) fn az_raw_image_new(_:  AzU8Vec, _:  usize, _:  usize, _:  AzRawImageFormat) -> AzRawImage;
-        pub(crate) fn az_svg_parse_options_default() -> AzSvgParseOptions;
-        pub(crate) fn az_svg_render_options_default() -> AzSvgRenderOptions;
-        pub(crate) fn az_svg_parse(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
-        pub(crate) fn az_svg_delete(_:  &mut AzSvg);
-        pub(crate) fn az_svg_deep_copy(_:  &AzSvg) -> AzSvg;
-        pub(crate) fn az_svg_xml_node_delete(_:  &mut AzSvgXmlNode);
-        pub(crate) fn az_svg_xml_node_deep_copy(_:  &AzSvgXmlNode) -> AzSvgXmlNode;
-        pub(crate) fn az_timer_id_unique() -> AzTimerId;
-        pub(crate) fn az_timer_new(_:  AzRefAny, _:  AzTimerCallbackType, _:  AzGetSystemTimeFn) -> AzTimer;
-        pub(crate) fn az_timer_with_delay(_:  AzTimer, _:  AzDuration) -> AzTimer;
-        pub(crate) fn az_timer_with_interval(_:  AzTimer, _:  AzDuration) -> AzTimer;
-        pub(crate) fn az_timer_with_timeout(_:  AzTimer, _:  AzDuration) -> AzTimer;
-        pub(crate) fn az_thread_sender_send(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool;
-        pub(crate) fn az_thread_sender_delete(_:  &mut AzThreadSender);
-        pub(crate) fn az_thread_receiver_receive(_:  &mut AzThreadReceiver) -> AzOptionThreadSendMsg;
-        pub(crate) fn az_thread_receiver_delete(_:  &mut AzThreadReceiver);
-        pub(crate) fn az_monitor_vec_delete(_:  &mut AzMonitorVec);
-        pub(crate) fn az_video_mode_vec_delete(_:  &mut AzVideoModeVec);
-        pub(crate) fn az_dom_vec_delete(_:  &mut AzDomVec);
-        pub(crate) fn az_id_or_class_vec_delete(_:  &mut AzIdOrClassVec);
-        pub(crate) fn az_node_data_inline_css_property_vec_delete(_:  &mut AzNodeDataInlineCssPropertyVec);
-        pub(crate) fn az_style_background_content_vec_delete(_:  &mut AzStyleBackgroundContentVec);
-        pub(crate) fn az_style_background_position_vec_delete(_:  &mut AzStyleBackgroundPositionVec);
-        pub(crate) fn az_style_background_repeat_vec_delete(_:  &mut AzStyleBackgroundRepeatVec);
-        pub(crate) fn az_style_background_size_vec_delete(_:  &mut AzStyleBackgroundSizeVec);
-        pub(crate) fn az_style_transform_vec_delete(_:  &mut AzStyleTransformVec);
-        pub(crate) fn az_css_property_vec_delete(_:  &mut AzCssPropertyVec);
-        pub(crate) fn az_svg_multi_polygon_vec_delete(_:  &mut AzSvgMultiPolygonVec);
-        pub(crate) fn az_svg_path_vec_delete(_:  &mut AzSvgPathVec);
-        pub(crate) fn az_vertex_attribute_vec_delete(_:  &mut AzVertexAttributeVec);
-        pub(crate) fn az_svg_path_element_vec_delete(_:  &mut AzSvgPathElementVec);
-        pub(crate) fn az_svg_vertex_vec_delete(_:  &mut AzSvgVertexVec);
-        pub(crate) fn az_u32_vec_delete(_:  &mut AzU32Vec);
-        pub(crate) fn az_x_window_type_vec_delete(_:  &mut AzXWindowTypeVec);
-        pub(crate) fn az_virtual_key_code_vec_delete(_:  &mut AzVirtualKeyCodeVec);
-        pub(crate) fn az_cascade_info_vec_delete(_:  &mut AzCascadeInfoVec);
-        pub(crate) fn az_scan_code_vec_delete(_:  &mut AzScanCodeVec);
-        pub(crate) fn az_css_declaration_vec_delete(_:  &mut AzCssDeclarationVec);
-        pub(crate) fn az_css_path_selector_vec_delete(_:  &mut AzCssPathSelectorVec);
-        pub(crate) fn az_stylesheet_vec_delete(_:  &mut AzStylesheetVec);
-        pub(crate) fn az_css_rule_block_vec_delete(_:  &mut AzCssRuleBlockVec);
-        pub(crate) fn az_u8_vec_delete(_:  &mut AzU8Vec);
-        pub(crate) fn az_callback_data_vec_delete(_:  &mut AzCallbackDataVec);
-        pub(crate) fn az_debug_message_vec_delete(_:  &mut AzDebugMessageVec);
-        pub(crate) fn az_g_luint_vec_delete(_:  &mut AzGLuintVec);
-        pub(crate) fn az_g_lint_vec_delete(_:  &mut AzGLintVec);
-        pub(crate) fn az_string_vec_delete(_:  &mut AzStringVec);
-        pub(crate) fn az_string_pair_vec_delete(_:  &mut AzStringPairVec);
-        pub(crate) fn az_linear_color_stop_vec_delete(_:  &mut AzLinearColorStopVec);
-        pub(crate) fn az_radial_color_stop_vec_delete(_:  &mut AzRadialColorStopVec);
-        pub(crate) fn az_node_id_vec_delete(_:  &mut AzNodeIdVec);
-        pub(crate) fn az_node_vec_delete(_:  &mut AzNodeVec);
-        pub(crate) fn az_styled_node_vec_delete(_:  &mut AzStyledNodeVec);
-        pub(crate) fn az_tag_ids_to_node_ids_mapping_vec_delete(_:  &mut AzTagIdsToNodeIdsMappingVec);
-        pub(crate) fn az_parent_with_node_depth_vec_delete(_:  &mut AzParentWithNodeDepthVec);
-        pub(crate) fn az_node_data_vec_delete(_:  &mut AzNodeDataVec);
-        pub(crate) fn az_instant_ptr_delete(_:  &mut AzInstantPtr);
-        pub(crate) fn az_instant_ptr_deep_copy(_:  &AzInstantPtr) -> AzInstantPtr;
+        pub(crate) fn AzApp_new(_:  AzRefAny, _:  AzAppConfig) -> AzApp;
+        pub(crate) fn AzApp_add_window(_:  &mut AzApp, _:  AzWindowCreateOptions);
+        pub(crate) fn AzApp_get_monitors(_:  &AzApp) -> AzMonitorVec;
+        pub(crate) fn AzApp_run(_:  AzApp, _:  AzWindowCreateOptions);
+        pub(crate) fn AzApp_delete(_:  &mut AzApp);
+        pub(crate) fn AzAppConfig_default() -> AzAppConfig;
+        pub(crate) fn AzWindowCreateOptions_new(_:  AzLayoutCallbackType) -> AzWindowCreateOptions;
+        pub(crate) fn AzMonitorHandle_delete(_:  &mut AzMonitorHandle);
+        pub(crate) fn AzMonitorHandle_deepCopy(_:  &AzMonitorHandle) -> AzMonitorHandle;
+        pub(crate) fn AzWindowState_new(_:  AzLayoutCallbackType) -> AzWindowState;
+        pub(crate) fn AzWindowState_default() -> AzWindowState;
+        pub(crate) fn AzCallbackInfo_get_hit_node(_:  &AzCallbackInfo) -> AzDomNodeId;
+        pub(crate) fn AzCallbackInfo_get_cursor_relative_to_viewport(_:  &AzCallbackInfo) -> AzOptionLayoutPoint;
+        pub(crate) fn AzCallbackInfo_get_cursor_relative_to_node(_:  &AzCallbackInfo) -> AzOptionLayoutPoint;
+        pub(crate) fn AzCallbackInfo_get_parent(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzCallbackInfo_get_previous_sibling(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzCallbackInfo_get_next_sibling(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzCallbackInfo_get_first_child(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzCallbackInfo_get_last_child(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzCallbackInfo_get_window_state(_:  &AzCallbackInfo) -> AzWindowState;
+        pub(crate) fn AzCallbackInfo_get_keyboard_state(_:  &AzCallbackInfo) -> AzKeyboardState;
+        pub(crate) fn AzCallbackInfo_get_mouse_state(_:  &AzCallbackInfo) -> AzMouseState;
+        pub(crate) fn AzCallbackInfo_get_current_window_handle(_:  &AzCallbackInfo) -> AzRawWindowHandle;
+        pub(crate) fn AzCallbackInfo_get_gl_context(_:  &AzCallbackInfo) -> AzOptionGl;
+        pub(crate) fn AzCallbackInfo_set_window_state(_:  &mut AzCallbackInfo, _:  AzWindowState);
+        pub(crate) fn AzCallbackInfo_set_focus(_:  &mut AzCallbackInfo, _:  AzFocusTarget);
+        pub(crate) fn AzCallbackInfo_set_css_property(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzCssProperty);
+        pub(crate) fn AzCallbackInfo_stop_propagation(_:  &mut AzCallbackInfo);
+        pub(crate) fn AzCallbackInfo_create_window(_:  &mut AzCallbackInfo, _:  AzWindowCreateOptions);
+        pub(crate) fn AzCallbackInfo_start_thread(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallback);
+        pub(crate) fn AzCallbackInfo_start_timer(_:  &mut AzCallbackInfo, _:  AzTimerId, _:  AzTimer);
+        pub(crate) fn AzHidpiAdjustedBounds_get_logical_size(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize;
+        pub(crate) fn AzHidpiAdjustedBounds_get_physical_size(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32;
+        pub(crate) fn AzHidpiAdjustedBounds_get_hidpi_factor(_:  &AzHidpiAdjustedBounds) -> f32;
+        pub(crate) fn AzIFrameCallbackInfo_get_bounds(_:  &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds;
+        pub(crate) fn AzGlCallbackInfo_get_gl_context(_:  &AzGlCallbackInfo) -> AzOptionGl;
+        pub(crate) fn AzGlCallbackInfo_get_bounds(_:  &AzGlCallbackInfo) -> AzHidpiAdjustedBounds;
+        pub(crate) fn AzRefCount_can_be_shared(_:  &AzRefCount) -> bool;
+        pub(crate) fn AzRefCount_can_be_shared_mut(_:  &AzRefCount) -> bool;
+        pub(crate) fn AzRefCount_increase_ref(_:  &mut AzRefCount);
+        pub(crate) fn AzRefCount_decrease_ref(_:  &mut AzRefCount);
+        pub(crate) fn AzRefCount_increase_refmut(_:  &mut AzRefCount);
+        pub(crate) fn AzRefCount_decrease_refmut(_:  &mut AzRefCount);
+        pub(crate) fn AzRefCount_delete(_:  &mut AzRefCount);
+        pub(crate) fn AzRefCount_deepCopy(_:  &AzRefCount) -> AzRefCount;
+        pub(crate) fn AzRefAny_new_c(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny;
+        pub(crate) fn AzRefAny_is_type(_:  &AzRefAny, _:  u64) -> bool;
+        pub(crate) fn AzRefAny_get_type_name(_:  &AzRefAny) -> AzString;
+        pub(crate) fn AzRefAny_clone(_:  &mut AzRefAny) -> AzRefAny;
+        pub(crate) fn AzRefAny_delete(_:  &mut AzRefAny);
+        pub(crate) fn AzLayoutInfo_window_width_larger_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
+        pub(crate) fn AzLayoutInfo_window_width_smaller_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
+        pub(crate) fn AzLayoutInfo_window_height_larger_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
+        pub(crate) fn AzLayoutInfo_window_height_smaller_than(_:  &mut AzLayoutInfo, _:  f32) -> bool;
+        pub(crate) fn AzDom_node_count(_:  &AzDom) -> usize;
+        pub(crate) fn AzOn_into_event_filter(_:  AzOn) -> AzEventFilter;
+        pub(crate) fn AzCss_empty() -> AzCss;
+        pub(crate) fn AzCss_from_string(_:  AzString) -> AzCss;
+        pub(crate) fn AzColorU_from_str(_:  AzString) -> AzColorU;
+        pub(crate) fn AzColorU_to_hash(_:  &AzColorU) -> AzString;
+        pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
+        pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
+        pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
+        pub(crate) fn AzStyledDom_append(_:  &mut AzStyledDom, _:  AzStyledDom);
+        pub(crate) fn AzStyledDom_node_count(_:  &AzStyledDom) -> usize;
+        pub(crate) fn AzGl_get_type(_:  &AzGl) -> AzGlType;
+        pub(crate) fn AzGl_buffer_data_untyped(_:  &AzGl, _:  u32, _:  isize, _:  *const c_void, _:  u32);
+        pub(crate) fn AzGl_buffer_sub_data_untyped(_:  &AzGl, _:  u32, _:  isize, _:  isize, _:  *const c_void);
+        pub(crate) fn AzGl_map_buffer(_:  &AzGl, _:  u32, _:  u32) -> *mut c_void;
+        pub(crate) fn AzGl_map_buffer_range(_:  &AzGl, _:  u32, _:  isize, _:  isize, _:  u32) -> *mut c_void;
+        pub(crate) fn AzGl_unmap_buffer(_:  &AzGl, _:  u32) -> u8;
+        pub(crate) fn AzGl_tex_buffer(_:  &AzGl, _:  u32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_shader_source(_:  &AzGl, _:  u32, _:  AzStringVec);
+        pub(crate) fn AzGl_read_buffer(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_read_pixels_into_buffer(_:  &AzGl, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut);
+        pub(crate) fn AzGl_read_pixels(_:  &AzGl, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32) -> AzU8Vec;
+        pub(crate) fn AzGl_read_pixels_into_pbo(_:  &AzGl, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_sample_coverage(_:  &AzGl, _:  f32, _:  bool);
+        pub(crate) fn AzGl_polygon_offset(_:  &AzGl, _:  f32, _:  f32);
+        pub(crate) fn AzGl_pixel_store_i(_:  &AzGl, _:  u32, _:  i32);
+        pub(crate) fn AzGl_gen_buffers(_:  &AzGl, _:  i32) -> AzGLuintVec;
+        pub(crate) fn AzGl_gen_renderbuffers(_:  &AzGl, _:  i32) -> AzGLuintVec;
+        pub(crate) fn AzGl_gen_framebuffers(_:  &AzGl, _:  i32) -> AzGLuintVec;
+        pub(crate) fn AzGl_gen_textures(_:  &AzGl, _:  i32) -> AzGLuintVec;
+        pub(crate) fn AzGl_gen_vertex_arrays(_:  &AzGl, _:  i32) -> AzGLuintVec;
+        pub(crate) fn AzGl_gen_queries(_:  &AzGl, _:  i32) -> AzGLuintVec;
+        pub(crate) fn AzGl_begin_query(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_end_query(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_query_counter(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_get_query_object_iv(_:  &AzGl, _:  u32, _:  u32) -> i32;
+        pub(crate) fn AzGl_get_query_object_uiv(_:  &AzGl, _:  u32, _:  u32) -> u32;
+        pub(crate) fn AzGl_get_query_object_i64v(_:  &AzGl, _:  u32, _:  u32) -> i64;
+        pub(crate) fn AzGl_get_query_object_ui64v(_:  &AzGl, _:  u32, _:  u32) -> u64;
+        pub(crate) fn AzGl_delete_queries(_:  &AzGl, _:  AzGLuintVecRef);
+        pub(crate) fn AzGl_delete_vertex_arrays(_:  &AzGl, _:  AzGLuintVecRef);
+        pub(crate) fn AzGl_delete_buffers(_:  &AzGl, _:  AzGLuintVecRef);
+        pub(crate) fn AzGl_delete_renderbuffers(_:  &AzGl, _:  AzGLuintVecRef);
+        pub(crate) fn AzGl_delete_framebuffers(_:  &AzGl, _:  AzGLuintVecRef);
+        pub(crate) fn AzGl_delete_textures(_:  &AzGl, _:  AzGLuintVecRef);
+        pub(crate) fn AzGl_framebuffer_renderbuffer(_:  &AzGl, _:  u32, _:  u32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_renderbuffer_storage(_:  &AzGl, _:  u32, _:  u32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_depth_func(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_active_texture(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_attach_shader(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_bind_attrib_location(_:  &AzGl, _:  u32, _:  u32, _:  AzRefstr);
+        pub(crate) fn AzGl_get_uniform_iv(_:  &AzGl, _:  u32, _:  i32, _:  AzGLintVecRefMut);
+        pub(crate) fn AzGl_get_uniform_fv(_:  &AzGl, _:  u32, _:  i32, _:  AzGLfloatVecRefMut);
+        pub(crate) fn AzGl_get_uniform_block_index(_:  &AzGl, _:  u32, _:  AzRefstr) -> u32;
+        pub(crate) fn AzGl_get_uniform_indices(_:  &AzGl, _:  u32, _:  AzRefstrVecRef) -> AzGLuintVec;
+        pub(crate) fn AzGl_bind_buffer_base(_:  &AzGl, _:  u32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_bind_buffer_range(_:  &AzGl, _:  u32, _:  u32, _:  u32, _:  isize, _:  isize);
+        pub(crate) fn AzGl_uniform_block_binding(_:  &AzGl, _:  u32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_bind_buffer(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_bind_vertex_array(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_bind_renderbuffer(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_bind_framebuffer(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_bind_texture(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_draw_buffers(_:  &AzGl, _:  AzGLenumVecRef);
+        pub(crate) fn AzGl_tex_image_2d(_:  &AzGl, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef);
+        pub(crate) fn AzGl_compressed_tex_image_2d(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  AzU8VecRef);
+        pub(crate) fn AzGl_compressed_tex_sub_image_2d(_:  &AzGl, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  AzU8VecRef);
+        pub(crate) fn AzGl_tex_image_3d(_:  &AzGl, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef);
+        pub(crate) fn AzGl_copy_tex_image_2d(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_copy_tex_sub_image_2d(_:  &AzGl, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_copy_tex_sub_image_3d(_:  &AzGl, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_tex_sub_image_2d(_:  &AzGl, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef);
+        pub(crate) fn AzGl_tex_sub_image_2d_pbo(_:  &AzGl, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize);
+        pub(crate) fn AzGl_tex_sub_image_3d(_:  &AzGl, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef);
+        pub(crate) fn AzGl_tex_sub_image_3d_pbo(_:  &AzGl, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize);
+        pub(crate) fn AzGl_tex_storage_2d(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_tex_storage_3d(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_get_tex_image_into_buffer(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut);
+        pub(crate) fn AzGl_copy_image_sub_data(_:  &AzGl, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_invalidate_framebuffer(_:  &AzGl, _:  u32, _:  AzGLenumVecRef);
+        pub(crate) fn AzGl_invalidate_sub_framebuffer(_:  &AzGl, _:  u32, _:  AzGLenumVecRef, _:  i32, _:  i32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_get_integer_v(_:  &AzGl, _:  u32, _:  AzGLintVecRefMut);
+        pub(crate) fn AzGl_get_integer_64v(_:  &AzGl, _:  u32, _:  AzGLint64VecRefMut);
+        pub(crate) fn AzGl_get_integer_iv(_:  &AzGl, _:  u32, _:  u32, _:  AzGLintVecRefMut);
+        pub(crate) fn AzGl_get_integer_64iv(_:  &AzGl, _:  u32, _:  u32, _:  AzGLint64VecRefMut);
+        pub(crate) fn AzGl_get_boolean_v(_:  &AzGl, _:  u32, _:  AzGLbooleanVecRefMut);
+        pub(crate) fn AzGl_get_float_v(_:  &AzGl, _:  u32, _:  AzGLfloatVecRefMut);
+        pub(crate) fn AzGl_get_framebuffer_attachment_parameter_iv(_:  &AzGl, _:  u32, _:  u32, _:  u32) -> i32;
+        pub(crate) fn AzGl_get_renderbuffer_parameter_iv(_:  &AzGl, _:  u32, _:  u32) -> i32;
+        pub(crate) fn AzGl_get_tex_parameter_iv(_:  &AzGl, _:  u32, _:  u32) -> i32;
+        pub(crate) fn AzGl_get_tex_parameter_fv(_:  &AzGl, _:  u32, _:  u32) -> f32;
+        pub(crate) fn AzGl_tex_parameter_i(_:  &AzGl, _:  u32, _:  u32, _:  i32);
+        pub(crate) fn AzGl_tex_parameter_f(_:  &AzGl, _:  u32, _:  u32, _:  f32);
+        pub(crate) fn AzGl_framebuffer_texture_2d(_:  &AzGl, _:  u32, _:  u32, _:  u32, _:  u32, _:  i32);
+        pub(crate) fn AzGl_framebuffer_texture_layer(_:  &AzGl, _:  u32, _:  u32, _:  u32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_blit_framebuffer(_:  &AzGl, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_vertex_attrib_4f(_:  &AzGl, _:  u32, _:  f32, _:  f32, _:  f32, _:  f32);
+        pub(crate) fn AzGl_vertex_attrib_pointer_f32(_:  &AzGl, _:  u32, _:  i32, _:  bool, _:  i32, _:  u32);
+        pub(crate) fn AzGl_vertex_attrib_pointer(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  bool, _:  i32, _:  u32);
+        pub(crate) fn AzGl_vertex_attrib_i_pointer(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  i32, _:  u32);
+        pub(crate) fn AzGl_vertex_attrib_divisor(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_viewport(_:  &AzGl, _:  i32, _:  i32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_scissor(_:  &AzGl, _:  i32, _:  i32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_line_width(_:  &AzGl, _:  f32);
+        pub(crate) fn AzGl_use_program(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_validate_program(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_draw_arrays(_:  &AzGl, _:  u32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_draw_arrays_instanced(_:  &AzGl, _:  u32, _:  i32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_draw_elements(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_draw_elements_instanced(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32);
+        pub(crate) fn AzGl_blend_color(_:  &AzGl, _:  f32, _:  f32, _:  f32, _:  f32);
+        pub(crate) fn AzGl_blend_func(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_blend_func_separate(_:  &AzGl, _:  u32, _:  u32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_blend_equation(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_blend_equation_separate(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_color_mask(_:  &AzGl, _:  bool, _:  bool, _:  bool, _:  bool);
+        pub(crate) fn AzGl_cull_face(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_front_face(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_enable(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_disable(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_hint(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_is_enabled(_:  &AzGl, _:  u32) -> u8;
+        pub(crate) fn AzGl_is_shader(_:  &AzGl, _:  u32) -> u8;
+        pub(crate) fn AzGl_is_texture(_:  &AzGl, _:  u32) -> u8;
+        pub(crate) fn AzGl_is_framebuffer(_:  &AzGl, _:  u32) -> u8;
+        pub(crate) fn AzGl_is_renderbuffer(_:  &AzGl, _:  u32) -> u8;
+        pub(crate) fn AzGl_check_frame_buffer_status(_:  &AzGl, _:  u32) -> u32;
+        pub(crate) fn AzGl_enable_vertex_attrib_array(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_disable_vertex_attrib_array(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_uniform_1f(_:  &AzGl, _:  i32, _:  f32);
+        pub(crate) fn AzGl_uniform_1fv(_:  &AzGl, _:  i32, _:  AzF32VecRef);
+        pub(crate) fn AzGl_uniform_1i(_:  &AzGl, _:  i32, _:  i32);
+        pub(crate) fn AzGl_uniform_1iv(_:  &AzGl, _:  i32, _:  AzI32VecRef);
+        pub(crate) fn AzGl_uniform_1ui(_:  &AzGl, _:  i32, _:  u32);
+        pub(crate) fn AzGl_uniform_2f(_:  &AzGl, _:  i32, _:  f32, _:  f32);
+        pub(crate) fn AzGl_uniform_2fv(_:  &AzGl, _:  i32, _:  AzF32VecRef);
+        pub(crate) fn AzGl_uniform_2i(_:  &AzGl, _:  i32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_uniform_2iv(_:  &AzGl, _:  i32, _:  AzI32VecRef);
+        pub(crate) fn AzGl_uniform_2ui(_:  &AzGl, _:  i32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_uniform_3f(_:  &AzGl, _:  i32, _:  f32, _:  f32, _:  f32);
+        pub(crate) fn AzGl_uniform_3fv(_:  &AzGl, _:  i32, _:  AzF32VecRef);
+        pub(crate) fn AzGl_uniform_3i(_:  &AzGl, _:  i32, _:  i32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_uniform_3iv(_:  &AzGl, _:  i32, _:  AzI32VecRef);
+        pub(crate) fn AzGl_uniform_3ui(_:  &AzGl, _:  i32, _:  u32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_uniform_4f(_:  &AzGl, _:  i32, _:  f32, _:  f32, _:  f32, _:  f32);
+        pub(crate) fn AzGl_uniform_4i(_:  &AzGl, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32);
+        pub(crate) fn AzGl_uniform_4iv(_:  &AzGl, _:  i32, _:  AzI32VecRef);
+        pub(crate) fn AzGl_uniform_4ui(_:  &AzGl, _:  i32, _:  u32, _:  u32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_uniform_4fv(_:  &AzGl, _:  i32, _:  AzF32VecRef);
+        pub(crate) fn AzGl_uniform_matrix_2fv(_:  &AzGl, _:  i32, _:  bool, _:  AzF32VecRef);
+        pub(crate) fn AzGl_uniform_matrix_3fv(_:  &AzGl, _:  i32, _:  bool, _:  AzF32VecRef);
+        pub(crate) fn AzGl_uniform_matrix_4fv(_:  &AzGl, _:  i32, _:  bool, _:  AzF32VecRef);
+        pub(crate) fn AzGl_depth_mask(_:  &AzGl, _:  bool);
+        pub(crate) fn AzGl_depth_range(_:  &AzGl, _:  f64, _:  f64);
+        pub(crate) fn AzGl_get_active_attrib(_:  &AzGl, _:  u32, _:  u32) -> AzGetActiveAttribReturn;
+        pub(crate) fn AzGl_get_active_uniform(_:  &AzGl, _:  u32, _:  u32) -> AzGetActiveUniformReturn;
+        pub(crate) fn AzGl_get_active_uniforms_iv(_:  &AzGl, _:  u32, _:  AzGLuintVec, _:  u32) -> AzGLintVec;
+        pub(crate) fn AzGl_get_active_uniform_block_i(_:  &AzGl, _:  u32, _:  u32, _:  u32) -> i32;
+        pub(crate) fn AzGl_get_active_uniform_block_iv(_:  &AzGl, _:  u32, _:  u32, _:  u32) -> AzGLintVec;
+        pub(crate) fn AzGl_get_active_uniform_block_name(_:  &AzGl, _:  u32, _:  u32) -> AzString;
+        pub(crate) fn AzGl_get_attrib_location(_:  &AzGl, _:  u32, _:  AzRefstr) -> i32;
+        pub(crate) fn AzGl_get_frag_data_location(_:  &AzGl, _:  u32, _:  AzRefstr) -> i32;
+        pub(crate) fn AzGl_get_uniform_location(_:  &AzGl, _:  u32, _:  AzRefstr) -> i32;
+        pub(crate) fn AzGl_get_program_info_log(_:  &AzGl, _:  u32) -> AzString;
+        pub(crate) fn AzGl_get_program_iv(_:  &AzGl, _:  u32, _:  u32, _:  AzGLintVecRefMut);
+        pub(crate) fn AzGl_get_program_binary(_:  &AzGl, _:  u32) -> AzGetProgramBinaryReturn;
+        pub(crate) fn AzGl_program_binary(_:  &AzGl, _:  u32, _:  u32, _:  AzU8VecRef);
+        pub(crate) fn AzGl_program_parameter_i(_:  &AzGl, _:  u32, _:  u32, _:  i32);
+        pub(crate) fn AzGl_get_vertex_attrib_iv(_:  &AzGl, _:  u32, _:  u32, _:  AzGLintVecRefMut);
+        pub(crate) fn AzGl_get_vertex_attrib_fv(_:  &AzGl, _:  u32, _:  u32, _:  AzGLfloatVecRefMut);
+        pub(crate) fn AzGl_get_vertex_attrib_pointer_v(_:  &AzGl, _:  u32, _:  u32) -> isize;
+        pub(crate) fn AzGl_get_buffer_parameter_iv(_:  &AzGl, _:  u32, _:  u32) -> i32;
+        pub(crate) fn AzGl_get_shader_info_log(_:  &AzGl, _:  u32) -> AzString;
+        pub(crate) fn AzGl_get_string(_:  &AzGl, _:  u32) -> AzString;
+        pub(crate) fn AzGl_get_string_i(_:  &AzGl, _:  u32, _:  u32) -> AzString;
+        pub(crate) fn AzGl_get_shader_iv(_:  &AzGl, _:  u32, _:  u32, _:  AzGLintVecRefMut);
+        pub(crate) fn AzGl_get_shader_precision_format(_:  &AzGl, _:  u32, _:  u32) -> AzGlShaderPrecisionFormatReturn;
+        pub(crate) fn AzGl_compile_shader(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_create_program(_:  &AzGl) -> u32;
+        pub(crate) fn AzGl_delete_program(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_create_shader(_:  &AzGl, _:  u32) -> u32;
+        pub(crate) fn AzGl_delete_shader(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_detach_shader(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_link_program(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_clear_color(_:  &AzGl, _:  f32, _:  f32, _:  f32, _:  f32);
+        pub(crate) fn AzGl_clear(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_clear_depth(_:  &AzGl, _:  f64);
+        pub(crate) fn AzGl_clear_stencil(_:  &AzGl, _:  i32);
+        pub(crate) fn AzGl_flush(_:  &AzGl);
+        pub(crate) fn AzGl_finish(_:  &AzGl);
+        pub(crate) fn AzGl_get_error(_:  &AzGl) -> u32;
+        pub(crate) fn AzGl_stencil_mask(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_stencil_mask_separate(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_stencil_func(_:  &AzGl, _:  u32, _:  i32, _:  u32);
+        pub(crate) fn AzGl_stencil_func_separate(_:  &AzGl, _:  u32, _:  u32, _:  i32, _:  u32);
+        pub(crate) fn AzGl_stencil_op(_:  &AzGl, _:  u32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_stencil_op_separate(_:  &AzGl, _:  u32, _:  u32, _:  u32, _:  u32);
+        pub(crate) fn AzGl_egl_image_target_texture2d_oes(_:  &AzGl, _:  u32, _:  *const c_void);
+        pub(crate) fn AzGl_generate_mipmap(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_insert_event_marker_ext(_:  &AzGl, _:  AzRefstr);
+        pub(crate) fn AzGl_push_group_marker_ext(_:  &AzGl, _:  AzRefstr);
+        pub(crate) fn AzGl_pop_group_marker_ext(_:  &AzGl);
+        pub(crate) fn AzGl_debug_message_insert_khr(_:  &AzGl, _:  u32, _:  u32, _:  u32, _:  u32, _:  AzRefstr);
+        pub(crate) fn AzGl_push_debug_group_khr(_:  &AzGl, _:  u32, _:  u32, _:  AzRefstr);
+        pub(crate) fn AzGl_pop_debug_group_khr(_:  &AzGl);
+        pub(crate) fn AzGl_fence_sync(_:  &AzGl, _:  u32, _:  u32) -> AzGLsyncPtr;
+        pub(crate) fn AzGl_client_wait_sync(_:  &AzGl, _:  AzGLsyncPtr, _:  u32, _:  u64) -> u32;
+        pub(crate) fn AzGl_wait_sync(_:  &AzGl, _:  AzGLsyncPtr, _:  u32, _:  u64);
+        pub(crate) fn AzGl_delete_sync(_:  &AzGl, _:  AzGLsyncPtr);
+        pub(crate) fn AzGl_texture_range_apple(_:  &AzGl, _:  u32, _:  AzU8VecRef);
+        pub(crate) fn AzGl_gen_fences_apple(_:  &AzGl, _:  i32) -> AzGLuintVec;
+        pub(crate) fn AzGl_delete_fences_apple(_:  &AzGl, _:  AzGLuintVecRef);
+        pub(crate) fn AzGl_set_fence_apple(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_finish_fence_apple(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_test_fence_apple(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_test_object_apple(_:  &AzGl, _:  u32, _:  u32) -> u8;
+        pub(crate) fn AzGl_finish_object_apple(_:  &AzGl, _:  u32, _:  u32);
+        pub(crate) fn AzGl_get_frag_data_index(_:  &AzGl, _:  u32, _:  AzRefstr) -> i32;
+        pub(crate) fn AzGl_blend_barrier_khr(_:  &AzGl);
+        pub(crate) fn AzGl_bind_frag_data_location_indexed(_:  &AzGl, _:  u32, _:  u32, _:  u32, _:  AzRefstr);
+        pub(crate) fn AzGl_get_debug_messages(_:  &AzGl) -> AzDebugMessageVec;
+        pub(crate) fn AzGl_provoking_vertex_angle(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_gen_vertex_arrays_apple(_:  &AzGl, _:  i32) -> AzGLuintVec;
+        pub(crate) fn AzGl_bind_vertex_array_apple(_:  &AzGl, _:  u32);
+        pub(crate) fn AzGl_delete_vertex_arrays_apple(_:  &AzGl, _:  AzGLuintVecRef);
+        pub(crate) fn AzGl_copy_texture_chromium(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8);
+        pub(crate) fn AzGl_copy_sub_texture_chromium(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8);
+        pub(crate) fn AzGl_egl_image_target_renderbuffer_storage_oes(_:  &AzGl, _:  u32, _:  *const c_void);
+        pub(crate) fn AzGl_copy_texture_3d_angle(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8);
+        pub(crate) fn AzGl_copy_sub_texture_3d_angle(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8);
+        pub(crate) fn AzGl_buffer_storage(_:  &AzGl, _:  u32, _:  isize, _:  *const c_void, _:  u32);
+        pub(crate) fn AzGl_flush_mapped_buffer_range(_:  &AzGl, _:  u32, _:  isize, _:  isize);
+        pub(crate) fn AzGl_delete(_:  &mut AzGl);
+        pub(crate) fn AzGl_deepCopy(_:  &AzGl) -> AzGl;
+        pub(crate) fn AzTexture_delete(_:  &mut AzTexture);
+        pub(crate) fn AzGLsyncPtr_delete(_:  &mut AzGLsyncPtr);
+        pub(crate) fn AzTextureFlags_default() -> AzTextureFlags;
+        pub(crate) fn AzImageId_new() -> AzImageId;
+        pub(crate) fn AzFontId_new() -> AzFontId;
+        pub(crate) fn AzRawImage_new(_:  AzU8Vec, _:  usize, _:  usize, _:  AzRawImageFormat) -> AzRawImage;
+        pub(crate) fn AzSvgParseOptions_default() -> AzSvgParseOptions;
+        pub(crate) fn AzSvgRenderOptions_default() -> AzSvgRenderOptions;
+        pub(crate) fn AzSvg_parse(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
+        pub(crate) fn AzSvg_delete(_:  &mut AzSvg);
+        pub(crate) fn AzSvg_deepCopy(_:  &AzSvg) -> AzSvg;
+        pub(crate) fn AzSvgXmlNode_delete(_:  &mut AzSvgXmlNode);
+        pub(crate) fn AzSvgXmlNode_deepCopy(_:  &AzSvgXmlNode) -> AzSvgXmlNode;
+        pub(crate) fn AzTimerId_unique() -> AzTimerId;
+        pub(crate) fn AzTimer_new(_:  AzRefAny, _:  AzTimerCallbackType, _:  AzGetSystemTimeFn) -> AzTimer;
+        pub(crate) fn AzTimer_with_delay(_:  AzTimer, _:  AzDuration) -> AzTimer;
+        pub(crate) fn AzTimer_with_interval(_:  AzTimer, _:  AzDuration) -> AzTimer;
+        pub(crate) fn AzTimer_with_timeout(_:  AzTimer, _:  AzDuration) -> AzTimer;
+        pub(crate) fn AzThreadSender_send(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool;
+        pub(crate) fn AzThreadSender_delete(_:  &mut AzThreadSender);
+        pub(crate) fn AzThreadReceiver_receive(_:  &mut AzThreadReceiver) -> AzOptionThreadSendMsg;
+        pub(crate) fn AzThreadReceiver_delete(_:  &mut AzThreadReceiver);
+        pub(crate) fn AzMonitorVec_delete(_:  &mut AzMonitorVec);
+        pub(crate) fn AzVideoModeVec_delete(_:  &mut AzVideoModeVec);
+        pub(crate) fn AzDomVec_delete(_:  &mut AzDomVec);
+        pub(crate) fn AzIdOrClassVec_delete(_:  &mut AzIdOrClassVec);
+        pub(crate) fn AzNodeDataInlineCssPropertyVec_delete(_:  &mut AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn AzStyleBackgroundContentVec_delete(_:  &mut AzStyleBackgroundContentVec);
+        pub(crate) fn AzStyleBackgroundPositionVec_delete(_:  &mut AzStyleBackgroundPositionVec);
+        pub(crate) fn AzStyleBackgroundRepeatVec_delete(_:  &mut AzStyleBackgroundRepeatVec);
+        pub(crate) fn AzStyleBackgroundSizeVec_delete(_:  &mut AzStyleBackgroundSizeVec);
+        pub(crate) fn AzStyleTransformVec_delete(_:  &mut AzStyleTransformVec);
+        pub(crate) fn AzCssPropertyVec_delete(_:  &mut AzCssPropertyVec);
+        pub(crate) fn AzSvgMultiPolygonVec_delete(_:  &mut AzSvgMultiPolygonVec);
+        pub(crate) fn AzSvgPathVec_delete(_:  &mut AzSvgPathVec);
+        pub(crate) fn AzVertexAttributeVec_delete(_:  &mut AzVertexAttributeVec);
+        pub(crate) fn AzSvgPathElementVec_delete(_:  &mut AzSvgPathElementVec);
+        pub(crate) fn AzSvgVertexVec_delete(_:  &mut AzSvgVertexVec);
+        pub(crate) fn AzU32Vec_delete(_:  &mut AzU32Vec);
+        pub(crate) fn AzXWindowTypeVec_delete(_:  &mut AzXWindowTypeVec);
+        pub(crate) fn AzVirtualKeyCodeVec_delete(_:  &mut AzVirtualKeyCodeVec);
+        pub(crate) fn AzCascadeInfoVec_delete(_:  &mut AzCascadeInfoVec);
+        pub(crate) fn AzScanCodeVec_delete(_:  &mut AzScanCodeVec);
+        pub(crate) fn AzCssDeclarationVec_delete(_:  &mut AzCssDeclarationVec);
+        pub(crate) fn AzCssPathSelectorVec_delete(_:  &mut AzCssPathSelectorVec);
+        pub(crate) fn AzStylesheetVec_delete(_:  &mut AzStylesheetVec);
+        pub(crate) fn AzCssRuleBlockVec_delete(_:  &mut AzCssRuleBlockVec);
+        pub(crate) fn AzU8Vec_delete(_:  &mut AzU8Vec);
+        pub(crate) fn AzCallbackDataVec_delete(_:  &mut AzCallbackDataVec);
+        pub(crate) fn AzDebugMessageVec_delete(_:  &mut AzDebugMessageVec);
+        pub(crate) fn AzGLuintVec_delete(_:  &mut AzGLuintVec);
+        pub(crate) fn AzGLintVec_delete(_:  &mut AzGLintVec);
+        pub(crate) fn AzStringVec_delete(_:  &mut AzStringVec);
+        pub(crate) fn AzStringPairVec_delete(_:  &mut AzStringPairVec);
+        pub(crate) fn AzLinearColorStopVec_delete(_:  &mut AzLinearColorStopVec);
+        pub(crate) fn AzRadialColorStopVec_delete(_:  &mut AzRadialColorStopVec);
+        pub(crate) fn AzNodeIdVec_delete(_:  &mut AzNodeIdVec);
+        pub(crate) fn AzNodeVec_delete(_:  &mut AzNodeVec);
+        pub(crate) fn AzStyledNodeVec_delete(_:  &mut AzStyledNodeVec);
+        pub(crate) fn AzTagIdsToNodeIdsMappingVec_delete(_:  &mut AzTagIdsToNodeIdsMappingVec);
+        pub(crate) fn AzParentWithNodeDepthVec_delete(_:  &mut AzParentWithNodeDepthVec);
+        pub(crate) fn AzNodeDataVec_delete(_:  &mut AzNodeDataVec);
+        pub(crate) fn AzInstantPtr_delete(_:  &mut AzInstantPtr);
+        pub(crate) fn AzInstantPtr_deepCopy(_:  &AzInstantPtr) -> AzInstantPtr;
     }
 
     }
@@ -4432,22 +4432,22 @@ pub mod app {
 #[doc(inline)] pub use crate::dll::AzApp as App;
     impl App {
         /// Creates a new App instance from the given `AppConfig`
-        pub fn new(data: RefAny, config: AppConfig) -> Self { unsafe { crate::dll::az_app_new(data, config) } }
+        pub fn new(data: RefAny, config: AppConfig) -> Self { unsafe { crate::dll::AzApp_new(data, config) } }
         /// Spawn a new window on the screen when the app is run.
-        pub fn add_window(&mut self, window: WindowCreateOptions)  { unsafe { crate::dll::az_app_add_window(self, window) } }
+        pub fn add_window(&mut self, window: WindowCreateOptions)  { unsafe { crate::dll::AzApp_add_window(self, window) } }
         /// Returns a list of monitors - useful for setting the monitor that a window should spawn on.
-        pub fn get_monitors(&self)  -> crate::vec::MonitorVec { unsafe { crate::dll::az_app_get_monitors(self) } }
+        pub fn get_monitors(&self)  -> crate::vec::MonitorVec { unsafe { crate::dll::AzApp_get_monitors(self) } }
         /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-        pub fn run(self, window: WindowCreateOptions)  { unsafe { crate::dll::az_app_run(self, window) } }
+        pub fn run(self, window: WindowCreateOptions)  { unsafe { crate::dll::AzApp_run(self, window) } }
     }
 
-    impl Drop for App { fn drop(&mut self) { unsafe { crate::dll::az_app_delete(self) } } }
+    impl Drop for App { fn drop(&mut self) { unsafe { crate::dll::AzApp_delete(self) } } }
     /// Configuration for optional features, such as whether to enable logging or panic hooks
     
 #[doc(inline)] pub use crate::dll::AzAppConfig as AppConfig;
     impl AppConfig {
         /// Creates a new AppConfig with default values
-        pub fn default() -> Self { unsafe { crate::dll::az_app_config_default() } }
+        pub fn default() -> Self { unsafe { crate::dll::AzAppConfig_default() } }
     }
 
     /// Configuration to set which messages should be logged.
@@ -4546,7 +4546,7 @@ pub mod window {
 #[doc(inline)] pub use crate::dll::AzWindowCreateOptions as WindowCreateOptions;
     impl WindowCreateOptions {
         /// Creates a new window configuration with a custom layout callback
-        pub fn new(layout_callback: LayoutCallbackType) -> Self { unsafe { crate::dll::az_window_create_options_new(layout_callback) } }
+        pub fn new(layout_callback: LayoutCallbackType) -> Self { unsafe { crate::dll::AzWindowCreateOptions_new(layout_callback) } }
     }
 
     /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
@@ -4699,8 +4699,8 @@ pub mod window {
     /// Monitor handle abstraction, only for azul-internal use
     
 #[doc(inline)] pub use crate::dll::AzMonitorHandle as MonitorHandle;
-    impl Clone for MonitorHandle { fn clone(&self) -> Self { unsafe { crate::dll::az_monitor_handle_deep_copy(self) } } }
-    impl Drop for MonitorHandle { fn drop(&mut self) { unsafe { crate::dll::az_monitor_handle_delete(self) } } }
+    impl Clone for MonitorHandle { fn clone(&self) -> Self { unsafe { crate::dll::AzMonitorHandle_deepCopy(self) } } }
+    impl Drop for MonitorHandle { fn drop(&mut self) { unsafe { crate::dll::AzMonitorHandle_delete(self) } } }
     /// Information about a single (or many) monitors, useful for dock widgets
     
 #[doc(inline)] pub use crate::dll::AzMonitor as Monitor;
@@ -4712,9 +4712,9 @@ pub mod window {
 #[doc(inline)] pub use crate::dll::AzWindowState as WindowState;
     impl WindowState {
         /// Creates a new WindowState with default settings and a custom layout callback
-        pub fn new(layout_callback: LayoutCallbackType) -> Self { unsafe { crate::dll::az_window_state_new(layout_callback) } }
+        pub fn new(layout_callback: LayoutCallbackType) -> Self { unsafe { crate::dll::AzWindowState_new(layout_callback) } }
         /// Creates a default WindowState with an empty layout callback - useful only if you use the Rust `WindowState { .. WindowState::default() }` intialization syntax.
-        pub fn default() -> Self { unsafe { crate::dll::az_window_state_default() } }
+        pub fn default() -> Self { unsafe { crate::dll::AzWindowState_default() } }
     }
 
 }
@@ -4870,45 +4870,45 @@ pub mod callbacks {
 #[doc(inline)] pub use crate::dll::AzCallbackInfo as CallbackInfo;
     impl CallbackInfo {
         /// Returns the `DomNodeId` of the element that the callback was attached to.
-        pub fn get_hit_node(&self)  -> crate::callbacks::DomNodeId { unsafe { crate::dll::az_callback_info_get_hit_node(self) } }
+        pub fn get_hit_node(&self)  -> crate::callbacks::DomNodeId { unsafe { crate::dll::AzCallbackInfo_get_hit_node(self) } }
         /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not in the current window.
-        pub fn get_cursor_relative_to_viewport(&self)  -> crate::option::OptionLayoutPoint { unsafe { crate::dll::az_callback_info_get_cursor_relative_to_viewport(self) } }
+        pub fn get_cursor_relative_to_viewport(&self)  -> crate::option::OptionLayoutPoint { unsafe { crate::dll::AzCallbackInfo_get_cursor_relative_to_viewport(self) } }
         /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.
-        pub fn get_cursor_relative_to_node(&self)  -> crate::option::OptionLayoutPoint { unsafe { crate::dll::az_callback_info_get_cursor_relative_to_node(self) } }
+        pub fn get_cursor_relative_to_node(&self)  -> crate::option::OptionLayoutPoint { unsafe { crate::dll::AzCallbackInfo_get_cursor_relative_to_node(self) } }
         /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_parent(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::az_callback_info_get_parent(self, node_id) } }
+        pub fn get_parent(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_get_parent(self, node_id) } }
         /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_previous_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::az_callback_info_get_previous_sibling(self, node_id) } }
+        pub fn get_previous_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_get_previous_sibling(self, node_id) } }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_next_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::az_callback_info_get_next_sibling(self, node_id) } }
+        pub fn get_next_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_get_next_sibling(self, node_id) } }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_first_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::az_callback_info_get_first_child(self, node_id) } }
+        pub fn get_first_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_get_first_child(self, node_id) } }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_last_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::az_callback_info_get_last_child(self, node_id) } }
+        pub fn get_last_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_get_last_child(self, node_id) } }
         /// Returns a copy of the current windows `WindowState`.
-        pub fn get_window_state(&self)  -> crate::window::WindowState { unsafe { crate::dll::az_callback_info_get_window_state(self) } }
+        pub fn get_window_state(&self)  -> crate::window::WindowState { unsafe { crate::dll::AzCallbackInfo_get_window_state(self) } }
         /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
-        pub fn get_keyboard_state(&self)  -> crate::window::KeyboardState { unsafe { crate::dll::az_callback_info_get_keyboard_state(self) } }
+        pub fn get_keyboard_state(&self)  -> crate::window::KeyboardState { unsafe { crate::dll::AzCallbackInfo_get_keyboard_state(self) } }
         /// Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`
-        pub fn get_mouse_state(&self)  -> crate::window::MouseState { unsafe { crate::dll::az_callback_info_get_mouse_state(self) } }
+        pub fn get_mouse_state(&self)  -> crate::window::MouseState { unsafe { crate::dll::AzCallbackInfo_get_mouse_state(self) } }
         /// Returns a copy of the current windows `RawWindowHandle`.
-        pub fn get_current_window_handle(&self)  -> crate::window::RawWindowHandle { unsafe { crate::dll::az_callback_info_get_current_window_handle(self) } }
-        /// Returns a **reference-counted copy** of the current windows `GlContextPtr`. You can use this to render OpenGL textures.
-        pub fn get_gl_context(&self)  -> crate::option::OptionGlContextPtr { unsafe { crate::dll::az_callback_info_get_gl_context(self) } }
+        pub fn get_current_window_handle(&self)  -> crate::window::RawWindowHandle { unsafe { crate::dll::AzCallbackInfo_get_current_window_handle(self) } }
+        /// Returns a **reference-counted copy** of the current windows' `Gl` (context). You can use this to render OpenGL textures.
+        pub fn get_gl_context(&self)  -> crate::option::OptionGl { unsafe { crate::dll::AzCallbackInfo_get_gl_context(self) } }
         /// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
-        pub fn set_window_state(&mut self, new_state: WindowState)  { unsafe { crate::dll::az_callback_info_set_window_state(self, new_state) } }
+        pub fn set_window_state(&mut self, new_state: WindowState)  { unsafe { crate::dll::AzCallbackInfo_set_window_state(self, new_state) } }
         /// Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.
-        pub fn set_focus(&mut self, target: FocusTarget)  { unsafe { crate::dll::az_callback_info_set_focus(self, target) } }
+        pub fn set_focus(&mut self, target: FocusTarget)  { unsafe { crate::dll::AzCallbackInfo_set_focus(self, target) } }
         /// Sets a `CssProperty` on a given node to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
-        pub fn set_css_property(&mut self, node_id: DomNodeId, new_property: CssProperty)  { unsafe { crate::dll::az_callback_info_set_css_property(self, node_id, new_property) } }
+        pub fn set_css_property(&mut self, node_id: DomNodeId, new_property: CssProperty)  { unsafe { crate::dll::AzCallbackInfo_set_css_property(self, node_id, new_property) } }
         /// Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.
-        pub fn stop_propagation(&mut self)  { unsafe { crate::dll::az_callback_info_stop_propagation(self) } }
+        pub fn stop_propagation(&mut self)  { unsafe { crate::dll::AzCallbackInfo_stop_propagation(self) } }
         /// Spawns a new window with the given `WindowCreateOptions`.
-        pub fn create_window(&mut self, new_window: WindowCreateOptions)  { unsafe { crate::dll::az_callback_info_create_window(self, new_window) } }
+        pub fn create_window(&mut self, new_window: WindowCreateOptions)  { unsafe { crate::dll::AzCallbackInfo_create_window(self, new_window) } }
         /// Starts a new `Thread` to the runtime. See the documentation for `Thread` for more information.
-        pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallback)  { unsafe { crate::dll::az_callback_info_start_thread(self, id, thread_initialize_data, writeback_data, callback) } }
+        pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallback)  { unsafe { crate::dll::AzCallbackInfo_start_thread(self, id, thread_initialize_data, writeback_data, callback) } }
         /// Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.
-        pub fn start_timer(&mut self, id: TimerId, timer: Timer)  { unsafe { crate::dll::az_callback_info_start_timer(self, id, timer) } }
+        pub fn start_timer(&mut self, id: TimerId, timer: Timer)  { unsafe { crate::dll::AzCallbackInfo_start_timer(self, id, timer) } }
     }
 
     /// Specifies if the screen should be updated after the callback function has returned
@@ -4928,11 +4928,11 @@ pub mod callbacks {
 #[doc(inline)] pub use crate::dll::AzHidpiAdjustedBounds as HidpiAdjustedBounds;
     impl HidpiAdjustedBounds {
         /// Returns the size of the bounds in logical units
-        pub fn get_logical_size(&self)  -> crate::window::LogicalSize { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_logical_size(self) } }
+        pub fn get_logical_size(&self)  -> crate::window::LogicalSize { unsafe { crate::dll::AzHidpiAdjustedBounds_get_logical_size(self) } }
         /// Returns the size of the bounds in physical units
-        pub fn get_physical_size(&self)  -> crate::window::PhysicalSizeU32 { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_physical_size(self) } }
+        pub fn get_physical_size(&self)  -> crate::window::PhysicalSizeU32 { unsafe { crate::dll::AzHidpiAdjustedBounds_get_physical_size(self) } }
         /// Returns the hidpi factor of the bounds
-        pub fn get_hidpi_factor(&self)  -> f32 { unsafe { crate::dll::az_hidpi_adjusted_bounds_get_hidpi_factor(self) } }
+        pub fn get_hidpi_factor(&self)  -> f32 { unsafe { crate::dll::AzHidpiAdjustedBounds_get_hidpi_factor(self) } }
     }
 
     /// Defines the keyboard input focus target
@@ -4952,7 +4952,7 @@ pub mod callbacks {
 #[doc(inline)] pub use crate::dll::AzIFrameCallbackInfo as IFrameCallbackInfo;
     impl IFrameCallbackInfo {
         /// Returns a copy of the internal `HidpiAdjustedBounds`
-        pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { unsafe { crate::dll::az_i_frame_callback_info_get_bounds(self) } }
+        pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { unsafe { crate::dll::AzIFrameCallbackInfo_get_bounds(self) } }
     }
 
     /// `IFrameCallbackReturn` struct
@@ -4968,10 +4968,10 @@ pub mod callbacks {
     
 #[doc(inline)] pub use crate::dll::AzGlCallbackInfo as GlCallbackInfo;
     impl GlCallbackInfo {
-        /// Returns a copy of the internal `GlContextPtr`
-        pub fn get_gl_context(&self)  -> crate::option::OptionGlContextPtr { unsafe { crate::dll::az_gl_callback_info_get_gl_context(self) } }
+        /// Returns a copy of the internal `Gl`
+        pub fn get_gl_context(&self)  -> crate::option::OptionGl { unsafe { crate::dll::AzGlCallbackInfo_get_gl_context(self) } }
         /// Returns a copy of the internal `HidpiAdjustedBounds`
-        pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { unsafe { crate::dll::az_gl_callback_info_get_bounds(self) } }
+        pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { unsafe { crate::dll::AzGlCallbackInfo_get_bounds(self) } }
     }
 
     /// `GlCallbackReturn` struct
@@ -5012,48 +5012,48 @@ pub mod callbacks {
 #[doc(inline)] pub use crate::dll::AzRefCount as RefCount;
     impl RefCount {
         /// Calls the `RefCount::can_be_shared` function.
-        pub fn can_be_shared(&self)  -> bool { unsafe { crate::dll::az_ref_count_can_be_shared(self) } }
+        pub fn can_be_shared(&self)  -> bool { unsafe { crate::dll::AzRefCount_can_be_shared(self) } }
         /// Calls the `RefCount::can_be_shared_mut` function.
-        pub fn can_be_shared_mut(&self)  -> bool { unsafe { crate::dll::az_ref_count_can_be_shared_mut(self) } }
+        pub fn can_be_shared_mut(&self)  -> bool { unsafe { crate::dll::AzRefCount_can_be_shared_mut(self) } }
         /// Calls the `RefCount::increase_ref` function.
-        pub fn increase_ref(&mut self)  { unsafe { crate::dll::az_ref_count_increase_ref(self) } }
+        pub fn increase_ref(&mut self)  { unsafe { crate::dll::AzRefCount_increase_ref(self) } }
         /// Calls the `RefCount::decrease_ref` function.
-        pub fn decrease_ref(&mut self)  { unsafe { crate::dll::az_ref_count_decrease_ref(self) } }
+        pub fn decrease_ref(&mut self)  { unsafe { crate::dll::AzRefCount_decrease_ref(self) } }
         /// Calls the `RefCount::increase_refmut` function.
-        pub fn increase_refmut(&mut self)  { unsafe { crate::dll::az_ref_count_increase_refmut(self) } }
+        pub fn increase_refmut(&mut self)  { unsafe { crate::dll::AzRefCount_increase_refmut(self) } }
         /// Calls the `RefCount::decrease_refmut` function.
-        pub fn decrease_refmut(&mut self)  { unsafe { crate::dll::az_ref_count_decrease_refmut(self) } }
+        pub fn decrease_refmut(&mut self)  { unsafe { crate::dll::AzRefCount_decrease_refmut(self) } }
     }
 
-    impl Clone for RefCount { fn clone(&self) -> Self { unsafe { crate::dll::az_ref_count_deep_copy(self) } } }
-    impl Drop for RefCount { fn drop(&mut self) { unsafe { crate::dll::az_ref_count_delete(self) } } }
+    impl Clone for RefCount { fn clone(&self) -> Self { unsafe { crate::dll::AzRefCount_deepCopy(self) } } }
+    impl Drop for RefCount { fn drop(&mut self) { unsafe { crate::dll::AzRefCount_delete(self) } } }
     /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
     
 #[doc(inline)] pub use crate::dll::AzRefAny as RefAny;
     impl RefAny {
         /// Creates a new `RefAny` instance.
-        pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: String, destructor: RefAnyDestructorType) -> Self { unsafe { crate::dll::az_ref_any_new_c(ptr, len, type_id, type_name, destructor) } }
+        pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: String, destructor: RefAnyDestructorType) -> Self { unsafe { crate::dll::AzRefAny_new_c(ptr, len, type_id, type_name, destructor) } }
         /// Calls the `RefAny::is_type` function.
-        pub fn is_type(&self, type_id: u64)  -> bool { unsafe { crate::dll::az_ref_any_is_type(self, type_id) } }
+        pub fn is_type(&self, type_id: u64)  -> bool { unsafe { crate::dll::AzRefAny_is_type(self, type_id) } }
         /// Calls the `RefAny::get_type_name` function.
-        pub fn get_type_name(&self)  -> crate::str::String { unsafe { crate::dll::az_ref_any_get_type_name(self) } }
+        pub fn get_type_name(&self)  -> crate::str::String { unsafe { crate::dll::AzRefAny_get_type_name(self) } }
         /// Calls the `RefAny::clone` function.
-        pub fn clone(&mut self)  -> crate::callbacks::RefAny { unsafe { crate::dll::az_ref_any_clone(self) } }
+        pub fn clone(&mut self)  -> crate::callbacks::RefAny { unsafe { crate::dll::AzRefAny_clone(self) } }
     }
 
-    impl Drop for RefAny { fn drop(&mut self) { unsafe { crate::dll::az_ref_any_delete(self) } } }
+    impl Drop for RefAny { fn drop(&mut self) { unsafe { crate::dll::AzRefAny_delete(self) } } }
     /// `LayoutInfo` struct
     
 #[doc(inline)] pub use crate::dll::AzLayoutInfo as LayoutInfo;
     impl LayoutInfo {
         /// Calls the `LayoutInfo::window_width_larger_than` function.
-        pub fn window_width_larger_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::az_layout_info_window_width_larger_than(self, width) } }
+        pub fn window_width_larger_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::AzLayoutInfo_window_width_larger_than(self, width) } }
         /// Calls the `LayoutInfo::window_width_smaller_than` function.
-        pub fn window_width_smaller_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::az_layout_info_window_width_smaller_than(self, width) } }
+        pub fn window_width_smaller_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::AzLayoutInfo_window_width_smaller_than(self, width) } }
         /// Calls the `LayoutInfo::window_height_larger_than` function.
-        pub fn window_height_larger_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::az_layout_info_window_height_larger_than(self, width) } }
+        pub fn window_height_larger_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::AzLayoutInfo_window_height_larger_than(self, width) } }
         /// Calls the `LayoutInfo::window_height_smaller_than` function.
-        pub fn window_height_smaller_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::az_layout_info_window_height_smaller_than(self, width) } }
+        pub fn window_height_smaller_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::AzLayoutInfo_window_height_smaller_than(self, width) } }
     }
 
     /// External system callbacks to get the system time or create / manage threads
@@ -5340,7 +5340,7 @@ pub mod dom {
 #[doc(inline)] pub use crate::dll::AzDom as Dom;
     impl Dom {
         /// Returns the number of nodes in the DOM
-        pub fn node_count(&self)  -> usize { unsafe { crate::dll::az_dom_node_count(self) } }
+        pub fn node_count(&self)  -> usize { unsafe { crate::dll::AzDom_node_count(self) } }
     }
 
     /// `GlTextureNode` struct
@@ -5363,7 +5363,7 @@ pub mod dom {
 #[doc(inline)] pub use crate::dll::AzOn as On;
     impl On {
         /// Converts the `On` shorthand into a `EventFilter`
-        pub fn into_event_filter(self)  -> crate::dom::EventFilter { unsafe { crate::dll::az_on_into_event_filter(self) } }
+        pub fn into_event_filter(self)  -> crate::dom::EventFilter { unsafe { crate::dll::AzOn_into_event_filter(self) } }
     }
 
     /// `EventFilter` struct
@@ -6024,9 +6024,9 @@ pub mod css {
 #[doc(inline)] pub use crate::dll::AzCss as Css;
     impl Css {
         /// Returns an empty CSS style
-        pub fn empty() -> Self { unsafe { crate::dll::az_css_empty() } }
+        pub fn empty() -> Self { unsafe { crate::dll::AzCss_empty() } }
         /// Returns a CSS style parsed from a `String`
-        pub fn from_string(s: String) -> Self { unsafe { crate::dll::az_css_from_string(s) } }
+        pub fn from_string(s: String) -> Self { unsafe { crate::dll::AzCss_from_string(s) } }
     }
 
     /// `CssPropertyType` struct
@@ -6037,9 +6037,9 @@ pub mod css {
 #[doc(inline)] pub use crate::dll::AzColorU as ColorU;
     impl ColorU {
         /// Creates a new `ColorU` instance.
-        pub fn from_str(string: String) -> Self { unsafe { crate::dll::az_color_u_from_str(string) } }
+        pub fn from_str(string: String) -> Self { unsafe { crate::dll::AzColorU_from_str(string) } }
         /// Calls the `ColorU::to_hash` function.
-        pub fn to_hash(&self)  -> crate::str::String { unsafe { crate::dll::az_color_u_to_hash(self) } }
+        pub fn to_hash(&self)  -> crate::str::String { unsafe { crate::dll::AzColorU_to_hash(self) } }
     }
 
     /// `SizeMetric` struct
@@ -6573,25 +6573,25 @@ pub mod style {
     /// `CssPropertyCache` struct
     
 #[doc(inline)] pub use crate::dll::AzCssPropertyCache as CssPropertyCache;
-    impl Clone for CssPropertyCache { fn clone(&self) -> Self { unsafe { crate::dll::az_css_property_cache_deep_copy(self) } } }
-    impl Drop for CssPropertyCache { fn drop(&mut self) { unsafe { crate::dll::az_css_property_cache_delete(self) } } }
+    impl Clone for CssPropertyCache { fn clone(&self) -> Self { unsafe { crate::dll::AzCssPropertyCache_deepCopy(self) } } }
+    impl Drop for CssPropertyCache { fn drop(&mut self) { unsafe { crate::dll::AzCssPropertyCache_delete(self) } } }
     /// `StyledDom` struct
     
 #[doc(inline)] pub use crate::dll::AzStyledDom as StyledDom;
     impl StyledDom {
         /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
-        pub fn new(dom: Dom, css: Css) -> Self { unsafe { crate::dll::az_styled_dom_new(dom, css) } }
+        pub fn new(dom: Dom, css: Css) -> Self { unsafe { crate::dll::AzStyledDom_new(dom, css) } }
         /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
-        pub fn append(&mut self, dom: StyledDom)  { unsafe { crate::dll::az_styled_dom_append(self, dom) } }
+        pub fn append(&mut self, dom: StyledDom)  { unsafe { crate::dll::AzStyledDom_append(self, dom) } }
         /// Returns the number of nodes in the styled DOM
-        pub fn node_count(&self)  -> usize { unsafe { crate::dll::az_styled_dom_node_count(self) } }
+        pub fn node_count(&self)  -> usize { unsafe { crate::dll::AzStyledDom_node_count(self) } }
     }
 
 }
 
 pub mod gl {
     #![allow(dead_code, unused_imports)]
-    //! OpenGl helper types (`Texture`, `GlContext`, etc.)
+    //! OpenGl helper types (`Texture`, `Gl`, etc.)
     use crate::dll::*;
     use core::ffi::c_void;
     impl Refstr {
@@ -8275,460 +8275,460 @@ pub mod gl {
 
     use crate::vec::{GLuintVec, StringVec};
     use crate::option::OptionU8VecRef;
-    /// `GlContextPtr` struct
+    /// `Gl` struct
     
-#[doc(inline)] pub use crate::dll::AzGlContextPtr as GlContextPtr;
-    impl GlContextPtr {
-        /// Calls the `GlContextPtr::get_type` function.
-        pub fn get_type(&self)  -> crate::gl::GlType { unsafe { crate::dll::az_gl_context_ptr_get_type(self) } }
-        /// Calls the `GlContextPtr::buffer_data_untyped` function.
-        pub fn buffer_data_untyped(&self, target: u32, size: isize, data: *const c_void, usage: u32)  { unsafe { crate::dll::az_gl_context_ptr_buffer_data_untyped(self, target, size, data, usage) } }
-        /// Calls the `GlContextPtr::buffer_sub_data_untyped` function.
-        pub fn buffer_sub_data_untyped(&self, target: u32, offset: isize, size: isize, data: *const c_void)  { unsafe { crate::dll::az_gl_context_ptr_buffer_sub_data_untyped(self, target, offset, size, data) } }
-        /// Calls the `GlContextPtr::map_buffer` function.
-        pub fn map_buffer(&self, target: u32, access: u32)  -> *mut c_void { unsafe { crate::dll::az_gl_context_ptr_map_buffer(self, target, access) } }
-        /// Calls the `GlContextPtr::map_buffer_range` function.
-        pub fn map_buffer_range(&self, target: u32, offset: isize, length: isize, access: u32)  -> *mut c_void { unsafe { crate::dll::az_gl_context_ptr_map_buffer_range(self, target, offset, length, access) } }
-        /// Calls the `GlContextPtr::unmap_buffer` function.
-        pub fn unmap_buffer(&self, target: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_unmap_buffer(self, target) } }
-        /// Calls the `GlContextPtr::tex_buffer` function.
-        pub fn tex_buffer(&self, target: u32, internal_format: u32, buffer: u32)  { unsafe { crate::dll::az_gl_context_ptr_tex_buffer(self, target, internal_format, buffer) } }
-        /// Calls the `GlContextPtr::shader_source` function.
-        pub fn shader_source(&self, shader: u32, strings: StringVec)  { unsafe { crate::dll::az_gl_context_ptr_shader_source(self, shader, strings) } }
-        /// Calls the `GlContextPtr::read_buffer` function.
-        pub fn read_buffer(&self, mode: u32)  { unsafe { crate::dll::az_gl_context_ptr_read_buffer(self, mode) } }
-        /// Calls the `GlContextPtr::read_pixels_into_buffer` function.
-        pub fn read_pixels_into_buffer(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32, dst_buffer: U8VecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_read_pixels_into_buffer(self, x, y, width, height, format, pixel_type, dst_buffer) } }
-        /// Calls the `GlContextPtr::read_pixels` function.
-        pub fn read_pixels(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32)  -> crate::vec::U8Vec { unsafe { crate::dll::az_gl_context_ptr_read_pixels(self, x, y, width, height, format, pixel_type) } }
-        /// Calls the `GlContextPtr::read_pixels_into_pbo` function.
-        pub fn read_pixels_into_pbo(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32)  { unsafe { crate::dll::az_gl_context_ptr_read_pixels_into_pbo(self, x, y, width, height, format, pixel_type) } }
-        /// Calls the `GlContextPtr::sample_coverage` function.
-        pub fn sample_coverage(&self, value: f32, invert: bool)  { unsafe { crate::dll::az_gl_context_ptr_sample_coverage(self, value, invert) } }
-        /// Calls the `GlContextPtr::polygon_offset` function.
-        pub fn polygon_offset(&self, factor: f32, units: f32)  { unsafe { crate::dll::az_gl_context_ptr_polygon_offset(self, factor, units) } }
-        /// Calls the `GlContextPtr::pixel_store_i` function.
-        pub fn pixel_store_i(&self, name: u32, param: i32)  { unsafe { crate::dll::az_gl_context_ptr_pixel_store_i(self, name, param) } }
-        /// Calls the `GlContextPtr::gen_buffers` function.
-        pub fn gen_buffers(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_buffers(self, n) } }
-        /// Calls the `GlContextPtr::gen_renderbuffers` function.
-        pub fn gen_renderbuffers(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_renderbuffers(self, n) } }
-        /// Calls the `GlContextPtr::gen_framebuffers` function.
-        pub fn gen_framebuffers(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_framebuffers(self, n) } }
-        /// Calls the `GlContextPtr::gen_textures` function.
-        pub fn gen_textures(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_textures(self, n) } }
-        /// Calls the `GlContextPtr::gen_vertex_arrays` function.
-        pub fn gen_vertex_arrays(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_vertex_arrays(self, n) } }
-        /// Calls the `GlContextPtr::gen_queries` function.
-        pub fn gen_queries(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_queries(self, n) } }
-        /// Calls the `GlContextPtr::begin_query` function.
-        pub fn begin_query(&self, target: u32, id: u32)  { unsafe { crate::dll::az_gl_context_ptr_begin_query(self, target, id) } }
-        /// Calls the `GlContextPtr::end_query` function.
-        pub fn end_query(&self, target: u32)  { unsafe { crate::dll::az_gl_context_ptr_end_query(self, target) } }
-        /// Calls the `GlContextPtr::query_counter` function.
-        pub fn query_counter(&self, id: u32, target: u32)  { unsafe { crate::dll::az_gl_context_ptr_query_counter(self, id, target) } }
-        /// Calls the `GlContextPtr::get_query_object_iv` function.
-        pub fn get_query_object_iv(&self, id: u32, pname: u32)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_query_object_iv(self, id, pname) } }
-        /// Calls the `GlContextPtr::get_query_object_uiv` function.
-        pub fn get_query_object_uiv(&self, id: u32, pname: u32)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_get_query_object_uiv(self, id, pname) } }
-        /// Calls the `GlContextPtr::get_query_object_i64v` function.
-        pub fn get_query_object_i64v(&self, id: u32, pname: u32)  -> i64 { unsafe { crate::dll::az_gl_context_ptr_get_query_object_i64v(self, id, pname) } }
-        /// Calls the `GlContextPtr::get_query_object_ui64v` function.
-        pub fn get_query_object_ui64v(&self, id: u32, pname: u32)  -> u64 { unsafe { crate::dll::az_gl_context_ptr_get_query_object_ui64v(self, id, pname) } }
-        /// Calls the `GlContextPtr::delete_queries` function.
-        pub fn delete_queries(&self, queries: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_queries(self, queries) } }
-        /// Calls the `GlContextPtr::delete_vertex_arrays` function.
-        pub fn delete_vertex_arrays(&self, vertex_arrays: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_vertex_arrays(self, vertex_arrays) } }
-        /// Calls the `GlContextPtr::delete_buffers` function.
-        pub fn delete_buffers(&self, buffers: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_buffers(self, buffers) } }
-        /// Calls the `GlContextPtr::delete_renderbuffers` function.
-        pub fn delete_renderbuffers(&self, renderbuffers: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_renderbuffers(self, renderbuffers) } }
-        /// Calls the `GlContextPtr::delete_framebuffers` function.
-        pub fn delete_framebuffers(&self, framebuffers: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_framebuffers(self, framebuffers) } }
-        /// Calls the `GlContextPtr::delete_textures` function.
-        pub fn delete_textures(&self, textures: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_textures(self, textures) } }
-        /// Calls the `GlContextPtr::framebuffer_renderbuffer` function.
-        pub fn framebuffer_renderbuffer(&self, target: u32, attachment: u32, renderbuffertarget: u32, renderbuffer: u32)  { unsafe { crate::dll::az_gl_context_ptr_framebuffer_renderbuffer(self, target, attachment, renderbuffertarget, renderbuffer) } }
-        /// Calls the `GlContextPtr::renderbuffer_storage` function.
-        pub fn renderbuffer_storage(&self, target: u32, internalformat: u32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_renderbuffer_storage(self, target, internalformat, width, height) } }
-        /// Calls the `GlContextPtr::depth_func` function.
-        pub fn depth_func(&self, func: u32)  { unsafe { crate::dll::az_gl_context_ptr_depth_func(self, func) } }
-        /// Calls the `GlContextPtr::active_texture` function.
-        pub fn active_texture(&self, texture: u32)  { unsafe { crate::dll::az_gl_context_ptr_active_texture(self, texture) } }
-        /// Calls the `GlContextPtr::attach_shader` function.
-        pub fn attach_shader(&self, program: u32, shader: u32)  { unsafe { crate::dll::az_gl_context_ptr_attach_shader(self, program, shader) } }
-        /// Calls the `GlContextPtr::bind_attrib_location` function.
-        pub fn bind_attrib_location(&self, program: u32, index: u32, name: Refstr)  { unsafe { crate::dll::az_gl_context_ptr_bind_attrib_location(self, program, index, name) } }
-        /// Calls the `GlContextPtr::get_uniform_iv` function.
-        pub fn get_uniform_iv(&self, program: u32, location: i32, result: GLintVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_uniform_iv(self, program, location, result) } }
-        /// Calls the `GlContextPtr::get_uniform_fv` function.
-        pub fn get_uniform_fv(&self, program: u32, location: i32, result: GLfloatVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_uniform_fv(self, program, location, result) } }
-        /// Calls the `GlContextPtr::get_uniform_block_index` function.
-        pub fn get_uniform_block_index(&self, program: u32, name: Refstr)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_get_uniform_block_index(self, program, name) } }
-        /// Calls the `GlContextPtr::get_uniform_indices` function.
-        pub fn get_uniform_indices(&self, program: u32, names: RefstrVecRef)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_get_uniform_indices(self, program, names) } }
-        /// Calls the `GlContextPtr::bind_buffer_base` function.
-        pub fn bind_buffer_base(&self, target: u32, index: u32, buffer: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_buffer_base(self, target, index, buffer) } }
-        /// Calls the `GlContextPtr::bind_buffer_range` function.
-        pub fn bind_buffer_range(&self, target: u32, index: u32, buffer: u32, offset: isize, size: isize)  { unsafe { crate::dll::az_gl_context_ptr_bind_buffer_range(self, target, index, buffer, offset, size) } }
-        /// Calls the `GlContextPtr::uniform_block_binding` function.
-        pub fn uniform_block_binding(&self, program: u32, uniform_block_index: u32, uniform_block_binding: u32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_block_binding(self, program, uniform_block_index, uniform_block_binding) } }
-        /// Calls the `GlContextPtr::bind_buffer` function.
-        pub fn bind_buffer(&self, target: u32, buffer: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_buffer(self, target, buffer) } }
-        /// Calls the `GlContextPtr::bind_vertex_array` function.
-        pub fn bind_vertex_array(&self, vao: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_vertex_array(self, vao) } }
-        /// Calls the `GlContextPtr::bind_renderbuffer` function.
-        pub fn bind_renderbuffer(&self, target: u32, renderbuffer: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_renderbuffer(self, target, renderbuffer) } }
-        /// Calls the `GlContextPtr::bind_framebuffer` function.
-        pub fn bind_framebuffer(&self, target: u32, framebuffer: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_framebuffer(self, target, framebuffer) } }
-        /// Calls the `GlContextPtr::bind_texture` function.
-        pub fn bind_texture(&self, target: u32, texture: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_texture(self, target, texture) } }
-        /// Calls the `GlContextPtr::draw_buffers` function.
-        pub fn draw_buffers(&self, bufs: GLenumVecRef)  { unsafe { crate::dll::az_gl_context_ptr_draw_buffers(self, bufs) } }
-        /// Calls the `GlContextPtr::tex_image_2d` function.
-        pub fn tex_image_2d(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, border: i32, format: u32, ty: u32, opt_data: OptionU8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_tex_image_2d(self, target, level, internal_format, width, height, border, format, ty, opt_data) } }
-        /// Calls the `GlContextPtr::compressed_tex_image_2d` function.
-        pub fn compressed_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, width: i32, height: i32, border: i32, data: U8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_compressed_tex_image_2d(self, target, level, internal_format, width, height, border, data) } }
-        /// Calls the `GlContextPtr::compressed_tex_sub_image_2d` function.
-        pub fn compressed_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, data: U8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_compressed_tex_sub_image_2d(self, target, level, xoffset, yoffset, width, height, format, data) } }
-        /// Calls the `GlContextPtr::tex_image_3d` function.
-        pub fn tex_image_3d(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, depth: i32, border: i32, format: u32, ty: u32, opt_data: OptionU8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_tex_image_3d(self, target, level, internal_format, width, height, depth, border, format, ty, opt_data) } }
-        /// Calls the `GlContextPtr::copy_tex_image_2d` function.
-        pub fn copy_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, x: i32, y: i32, width: i32, height: i32, border: i32)  { unsafe { crate::dll::az_gl_context_ptr_copy_tex_image_2d(self, target, level, internal_format, x, y, width, height, border) } }
-        /// Calls the `GlContextPtr::copy_tex_sub_image_2d` function.
-        pub fn copy_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_copy_tex_sub_image_2d(self, target, level, xoffset, yoffset, x, y, width, height) } }
-        /// Calls the `GlContextPtr::copy_tex_sub_image_3d` function.
-        pub fn copy_tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_copy_tex_sub_image_3d(self, target, level, xoffset, yoffset, zoffset, x, y, width, height) } }
-        /// Calls the `GlContextPtr::tex_sub_image_2d` function.
-        pub fn tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, data: U8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_tex_sub_image_2d(self, target, level, xoffset, yoffset, width, height, format, ty, data) } }
-        /// Calls the `GlContextPtr::tex_sub_image_2d_pbo` function.
-        pub fn tex_sub_image_2d_pbo(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, offset: usize)  { unsafe { crate::dll::az_gl_context_ptr_tex_sub_image_2d_pbo(self, target, level, xoffset, yoffset, width, height, format, ty, offset) } }
-        /// Calls the `GlContextPtr::tex_sub_image_3d` function.
-        pub fn tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: U8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_tex_sub_image_3d(self, target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, data) } }
-        /// Calls the `GlContextPtr::tex_sub_image_3d_pbo` function.
-        pub fn tex_sub_image_3d_pbo(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, offset: usize)  { unsafe { crate::dll::az_gl_context_ptr_tex_sub_image_3d_pbo(self, target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset) } }
-        /// Calls the `GlContextPtr::tex_storage_2d` function.
-        pub fn tex_storage_2d(&self, target: u32, levels: i32, internal_format: u32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_tex_storage_2d(self, target, levels, internal_format, width, height) } }
-        /// Calls the `GlContextPtr::tex_storage_3d` function.
-        pub fn tex_storage_3d(&self, target: u32, levels: i32, internal_format: u32, width: i32, height: i32, depth: i32)  { unsafe { crate::dll::az_gl_context_ptr_tex_storage_3d(self, target, levels, internal_format, width, height, depth) } }
-        /// Calls the `GlContextPtr::get_tex_image_into_buffer` function.
-        pub fn get_tex_image_into_buffer(&self, target: u32, level: i32, format: u32, ty: u32, output: U8VecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_tex_image_into_buffer(self, target, level, format, ty, output) } }
-        /// Calls the `GlContextPtr::copy_image_sub_data` function.
-        pub fn copy_image_sub_data(&self, src_name: u32, src_target: u32, src_level: i32, src_x: i32, src_y: i32, src_z: i32, dst_name: u32, dst_target: u32, dst_level: i32, dst_x: i32, dst_y: i32, dst_z: i32, src_width: i32, src_height: i32, src_depth: i32)  { unsafe { crate::dll::az_gl_context_ptr_copy_image_sub_data(self, src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth) } }
-        /// Calls the `GlContextPtr::invalidate_framebuffer` function.
-        pub fn invalidate_framebuffer(&self, target: u32, attachments: GLenumVecRef)  { unsafe { crate::dll::az_gl_context_ptr_invalidate_framebuffer(self, target, attachments) } }
-        /// Calls the `GlContextPtr::invalidate_sub_framebuffer` function.
-        pub fn invalidate_sub_framebuffer(&self, target: u32, attachments: GLenumVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_invalidate_sub_framebuffer(self, target, attachments, xoffset, yoffset, width, height) } }
-        /// Calls the `GlContextPtr::get_integer_v` function.
-        pub fn get_integer_v(&self, name: u32, result: GLintVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_integer_v(self, name, result) } }
-        /// Calls the `GlContextPtr::get_integer_64v` function.
-        pub fn get_integer_64v(&self, name: u32, result: GLint64VecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_integer_64v(self, name, result) } }
-        /// Calls the `GlContextPtr::get_integer_iv` function.
-        pub fn get_integer_iv(&self, name: u32, index: u32, result: GLintVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_integer_iv(self, name, index, result) } }
-        /// Calls the `GlContextPtr::get_integer_64iv` function.
-        pub fn get_integer_64iv(&self, name: u32, index: u32, result: GLint64VecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_integer_64iv(self, name, index, result) } }
-        /// Calls the `GlContextPtr::get_boolean_v` function.
-        pub fn get_boolean_v(&self, name: u32, result: GLbooleanVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_boolean_v(self, name, result) } }
-        /// Calls the `GlContextPtr::get_float_v` function.
-        pub fn get_float_v(&self, name: u32, result: GLfloatVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_float_v(self, name, result) } }
-        /// Calls the `GlContextPtr::get_framebuffer_attachment_parameter_iv` function.
-        pub fn get_framebuffer_attachment_parameter_iv(&self, target: u32, attachment: u32, pname: u32)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_framebuffer_attachment_parameter_iv(self, target, attachment, pname) } }
-        /// Calls the `GlContextPtr::get_renderbuffer_parameter_iv` function.
-        pub fn get_renderbuffer_parameter_iv(&self, target: u32, pname: u32)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_renderbuffer_parameter_iv(self, target, pname) } }
-        /// Calls the `GlContextPtr::get_tex_parameter_iv` function.
-        pub fn get_tex_parameter_iv(&self, target: u32, name: u32)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_tex_parameter_iv(self, target, name) } }
-        /// Calls the `GlContextPtr::get_tex_parameter_fv` function.
-        pub fn get_tex_parameter_fv(&self, target: u32, name: u32)  -> f32 { unsafe { crate::dll::az_gl_context_ptr_get_tex_parameter_fv(self, target, name) } }
-        /// Calls the `GlContextPtr::tex_parameter_i` function.
-        pub fn tex_parameter_i(&self, target: u32, pname: u32, param: i32)  { unsafe { crate::dll::az_gl_context_ptr_tex_parameter_i(self, target, pname, param) } }
-        /// Calls the `GlContextPtr::tex_parameter_f` function.
-        pub fn tex_parameter_f(&self, target: u32, pname: u32, param: f32)  { unsafe { crate::dll::az_gl_context_ptr_tex_parameter_f(self, target, pname, param) } }
-        /// Calls the `GlContextPtr::framebuffer_texture_2d` function.
-        pub fn framebuffer_texture_2d(&self, target: u32, attachment: u32, textarget: u32, texture: u32, level: i32)  { unsafe { crate::dll::az_gl_context_ptr_framebuffer_texture_2d(self, target, attachment, textarget, texture, level) } }
-        /// Calls the `GlContextPtr::framebuffer_texture_layer` function.
-        pub fn framebuffer_texture_layer(&self, target: u32, attachment: u32, texture: u32, level: i32, layer: i32)  { unsafe { crate::dll::az_gl_context_ptr_framebuffer_texture_layer(self, target, attachment, texture, level, layer) } }
-        /// Calls the `GlContextPtr::blit_framebuffer` function.
-        pub fn blit_framebuffer(&self, src_x0: i32, src_y0: i32, src_x1: i32, src_y1: i32, dst_x0: i32, dst_y0: i32, dst_x1: i32, dst_y1: i32, mask: u32, filter: u32)  { unsafe { crate::dll::az_gl_context_ptr_blit_framebuffer(self, src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter) } }
-        /// Calls the `GlContextPtr::vertex_attrib_4f` function.
-        pub fn vertex_attrib_4f(&self, index: u32, x: f32, y: f32, z: f32, w: f32)  { unsafe { crate::dll::az_gl_context_ptr_vertex_attrib_4f(self, index, x, y, z, w) } }
-        /// Calls the `GlContextPtr::vertex_attrib_pointer_f32` function.
-        pub fn vertex_attrib_pointer_f32(&self, index: u32, size: i32, normalized: bool, stride: i32, offset: u32)  { unsafe { crate::dll::az_gl_context_ptr_vertex_attrib_pointer_f32(self, index, size, normalized, stride, offset) } }
-        /// Calls the `GlContextPtr::vertex_attrib_pointer` function.
-        pub fn vertex_attrib_pointer(&self, index: u32, size: i32, type_: u32, normalized: bool, stride: i32, offset: u32)  { unsafe { crate::dll::az_gl_context_ptr_vertex_attrib_pointer(self, index, size, type_, normalized, stride, offset) } }
-        /// Calls the `GlContextPtr::vertex_attrib_i_pointer` function.
-        pub fn vertex_attrib_i_pointer(&self, index: u32, size: i32, type_: u32, stride: i32, offset: u32)  { unsafe { crate::dll::az_gl_context_ptr_vertex_attrib_i_pointer(self, index, size, type_, stride, offset) } }
-        /// Calls the `GlContextPtr::vertex_attrib_divisor` function.
-        pub fn vertex_attrib_divisor(&self, index: u32, divisor: u32)  { unsafe { crate::dll::az_gl_context_ptr_vertex_attrib_divisor(self, index, divisor) } }
-        /// Calls the `GlContextPtr::viewport` function.
-        pub fn viewport(&self, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_viewport(self, x, y, width, height) } }
-        /// Calls the `GlContextPtr::scissor` function.
-        pub fn scissor(&self, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::az_gl_context_ptr_scissor(self, x, y, width, height) } }
-        /// Calls the `GlContextPtr::line_width` function.
-        pub fn line_width(&self, width: f32)  { unsafe { crate::dll::az_gl_context_ptr_line_width(self, width) } }
-        /// Calls the `GlContextPtr::use_program` function.
-        pub fn use_program(&self, program: u32)  { unsafe { crate::dll::az_gl_context_ptr_use_program(self, program) } }
-        /// Calls the `GlContextPtr::validate_program` function.
-        pub fn validate_program(&self, program: u32)  { unsafe { crate::dll::az_gl_context_ptr_validate_program(self, program) } }
-        /// Calls the `GlContextPtr::draw_arrays` function.
-        pub fn draw_arrays(&self, mode: u32, first: i32, count: i32)  { unsafe { crate::dll::az_gl_context_ptr_draw_arrays(self, mode, first, count) } }
-        /// Calls the `GlContextPtr::draw_arrays_instanced` function.
-        pub fn draw_arrays_instanced(&self, mode: u32, first: i32, count: i32, primcount: i32)  { unsafe { crate::dll::az_gl_context_ptr_draw_arrays_instanced(self, mode, first, count, primcount) } }
-        /// Calls the `GlContextPtr::draw_elements` function.
-        pub fn draw_elements(&self, mode: u32, count: i32, element_type: u32, indices_offset: u32)  { unsafe { crate::dll::az_gl_context_ptr_draw_elements(self, mode, count, element_type, indices_offset) } }
-        /// Calls the `GlContextPtr::draw_elements_instanced` function.
-        pub fn draw_elements_instanced(&self, mode: u32, count: i32, element_type: u32, indices_offset: u32, primcount: i32)  { unsafe { crate::dll::az_gl_context_ptr_draw_elements_instanced(self, mode, count, element_type, indices_offset, primcount) } }
-        /// Calls the `GlContextPtr::blend_color` function.
-        pub fn blend_color(&self, r: f32, g: f32, b: f32, a: f32)  { unsafe { crate::dll::az_gl_context_ptr_blend_color(self, r, g, b, a) } }
-        /// Calls the `GlContextPtr::blend_func` function.
-        pub fn blend_func(&self, sfactor: u32, dfactor: u32)  { unsafe { crate::dll::az_gl_context_ptr_blend_func(self, sfactor, dfactor) } }
-        /// Calls the `GlContextPtr::blend_func_separate` function.
-        pub fn blend_func_separate(&self, src_rgb: u32, dest_rgb: u32, src_alpha: u32, dest_alpha: u32)  { unsafe { crate::dll::az_gl_context_ptr_blend_func_separate(self, src_rgb, dest_rgb, src_alpha, dest_alpha) } }
-        /// Calls the `GlContextPtr::blend_equation` function.
-        pub fn blend_equation(&self, mode: u32)  { unsafe { crate::dll::az_gl_context_ptr_blend_equation(self, mode) } }
-        /// Calls the `GlContextPtr::blend_equation_separate` function.
-        pub fn blend_equation_separate(&self, mode_rgb: u32, mode_alpha: u32)  { unsafe { crate::dll::az_gl_context_ptr_blend_equation_separate(self, mode_rgb, mode_alpha) } }
-        /// Calls the `GlContextPtr::color_mask` function.
-        pub fn color_mask(&self, r: bool, g: bool, b: bool, a: bool)  { unsafe { crate::dll::az_gl_context_ptr_color_mask(self, r, g, b, a) } }
-        /// Calls the `GlContextPtr::cull_face` function.
-        pub fn cull_face(&self, mode: u32)  { unsafe { crate::dll::az_gl_context_ptr_cull_face(self, mode) } }
-        /// Calls the `GlContextPtr::front_face` function.
-        pub fn front_face(&self, mode: u32)  { unsafe { crate::dll::az_gl_context_ptr_front_face(self, mode) } }
-        /// Calls the `GlContextPtr::enable` function.
-        pub fn enable(&self, cap: u32)  { unsafe { crate::dll::az_gl_context_ptr_enable(self, cap) } }
-        /// Calls the `GlContextPtr::disable` function.
-        pub fn disable(&self, cap: u32)  { unsafe { crate::dll::az_gl_context_ptr_disable(self, cap) } }
-        /// Calls the `GlContextPtr::hint` function.
-        pub fn hint(&self, param_name: u32, param_val: u32)  { unsafe { crate::dll::az_gl_context_ptr_hint(self, param_name, param_val) } }
-        /// Calls the `GlContextPtr::is_enabled` function.
-        pub fn is_enabled(&self, cap: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_is_enabled(self, cap) } }
-        /// Calls the `GlContextPtr::is_shader` function.
-        pub fn is_shader(&self, shader: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_is_shader(self, shader) } }
-        /// Calls the `GlContextPtr::is_texture` function.
-        pub fn is_texture(&self, texture: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_is_texture(self, texture) } }
-        /// Calls the `GlContextPtr::is_framebuffer` function.
-        pub fn is_framebuffer(&self, framebuffer: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_is_framebuffer(self, framebuffer) } }
-        /// Calls the `GlContextPtr::is_renderbuffer` function.
-        pub fn is_renderbuffer(&self, renderbuffer: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_is_renderbuffer(self, renderbuffer) } }
-        /// Calls the `GlContextPtr::check_frame_buffer_status` function.
-        pub fn check_frame_buffer_status(&self, target: u32)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_check_frame_buffer_status(self, target) } }
-        /// Calls the `GlContextPtr::enable_vertex_attrib_array` function.
-        pub fn enable_vertex_attrib_array(&self, index: u32)  { unsafe { crate::dll::az_gl_context_ptr_enable_vertex_attrib_array(self, index) } }
-        /// Calls the `GlContextPtr::disable_vertex_attrib_array` function.
-        pub fn disable_vertex_attrib_array(&self, index: u32)  { unsafe { crate::dll::az_gl_context_ptr_disable_vertex_attrib_array(self, index) } }
-        /// Calls the `GlContextPtr::uniform_1f` function.
-        pub fn uniform_1f(&self, location: i32, v0: f32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_1f(self, location, v0) } }
-        /// Calls the `GlContextPtr::uniform_1fv` function.
-        pub fn uniform_1fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_1fv(self, location, values) } }
-        /// Calls the `GlContextPtr::uniform_1i` function.
-        pub fn uniform_1i(&self, location: i32, v0: i32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_1i(self, location, v0) } }
-        /// Calls the `GlContextPtr::uniform_1iv` function.
-        pub fn uniform_1iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_1iv(self, location, values) } }
-        /// Calls the `GlContextPtr::uniform_1ui` function.
-        pub fn uniform_1ui(&self, location: i32, v0: u32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_1ui(self, location, v0) } }
-        /// Calls the `GlContextPtr::uniform_2f` function.
-        pub fn uniform_2f(&self, location: i32, v0: f32, v1: f32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_2f(self, location, v0, v1) } }
-        /// Calls the `GlContextPtr::uniform_2fv` function.
-        pub fn uniform_2fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_2fv(self, location, values) } }
-        /// Calls the `GlContextPtr::uniform_2i` function.
-        pub fn uniform_2i(&self, location: i32, v0: i32, v1: i32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_2i(self, location, v0, v1) } }
-        /// Calls the `GlContextPtr::uniform_2iv` function.
-        pub fn uniform_2iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_2iv(self, location, values) } }
-        /// Calls the `GlContextPtr::uniform_2ui` function.
-        pub fn uniform_2ui(&self, location: i32, v0: u32, v1: u32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_2ui(self, location, v0, v1) } }
-        /// Calls the `GlContextPtr::uniform_3f` function.
-        pub fn uniform_3f(&self, location: i32, v0: f32, v1: f32, v2: f32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_3f(self, location, v0, v1, v2) } }
-        /// Calls the `GlContextPtr::uniform_3fv` function.
-        pub fn uniform_3fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_3fv(self, location, values) } }
-        /// Calls the `GlContextPtr::uniform_3i` function.
-        pub fn uniform_3i(&self, location: i32, v0: i32, v1: i32, v2: i32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_3i(self, location, v0, v1, v2) } }
-        /// Calls the `GlContextPtr::uniform_3iv` function.
-        pub fn uniform_3iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_3iv(self, location, values) } }
-        /// Calls the `GlContextPtr::uniform_3ui` function.
-        pub fn uniform_3ui(&self, location: i32, v0: u32, v1: u32, v2: u32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_3ui(self, location, v0, v1, v2) } }
-        /// Calls the `GlContextPtr::uniform_4f` function.
-        pub fn uniform_4f(&self, location: i32, x: f32, y: f32, z: f32, w: f32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_4f(self, location, x, y, z, w) } }
-        /// Calls the `GlContextPtr::uniform_4i` function.
-        pub fn uniform_4i(&self, location: i32, x: i32, y: i32, z: i32, w: i32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_4i(self, location, x, y, z, w) } }
-        /// Calls the `GlContextPtr::uniform_4iv` function.
-        pub fn uniform_4iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_4iv(self, location, values) } }
-        /// Calls the `GlContextPtr::uniform_4ui` function.
-        pub fn uniform_4ui(&self, location: i32, x: u32, y: u32, z: u32, w: u32)  { unsafe { crate::dll::az_gl_context_ptr_uniform_4ui(self, location, x, y, z, w) } }
-        /// Calls the `GlContextPtr::uniform_4fv` function.
-        pub fn uniform_4fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_4fv(self, location, values) } }
-        /// Calls the `GlContextPtr::uniform_matrix_2fv` function.
-        pub fn uniform_matrix_2fv(&self, location: i32, transpose: bool, value: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_matrix_2fv(self, location, transpose, value) } }
-        /// Calls the `GlContextPtr::uniform_matrix_3fv` function.
-        pub fn uniform_matrix_3fv(&self, location: i32, transpose: bool, value: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_matrix_3fv(self, location, transpose, value) } }
-        /// Calls the `GlContextPtr::uniform_matrix_4fv` function.
-        pub fn uniform_matrix_4fv(&self, location: i32, transpose: bool, value: F32VecRef)  { unsafe { crate::dll::az_gl_context_ptr_uniform_matrix_4fv(self, location, transpose, value) } }
-        /// Calls the `GlContextPtr::depth_mask` function.
-        pub fn depth_mask(&self, flag: bool)  { unsafe { crate::dll::az_gl_context_ptr_depth_mask(self, flag) } }
-        /// Calls the `GlContextPtr::depth_range` function.
-        pub fn depth_range(&self, near: f64, far: f64)  { unsafe { crate::dll::az_gl_context_ptr_depth_range(self, near, far) } }
-        /// Calls the `GlContextPtr::get_active_attrib` function.
-        pub fn get_active_attrib(&self, program: u32, index: u32)  -> crate::gl::GetActiveAttribReturn { unsafe { crate::dll::az_gl_context_ptr_get_active_attrib(self, program, index) } }
-        /// Calls the `GlContextPtr::get_active_uniform` function.
-        pub fn get_active_uniform(&self, program: u32, index: u32)  -> crate::gl::GetActiveUniformReturn { unsafe { crate::dll::az_gl_context_ptr_get_active_uniform(self, program, index) } }
-        /// Calls the `GlContextPtr::get_active_uniforms_iv` function.
-        pub fn get_active_uniforms_iv(&self, program: u32, indices: GLuintVec, pname: u32)  -> crate::vec::GLintVec { unsafe { crate::dll::az_gl_context_ptr_get_active_uniforms_iv(self, program, indices, pname) } }
-        /// Calls the `GlContextPtr::get_active_uniform_block_i` function.
-        pub fn get_active_uniform_block_i(&self, program: u32, index: u32, pname: u32)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_active_uniform_block_i(self, program, index, pname) } }
-        /// Calls the `GlContextPtr::get_active_uniform_block_iv` function.
-        pub fn get_active_uniform_block_iv(&self, program: u32, index: u32, pname: u32)  -> crate::vec::GLintVec { unsafe { crate::dll::az_gl_context_ptr_get_active_uniform_block_iv(self, program, index, pname) } }
-        /// Calls the `GlContextPtr::get_active_uniform_block_name` function.
-        pub fn get_active_uniform_block_name(&self, program: u32, index: u32)  -> crate::str::String { unsafe { crate::dll::az_gl_context_ptr_get_active_uniform_block_name(self, program, index) } }
-        /// Calls the `GlContextPtr::get_attrib_location` function.
-        pub fn get_attrib_location(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_attrib_location(self, program, name) } }
-        /// Calls the `GlContextPtr::get_frag_data_location` function.
-        pub fn get_frag_data_location(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_frag_data_location(self, program, name) } }
-        /// Calls the `GlContextPtr::get_uniform_location` function.
-        pub fn get_uniform_location(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_uniform_location(self, program, name) } }
-        /// Calls the `GlContextPtr::get_program_info_log` function.
-        pub fn get_program_info_log(&self, program: u32)  -> crate::str::String { unsafe { crate::dll::az_gl_context_ptr_get_program_info_log(self, program) } }
-        /// Calls the `GlContextPtr::get_program_iv` function.
-        pub fn get_program_iv(&self, program: u32, pname: u32, result: GLintVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_program_iv(self, program, pname, result) } }
-        /// Calls the `GlContextPtr::get_program_binary` function.
-        pub fn get_program_binary(&self, program: u32)  -> crate::gl::GetProgramBinaryReturn { unsafe { crate::dll::az_gl_context_ptr_get_program_binary(self, program) } }
-        /// Calls the `GlContextPtr::program_binary` function.
-        pub fn program_binary(&self, program: u32, format: u32, binary: U8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_program_binary(self, program, format, binary) } }
-        /// Calls the `GlContextPtr::program_parameter_i` function.
-        pub fn program_parameter_i(&self, program: u32, pname: u32, value: i32)  { unsafe { crate::dll::az_gl_context_ptr_program_parameter_i(self, program, pname, value) } }
-        /// Calls the `GlContextPtr::get_vertex_attrib_iv` function.
-        pub fn get_vertex_attrib_iv(&self, index: u32, pname: u32, result: GLintVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_vertex_attrib_iv(self, index, pname, result) } }
-        /// Calls the `GlContextPtr::get_vertex_attrib_fv` function.
-        pub fn get_vertex_attrib_fv(&self, index: u32, pname: u32, result: GLfloatVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_vertex_attrib_fv(self, index, pname, result) } }
-        /// Calls the `GlContextPtr::get_vertex_attrib_pointer_v` function.
-        pub fn get_vertex_attrib_pointer_v(&self, index: u32, pname: u32)  -> isize { unsafe { crate::dll::az_gl_context_ptr_get_vertex_attrib_pointer_v(self, index, pname) } }
-        /// Calls the `GlContextPtr::get_buffer_parameter_iv` function.
-        pub fn get_buffer_parameter_iv(&self, target: u32, pname: u32)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_buffer_parameter_iv(self, target, pname) } }
-        /// Calls the `GlContextPtr::get_shader_info_log` function.
-        pub fn get_shader_info_log(&self, shader: u32)  -> crate::str::String { unsafe { crate::dll::az_gl_context_ptr_get_shader_info_log(self, shader) } }
-        /// Calls the `GlContextPtr::get_string` function.
-        pub fn get_string(&self, which: u32)  -> crate::str::String { unsafe { crate::dll::az_gl_context_ptr_get_string(self, which) } }
-        /// Calls the `GlContextPtr::get_string_i` function.
-        pub fn get_string_i(&self, which: u32, index: u32)  -> crate::str::String { unsafe { crate::dll::az_gl_context_ptr_get_string_i(self, which, index) } }
-        /// Calls the `GlContextPtr::get_shader_iv` function.
-        pub fn get_shader_iv(&self, shader: u32, pname: u32, result: GLintVecRefMut)  { unsafe { crate::dll::az_gl_context_ptr_get_shader_iv(self, shader, pname, result) } }
-        /// Calls the `GlContextPtr::get_shader_precision_format` function.
-        pub fn get_shader_precision_format(&self, shader_type: u32, precision_type: u32)  -> crate::gl::GlShaderPrecisionFormatReturn { unsafe { crate::dll::az_gl_context_ptr_get_shader_precision_format(self, shader_type, precision_type) } }
-        /// Calls the `GlContextPtr::compile_shader` function.
-        pub fn compile_shader(&self, shader: u32)  { unsafe { crate::dll::az_gl_context_ptr_compile_shader(self, shader) } }
-        /// Calls the `GlContextPtr::create_program` function.
-        pub fn create_program(&self)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_create_program(self) } }
-        /// Calls the `GlContextPtr::delete_program` function.
-        pub fn delete_program(&self, program: u32)  { unsafe { crate::dll::az_gl_context_ptr_delete_program(self, program) } }
-        /// Calls the `GlContextPtr::create_shader` function.
-        pub fn create_shader(&self, shader_type: u32)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_create_shader(self, shader_type) } }
-        /// Calls the `GlContextPtr::delete_shader` function.
-        pub fn delete_shader(&self, shader: u32)  { unsafe { crate::dll::az_gl_context_ptr_delete_shader(self, shader) } }
-        /// Calls the `GlContextPtr::detach_shader` function.
-        pub fn detach_shader(&self, program: u32, shader: u32)  { unsafe { crate::dll::az_gl_context_ptr_detach_shader(self, program, shader) } }
-        /// Calls the `GlContextPtr::link_program` function.
-        pub fn link_program(&self, program: u32)  { unsafe { crate::dll::az_gl_context_ptr_link_program(self, program) } }
-        /// Calls the `GlContextPtr::clear_color` function.
-        pub fn clear_color(&self, r: f32, g: f32, b: f32, a: f32)  { unsafe { crate::dll::az_gl_context_ptr_clear_color(self, r, g, b, a) } }
-        /// Calls the `GlContextPtr::clear` function.
-        pub fn clear(&self, buffer_mask: u32)  { unsafe { crate::dll::az_gl_context_ptr_clear(self, buffer_mask) } }
-        /// Calls the `GlContextPtr::clear_depth` function.
-        pub fn clear_depth(&self, depth: f64)  { unsafe { crate::dll::az_gl_context_ptr_clear_depth(self, depth) } }
-        /// Calls the `GlContextPtr::clear_stencil` function.
-        pub fn clear_stencil(&self, s: i32)  { unsafe { crate::dll::az_gl_context_ptr_clear_stencil(self, s) } }
-        /// Calls the `GlContextPtr::flush` function.
-        pub fn flush(&self)  { unsafe { crate::dll::az_gl_context_ptr_flush(self) } }
-        /// Calls the `GlContextPtr::finish` function.
-        pub fn finish(&self)  { unsafe { crate::dll::az_gl_context_ptr_finish(self) } }
-        /// Calls the `GlContextPtr::get_error` function.
-        pub fn get_error(&self)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_get_error(self) } }
-        /// Calls the `GlContextPtr::stencil_mask` function.
-        pub fn stencil_mask(&self, mask: u32)  { unsafe { crate::dll::az_gl_context_ptr_stencil_mask(self, mask) } }
-        /// Calls the `GlContextPtr::stencil_mask_separate` function.
-        pub fn stencil_mask_separate(&self, face: u32, mask: u32)  { unsafe { crate::dll::az_gl_context_ptr_stencil_mask_separate(self, face, mask) } }
-        /// Calls the `GlContextPtr::stencil_func` function.
-        pub fn stencil_func(&self, func: u32, ref_: i32, mask: u32)  { unsafe { crate::dll::az_gl_context_ptr_stencil_func(self, func, ref_, mask) } }
-        /// Calls the `GlContextPtr::stencil_func_separate` function.
-        pub fn stencil_func_separate(&self, face: u32, func: u32, ref_: i32, mask: u32)  { unsafe { crate::dll::az_gl_context_ptr_stencil_func_separate(self, face, func, ref_, mask) } }
-        /// Calls the `GlContextPtr::stencil_op` function.
-        pub fn stencil_op(&self, sfail: u32, dpfail: u32, dppass: u32)  { unsafe { crate::dll::az_gl_context_ptr_stencil_op(self, sfail, dpfail, dppass) } }
-        /// Calls the `GlContextPtr::stencil_op_separate` function.
-        pub fn stencil_op_separate(&self, face: u32, sfail: u32, dpfail: u32, dppass: u32)  { unsafe { crate::dll::az_gl_context_ptr_stencil_op_separate(self, face, sfail, dpfail, dppass) } }
-        /// Calls the `GlContextPtr::egl_image_target_texture2d_oes` function.
-        pub fn egl_image_target_texture2d_oes(&self, target: u32, image: *const c_void)  { unsafe { crate::dll::az_gl_context_ptr_egl_image_target_texture2d_oes(self, target, image) } }
-        /// Calls the `GlContextPtr::generate_mipmap` function.
-        pub fn generate_mipmap(&self, target: u32)  { unsafe { crate::dll::az_gl_context_ptr_generate_mipmap(self, target) } }
-        /// Calls the `GlContextPtr::insert_event_marker_ext` function.
-        pub fn insert_event_marker_ext(&self, message: Refstr)  { unsafe { crate::dll::az_gl_context_ptr_insert_event_marker_ext(self, message) } }
-        /// Calls the `GlContextPtr::push_group_marker_ext` function.
-        pub fn push_group_marker_ext(&self, message: Refstr)  { unsafe { crate::dll::az_gl_context_ptr_push_group_marker_ext(self, message) } }
-        /// Calls the `GlContextPtr::pop_group_marker_ext` function.
-        pub fn pop_group_marker_ext(&self)  { unsafe { crate::dll::az_gl_context_ptr_pop_group_marker_ext(self) } }
-        /// Calls the `GlContextPtr::debug_message_insert_khr` function.
-        pub fn debug_message_insert_khr(&self, source: u32, type_: u32, id: u32, severity: u32, message: Refstr)  { unsafe { crate::dll::az_gl_context_ptr_debug_message_insert_khr(self, source, type_, id, severity, message) } }
-        /// Calls the `GlContextPtr::push_debug_group_khr` function.
-        pub fn push_debug_group_khr(&self, source: u32, id: u32, message: Refstr)  { unsafe { crate::dll::az_gl_context_ptr_push_debug_group_khr(self, source, id, message) } }
-        /// Calls the `GlContextPtr::pop_debug_group_khr` function.
-        pub fn pop_debug_group_khr(&self)  { unsafe { crate::dll::az_gl_context_ptr_pop_debug_group_khr(self) } }
-        /// Calls the `GlContextPtr::fence_sync` function.
-        pub fn fence_sync(&self, condition: u32, flags: u32)  -> crate::gl::GLsyncPtr { unsafe { crate::dll::az_gl_context_ptr_fence_sync(self, condition, flags) } }
-        /// Calls the `GlContextPtr::client_wait_sync` function.
-        pub fn client_wait_sync(&self, sync: GLsyncPtr, flags: u32, timeout: u64)  -> u32 { unsafe { crate::dll::az_gl_context_ptr_client_wait_sync(self, sync, flags, timeout) } }
-        /// Calls the `GlContextPtr::wait_sync` function.
-        pub fn wait_sync(&self, sync: GLsyncPtr, flags: u32, timeout: u64)  { unsafe { crate::dll::az_gl_context_ptr_wait_sync(self, sync, flags, timeout) } }
-        /// Calls the `GlContextPtr::delete_sync` function.
-        pub fn delete_sync(&self, sync: GLsyncPtr)  { unsafe { crate::dll::az_gl_context_ptr_delete_sync(self, sync) } }
-        /// Calls the `GlContextPtr::texture_range_apple` function.
-        pub fn texture_range_apple(&self, target: u32, data: U8VecRef)  { unsafe { crate::dll::az_gl_context_ptr_texture_range_apple(self, target, data) } }
-        /// Calls the `GlContextPtr::gen_fences_apple` function.
-        pub fn gen_fences_apple(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_fences_apple(self, n) } }
-        /// Calls the `GlContextPtr::delete_fences_apple` function.
-        pub fn delete_fences_apple(&self, fences: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_fences_apple(self, fences) } }
-        /// Calls the `GlContextPtr::set_fence_apple` function.
-        pub fn set_fence_apple(&self, fence: u32)  { unsafe { crate::dll::az_gl_context_ptr_set_fence_apple(self, fence) } }
-        /// Calls the `GlContextPtr::finish_fence_apple` function.
-        pub fn finish_fence_apple(&self, fence: u32)  { unsafe { crate::dll::az_gl_context_ptr_finish_fence_apple(self, fence) } }
-        /// Calls the `GlContextPtr::test_fence_apple` function.
-        pub fn test_fence_apple(&self, fence: u32)  { unsafe { crate::dll::az_gl_context_ptr_test_fence_apple(self, fence) } }
-        /// Calls the `GlContextPtr::test_object_apple` function.
-        pub fn test_object_apple(&self, object: u32, name: u32)  -> u8 { unsafe { crate::dll::az_gl_context_ptr_test_object_apple(self, object, name) } }
-        /// Calls the `GlContextPtr::finish_object_apple` function.
-        pub fn finish_object_apple(&self, object: u32, name: u32)  { unsafe { crate::dll::az_gl_context_ptr_finish_object_apple(self, object, name) } }
-        /// Calls the `GlContextPtr::get_frag_data_index` function.
-        pub fn get_frag_data_index(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::az_gl_context_ptr_get_frag_data_index(self, program, name) } }
-        /// Calls the `GlContextPtr::blend_barrier_khr` function.
-        pub fn blend_barrier_khr(&self)  { unsafe { crate::dll::az_gl_context_ptr_blend_barrier_khr(self) } }
-        /// Calls the `GlContextPtr::bind_frag_data_location_indexed` function.
-        pub fn bind_frag_data_location_indexed(&self, program: u32, color_number: u32, index: u32, name: Refstr)  { unsafe { crate::dll::az_gl_context_ptr_bind_frag_data_location_indexed(self, program, color_number, index, name) } }
-        /// Calls the `GlContextPtr::get_debug_messages` function.
-        pub fn get_debug_messages(&self)  -> crate::vec::DebugMessageVec { unsafe { crate::dll::az_gl_context_ptr_get_debug_messages(self) } }
-        /// Calls the `GlContextPtr::provoking_vertex_angle` function.
-        pub fn provoking_vertex_angle(&self, mode: u32)  { unsafe { crate::dll::az_gl_context_ptr_provoking_vertex_angle(self, mode) } }
-        /// Calls the `GlContextPtr::gen_vertex_arrays_apple` function.
-        pub fn gen_vertex_arrays_apple(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::az_gl_context_ptr_gen_vertex_arrays_apple(self, n) } }
-        /// Calls the `GlContextPtr::bind_vertex_array_apple` function.
-        pub fn bind_vertex_array_apple(&self, vao: u32)  { unsafe { crate::dll::az_gl_context_ptr_bind_vertex_array_apple(self, vao) } }
-        /// Calls the `GlContextPtr::delete_vertex_arrays_apple` function.
-        pub fn delete_vertex_arrays_apple(&self, vertex_arrays: GLuintVecRef)  { unsafe { crate::dll::az_gl_context_ptr_delete_vertex_arrays_apple(self, vertex_arrays) } }
-        /// Calls the `GlContextPtr::copy_texture_chromium` function.
-        pub fn copy_texture_chromium(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::az_gl_context_ptr_copy_texture_chromium(self, source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
-        /// Calls the `GlContextPtr::copy_sub_texture_chromium` function.
-        pub fn copy_sub_texture_chromium(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, x: i32, y: i32, width: i32, height: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::az_gl_context_ptr_copy_sub_texture_chromium(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
-        /// Calls the `GlContextPtr::egl_image_target_renderbuffer_storage_oes` function.
-        pub fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: *const c_void)  { unsafe { crate::dll::az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes(self, target, image) } }
-        /// Calls the `GlContextPtr::copy_texture_3d_angle` function.
-        pub fn copy_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::az_gl_context_ptr_copy_texture_3d_angle(self, source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
-        /// Calls the `GlContextPtr::copy_sub_texture_3d_angle` function.
-        pub fn copy_sub_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::az_gl_context_ptr_copy_sub_texture_3d_angle(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
-        /// Calls the `GlContextPtr::buffer_storage` function.
-        pub fn buffer_storage(&self, target: u32, size: isize, data: *const c_void, flags: u32)  { unsafe { crate::dll::az_gl_context_ptr_buffer_storage(self, target, size, data, flags) } }
-        /// Calls the `GlContextPtr::flush_mapped_buffer_range` function.
-        pub fn flush_mapped_buffer_range(&self, target: u32, offset: isize, length: isize)  { unsafe { crate::dll::az_gl_context_ptr_flush_mapped_buffer_range(self, target, offset, length) } }
+#[doc(inline)] pub use crate::dll::AzGl as Gl;
+    impl Gl {
+        /// Calls the `Gl::get_type` function.
+        pub fn get_type(&self)  -> crate::gl::GlType { unsafe { crate::dll::AzGl_get_type(self) } }
+        /// Calls the `Gl::buffer_data_untyped` function.
+        pub fn buffer_data_untyped(&self, target: u32, size: isize, data: *const c_void, usage: u32)  { unsafe { crate::dll::AzGl_buffer_data_untyped(self, target, size, data, usage) } }
+        /// Calls the `Gl::buffer_sub_data_untyped` function.
+        pub fn buffer_sub_data_untyped(&self, target: u32, offset: isize, size: isize, data: *const c_void)  { unsafe { crate::dll::AzGl_buffer_sub_data_untyped(self, target, offset, size, data) } }
+        /// Calls the `Gl::map_buffer` function.
+        pub fn map_buffer(&self, target: u32, access: u32)  -> *mut c_void { unsafe { crate::dll::AzGl_map_buffer(self, target, access) } }
+        /// Calls the `Gl::map_buffer_range` function.
+        pub fn map_buffer_range(&self, target: u32, offset: isize, length: isize, access: u32)  -> *mut c_void { unsafe { crate::dll::AzGl_map_buffer_range(self, target, offset, length, access) } }
+        /// Calls the `Gl::unmap_buffer` function.
+        pub fn unmap_buffer(&self, target: u32)  -> u8 { unsafe { crate::dll::AzGl_unmap_buffer(self, target) } }
+        /// Calls the `Gl::tex_buffer` function.
+        pub fn tex_buffer(&self, target: u32, internal_format: u32, buffer: u32)  { unsafe { crate::dll::AzGl_tex_buffer(self, target, internal_format, buffer) } }
+        /// Calls the `Gl::shader_source` function.
+        pub fn shader_source(&self, shader: u32, strings: StringVec)  { unsafe { crate::dll::AzGl_shader_source(self, shader, strings) } }
+        /// Calls the `Gl::read_buffer` function.
+        pub fn read_buffer(&self, mode: u32)  { unsafe { crate::dll::AzGl_read_buffer(self, mode) } }
+        /// Calls the `Gl::read_pixels_into_buffer` function.
+        pub fn read_pixels_into_buffer(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32, dst_buffer: U8VecRefMut)  { unsafe { crate::dll::AzGl_read_pixels_into_buffer(self, x, y, width, height, format, pixel_type, dst_buffer) } }
+        /// Calls the `Gl::read_pixels` function.
+        pub fn read_pixels(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32)  -> crate::vec::U8Vec { unsafe { crate::dll::AzGl_read_pixels(self, x, y, width, height, format, pixel_type) } }
+        /// Calls the `Gl::read_pixels_into_pbo` function.
+        pub fn read_pixels_into_pbo(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32)  { unsafe { crate::dll::AzGl_read_pixels_into_pbo(self, x, y, width, height, format, pixel_type) } }
+        /// Calls the `Gl::sample_coverage` function.
+        pub fn sample_coverage(&self, value: f32, invert: bool)  { unsafe { crate::dll::AzGl_sample_coverage(self, value, invert) } }
+        /// Calls the `Gl::polygon_offset` function.
+        pub fn polygon_offset(&self, factor: f32, units: f32)  { unsafe { crate::dll::AzGl_polygon_offset(self, factor, units) } }
+        /// Calls the `Gl::pixel_store_i` function.
+        pub fn pixel_store_i(&self, name: u32, param: i32)  { unsafe { crate::dll::AzGl_pixel_store_i(self, name, param) } }
+        /// Calls the `Gl::gen_buffers` function.
+        pub fn gen_buffers(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::AzGl_gen_buffers(self, n) } }
+        /// Calls the `Gl::gen_renderbuffers` function.
+        pub fn gen_renderbuffers(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::AzGl_gen_renderbuffers(self, n) } }
+        /// Calls the `Gl::gen_framebuffers` function.
+        pub fn gen_framebuffers(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::AzGl_gen_framebuffers(self, n) } }
+        /// Calls the `Gl::gen_textures` function.
+        pub fn gen_textures(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::AzGl_gen_textures(self, n) } }
+        /// Calls the `Gl::gen_vertex_arrays` function.
+        pub fn gen_vertex_arrays(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::AzGl_gen_vertex_arrays(self, n) } }
+        /// Calls the `Gl::gen_queries` function.
+        pub fn gen_queries(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::AzGl_gen_queries(self, n) } }
+        /// Calls the `Gl::begin_query` function.
+        pub fn begin_query(&self, target: u32, id: u32)  { unsafe { crate::dll::AzGl_begin_query(self, target, id) } }
+        /// Calls the `Gl::end_query` function.
+        pub fn end_query(&self, target: u32)  { unsafe { crate::dll::AzGl_end_query(self, target) } }
+        /// Calls the `Gl::query_counter` function.
+        pub fn query_counter(&self, id: u32, target: u32)  { unsafe { crate::dll::AzGl_query_counter(self, id, target) } }
+        /// Calls the `Gl::get_query_object_iv` function.
+        pub fn get_query_object_iv(&self, id: u32, pname: u32)  -> i32 { unsafe { crate::dll::AzGl_get_query_object_iv(self, id, pname) } }
+        /// Calls the `Gl::get_query_object_uiv` function.
+        pub fn get_query_object_uiv(&self, id: u32, pname: u32)  -> u32 { unsafe { crate::dll::AzGl_get_query_object_uiv(self, id, pname) } }
+        /// Calls the `Gl::get_query_object_i64v` function.
+        pub fn get_query_object_i64v(&self, id: u32, pname: u32)  -> i64 { unsafe { crate::dll::AzGl_get_query_object_i64v(self, id, pname) } }
+        /// Calls the `Gl::get_query_object_ui64v` function.
+        pub fn get_query_object_ui64v(&self, id: u32, pname: u32)  -> u64 { unsafe { crate::dll::AzGl_get_query_object_ui64v(self, id, pname) } }
+        /// Calls the `Gl::delete_queries` function.
+        pub fn delete_queries(&self, queries: GLuintVecRef)  { unsafe { crate::dll::AzGl_delete_queries(self, queries) } }
+        /// Calls the `Gl::delete_vertex_arrays` function.
+        pub fn delete_vertex_arrays(&self, vertex_arrays: GLuintVecRef)  { unsafe { crate::dll::AzGl_delete_vertex_arrays(self, vertex_arrays) } }
+        /// Calls the `Gl::delete_buffers` function.
+        pub fn delete_buffers(&self, buffers: GLuintVecRef)  { unsafe { crate::dll::AzGl_delete_buffers(self, buffers) } }
+        /// Calls the `Gl::delete_renderbuffers` function.
+        pub fn delete_renderbuffers(&self, renderbuffers: GLuintVecRef)  { unsafe { crate::dll::AzGl_delete_renderbuffers(self, renderbuffers) } }
+        /// Calls the `Gl::delete_framebuffers` function.
+        pub fn delete_framebuffers(&self, framebuffers: GLuintVecRef)  { unsafe { crate::dll::AzGl_delete_framebuffers(self, framebuffers) } }
+        /// Calls the `Gl::delete_textures` function.
+        pub fn delete_textures(&self, textures: GLuintVecRef)  { unsafe { crate::dll::AzGl_delete_textures(self, textures) } }
+        /// Calls the `Gl::framebuffer_renderbuffer` function.
+        pub fn framebuffer_renderbuffer(&self, target: u32, attachment: u32, renderbuffertarget: u32, renderbuffer: u32)  { unsafe { crate::dll::AzGl_framebuffer_renderbuffer(self, target, attachment, renderbuffertarget, renderbuffer) } }
+        /// Calls the `Gl::renderbuffer_storage` function.
+        pub fn renderbuffer_storage(&self, target: u32, internalformat: u32, width: i32, height: i32)  { unsafe { crate::dll::AzGl_renderbuffer_storage(self, target, internalformat, width, height) } }
+        /// Calls the `Gl::depth_func` function.
+        pub fn depth_func(&self, func: u32)  { unsafe { crate::dll::AzGl_depth_func(self, func) } }
+        /// Calls the `Gl::active_texture` function.
+        pub fn active_texture(&self, texture: u32)  { unsafe { crate::dll::AzGl_active_texture(self, texture) } }
+        /// Calls the `Gl::attach_shader` function.
+        pub fn attach_shader(&self, program: u32, shader: u32)  { unsafe { crate::dll::AzGl_attach_shader(self, program, shader) } }
+        /// Calls the `Gl::bind_attrib_location` function.
+        pub fn bind_attrib_location(&self, program: u32, index: u32, name: Refstr)  { unsafe { crate::dll::AzGl_bind_attrib_location(self, program, index, name) } }
+        /// Calls the `Gl::get_uniform_iv` function.
+        pub fn get_uniform_iv(&self, program: u32, location: i32, result: GLintVecRefMut)  { unsafe { crate::dll::AzGl_get_uniform_iv(self, program, location, result) } }
+        /// Calls the `Gl::get_uniform_fv` function.
+        pub fn get_uniform_fv(&self, program: u32, location: i32, result: GLfloatVecRefMut)  { unsafe { crate::dll::AzGl_get_uniform_fv(self, program, location, result) } }
+        /// Calls the `Gl::get_uniform_block_index` function.
+        pub fn get_uniform_block_index(&self, program: u32, name: Refstr)  -> u32 { unsafe { crate::dll::AzGl_get_uniform_block_index(self, program, name) } }
+        /// Calls the `Gl::get_uniform_indices` function.
+        pub fn get_uniform_indices(&self, program: u32, names: RefstrVecRef)  -> crate::vec::GLuintVec { unsafe { crate::dll::AzGl_get_uniform_indices(self, program, names) } }
+        /// Calls the `Gl::bind_buffer_base` function.
+        pub fn bind_buffer_base(&self, target: u32, index: u32, buffer: u32)  { unsafe { crate::dll::AzGl_bind_buffer_base(self, target, index, buffer) } }
+        /// Calls the `Gl::bind_buffer_range` function.
+        pub fn bind_buffer_range(&self, target: u32, index: u32, buffer: u32, offset: isize, size: isize)  { unsafe { crate::dll::AzGl_bind_buffer_range(self, target, index, buffer, offset, size) } }
+        /// Calls the `Gl::uniform_block_binding` function.
+        pub fn uniform_block_binding(&self, program: u32, uniform_block_index: u32, uniform_block_binding: u32)  { unsafe { crate::dll::AzGl_uniform_block_binding(self, program, uniform_block_index, uniform_block_binding) } }
+        /// Calls the `Gl::bind_buffer` function.
+        pub fn bind_buffer(&self, target: u32, buffer: u32)  { unsafe { crate::dll::AzGl_bind_buffer(self, target, buffer) } }
+        /// Calls the `Gl::bind_vertex_array` function.
+        pub fn bind_vertex_array(&self, vao: u32)  { unsafe { crate::dll::AzGl_bind_vertex_array(self, vao) } }
+        /// Calls the `Gl::bind_renderbuffer` function.
+        pub fn bind_renderbuffer(&self, target: u32, renderbuffer: u32)  { unsafe { crate::dll::AzGl_bind_renderbuffer(self, target, renderbuffer) } }
+        /// Calls the `Gl::bind_framebuffer` function.
+        pub fn bind_framebuffer(&self, target: u32, framebuffer: u32)  { unsafe { crate::dll::AzGl_bind_framebuffer(self, target, framebuffer) } }
+        /// Calls the `Gl::bind_texture` function.
+        pub fn bind_texture(&self, target: u32, texture: u32)  { unsafe { crate::dll::AzGl_bind_texture(self, target, texture) } }
+        /// Calls the `Gl::draw_buffers` function.
+        pub fn draw_buffers(&self, bufs: GLenumVecRef)  { unsafe { crate::dll::AzGl_draw_buffers(self, bufs) } }
+        /// Calls the `Gl::tex_image_2d` function.
+        pub fn tex_image_2d(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, border: i32, format: u32, ty: u32, opt_data: OptionU8VecRef)  { unsafe { crate::dll::AzGl_tex_image_2d(self, target, level, internal_format, width, height, border, format, ty, opt_data) } }
+        /// Calls the `Gl::compressed_tex_image_2d` function.
+        pub fn compressed_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, width: i32, height: i32, border: i32, data: U8VecRef)  { unsafe { crate::dll::AzGl_compressed_tex_image_2d(self, target, level, internal_format, width, height, border, data) } }
+        /// Calls the `Gl::compressed_tex_sub_image_2d` function.
+        pub fn compressed_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, data: U8VecRef)  { unsafe { crate::dll::AzGl_compressed_tex_sub_image_2d(self, target, level, xoffset, yoffset, width, height, format, data) } }
+        /// Calls the `Gl::tex_image_3d` function.
+        pub fn tex_image_3d(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, depth: i32, border: i32, format: u32, ty: u32, opt_data: OptionU8VecRef)  { unsafe { crate::dll::AzGl_tex_image_3d(self, target, level, internal_format, width, height, depth, border, format, ty, opt_data) } }
+        /// Calls the `Gl::copy_tex_image_2d` function.
+        pub fn copy_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, x: i32, y: i32, width: i32, height: i32, border: i32)  { unsafe { crate::dll::AzGl_copy_tex_image_2d(self, target, level, internal_format, x, y, width, height, border) } }
+        /// Calls the `Gl::copy_tex_sub_image_2d` function.
+        pub fn copy_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::AzGl_copy_tex_sub_image_2d(self, target, level, xoffset, yoffset, x, y, width, height) } }
+        /// Calls the `Gl::copy_tex_sub_image_3d` function.
+        pub fn copy_tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::AzGl_copy_tex_sub_image_3d(self, target, level, xoffset, yoffset, zoffset, x, y, width, height) } }
+        /// Calls the `Gl::tex_sub_image_2d` function.
+        pub fn tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, data: U8VecRef)  { unsafe { crate::dll::AzGl_tex_sub_image_2d(self, target, level, xoffset, yoffset, width, height, format, ty, data) } }
+        /// Calls the `Gl::tex_sub_image_2d_pbo` function.
+        pub fn tex_sub_image_2d_pbo(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, offset: usize)  { unsafe { crate::dll::AzGl_tex_sub_image_2d_pbo(self, target, level, xoffset, yoffset, width, height, format, ty, offset) } }
+        /// Calls the `Gl::tex_sub_image_3d` function.
+        pub fn tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: U8VecRef)  { unsafe { crate::dll::AzGl_tex_sub_image_3d(self, target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, data) } }
+        /// Calls the `Gl::tex_sub_image_3d_pbo` function.
+        pub fn tex_sub_image_3d_pbo(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, offset: usize)  { unsafe { crate::dll::AzGl_tex_sub_image_3d_pbo(self, target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset) } }
+        /// Calls the `Gl::tex_storage_2d` function.
+        pub fn tex_storage_2d(&self, target: u32, levels: i32, internal_format: u32, width: i32, height: i32)  { unsafe { crate::dll::AzGl_tex_storage_2d(self, target, levels, internal_format, width, height) } }
+        /// Calls the `Gl::tex_storage_3d` function.
+        pub fn tex_storage_3d(&self, target: u32, levels: i32, internal_format: u32, width: i32, height: i32, depth: i32)  { unsafe { crate::dll::AzGl_tex_storage_3d(self, target, levels, internal_format, width, height, depth) } }
+        /// Calls the `Gl::get_tex_image_into_buffer` function.
+        pub fn get_tex_image_into_buffer(&self, target: u32, level: i32, format: u32, ty: u32, output: U8VecRefMut)  { unsafe { crate::dll::AzGl_get_tex_image_into_buffer(self, target, level, format, ty, output) } }
+        /// Calls the `Gl::copy_image_sub_data` function.
+        pub fn copy_image_sub_data(&self, src_name: u32, src_target: u32, src_level: i32, src_x: i32, src_y: i32, src_z: i32, dst_name: u32, dst_target: u32, dst_level: i32, dst_x: i32, dst_y: i32, dst_z: i32, src_width: i32, src_height: i32, src_depth: i32)  { unsafe { crate::dll::AzGl_copy_image_sub_data(self, src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth) } }
+        /// Calls the `Gl::invalidate_framebuffer` function.
+        pub fn invalidate_framebuffer(&self, target: u32, attachments: GLenumVecRef)  { unsafe { crate::dll::AzGl_invalidate_framebuffer(self, target, attachments) } }
+        /// Calls the `Gl::invalidate_sub_framebuffer` function.
+        pub fn invalidate_sub_framebuffer(&self, target: u32, attachments: GLenumVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32)  { unsafe { crate::dll::AzGl_invalidate_sub_framebuffer(self, target, attachments, xoffset, yoffset, width, height) } }
+        /// Calls the `Gl::get_integer_v` function.
+        pub fn get_integer_v(&self, name: u32, result: GLintVecRefMut)  { unsafe { crate::dll::AzGl_get_integer_v(self, name, result) } }
+        /// Calls the `Gl::get_integer_64v` function.
+        pub fn get_integer_64v(&self, name: u32, result: GLint64VecRefMut)  { unsafe { crate::dll::AzGl_get_integer_64v(self, name, result) } }
+        /// Calls the `Gl::get_integer_iv` function.
+        pub fn get_integer_iv(&self, name: u32, index: u32, result: GLintVecRefMut)  { unsafe { crate::dll::AzGl_get_integer_iv(self, name, index, result) } }
+        /// Calls the `Gl::get_integer_64iv` function.
+        pub fn get_integer_64iv(&self, name: u32, index: u32, result: GLint64VecRefMut)  { unsafe { crate::dll::AzGl_get_integer_64iv(self, name, index, result) } }
+        /// Calls the `Gl::get_boolean_v` function.
+        pub fn get_boolean_v(&self, name: u32, result: GLbooleanVecRefMut)  { unsafe { crate::dll::AzGl_get_boolean_v(self, name, result) } }
+        /// Calls the `Gl::get_float_v` function.
+        pub fn get_float_v(&self, name: u32, result: GLfloatVecRefMut)  { unsafe { crate::dll::AzGl_get_float_v(self, name, result) } }
+        /// Calls the `Gl::get_framebuffer_attachment_parameter_iv` function.
+        pub fn get_framebuffer_attachment_parameter_iv(&self, target: u32, attachment: u32, pname: u32)  -> i32 { unsafe { crate::dll::AzGl_get_framebuffer_attachment_parameter_iv(self, target, attachment, pname) } }
+        /// Calls the `Gl::get_renderbuffer_parameter_iv` function.
+        pub fn get_renderbuffer_parameter_iv(&self, target: u32, pname: u32)  -> i32 { unsafe { crate::dll::AzGl_get_renderbuffer_parameter_iv(self, target, pname) } }
+        /// Calls the `Gl::get_tex_parameter_iv` function.
+        pub fn get_tex_parameter_iv(&self, target: u32, name: u32)  -> i32 { unsafe { crate::dll::AzGl_get_tex_parameter_iv(self, target, name) } }
+        /// Calls the `Gl::get_tex_parameter_fv` function.
+        pub fn get_tex_parameter_fv(&self, target: u32, name: u32)  -> f32 { unsafe { crate::dll::AzGl_get_tex_parameter_fv(self, target, name) } }
+        /// Calls the `Gl::tex_parameter_i` function.
+        pub fn tex_parameter_i(&self, target: u32, pname: u32, param: i32)  { unsafe { crate::dll::AzGl_tex_parameter_i(self, target, pname, param) } }
+        /// Calls the `Gl::tex_parameter_f` function.
+        pub fn tex_parameter_f(&self, target: u32, pname: u32, param: f32)  { unsafe { crate::dll::AzGl_tex_parameter_f(self, target, pname, param) } }
+        /// Calls the `Gl::framebuffer_texture_2d` function.
+        pub fn framebuffer_texture_2d(&self, target: u32, attachment: u32, textarget: u32, texture: u32, level: i32)  { unsafe { crate::dll::AzGl_framebuffer_texture_2d(self, target, attachment, textarget, texture, level) } }
+        /// Calls the `Gl::framebuffer_texture_layer` function.
+        pub fn framebuffer_texture_layer(&self, target: u32, attachment: u32, texture: u32, level: i32, layer: i32)  { unsafe { crate::dll::AzGl_framebuffer_texture_layer(self, target, attachment, texture, level, layer) } }
+        /// Calls the `Gl::blit_framebuffer` function.
+        pub fn blit_framebuffer(&self, src_x0: i32, src_y0: i32, src_x1: i32, src_y1: i32, dst_x0: i32, dst_y0: i32, dst_x1: i32, dst_y1: i32, mask: u32, filter: u32)  { unsafe { crate::dll::AzGl_blit_framebuffer(self, src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter) } }
+        /// Calls the `Gl::vertex_attrib_4f` function.
+        pub fn vertex_attrib_4f(&self, index: u32, x: f32, y: f32, z: f32, w: f32)  { unsafe { crate::dll::AzGl_vertex_attrib_4f(self, index, x, y, z, w) } }
+        /// Calls the `Gl::vertex_attrib_pointer_f32` function.
+        pub fn vertex_attrib_pointer_f32(&self, index: u32, size: i32, normalized: bool, stride: i32, offset: u32)  { unsafe { crate::dll::AzGl_vertex_attrib_pointer_f32(self, index, size, normalized, stride, offset) } }
+        /// Calls the `Gl::vertex_attrib_pointer` function.
+        pub fn vertex_attrib_pointer(&self, index: u32, size: i32, type_: u32, normalized: bool, stride: i32, offset: u32)  { unsafe { crate::dll::AzGl_vertex_attrib_pointer(self, index, size, type_, normalized, stride, offset) } }
+        /// Calls the `Gl::vertex_attrib_i_pointer` function.
+        pub fn vertex_attrib_i_pointer(&self, index: u32, size: i32, type_: u32, stride: i32, offset: u32)  { unsafe { crate::dll::AzGl_vertex_attrib_i_pointer(self, index, size, type_, stride, offset) } }
+        /// Calls the `Gl::vertex_attrib_divisor` function.
+        pub fn vertex_attrib_divisor(&self, index: u32, divisor: u32)  { unsafe { crate::dll::AzGl_vertex_attrib_divisor(self, index, divisor) } }
+        /// Calls the `Gl::viewport` function.
+        pub fn viewport(&self, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::AzGl_viewport(self, x, y, width, height) } }
+        /// Calls the `Gl::scissor` function.
+        pub fn scissor(&self, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::AzGl_scissor(self, x, y, width, height) } }
+        /// Calls the `Gl::line_width` function.
+        pub fn line_width(&self, width: f32)  { unsafe { crate::dll::AzGl_line_width(self, width) } }
+        /// Calls the `Gl::use_program` function.
+        pub fn use_program(&self, program: u32)  { unsafe { crate::dll::AzGl_use_program(self, program) } }
+        /// Calls the `Gl::validate_program` function.
+        pub fn validate_program(&self, program: u32)  { unsafe { crate::dll::AzGl_validate_program(self, program) } }
+        /// Calls the `Gl::draw_arrays` function.
+        pub fn draw_arrays(&self, mode: u32, first: i32, count: i32)  { unsafe { crate::dll::AzGl_draw_arrays(self, mode, first, count) } }
+        /// Calls the `Gl::draw_arrays_instanced` function.
+        pub fn draw_arrays_instanced(&self, mode: u32, first: i32, count: i32, primcount: i32)  { unsafe { crate::dll::AzGl_draw_arrays_instanced(self, mode, first, count, primcount) } }
+        /// Calls the `Gl::draw_elements` function.
+        pub fn draw_elements(&self, mode: u32, count: i32, element_type: u32, indices_offset: u32)  { unsafe { crate::dll::AzGl_draw_elements(self, mode, count, element_type, indices_offset) } }
+        /// Calls the `Gl::draw_elements_instanced` function.
+        pub fn draw_elements_instanced(&self, mode: u32, count: i32, element_type: u32, indices_offset: u32, primcount: i32)  { unsafe { crate::dll::AzGl_draw_elements_instanced(self, mode, count, element_type, indices_offset, primcount) } }
+        /// Calls the `Gl::blend_color` function.
+        pub fn blend_color(&self, r: f32, g: f32, b: f32, a: f32)  { unsafe { crate::dll::AzGl_blend_color(self, r, g, b, a) } }
+        /// Calls the `Gl::blend_func` function.
+        pub fn blend_func(&self, sfactor: u32, dfactor: u32)  { unsafe { crate::dll::AzGl_blend_func(self, sfactor, dfactor) } }
+        /// Calls the `Gl::blend_func_separate` function.
+        pub fn blend_func_separate(&self, src_rgb: u32, dest_rgb: u32, src_alpha: u32, dest_alpha: u32)  { unsafe { crate::dll::AzGl_blend_func_separate(self, src_rgb, dest_rgb, src_alpha, dest_alpha) } }
+        /// Calls the `Gl::blend_equation` function.
+        pub fn blend_equation(&self, mode: u32)  { unsafe { crate::dll::AzGl_blend_equation(self, mode) } }
+        /// Calls the `Gl::blend_equation_separate` function.
+        pub fn blend_equation_separate(&self, mode_rgb: u32, mode_alpha: u32)  { unsafe { crate::dll::AzGl_blend_equation_separate(self, mode_rgb, mode_alpha) } }
+        /// Calls the `Gl::color_mask` function.
+        pub fn color_mask(&self, r: bool, g: bool, b: bool, a: bool)  { unsafe { crate::dll::AzGl_color_mask(self, r, g, b, a) } }
+        /// Calls the `Gl::cull_face` function.
+        pub fn cull_face(&self, mode: u32)  { unsafe { crate::dll::AzGl_cull_face(self, mode) } }
+        /// Calls the `Gl::front_face` function.
+        pub fn front_face(&self, mode: u32)  { unsafe { crate::dll::AzGl_front_face(self, mode) } }
+        /// Calls the `Gl::enable` function.
+        pub fn enable(&self, cap: u32)  { unsafe { crate::dll::AzGl_enable(self, cap) } }
+        /// Calls the `Gl::disable` function.
+        pub fn disable(&self, cap: u32)  { unsafe { crate::dll::AzGl_disable(self, cap) } }
+        /// Calls the `Gl::hint` function.
+        pub fn hint(&self, param_name: u32, param_val: u32)  { unsafe { crate::dll::AzGl_hint(self, param_name, param_val) } }
+        /// Calls the `Gl::is_enabled` function.
+        pub fn is_enabled(&self, cap: u32)  -> u8 { unsafe { crate::dll::AzGl_is_enabled(self, cap) } }
+        /// Calls the `Gl::is_shader` function.
+        pub fn is_shader(&self, shader: u32)  -> u8 { unsafe { crate::dll::AzGl_is_shader(self, shader) } }
+        /// Calls the `Gl::is_texture` function.
+        pub fn is_texture(&self, texture: u32)  -> u8 { unsafe { crate::dll::AzGl_is_texture(self, texture) } }
+        /// Calls the `Gl::is_framebuffer` function.
+        pub fn is_framebuffer(&self, framebuffer: u32)  -> u8 { unsafe { crate::dll::AzGl_is_framebuffer(self, framebuffer) } }
+        /// Calls the `Gl::is_renderbuffer` function.
+        pub fn is_renderbuffer(&self, renderbuffer: u32)  -> u8 { unsafe { crate::dll::AzGl_is_renderbuffer(self, renderbuffer) } }
+        /// Calls the `Gl::check_frame_buffer_status` function.
+        pub fn check_frame_buffer_status(&self, target: u32)  -> u32 { unsafe { crate::dll::AzGl_check_frame_buffer_status(self, target) } }
+        /// Calls the `Gl::enable_vertex_attrib_array` function.
+        pub fn enable_vertex_attrib_array(&self, index: u32)  { unsafe { crate::dll::AzGl_enable_vertex_attrib_array(self, index) } }
+        /// Calls the `Gl::disable_vertex_attrib_array` function.
+        pub fn disable_vertex_attrib_array(&self, index: u32)  { unsafe { crate::dll::AzGl_disable_vertex_attrib_array(self, index) } }
+        /// Calls the `Gl::uniform_1f` function.
+        pub fn uniform_1f(&self, location: i32, v0: f32)  { unsafe { crate::dll::AzGl_uniform_1f(self, location, v0) } }
+        /// Calls the `Gl::uniform_1fv` function.
+        pub fn uniform_1fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::AzGl_uniform_1fv(self, location, values) } }
+        /// Calls the `Gl::uniform_1i` function.
+        pub fn uniform_1i(&self, location: i32, v0: i32)  { unsafe { crate::dll::AzGl_uniform_1i(self, location, v0) } }
+        /// Calls the `Gl::uniform_1iv` function.
+        pub fn uniform_1iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::AzGl_uniform_1iv(self, location, values) } }
+        /// Calls the `Gl::uniform_1ui` function.
+        pub fn uniform_1ui(&self, location: i32, v0: u32)  { unsafe { crate::dll::AzGl_uniform_1ui(self, location, v0) } }
+        /// Calls the `Gl::uniform_2f` function.
+        pub fn uniform_2f(&self, location: i32, v0: f32, v1: f32)  { unsafe { crate::dll::AzGl_uniform_2f(self, location, v0, v1) } }
+        /// Calls the `Gl::uniform_2fv` function.
+        pub fn uniform_2fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::AzGl_uniform_2fv(self, location, values) } }
+        /// Calls the `Gl::uniform_2i` function.
+        pub fn uniform_2i(&self, location: i32, v0: i32, v1: i32)  { unsafe { crate::dll::AzGl_uniform_2i(self, location, v0, v1) } }
+        /// Calls the `Gl::uniform_2iv` function.
+        pub fn uniform_2iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::AzGl_uniform_2iv(self, location, values) } }
+        /// Calls the `Gl::uniform_2ui` function.
+        pub fn uniform_2ui(&self, location: i32, v0: u32, v1: u32)  { unsafe { crate::dll::AzGl_uniform_2ui(self, location, v0, v1) } }
+        /// Calls the `Gl::uniform_3f` function.
+        pub fn uniform_3f(&self, location: i32, v0: f32, v1: f32, v2: f32)  { unsafe { crate::dll::AzGl_uniform_3f(self, location, v0, v1, v2) } }
+        /// Calls the `Gl::uniform_3fv` function.
+        pub fn uniform_3fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::AzGl_uniform_3fv(self, location, values) } }
+        /// Calls the `Gl::uniform_3i` function.
+        pub fn uniform_3i(&self, location: i32, v0: i32, v1: i32, v2: i32)  { unsafe { crate::dll::AzGl_uniform_3i(self, location, v0, v1, v2) } }
+        /// Calls the `Gl::uniform_3iv` function.
+        pub fn uniform_3iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::AzGl_uniform_3iv(self, location, values) } }
+        /// Calls the `Gl::uniform_3ui` function.
+        pub fn uniform_3ui(&self, location: i32, v0: u32, v1: u32, v2: u32)  { unsafe { crate::dll::AzGl_uniform_3ui(self, location, v0, v1, v2) } }
+        /// Calls the `Gl::uniform_4f` function.
+        pub fn uniform_4f(&self, location: i32, x: f32, y: f32, z: f32, w: f32)  { unsafe { crate::dll::AzGl_uniform_4f(self, location, x, y, z, w) } }
+        /// Calls the `Gl::uniform_4i` function.
+        pub fn uniform_4i(&self, location: i32, x: i32, y: i32, z: i32, w: i32)  { unsafe { crate::dll::AzGl_uniform_4i(self, location, x, y, z, w) } }
+        /// Calls the `Gl::uniform_4iv` function.
+        pub fn uniform_4iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::AzGl_uniform_4iv(self, location, values) } }
+        /// Calls the `Gl::uniform_4ui` function.
+        pub fn uniform_4ui(&self, location: i32, x: u32, y: u32, z: u32, w: u32)  { unsafe { crate::dll::AzGl_uniform_4ui(self, location, x, y, z, w) } }
+        /// Calls the `Gl::uniform_4fv` function.
+        pub fn uniform_4fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::AzGl_uniform_4fv(self, location, values) } }
+        /// Calls the `Gl::uniform_matrix_2fv` function.
+        pub fn uniform_matrix_2fv(&self, location: i32, transpose: bool, value: F32VecRef)  { unsafe { crate::dll::AzGl_uniform_matrix_2fv(self, location, transpose, value) } }
+        /// Calls the `Gl::uniform_matrix_3fv` function.
+        pub fn uniform_matrix_3fv(&self, location: i32, transpose: bool, value: F32VecRef)  { unsafe { crate::dll::AzGl_uniform_matrix_3fv(self, location, transpose, value) } }
+        /// Calls the `Gl::uniform_matrix_4fv` function.
+        pub fn uniform_matrix_4fv(&self, location: i32, transpose: bool, value: F32VecRef)  { unsafe { crate::dll::AzGl_uniform_matrix_4fv(self, location, transpose, value) } }
+        /// Calls the `Gl::depth_mask` function.
+        pub fn depth_mask(&self, flag: bool)  { unsafe { crate::dll::AzGl_depth_mask(self, flag) } }
+        /// Calls the `Gl::depth_range` function.
+        pub fn depth_range(&self, near: f64, far: f64)  { unsafe { crate::dll::AzGl_depth_range(self, near, far) } }
+        /// Calls the `Gl::get_active_attrib` function.
+        pub fn get_active_attrib(&self, program: u32, index: u32)  -> crate::gl::GetActiveAttribReturn { unsafe { crate::dll::AzGl_get_active_attrib(self, program, index) } }
+        /// Calls the `Gl::get_active_uniform` function.
+        pub fn get_active_uniform(&self, program: u32, index: u32)  -> crate::gl::GetActiveUniformReturn { unsafe { crate::dll::AzGl_get_active_uniform(self, program, index) } }
+        /// Calls the `Gl::get_active_uniforms_iv` function.
+        pub fn get_active_uniforms_iv(&self, program: u32, indices: GLuintVec, pname: u32)  -> crate::vec::GLintVec { unsafe { crate::dll::AzGl_get_active_uniforms_iv(self, program, indices, pname) } }
+        /// Calls the `Gl::get_active_uniform_block_i` function.
+        pub fn get_active_uniform_block_i(&self, program: u32, index: u32, pname: u32)  -> i32 { unsafe { crate::dll::AzGl_get_active_uniform_block_i(self, program, index, pname) } }
+        /// Calls the `Gl::get_active_uniform_block_iv` function.
+        pub fn get_active_uniform_block_iv(&self, program: u32, index: u32, pname: u32)  -> crate::vec::GLintVec { unsafe { crate::dll::AzGl_get_active_uniform_block_iv(self, program, index, pname) } }
+        /// Calls the `Gl::get_active_uniform_block_name` function.
+        pub fn get_active_uniform_block_name(&self, program: u32, index: u32)  -> crate::str::String { unsafe { crate::dll::AzGl_get_active_uniform_block_name(self, program, index) } }
+        /// Calls the `Gl::get_attrib_location` function.
+        pub fn get_attrib_location(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::AzGl_get_attrib_location(self, program, name) } }
+        /// Calls the `Gl::get_frag_data_location` function.
+        pub fn get_frag_data_location(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::AzGl_get_frag_data_location(self, program, name) } }
+        /// Calls the `Gl::get_uniform_location` function.
+        pub fn get_uniform_location(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::AzGl_get_uniform_location(self, program, name) } }
+        /// Calls the `Gl::get_program_info_log` function.
+        pub fn get_program_info_log(&self, program: u32)  -> crate::str::String { unsafe { crate::dll::AzGl_get_program_info_log(self, program) } }
+        /// Calls the `Gl::get_program_iv` function.
+        pub fn get_program_iv(&self, program: u32, pname: u32, result: GLintVecRefMut)  { unsafe { crate::dll::AzGl_get_program_iv(self, program, pname, result) } }
+        /// Calls the `Gl::get_program_binary` function.
+        pub fn get_program_binary(&self, program: u32)  -> crate::gl::GetProgramBinaryReturn { unsafe { crate::dll::AzGl_get_program_binary(self, program) } }
+        /// Calls the `Gl::program_binary` function.
+        pub fn program_binary(&self, program: u32, format: u32, binary: U8VecRef)  { unsafe { crate::dll::AzGl_program_binary(self, program, format, binary) } }
+        /// Calls the `Gl::program_parameter_i` function.
+        pub fn program_parameter_i(&self, program: u32, pname: u32, value: i32)  { unsafe { crate::dll::AzGl_program_parameter_i(self, program, pname, value) } }
+        /// Calls the `Gl::get_vertex_attrib_iv` function.
+        pub fn get_vertex_attrib_iv(&self, index: u32, pname: u32, result: GLintVecRefMut)  { unsafe { crate::dll::AzGl_get_vertex_attrib_iv(self, index, pname, result) } }
+        /// Calls the `Gl::get_vertex_attrib_fv` function.
+        pub fn get_vertex_attrib_fv(&self, index: u32, pname: u32, result: GLfloatVecRefMut)  { unsafe { crate::dll::AzGl_get_vertex_attrib_fv(self, index, pname, result) } }
+        /// Calls the `Gl::get_vertex_attrib_pointer_v` function.
+        pub fn get_vertex_attrib_pointer_v(&self, index: u32, pname: u32)  -> isize { unsafe { crate::dll::AzGl_get_vertex_attrib_pointer_v(self, index, pname) } }
+        /// Calls the `Gl::get_buffer_parameter_iv` function.
+        pub fn get_buffer_parameter_iv(&self, target: u32, pname: u32)  -> i32 { unsafe { crate::dll::AzGl_get_buffer_parameter_iv(self, target, pname) } }
+        /// Calls the `Gl::get_shader_info_log` function.
+        pub fn get_shader_info_log(&self, shader: u32)  -> crate::str::String { unsafe { crate::dll::AzGl_get_shader_info_log(self, shader) } }
+        /// Calls the `Gl::get_string` function.
+        pub fn get_string(&self, which: u32)  -> crate::str::String { unsafe { crate::dll::AzGl_get_string(self, which) } }
+        /// Calls the `Gl::get_string_i` function.
+        pub fn get_string_i(&self, which: u32, index: u32)  -> crate::str::String { unsafe { crate::dll::AzGl_get_string_i(self, which, index) } }
+        /// Calls the `Gl::get_shader_iv` function.
+        pub fn get_shader_iv(&self, shader: u32, pname: u32, result: GLintVecRefMut)  { unsafe { crate::dll::AzGl_get_shader_iv(self, shader, pname, result) } }
+        /// Calls the `Gl::get_shader_precision_format` function.
+        pub fn get_shader_precision_format(&self, shader_type: u32, precision_type: u32)  -> crate::gl::GlShaderPrecisionFormatReturn { unsafe { crate::dll::AzGl_get_shader_precision_format(self, shader_type, precision_type) } }
+        /// Calls the `Gl::compile_shader` function.
+        pub fn compile_shader(&self, shader: u32)  { unsafe { crate::dll::AzGl_compile_shader(self, shader) } }
+        /// Calls the `Gl::create_program` function.
+        pub fn create_program(&self)  -> u32 { unsafe { crate::dll::AzGl_create_program(self) } }
+        /// Calls the `Gl::delete_program` function.
+        pub fn delete_program(&self, program: u32)  { unsafe { crate::dll::AzGl_delete_program(self, program) } }
+        /// Calls the `Gl::create_shader` function.
+        pub fn create_shader(&self, shader_type: u32)  -> u32 { unsafe { crate::dll::AzGl_create_shader(self, shader_type) } }
+        /// Calls the `Gl::delete_shader` function.
+        pub fn delete_shader(&self, shader: u32)  { unsafe { crate::dll::AzGl_delete_shader(self, shader) } }
+        /// Calls the `Gl::detach_shader` function.
+        pub fn detach_shader(&self, program: u32, shader: u32)  { unsafe { crate::dll::AzGl_detach_shader(self, program, shader) } }
+        /// Calls the `Gl::link_program` function.
+        pub fn link_program(&self, program: u32)  { unsafe { crate::dll::AzGl_link_program(self, program) } }
+        /// Calls the `Gl::clear_color` function.
+        pub fn clear_color(&self, r: f32, g: f32, b: f32, a: f32)  { unsafe { crate::dll::AzGl_clear_color(self, r, g, b, a) } }
+        /// Calls the `Gl::clear` function.
+        pub fn clear(&self, buffer_mask: u32)  { unsafe { crate::dll::AzGl_clear(self, buffer_mask) } }
+        /// Calls the `Gl::clear_depth` function.
+        pub fn clear_depth(&self, depth: f64)  { unsafe { crate::dll::AzGl_clear_depth(self, depth) } }
+        /// Calls the `Gl::clear_stencil` function.
+        pub fn clear_stencil(&self, s: i32)  { unsafe { crate::dll::AzGl_clear_stencil(self, s) } }
+        /// Calls the `Gl::flush` function.
+        pub fn flush(&self)  { unsafe { crate::dll::AzGl_flush(self) } }
+        /// Calls the `Gl::finish` function.
+        pub fn finish(&self)  { unsafe { crate::dll::AzGl_finish(self) } }
+        /// Calls the `Gl::get_error` function.
+        pub fn get_error(&self)  -> u32 { unsafe { crate::dll::AzGl_get_error(self) } }
+        /// Calls the `Gl::stencil_mask` function.
+        pub fn stencil_mask(&self, mask: u32)  { unsafe { crate::dll::AzGl_stencil_mask(self, mask) } }
+        /// Calls the `Gl::stencil_mask_separate` function.
+        pub fn stencil_mask_separate(&self, face: u32, mask: u32)  { unsafe { crate::dll::AzGl_stencil_mask_separate(self, face, mask) } }
+        /// Calls the `Gl::stencil_func` function.
+        pub fn stencil_func(&self, func: u32, ref_: i32, mask: u32)  { unsafe { crate::dll::AzGl_stencil_func(self, func, ref_, mask) } }
+        /// Calls the `Gl::stencil_func_separate` function.
+        pub fn stencil_func_separate(&self, face: u32, func: u32, ref_: i32, mask: u32)  { unsafe { crate::dll::AzGl_stencil_func_separate(self, face, func, ref_, mask) } }
+        /// Calls the `Gl::stencil_op` function.
+        pub fn stencil_op(&self, sfail: u32, dpfail: u32, dppass: u32)  { unsafe { crate::dll::AzGl_stencil_op(self, sfail, dpfail, dppass) } }
+        /// Calls the `Gl::stencil_op_separate` function.
+        pub fn stencil_op_separate(&self, face: u32, sfail: u32, dpfail: u32, dppass: u32)  { unsafe { crate::dll::AzGl_stencil_op_separate(self, face, sfail, dpfail, dppass) } }
+        /// Calls the `Gl::egl_image_target_texture2d_oes` function.
+        pub fn egl_image_target_texture2d_oes(&self, target: u32, image: *const c_void)  { unsafe { crate::dll::AzGl_egl_image_target_texture2d_oes(self, target, image) } }
+        /// Calls the `Gl::generate_mipmap` function.
+        pub fn generate_mipmap(&self, target: u32)  { unsafe { crate::dll::AzGl_generate_mipmap(self, target) } }
+        /// Calls the `Gl::insert_event_marker_ext` function.
+        pub fn insert_event_marker_ext(&self, message: Refstr)  { unsafe { crate::dll::AzGl_insert_event_marker_ext(self, message) } }
+        /// Calls the `Gl::push_group_marker_ext` function.
+        pub fn push_group_marker_ext(&self, message: Refstr)  { unsafe { crate::dll::AzGl_push_group_marker_ext(self, message) } }
+        /// Calls the `Gl::pop_group_marker_ext` function.
+        pub fn pop_group_marker_ext(&self)  { unsafe { crate::dll::AzGl_pop_group_marker_ext(self) } }
+        /// Calls the `Gl::debug_message_insert_khr` function.
+        pub fn debug_message_insert_khr(&self, source: u32, type_: u32, id: u32, severity: u32, message: Refstr)  { unsafe { crate::dll::AzGl_debug_message_insert_khr(self, source, type_, id, severity, message) } }
+        /// Calls the `Gl::push_debug_group_khr` function.
+        pub fn push_debug_group_khr(&self, source: u32, id: u32, message: Refstr)  { unsafe { crate::dll::AzGl_push_debug_group_khr(self, source, id, message) } }
+        /// Calls the `Gl::pop_debug_group_khr` function.
+        pub fn pop_debug_group_khr(&self)  { unsafe { crate::dll::AzGl_pop_debug_group_khr(self) } }
+        /// Calls the `Gl::fence_sync` function.
+        pub fn fence_sync(&self, condition: u32, flags: u32)  -> crate::gl::GLsyncPtr { unsafe { crate::dll::AzGl_fence_sync(self, condition, flags) } }
+        /// Calls the `Gl::client_wait_sync` function.
+        pub fn client_wait_sync(&self, sync: GLsyncPtr, flags: u32, timeout: u64)  -> u32 { unsafe { crate::dll::AzGl_client_wait_sync(self, sync, flags, timeout) } }
+        /// Calls the `Gl::wait_sync` function.
+        pub fn wait_sync(&self, sync: GLsyncPtr, flags: u32, timeout: u64)  { unsafe { crate::dll::AzGl_wait_sync(self, sync, flags, timeout) } }
+        /// Calls the `Gl::delete_sync` function.
+        pub fn delete_sync(&self, sync: GLsyncPtr)  { unsafe { crate::dll::AzGl_delete_sync(self, sync) } }
+        /// Calls the `Gl::texture_range_apple` function.
+        pub fn texture_range_apple(&self, target: u32, data: U8VecRef)  { unsafe { crate::dll::AzGl_texture_range_apple(self, target, data) } }
+        /// Calls the `Gl::gen_fences_apple` function.
+        pub fn gen_fences_apple(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::AzGl_gen_fences_apple(self, n) } }
+        /// Calls the `Gl::delete_fences_apple` function.
+        pub fn delete_fences_apple(&self, fences: GLuintVecRef)  { unsafe { crate::dll::AzGl_delete_fences_apple(self, fences) } }
+        /// Calls the `Gl::set_fence_apple` function.
+        pub fn set_fence_apple(&self, fence: u32)  { unsafe { crate::dll::AzGl_set_fence_apple(self, fence) } }
+        /// Calls the `Gl::finish_fence_apple` function.
+        pub fn finish_fence_apple(&self, fence: u32)  { unsafe { crate::dll::AzGl_finish_fence_apple(self, fence) } }
+        /// Calls the `Gl::test_fence_apple` function.
+        pub fn test_fence_apple(&self, fence: u32)  { unsafe { crate::dll::AzGl_test_fence_apple(self, fence) } }
+        /// Calls the `Gl::test_object_apple` function.
+        pub fn test_object_apple(&self, object: u32, name: u32)  -> u8 { unsafe { crate::dll::AzGl_test_object_apple(self, object, name) } }
+        /// Calls the `Gl::finish_object_apple` function.
+        pub fn finish_object_apple(&self, object: u32, name: u32)  { unsafe { crate::dll::AzGl_finish_object_apple(self, object, name) } }
+        /// Calls the `Gl::get_frag_data_index` function.
+        pub fn get_frag_data_index(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::AzGl_get_frag_data_index(self, program, name) } }
+        /// Calls the `Gl::blend_barrier_khr` function.
+        pub fn blend_barrier_khr(&self)  { unsafe { crate::dll::AzGl_blend_barrier_khr(self) } }
+        /// Calls the `Gl::bind_frag_data_location_indexed` function.
+        pub fn bind_frag_data_location_indexed(&self, program: u32, color_number: u32, index: u32, name: Refstr)  { unsafe { crate::dll::AzGl_bind_frag_data_location_indexed(self, program, color_number, index, name) } }
+        /// Calls the `Gl::get_debug_messages` function.
+        pub fn get_debug_messages(&self)  -> crate::vec::DebugMessageVec { unsafe { crate::dll::AzGl_get_debug_messages(self) } }
+        /// Calls the `Gl::provoking_vertex_angle` function.
+        pub fn provoking_vertex_angle(&self, mode: u32)  { unsafe { crate::dll::AzGl_provoking_vertex_angle(self, mode) } }
+        /// Calls the `Gl::gen_vertex_arrays_apple` function.
+        pub fn gen_vertex_arrays_apple(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::AzGl_gen_vertex_arrays_apple(self, n) } }
+        /// Calls the `Gl::bind_vertex_array_apple` function.
+        pub fn bind_vertex_array_apple(&self, vao: u32)  { unsafe { crate::dll::AzGl_bind_vertex_array_apple(self, vao) } }
+        /// Calls the `Gl::delete_vertex_arrays_apple` function.
+        pub fn delete_vertex_arrays_apple(&self, vertex_arrays: GLuintVecRef)  { unsafe { crate::dll::AzGl_delete_vertex_arrays_apple(self, vertex_arrays) } }
+        /// Calls the `Gl::copy_texture_chromium` function.
+        pub fn copy_texture_chromium(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::AzGl_copy_texture_chromium(self, source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
+        /// Calls the `Gl::copy_sub_texture_chromium` function.
+        pub fn copy_sub_texture_chromium(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, x: i32, y: i32, width: i32, height: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::AzGl_copy_sub_texture_chromium(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
+        /// Calls the `Gl::egl_image_target_renderbuffer_storage_oes` function.
+        pub fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: *const c_void)  { unsafe { crate::dll::AzGl_egl_image_target_renderbuffer_storage_oes(self, target, image) } }
+        /// Calls the `Gl::copy_texture_3d_angle` function.
+        pub fn copy_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::AzGl_copy_texture_3d_angle(self, source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
+        /// Calls the `Gl::copy_sub_texture_3d_angle` function.
+        pub fn copy_sub_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::AzGl_copy_sub_texture_3d_angle(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
+        /// Calls the `Gl::buffer_storage` function.
+        pub fn buffer_storage(&self, target: u32, size: isize, data: *const c_void, flags: u32)  { unsafe { crate::dll::AzGl_buffer_storage(self, target, size, data, flags) } }
+        /// Calls the `Gl::flush_mapped_buffer_range` function.
+        pub fn flush_mapped_buffer_range(&self, target: u32, offset: isize, length: isize)  { unsafe { crate::dll::AzGl_flush_mapped_buffer_range(self, target, offset, length) } }
     }
 
-    impl Clone for GlContextPtr { fn clone(&self) -> Self { unsafe { crate::dll::az_gl_context_ptr_deep_copy(self) } } }
-    impl Drop for GlContextPtr { fn drop(&mut self) { unsafe { crate::dll::az_gl_context_ptr_delete(self) } } }
+    impl Clone for Gl { fn clone(&self) -> Self { unsafe { crate::dll::AzGl_deepCopy(self) } } }
+    impl Drop for Gl { fn drop(&mut self) { unsafe { crate::dll::AzGl_delete(self) } } }
     /// `Texture` struct
     
 #[doc(inline)] pub use crate::dll::AzTexture as Texture;
-    impl Drop for Texture { fn drop(&mut self) { unsafe { crate::dll::az_texture_delete(self) } } }
+    impl Drop for Texture { fn drop(&mut self) { unsafe { crate::dll::AzTexture_delete(self) } } }
     /// `GlShaderPrecisionFormatReturn` struct
     
 #[doc(inline)] pub use crate::dll::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;
@@ -8801,7 +8801,7 @@ pub mod gl {
     /// C-ABI stable reexport of `*const gleam::gl::GLsync`
     
 #[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
-    impl Drop for GLsyncPtr { fn drop(&mut self) { unsafe { crate::dll::az_g_lsync_ptr_delete(self) } } }
+    impl Drop for GLsyncPtr { fn drop(&mut self) { unsafe { crate::dll::AzGLsyncPtr_delete(self) } } }
     /// C-ABI stable reexport of `(i32, u32, AzString)`
     
 #[doc(inline)] pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;
@@ -8810,7 +8810,7 @@ pub mod gl {
 #[doc(inline)] pub use crate::dll::AzTextureFlags as TextureFlags;
     impl TextureFlags {
         /// Default texture flags (not opaque, not a video texture)
-        pub fn default() -> Self { unsafe { crate::dll::az_texture_flags_default() } }
+        pub fn default() -> Self { unsafe { crate::dll::AzTextureFlags_default() } }
     }
 
 }
@@ -8832,7 +8832,7 @@ pub mod resources {
 #[doc(inline)] pub use crate::dll::AzImageId as ImageId;
     impl ImageId {
         /// Creates a new, unique `ImageId`
-        pub fn new() -> Self { unsafe { crate::dll::az_image_id_new() } }
+        pub fn new() -> Self { unsafe { crate::dll::AzImageId_new() } }
     }
 
     /// `FontId` struct
@@ -8840,7 +8840,7 @@ pub mod resources {
 #[doc(inline)] pub use crate::dll::AzFontId as FontId;
     impl FontId {
         /// Creates a new, unique `FontId`
-        pub fn new() -> Self { unsafe { crate::dll::az_font_id_new() } }
+        pub fn new() -> Self { unsafe { crate::dll::AzFontId_new() } }
     }
 
     /// `ImageSource` struct
@@ -8863,7 +8863,7 @@ pub mod resources {
 #[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
     impl RawImage {
         /// Creates a new `RawImage` by loading the decoded bytes
-        pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { unsafe { crate::dll::az_raw_image_new(decoded_pixels, width, height, data_format) } }
+        pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { unsafe { crate::dll::AzRawImage_new(decoded_pixels, width, height, data_format) } }
     }
 
 }
@@ -8921,7 +8921,7 @@ pub mod svg {
 #[doc(inline)] pub use crate::dll::AzSvgParseOptions as SvgParseOptions;
     impl SvgParseOptions {
         /// Creates a new `SvgParseOptions` instance.
-        pub fn default() -> Self { unsafe { crate::dll::az_svg_parse_options_default() } }
+        pub fn default() -> Self { unsafe { crate::dll::AzSvgParseOptions_default() } }
     }
 
     /// `ShapeRendering` struct
@@ -8941,7 +8941,7 @@ pub mod svg {
 #[doc(inline)] pub use crate::dll::AzSvgRenderOptions as SvgRenderOptions;
     impl SvgRenderOptions {
         /// Creates a new `SvgRenderOptions` instance.
-        pub fn default() -> Self { unsafe { crate::dll::az_svg_render_options_default() } }
+        pub fn default() -> Self { unsafe { crate::dll::AzSvgRenderOptions_default() } }
     }
 
     /// `SvgFitTo` struct
@@ -8952,16 +8952,16 @@ pub mod svg {
 #[doc(inline)] pub use crate::dll::AzSvg as Svg;
     impl Svg {
         /// Creates a new `Svg` instance.
-        pub fn parse(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgSvgParseError { unsafe { crate::dll::az_svg_parse(svg_bytes, parse_options) } }
+        pub fn parse(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgSvgParseError { unsafe { crate::dll::AzSvg_parse(svg_bytes, parse_options) } }
     }
 
-    impl Clone for Svg { fn clone(&self) -> Self { unsafe { crate::dll::az_svg_deep_copy(self) } } }
-    impl Drop for Svg { fn drop(&mut self) { unsafe { crate::dll::az_svg_delete(self) } } }
+    impl Clone for Svg { fn clone(&self) -> Self { unsafe { crate::dll::AzSvg_deepCopy(self) } } }
+    impl Drop for Svg { fn drop(&mut self) { unsafe { crate::dll::AzSvg_delete(self) } } }
     /// `SvgXmlNode` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgXmlNode as SvgXmlNode;
-    impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::az_svg_xml_node_deep_copy(self) } } }
-    impl Drop for SvgXmlNode { fn drop(&mut self) { unsafe { crate::dll::az_svg_xml_node_delete(self) } } }
+    impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::AzSvgXmlNode_deepCopy(self) } } }
+    impl Drop for SvgXmlNode { fn drop(&mut self) { unsafe { crate::dll::AzSvgXmlNode_delete(self) } } }
     /// `SvgLineJoin` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgLineJoin as SvgLineJoin;
@@ -8991,7 +8991,7 @@ pub mod task {
 #[doc(inline)] pub use crate::dll::AzTimerId as TimerId;
     impl TimerId {
         /// Creates a new `TimerId` instance.
-        pub fn unique() -> Self { unsafe { crate::dll::az_timer_id_unique() } }
+        pub fn unique() -> Self { unsafe { crate::dll::AzTimerId_unique() } }
     }
 
     /// `Timer` struct
@@ -8999,13 +8999,13 @@ pub mod task {
 #[doc(inline)] pub use crate::dll::AzTimer as Timer;
     impl Timer {
         /// Creates a new `Timer` instance.
-        pub fn new(timer_data: RefAny, callback: TimerCallbackType, get_system_time_fn: GetSystemTimeFn) -> Self { unsafe { crate::dll::az_timer_new(timer_data, callback, get_system_time_fn) } }
+        pub fn new(timer_data: RefAny, callback: TimerCallbackType, get_system_time_fn: GetSystemTimeFn) -> Self { unsafe { crate::dll::AzTimer_new(timer_data, callback, get_system_time_fn) } }
         /// Calls the `Timer::with_delay` function.
-        pub fn with_delay(self, delay: Duration)  -> crate::task::Timer { unsafe { crate::dll::az_timer_with_delay(self, delay) } }
+        pub fn with_delay(self, delay: Duration)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_with_delay(self, delay) } }
         /// Calls the `Timer::with_interval` function.
-        pub fn with_interval(self, interval: Duration)  -> crate::task::Timer { unsafe { crate::dll::az_timer_with_interval(self, interval) } }
+        pub fn with_interval(self, interval: Duration)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_with_interval(self, interval) } }
         /// Calls the `Timer::with_timeout` function.
-        pub fn with_timeout(self, timeout: Duration)  -> crate::task::Timer { unsafe { crate::dll::az_timer_with_timeout(self, timeout) } }
+        pub fn with_timeout(self, timeout: Duration)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_with_timeout(self, timeout) } }
     }
 
     /// Should a timer terminate or not - used to remove active timers
@@ -9022,19 +9022,19 @@ pub mod task {
 #[doc(inline)] pub use crate::dll::AzThreadSender as ThreadSender;
     impl ThreadSender {
         /// Calls the `ThreadSender::send` function.
-        pub fn send(&mut self, msg: ThreadReceiveMsg)  -> bool { unsafe { crate::dll::az_thread_sender_send(self, msg) } }
+        pub fn send(&mut self, msg: ThreadReceiveMsg)  -> bool { unsafe { crate::dll::AzThreadSender_send(self, msg) } }
     }
 
-    impl Drop for ThreadSender { fn drop(&mut self) { unsafe { crate::dll::az_thread_sender_delete(self) } } }
+    impl Drop for ThreadSender { fn drop(&mut self) { unsafe { crate::dll::AzThreadSender_delete(self) } } }
     /// `ThreadReceiver` struct
     
 #[doc(inline)] pub use crate::dll::AzThreadReceiver as ThreadReceiver;
     impl ThreadReceiver {
         /// Calls the `ThreadReceiver::receive` function.
-        pub fn receive(&mut self)  -> crate::option::OptionThreadSendMsg { unsafe { crate::dll::az_thread_receiver_receive(self) } }
+        pub fn receive(&mut self)  -> crate::option::OptionThreadSendMsg { unsafe { crate::dll::AzThreadReceiver_receive(self) } }
     }
 
-    impl Drop for ThreadReceiver { fn drop(&mut self) { unsafe { crate::dll::az_thread_receiver_delete(self) } } }
+    impl Drop for ThreadReceiver { fn drop(&mut self) { unsafe { crate::dll::AzThreadReceiver_delete(self) } } }
     /// `ThreadSendMsg` struct
     
 #[doc(inline)] pub use crate::dll::AzThreadSendMsg as ThreadSendMsg;
@@ -9977,9 +9977,9 @@ pub mod option {
     impl_option!(AzDuration, AzOptionDuration, [Debug, Copy, Clone]);
     impl_option!(AzInstant, AzOptionInstant, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
-    /// `OptionGlContextPtr` struct
+    /// `OptionGl` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionGlContextPtr as OptionGlContextPtr;
+#[doc(inline)] pub use crate::dll::AzOptionGl as OptionGl;
     /// `OptionThreadReceiveMsg` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionThreadReceiveMsg as OptionThreadReceiveMsg;
@@ -10168,8 +10168,8 @@ pub mod time {
     /// `InstantPtr` struct
     
 #[doc(inline)] pub use crate::dll::AzInstantPtr as InstantPtr;
-    impl Clone for InstantPtr { fn clone(&self) -> Self { unsafe { crate::dll::az_instant_ptr_deep_copy(self) } } }
-    impl Drop for InstantPtr { fn drop(&mut self) { unsafe { crate::dll::az_instant_ptr_delete(self) } } }
+    impl Clone for InstantPtr { fn clone(&self) -> Self { unsafe { crate::dll::AzInstantPtr_deepCopy(self) } } }
+    impl Drop for InstantPtr { fn drop(&mut self) { unsafe { crate::dll::AzInstantPtr_delete(self) } } }
     /// `InstantPtrCloneFnType` struct
     
 #[doc(inline)] pub use crate::dll::AzInstantPtrCloneFnType as InstantPtrCloneFnType;
