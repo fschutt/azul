@@ -24,6 +24,9 @@ def remove_path(path):
 def zip_directory(output_filename, dir_name):
     shutil.make_archive(output_filename, 'zip', dir_name)
 
+def copy_file(src, dest):
+    shutil.copyfile(src, dest)
+
 def read_file(path):
     text_file = open(path, 'r')
     text_file_contents = text_file.read()
@@ -1681,6 +1684,8 @@ def format_doc(docstring):
     newdoc = docstring
     newdoc = newdoc.replace("<", "&lt;")
     newdoc = newdoc.replace(">", "&gt;")
+    newdoc = newdoc.replace("```rust", "<code>")
+    newdoc = newdoc.replace("```", "</code>")
     newdoc = replace_split(newdoc, "`", "code")
     newdoc = replace_split(newdoc, "**", "strong")
     newdoc = newdoc.replace("\r\n", "<br/>")
@@ -1696,10 +1701,102 @@ def generate_docs():
     if not(os.path.exists(root_folder + "/target")):
         create_folder(root_folder + "/target")
 
+    all_versions = list(apiData.keys())
+    current_version = all_versions[-1]
+
     create_folder(root_folder + "/target/html")
     create_folder(root_folder + "/target/html/api")
+    create_folder(root_folder + "/target/html/guide")
+    for version in all_versions:
+        create_folder(root_folder + "/target/html/guide/" + version)
+    create_folder(root_folder + "/target/html/release")
+    create_folder(root_folder + "/target/html/fonts")
+    create_folder(root_folder + "/target/html/images")
 
-    all_versions = list(apiData.keys())
+    # copy files
+    copy_file(root_folder + "/api/_patches/html/index.html", root_folder + "/target/html/index.html")
+    copy_file(root_folder + "/api/_patches/html/main.css", root_folder + "/target/html/main.css")
+    copy_file(root_folder + "/examples/assets/fonts/Morris Jenson Initialen.ttf", root_folder + "/target/html/fonts/Morris Jenson Initialen.ttf")
+    copy_file(root_folder + "/examples/assets/fonts/SourceSerifPro-Regular.ttf", root_folder + "/target/html/fonts/SourceSerifPro-Regular.ttf")
+
+    guide_sidebar = "<ul>"
+    guide_sidebar_nested = "<ul>"
+    guides_rendered = []
+    for entry in sorted(os.scandir(root_folder + "/api/_patches/html/guide"),key=lambda x: x.name):
+        if entry.path.endswith(".md") and entry.is_file():
+            entry_name = entry.name[3:-3]
+            html_path_name = entry_name.replace(" ", "")
+            guide_sidebar += "<li><a href=\"./guide/" + current_version + "/" + html_path_name + ".html\">" + entry_name + "</a></li>"
+            guide_sidebar_nested += "<li><a href=\"./" + html_path_name + ".html\">" + entry_name + "</a></li>"
+            guides_rendered.append(tuple((entry_name, read_file(entry.path))))
+    guide_sidebar += "</ul>"
+    guide_sidebar_nested += "</ul>"
+
+    guide_combined_page = html_template.replace("$$ROOT_RELATIVE$$", ".")
+    guide_combined_page = guide_combined_page.replace("$$SIDEBAR_GUIDE$$", "")
+    guide_combined_page = guide_combined_page.replace("$$SIDEBAR_RELEASES$$", "")
+    guide_combined_page = guide_combined_page.replace("$$SIDEBAR_API$$", "")
+    guide_combined_page = guide_combined_page.replace("$$TITLE$$", "User guide")
+    guide_combined_page = guide_combined_page.replace("$$CONTENT$$", guide_sidebar)
+    write_file(guide_combined_page, root_folder + "/target/html/guide.html")
+
+    for guide in guides_rendered:
+        entry_name = guide[0]
+        html_path_name = entry_name.replace(" ", "")
+        guide_content = guide[1]
+        formatted_guide = html_template.replace("$$ROOT_RELATIVE$$", "../..")
+        formatted_guide = formatted_guide.replace("$$SIDEBAR_GUIDE$$", guide_sidebar_nested)
+        formatted_guide = formatted_guide.replace("$$SIDEBAR_RELEASES$$", "")
+        formatted_guide = formatted_guide.replace("$$SIDEBAR_API$$", "")
+        formatted_guide = formatted_guide.replace("$$TITLE$$", entry_name)
+        formatted_guide = formatted_guide.replace("$$CONTENT$$", guide_content)
+        extra_css = """
+        main > div { max-width: 80ch; }
+        main > div > p { margin-left: 10px; margin-top: 10px; }
+        main p, main a, main strong { font-family: "Source Serif Pro", serif; font-size: 16px; }
+        main > div > h3 { margin: 10px; }
+        main .warning h4 { margin-bottom: 10px; }
+        main .warning {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px dashed #facb26;
+            margin: 10px;
+            background: #fff8be;
+            color: #222;
+            box-shadow: 0px 0px 20px #facb2655;
+        }
+        main code.expand { display: block; margin-top: 20px; padding: 10px; border-radius: 5px; }
+        """
+        formatted_guide = formatted_guide.replace("/*$$_EXTRA_CSS$$*/", extra_css)
+        write_file(formatted_guide, root_folder + "/target/html/guide/" + current_version + "/" + html_path_name + ".html")
+
+    releases_string = "<ul>"
+    for version in all_versions:
+        releases_string += "<li><a href=\"./release/" + version + ".html\">" + version + "</a></li>"
+    releases_string += "</ul>"
+
+    releases_combined_page = html_template.replace("$$ROOT_RELATIVE$$", ".")
+    releases_combined_page = releases_combined_page.replace("$$SIDEBAR_GUIDE$$", "")
+    releases_combined_page = releases_combined_page.replace("$$SIDEBAR_RELEASES$$", releases_string)
+    releases_combined_page = releases_combined_page.replace("$$SIDEBAR_API$$", "")
+    releases_combined_page = releases_combined_page.replace("$$TITLE$$", "Choose release version")
+    releases_combined_page = releases_combined_page.replace("$$CONTENT$$", releases_string)
+    write_file(releases_combined_page, root_folder + "/target/html/releases.html")
+
+    for version in all_versions:
+        release_announcement = read_file(root_folder + "/api/_patches/html/release/" + version + ".html")
+        release_page = html_template.replace("$$ROOT_RELATIVE$$", "..")
+        release_page = release_page.replace("$$SIDEBAR_GUIDE$$", "")
+        release_page = release_page.replace("$$SIDEBAR_RELEASES$$", releases_string)
+        release_page = release_page.replace("$$SIDEBAR_API$$", "")
+        release_page = release_page.replace("$$TITLE$$", "Release notes - Azul GUI v" + version)
+        release_page = release_page.replace("$$CONTENT$$", release_announcement)
+        write_file(release_page, root_folder + "/target/html/release/" + version + ".html")
+
+    api_sidebar_string = "<ul>"
+    for version in all_versions:
+        api_sidebar_string += "<li><a href=\"./api/" + version + ".html\">" + version + "</a></li>"
+    api_sidebar_string += "</ul>"
 
     for version in all_versions:
 
@@ -1938,22 +2035,19 @@ def generate_docs():
         body > .center > main > div a { color: inherit !important; }\
         "
         final_html = final_html.replace("/*$$_EXTRA_CSS$$*/", extra_css)
+        final_html = final_html.replace("$$SIDEBAR_RELEASES$$", "")
         final_html = final_html.replace("$$SIDEBAR_GUIDE$$", "")
-        final_html = final_html.replace("$$SIDEBAR_CLASSES$$", releases_string)
+        final_html = final_html.replace("$$SIDEBAR_API$$", api_sidebar_string)
         final_html = final_html.replace("$$TITLE$$", "v" + version)
         final_html = final_html.replace("$$CONTENT$$", api_page_contents)
         write_file(final_html, root_folder + "/target/html/api/" + version + ".html")
 
-    releases_string = "<ul>"
-    for version in all_versions:
-        releases_string += "<li><a href=\"./api/" + version + ".html\">" + version + "</a></li>"
-    releases_string += "</ul>"
-
     api_combined_page = html_template.replace("$$ROOT_RELATIVE$$", ".")
     api_combined_page = api_combined_page.replace("$$SIDEBAR_GUIDE$$", "")
-    api_combined_page = api_combined_page.replace("$$SIDEBAR_CLASSES$$", releases_string)
+    api_combined_page = api_combined_page.replace("$$SIDEBAR_RELEASES$$", "")
+    api_combined_page = api_combined_page.replace("$$SIDEBAR_API$$", api_sidebar_string)
     api_combined_page = api_combined_page.replace("$$TITLE$$", "Choose API version")
-    api_combined_page = api_combined_page.replace("$$CONTENT$$", releases_string)
+    api_combined_page = api_combined_page.replace("$$CONTENT$$", api_sidebar_string)
     write_file(api_combined_page, root_folder + "/target/html/api.html")
 
 def build_azulc():
