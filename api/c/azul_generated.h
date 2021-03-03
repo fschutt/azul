@@ -20,13 +20,16 @@
 #endif
 
 /* cross-platform define for ssize_t (signed size_t) */
-#ifdef __unix__
-   #include <sys/types.h>
-   #define ssize_t size_t
-#elif defined(_WIN32) || defined(WIN32)
-   #define ssize_t SSIZE_T
+#ifdef _WIN32
+#include <windows.h>
+#ifdef _MSC_VER
+typedef SSIZE_T ssize_t;
+#endif
 #else
-   #define ssize_t size_t
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 #endif
 
 

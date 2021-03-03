@@ -10,3 +10,5 @@ out.txt
 *.dll
 *.so
 *.out
+*.o
+*.exe
