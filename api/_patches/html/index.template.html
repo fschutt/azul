@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Azul GUI Framework</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+  <meta name="description" content="Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine">
+  <meta name="keywords" content="gui, rust, user interface">
+
+  <link rel="preload" as="font" href="./fonts/SourceSerifPro-Regular.ttf" type="font/ttf">
+  <link rel="preload" as="font" href="./fonts/Morris Jenson Initialen.ttf" type="font/ttf">
+
+  <link rel="shortcut icon" type="image/x-icon" href="./favicon.ico">
+  <link rel="stylesheet" type="text/css" href="./main.css">
+  <!-- index.css -->
+  <style>
+    main header {
+      max-width: 500px;
+      margin-bottom: 30px;
+    }
+    main header h2 {
+      margin-top: -10px;
+      margin-bottom: 40px;
+      font-size: 3em;
+      font-weight: 100;
+    }
+    main header h2 .first-letter {
+      display: inline-block;
+      float: left;
+      margin-right: 5px;
+      font-family: "Morris Jenson Initialen", serif;
+      font-weight: 500;
+      font-size: 2.25em;
+    }
+    main header h3 {
+      margin-top: 25px;
+      font-size: 1.2rem;
+      font-weight: normal;
+    }
+    main section .col-1 {
+      float: left;
+      margin-right: 25px;
+    }
+    main section .col-2 {
+      overflow: hidden;
+      max-width: 500px;
+      float: right;
+    }
+    main section .col-2 img {
+      max-width: 100%;
+      margin-bottom: 10px;
+      height: auto;
+    }
+    main section .col-2 .stats {
+      float: left;
+      list-style-type: none;
+      font-weight: bold;
+    }
+    main section .col-2 .controls {
+      overflow: hidden;
+    }
+    main section .col-2 .controls > * {
+      float: right;
+      margin-left: 10px;
+    }
+    .gradient-border-wrap {
+      padding: 1px;
+      border-radius: 5px;
+      background: radial-gradient(ellipse farthest-corner at right bottom,#fedb37 0,#fdb931 8%,#9f7928 30%,#8a6e2f 40%,transparent 80%),
+                  radial-gradient(ellipse farthest-corner at left top,#fff 0,#ffffac 8%,#d1b464 25%,#5d4a1f 62.5%,#5d4a1f 100%);
+    }
+    main section .col-2 .controls .gradient-border-wrap button {
+      background: #333;
+      color: #eee;
+      cursor: pointer;
+      font-size: 1.2em;
+      padding: 10px;
+      appearance: none;
+      -webkit-appearance: none;
+      border: none;
+      border-radius: 5px;
+    }
+    .description {
+      clear: both;
+      margin-top: 50px;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="center">
+  <aside>
+    <header>
+      <h1 style="display:none;">Azul GUI Framework</h1>
+      <svg width="100" height="100" version="1.1" viewBox="0 0 26.458 26.458" xmlns="http://www.w3.org/2000/svg">
+       <defs>
+        <clipPath id="a_clip">
+         <rect x="-103.9" y="110.66" width="10.146" height="8.6313" rx="0" ry="0"/>
+        </clipPath>
+       </defs>
+       <g transform="translate(0 -270.54)" fill="none" stroke="white">
+        <path d="m1.9902 284.71v6.1165c0 2.412 1.9553 4.3674 4.3674 4.3674s4.3674-1.9553 4.3674-4.3674v-6.0314" stroke-width="4.149" style="paint-order:markers stroke fill"/>
+        <path transform="matrix(1.3553 0 0 1.3553 140.71 120.94)" d="m-95.471 120-3.7063-6.4442-3.2859 6.3476" clip-path="url(#a_clip)" stroke-linecap="square" stroke-width="2.85"/>
+        <path d="m26.407 281.13h-8.8649l5.6491-9.1131h-8.2728" stroke-width="2.9879"/>
+        <path d="m16.581 284.81v10.468h10.224" stroke-width="3.4376"/>
+       </g>
+      </svg>
+    </header>
+    <nav>
+      <ul>
+        <li class="active"><a href="./index.html">overview</a></li>
+        <li><a href="./releases.html">releases</a></li>
+        <li><a href="https://github.com/maps4print/azul">code</a></li>
+        <li><a href="https://matrix.to/#/#azul:matrix.org">matrix chat</a></li>
+        <li><a href="./guide.html">guide</a></li>
+        <li><a href="./api.html">api</a></li>
+      </ul>
+    </nav>
+  </aside>
+  <main>
+    <header>
+      <h2><span class="first-letter">B</span>uilt for beauty<br/>and speed</h2>
+      <h3>Cross-platform MIT-licensed desktop GUI framework for C and Rust, backed by the Mozilla WebRender rendering engine.</h3>
+    </header>
+    <section class="feature" id="main">
+      $$CONTENT_SECTION_MAIN$$
+    </section>
+  </main>
+  </div>
+  <script async type="text/javascript" src="./prism_code_highlighter.js"></script>
+  <script type="text/javascript" async>
+    var examples = [
+      $$JAVASCRIPT_EXAMPLES$$
+    ];
+    var current_example = 0;
+
+    function render_example() {
+      document.getElementById("main").innerHtml = examples[current_example];
+    }
+
+    function next() {
+      current_example += 1;
+      render_example();
+    }
+
+    function previous() {
+      current_example -= 1;
+      render_example();
+    }
+  </script>
+</body>
+</html>

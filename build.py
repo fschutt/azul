@@ -1691,6 +1691,29 @@ def format_doc(docstring):
     newdoc = newdoc.replace("\r\n", "<br/>")
     return newdoc
 
+def render_example(partial, example):
+    jsex = example["code"]
+    jsex = jsex.replace("#", "&pound;")
+    jsex = jsex.replace(">", "&gt;")
+    jsex = jsex.replace("<", "&lt;")
+    jsex = jsex.replace("\"", "&quot;")
+    jsex = jsex.replace("\n", "<br/>")
+    jsex = jsex.replace("\r\n", "<br/>")
+    jsex = jsex.replace(" ", "&nbsp;")
+    descr = example["description"]
+    descr = descr.replace("\"", "&quot;")
+    descr = descr.replace("\n", "")
+    descr = descr.replace("\r\n", "")
+    descr = descr.replace("#", "&pound;")
+    partial = partial.replace("$$CODE$$", jsex)
+    partial = partial.replace("$$ID$$", example["id"])
+    partial = partial.replace("$$IMAGE_SOURCE$$", example["screenshot"])
+    partial = partial.replace("$$IMAGE_ALT$$", example["image_alt"])
+    partial = partial.replace("$$MEMORY$$", example["memory"])
+    partial = partial.replace("$$CPU$$", example["cpu"])
+    partial = partial.replace("$$DESCRIPTION$$", descr)
+    return partial
+
 def generate_docs():
     apiData = read_api_file(root_folder + "/api.json")
     html_template = read_file(root_folder + "/api/_patches/html/api.template.html")
@@ -1714,10 +1737,112 @@ def generate_docs():
     create_folder(root_folder + "/target/html/images")
 
     # copy files
-    copy_file(root_folder + "/api/_patches/html/index.html", root_folder + "/target/html/index.html")
+    # copy_file(, )
     copy_file(root_folder + "/api/_patches/html/main.css", root_folder + "/target/html/main.css")
     copy_file(root_folder + "/examples/assets/fonts/Morris Jenson Initialen.ttf", root_folder + "/target/html/fonts/Morris Jenson Initialen.ttf")
     copy_file(root_folder + "/examples/assets/fonts/SourceSerifPro-Regular.ttf", root_folder + "/target/html/fonts/SourceSerifPro-Regular.ttf")
+
+    index_template = read_file(root_folder + "/api/_patches/html/index.template.html")
+    index_partial = read_file(root_folder + "/api/_patches/html/index.partial.html")
+    index_examples = [
+        {
+            "id": "table",
+            "description": """
+                Azul can render infinitely large datasets (such as a table, shown here)
+                while using a comparably small amount of memory (Qt: 123Mb, Electron: 400Mb).
+                Users can specify special IFrameCallbacks that - given the size and scroll position
+                of the DOM node - only return the currently visible cells. All cells can share their
+                CSS style efficiently via pointers, so that properties do not get duplicated in memory.
+            """,
+            "screenshot": root_folder + "/examples/assets/screenshots/table.png",
+            "cpu": "0%",
+            "memory": "23MB",
+            "image_alt": "Rendering a table using the Azul GUI toolkit",
+            "code": read_file(root_folder + "/examples/c/table.c"),
+        },
+        {
+            "id": "helloworld",
+            "description": """
+                The UI structure is created via composition instead of inheritance,
+                with a functional UI to View mapping. Callbacks can modify the application
+                data and then tell the framework to reconstruct the entire UI again.
+                Since azul gives the programmer the tool to render only the visible UI objects,
+                the performance of reconstructing the UI is very managable (~20 microseconds for a simple UI).
+                <br/>
+                Azul can internally cache DOM objects and compare them to see if anything
+                in the UI changed. No more manual <code>button->updateDirtyRect();</code>
+                calls! The benefit is a "clean" programming abstraction that does not need
+                listeners, macros, metacompilers, inheritance or templates. Simplicity is key.
+            """,
+            "screenshot": root_folder + "/examples/assets/screenshots/helloworld.png",
+            "cpu": "0%",
+            "memory": "23MB",
+            "image_alt": "Rendering a simple UI using the Azul GUI toolkit",
+            "code": read_file(root_folder + "/examples/c/helloworld.c"),
+        },
+        {
+            "id": "svg",
+            "description": """
+                Azul renders everything using GPU-accelerated rectangles by default -
+                however, it allows users to tesselate and paint custom shapes on OpenGL
+                textures and use those textures as clip masks. Clip masks can be
+                <strong>animated</strong via Timers as well as rendered / loaded on
+                non-main threads.
+            """,
+            "screenshot": root_folder + "/examples/assets/screenshots/svg.png",
+            "cpu": "0%",
+            "memory": "23MB",
+            "image_alt": "Rendering a SVG file using the Azul GUI toolkit",
+            "code": read_file(root_folder + "/examples/c/svg.c"),
+        },
+        {
+            "id": "calculator",
+            "description": """
+                Composing larger UIs is just a matter of proper function composition.
+                Each function returns a styled DOM tree that can be composed into
+                the larger UI.<br/>
+                Widgets can also store their widget-specific data on a DOM node itself
+                (similar to a HTML <code>dataset</code> attribute) and provide
+                default callbacks for common UI interactions by rendering the entire state.
+                Callbacks are function pointers that can be exchanged on-the-fly, so
+                that overriding the default behaviour is possible without using
+                inheritance or OOP.s
+            """,
+            "screenshot": root_folder + "/examples/assets/screenshots/calculator.png",
+            "cpu": "0%",
+            "memory": "23MB",
+            "image_alt": "Composing widgets via functions in the Azul GUI toolkit",
+            "code": read_file(root_folder + "/examples/c/calculator.c"),
+        },
+        {
+            "id": "xml",
+            "description": """
+                For fast protoyping, Azul contains an XML description language
+                that can create a UI from XML on-the-fly. Azul can watch and
+                hot-reload files from disk - no need to restart the application
+                to develop your app UI in realtime via XML / CSS. <br/>
+                The XML can afterwards <strong>transpiled to native Code</strong>
+                in order to create reusable widgets.
+            """,
+            "screenshot": root_folder + "/examples/assets/screenshots/xml.png",
+            "cpu": "0%",
+            "memory": "23MB",
+            "image_alt": "XML UI hot-reloading for fast prototyping",
+            "code": read_file(root_folder + "/examples/c/xml.c"),
+        }
+    ]
+
+    # $$JAVASCRIPT_EXAMPLES$$
+    # $$CONTENT_SECTION_MAIN$$
+
+    first_example = index_examples[0]
+    index_html = index_template.replace("$$CONTENT_SECTION_MAIN$$", render_example(index_partial, first_example))
+    js_examples = ""
+    for ex in index_examples:
+        jsex = render_example(index_partial, ex)
+        js_examples += "\"" + jsex + "\",\r\n"
+    index_html = index_html.replace("$$JAVASCRIPT_EXAMPLES$$", js_examples)
+    write_file(index_html, root_folder + "/target/html/index.html")
 
     guide_sidebar = "<ul>"
     guide_sidebar_nested = "<ul>"
