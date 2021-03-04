@@ -12,8 +12,8 @@ use alloc::collections::BTreeMap;
 #[cfg(feature = "std")]
 use std::hash::Hash;
 use azul_css::{
-    CssProperty, LayoutPoint, OptionLayoutPoint, AzString, LayoutRect,
-    LayoutSize, CssPath, OptionLayoutRect, OptionU32,
+    CssProperty, LayoutPoint, OptionLayoutPoint,
+    LayoutSize, CssPath, OptionU32, AzString, LayoutRect,
 };
 use crate::{
     FastHashMap,
@@ -1074,7 +1074,7 @@ impl CallbackInfo {
         self.internal_get_new_windows().push(window);
     }
 
-    pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType) {
+    pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallback) {
         let thread = (self.internal_get_extern_system_callbacks().create_thread_fn.cb)(thread_initialize_data, writeback_data, callback);
         self.internal_get_threads().insert(id, thread);
     }
@@ -1266,16 +1266,28 @@ impl_callback!(IFrameCallback);
 pub struct IFrameCallbackInfo {
     pub resources: *const AppResources,
     pub bounds: HidpiAdjustedBounds,
+    pub scroll_size: LogicalSize,
+    pub scroll_offset: LogicalPosition,
+    pub virtual_scroll_size: LogicalSize,
+    pub virtual_scroll_offset: LogicalPosition,
 }
 
 impl IFrameCallbackInfo {
     pub fn new<'a>(
        resources: &'a AppResources,
        bounds: HidpiAdjustedBounds,
+       scroll_size: LogicalSize,
+       scroll_offset: LogicalPosition,
+       virtual_scroll_size: LogicalSize,
+       virtual_scroll_offset: LogicalPosition,
     ) -> Self {
         Self {
             resources: resources as *const AppResources,
-            bounds
+            bounds,
+            scroll_size,
+            scroll_offset,
+            virtual_scroll_size,
+            virtual_scroll_offset,
         }
     }
 
@@ -1291,17 +1303,21 @@ impl IFrameCallbackInfo {
 #[derive(Debug, PartialEq)]
 #[repr(C)]
 pub struct IFrameCallbackReturn {
-    pub styled_dom: StyledDom,
-    pub size: LayoutRect,
-    pub virtual_size: OptionLayoutRect,
+    pub dom: StyledDom,
+    pub scroll_size: LogicalSize,
+    pub scroll_offset: LogicalPosition,
+    pub virtual_scroll_size: LogicalSize,
+    pub virtual_scroll_offset: LogicalPosition,
 }
 
 impl Default for IFrameCallbackReturn {
     fn default() -> IFrameCallbackReturn {
         IFrameCallbackReturn {
-            styled_dom: StyledDom::default(),
-            size: LayoutRect::zero(),
-            virtual_size: OptionLayoutRect::None,
+            dom: StyledDom::default(),
+            scroll_size: LogicalSize::zero(),
+            scroll_offset: LogicalPosition::zero(),
+            virtual_scroll_size: LogicalSize::zero(),
+            virtual_scroll_offset: LogicalPosition::zero(),
         }
     }
 }

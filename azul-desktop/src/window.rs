@@ -63,149 +63,61 @@ pub use azul_core::window::*;
 // renderers - notify webrender about this.
 const WR_SHADER_CACHE: Option<&Rc<RefCell<WrShaders>>> = None;
 
-#[derive(Debug)]
-#[repr(C)]
-pub struct MonitorHandle {
-    ptr: *const c_void,
+/// returns a unique identifier for the monitor, used for hashing
+pub(crate) fn monitor_handle_get_id(handle: &WinitMonitorHandle) -> usize {
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))] {
+        use glutin::platform::unix::MonitorHandleExtUnix;
+        handle.native_id() as usize
+    }
+    #[cfg(target_os = "windows")] {
+        use glutin::platform::windows::MonitorHandleExtWindows;
+        handle.hmonitor() as usize
+    }
+    #[cfg(target_os = "macos")] {
+        use glutin::platform::macos::MonitorHandleExtMacOS;
+        handle.native_id() as usize
+    }
+    #[cfg(target_arch = "wasm32")] {
+        0 // there is only one screen
+    }
 }
 
-impl_option!(MonitorHandle, OptionMonitorHandle, copy = false, clone = false, [Debug]);
+pub(crate) fn monitor_new(handle: WinitMonitorHandle, is_primary_monitor: bool) -> Monitor {
 
-impl MonitorHandle {
-    pub(crate) fn new(handle: WinitMonitorHandle) -> Self {
-        Self { ptr: Box::into_raw(Box::new(handle)) as *const c_void }
-    }
-
-    fn get<'a>(&self) -> &'a WinitMonitorHandle {
-        unsafe { &*(self.ptr as *const WinitMonitorHandle) }
-    }
-
-    pub fn get_native_id(&self) -> usize /* NativeMonitorHandle */ {
-        #[cfg(target_os = "windows")] {
-            use glutin::platform::windows::MonitorHandleExtWindows;
-            self.get().hmonitor() as usize // HMONITOR, (*mut c_void), casted to a usize
+    let name = handle.name();
+    let size = handle.size();
+    let position = handle.position();
+    let scale_factor = handle.scale_factor();
+    let video_modes = handle.video_modes().map(|v| {
+        let v_size = v.size();
+        VideoMode {
+            size: LayoutSize { width: v_size.width as isize, height: v_size.height as isize },
+            bit_depth: v.bit_depth(),
+            refresh_rate: v.refresh_rate(),
         }
-        #[cfg(target_os = "linux")] {
-            use glutin::platform::unix::MonitorHandleExtUnix;
-            self.get().native_id() as usize // u32
-        }
-        #[cfg(target_os = "macos")] {
-            use glutin::platform::macos::MonitorHandleExtMacOS;
-            self.get().native_id() as u32 // usize
-        }
+    }).collect::<Vec<_>>();
+
+    Monitor {
+        id: monitor_handle_get_id(&handle),
+        name: name.map(|n| AzString::from(n)).into(),
+        size: LayoutSize { width: size.width as isize, height: size.height as isize },
+        position: LayoutPoint { x: position.x as isize, y: position.y as isize },
+        scale_factor,
+        video_modes: video_modes.into(),
+        is_primary_monitor,
     }
 }
 
-impl Clone for MonitorHandle {
-    fn clone(&self) -> Self {
-        Self::new(self.get().clone())
-    }
-}
-
-impl core::hash::Hash for MonitorHandle {
-    fn hash<H>(&self, state: &mut H) where H: core::hash::Hasher {
-        state.write_usize(self.get_native_id() as usize);
-    }
-}
-
-impl PartialEq for MonitorHandle {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.get_native_id() == rhs.get_native_id()
-    }
-}
-
-impl PartialOrd for MonitorHandle {
-    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
-        Some((self.get_native_id()).cmp(&(other.get_native_id())))
-    }
-}
-
-impl Ord for MonitorHandle {
-    fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
-        (self.get_native_id()).cmp(&(other.get_native_id()))
-    }
-}
-
-impl Eq for MonitorHandle { }
-
-impl Drop for MonitorHandle {
-    fn drop(&mut self) {
-        unsafe { let _ = Box::from_raw(self.ptr as *mut WinitMonitorHandle); }
-    }
-}
-
-#[derive(Debug, PartialEq, PartialOrd, Clone)]
-#[repr(C)]
-pub struct Monitor {
-    pub handle: MonitorHandle,
-    pub name: OptionAzString,
-    pub size: LayoutSize,
-    pub position: LayoutPoint,
-    pub scale_factor: f64,
-    pub video_modes: VideoModeVec,
-    pub is_primary_monitor: bool,
-}
-
-impl Monitor {
-    /// returns the maximum framerate supported by this monitor
-    pub(crate) fn get_max_supported_framerate(&self) -> Option<StdDuration> {
-        let max_refresh_rate = self.video_modes.as_slice().iter().map(|m| m.refresh_rate).max()?;
-        StdDuration::from_secs(1).checked_div(max_refresh_rate as u32)
-    }
-}
-
-impl_vec!(Monitor, MonitorVec, MonitorVecDestructor);
-impl_vec_clone!(Monitor, MonitorVec, MonitorVecDestructor);
-impl_vec_partialeq!(Monitor, MonitorVec);
-impl_vec_partialord!(Monitor, MonitorVec);
-
-impl core::hash::Hash for Monitor {
-    fn hash<H>(&self, state: &mut H) where H: core::hash::Hasher {
-        self.handle.hash(state)
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct VideoMode {
-    pub size: LayoutSize,
-    pub bit_depth: u16,
-    pub refresh_rate: u16,
-}
-
-impl_vec!(VideoMode, VideoModeVec, VideoModeVecDestructor);
-impl_vec_clone!(VideoMode, VideoModeVec, VideoModeVecDestructor);
-impl_vec_debug!(VideoMode, VideoModeVec);
-impl_vec_partialeq!(VideoMode, VideoModeVec);
-impl_vec_partialord!(VideoMode, VideoModeVec);
-
-impl Monitor {
-
-    pub(crate) fn new(handle: WinitMonitorHandle, is_primary_monitor: bool) -> Self {
-
-        let name = handle.name();
-        let size = handle.size();
-        let position = handle.position();
-        let scale_factor = handle.scale_factor();
-        let video_modes = handle.video_modes().map(|v| {
-            let v_size = v.size();
-            VideoMode {
-                size: LayoutSize { width: v_size.width as isize, height: v_size.height as isize },
-                bit_depth: v.bit_depth(),
-                refresh_rate: v.refresh_rate(),
-            }
-        }).collect::<Vec<_>>();
-
-        Self {
-            handle: MonitorHandle::new(handle),
-            name: name.map(|n| AzString::from(n)).into(),
-            size: LayoutSize { width: size.width as isize, height: size.height as isize },
-            position: LayoutPoint { x: position.x as isize, y: position.y as isize },
-            scale_factor,
-            video_modes: video_modes.into(),
-            is_primary_monitor,
-        }
-    }
+/// returns the maximum framerate supported by this monitor
+pub(crate) fn monitor_get_max_supported_framerate(mon: &Monitor) -> Option<StdDuration> {
+    let max_refresh_rate = mon.video_modes.as_slice().iter().map(|m| m.refresh_rate).max()?;
+    StdDuration::from_secs(1).checked_div(max_refresh_rate as u32)
 }
 
 #[derive(Copy, Clone)]
@@ -368,8 +280,8 @@ impl Window {
     const CALLBACKS: RenderCallbacks = RenderCallbacks {
         insert_into_active_gl_textures: azul_core::gl::insert_into_active_gl_textures,
         layout_fn: azul_layout::do_the_layout,
-        load_font_fn: LoadFontFn { cb: azulc::font_loading::font_source_get_bytes },
-        load_image_fn: LoadImageFn { cb: azulc::image_loading::image_source_get_bytes },
+        load_font_fn: LoadFontFn { cb: azulc_lib::font_loading::font_source_get_bytes },
+        load_image_fn: LoadImageFn { cb: azulc_lib::image_loading::image_source_get_bytes },
         parse_font_fn: azul_layout::text_layout::parse_font_fn,
     };
 
@@ -745,7 +657,7 @@ impl Window {
 
     /// Synchronize the `self.internal.previous_window_state` with the `self.internal.current_window_state`
     ///  updating the OS-level window to reflect the new state
-    pub fn synchronize_window_state_with_os(&mut self, new_state: WindowState) -> bool {
+    pub fn synchronize_window_state_with_os(&mut self, new_state: WindowState, current_window_monitor: Monitor) -> bool {
 
         use crate::wr_translate::winit_translate::{translate_logical_position, translate_logical_size};
         use glutin::window::Fullscreen;
@@ -933,6 +845,7 @@ impl Window {
             layout_callback,
             close_callback,
             renderer_options: _,
+            monitor: _,
         } = new_state;
 
         self.internal.current_window_state.theme = theme;
@@ -949,6 +862,7 @@ impl Window {
         self.internal.current_window_state.background_color = background_color;
         self.internal.current_window_state.layout_callback = layout_callback;
         self.internal.current_window_state.close_callback = close_callback;
+        self.internal.current_window_state.monitor = current_window_monitor;
 
         window_was_updated
     }
@@ -1027,7 +941,7 @@ impl Window {
 
     /// Returns what monitor the window is currently residing on (to query monitor size, etc.).
     pub(crate) fn get_current_monitor(&self) -> Option<Monitor> {
-        Some(Monitor::new(self.display.window().current_monitor()?, false))
+        Some(monitor_new(self.display.window().current_monitor()?, false))
     }
 
     fn create_window_builder(

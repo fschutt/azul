@@ -12,6 +12,7 @@ keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2018"
+autoexamples = false
 
 [dependencies]
 libm = { version = "0.2.1", default-features = false }

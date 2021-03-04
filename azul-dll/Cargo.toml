@@ -10,6 +10,7 @@ categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2018"
 build = "build.rs"
+autoexamples = false
 
 [[bin]]
 name = "azul-dll"

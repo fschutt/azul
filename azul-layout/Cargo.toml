@@ -11,6 +11,7 @@ keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2018"
+autoexamples = false
 
 [lib]
 path = "src/old/lib.rs"
@@ -31,8 +32,3 @@ azulc                       = { path = "../azulc", version = "0.0.3"  }
 default = ["std"]
 std = ["azul-core/multithreading"]
 text_layout = ["azul-text-layout"]
-
-# [[example]]
-# name = "layout_tests"
-# path = "../../examples/layout_tests/layout_tests.rs"
-# required-features = []

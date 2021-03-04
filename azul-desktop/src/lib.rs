@@ -20,7 +20,7 @@ extern crate azul_css;
 extern crate rust_fontconfig;
 #[macro_use(impl_from, impl_display)]
 extern crate azul_core;
-extern crate azulc;
+extern crate azulc_lib;
 extern crate raw_window_handle;
 extern crate glutin;
 extern crate webrender;
@@ -71,20 +71,20 @@ pub mod traits {
 
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout {
-    pub use azulc::layout::text_layout::text_layout::*;
-    pub use azulc::layout::text_layout::text_shaping::*;
-    pub use azulc::layout::text_layout::InlineText;
+    pub use azulc_lib::layout::text_layout::text_layout::*;
+    pub use azulc_lib::layout::text_layout::text_shaping::*;
+    pub use azulc_lib::layout::text_layout::InlineText;
 }
 
 /// SVG parsing + rendering
 pub mod svg {
     pub use azul_core::svg::*;
-    pub use azulc::svg::*;
+    pub use azulc_lib::svg::*;
 }
 
 /// XML parsing
 pub mod xml {
-    pub use azulc::xml::*;
+    pub use azulc_lib::xml::*;
 }
 
 /// Quick exports of common types
@@ -119,7 +119,7 @@ pub mod prelude {
         traits::*,
     };
     pub use crate::app::App;
-    pub use crate::window::{Window, MonitorHandle, Monitor};
+    pub use crate::window::{Window, Monitor};
     #[cfg(any(feature = "css_parser", feature = "native_style"))]
     pub use crate::css;
     #[cfg(feature = "logging")]
@@ -131,8 +131,8 @@ pub mod errors {
     // TODO: re-export the sub-types of ClipboardError!
     pub use clipboard2::ClipboardError;
     pub use glutin::CreationError;
-    pub use azulc::image_loading::ImageReloadError;
-    pub use azulc::font_loading::FontReloadError;
+    pub use azulc_lib::image_loading::ImageReloadError;
+    pub use azulc_lib::font_loading::FontReloadError;
     #[derive(Debug)]
     pub enum Error {
         Resource(ResourceReloadError),

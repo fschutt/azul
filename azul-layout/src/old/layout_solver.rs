@@ -1377,6 +1377,12 @@ pub fn do_the_layout(
                     let iframe_callback_info = IFrameCallbackInfo::new(
                         &app_resources,
                         hidpi_bounds,
+
+                        // TODO - see /examples/assets/images/scrollbounds.png for documentation!
+                        /* scroll_size  */ bounds.size,
+                        /* scroll_offset */ LogicalPosition::zero(),
+                        /* virtual_scroll_size  */ bounds.size,
+                        /* virtual_scroll_offset */ LogicalPosition::zero(),
                     );
 
                     let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
@@ -1388,7 +1394,7 @@ pub fn do_the_layout(
                     }
                 };
 
-                let mut iframe_dom = iframe_return.styled_dom;
+                let mut iframe_dom = iframe_return.dom;
 
                 // TODO: use other fields of iframe_return here!
 

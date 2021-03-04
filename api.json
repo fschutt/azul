@@ -28,7 +28,7 @@
 								{"self": "refmut"},
 								{"window": "WindowCreateOptions", "doc": "New window, note that this will **not** be spawned as the root window"}
 							],
-							"fn_body":"app.downcast_modify(|a| a.add_window(window))"
+							"fn_body":"app.add_window(window)"
 						},
 						"get_monitors": {
 							"doc": "Returns a list of monitors - useful for setting the monitor that a window should spawn on.",
@@ -36,7 +36,7 @@
 								{"self": "ref"}
 							],
 							"returns": {"type": "MonitorVec", "doc": "List of currently attached monitors, note that this `Vec` will be empty on wasm32"},
-							"fn_body":"app.get().get_monitors()"
+							"fn_body":"app.get_monitors()"
 						},
 						"run": {
 							"doc": "Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.",
@@ -558,7 +558,7 @@
 						{"is_always_on_top": {"type": "bool", "doc": "Is the window always on top?"}},
 						{"is_resizable": {"type": "bool", "doc": "Whether the window is resizable"}},
 						{"has_focus": {"type": "bool", "doc": "Whether the window is currently focused (changing this field will request user attention)"}},
-						{"has_extended_frame": {"type": "bool", "doc": "Whether the window has an \"extended frame\", i.e. the title bar is not rendered and the maximize / minimize / close buttons bleed into the window content"}},
+						{"has_extended_window_frame": {"type": "bool", "doc": "Whether the window has an \"extended frame\", i.e. the title bar is not rendered and the maximize / minimize / close buttons bleed into the window content"}},
 						{"has_blur_behind_window": {"type": "bool", "doc": "Whether the window has a background blur"}}
 					]
 				},
@@ -839,19 +839,11 @@
 						{"unused": {"type": "u8"}}
 					]
 				},
-				"MonitorHandle": {
-					"doc": "Monitor handle abstraction, only for azul-internal use",
-					"external": "azul_impl::window::Monitor",
-					"is_boxed_object": true,
-					"struct_fields": [
-						{"ptr": {"type": "*mut c_void", "doc": "Monitor implementation can vary from platform to platform"}}
-					]
-				},
 				"Monitor": {
 					"doc": "Information about a single (or many) monitors, useful for dock widgets",
 					"external": "azul_impl::window::Monitor",
 					"struct_fields": [
-						{"handle": {"type": "MonitorHandle", "doc": "Opaque handle to the monitor, platform-dependent"}},
+						{"id": {"type": "usize", "doc": "Internal ID for the monitor, only useful at startup to specify which screen the window should be created on (unimplemented)"}},
 						{"name": {"type": "OptionString", "doc": "Name of the Monitor"}},
 						{"size": {"type": "LayoutSize", "doc": "Size of the monitor. Note that this does not say anything about DPI (i.e. the physical, real-world size of the monitor)."}},
 						{"position": {"type": "LayoutPoint", "doc": "Position relative to the top left of the \"virtual\" monitor size (if two or more monitors are connected, this area will usually be a union of all monitors)"}},
@@ -1261,7 +1253,11 @@
 					"clone": false,
 					"struct_fields": [
 						{"resources": {"type": "*const c_void"}},
-						{"bounds": {"type": "HidpiAdjustedBounds"}}
+						{"bounds": {"type": "HidpiAdjustedBounds"}},
+						{"scroll_size": {"type": "LogicalSize", "doc": "How far the user has scrolled in the virtual scroll frame - useful to set the ``"}},
+						{"scroll_offset": {"type": "LogicalPosition", "doc": "How far the user has scrolled in the virtual scroll frame - useful to set the ``"}},
+						{"virtual_scroll_size": {"type": "LogicalSize", "doc": "How far the user has scrolled in the virtual scroll frame - useful to set the ``"}},
+						{"virtual_scroll_offset": {"type": "LogicalPosition", "doc": "How far the user has scrolled in the virtual scroll frame - useful to set the ``"}}
 					],
 					"functions": {
 						"get_bounds": {
@@ -1277,10 +1273,13 @@
 				"IFrameCallbackReturn": {
 					"external": "azul_impl::callbacks::IFrameCallbackReturn",
 					"clone": false,
+					"doc": "<img src=\"../images/scrollbounds.png\"/>",
 					"struct_fields": [
-						{"dom": { "type": "StyledDom" }},
-						{"size": {"type": "LayoutRect"}},
-						{"virtual_size": {"type": "OptionLayoutRect"}}
+						{"dom": { "type": "StyledDom", "doc": "The DOM that is currently visible in the `HidpiAdjustedBounds`." }},
+						{"scroll_size": {"type": "LogicalSize", "doc": "The actual extent of the `dom` in pixels - usually larger than currently visible bounds. When the user scrolls to one of the edges of these bounds, this `IFrameCallback` will be called again, so you'd want to render some extra rows or columns so that the callback doesn't have to get called again on every single scrolled pixel."}},
+						{"scroll_offset": {"type": "LogicalPosition", "doc": "Position that the `dom` should be scrolled to, relative to the `virtual_scroll_offset`."}},
+						{"virtual_scroll_size": {"type": "LogicalSize", "doc": "While the `scroll_size` is the currently rendered part of a larger scroll area, the virtual scroll size is the total size, even of non-rendered elements. For example, a table might show 30 - 40 rows and 10 columns, but the virtual size could be much larger. This setting only affects is the size of the scrollbar thumb."}},
+						{"virtual_scroll_offset": {"type": "LogicalPosition", "doc": "Same as `virtual_scroll_offset`, but only affects the position of the scrollbar thumb"}}
 					]
 				},
 				"GlCallback": {

@@ -2,16 +2,10 @@
 
 [target.'cfg(all(target_arch="x86_64", target_os="linux"))']
 rustflags = [
-    "-Ctarget-feature=-crt-static",
-    "-Zstrip=symbols",
-    "-Zshare-generics=y",
-    "-Z mutable-noalias=yes",
+    "-Ctarget-feature=+crt-static"
 ]
 
 [target.'cfg(all(target_arch="x86_64", target_os="windows"))']
 rustflags = [
-    "-Ctarget-feature=+crt-static",
-    "-Zstrip=symbols",
-    "-Zshare-generics=y",
-    "-Z mutable-noalias=yes",
+    "-Ctarget-feature=+crt-static"
 ]

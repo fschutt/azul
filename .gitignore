@@ -12,3 +12,4 @@ out.txt
 *.out
 *.o
 *.exe
+/api/c/main/

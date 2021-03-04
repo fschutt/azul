@@ -4,7 +4,6 @@ typedef struct {
     uint32_t counter;
 } DataModel;
 
-// static uint8_t* DataModelType = "DataModel";
 static uint64_t DataModelTypeId = 0;
 static void DataModelRefAnyDestructor(void* restrict A) { }
 

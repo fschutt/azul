@@ -16,15 +16,11 @@ edition = "2018"
 
 [[bin]]
 name = "public"
-path = "public.rs"
+path = "rust/public.rs"
 
 [[bin]]
 name = "table"
-path = "table.rs"
-
-[[bin]]
-name = "heap_corruption_test"
-path = "heap_corruption_test.rs"
+path = "rust/table.rs"
 
 [dependencies]
 azul = { version = "0.0.1", path = "../api/rust" }

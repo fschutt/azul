@@ -974,6 +974,57 @@ impl Default for WindowTheme {
 
 impl_option!(WindowTheme, OptionWindowTheme, [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]);
 
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct Monitor {
+    pub id: usize,
+    pub name: OptionAzString,
+    pub size: LayoutSize,
+    pub position: LayoutPoint,
+    pub scale_factor: f64,
+    pub video_modes: VideoModeVec,
+    pub is_primary_monitor: bool,
+}
+
+impl_vec!(Monitor, MonitorVec, MonitorVecDestructor);
+impl_vec_clone!(Monitor, MonitorVec, MonitorVecDestructor);
+impl_vec_partialeq!(Monitor, MonitorVec);
+impl_vec_partialord!(Monitor, MonitorVec);
+
+impl core::hash::Hash for Monitor {
+    fn hash<H>(&self, state: &mut H) where H: core::hash::Hasher {
+        self.id.hash(state)
+    }
+}
+
+impl Default for Monitor {
+    fn default() -> Self {
+        Monitor {
+            id: 0,
+            name: OptionAzString::None,
+            size: LayoutSize::zero(),
+            position: LayoutPoint::zero(),
+            scale_factor: 1.0,
+            video_modes: Vec::new().into(),
+            is_primary_monitor: false,
+        }
+    }
+}
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct VideoMode {
+    pub size: LayoutSize,
+    pub bit_depth: u16,
+    pub refresh_rate: u16,
+}
+
+impl_vec!(VideoMode, VideoModeVec, VideoModeVecDestructor);
+impl_vec_clone!(VideoMode, VideoModeVec, VideoModeVecDestructor);
+impl_vec_debug!(VideoMode, VideoModeVec);
+impl_vec_partialeq!(VideoMode, VideoModeVec);
+impl_vec_partialord!(VideoMode, VideoModeVec);
+
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct WindowState {
@@ -1100,7 +1151,8 @@ pub struct FullWindowState {
     /// the window won't close, otherwise it'll close regardless
     pub close_callback: OptionCallback,
     // --
-
+    /// Current monitor
+    pub monitor: Monitor,
     /// Whether there is a file currently hovering over the window
     pub hovered_file: Option<AzString>, // Option<PathBuf>
     /// Whether there was a file currently dropped on the window
@@ -1132,7 +1184,7 @@ impl Default for FullWindowState {
             layout_callback: LayoutCallback::default(),
             close_callback: OptionCallback::None,
             renderer_options: RendererOptions::default(),
-
+            monitor: Monitor::default(),
             // --
 
             hovered_file: None,
@@ -1178,6 +1230,7 @@ impl From<WindowState> for FullWindowState {
     /// fields with their default values
     fn from(window_state: WindowState) -> FullWindowState {
         FullWindowState {
+            monitor: window_state.monitor.clone(),
             theme: window_state.theme,
             title: window_state.title,
             size: window_state.size,
@@ -1199,6 +1252,7 @@ impl From<WindowState> for FullWindowState {
 impl From<FullWindowState> for WindowState {
     fn from(full_window_state: FullWindowState) -> WindowState {
         WindowState {
+            monitor: full_window_state.monitor.clone(),
             theme: full_window_state.theme,
             title: full_window_state.title.into(),
             size: full_window_state.size,
@@ -1282,6 +1336,9 @@ pub struct WindowFlags {
     pub is_resizable: bool,
     /// Whether the window has focus or not (mutating this will request user attention)
     pub has_focus: bool,
+    /// Whether the window has an "extended frame", i.e. the title bar is not rendered
+    /// and the maximize / minimize / close buttons bleed into the window content
+    pub has_extended_window_frame: bool,
     /// Whether or not the compositor should blur the application background
     pub has_blur_behind_window: bool,
 }
@@ -1298,6 +1355,7 @@ impl Default for WindowFlags {
             is_always_on_top: false,
             is_resizable: true,
             has_focus: true,
+            has_extended_window_frame: false,
             has_blur_behind_window: false,
         }
     }

@@ -1,4 +1,4 @@
-extern crate azulc;
+extern crate azulc_lib;
 extern crate azul_core;
 
 use std::env;
@@ -8,7 +8,7 @@ use std::process::exit;
 
 use azul_core::window::LogicalSize;
 use azul_core::styled_dom::StyledDom;
-use azulc::xml_parser::XmlComponentMap;
+use azulc_lib::xml_parser::XmlComponentMap;
 
 #[derive(PartialEq)]
 enum Action {
@@ -48,7 +48,7 @@ fn main() {
         Some("--language=python")       => Action::PrintPythonCode,
         Some("--display-list")          => {
             let size = env::args().nth(3).expect("no output size specified for display list");
-            let size_parsed = match azulc::parse_display_list_size(&size) {
+            let size_parsed = match azulc_lib::parse_display_list_size(&size) {
                 Some(s) => s,
                 None => {
                     eprintln!("error: display list size \"{}\" could not be parsed", size);
@@ -71,7 +71,7 @@ fn main() {
 
 fn process(action: Action, file: Option<&String>) {
 
-    use azulc::xml_parser::*;
+    use azulc_lib::xml_parser::*;
 
     if action == Action::PrintHelp {
         print_help();
@@ -154,7 +154,7 @@ fn process(action: Action, file: Option<&String>) {
             let pipeline_id = PipelineId::new();
             let epoch = Epoch(0);
 
-            let fc_cache = azulc::font_loading::build_font_cache();
+            let fc_cache = azulc_lib::font_loading::build_font_cache();
 
             // Important!
             app_resources.add_pipeline(pipeline_id);
@@ -163,8 +163,8 @@ fn process(action: Action, file: Option<&String>) {
             let callbacks = RenderCallbacks {
                 insert_into_active_gl_textures: azul_core::gl::insert_into_active_gl_textures,
                 layout_fn: azul_layout::do_the_layout,
-                load_font_fn: LoadFontFn { cb: azulc::font_loading::font_source_get_bytes }, // needs feature="font_loading"
-                load_image_fn: LoadImageFn { cb: azulc::image_loading::image_source_get_bytes }, // needs feature="image_loading"
+                load_font_fn: LoadFontFn { cb: azulc_lib::font_loading::font_source_get_bytes }, // needs feature="font_loading"
+                load_image_fn: LoadImageFn { cb: azulc_lib::image_loading::image_source_get_bytes }, // needs feature="image_loading"
                 parse_font_fn: azul_layout::text_layout::parse_font_fn, // needs feature="text_layout"
             };
 

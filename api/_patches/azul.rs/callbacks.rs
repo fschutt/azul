@@ -68,7 +68,7 @@
 
             let type_name_str = ::core::any::type_name::<T>();
             let st = crate::str::String::from_const_str(type_name_str);
-            let s = unsafe { crate::dll::az_ref_any_new_c(
+            let s = unsafe { crate::dll::AzRefAny_newC(
                 (&value as *const T) as *const c_void,
                 ::core::mem::size_of::<T>(),
                 Self::get_type_id::<T>(),

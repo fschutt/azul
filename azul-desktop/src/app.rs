@@ -20,7 +20,7 @@ use webrender::render_api::RenderApi as WrRenderApi;
 use webrender::Transaction as WrTransaction;
 use crate::{
     display_shader::DisplayShader,
-    window::{Window, UserEvent, Monitor, MonitorVec, MonitorHandle},
+    window::{Window, UserEvent, Monitor, MonitorVec},
 };
 use azul_core::{
     window::{WindowCreateOptions, LazyFcCache, FullWindowState},
@@ -49,11 +49,10 @@ pub struct App {
 
 #[derive(Debug)]
 #[repr(C)]
-pub struct AzAppPtr { /* ptr: *const App */ pub ptr: *const c_void }
+pub struct AzAppPtr { /* ptr: *const App */ pub ptr: *const App }
 
 impl AzAppPtr {
-    pub fn new(app: App) -> Self { Self { ptr: Box::into_raw(Box::new(app)) as *const c_void } }
-    pub fn downcast_modify<F: FnOnce(&mut App)>(&mut self, f: F) { unsafe { f(&mut *(self.ptr as *mut App)) } }
+    pub fn new(app: App) -> Self { Self { ptr: Box::into_raw(Box::new(app)) } }
     pub fn get(self) -> App {
         let p = unsafe { Box::<App>::from_raw(self.ptr as *mut App) };
         ::std::mem::forget(self); // prevent double free because of Drop
@@ -65,6 +64,12 @@ impl core::ops::Deref for AzAppPtr {
     type Target = App;
     fn deref(&self) -> &Self::Target {
         unsafe { &*(self.ptr as *const App) }
+    }
+}
+
+impl core::ops::DerefMut for AzAppPtr {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *(self.ptr as *mut App) }
     }
 }
 
@@ -156,9 +161,12 @@ impl App {
 
     /// Returns a list of monitors available on the system
     pub fn get_monitors(&self) -> MonitorVec {
-        let mut monitors = self.event_loop.available_monitors().map(|mh| Monitor::new(mh, false)).collect::<Vec<Monitor>>();
-        if let Some(primary) = self.event_loop.primary_monitor().map(|p| MonitorHandle::new(p)) {
-            if let Some(pm) = monitors.iter_mut().find(|i| i.handle == primary) {
+        use crate::window::{monitor_new, monitor_handle_get_id};
+        let mut monitors = self.event_loop.available_monitors()
+        .map(|mh| monitor_new(mh, false))
+        .collect::<Vec<Monitor>>();
+        if let Some(primary) = self.event_loop.primary_monitor() {
+            if let Some(pm) = monitors.iter_mut().find(|i| i.id == monitor_handle_get_id(&primary)) {
                 pm.is_primary_monitor = true;
             }
         }
@@ -434,8 +442,22 @@ fn run_inner(app: App) -> ! {
                         all_new_current_timers.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
                     }
 
+                    let window_monitor = {
+                        let w = window.display.window();
+                        let primary_monitor = w.primary_monitor();
+                        w.current_monitor()
+                        .map(|m| {
+                            let mut mon = crate::window::monitor_new(m, false);
+                            if let Some(p) = primary_monitor.as_ref() {
+                                mon.is_primary_monitor = mon.id == crate::window::monitor_handle_get_id(p);
+                            }
+                            mon
+                        })
+                        .unwrap_or_default()
+                    };
+
                     let current_window_save_state = window.internal.current_window_state.clone();
-                    let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(modifiable_window_state);
+                    let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(modifiable_window_state, window_monitor);
                     window.internal.previous_window_state = Some(current_window_save_state);
                 }
 
@@ -543,8 +565,22 @@ fn run_inner(app: App) -> ! {
                         all_new_current_threads.entry(*window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
                     }
 
+                    let window_monitor = {
+                        let w = window.display.window();
+                        let primary_monitor = w.primary_monitor();
+                        w.current_monitor()
+                        .map(|m| {
+                            let mut mon = crate::window::monitor_new(m, false);
+                            if let Some(p) = primary_monitor.as_ref() {
+                                mon.is_primary_monitor = mon.id == crate::window::monitor_handle_get_id(p);
+                            }
+                            mon
+                        })
+                        .unwrap_or_default()
+                    };
+
                     let current_window_save_state = window.internal.current_window_state.clone();
-                    let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(modifiable_window_state);
+                    let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(modifiable_window_state, window_monitor);
                     window.internal.previous_window_state = Some(current_window_save_state);
                 }
 
@@ -599,6 +635,22 @@ fn run_inner(app: App) -> ! {
                 let mut should_callback_render = false;
 
                 let mut updated_resources = Vec::new();
+
+                // NOTE: Has to be done every frame, since there is no real
+                // way to detect if the monitor changed
+                let window_monitor = {
+                    let w = window.display.window();
+                    let primary_monitor = w.primary_monitor();
+                    w.current_monitor()
+                    .map(|m| {
+                        let mut mon = crate::window::monitor_new(m, false);
+                        if let Some(p) = primary_monitor.as_ref() {
+                            mon.is_primary_monitor = mon.id == crate::window::monitor_handle_get_id(p);
+                        }
+                        mon
+                    })
+                    .unwrap_or_default()
+                };
 
                 loop {
                     let events = Events::new(&window.internal.current_window_state, &window.internal.previous_window_state);
@@ -687,7 +739,7 @@ fn run_inner(app: App) -> ! {
                         window.internal.current_window_state.focused_node = *callback_new_focus;
                     }
 
-                    let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(callback_results.modified_window_state);
+                    let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(callback_results.modified_window_state, window_monitor.clone());
                     window.internal.previous_window_state = Some(current_window_save_state);
                     if !window_state_changed_in_callbacks {
                         break;
@@ -916,11 +968,10 @@ fn run_inner(app: App) -> ! {
             } else {
 
                 // determine minimum refresh rate from monitor
-                let minimum_refresh_rate = active_windows
-                    .values()
-                    .filter_map(|w| w.get_current_monitor().and_then(|mon| mon.get_max_supported_framerate()))
-                    .min()
-                    .map(|d| Duration::System(d.into()));
+                let minimum_refresh_rate = active_windows.values()
+                .filter_map(|w| crate::window::monitor_get_max_supported_framerate(&w.internal.current_window_state.monitor))
+                .min()
+                .map(|d| Duration::System(d.into()));
 
                 // in case the callback is handled slower than 16ms, this would panic
                 let current_time_instant = (config.system_callbacks.get_system_time_fn.cb)().add_optional_duration(Some(&(StdDuration::from_millis(1).into())));

@@ -572,8 +572,8 @@ def generate_rust_dll(api_data):
 
                     fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, myapi_data)
 
-                    rust_functions_map[str(class_ptr_name + "_" + fn_name)] = [fn_args, returns];
-                    code += "#[no_mangle] pub extern \"C\" fn " + class_ptr_name + "_" + fn_name + "(" + fn_args + ") -> " + returns + " { "
+                    rust_functions_map[str(class_ptr_name + "_" + snake_case_to_lower_camel(fn_name))] = [fn_args, returns];
+                    code += "#[no_mangle] pub extern \"C\" fn " + class_ptr_name + "_" + snake_case_to_lower_camel(fn_name) + "(" + fn_args + ") -> " + returns + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -604,9 +604,9 @@ def generate_rust_dll(api_data):
 
                             returns = analyzed_return_type[0] + prefix + return_type_class[1] + analyzed_return_type[2] # no postfix
 
-                    rust_functions_map[str(class_ptr_name + "_" + fn_name)] = [fn_args, returns];
+                    rust_functions_map[str(class_ptr_name + "_" + snake_case_to_lower_camel(fn_name))] = [fn_args, returns];
                     return_arrow = "" if returns == "" else " -> "
-                    code += "#[no_mangle] pub extern \"C\" fn " + class_ptr_name + "_" + fn_name + "(" + fn_args + ")" + return_arrow + returns + " { "
+                    code += "#[no_mangle] pub extern \"C\" fn " + class_ptr_name + "_" + snake_case_to_lower_camel(fn_name) + "(" + fn_args + ")" + return_arrow + returns + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -1030,7 +1030,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
                     for fn_name in c["constructors"]:
                         const = c["constructors"][fn_name]
 
-                        c_fn_name = class_ptr_name + "_" + fn_name
+                        c_fn_name = class_ptr_name + "_" + snake_case_to_lower_camel(fn_name)
                         fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False, myapi_data)
                         fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False, myapi_data, class_is_boxed_object)
 
@@ -1070,7 +1070,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
 
                         fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True, myapi_data)
                         fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True, myapi_data, class_is_boxed_object)
-                        c_fn_name = class_ptr_name + "_" + fn_name
+                        c_fn_name = class_ptr_name + "_" + snake_case_to_lower_camel(fn_name)
 
                         fn_body = ""
 
@@ -1364,18 +1364,44 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
                         else:
                             c_type = " " + variant_prefix + replace_primitive_ctype(analyzed_variant_type[1]).strip() + replace_primitive_ctype(analyzed_variant_type[0]).strip() + analyzed_variant_type[2] + " payload;"
 
-                    code += "\r\nstruct " + struct_name + "Variant_" + variant_name + " { " + struct_name + "Tag tag;" + c_type + " };\r\n"
-                    code += "typedef struct " + struct_name + "Variant_" + variant_name + " " + struct_name + "Variant_" + variant_name + ";\r\n"
+                    code += "\r\nstruct " + struct_name + "Variant_" + variant_name + " { " + struct_name + "Tag tag;" + c_type + " };"
+                    code += "\r\ntypedef struct " + struct_name + "Variant_" + variant_name + " " + struct_name + "Variant_" + variant_name + ";"
 
                 # generate union
-                code += "\r\n\r\nunion " + struct_name + " {\r\n"
+                code += "\r\nunion " + struct_name + " {\r\n"
                 for variant in enum:
                     variant_name = list(variant.keys())[0]
                     code += "    " + struct_name + "Variant_" + variant_name + " " + variant_name + ";\r\n"
                 code += "};\r\n"
                 if not(struct_name in already_forward_declared):
-                    code += "typedef union " + struct_name + " " + struct_name + ";\r\n"
+                    code += "typedef union " + struct_name + " " + struct_name + ";"
 
+                # generate macros for creating variants
+                for variant in enum:
+                    variant_name = list(variant.keys())[0]
+                    if "type" in variant[variant_name]:
+                        code += "\r\n#define " + struct_name + "_" + variant_name + "(v) { ." + variant_name + " = { .tag = " + struct_name + "Tag_" + variant_name + ", .payload = v } }"
+                    else:
+                        code += "\r\n#define " + struct_name + "_" + variant_name + " { ." + variant_name + " = { .tag = " + struct_name + "Tag_" + variant_name + " } }"
+
+                code += "\r\n"
+
+    version = list(api_data.keys())[-1]
+    myapi_data = api_data
+
+    # generate automatic "empty" constructor macros for all types in the "vec" module
+    # for struct in api_data["0.1.0"]["classes"]["vec"]
+    if "vec" in api_data.keys():
+        for vec_name in api_data["vec"]["classes"].keys():
+            if vec_name.endswith("Vec"):
+                vec_type = analyze_type(api_data["vec"]["classes"][vec_name]["struct_fields"][0]["ptr"]["type"])[1]
+                if is_primitive_arg(vec_type):
+                    code += "\r\n" + replace_primitive_ctype(vec_type).strip() + " " +  prefix + vec_name + "Array[] = {};"
+                else:
+                    code += "\r\n" + prefix + vec_type + " " +  prefix + vec_name + "Array[] = {};"
+                code += "\r\n#define " + prefix + vec_name + "_empty { .ptr = &" + prefix + vec_name + "Array, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = " + prefix + vec_name + "DestructorTag_NoDestructor, }, }, }"
+                code += "\r\n#define " + prefix + vec_name + "_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(" + vec_name[:-3] + "), .cap = sizeof(v) / sizeof(" + vec_name[:-3] + "), .destructor = { .NoDestructor = { .tag = " + vec_name + "DestructorTag_NoDestructor, }, }, }"
+                code += "\r\n"
     return code
 
 # returns whether an enum is a union
@@ -1601,12 +1627,15 @@ def generate_c_api(api_data, structs_map):
     code += "#else\r\n"
     code += "    #define DLLIMPORT\r\n"
     code += "#endif\r\n"
+    code += "\r\n"
 
     code += generate_c_structs(myapi_data, structs_map, forward_delcarations, extra_forward_delcarations)
     code += generate_c_functions(api_data)
 
     code += "\r\n"
-    code += "#endif /* AZUL_H */\r\n"
+    code += read_file(root_folder + "/api/_patches/c/patch.h")
+    code += "\r\n"
+    code += "\r\n#endif /* AZUL_H */\r\n"
     return code
 
 # generate a test function that asserts that the struct layout in the DLL
@@ -1703,15 +1732,23 @@ def build_dll():
         os.system('rustup override set nightly-i686-unknown-linux-gnu')
         os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=i686-unknown-linux-gnu --all-features --release')
     elif platform == "darwin":
-        os.system('rustup override set nightly-x86_64-unknown-darwin-gnu', env=d, cwd=cwd).wait()
-        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=x86_64-unknown-darwin-gnu --all-features --release', env=d, cwd=cwd).wait()
-        os.system('rustup override set nightly-i686-unknown-darwin-gnu', env=d, cwd=cwd).wait()
-        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=i686-unknown-darwin-gnu --all-features --release', env=d, cwd=cwd).wait()
+        os.system('rustup toolchain install nightly-x86_64-unknown-darwin-gnu')
+        os.system('rustup override set nightly-x86_64-unknown-darwin-gnu')
+        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=x86_64-unknown-darwin-gnu --all-features --release')
+        os.system('rustup toolchain install nightly-i686-unknown-darwin-gnu')
+        os.system('rustup override set nightly-i686-unknown-darwin-gnu')
+        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=i686-unknown-darwin-gnu --all-features --release')
     elif platform == "win32":
-        os.system('rustup override set nightly-x86_64-unknown-windows-msvc', env=d, cwd=cwd).wait()
-        os.system('RUSTFLAGS="-C target-feature=-crt-static" cargo build --target=x86_64-unknown-windows-msvc --all-features --release', env=d, cwd=cwd).wait()
-        os.system('rustup override set nightly-i686-unknown-windows-msvc', env=d, cwd=cwd).wait()
-        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=i686-unknown-windows-msvc --all-features --release', env=d, cwd=cwd).wait()
+        os.system("""
+            cd azul-dll
+            rustup toolchain install stable-x86_64-pc-windows-msvc
+            rustup override set stable-x86_64-pc-windows-msvc
+            cargo build --target=x86_64-pc-windows-msvc --all-features --release
+            rustup toolchain install stable-i686-pc-windows-msvc
+            rustup override set stable-i686-pc-windows-msvc
+            cargo build --target=i686-pc-windows-msvc --all-features --release
+            cd ..
+        """)
     else:
         raise Exception("unsupported platform: " + platform)
 
@@ -1876,12 +1913,7 @@ def generate_docs():
                 with a functional UI to View mapping. Callbacks can modify the application
                 data and then tell the framework to reconstruct the entire UI again.
                 Since azul gives the programmer the tool to render only the visible UI objects,
-                the performance of reconstructing the UI is very managable (~20 microseconds for a simple UI).
-                <br/>
-                Azul can internally cache DOM objects and compare them to see if anything
-                in the UI changed. No more manual <code>button->updateDirtyRect();</code>
-                calls! The benefit is a "clean" programming abstraction that does not need
-                listeners, macros, metacompilers, inheritance or templates. Simplicity is key.
+                the performance of reconstructing the UI is very managable (~100 µs for a simple UI).
             """,
             "screenshot": root_folder + "/examples/assets/screenshots/helloworld.png",
             "cpu": "0%",
@@ -2291,7 +2323,7 @@ def generate_docs():
 
 def build_azulc():
     # enable features="image_loading, font_loading" to enable layouting
-    os.system('cd "' + root_folder + '/azulc" && RUSTFLAGS="-Ctarget-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo +nightly build --bin azulc --no-default-features --features="xml std font_loading image_loading text_layout" --release')
+    os.system('cd "' + root_folder + '/azulc" && cargo build --bin azulc --no-default-features --features="xml std font_loading image_loading text_layout" --release')
 
 def full_test():
     os.system('cd "' + root_folder + '/azul-dll" && cargo check --verbose --all-features')
@@ -2308,7 +2340,7 @@ def debug_test_compile_c():
     if platform == "linux" or platform == "linux2":
         os.system('cd "' + root_folder + '/api/c" && gcc -ansi ./main.c')
     elif platform == "win32":
-        os.system("cd \"" + root_folder + "/api/c\" && clang -ansi ./main.c -lazul -I\"" + root_folder + "/target/release/x86_64-unknown-windows-msvc/\" ")
+        os.system("cd \"" + root_folder + "/api/c\" && clang -ansi ./main.c -lazul -I\"" + root_folder + "/target/release/x86_64-unknown-windows-msvc/release\" ")
     else:
         pass
 
@@ -2322,15 +2354,15 @@ def main():
     print("generating documentation in /target/html...")
     generate_docs()
     print("building azulc (release mode)...")
-    build_azulc()
+    # build_azulc()
     print("building azul-dll (release mode)...")
-    build_dll()
+    # build_dll()
     print("checking azul-dll for struct size integrity...")
-    run_size_test()
+    # run_size_test()
     print("building examples...")
-    build_examples()
+    # build_examples()
     print("building and linking C examples from /examples/c/...")
-    debug_test_compile_c()
+    # debug_test_compile_c()
     # full_test()
     # release_on_cargo()
     # make_debian_release_package()

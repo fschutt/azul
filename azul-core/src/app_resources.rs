@@ -18,7 +18,7 @@ use crate::{
     styled_dom::StyledDom,
     callbacks::{PipelineId, InlineText},
     task::ExternalSystemCallbacks,
-    window::{DebugState, LogicalPosition, LogicalSize, LogicalRect},
+    window::{LogicalPosition, LogicalSize, LogicalRect},
 };
 use rust_fontconfig::FcFontCache;
 

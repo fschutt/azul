@@ -24,7 +24,7 @@ use crate::{
     callbacks::{
         TimerCallback, TimerCallbackInfo, RefAny,
         TimerCallbackReturn, TimerCallbackType, UpdateScreen,
-        ThreadCallbackType, WriteBackCallback, WriteBackCallbackType,
+        ThreadCallback, WriteBackCallback, WriteBackCallbackType,
         CallbackInfo, FocusTarget, ScrollPosition, DomNodeId
     },
     app_resources::{AppResources, ImageSource, ImageMask},
@@ -683,7 +683,7 @@ impl ExternalSystemCallbacks {
 }
 
 /// Function that creates a new `Thread` object
-pub type CreateThreadCallbackType = extern "C" fn(RefAny, RefAny, ThreadCallbackType) -> Thread;
+pub type CreateThreadCallbackType = extern "C" fn(RefAny, RefAny, ThreadCallback) -> Thread;
 #[repr(C)] pub struct CreateThreadCallback { pub cb: CreateThreadCallbackType }
 impl_callback!(CreateThreadCallback);
 
@@ -760,7 +760,7 @@ pub struct Thread {
 pub extern "C" fn get_system_time_libstd() -> Instant { StdInstant::now().into() }
 
 #[cfg(feature = "std")]
-pub extern "C" fn create_thread_libstd(mut thread_initialize_data: RefAny, mut writeback_data: RefAny, callback: ThreadCallbackType) -> Thread {
+pub extern "C" fn create_thread_libstd(mut thread_initialize_data: RefAny, mut writeback_data: RefAny, callback: ThreadCallback) -> Thread {
 
     let (sender_receiver, receiver_receiver) = std::sync::mpsc::channel::<ThreadReceiveMsg>();
     let sender_receiver = ThreadSender {
@@ -781,7 +781,7 @@ pub extern "C" fn create_thread_libstd(mut thread_initialize_data: RefAny, mut w
 
     let thread_handle = Some(thread::spawn(move || {
         let _ = thread_check;
-        callback(thread_initialize_data.clone_into_library_memory(), sender_receiver, receiver_sender);
+        (callback.cb)(thread_initialize_data.clone_into_library_memory(), sender_receiver, receiver_sender);
         // thread_check gets dropped here, signals that the thread has finished
     }));
 

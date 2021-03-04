@@ -431,11 +431,10 @@ impl TableView {
 
         IFrameCallbackReturn {
             dom: styled_dom,
-            size: LayoutRect {
-                origin: LayoutPoint::zero(), // TODO: info.get_bounds().origin,
-                size: LayoutSize::new(table_width as isize, table_height as isize),
-            },
-            virtual_size: None.into(),
+            scroll_size: info.scroll_size,
+            scroll_offset: info.scroll_offset,
+            virtual_scroll_size: info.virtual_scroll_size,
+            virtual_scroll_offset: info.virtual_scroll_offset,
         }
     }
 }
