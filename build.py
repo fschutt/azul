@@ -1397,10 +1397,11 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
                 vec_type = analyze_type(api_data["vec"]["classes"][vec_name]["struct_fields"][0]["ptr"]["type"])[1]
                 if is_primitive_arg(vec_type):
                     code += "\r\n" + replace_primitive_ctype(vec_type).strip() + " " +  prefix + vec_name + "Array[] = {};"
+                    code += "\r\n#define " + prefix + vec_name + "_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(" + replace_primitive_ctype(vec_type).strip() + "), .cap = sizeof(v) / sizeof(" + replace_primitive_ctype(vec_type).strip() + "), .destructor = { .NoDestructor = { .tag = " + prefix + vec_name + "DestructorTag_NoDestructor, }, }, }"
                 else:
                     code += "\r\n" + prefix + vec_type + " " +  prefix + vec_name + "Array[] = {};"
+                    code += "\r\n#define " + prefix + vec_name + "_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(" + prefix + vec_name[:-3] + "), .cap = sizeof(v) / sizeof(" + prefix + vec_name[:-3] + "), .destructor = { .NoDestructor = { .tag = " + prefix + vec_name + "DestructorTag_NoDestructor, }, }, }"
                 code += "\r\n#define " + prefix + vec_name + "_empty { .ptr = &" + prefix + vec_name + "Array, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = " + prefix + vec_name + "DestructorTag_NoDestructor, }, }, }"
-                code += "\r\n#define " + prefix + vec_name + "_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(" + vec_name[:-3] + "), .cap = sizeof(v) / sizeof(" + vec_name[:-3] + "), .destructor = { .NoDestructor = { .tag = " + vec_name + "DestructorTag_NoDestructor, }, }, }"
                 code += "\r\n"
     return code
 

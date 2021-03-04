@@ -8439,164 +8439,164 @@ struct AzCss {
 typedef struct AzCss AzCss;
 
 AzMonitor AzMonitorVecArray[] = {};
+#define AzMonitorVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzMonitor), .cap = sizeof(v) / sizeof(AzMonitor), .destructor = { .NoDestructor = { .tag = AzMonitorVecDestructorTag_NoDestructor, }, }, }
 #define AzMonitorVec_empty { .ptr = &AzMonitorVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzMonitorVecDestructorTag_NoDestructor, }, }, }
-#define AzMonitorVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(Monitor), .cap = sizeof(v) / sizeof(Monitor), .destructor = { .NoDestructor = { .tag = MonitorVecDestructorTag_NoDestructor, }, }, }
 
 AzVideoMode AzVideoModeVecArray[] = {};
+#define AzVideoModeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzVideoMode), .cap = sizeof(v) / sizeof(AzVideoMode), .destructor = { .NoDestructor = { .tag = AzVideoModeVecDestructorTag_NoDestructor, }, }, }
 #define AzVideoModeVec_empty { .ptr = &AzVideoModeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzVideoModeVecDestructorTag_NoDestructor, }, }, }
-#define AzVideoModeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(VideoMode), .cap = sizeof(v) / sizeof(VideoMode), .destructor = { .NoDestructor = { .tag = VideoModeVecDestructorTag_NoDestructor, }, }, }
 
 AzDom AzDomVecArray[] = {};
+#define AzDomVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzDom), .cap = sizeof(v) / sizeof(AzDom), .destructor = { .NoDestructor = { .tag = AzDomVecDestructorTag_NoDestructor, }, }, }
 #define AzDomVec_empty { .ptr = &AzDomVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzDomVecDestructorTag_NoDestructor, }, }, }
-#define AzDomVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(Dom), .cap = sizeof(v) / sizeof(Dom), .destructor = { .NoDestructor = { .tag = DomVecDestructorTag_NoDestructor, }, }, }
 
 AzIdOrClass AzIdOrClassVecArray[] = {};
+#define AzIdOrClassVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzIdOrClass), .cap = sizeof(v) / sizeof(AzIdOrClass), .destructor = { .NoDestructor = { .tag = AzIdOrClassVecDestructorTag_NoDestructor, }, }, }
 #define AzIdOrClassVec_empty { .ptr = &AzIdOrClassVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzIdOrClassVecDestructorTag_NoDestructor, }, }, }
-#define AzIdOrClassVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(IdOrClass), .cap = sizeof(v) / sizeof(IdOrClass), .destructor = { .NoDestructor = { .tag = IdOrClassVecDestructorTag_NoDestructor, }, }, }
 
 AzNodeDataInlineCssProperty AzNodeDataInlineCssPropertyVecArray[] = {};
+#define AzNodeDataInlineCssPropertyVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNodeDataInlineCssProperty), .cap = sizeof(v) / sizeof(AzNodeDataInlineCssProperty), .destructor = { .NoDestructor = { .tag = AzNodeDataInlineCssPropertyVecDestructorTag_NoDestructor, }, }, }
 #define AzNodeDataInlineCssPropertyVec_empty { .ptr = &AzNodeDataInlineCssPropertyVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNodeDataInlineCssPropertyVecDestructorTag_NoDestructor, }, }, }
-#define AzNodeDataInlineCssPropertyVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(NodeDataInlineCssProperty), .cap = sizeof(v) / sizeof(NodeDataInlineCssProperty), .destructor = { .NoDestructor = { .tag = NodeDataInlineCssPropertyVecDestructorTag_NoDestructor, }, }, }
 
 AzStyleBackgroundContent AzStyleBackgroundContentVecArray[] = {};
+#define AzStyleBackgroundContentVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStyleBackgroundContent), .cap = sizeof(v) / sizeof(AzStyleBackgroundContent), .destructor = { .NoDestructor = { .tag = AzStyleBackgroundContentVecDestructorTag_NoDestructor, }, }, }
 #define AzStyleBackgroundContentVec_empty { .ptr = &AzStyleBackgroundContentVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStyleBackgroundContentVecDestructorTag_NoDestructor, }, }, }
-#define AzStyleBackgroundContentVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(StyleBackgroundContent), .cap = sizeof(v) / sizeof(StyleBackgroundContent), .destructor = { .NoDestructor = { .tag = StyleBackgroundContentVecDestructorTag_NoDestructor, }, }, }
 
 AzStyleBackgroundPosition AzStyleBackgroundPositionVecArray[] = {};
+#define AzStyleBackgroundPositionVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStyleBackgroundPosition), .cap = sizeof(v) / sizeof(AzStyleBackgroundPosition), .destructor = { .NoDestructor = { .tag = AzStyleBackgroundPositionVecDestructorTag_NoDestructor, }, }, }
 #define AzStyleBackgroundPositionVec_empty { .ptr = &AzStyleBackgroundPositionVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStyleBackgroundPositionVecDestructorTag_NoDestructor, }, }, }
-#define AzStyleBackgroundPositionVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(StyleBackgroundPosition), .cap = sizeof(v) / sizeof(StyleBackgroundPosition), .destructor = { .NoDestructor = { .tag = StyleBackgroundPositionVecDestructorTag_NoDestructor, }, }, }
 
 AzStyleBackgroundRepeat AzStyleBackgroundRepeatVecArray[] = {};
+#define AzStyleBackgroundRepeatVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStyleBackgroundRepeat), .cap = sizeof(v) / sizeof(AzStyleBackgroundRepeat), .destructor = { .NoDestructor = { .tag = AzStyleBackgroundRepeatVecDestructorTag_NoDestructor, }, }, }
 #define AzStyleBackgroundRepeatVec_empty { .ptr = &AzStyleBackgroundRepeatVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStyleBackgroundRepeatVecDestructorTag_NoDestructor, }, }, }
-#define AzStyleBackgroundRepeatVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(StyleBackgroundRepeat), .cap = sizeof(v) / sizeof(StyleBackgroundRepeat), .destructor = { .NoDestructor = { .tag = StyleBackgroundRepeatVecDestructorTag_NoDestructor, }, }, }
 
 AzStyleBackgroundSize AzStyleBackgroundSizeVecArray[] = {};
+#define AzStyleBackgroundSizeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStyleBackgroundSize), .cap = sizeof(v) / sizeof(AzStyleBackgroundSize), .destructor = { .NoDestructor = { .tag = AzStyleBackgroundSizeVecDestructorTag_NoDestructor, }, }, }
 #define AzStyleBackgroundSizeVec_empty { .ptr = &AzStyleBackgroundSizeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStyleBackgroundSizeVecDestructorTag_NoDestructor, }, }, }
-#define AzStyleBackgroundSizeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(StyleBackgroundSize), .cap = sizeof(v) / sizeof(StyleBackgroundSize), .destructor = { .NoDestructor = { .tag = StyleBackgroundSizeVecDestructorTag_NoDestructor, }, }, }
 
 AzStyleTransform AzStyleTransformVecArray[] = {};
+#define AzStyleTransformVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStyleTransform), .cap = sizeof(v) / sizeof(AzStyleTransform), .destructor = { .NoDestructor = { .tag = AzStyleTransformVecDestructorTag_NoDestructor, }, }, }
 #define AzStyleTransformVec_empty { .ptr = &AzStyleTransformVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStyleTransformVecDestructorTag_NoDestructor, }, }, }
-#define AzStyleTransformVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(StyleTransform), .cap = sizeof(v) / sizeof(StyleTransform), .destructor = { .NoDestructor = { .tag = StyleTransformVecDestructorTag_NoDestructor, }, }, }
 
 AzCssProperty AzCssPropertyVecArray[] = {};
+#define AzCssPropertyVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzCssProperty), .cap = sizeof(v) / sizeof(AzCssProperty), .destructor = { .NoDestructor = { .tag = AzCssPropertyVecDestructorTag_NoDestructor, }, }, }
 #define AzCssPropertyVec_empty { .ptr = &AzCssPropertyVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzCssPropertyVecDestructorTag_NoDestructor, }, }, }
-#define AzCssPropertyVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(CssProperty), .cap = sizeof(v) / sizeof(CssProperty), .destructor = { .NoDestructor = { .tag = CssPropertyVecDestructorTag_NoDestructor, }, }, }
 
 AzSvgMultiPolygon AzSvgMultiPolygonVecArray[] = {};
+#define AzSvgMultiPolygonVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzSvgMultiPolygon), .cap = sizeof(v) / sizeof(AzSvgMultiPolygon), .destructor = { .NoDestructor = { .tag = AzSvgMultiPolygonVecDestructorTag_NoDestructor, }, }, }
 #define AzSvgMultiPolygonVec_empty { .ptr = &AzSvgMultiPolygonVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzSvgMultiPolygonVecDestructorTag_NoDestructor, }, }, }
-#define AzSvgMultiPolygonVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(SvgMultiPolygon), .cap = sizeof(v) / sizeof(SvgMultiPolygon), .destructor = { .NoDestructor = { .tag = SvgMultiPolygonVecDestructorTag_NoDestructor, }, }, }
 
 AzSvgPath AzSvgPathVecArray[] = {};
+#define AzSvgPathVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzSvgPath), .cap = sizeof(v) / sizeof(AzSvgPath), .destructor = { .NoDestructor = { .tag = AzSvgPathVecDestructorTag_NoDestructor, }, }, }
 #define AzSvgPathVec_empty { .ptr = &AzSvgPathVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzSvgPathVecDestructorTag_NoDestructor, }, }, }
-#define AzSvgPathVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(SvgPath), .cap = sizeof(v) / sizeof(SvgPath), .destructor = { .NoDestructor = { .tag = SvgPathVecDestructorTag_NoDestructor, }, }, }
 
 AzVertexAttribute AzVertexAttributeVecArray[] = {};
+#define AzVertexAttributeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzVertexAttribute), .cap = sizeof(v) / sizeof(AzVertexAttribute), .destructor = { .NoDestructor = { .tag = AzVertexAttributeVecDestructorTag_NoDestructor, }, }, }
 #define AzVertexAttributeVec_empty { .ptr = &AzVertexAttributeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzVertexAttributeVecDestructorTag_NoDestructor, }, }, }
-#define AzVertexAttributeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(VertexAttribute), .cap = sizeof(v) / sizeof(VertexAttribute), .destructor = { .NoDestructor = { .tag = VertexAttributeVecDestructorTag_NoDestructor, }, }, }
 
 AzSvgPathElement AzSvgPathElementVecArray[] = {};
+#define AzSvgPathElementVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzSvgPathElement), .cap = sizeof(v) / sizeof(AzSvgPathElement), .destructor = { .NoDestructor = { .tag = AzSvgPathElementVecDestructorTag_NoDestructor, }, }, }
 #define AzSvgPathElementVec_empty { .ptr = &AzSvgPathElementVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzSvgPathElementVecDestructorTag_NoDestructor, }, }, }
-#define AzSvgPathElementVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(SvgPathElement), .cap = sizeof(v) / sizeof(SvgPathElement), .destructor = { .NoDestructor = { .tag = SvgPathElementVecDestructorTag_NoDestructor, }, }, }
 
 AzSvgVertex AzSvgVertexVecArray[] = {};
+#define AzSvgVertexVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzSvgVertex), .cap = sizeof(v) / sizeof(AzSvgVertex), .destructor = { .NoDestructor = { .tag = AzSvgVertexVecDestructorTag_NoDestructor, }, }, }
 #define AzSvgVertexVec_empty { .ptr = &AzSvgVertexVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzSvgVertexVecDestructorTag_NoDestructor, }, }, }
-#define AzSvgVertexVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(SvgVertex), .cap = sizeof(v) / sizeof(SvgVertex), .destructor = { .NoDestructor = { .tag = SvgVertexVecDestructorTag_NoDestructor, }, }, }
 
 uint32_t AzU32VecArray[] = {};
+#define AzU32Vec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(uint32_t), .cap = sizeof(v) / sizeof(uint32_t), .destructor = { .NoDestructor = { .tag = AzU32VecDestructorTag_NoDestructor, }, }, }
 #define AzU32Vec_empty { .ptr = &AzU32VecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzU32VecDestructorTag_NoDestructor, }, }, }
-#define AzU32Vec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(U32), .cap = sizeof(v) / sizeof(U32), .destructor = { .NoDestructor = { .tag = U32VecDestructorTag_NoDestructor, }, }, }
 
 AzXWindowType AzXWindowTypeVecArray[] = {};
+#define AzXWindowTypeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzXWindowType), .cap = sizeof(v) / sizeof(AzXWindowType), .destructor = { .NoDestructor = { .tag = AzXWindowTypeVecDestructorTag_NoDestructor, }, }, }
 #define AzXWindowTypeVec_empty { .ptr = &AzXWindowTypeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzXWindowTypeVecDestructorTag_NoDestructor, }, }, }
-#define AzXWindowTypeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(XWindowType), .cap = sizeof(v) / sizeof(XWindowType), .destructor = { .NoDestructor = { .tag = XWindowTypeVecDestructorTag_NoDestructor, }, }, }
 
 AzVirtualKeyCode AzVirtualKeyCodeVecArray[] = {};
+#define AzVirtualKeyCodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzVirtualKeyCode), .cap = sizeof(v) / sizeof(AzVirtualKeyCode), .destructor = { .NoDestructor = { .tag = AzVirtualKeyCodeVecDestructorTag_NoDestructor, }, }, }
 #define AzVirtualKeyCodeVec_empty { .ptr = &AzVirtualKeyCodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzVirtualKeyCodeVecDestructorTag_NoDestructor, }, }, }
-#define AzVirtualKeyCodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(VirtualKeyCode), .cap = sizeof(v) / sizeof(VirtualKeyCode), .destructor = { .NoDestructor = { .tag = VirtualKeyCodeVecDestructorTag_NoDestructor, }, }, }
 
 AzCascadeInfo AzCascadeInfoVecArray[] = {};
+#define AzCascadeInfoVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzCascadeInfo), .cap = sizeof(v) / sizeof(AzCascadeInfo), .destructor = { .NoDestructor = { .tag = AzCascadeInfoVecDestructorTag_NoDestructor, }, }, }
 #define AzCascadeInfoVec_empty { .ptr = &AzCascadeInfoVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzCascadeInfoVecDestructorTag_NoDestructor, }, }, }
-#define AzCascadeInfoVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(CascadeInfo), .cap = sizeof(v) / sizeof(CascadeInfo), .destructor = { .NoDestructor = { .tag = CascadeInfoVecDestructorTag_NoDestructor, }, }, }
 
 uint32_t AzScanCodeVecArray[] = {};
+#define AzScanCodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(uint32_t), .cap = sizeof(v) / sizeof(uint32_t), .destructor = { .NoDestructor = { .tag = AzScanCodeVecDestructorTag_NoDestructor, }, }, }
 #define AzScanCodeVec_empty { .ptr = &AzScanCodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzScanCodeVecDestructorTag_NoDestructor, }, }, }
-#define AzScanCodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(ScanCode), .cap = sizeof(v) / sizeof(ScanCode), .destructor = { .NoDestructor = { .tag = ScanCodeVecDestructorTag_NoDestructor, }, }, }
 
 AzCssDeclaration AzCssDeclarationVecArray[] = {};
+#define AzCssDeclarationVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzCssDeclaration), .cap = sizeof(v) / sizeof(AzCssDeclaration), .destructor = { .NoDestructor = { .tag = AzCssDeclarationVecDestructorTag_NoDestructor, }, }, }
 #define AzCssDeclarationVec_empty { .ptr = &AzCssDeclarationVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzCssDeclarationVecDestructorTag_NoDestructor, }, }, }
-#define AzCssDeclarationVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(CssDeclaration), .cap = sizeof(v) / sizeof(CssDeclaration), .destructor = { .NoDestructor = { .tag = CssDeclarationVecDestructorTag_NoDestructor, }, }, }
 
 AzCssPathSelector AzCssPathSelectorVecArray[] = {};
+#define AzCssPathSelectorVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzCssPathSelector), .cap = sizeof(v) / sizeof(AzCssPathSelector), .destructor = { .NoDestructor = { .tag = AzCssPathSelectorVecDestructorTag_NoDestructor, }, }, }
 #define AzCssPathSelectorVec_empty { .ptr = &AzCssPathSelectorVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzCssPathSelectorVecDestructorTag_NoDestructor, }, }, }
-#define AzCssPathSelectorVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(CssPathSelector), .cap = sizeof(v) / sizeof(CssPathSelector), .destructor = { .NoDestructor = { .tag = CssPathSelectorVecDestructorTag_NoDestructor, }, }, }
 
 AzStylesheet AzStylesheetVecArray[] = {};
+#define AzStylesheetVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStylesheet), .cap = sizeof(v) / sizeof(AzStylesheet), .destructor = { .NoDestructor = { .tag = AzStylesheetVecDestructorTag_NoDestructor, }, }, }
 #define AzStylesheetVec_empty { .ptr = &AzStylesheetVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStylesheetVecDestructorTag_NoDestructor, }, }, }
-#define AzStylesheetVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(Stylesheet), .cap = sizeof(v) / sizeof(Stylesheet), .destructor = { .NoDestructor = { .tag = StylesheetVecDestructorTag_NoDestructor, }, }, }
 
 AzCssRuleBlock AzCssRuleBlockVecArray[] = {};
+#define AzCssRuleBlockVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzCssRuleBlock), .cap = sizeof(v) / sizeof(AzCssRuleBlock), .destructor = { .NoDestructor = { .tag = AzCssRuleBlockVecDestructorTag_NoDestructor, }, }, }
 #define AzCssRuleBlockVec_empty { .ptr = &AzCssRuleBlockVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzCssRuleBlockVecDestructorTag_NoDestructor, }, }, }
-#define AzCssRuleBlockVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(CssRuleBlock), .cap = sizeof(v) / sizeof(CssRuleBlock), .destructor = { .NoDestructor = { .tag = CssRuleBlockVecDestructorTag_NoDestructor, }, }, }
 
 uint8_t AzU8VecArray[] = {};
+#define AzU8Vec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(uint8_t), .cap = sizeof(v) / sizeof(uint8_t), .destructor = { .NoDestructor = { .tag = AzU8VecDestructorTag_NoDestructor, }, }, }
 #define AzU8Vec_empty { .ptr = &AzU8VecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzU8VecDestructorTag_NoDestructor, }, }, }
-#define AzU8Vec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(U8), .cap = sizeof(v) / sizeof(U8), .destructor = { .NoDestructor = { .tag = U8VecDestructorTag_NoDestructor, }, }, }
 
 AzCallbackData AzCallbackDataVecArray[] = {};
+#define AzCallbackDataVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzCallbackData), .cap = sizeof(v) / sizeof(AzCallbackData), .destructor = { .NoDestructor = { .tag = AzCallbackDataVecDestructorTag_NoDestructor, }, }, }
 #define AzCallbackDataVec_empty { .ptr = &AzCallbackDataVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzCallbackDataVecDestructorTag_NoDestructor, }, }, }
-#define AzCallbackDataVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(CallbackData), .cap = sizeof(v) / sizeof(CallbackData), .destructor = { .NoDestructor = { .tag = CallbackDataVecDestructorTag_NoDestructor, }, }, }
 
 AzDebugMessage AzDebugMessageVecArray[] = {};
+#define AzDebugMessageVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzDebugMessage), .cap = sizeof(v) / sizeof(AzDebugMessage), .destructor = { .NoDestructor = { .tag = AzDebugMessageVecDestructorTag_NoDestructor, }, }, }
 #define AzDebugMessageVec_empty { .ptr = &AzDebugMessageVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzDebugMessageVecDestructorTag_NoDestructor, }, }, }
-#define AzDebugMessageVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(DebugMessage), .cap = sizeof(v) / sizeof(DebugMessage), .destructor = { .NoDestructor = { .tag = DebugMessageVecDestructorTag_NoDestructor, }, }, }
 
 uint32_t AzGLuintVecArray[] = {};
+#define AzGLuintVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(uint32_t), .cap = sizeof(v) / sizeof(uint32_t), .destructor = { .NoDestructor = { .tag = AzGLuintVecDestructorTag_NoDestructor, }, }, }
 #define AzGLuintVec_empty { .ptr = &AzGLuintVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzGLuintVecDestructorTag_NoDestructor, }, }, }
-#define AzGLuintVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(GLuint), .cap = sizeof(v) / sizeof(GLuint), .destructor = { .NoDestructor = { .tag = GLuintVecDestructorTag_NoDestructor, }, }, }
 
 int32_t AzGLintVecArray[] = {};
+#define AzGLintVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(int32_t), .cap = sizeof(v) / sizeof(int32_t), .destructor = { .NoDestructor = { .tag = AzGLintVecDestructorTag_NoDestructor, }, }, }
 #define AzGLintVec_empty { .ptr = &AzGLintVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzGLintVecDestructorTag_NoDestructor, }, }, }
-#define AzGLintVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(GLint), .cap = sizeof(v) / sizeof(GLint), .destructor = { .NoDestructor = { .tag = GLintVecDestructorTag_NoDestructor, }, }, }
 
 AzString AzStringVecArray[] = {};
+#define AzStringVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzString), .cap = sizeof(v) / sizeof(AzString), .destructor = { .NoDestructor = { .tag = AzStringVecDestructorTag_NoDestructor, }, }, }
 #define AzStringVec_empty { .ptr = &AzStringVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStringVecDestructorTag_NoDestructor, }, }, }
-#define AzStringVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(String), .cap = sizeof(v) / sizeof(String), .destructor = { .NoDestructor = { .tag = StringVecDestructorTag_NoDestructor, }, }, }
 
 AzStringPair AzStringPairVecArray[] = {};
+#define AzStringPairVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStringPair), .cap = sizeof(v) / sizeof(AzStringPair), .destructor = { .NoDestructor = { .tag = AzStringPairVecDestructorTag_NoDestructor, }, }, }
 #define AzStringPairVec_empty { .ptr = &AzStringPairVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStringPairVecDestructorTag_NoDestructor, }, }, }
-#define AzStringPairVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(StringPair), .cap = sizeof(v) / sizeof(StringPair), .destructor = { .NoDestructor = { .tag = StringPairVecDestructorTag_NoDestructor, }, }, }
 
 AzLinearColorStop AzLinearColorStopVecArray[] = {};
+#define AzLinearColorStopVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzLinearColorStop), .cap = sizeof(v) / sizeof(AzLinearColorStop), .destructor = { .NoDestructor = { .tag = AzLinearColorStopVecDestructorTag_NoDestructor, }, }, }
 #define AzLinearColorStopVec_empty { .ptr = &AzLinearColorStopVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzLinearColorStopVecDestructorTag_NoDestructor, }, }, }
-#define AzLinearColorStopVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(LinearColorStop), .cap = sizeof(v) / sizeof(LinearColorStop), .destructor = { .NoDestructor = { .tag = LinearColorStopVecDestructorTag_NoDestructor, }, }, }
 
 AzRadialColorStop AzRadialColorStopVecArray[] = {};
+#define AzRadialColorStopVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzRadialColorStop), .cap = sizeof(v) / sizeof(AzRadialColorStop), .destructor = { .NoDestructor = { .tag = AzRadialColorStopVecDestructorTag_NoDestructor, }, }, }
 #define AzRadialColorStopVec_empty { .ptr = &AzRadialColorStopVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzRadialColorStopVecDestructorTag_NoDestructor, }, }, }
-#define AzRadialColorStopVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(RadialColorStop), .cap = sizeof(v) / sizeof(RadialColorStop), .destructor = { .NoDestructor = { .tag = RadialColorStopVecDestructorTag_NoDestructor, }, }, }
 
 AzNodeId AzNodeIdVecArray[] = {};
+#define AzNodeIdVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNodeId), .cap = sizeof(v) / sizeof(AzNodeId), .destructor = { .NoDestructor = { .tag = AzNodeIdVecDestructorTag_NoDestructor, }, }, }
 #define AzNodeIdVec_empty { .ptr = &AzNodeIdVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNodeIdVecDestructorTag_NoDestructor, }, }, }
-#define AzNodeIdVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(NodeId), .cap = sizeof(v) / sizeof(NodeId), .destructor = { .NoDestructor = { .tag = NodeIdVecDestructorTag_NoDestructor, }, }, }
 
 AzNode AzNodeVecArray[] = {};
+#define AzNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNode), .cap = sizeof(v) / sizeof(AzNode), .destructor = { .NoDestructor = { .tag = AzNodeVecDestructorTag_NoDestructor, }, }, }
 #define AzNodeVec_empty { .ptr = &AzNodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNodeVecDestructorTag_NoDestructor, }, }, }
-#define AzNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(Node), .cap = sizeof(v) / sizeof(Node), .destructor = { .NoDestructor = { .tag = NodeVecDestructorTag_NoDestructor, }, }, }
 
 AzStyledNode AzStyledNodeVecArray[] = {};
+#define AzStyledNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStyledNode), .cap = sizeof(v) / sizeof(AzStyledNode), .destructor = { .NoDestructor = { .tag = AzStyledNodeVecDestructorTag_NoDestructor, }, }, }
 #define AzStyledNodeVec_empty { .ptr = &AzStyledNodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStyledNodeVecDestructorTag_NoDestructor, }, }, }
-#define AzStyledNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(StyledNode), .cap = sizeof(v) / sizeof(StyledNode), .destructor = { .NoDestructor = { .tag = StyledNodeVecDestructorTag_NoDestructor, }, }, }
 
 AzTagIdToNodeIdMapping AzTagIdsToNodeIdsMappingVecArray[] = {};
+#define AzTagIdsToNodeIdsMappingVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzTagIdsToNodeIdsMapping), .cap = sizeof(v) / sizeof(AzTagIdsToNodeIdsMapping), .destructor = { .NoDestructor = { .tag = AzTagIdsToNodeIdsMappingVecDestructorTag_NoDestructor, }, }, }
 #define AzTagIdsToNodeIdsMappingVec_empty { .ptr = &AzTagIdsToNodeIdsMappingVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzTagIdsToNodeIdsMappingVecDestructorTag_NoDestructor, }, }, }
-#define AzTagIdsToNodeIdsMappingVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(TagIdsToNodeIdsMapping), .cap = sizeof(v) / sizeof(TagIdsToNodeIdsMapping), .destructor = { .NoDestructor = { .tag = TagIdsToNodeIdsMappingVecDestructorTag_NoDestructor, }, }, }
 
 AzParentWithNodeDepth AzParentWithNodeDepthVecArray[] = {};
+#define AzParentWithNodeDepthVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzParentWithNodeDepth), .cap = sizeof(v) / sizeof(AzParentWithNodeDepth), .destructor = { .NoDestructor = { .tag = AzParentWithNodeDepthVecDestructorTag_NoDestructor, }, }, }
 #define AzParentWithNodeDepthVec_empty { .ptr = &AzParentWithNodeDepthVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzParentWithNodeDepthVecDestructorTag_NoDestructor, }, }, }
-#define AzParentWithNodeDepthVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(ParentWithNodeDepth), .cap = sizeof(v) / sizeof(ParentWithNodeDepth), .destructor = { .NoDestructor = { .tag = ParentWithNodeDepthVecDestructorTag_NoDestructor, }, }, }
 
 AzNodeData AzNodeDataVecArray[] = {};
+#define AzNodeDataVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNodeData), .cap = sizeof(v) / sizeof(AzNodeData), .destructor = { .NoDestructor = { .tag = AzNodeDataVecDestructorTag_NoDestructor, }, }, }
 #define AzNodeDataVec_empty { .ptr = &AzNodeDataVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNodeDataVecDestructorTag_NoDestructor, }, }, }
-#define AzNodeDataVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(NodeData), .cap = sizeof(v) / sizeof(NodeData), .destructor = { .NoDestructor = { .tag = NodeDataVecDestructorTag_NoDestructor, }, }, }
 
 
 /* FUNCTIONS from azul.dll / libazul.so */
@@ -8955,7 +8955,7 @@ extern DLLIMPORT AzInstantPtr AzInstantPtr_deepCopy(AzInstantPtr* const instance
  *
  * AzString foo = AZ_STATIC_STRING(\"MyString\");
  */
-#define AzString_fromConstStr(s) { .vec = { .ptr = s, .len = sizeof(s), .cap = sizeof(s), .destructor = { .NoDestructor = { .tag = AzU8VecDestructorTag_NoDestructor, }, }, }, }
+#define AzString_fromConstStr(s) { .vec = { .ptr = s, .len = sizeof(s) - 1, .cap = sizeof(s) - 1, .destructor = { .NoDestructor = { .tag = AzU8VecDestructorTag_NoDestructor, }, }, }, }
 
 #define AzNodeData_new(nt) { \
     .node_type = nt, \

@@ -1,8 +1,8 @@
 # depslib dependency file v1.0
-1614893491 source:c:\users\felix schütt\development\azul\api\c\main\main.c
+1614895628 source:c:\users\felix schütt\development\azul\api\c\main\main.c
 	"../azul.h"
 
-1614894685 c:\users\felix schütt\development\azul\api\c\azul.h
+1614895713 c:\users\felix schütt\development\azul\api\c\azul.h
 	<stdbool.h>
 	<stdint.h>
 	<stddef.h>

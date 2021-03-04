@@ -3,7 +3,7 @@
  *
  * AzString foo = AZ_STATIC_STRING(\"MyString\");
  */
-#define AzString_fromConstStr(s) { .vec = { .ptr = s, .len = sizeof(s), .cap = sizeof(s), .destructor = { .NoDestructor = { .tag = AzU8VecDestructorTag_NoDestructor, }, }, }, }
+#define AzString_fromConstStr(s) { .vec = { .ptr = s, .len = sizeof(s) - 1, .cap = sizeof(s) - 1, .destructor = { .NoDestructor = { .tag = AzU8VecDestructorTag_NoDestructor, }, }, }, }
 
 #define AzNodeData_new(nt) { \
     .node_type = nt, \

@@ -29,6 +29,8 @@
 				</Compiler>
 				<Linker>
 					<Add option="-s" />
+					<Add library="azul" />
+					<Add directory="../../../target/x86_64-pc-windows-msvc/release" />
 				</Linker>
 			</Target>
 		</Build>
