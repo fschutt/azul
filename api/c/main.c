@@ -1,4 +1,4 @@
-#include "../azul.h"
+#include "azul.h"
 #include <stdio.h>
 
 typedef struct {

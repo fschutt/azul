@@ -18,7 +18,7 @@
 #define AzDom_new(nt) { \
     .root = AzNodeData_new(nt),\
     .children = AzDomVec_empty, \
-    .estimated_total_children = 0, \
+    .total_children = 0, \
 }
 
 #define AZ_REFLECT(structName, destructor) \
