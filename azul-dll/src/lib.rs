@@ -283,16 +283,6 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getCursorRelativeToViewport(callbackinfo: &AzCallbackInfo) -> AzOptionLayoutPoint { callbackinfo.get_cursor_relative_to_viewport() }
 /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getCursorRelativeToNode(callbackinfo: &AzCallbackInfo) -> AzOptionLayoutPoint { callbackinfo.get_cursor_relative_to_node() }
-/// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_getParent(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_parent(node_id).into() }
-/// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_getPreviousSibling(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_previous_sibling(node_id).into() }
-/// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_getNextSibling(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_next_sibling(node_id).into() }
-/// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_getFirstChild(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_first_child(node_id).into() }
-/// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_getLastChild(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_last_child(node_id).into() }
 /// Returns a copy of the current windows `WindowState`.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getWindowState(callbackinfo: &AzCallbackInfo) -> AzWindowState { callbackinfo.get_window_state() }
 /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
@@ -303,12 +293,38 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getCurrentWindowHandle(callbackinfo: &AzCallbackInfo) -> AzRawWindowHandle { callbackinfo.get_current_window_handle() }
 /// Returns a **reference-counted copy** of the current windows' `Gl` (context). You can use this to render OpenGL textures.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getGlContext(callbackinfo: &AzCallbackInfo) -> AzOptionGl { callbackinfo.get_gl_context() }
+/// Returns the x / y offset that this node has been scrolled to by the user or `None` if the node has not been scrolled.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getScrollPosition(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionLogicalPosition { callbackinfo.get_scroll_amount(node_id).into() }
+/// Returns the `dataset` property of the given Node or `None` if the node doesn't have a `dataset` property.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getDataset(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionRefAny { callbackinfo.get_dataset(node_id).into() }
+/// If the node is a `Text` node, returns a copy of the internal string contents.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getStringContents(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionString { callbackinfo.get_string_contents(node_id).into() }
+/// If the node is a `Text` node, returns the layouted inline glyphs
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getInlineText(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionInlineText { callbackinfo.get_inline_text(node_id).into() }
+/// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getParent(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_parent(node_id).into() }
+/// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getPreviousSibling(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_previous_sibling(node_id).into() }
+/// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getNextSibling(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_next_sibling(node_id).into() }
+/// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getFirstChild(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_first_child(node_id).into() }
+/// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getLastChild(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_last_child(node_id).into() }
 /// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_setWindowState(callbackinfo: &mut AzCallbackInfo, new_state: AzWindowState) { callbackinfo.set_window_state(new_state); }
 /// Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_setFocus(callbackinfo: &mut AzCallbackInfo, target: AzFocusTarget) { callbackinfo.set_focus(target); }
 /// Sets a `CssProperty` on a given node to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_setCssProperty(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_property: AzCssProperty) { callbackinfo.set_css_property(node_id, new_property);  }
+/// Sets the scroll position of the node
+#[no_mangle] pub extern "C" fn AzCallbackInfo_setScrollPosition(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, scroll_position: AzLogicalPosition) { callbackinfo.set_scroll_amount(node_id, scroll_position) }
+/// If the node is a `Text` node, overwrites the `Text` content with the new string, without requiring the entire UI to be rebuilt.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_setStringContents(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, string: AzString) { callbackinfo.set_string_contents(node_id, string) }
+/// If the node is an `Image`, exchanges the current image with a new source
+#[no_mangle] pub extern "C" fn AzCallbackInfo_exchangeImage(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_image: AzImageSource) { callbackinfo.exchange_image(node_id, new_image) }
+/// If the node has an `ImageMask`, exchanges the current mask for the new mask
+#[no_mangle] pub extern "C" fn AzCallbackInfo_exchangeImageMask(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_mask: AzImageMask) { callbackinfo.exchange_image_mask(node_id, new_mask) }
 /// Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_stopPropagation(callbackinfo: &mut AzCallbackInfo) { callbackinfo.stop_propagation(); }
 /// Spawns a new window with the given `WindowCreateOptions`.
@@ -343,6 +359,32 @@ pub use AzHidpiAdjustedBoundsTT as AzHidpiAdjustedBounds;
 #[no_mangle] pub extern "C" fn AzHidpiAdjustedBounds_getPhysicalSize(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32 { hidpiadjustedbounds.get_physical_size() }
 /// Returns the hidpi factor of the bounds
 #[no_mangle] pub extern "C" fn AzHidpiAdjustedBounds_getHidpiFactor(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> f32 { hidpiadjustedbounds.get_hidpi_factor() }
+
+/// Re-export of rust-allocated (stack based) `InlineText` struct
+pub type AzInlineTextTT = azul_impl::callbacks::InlineText;
+pub use AzInlineTextTT as AzInlineText;
+/// Hit-tests the inline text, returns detailed information about which glyph / word / line, etc. the position (usually the mouse cursor) is currently over. Result may be empty (no hits) or contain more than one result (cursor is hovering over multiple overlapping glyphs at once).
+#[no_mangle] pub extern "C" fn AzInlineText_hitTest(inlinetext: &AzInlineText, position: AzLogicalPosition) -> AzInlineTextHitVec { inlinetext.hit_test(position).into() }
+
+/// Re-export of rust-allocated (stack based) `InlineLine` struct
+pub type AzInlineLineTT = azul_impl::callbacks::InlineLine;
+pub use AzInlineLineTT as AzInlineLine;
+
+/// Re-export of rust-allocated (stack based) `InlineWord` struct
+pub type AzInlineWordTT = azul_core::callbacks::InlineWord;
+pub use AzInlineWordTT as AzInlineWord;
+
+/// Re-export of rust-allocated (stack based) `InlineTextContents` struct
+pub type AzInlineTextContentsTT = azul_core::callbacks::InlineTextContents;
+pub use AzInlineTextContentsTT as AzInlineTextContents;
+
+/// Re-export of rust-allocated (stack based) `InlineGlyph` struct
+pub type AzInlineGlyphTT = azul_core::callbacks::InlineGlyph;
+pub use AzInlineGlyphTT as AzInlineGlyph;
+
+/// Re-export of rust-allocated (stack based) `InlineTextHit` struct
+pub type AzInlineTextHitTT = azul_core::callbacks::InlineTextHit;
+pub use AzInlineTextHitTT as AzInlineTextHit;
 
 /// Defines the keyboard input focus target
 pub type AzFocusTargetTT = azul_impl::callbacks::FocusTarget;
@@ -2159,6 +2201,30 @@ pub use AzThreadSenderDestructorFnTT as AzThreadSenderDestructorFn;
 pub type AzStringTT = azul_impl::css::AzString;
 pub use AzStringTT as AzString;
 
+/// Wrapper over a Rust-allocated `Vec<InlineLine>`
+pub type AzInlineLineVecTT = azul_impl::callbacks::InlineLineVec;
+pub use AzInlineLineVecTT as AzInlineLineVec;
+/// Destructor: Takes ownership of the `InlineLineVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInlineLineVec_delete(object: &mut AzInlineLineVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<InlineWord>`
+pub type AzInlineWordVecTT = azul_impl::callbacks::InlineWordVec;
+pub use AzInlineWordVecTT as AzInlineWordVec;
+/// Destructor: Takes ownership of the `InlineWordVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInlineWordVec_delete(object: &mut AzInlineWordVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<InlineGlyph>`
+pub type AzInlineGlyphVecTT = azul_impl::callbacks::InlineGlyphVec;
+pub use AzInlineGlyphVecTT as AzInlineGlyphVec;
+/// Destructor: Takes ownership of the `InlineGlyphVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInlineGlyphVec_delete(object: &mut AzInlineGlyphVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<InlineTextHit>`
+pub type AzInlineTextHitVecTT = azul_impl::callbacks::InlineTextHitVec;
+pub use AzInlineTextHitVecTT as AzInlineTextHitVec;
+/// Destructor: Takes ownership of the `InlineTextHitVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInlineTextHitVec_delete(object: &mut AzInlineTextHitVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Wrapper over a Rust-allocated `Vec<Monitor>`
 pub type AzMonitorVecTT = azul_impl::window::MonitorVec;
 pub use AzMonitorVecTT as AzMonitorVec;
@@ -2399,6 +2465,26 @@ pub use AzNodeDataVecTT as AzNodeDataVec;
 /// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzNodeDataVec_delete(object: &mut AzNodeDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `InlineLineVecDestructor` struct
+pub type AzInlineLineVecDestructorTT = azul_impl::callbacks::InlineLineVecDestructor;
+pub use AzInlineLineVecDestructorTT as AzInlineLineVecDestructor;
+
+pub type AzInlineLineVecDestructorType = extern "C" fn(&mut AzInlineLineVec);
+/// Re-export of rust-allocated (stack based) `InlineWordVecDestructor` struct
+pub type AzInlineWordVecDestructorTT = azul_impl::callbacks::InlineWordVecDestructor;
+pub use AzInlineWordVecDestructorTT as AzInlineWordVecDestructor;
+
+pub type AzInlineWordVecDestructorType = extern "C" fn(&mut AzInlineWordVec);
+/// Re-export of rust-allocated (stack based) `InlineGlyphVecDestructor` struct
+pub type AzInlineGlyphVecDestructorTT = azul_impl::callbacks::InlineGlyphVecDestructor;
+pub use AzInlineGlyphVecDestructorTT as AzInlineGlyphVecDestructor;
+
+pub type AzInlineGlyphVecDestructorType = extern "C" fn(&mut AzInlineGlyphVec);
+/// Re-export of rust-allocated (stack based) `InlineTextHitVecDestructor` struct
+pub type AzInlineTextHitVecDestructorTT = azul_impl::callbacks::InlineTextHitVecDestructor;
+pub use AzInlineTextHitVecDestructorTT as AzInlineTextHitVecDestructor;
+
+pub type AzInlineTextHitVecDestructorType = extern "C" fn(&mut AzInlineTextHitVec);
 /// Re-export of rust-allocated (stack based) `MonitorVecDestructor` struct
 pub type AzMonitorVecDestructorTT = azul_impl::window::MonitorVecDestructor;
 pub use AzMonitorVecDestructorTT as AzMonitorVecDestructor;
@@ -2634,6 +2720,10 @@ pub use AzOptionLayoutRectTT as AzOptionLayoutRect;
 /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
 pub type AzOptionRefAnyTT = azul_impl::callbacks::OptionRefAny;
 pub use AzOptionRefAnyTT as AzOptionRefAny;
+
+/// Re-export of rust-allocated (stack based) `OptionInlineText` struct
+pub type AzOptionInlineTextTT = azul_impl::callbacks::OptionInlineText;
+pub use AzOptionInlineTextTT as AzOptionInlineText;
 
 /// Re-export of rust-allocated (stack based) `OptionLayoutPoint` struct
 pub type AzOptionLayoutPointTT = azul_impl::css::OptionLayoutPoint;
@@ -4113,6 +4203,38 @@ mod test_sizes {
     #[repr(C)]     pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+    /// Re-export of rust-allocated (stack based) `InlineLineVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzInlineLineVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInlineLineVecDestructorType),
+    }
+    /// `AzInlineLineVecDestructorType` struct
+    pub type AzInlineLineVecDestructorType = extern "C" fn(&mut AzInlineLineVec);
+    /// Re-export of rust-allocated (stack based) `InlineWordVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzInlineWordVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInlineWordVecDestructorType),
+    }
+    /// `AzInlineWordVecDestructorType` struct
+    pub type AzInlineWordVecDestructorType = extern "C" fn(&mut AzInlineWordVec);
+    /// Re-export of rust-allocated (stack based) `InlineGlyphVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzInlineGlyphVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInlineGlyphVecDestructorType),
+    }
+    /// `AzInlineGlyphVecDestructorType` struct
+    pub type AzInlineGlyphVecDestructorType = extern "C" fn(&mut AzInlineGlyphVec);
+    /// Re-export of rust-allocated (stack based) `InlineTextHitVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzInlineTextHitVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInlineTextHitVecDestructorType),
+    }
+    /// `AzInlineTextHitVecDestructorType` struct
+    pub type AzInlineTextHitVecDestructorType = extern "C" fn(&mut AzInlineTextHitVec);
     /// Re-export of rust-allocated (stack based) `MonitorVecDestructor` struct
     #[repr(C, u8)]     pub enum AzMonitorVecDestructor {
         DefaultRust,
@@ -4559,6 +4681,31 @@ mod test_sizes {
     #[repr(C)]     pub struct AzHidpiAdjustedBounds {
         pub logical_size: AzLogicalSize,
         pub hidpi_factor: f32,
+    }
+    /// Re-export of rust-allocated (stack based) `InlineGlyph` struct
+    #[repr(C)]     pub struct AzInlineGlyph {
+        pub bounds: AzLogicalRect,
+        pub unicode_codepoint: AzOptionChar,
+        pub glyph_index: u32,
+    }
+    /// Re-export of rust-allocated (stack based) `InlineTextHit` struct
+    #[repr(C)]     pub struct AzInlineTextHit {
+        pub unicode_codepoint: AzOptionChar,
+        pub hit_relative_to_inline_text: AzLogicalPosition,
+        pub hit_relative_to_line: AzLogicalPosition,
+        pub hit_relative_to_text_content: AzLogicalPosition,
+        pub hit_relative_to_glyph: AzLogicalPosition,
+        pub line_index_relative_to_text: usize,
+        pub word_index_relative_to_text: usize,
+        pub text_content_index_relative_to_text: usize,
+        pub glyph_index_relative_to_text: usize,
+        pub char_index_relative_to_text: usize,
+        pub word_index_relative_to_line: usize,
+        pub text_content_index_relative_to_line: usize,
+        pub glyph_index_relative_to_line: usize,
+        pub char_index_relative_to_line: usize,
+        pub glyph_index_relative_to_word: usize,
+        pub char_index_relative_to_word: usize,
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
     #[repr(C)]     pub struct AzIFrameCallbackInfo {
@@ -5433,6 +5580,20 @@ mod test_sizes {
         pub recv_fn: AzThreadRecvFn,
         pub destructor: AzThreadReceiverDestructorFn,
     }
+    /// Wrapper over a Rust-allocated `Vec<InlineGlyph>`
+    #[repr(C)]     pub struct AzInlineGlyphVec {
+        pub(crate) ptr: *const AzInlineGlyph,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInlineGlyphVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<InlineTextHit>`
+    #[repr(C)]     pub struct AzInlineTextHitVec {
+        pub(crate) ptr: *const AzInlineTextHit,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInlineTextHitVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<VideoMode>`
     #[repr(C)]     pub struct AzVideoModeVec {
         pub(crate) ptr: *const AzVideoMode,
@@ -5762,6 +5923,11 @@ mod test_sizes {
         pub middle_down: bool,
         pub scroll_x: AzOptionF32,
         pub scroll_y: AzOptionF32,
+    }
+    /// Re-export of rust-allocated (stack based) `InlineTextContents` struct
+    #[repr(C)]     pub struct AzInlineTextContents {
+        pub glyphs: AzInlineGlyphVec,
+        pub bounds: AzLogicalRect,
     }
     /// Re-export of rust-allocated (stack based) `GlCallbackInfo` struct
     #[repr(C)]     pub struct AzGlCallbackInfo {
@@ -6096,6 +6262,13 @@ mod test_sizes {
         pub video_modes: AzVideoModeVec,
         pub is_primary_monitor: bool,
     }
+    /// Re-export of rust-allocated (stack based) `InlineWord` struct
+    #[repr(C, u8)]     pub enum AzInlineWord {
+        Tab,
+        Return,
+        Space,
+        Word(AzInlineTextContents),
+    }
     /// Re-export of rust-allocated (stack based) `RefCountInner` struct
     #[repr(C)]     pub struct AzRefCountInner {
         pub num_copies: usize,
@@ -6325,6 +6498,13 @@ mod test_sizes {
         pub data: AzRefAny,
         pub callback: AzWriteBackCallback,
     }
+    /// Wrapper over a Rust-allocated `Vec<InlineWord>`
+    #[repr(C)]     pub struct AzInlineWordVec {
+        pub(crate) ptr: *const AzInlineWord,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInlineWordVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<Monitor>`
     #[repr(C)]     pub struct AzMonitorVec {
         pub(crate) ptr: *const AzMonitor,
@@ -6433,6 +6613,11 @@ mod test_sizes {
         pub wayland_theme: AzOptionWaylandTheme,
         pub request_user_attention: bool,
         pub window_icon: AzOptionWindowIcon,
+    }
+    /// Re-export of rust-allocated (stack based) `InlineLine` struct
+    #[repr(C)]     pub struct AzInlineLine {
+        pub words: AzInlineWordVec,
+        pub bounds: AzLogicalRect,
     }
     /// Re-export of rust-allocated (stack based) `CssPath` struct
     #[repr(C)]     pub struct AzCssPath {
@@ -6569,6 +6754,13 @@ mod test_sizes {
         WriteBack(AzThreadWriteBackMsg),
         Update(AzUpdateScreen),
     }
+    /// Wrapper over a Rust-allocated `Vec<InlineLine>`
+    #[repr(C)]     pub struct AzInlineLineVec {
+        pub(crate) ptr: *const AzInlineLine,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInlineLineVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`
     #[repr(C)]     pub struct AzCssPropertyVec {
         pub(crate) ptr: *const AzCssProperty,
@@ -6648,6 +6840,14 @@ mod test_sizes {
         pub cursor_relative_to_item: AzOptionLayoutPoint,
         pub cursor_in_viewport: AzOptionLayoutPoint,
     }
+    /// Re-export of rust-allocated (stack based) `InlineText` struct
+    #[repr(C)]     pub struct AzInlineText {
+        pub lines: AzInlineLineVec,
+        pub bounds: AzLogicalRect,
+        pub font_size_px: f32,
+        pub last_word_index: usize,
+        pub baseline_descender_px: f32,
+    }
     /// CSS path to set the keyboard input focus
     #[repr(C)]     pub struct AzFocusTargetPath {
         pub dom: AzDomId,
@@ -6691,6 +6891,11 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNodeDataInlineCssPropertyVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionInlineText` struct
+    #[repr(C, u8)]     pub enum AzOptionInlineText {
+        None,
+        Some(AzInlineText),
     }
     /// Re-export of rust-allocated (stack based) `XmlParseError` struct
     #[repr(C, u8)]     pub enum AzXmlParseError {
@@ -6975,6 +7180,10 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadDestructorCallback>(), "AzThreadDestructorFn"), (Layout::new::<AzThreadDestructorFn>(), "AzThreadDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::InlineLineVecDestructor>(), "AzInlineLineVecDestructor"), (Layout::new::<AzInlineLineVecDestructor>(), "AzInlineLineVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::InlineWordVecDestructor>(), "AzInlineWordVecDestructor"), (Layout::new::<AzInlineWordVecDestructor>(), "AzInlineWordVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::InlineGlyphVecDestructor>(), "AzInlineGlyphVecDestructor"), (Layout::new::<AzInlineGlyphVecDestructor>(), "AzInlineGlyphVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::InlineTextHitVecDestructor>(), "AzInlineTextHitVecDestructor"), (Layout::new::<AzInlineTextHitVecDestructor>(), "AzInlineTextHitVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::window::MonitorVecDestructor>(), "AzMonitorVecDestructor"), (Layout::new::<AzMonitorVecDestructor>(), "AzMonitorVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::window::VideoModeVecDestructor>(), "AzVideoModeVecDestructor"), (Layout::new::<AzVideoModeVecDestructor>(), "AzVideoModeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::DomVecDestructor>(), "AzDomVecDestructor"), (Layout::new::<AzDomVecDestructor>(), "AzDomVecDestructor"));
@@ -7038,6 +7247,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::VideoMode>(), "AzVideoMode"), (Layout::new::<AzVideoMode>(), "AzVideoMode"));
         assert_eq!((Layout::new::<azul_impl::callbacks::DomNodeId>(), "AzDomNodeId"), (Layout::new::<AzDomNodeId>(), "AzDomNodeId"));
         assert_eq!((Layout::new::<azul_impl::callbacks::HidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"), (Layout::new::<AzHidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"));
+        assert_eq!((Layout::new::<azul_core::callbacks::InlineGlyph>(), "AzInlineGlyph"), (Layout::new::<AzInlineGlyph>(), "AzInlineGlyph"));
+        assert_eq!((Layout::new::<azul_core::callbacks::InlineTextHit>(), "AzInlineTextHit"), (Layout::new::<AzInlineTextHit>(), "AzInlineTextHit"));
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackInfo>(), "AzIFrameCallbackInfo"), (Layout::new::<AzIFrameCallbackInfo>(), "AzIFrameCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackReturn>(), "AzTimerCallbackReturn"), (Layout::new::<AzTimerCallbackReturn>(), "AzTimerCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::task::ExternalSystemCallbacks>(), "AzSystemCallbacks"), (Layout::new::<AzSystemCallbacks>(), "AzSystemCallbacks"));
@@ -7177,6 +7388,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgFillStyle>(), "AzSvgFillStyle"), (Layout::new::<AzSvgFillStyle>(), "AzSvgFillStyle"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSender>(), "AzThreadSender"), (Layout::new::<AzThreadSender>(), "AzThreadSender"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiver>(), "AzThreadReceiver"), (Layout::new::<AzThreadReceiver>(), "AzThreadReceiver"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::InlineGlyphVec>(), "AzInlineGlyphVec"), (Layout::new::<AzInlineGlyphVec>(), "AzInlineGlyphVec"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::InlineTextHitVec>(), "AzInlineTextHitVec"), (Layout::new::<AzInlineTextHitVec>(), "AzInlineTextHitVec"));
         assert_eq!((Layout::new::<azul_impl::window::VideoModeVec>(), "AzVideoModeVec"), (Layout::new::<AzVideoModeVec>(), "AzVideoModeVec"));
         assert_eq!((Layout::new::<azul_impl::dom::DomVec>(), "AzDomVec"), (Layout::new::<AzDomVec>(), "AzDomVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"), (Layout::new::<AzStyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"));
@@ -7232,6 +7445,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::WindowSize>(), "AzWindowSize"), (Layout::new::<AzWindowSize>(), "AzWindowSize"));
         assert_eq!((Layout::new::<azul_impl::window::KeyboardState>(), "AzKeyboardState"), (Layout::new::<AzKeyboardState>(), "AzKeyboardState"));
         assert_eq!((Layout::new::<azul_impl::window::MouseState>(), "AzMouseState"), (Layout::new::<AzMouseState>(), "AzMouseState"));
+        assert_eq!((Layout::new::<azul_core::callbacks::InlineTextContents>(), "AzInlineTextContents"), (Layout::new::<AzInlineTextContents>(), "AzInlineTextContents"));
         assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackInfo>(), "AzGlCallbackInfo"), (Layout::new::<AzGlCallbackInfo>(), "AzGlCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackReturn>(), "AzGlCallbackReturn"), (Layout::new::<AzGlCallbackReturn>(), "AzGlCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutInfo>(), "AzLayoutInfo"), (Layout::new::<AzLayoutInfo>(), "AzLayoutInfo"));
@@ -7275,6 +7489,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::WaylandTheme>(), "AzWaylandTheme"), (Layout::new::<AzWaylandTheme>(), "AzWaylandTheme"));
         assert_eq!((Layout::new::<azul_impl::window::AzStringPair>(), "AzStringPair"), (Layout::new::<AzStringPair>(), "AzStringPair"));
         assert_eq!((Layout::new::<azul_impl::window::Monitor>(), "AzMonitor"), (Layout::new::<AzMonitor>(), "AzMonitor"));
+        assert_eq!((Layout::new::<azul_core::callbacks::InlineWord>(), "AzInlineWord"), (Layout::new::<AzInlineWord>(), "AzInlineWord"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefCountInner>(), "AzRefCountInner"), (Layout::new::<AzRefCountInner>(), "AzRefCountInner"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefCount>(), "AzRefCount"), (Layout::new::<AzRefCount>(), "AzRefCount"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefAny>(), "AzRefAny"), (Layout::new::<AzRefAny>(), "AzRefAny"));
@@ -7308,6 +7523,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgStyle>(), "AzSvgStyle"), (Layout::new::<AzSvgStyle>(), "AzSvgStyle"));
         assert_eq!((Layout::new::<azul_impl::task::Thread>(), "AzThread"), (Layout::new::<AzThread>(), "AzThread"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadWriteBackMsg>(), "AzThreadWriteBackMsg"), (Layout::new::<AzThreadWriteBackMsg>(), "AzThreadWriteBackMsg"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::InlineWordVec>(), "AzInlineWordVec"), (Layout::new::<AzInlineWordVec>(), "AzInlineWordVec"));
         assert_eq!((Layout::new::<azul_impl::window::MonitorVec>(), "AzMonitorVec"), (Layout::new::<AzMonitorVec>(), "AzMonitorVec"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClassVec>(), "AzIdOrClassVec"), (Layout::new::<AzIdOrClassVec>(), "AzIdOrClassVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"), (Layout::new::<AzStyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"));
@@ -7322,6 +7538,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::OptionInstant>(), "AzOptionInstant"), (Layout::new::<AzOptionInstant>(), "AzOptionInstant"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlStreamError>(), "AzXmlStreamError"), (Layout::new::<AzXmlStreamError>(), "AzXmlStreamError"));
         assert_eq!((Layout::new::<azul_impl::window::LinuxWindowOptions>(), "AzLinuxWindowOptions"), (Layout::new::<AzLinuxWindowOptions>(), "AzLinuxWindowOptions"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::InlineLine>(), "AzInlineLine"), (Layout::new::<AzInlineLine>(), "AzInlineLine"));
         assert_eq!((Layout::new::<azul_impl::css::CssPath>(), "AzCssPath"), (Layout::new::<AzCssPath>(), "AzCssPath"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundContentVec>>(), "AzStyleBackgroundContentVecValue"), (Layout::new::<AzStyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssProperty>(), "AzCssProperty"), (Layout::new::<AzCssProperty>(), "AzCssProperty"));
@@ -7333,6 +7550,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygon>(), "AzSvgMultiPolygon"), (Layout::new::<AzSvgMultiPolygon>(), "AzSvgMultiPolygon"));
         assert_eq!((Layout::new::<azul_impl::task::Timer>(), "AzTimer"), (Layout::new::<AzTimer>(), "AzTimer"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiveMsg>(), "AzThreadReceiveMsg"), (Layout::new::<AzThreadReceiveMsg>(), "AzThreadReceiveMsg"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::InlineLineVec>(), "AzInlineLineVec"), (Layout::new::<AzInlineLineVec>(), "AzInlineLineVec"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyVec>(), "AzCssPropertyVec"), (Layout::new::<AzCssPropertyVec>(), "AzCssPropertyVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"), (Layout::new::<AzSvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"));
         assert_eq!((Layout::new::<azul_impl::task::OptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"), (Layout::new::<AzOptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"));
@@ -7340,6 +7558,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::PlatformSpecificOptions>(), "AzPlatformSpecificOptions"), (Layout::new::<AzPlatformSpecificOptions>(), "AzPlatformSpecificOptions"));
         assert_eq!((Layout::new::<azul_impl::window::WindowState>(), "AzWindowState"), (Layout::new::<AzWindowState>(), "AzWindowState"));
         assert_eq!((Layout::new::<azul_impl::callbacks::CallbackInfo>(), "AzCallbackInfo"), (Layout::new::<AzCallbackInfo>(), "AzCallbackInfo"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::InlineText>(), "AzInlineText"), (Layout::new::<AzInlineText>(), "AzInlineText"));
         assert_eq!((Layout::new::<azul_impl::callbacks::FocusTargetPath>(), "AzFocusTargetPath"), (Layout::new::<AzFocusTargetPath>(), "AzFocusTargetPath"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackInfo>(), "AzTimerCallbackInfo"), (Layout::new::<AzTimerCallbackInfo>(), "AzTimerCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssProperty>(), "AzNodeDataInlineCssProperty"), (Layout::new::<AzNodeDataInlineCssProperty>(), "AzNodeDataInlineCssProperty"));
@@ -7347,6 +7566,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgNode>(), "AzSvgNode"), (Layout::new::<AzSvgNode>(), "AzSvgNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStyledNode>(), "AzSvgStyledNode"), (Layout::new::<AzSvgStyledNode>(), "AzSvgStyledNode"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"), (Layout::new::<AzNodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::OptionInlineText>(), "AzOptionInlineText"), (Layout::new::<AzOptionInlineText>(), "AzOptionInlineText"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlParseError>(), "AzXmlParseError"), (Layout::new::<AzXmlParseError>(), "AzXmlParseError"));
         assert_eq!((Layout::new::<azul_impl::window::WindowCreateOptions>(), "AzWindowCreateOptions"), (Layout::new::<AzWindowCreateOptions>(), "AzWindowCreateOptions"));
         assert_eq!((Layout::new::<azul_impl::callbacks::FocusTarget>(), "AzFocusTarget"), (Layout::new::<AzFocusTarget>(), "AzFocusTarget"));

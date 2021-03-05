@@ -5,7 +5,7 @@ typedef struct {
     uint32_t counter;
 } DataModel;
 
-static void DataModel_delete(void* restrict A) { }
+void DataModel_delete(DataModel* restrict A) { }
 AZ_REFLECT(DataModel, DataModel_delete);
 
 static AzString const css = AzString_fromConstStr("body { font-size: 50px; }");

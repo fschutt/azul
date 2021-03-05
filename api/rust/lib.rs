@@ -1319,6 +1319,38 @@ mod dll {
     #[repr(C)]  #[derive(Clone)]   pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+    /// Re-export of rust-allocated (stack based) `InlineLineVecDestructor` struct
+    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzInlineLineVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInlineLineVecDestructorType),
+    }
+    /// `AzInlineLineVecDestructorType` struct
+    pub type AzInlineLineVecDestructorType = extern "C" fn(&mut AzInlineLineVec);
+    /// Re-export of rust-allocated (stack based) `InlineWordVecDestructor` struct
+    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzInlineWordVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInlineWordVecDestructorType),
+    }
+    /// `AzInlineWordVecDestructorType` struct
+    pub type AzInlineWordVecDestructorType = extern "C" fn(&mut AzInlineWordVec);
+    /// Re-export of rust-allocated (stack based) `InlineGlyphVecDestructor` struct
+    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzInlineGlyphVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInlineGlyphVecDestructorType),
+    }
+    /// `AzInlineGlyphVecDestructorType` struct
+    pub type AzInlineGlyphVecDestructorType = extern "C" fn(&mut AzInlineGlyphVec);
+    /// Re-export of rust-allocated (stack based) `InlineTextHitVecDestructor` struct
+    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzInlineTextHitVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInlineTextHitVecDestructorType),
+    }
+    /// `AzInlineTextHitVecDestructorType` struct
+    pub type AzInlineTextHitVecDestructorType = extern "C" fn(&mut AzInlineTextHitVec);
     /// Re-export of rust-allocated (stack based) `MonitorVecDestructor` struct
     #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzMonitorVecDestructor {
         DefaultRust,
@@ -1765,6 +1797,31 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzHidpiAdjustedBounds {
         pub logical_size: AzLogicalSize,
         pub hidpi_factor: f32,
+    }
+    /// Re-export of rust-allocated (stack based) `InlineGlyph` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInlineGlyph {
+        pub bounds: AzLogicalRect,
+        pub unicode_codepoint: AzOptionChar,
+        pub glyph_index: u32,
+    }
+    /// Re-export of rust-allocated (stack based) `InlineTextHit` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInlineTextHit {
+        pub unicode_codepoint: AzOptionChar,
+        pub hit_relative_to_inline_text: AzLogicalPosition,
+        pub hit_relative_to_line: AzLogicalPosition,
+        pub hit_relative_to_text_content: AzLogicalPosition,
+        pub hit_relative_to_glyph: AzLogicalPosition,
+        pub line_index_relative_to_text: usize,
+        pub word_index_relative_to_text: usize,
+        pub text_content_index_relative_to_text: usize,
+        pub glyph_index_relative_to_text: usize,
+        pub char_index_relative_to_text: usize,
+        pub word_index_relative_to_line: usize,
+        pub text_content_index_relative_to_line: usize,
+        pub glyph_index_relative_to_line: usize,
+        pub char_index_relative_to_line: usize,
+        pub glyph_index_relative_to_word: usize,
+        pub char_index_relative_to_word: usize,
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameCallbackInfo {
@@ -2639,6 +2696,20 @@ mod dll {
         pub recv_fn: AzThreadRecvFn,
         pub destructor: AzThreadReceiverDestructorFn,
     }
+    /// Wrapper over a Rust-allocated `Vec<InlineGlyph>`
+    #[repr(C)]     pub struct AzInlineGlyphVec {
+        pub(crate) ptr: *const AzInlineGlyph,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInlineGlyphVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<InlineTextHit>`
+    #[repr(C)]     pub struct AzInlineTextHitVec {
+        pub(crate) ptr: *const AzInlineTextHit,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInlineTextHitVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<VideoMode>`
     #[repr(C)]     pub struct AzVideoModeVec {
         pub(crate) ptr: *const AzVideoMode,
@@ -2968,6 +3039,11 @@ mod dll {
         pub middle_down: bool,
         pub scroll_x: AzOptionF32,
         pub scroll_y: AzOptionF32,
+    }
+    /// Re-export of rust-allocated (stack based) `InlineTextContents` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInlineTextContents {
+        pub glyphs: AzInlineGlyphVec,
+        pub bounds: AzLogicalRect,
     }
     /// Re-export of rust-allocated (stack based) `GlCallbackInfo` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlCallbackInfo {
@@ -3302,6 +3378,13 @@ mod dll {
         pub video_modes: AzVideoModeVec,
         pub is_primary_monitor: bool,
     }
+    /// Re-export of rust-allocated (stack based) `InlineWord` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzInlineWord {
+        Tab,
+        Return,
+        Space,
+        Word(AzInlineTextContents),
+    }
     /// Re-export of rust-allocated (stack based) `RefCountInner` struct
     #[repr(C)]     pub struct AzRefCountInner {
         pub num_copies: usize,
@@ -3531,6 +3614,13 @@ mod dll {
         pub data: AzRefAny,
         pub callback: AzWriteBackCallback,
     }
+    /// Wrapper over a Rust-allocated `Vec<InlineWord>`
+    #[repr(C)]     pub struct AzInlineWordVec {
+        pub(crate) ptr: *const AzInlineWord,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInlineWordVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<Monitor>`
     #[repr(C)]     pub struct AzMonitorVec {
         pub(crate) ptr: *const AzMonitor,
@@ -3639,6 +3729,11 @@ mod dll {
         pub wayland_theme: AzOptionWaylandTheme,
         pub request_user_attention: bool,
         pub window_icon: AzOptionWindowIcon,
+    }
+    /// Re-export of rust-allocated (stack based) `InlineLine` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInlineLine {
+        pub words: AzInlineWordVec,
+        pub bounds: AzLogicalRect,
     }
     /// Re-export of rust-allocated (stack based) `CssPath` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzCssPath {
@@ -3775,6 +3870,13 @@ mod dll {
         WriteBack(AzThreadWriteBackMsg),
         Update(AzUpdateScreen),
     }
+    /// Wrapper over a Rust-allocated `Vec<InlineLine>`
+    #[repr(C)]     pub struct AzInlineLineVec {
+        pub(crate) ptr: *const AzInlineLine,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInlineLineVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`
     #[repr(C)]     pub struct AzCssPropertyVec {
         pub(crate) ptr: *const AzCssProperty,
@@ -3854,6 +3956,14 @@ mod dll {
         pub cursor_relative_to_item: AzOptionLayoutPoint,
         pub cursor_in_viewport: AzOptionLayoutPoint,
     }
+    /// Re-export of rust-allocated (stack based) `InlineText` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInlineText {
+        pub lines: AzInlineLineVec,
+        pub bounds: AzLogicalRect,
+        pub font_size_px: f32,
+        pub last_word_index: usize,
+        pub baseline_descender_px: f32,
+    }
     /// CSS path to set the keyboard input focus
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFocusTargetPath {
         pub dom: AzDomId,
@@ -3897,6 +4007,11 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNodeDataInlineCssPropertyVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionInlineText` struct
+    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionInlineText {
+        None,
+        Some(AzInlineText),
     }
     /// Re-export of rust-allocated (stack based) `XmlParseError` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzXmlParseError {
@@ -4062,19 +4177,27 @@ mod dll {
         pub(crate) fn AzCallbackInfo_getHitNode(_:  &AzCallbackInfo) -> AzDomNodeId;
         pub(crate) fn AzCallbackInfo_getCursorRelativeToViewport(_:  &AzCallbackInfo) -> AzOptionLayoutPoint;
         pub(crate) fn AzCallbackInfo_getCursorRelativeToNode(_:  &AzCallbackInfo) -> AzOptionLayoutPoint;
-        pub(crate) fn AzCallbackInfo_getParent(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
-        pub(crate) fn AzCallbackInfo_getPreviousSibling(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
-        pub(crate) fn AzCallbackInfo_getNextSibling(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
-        pub(crate) fn AzCallbackInfo_getFirstChild(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
-        pub(crate) fn AzCallbackInfo_getLastChild(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
         pub(crate) fn AzCallbackInfo_getWindowState(_:  &AzCallbackInfo) -> AzWindowState;
         pub(crate) fn AzCallbackInfo_getKeyboardState(_:  &AzCallbackInfo) -> AzKeyboardState;
         pub(crate) fn AzCallbackInfo_getMouseState(_:  &AzCallbackInfo) -> AzMouseState;
         pub(crate) fn AzCallbackInfo_getCurrentWindowHandle(_:  &AzCallbackInfo) -> AzRawWindowHandle;
         pub(crate) fn AzCallbackInfo_getGlContext(_:  &AzCallbackInfo) -> AzOptionGl;
+        pub(crate) fn AzCallbackInfo_getScrollPosition(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionLogicalPosition;
+        pub(crate) fn AzCallbackInfo_getDataset(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionRefAny;
+        pub(crate) fn AzCallbackInfo_getStringContents(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionString;
+        pub(crate) fn AzCallbackInfo_getInlineText(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionInlineText;
+        pub(crate) fn AzCallbackInfo_getParent(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzCallbackInfo_getPreviousSibling(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzCallbackInfo_getNextSibling(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzCallbackInfo_getFirstChild(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzCallbackInfo_getLastChild(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
         pub(crate) fn AzCallbackInfo_setWindowState(_:  &mut AzCallbackInfo, _:  AzWindowState);
         pub(crate) fn AzCallbackInfo_setFocus(_:  &mut AzCallbackInfo, _:  AzFocusTarget);
         pub(crate) fn AzCallbackInfo_setCssProperty(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzCssProperty);
+        pub(crate) fn AzCallbackInfo_setScrollPosition(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzLogicalPosition);
+        pub(crate) fn AzCallbackInfo_setStringContents(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzString);
+        pub(crate) fn AzCallbackInfo_exchangeImage(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzImageSource);
+        pub(crate) fn AzCallbackInfo_exchangeImageMask(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzImageMask);
         pub(crate) fn AzCallbackInfo_stopPropagation(_:  &mut AzCallbackInfo);
         pub(crate) fn AzCallbackInfo_createWindow(_:  &mut AzCallbackInfo, _:  AzWindowCreateOptions);
         pub(crate) fn AzCallbackInfo_startThread(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallback);
@@ -4082,6 +4205,7 @@ mod dll {
         pub(crate) fn AzHidpiAdjustedBounds_getLogicalSize(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize;
         pub(crate) fn AzHidpiAdjustedBounds_getPhysicalSize(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32;
         pub(crate) fn AzHidpiAdjustedBounds_getHidpiFactor(_:  &AzHidpiAdjustedBounds) -> f32;
+        pub(crate) fn AzInlineText_hitTest(_:  &AzInlineText, _:  AzLogicalPosition) -> AzInlineTextHitVec;
         pub(crate) fn AzIFrameCallbackInfo_getBounds(_:  &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds;
         pub(crate) fn AzGlCallbackInfo_getGlContext(_:  &AzGlCallbackInfo) -> AzOptionGl;
         pub(crate) fn AzGlCallbackInfo_getBounds(_:  &AzGlCallbackInfo) -> AzHidpiAdjustedBounds;
@@ -4358,6 +4482,10 @@ mod dll {
         pub(crate) fn AzThreadSender_delete(_:  &mut AzThreadSender);
         pub(crate) fn AzThreadReceiver_receive(_:  &mut AzThreadReceiver) -> AzOptionThreadSendMsg;
         pub(crate) fn AzThreadReceiver_delete(_:  &mut AzThreadReceiver);
+        pub(crate) fn AzInlineLineVec_delete(_:  &mut AzInlineLineVec);
+        pub(crate) fn AzInlineWordVec_delete(_:  &mut AzInlineWordVec);
+        pub(crate) fn AzInlineGlyphVec_delete(_:  &mut AzInlineGlyphVec);
+        pub(crate) fn AzInlineTextHitVec_delete(_:  &mut AzInlineTextHitVec);
         pub(crate) fn AzMonitorVec_delete(_:  &mut AzMonitorVec);
         pub(crate) fn AzVideoModeVec_delete(_:  &mut AzVideoModeVec);
         pub(crate) fn AzDomVec_delete(_:  &mut AzDomVec);
@@ -4844,10 +4972,11 @@ pub mod callbacks {
             let struct_as_bytes = unsafe { ::core::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
             struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
         }
-    }    use crate::window::{WindowCreateOptions, WindowState};
+    }    use crate::window::{LogicalPosition, WindowCreateOptions, WindowState};
     use crate::css::CssProperty;
-    use crate::task::{ThreadId, Timer, TimerId};
     use crate::str::String;
+    use crate::resources::{ImageMask, ImageSource};
+    use crate::task::{ThreadId, Timer, TimerId};
     /// C-ABI stable wrapper over a `LayoutCallbackType`
     
 #[doc(inline)] pub use crate::dll::AzLayoutCallback as LayoutCallback;
@@ -4870,16 +4999,6 @@ pub mod callbacks {
         pub fn get_cursor_relative_to_viewport(&self)  -> crate::option::OptionLayoutPoint { unsafe { crate::dll::AzCallbackInfo_getCursorRelativeToViewport(self) } }
         /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.
         pub fn get_cursor_relative_to_node(&self)  -> crate::option::OptionLayoutPoint { unsafe { crate::dll::AzCallbackInfo_getCursorRelativeToNode(self) } }
-        /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_parent(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getParent(self, node_id) } }
-        /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_previous_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getPreviousSibling(self, node_id) } }
-        /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_next_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getNextSibling(self, node_id) } }
-        /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_first_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getFirstChild(self, node_id) } }
-        /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_last_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getLastChild(self, node_id) } }
         /// Returns a copy of the current windows `WindowState`.
         pub fn get_window_state(&self)  -> crate::window::WindowState { unsafe { crate::dll::AzCallbackInfo_getWindowState(self) } }
         /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
@@ -4890,12 +5009,38 @@ pub mod callbacks {
         pub fn get_current_window_handle(&self)  -> crate::window::RawWindowHandle { unsafe { crate::dll::AzCallbackInfo_getCurrentWindowHandle(self) } }
         /// Returns a **reference-counted copy** of the current windows' `Gl` (context). You can use this to render OpenGL textures.
         pub fn get_gl_context(&self)  -> crate::option::OptionGl { unsafe { crate::dll::AzCallbackInfo_getGlContext(self) } }
+        /// Returns the x / y offset that this node has been scrolled to by the user or `None` if the node has not been scrolled.
+        pub fn get_scroll_position(&self, node_id: DomNodeId)  -> crate::option::OptionLogicalPosition { unsafe { crate::dll::AzCallbackInfo_getScrollPosition(self, node_id) } }
+        /// Returns the `dataset` property of the given Node or `None` if the node doesn't have a `dataset` property.
+        pub fn get_dataset(&mut self, node_id: DomNodeId)  -> crate::option::OptionRefAny { unsafe { crate::dll::AzCallbackInfo_getDataset(self, node_id) } }
+        /// If the node is a `Text` node, returns a copy of the internal string contents.
+        pub fn get_string_contents(&self, node_id: DomNodeId)  -> crate::option::OptionString { unsafe { crate::dll::AzCallbackInfo_getStringContents(self, node_id) } }
+        /// If the node is a `Text` node, returns the layouted inline glyphs
+        pub fn get_inline_text(&self, node_id: DomNodeId)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzCallbackInfo_getInlineText(self, node_id) } }
+        /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_parent(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getParent(self, node_id) } }
+        /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_previous_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getPreviousSibling(self, node_id) } }
+        /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_next_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getNextSibling(self, node_id) } }
+        /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_first_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getFirstChild(self, node_id) } }
+        /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_last_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getLastChild(self, node_id) } }
         /// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
         pub fn set_window_state(&mut self, new_state: WindowState)  { unsafe { crate::dll::AzCallbackInfo_setWindowState(self, new_state) } }
         /// Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.
         pub fn set_focus(&mut self, target: FocusTarget)  { unsafe { crate::dll::AzCallbackInfo_setFocus(self, target) } }
         /// Sets a `CssProperty` on a given node to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
         pub fn set_css_property(&mut self, node_id: DomNodeId, new_property: CssProperty)  { unsafe { crate::dll::AzCallbackInfo_setCssProperty(self, node_id, new_property) } }
+        /// Sets the scroll position of the node
+        pub fn set_scroll_position(&mut self, node_id: DomNodeId, scroll_position: LogicalPosition)  { unsafe { crate::dll::AzCallbackInfo_setScrollPosition(self, node_id, scroll_position) } }
+        /// If the node is a `Text` node, overwrites the `Text` content with the new string, without requiring the entire UI to be rebuilt.
+        pub fn set_string_contents(&mut self, node_id: DomNodeId, string: String)  { unsafe { crate::dll::AzCallbackInfo_setStringContents(self, node_id, string) } }
+        /// If the node is an `Image`, exchanges the current image with a new source
+        pub fn exchange_image(&mut self, node_id: DomNodeId, new_image: ImageSource)  { unsafe { crate::dll::AzCallbackInfo_exchangeImage(self, node_id, new_image) } }
+        /// If the node has an `ImageMask`, exchanges the current mask for the new mask
+        pub fn exchange_image_mask(&mut self, node_id: DomNodeId, new_mask: ImageMask)  { unsafe { crate::dll::AzCallbackInfo_exchangeImageMask(self, node_id, new_mask) } }
         /// Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.
         pub fn stop_propagation(&mut self)  { unsafe { crate::dll::AzCallbackInfo_stopPropagation(self) } }
         /// Spawns a new window with the given `WindowCreateOptions`.
@@ -4930,6 +5075,29 @@ pub mod callbacks {
         pub fn get_hidpi_factor(&self)  -> f32 { unsafe { crate::dll::AzHidpiAdjustedBounds_getHidpiFactor(self) } }
     }
 
+    /// `InlineText` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineText as InlineText;
+    impl InlineText {
+        /// Hit-tests the inline text, returns detailed information about which glyph / word / line, etc. the position (usually the mouse cursor) is currently over. Result may be empty (no hits) or contain more than one result (cursor is hovering over multiple overlapping glyphs at once).
+        pub fn hit_test(&self, position: LogicalPosition)  -> crate::vec::InlineTextHitVec { unsafe { crate::dll::AzInlineText_hitTest(self, position) } }
+    }
+
+    /// `InlineLine` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineLine as InlineLine;
+    /// `InlineWord` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineWord as InlineWord;
+    /// `InlineTextContents` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineTextContents as InlineTextContents;
+    /// `InlineGlyph` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineGlyph as InlineGlyph;
+    /// `InlineTextHit` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineTextHit as InlineTextHit;
     /// Defines the keyboard input focus target
     
 #[doc(inline)] pub use crate::dll::AzFocusTarget as FocusTarget;
@@ -9449,7 +9617,19 @@ pub mod vec {
             vec.into()
             // v dropped here
         }
-    }    /// Wrapper over a Rust-allocated `Vec<Monitor>`
+    }    /// Wrapper over a Rust-allocated `Vec<InlineLine>`
+    
+#[doc(inline)] pub use crate::dll::AzInlineLineVec as InlineLineVec;
+    /// Wrapper over a Rust-allocated `Vec<InlineWord>`
+    
+#[doc(inline)] pub use crate::dll::AzInlineWordVec as InlineWordVec;
+    /// Wrapper over a Rust-allocated `Vec<InlineGlyph>`
+    
+#[doc(inline)] pub use crate::dll::AzInlineGlyphVec as InlineGlyphVec;
+    /// Wrapper over a Rust-allocated `Vec<InlineTextHit>`
+    
+#[doc(inline)] pub use crate::dll::AzInlineTextHitVec as InlineTextHitVec;
+    /// Wrapper over a Rust-allocated `Vec<Monitor>`
     
 #[doc(inline)] pub use crate::dll::AzMonitorVec as MonitorVec;
     /// Wrapper over a Rust-allocated `Vec<VideoMode>`
@@ -9569,6 +9749,30 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `NodeDataVec`
     
 #[doc(inline)] pub use crate::dll::AzNodeDataVec as NodeDataVec;
+    /// `InlineLineVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineLineVecDestructor as InlineLineVecDestructor;
+    /// `InlineLineVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineLineVecDestructorType as InlineLineVecDestructorType;
+    /// `InlineWordVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineWordVecDestructor as InlineWordVecDestructor;
+    /// `InlineWordVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineWordVecDestructorType as InlineWordVecDestructorType;
+    /// `InlineGlyphVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineGlyphVecDestructor as InlineGlyphVecDestructor;
+    /// `InlineGlyphVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineGlyphVecDestructorType as InlineGlyphVecDestructorType;
+    /// `InlineTextHitVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineTextHitVecDestructor as InlineTextHitVecDestructor;
+    /// `InlineTextHitVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzInlineTextHitVecDestructorType as InlineTextHitVecDestructorType;
     /// `MonitorVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzMonitorVecDestructor as MonitorVecDestructor;
@@ -10003,6 +10207,9 @@ pub mod option {
     /// `OptionRefAny` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionRefAny as OptionRefAny;
+    /// `OptionInlineText` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionInlineText as OptionInlineText;
     /// `OptionLayoutPoint` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionLayoutPoint as OptionLayoutPoint;

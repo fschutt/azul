@@ -18,7 +18,7 @@ use crate::{
     styled_dom::StyledDom,
     callbacks::{PipelineId, InlineText},
     task::ExternalSystemCallbacks,
-    window::{LogicalPosition, LogicalSize, LogicalRect},
+    window::{LogicalPosition, LogicalSize, OptionChar, LogicalRect},
 };
 use rust_fontconfig::FcFontCache;
 
@@ -854,7 +854,7 @@ pub struct Anchor {
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
 pub struct RawGlyph {
-    pub unicode_codepoint: OptionU32, // Option<char>
+    pub unicode_codepoint: OptionChar, // Option<char>
     pub glyph_index: u16,
     pub liga_component_pos: u16,
     pub glyph_origin: GlyphOrigin,

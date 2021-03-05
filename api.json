@@ -993,6 +993,82 @@
 							"returns": {"type": "OptionLayoutPoint"},
 							"fn_body": "callbackinfo.get_cursor_relative_to_node()"
 						},
+						"get_window_state": {
+							"doc": "Returns a copy of the current windows `WindowState`.",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "WindowState"},
+							"fn_body": "callbackinfo.get_window_state()"
+						},
+						"get_keyboard_state": {
+							"doc": "Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "KeyboardState"},
+							"fn_body": "callbackinfo.get_keyboard_state()"
+						},
+						"get_mouse_state": {
+							"doc": "Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "MouseState"},
+							"fn_body": "callbackinfo.get_mouse_state()"
+						},
+						"get_current_window_handle": {
+							"doc": "Returns a copy of the current windows `RawWindowHandle`.",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "RawWindowHandle"},
+							"fn_body": "callbackinfo.get_current_window_handle()"
+						},
+						"get_gl_context": {
+							"doc": "Returns a **reference-counted copy** of the current windows' `Gl` (context). You can use this to render OpenGL textures.",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "OptionGl"},
+							"fn_body": "callbackinfo.get_gl_context()"
+						},
+						"get_scroll_position": {
+							"doc": "Returns the x / y offset that this node has been scrolled to by the user or `None` if the node has not been scrolled.",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": {"type": "OptionLogicalPosition"},
+							"fn_body": "callbackinfo.get_scroll_amount(node_id).into()"
+						},
+						"get_dataset": {
+							"doc": "Returns the `dataset` property of the given Node or `None` if the node doesn't have a `dataset` property.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": {"type": "OptionRefAny"},
+							"fn_body": "callbackinfo.get_dataset(node_id).into()"
+						},
+						"get_string_contents": {
+							"doc": "If the node is a `Text` node, returns a copy of the internal string contents.",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": {"type": "OptionString"},
+							"fn_body": "callbackinfo.get_string_contents(node_id).into()"
+						},
+						"get_inline_text": {
+							"doc": "If the node is a `Text` node, returns the layouted inline glyphs",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": {"type": "OptionInlineText"},
+							"fn_body": "callbackinfo.get_inline_text(node_id).into()"
+						},
 						"get_parent": {
 							"doc": "Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
 							"fn_args": [
@@ -1038,46 +1114,6 @@
 							"returns": {"type": "OptionDomNodeId"},
 							"fn_body": "callbackinfo.get_last_child(node_id).into()"
 						},
-						"get_window_state": {
-							"doc": "Returns a copy of the current windows `WindowState`.",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "WindowState"},
-							"fn_body": "callbackinfo.get_window_state()"
-						},
-						"get_keyboard_state": {
-							"doc": "Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "KeyboardState"},
-							"fn_body": "callbackinfo.get_keyboard_state()"
-						},
-						"get_mouse_state": {
-							"doc": "Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "MouseState"},
-							"fn_body": "callbackinfo.get_mouse_state()"
-						},
-						"get_current_window_handle": {
-							"doc": "Returns a copy of the current windows `RawWindowHandle`.",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "RawWindowHandle"},
-							"fn_body": "callbackinfo.get_current_window_handle()"
-						},
-						"get_gl_context": {
-							"doc": "Returns a **reference-counted copy** of the current windows' `Gl` (context). You can use this to render OpenGL textures.",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "OptionGl"},
-							"fn_body": "callbackinfo.get_gl_context()"
-						},
 						"set_window_state": {
 							"doc": "Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.",
 							"fn_args": [
@@ -1102,6 +1138,42 @@
 								{"new_property": "CssProperty"}
 							],
 							"fn_body": "callbackinfo.set_css_property(node_id, new_property); "
+						},
+						"set_scroll_position": {
+							"doc": "Sets the scroll position of the node",
+							"fn_args": [
+								{"self": "refmut"},
+								{"node_id": "DomNodeId"},
+								{"scroll_position": "LogicalPosition"}
+							],
+							"fn_body": "callbackinfo.set_scroll_amount(node_id, scroll_position)"
+						},
+						"set_string_contents": {
+							"doc": "If the node is a `Text` node, overwrites the `Text` content with the new string, without requiring the entire UI to be rebuilt.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"node_id": "DomNodeId"},
+								{"string": "String"}
+							],
+							"fn_body": "callbackinfo.set_string_contents(node_id, string)"
+						},
+						"exchange_image": {
+							"doc": "If the node is an `Image`, exchanges the current image with a new source",
+							"fn_args": [
+								{"self": "refmut"},
+								{"node_id": "DomNodeId"},
+								{"new_image": "ImageSource"}
+							],
+							"fn_body": "callbackinfo.exchange_image(node_id, new_image)"
+						},
+						"exchange_image_mask": {
+							"doc": "If the node has an `ImageMask`, exchanges the current mask for the new mask",
+							"fn_args": [
+								{"self": "refmut"},
+								{"node_id": "DomNodeId"},
+								{"new_mask": "ImageMask"}
+							],
+							"fn_body": "callbackinfo.exchange_image_mask(node_id, new_mask)"
 						},
 						"stop_propagation": {
 							"doc": "Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.",
@@ -1208,6 +1280,79 @@
 							"fn_body": "hidpiadjustedbounds.get_hidpi_factor()"
 						}
 					}
+				},
+				"InlineText": {
+					"external": "azul_impl::callbacks::InlineText",
+					"struct_fields": [
+						{"lines": {"type": "InlineLineVec", "doc": "List of lines in this text, relative to the text origin"}},
+						{"bounds": {"type": "LogicalRect", "doc": "Bounding rect of the union of all lines in this text (size of the text content in logical pixels)"}},
+						{"font_size_px": {"type": "f32", "doc": "Font size in pixels used for layouting this text" }},
+						{"last_word_index": {"type": "usize", "doc": "Index of the last `Word` in this text (- note that a `Word` can also be a `Space`, `Return` or `Tab`)."}},
+						{"baseline_descender_px": {"type": "f32", "doc": "**NEGATIVE** descender of the text baseline (distance from baseline of the text to the bottom of the line)"}}
+					],
+					"functions": {
+						"hit_test": {
+							"doc": "Hit-tests the inline text, returns detailed information about which glyph / word / line, etc. the position (usually the mouse cursor) is currently over. Result may be empty (no hits) or contain more than one result (cursor is hovering over multiple overlapping glyphs at once).",
+							"fn_args": [
+								{"self": "ref"},
+								{"position": "LogicalPosition"}
+							],
+							"returns": {"type": "InlineTextHitVec"},
+							"fn_body": "inlinetext.hit_test(position).into()"
+						}
+					}
+				},
+				"InlineLine": {
+					"external": "azul_impl::callbacks::InlineLine",
+					"struct_fields": [
+						{"words": {"type": "InlineWordVec", "doc": "List of words in this line (includes tabs, return and spaces)" }},
+						{"bounds": {"type": "LogicalRect", "doc": "Size and origin of the line, relative to the inline text origin (top left corner)" }}
+					]
+				},
+				"InlineWord": {
+					"external": "azul_core::callbacks::InlineWord",
+					"enum_fields": [
+						{"Tab": {"doc": "Tab character, width depends on `TextLayoutOptions.tab_width`"}},
+						{"Return": {"doc": "Return character"}},
+						{"Space": {"doc": "Space character"}},
+						{"Word": {"type": "InlineTextContents", "doc": "Actual word containing renderable glyphs"}}
+					]
+				},
+				"InlineTextContents": {
+					"external": "azul_core::callbacks::InlineTextContents",
+					"struct_fields": [
+						{"glyphs": {"type": "InlineGlyphVec", "doc": "List of glyphs in this word"}},
+						{"bounds": {"type": "LogicalRect", "doc": "origin and size of the word relative to the line origin (top left corner of the line)"}}
+					]
+				},
+				"InlineGlyph": {
+					"external": "azul_core::callbacks::InlineGlyph",
+					"struct_fields": [
+						{"bounds": {"type": "LogicalRect", "doc": "origin and size of the glyph - note: origin relative to the word origin (top left corner of the word)"}},
+						{"unicode_codepoint": {"type": "OptionChar", "doc": "`Option<char>`: optional unicode codepoint of this glyph"}},
+						{"glyph_index": {"type": "u32", "doc": "Index of the glyph in the font"}}
+					]
+				},
+				"InlineTextHit": {
+					"external": "azul_core::callbacks::InlineTextHit",
+					"struct_fields": [
+						{"unicode_codepoint": {"type": "OptionChar", "doc": "`Option<char>`, if the glyph was a character (as opposed to a diacritic mark), contains the unicode codepoint of the character"}},
+						{"hit_relative_to_inline_text": {"type": "LogicalPosition", "doc": "Position of the hit relative to the top left corner of the inline text"}},
+						{"hit_relative_to_line": {"type": "LogicalPosition", "doc": "Position of the hit relative to the top left corner of the line"}},
+						{"hit_relative_to_text_content": {"type": "LogicalPosition", "doc": "Position of the hit relative to the top left corner of the word"}},
+						{"hit_relative_to_glyph": {"type": "LogicalPosition", "doc": "Position of the hit relative to the top left corner of the glyph"}},
+						{"line_index_relative_to_text": {"type": "usize", "doc": "Index of the line in the text"}},
+						{"word_index_relative_to_text": {"type": "usize", "doc": "Index of the word in the text (note: words include `Space`, `Tab` and `Return`)"}},
+						{"text_content_index_relative_to_text": {"type": "usize", "doc": "Index of the text content in the text"}},
+						{"glyph_index_relative_to_text": {"type": "usize", "doc": "Index of the hit glyph in the text (note: one glyph is not one character, glyphs include diacritic marks)"}},
+						{"char_index_relative_to_text": {"type": "usize", "doc": "Index of the hit character (unicode codepoint) in the text."}},
+						{"word_index_relative_to_line": {"type": "usize", "doc": "Index of the hit word (note: includes `Tab`, `Space`, `Return`) in the hit line"}},
+						{"text_content_index_relative_to_line": {"type": "usize", "doc": "Index of the hit text content (\"word\") in the hit line"}},
+						{"glyph_index_relative_to_line": {"type": "usize", "doc": "Index of the hit glyph in the line (includes diacritic marks)"}},
+						{"char_index_relative_to_line": {"type": "usize", "doc": "Index of the hit character (unicode codepoint) in the line"}},
+						{"glyph_index_relative_to_word": {"type": "usize", "doc": "Index of the hit glyph in the word (includes diacritic marks)"}},
+						{"char_index_relative_to_word": {"type": "usize", "doc": "Index of the hit character (unicode codepoint) in the word"}}
+					]
 				},
 				"FocusTarget": {
 					"doc": "Defines the keyboard input focus target",
@@ -6602,6 +6747,50 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"InlineLineVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<InlineLine>`",
+					"custom_destructor": true,
+					"external": "azul_impl::callbacks::InlineLineVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const InlineLine" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "InlineLineVecDestructor" } }
+					]
+				},
+				"InlineWordVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<InlineWord>`",
+					"custom_destructor": true,
+					"external": "azul_impl::callbacks::InlineWordVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const InlineWord" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "InlineWordVecDestructor" } }
+					]
+				},
+				"InlineGlyphVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<InlineGlyph>`",
+					"custom_destructor": true,
+					"external": "azul_impl::callbacks::InlineGlyphVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const InlineGlyph" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "InlineGlyphVecDestructor" } }
+					]
+				},
+				"InlineTextHitVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<InlineTextHit>`",
+					"custom_destructor": true,
+					"external": "azul_impl::callbacks::InlineTextHitVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const InlineTextHit" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "InlineTextHitVecDestructor" } }
+					]
+				},
 				"MonitorVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<Monitor>`",
 					"custom_destructor": true,
@@ -7042,6 +7231,70 @@
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "NodeDataVecDestructor" } }
 					]
+				},
+				"InlineLineVecDestructor": {
+				    "external": "azul_impl::callbacks::InlineLineVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "InlineLineVecDestructorType"}}
+				    ]
+				},
+				"InlineLineVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "InlineLineVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"InlineWordVecDestructor": {
+				    "external": "azul_impl::callbacks::InlineWordVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "InlineWordVecDestructorType"}}
+				    ]
+				},
+				"InlineWordVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "InlineWordVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"InlineGlyphVecDestructor": {
+				    "external": "azul_impl::callbacks::InlineGlyphVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "InlineGlyphVecDestructorType"}}
+				    ]
+				},
+				"InlineGlyphVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "InlineGlyphVec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"InlineTextHitVecDestructor": {
+				    "external": "azul_impl::callbacks::InlineTextHitVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "InlineTextHitVecDestructorType"}}
+				    ]
+				},
+				"InlineTextHitVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "InlineTextHitVec", "ref": "refmut"}
+				        ]
+				    }
 				},
 				"MonitorVecDestructor": {
 				    "external": "azul_impl::window::MonitorVecDestructor",
@@ -7757,6 +8010,14 @@
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "RefAny" }}
+					]
+				},
+				"OptionInlineText": {
+					"external": "azul_impl::callbacks::OptionInlineText",
+					"clone": false,
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "InlineText" }}
 					]
 				},
 				"OptionLayoutPoint": {

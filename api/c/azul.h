@@ -112,6 +112,22 @@ typedef void (*AzThreadReceiverDestructorFnType)(AzThreadReceiver* restrict A);
 
 typedef void (*AzThreadSenderDestructorFnType)(AzThreadSender* restrict A);
 
+struct AzInlineLineVec;
+typedef struct AzInlineLineVec AzInlineLineVec;
+typedef void (*AzInlineLineVecDestructorType)(AzInlineLineVec* restrict A);
+
+struct AzInlineWordVec;
+typedef struct AzInlineWordVec AzInlineWordVec;
+typedef void (*AzInlineWordVecDestructorType)(AzInlineWordVec* restrict A);
+
+struct AzInlineGlyphVec;
+typedef struct AzInlineGlyphVec AzInlineGlyphVec;
+typedef void (*AzInlineGlyphVecDestructorType)(AzInlineGlyphVec* restrict A);
+
+struct AzInlineTextHitVec;
+typedef struct AzInlineTextHitVec AzInlineTextHitVec;
+typedef void (*AzInlineTextHitVecDestructorType)(AzInlineTextHitVec* restrict A);
+
 struct AzMonitorVec;
 typedef struct AzMonitorVec AzMonitorVec;
 typedef void (*AzMonitorVecDestructorType)(AzMonitorVec* restrict A);
@@ -1565,6 +1581,98 @@ struct AzThreadSenderDestructorFn {
 };
 typedef struct AzThreadSenderDestructorFn AzThreadSenderDestructorFn;
 
+enum AzInlineLineVecDestructorTag {
+   AzInlineLineVecDestructorTag_DefaultRust,
+   AzInlineLineVecDestructorTag_NoDestructor,
+   AzInlineLineVecDestructorTag_External,
+};
+typedef enum AzInlineLineVecDestructorTag AzInlineLineVecDestructorTag;
+
+struct AzInlineLineVecDestructorVariant_DefaultRust { AzInlineLineVecDestructorTag tag; };
+typedef struct AzInlineLineVecDestructorVariant_DefaultRust AzInlineLineVecDestructorVariant_DefaultRust;
+struct AzInlineLineVecDestructorVariant_NoDestructor { AzInlineLineVecDestructorTag tag; };
+typedef struct AzInlineLineVecDestructorVariant_NoDestructor AzInlineLineVecDestructorVariant_NoDestructor;
+struct AzInlineLineVecDestructorVariant_External { AzInlineLineVecDestructorTag tag; AzInlineLineVecDestructorType payload; };
+typedef struct AzInlineLineVecDestructorVariant_External AzInlineLineVecDestructorVariant_External;
+union AzInlineLineVecDestructor {
+    AzInlineLineVecDestructorVariant_DefaultRust DefaultRust;
+    AzInlineLineVecDestructorVariant_NoDestructor NoDestructor;
+    AzInlineLineVecDestructorVariant_External External;
+};
+typedef union AzInlineLineVecDestructor AzInlineLineVecDestructor;
+#define AzInlineLineVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInlineLineVecDestructorTag_DefaultRust } }
+#define AzInlineLineVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInlineLineVecDestructorTag_NoDestructor } }
+#define AzInlineLineVecDestructor_External(v) { .External = { .tag = AzInlineLineVecDestructorTag_External, .payload = v } }
+
+enum AzInlineWordVecDestructorTag {
+   AzInlineWordVecDestructorTag_DefaultRust,
+   AzInlineWordVecDestructorTag_NoDestructor,
+   AzInlineWordVecDestructorTag_External,
+};
+typedef enum AzInlineWordVecDestructorTag AzInlineWordVecDestructorTag;
+
+struct AzInlineWordVecDestructorVariant_DefaultRust { AzInlineWordVecDestructorTag tag; };
+typedef struct AzInlineWordVecDestructorVariant_DefaultRust AzInlineWordVecDestructorVariant_DefaultRust;
+struct AzInlineWordVecDestructorVariant_NoDestructor { AzInlineWordVecDestructorTag tag; };
+typedef struct AzInlineWordVecDestructorVariant_NoDestructor AzInlineWordVecDestructorVariant_NoDestructor;
+struct AzInlineWordVecDestructorVariant_External { AzInlineWordVecDestructorTag tag; AzInlineWordVecDestructorType payload; };
+typedef struct AzInlineWordVecDestructorVariant_External AzInlineWordVecDestructorVariant_External;
+union AzInlineWordVecDestructor {
+    AzInlineWordVecDestructorVariant_DefaultRust DefaultRust;
+    AzInlineWordVecDestructorVariant_NoDestructor NoDestructor;
+    AzInlineWordVecDestructorVariant_External External;
+};
+typedef union AzInlineWordVecDestructor AzInlineWordVecDestructor;
+#define AzInlineWordVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInlineWordVecDestructorTag_DefaultRust } }
+#define AzInlineWordVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInlineWordVecDestructorTag_NoDestructor } }
+#define AzInlineWordVecDestructor_External(v) { .External = { .tag = AzInlineWordVecDestructorTag_External, .payload = v } }
+
+enum AzInlineGlyphVecDestructorTag {
+   AzInlineGlyphVecDestructorTag_DefaultRust,
+   AzInlineGlyphVecDestructorTag_NoDestructor,
+   AzInlineGlyphVecDestructorTag_External,
+};
+typedef enum AzInlineGlyphVecDestructorTag AzInlineGlyphVecDestructorTag;
+
+struct AzInlineGlyphVecDestructorVariant_DefaultRust { AzInlineGlyphVecDestructorTag tag; };
+typedef struct AzInlineGlyphVecDestructorVariant_DefaultRust AzInlineGlyphVecDestructorVariant_DefaultRust;
+struct AzInlineGlyphVecDestructorVariant_NoDestructor { AzInlineGlyphVecDestructorTag tag; };
+typedef struct AzInlineGlyphVecDestructorVariant_NoDestructor AzInlineGlyphVecDestructorVariant_NoDestructor;
+struct AzInlineGlyphVecDestructorVariant_External { AzInlineGlyphVecDestructorTag tag; AzInlineGlyphVecDestructorType payload; };
+typedef struct AzInlineGlyphVecDestructorVariant_External AzInlineGlyphVecDestructorVariant_External;
+union AzInlineGlyphVecDestructor {
+    AzInlineGlyphVecDestructorVariant_DefaultRust DefaultRust;
+    AzInlineGlyphVecDestructorVariant_NoDestructor NoDestructor;
+    AzInlineGlyphVecDestructorVariant_External External;
+};
+typedef union AzInlineGlyphVecDestructor AzInlineGlyphVecDestructor;
+#define AzInlineGlyphVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInlineGlyphVecDestructorTag_DefaultRust } }
+#define AzInlineGlyphVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInlineGlyphVecDestructorTag_NoDestructor } }
+#define AzInlineGlyphVecDestructor_External(v) { .External = { .tag = AzInlineGlyphVecDestructorTag_External, .payload = v } }
+
+enum AzInlineTextHitVecDestructorTag {
+   AzInlineTextHitVecDestructorTag_DefaultRust,
+   AzInlineTextHitVecDestructorTag_NoDestructor,
+   AzInlineTextHitVecDestructorTag_External,
+};
+typedef enum AzInlineTextHitVecDestructorTag AzInlineTextHitVecDestructorTag;
+
+struct AzInlineTextHitVecDestructorVariant_DefaultRust { AzInlineTextHitVecDestructorTag tag; };
+typedef struct AzInlineTextHitVecDestructorVariant_DefaultRust AzInlineTextHitVecDestructorVariant_DefaultRust;
+struct AzInlineTextHitVecDestructorVariant_NoDestructor { AzInlineTextHitVecDestructorTag tag; };
+typedef struct AzInlineTextHitVecDestructorVariant_NoDestructor AzInlineTextHitVecDestructorVariant_NoDestructor;
+struct AzInlineTextHitVecDestructorVariant_External { AzInlineTextHitVecDestructorTag tag; AzInlineTextHitVecDestructorType payload; };
+typedef struct AzInlineTextHitVecDestructorVariant_External AzInlineTextHitVecDestructorVariant_External;
+union AzInlineTextHitVecDestructor {
+    AzInlineTextHitVecDestructorVariant_DefaultRust DefaultRust;
+    AzInlineTextHitVecDestructorVariant_NoDestructor NoDestructor;
+    AzInlineTextHitVecDestructorVariant_External External;
+};
+typedef union AzInlineTextHitVecDestructor AzInlineTextHitVecDestructor;
+#define AzInlineTextHitVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInlineTextHitVecDestructorTag_DefaultRust } }
+#define AzInlineTextHitVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInlineTextHitVecDestructorTag_NoDestructor } }
+#define AzInlineTextHitVecDestructor_External(v) { .External = { .tag = AzInlineTextHitVecDestructorTag_External, .payload = v } }
+
 enum AzMonitorVecDestructorTag {
    AzMonitorVecDestructorTag_DefaultRust,
    AzMonitorVecDestructorTag_NoDestructor,
@@ -2802,6 +2910,33 @@ struct AzHidpiAdjustedBounds {
     float hidpi_factor;
 };
 typedef struct AzHidpiAdjustedBounds AzHidpiAdjustedBounds;
+
+struct AzInlineGlyph {
+    AzLogicalRect bounds;
+    AzOptionChar unicode_codepoint;
+    uint32_t glyph_index;
+};
+typedef struct AzInlineGlyph AzInlineGlyph;
+
+struct AzInlineTextHit {
+    AzOptionChar unicode_codepoint;
+    AzLogicalPosition hit_relative_to_inline_text;
+    AzLogicalPosition hit_relative_to_line;
+    AzLogicalPosition hit_relative_to_text_content;
+    AzLogicalPosition hit_relative_to_glyph;
+    size_t line_index_relative_to_text;
+    size_t word_index_relative_to_text;
+    size_t text_content_index_relative_to_text;
+    size_t glyph_index_relative_to_text;
+    size_t char_index_relative_to_text;
+    size_t word_index_relative_to_line;
+    size_t text_content_index_relative_to_line;
+    size_t glyph_index_relative_to_line;
+    size_t char_index_relative_to_line;
+    size_t glyph_index_relative_to_word;
+    size_t char_index_relative_to_word;
+};
+typedef struct AzInlineTextHit AzInlineTextHit;
 
 struct AzIFrameCallbackInfo {
     void* resources;
@@ -5331,6 +5466,22 @@ struct AzThreadReceiver {
 };
 typedef struct AzThreadReceiver AzThreadReceiver;
 
+struct AzInlineGlyphVec {
+    AzInlineGlyph* ptr;
+    size_t len;
+    size_t cap;
+    AzInlineGlyphVecDestructor destructor;
+};
+typedef struct AzInlineGlyphVec AzInlineGlyphVec;
+
+struct AzInlineTextHitVec {
+    AzInlineTextHit* ptr;
+    size_t len;
+    size_t cap;
+    AzInlineTextHitVecDestructor destructor;
+};
+typedef struct AzInlineTextHitVec AzInlineTextHitVec;
+
 struct AzVideoModeVec {
     AzVideoMode* ptr;
     size_t len;
@@ -6018,6 +6169,12 @@ struct AzMouseState {
 };
 typedef struct AzMouseState AzMouseState;
 
+struct AzInlineTextContents {
+    AzInlineGlyphVec glyphs;
+    AzLogicalRect bounds;
+};
+typedef struct AzInlineTextContents AzInlineTextContents;
+
 struct AzGlCallbackInfo {
     AzDomNodeId callback_node_id;
     AzHidpiAdjustedBounds bounds;
@@ -6698,6 +6855,34 @@ struct AzMonitor {
 };
 typedef struct AzMonitor AzMonitor;
 
+enum AzInlineWordTag {
+   AzInlineWordTag_Tab,
+   AzInlineWordTag_Return,
+   AzInlineWordTag_Space,
+   AzInlineWordTag_Word,
+};
+typedef enum AzInlineWordTag AzInlineWordTag;
+
+struct AzInlineWordVariant_Tab { AzInlineWordTag tag; };
+typedef struct AzInlineWordVariant_Tab AzInlineWordVariant_Tab;
+struct AzInlineWordVariant_Return { AzInlineWordTag tag; };
+typedef struct AzInlineWordVariant_Return AzInlineWordVariant_Return;
+struct AzInlineWordVariant_Space { AzInlineWordTag tag; };
+typedef struct AzInlineWordVariant_Space AzInlineWordVariant_Space;
+struct AzInlineWordVariant_Word { AzInlineWordTag tag; AzInlineTextContents payload; };
+typedef struct AzInlineWordVariant_Word AzInlineWordVariant_Word;
+union AzInlineWord {
+    AzInlineWordVariant_Tab Tab;
+    AzInlineWordVariant_Return Return;
+    AzInlineWordVariant_Space Space;
+    AzInlineWordVariant_Word Word;
+};
+typedef union AzInlineWord AzInlineWord;
+#define AzInlineWord_Tab { .Tab = { .tag = AzInlineWordTag_Tab } }
+#define AzInlineWord_Return { .Return = { .tag = AzInlineWordTag_Return } }
+#define AzInlineWord_Space { .Space = { .tag = AzInlineWordTag_Space } }
+#define AzInlineWord_Word(v) { .Word = { .tag = AzInlineWordTag_Word, .payload = v } }
+
 struct AzRefCountInner {
     size_t num_copies;
     size_t num_refs;
@@ -7160,6 +7345,14 @@ struct AzThreadWriteBackMsg {
 };
 typedef struct AzThreadWriteBackMsg AzThreadWriteBackMsg;
 
+struct AzInlineWordVec {
+    AzInlineWord* ptr;
+    size_t len;
+    size_t cap;
+    AzInlineWordVecDestructor destructor;
+};
+typedef struct AzInlineWordVec AzInlineWordVec;
+
 struct AzMonitorVec {
     AzMonitor* ptr;
     size_t len;
@@ -7374,6 +7567,12 @@ struct AzLinuxWindowOptions {
     AzOptionWindowIcon window_icon;
 };
 typedef struct AzLinuxWindowOptions AzLinuxWindowOptions;
+
+struct AzInlineLine {
+    AzInlineWordVec words;
+    AzLogicalRect bounds;
+};
+typedef struct AzInlineLine AzInlineLine;
 
 struct AzCssPath {
     AzCssPathSelectorVec selectors;
@@ -7869,6 +8068,14 @@ typedef union AzThreadReceiveMsg AzThreadReceiveMsg;
 #define AzThreadReceiveMsg_WriteBack(v) { .WriteBack = { .tag = AzThreadReceiveMsgTag_WriteBack, .payload = v } }
 #define AzThreadReceiveMsg_Update(v) { .Update = { .tag = AzThreadReceiveMsgTag_Update, .payload = v } }
 
+struct AzInlineLineVec {
+    AzInlineLine* ptr;
+    size_t len;
+    size_t cap;
+    AzInlineLineVecDestructor destructor;
+};
+typedef struct AzInlineLineVec AzInlineLineVec;
+
 struct AzCssPropertyVec {
     AzCssProperty* ptr;
     size_t len;
@@ -7967,6 +8174,15 @@ struct AzCallbackInfo {
 };
 typedef struct AzCallbackInfo AzCallbackInfo;
 
+struct AzInlineText {
+    AzInlineLineVec lines;
+    AzLogicalRect bounds;
+    float font_size_px;
+    size_t last_word_index;
+    float baseline_descender_px;
+};
+typedef struct AzInlineText AzInlineText;
+
 struct AzFocusTargetPath {
     AzDomId dom;
     AzCssPath css_path;
@@ -8061,6 +8277,24 @@ struct AzNodeDataInlineCssPropertyVec {
     AzNodeDataInlineCssPropertyVecDestructor destructor;
 };
 typedef struct AzNodeDataInlineCssPropertyVec AzNodeDataInlineCssPropertyVec;
+
+enum AzOptionInlineTextTag {
+   AzOptionInlineTextTag_None,
+   AzOptionInlineTextTag_Some,
+};
+typedef enum AzOptionInlineTextTag AzOptionInlineTextTag;
+
+struct AzOptionInlineTextVariant_None { AzOptionInlineTextTag tag; };
+typedef struct AzOptionInlineTextVariant_None AzOptionInlineTextVariant_None;
+struct AzOptionInlineTextVariant_Some { AzOptionInlineTextTag tag; AzInlineText payload; };
+typedef struct AzOptionInlineTextVariant_Some AzOptionInlineTextVariant_Some;
+union AzOptionInlineText {
+    AzOptionInlineTextVariant_None None;
+    AzOptionInlineTextVariant_Some Some;
+};
+typedef union AzOptionInlineText AzOptionInlineText;
+#define AzOptionInlineText_None { .None = { .tag = AzOptionInlineTextTag_None } }
+#define AzOptionInlineText_Some(v) { .Some = { .tag = AzOptionInlineTextTag_Some, .payload = v } }
 
 enum AzXmlParseErrorTag {
    AzXmlParseErrorTag_InvalidDeclaration,
@@ -8438,6 +8672,22 @@ struct AzCss {
 };
 typedef struct AzCss AzCss;
 
+AzInlineLine AzInlineLineVecArray[] = {};
+#define AzInlineLineVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzInlineLine), .cap = sizeof(v) / sizeof(AzInlineLine), .destructor = { .NoDestructor = { .tag = AzInlineLineVecDestructorTag_NoDestructor, }, }, }
+#define AzInlineLineVec_empty { .ptr = &AzInlineLineVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzInlineLineVecDestructorTag_NoDestructor, }, }, }
+
+AzInlineWord AzInlineWordVecArray[] = {};
+#define AzInlineWordVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzInlineWord), .cap = sizeof(v) / sizeof(AzInlineWord), .destructor = { .NoDestructor = { .tag = AzInlineWordVecDestructorTag_NoDestructor, }, }, }
+#define AzInlineWordVec_empty { .ptr = &AzInlineWordVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzInlineWordVecDestructorTag_NoDestructor, }, }, }
+
+AzInlineGlyph AzInlineGlyphVecArray[] = {};
+#define AzInlineGlyphVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzInlineGlyph), .cap = sizeof(v) / sizeof(AzInlineGlyph), .destructor = { .NoDestructor = { .tag = AzInlineGlyphVecDestructorTag_NoDestructor, }, }, }
+#define AzInlineGlyphVec_empty { .ptr = &AzInlineGlyphVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzInlineGlyphVecDestructorTag_NoDestructor, }, }, }
+
+AzInlineTextHit AzInlineTextHitVecArray[] = {};
+#define AzInlineTextHitVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzInlineTextHit), .cap = sizeof(v) / sizeof(AzInlineTextHit), .destructor = { .NoDestructor = { .tag = AzInlineTextHitVecDestructorTag_NoDestructor, }, }, }
+#define AzInlineTextHitVec_empty { .ptr = &AzInlineTextHitVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzInlineTextHitVecDestructorTag_NoDestructor, }, }, }
+
 AzMonitor AzMonitorVecArray[] = {};
 #define AzMonitorVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzMonitor), .cap = sizeof(v) / sizeof(AzMonitor), .destructor = { .NoDestructor = { .tag = AzMonitorVecDestructorTag_NoDestructor, }, }, }
 #define AzMonitorVec_empty { .ptr = &AzMonitorVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzMonitorVecDestructorTag_NoDestructor, }, }, }
@@ -8612,19 +8862,27 @@ extern DLLIMPORT AzWindowState AzWindowState_default();
 extern DLLIMPORT AzDomNodeId AzCallbackInfo_getHitNode(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzOptionLayoutPoint AzCallbackInfo_getCursorRelativeToViewport(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzOptionLayoutPoint AzCallbackInfo_getCursorRelativeToNode(AzCallbackInfo* const callbackinfo);
-extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getParent(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
-extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getPreviousSibling(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
-extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getNextSibling(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
-extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getFirstChild(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
-extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getLastChild(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzWindowState AzCallbackInfo_getWindowState(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzKeyboardState AzCallbackInfo_getKeyboardState(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzMouseState AzCallbackInfo_getMouseState(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzRawWindowHandle AzCallbackInfo_getCurrentWindowHandle(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzOptionGl AzCallbackInfo_getGlContext(AzCallbackInfo* const callbackinfo);
+extern DLLIMPORT AzOptionLogicalPosition AzCallbackInfo_getScrollPosition(AzCallbackInfo* const callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionRefAny AzCallbackInfo_getDataset(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionString AzCallbackInfo_getStringContents(AzCallbackInfo* const callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionInlineText AzCallbackInfo_getInlineText(AzCallbackInfo* const callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getParent(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getPreviousSibling(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getNextSibling(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getFirstChild(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getLastChild(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT void AzCallbackInfo_setWindowState(AzCallbackInfo* restrict callbackinfo, AzWindowState  new_state);
 extern DLLIMPORT void AzCallbackInfo_setFocus(AzCallbackInfo* restrict callbackinfo, AzFocusTarget  target);
 extern DLLIMPORT void AzCallbackInfo_setCssProperty(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzCssProperty  new_property);
+extern DLLIMPORT void AzCallbackInfo_setScrollPosition(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzLogicalPosition  scroll_position);
+extern DLLIMPORT void AzCallbackInfo_setStringContents(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzString  string);
+extern DLLIMPORT void AzCallbackInfo_exchangeImage(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageSource  new_image);
+extern DLLIMPORT void AzCallbackInfo_exchangeImageMask(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageMask  new_mask);
 extern DLLIMPORT void AzCallbackInfo_stopPropagation(AzCallbackInfo* restrict callbackinfo);
 extern DLLIMPORT void AzCallbackInfo_createWindow(AzCallbackInfo* restrict callbackinfo, AzWindowCreateOptions  new_window);
 extern DLLIMPORT void AzCallbackInfo_startThread(AzCallbackInfo* restrict callbackinfo, AzThreadId  id, AzRefAny  thread_initialize_data, AzRefAny  writeback_data, AzThreadCallback  callback);
@@ -8632,6 +8890,7 @@ extern DLLIMPORT void AzCallbackInfo_startTimer(AzCallbackInfo* restrict callbac
 extern DLLIMPORT AzLogicalSize AzHidpiAdjustedBounds_getLogicalSize(AzHidpiAdjustedBounds* const hidpiadjustedbounds);
 extern DLLIMPORT AzPhysicalSizeU32 AzHidpiAdjustedBounds_getPhysicalSize(AzHidpiAdjustedBounds* const hidpiadjustedbounds);
 extern DLLIMPORT float AzHidpiAdjustedBounds_getHidpiFactor(AzHidpiAdjustedBounds* const hidpiadjustedbounds);
+extern DLLIMPORT AzInlineTextHitVec AzInlineText_hitTest(AzInlineText* const inlinetext, AzLogicalPosition  position);
 extern DLLIMPORT AzHidpiAdjustedBounds AzIFrameCallbackInfo_getBounds(AzIFrameCallbackInfo* const iframecallbackinfo);
 extern DLLIMPORT AzOptionGl AzGlCallbackInfo_getGlContext(AzGlCallbackInfo* const glcallbackinfo);
 extern DLLIMPORT AzHidpiAdjustedBounds AzGlCallbackInfo_getBounds(AzGlCallbackInfo* const glcallbackinfo);
@@ -8908,6 +9167,10 @@ extern DLLIMPORT bool  AzThreadSender_send(AzThreadSender* restrict threadsender
 extern DLLIMPORT void AzThreadSender_delete(AzThreadSender* restrict instance);
 extern DLLIMPORT AzOptionThreadSendMsg AzThreadReceiver_receive(AzThreadReceiver* restrict threadreceiver);
 extern DLLIMPORT void AzThreadReceiver_delete(AzThreadReceiver* restrict instance);
+extern DLLIMPORT void AzInlineLineVec_delete(AzInlineLineVec* restrict instance);
+extern DLLIMPORT void AzInlineWordVec_delete(AzInlineWordVec* restrict instance);
+extern DLLIMPORT void AzInlineGlyphVec_delete(AzInlineGlyphVec* restrict instance);
+extern DLLIMPORT void AzInlineTextHitVec_delete(AzInlineTextHitVec* restrict instance);
 extern DLLIMPORT void AzMonitorVec_delete(AzMonitorVec* restrict instance);
 extern DLLIMPORT void AzVideoModeVec_delete(AzVideoModeVec* restrict instance);
 extern DLLIMPORT void AzDomVec_delete(AzDomVec* restrict instance);

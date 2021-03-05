@@ -13,7 +13,7 @@ use alloc::collections::BTreeMap;
 use std::hash::Hash;
 use azul_css::{
     CssProperty, LayoutPoint, OptionLayoutPoint,
-    LayoutSize, CssPath, OptionU32, AzString, LayoutRect,
+    LayoutSize, CssPath, AzString, LayoutRect,
 };
 use crate::{
     FastHashMap,
@@ -29,7 +29,7 @@ use crate::{
     styled_dom::{DomId, AzNodeId, AzNodeVec},
     id_tree::{NodeId, NodeDataContainer},
     window::{
-        WindowSize, WindowState, FullWindowState, LogicalPosition,
+        WindowSize, WindowState, FullWindowState, LogicalPosition, OptionChar,
         LogicalSize, PhysicalSize, UpdateFocusWarning, WindowCreateOptions,
         RawWindowHandle, KeyboardState, MouseState, LogicalRect,
     },
@@ -497,7 +497,7 @@ impl_option!(Callback, OptionCallback, [Debug, Eq, Copy, Clone, PartialEq, Parti
 #[repr(C)]
 pub struct InlineTextHit {
     // if the unicode_codepoint is None, it's usually a mark glyph that was hit
-    pub unicode_codepoint: OptionU32, // Option<char>
+    pub unicode_codepoint: OptionChar, // Option<char>
 
     // position of the cursor relative to X
     pub hit_relative_to_inline_text: LogicalPosition,
@@ -523,6 +523,12 @@ pub struct InlineTextHit {
     pub char_index_relative_to_word: usize,
 }
 
+impl_vec!(InlineTextHit, InlineTextHitVec, InlineTextHitVecDestructor);
+impl_vec_clone!(InlineTextHit, InlineTextHitVec, InlineTextHitVecDestructor);
+impl_vec_debug!(InlineTextHit, InlineTextHitVec);
+impl_vec_partialeq!(InlineTextHit, InlineTextHitVec);
+impl_vec_partialord!(InlineTextHit, InlineTextHitVec);
+
 /// inline text so that hit-testing is easier
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -534,6 +540,8 @@ pub struct InlineText {
     /// NOTE: descender is NEGATIVE (pixels from baseline to font size)
     pub baseline_descender_px: f32,
 }
+
+impl_option!(InlineText, OptionInlineText, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 
 impl InlineText {
 
@@ -708,10 +716,10 @@ pub enum InlineWord {
 }
 
 impl InlineWord {
-    fn has_text_content(&self) -> bool {
+    pub fn has_text_content(&self) -> bool {
         self.get_text_content().is_some()
     }
-    fn get_text_content(&self) -> Option<&InlineTextContents> {
+    pub fn get_text_content(&self) -> Option<&InlineTextContents> {
         match self {
             InlineWord::Tab | InlineWord::Return | InlineWord::Space => None,
             InlineWord::Word(tc) => Some(tc),
@@ -736,7 +744,7 @@ pub struct InlineTextContents {
 #[repr(C)]
 pub struct InlineGlyph {
     pub bounds: LogicalRect,
-    pub unicode_codepoint: OptionU32,
+    pub unicode_codepoint: OptionChar,
     pub glyph_index: u32,
 }
 
