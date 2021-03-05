@@ -352,51 +352,60 @@ pub fn tesselate_rect_stroke(r: &SvgRect, stroke_style: SvgStrokeStyle) -> Tesse
 }
 
 /// Tesselate the path using lyon
-pub fn tesselate_path(node: &SvgStyledNode) -> TesselatedCPUSvgNode {
-    use rayon::prelude::*;
+pub fn tesselate_styled_node(node: &SvgStyledNode) -> TesselatedCPUSvgNode {
     match node.style {
         SvgStyle::Fill(fs) => {
-            match &node.geometry {
-                SvgNode::MultiPolygonCollection(mpc) => {
-                    let tesselated_multipolygons = mpc.as_ref().par_iter().map(|mp| tesselate_multi_polygon_fill(mp, fs)).collect::<Vec<_>>();
-                    let mut all_vertices = Vec::new();
-                    let mut all_indices = Vec::new();
-                    for TesselatedCPUSvgNode { vertices, indices } in tesselated_multipolygons {
-                        let mut vertices: Vec<SvgVertex> = vertices.into_library_owned_vec();
-                        let mut indices: Vec<u32> = indices.into_library_owned_vec();
-                        all_vertices.append(&mut vertices);
-                        all_indices.append(&mut indices);
-                        all_indices.push(GL_RESTART_INDEX);
-                    }
-                    TesselatedCPUSvgNode { vertices: all_vertices.into(), indices: all_indices.into() }
-                },
-                SvgNode::MultiPolygon(mp) => tesselate_multi_polygon_fill(mp, fs),
-                SvgNode::Path(p) => tesselate_path_fill(p, fs),
-                SvgNode::Circle(c) => tesselate_circle_fill(c, fs),
-                SvgNode::Rect(r) => tesselate_rect_fill(r, fs),
-            }
+            tesselate_node_fill(&node.geometry, fs)
         },
         SvgStyle::Stroke(ss) => {
-            match &node.geometry {
-                SvgNode::MultiPolygonCollection(mpc) => {
-                    let tesselated_multipolygons = mpc.as_ref().par_iter().map(|mp| tesselate_multi_polygon_stroke(mp, ss)).collect::<Vec<_>>();
-                    let mut all_vertices = Vec::new();
-                    let mut all_indices = Vec::new();
-                    for TesselatedCPUSvgNode { vertices, indices } in tesselated_multipolygons {
-                        let mut vertices: Vec<SvgVertex> = vertices.into_library_owned_vec();
-                        let mut indices: Vec<u32> = indices.into_library_owned_vec();
-                        all_vertices.append(&mut vertices);
-                        all_indices.append(&mut indices);
-                        all_indices.push(GL_RESTART_INDEX);
-                    }
-                    TesselatedCPUSvgNode { vertices: all_vertices.into(), indices: all_indices.into() }
-                },
-                SvgNode::MultiPolygon(mp) => tesselate_multi_polygon_stroke(mp, ss),
-                SvgNode::Path(p) => tesselate_path_stroke(p, ss),
-                SvgNode::Circle(c) => tesselate_circle_stroke(c, ss),
-                SvgNode::Rect(r) => tesselate_rect_stroke(r, ss),
-            }
+            tesselate_node_stroke(&node.geometry, ss)
         }
+    }
+}
+
+pub fn tesselate_node_fill(node: &SvgNode, fs: SvgFillStyle) -> TesselatedCPUSvgNode {
+    use rayon::prelude::*;
+    match &node {
+        SvgNode::MultiPolygonCollection(ref mpc) => {
+            let tesselated_multipolygons = mpc.as_ref().par_iter().map(|mp| tesselate_multi_polygon_fill(mp, fs)).collect::<Vec<_>>();
+            let mut all_vertices = Vec::new();
+            let mut all_indices = Vec::new();
+            for TesselatedCPUSvgNode { vertices, indices } in tesselated_multipolygons {
+                let mut vertices: Vec<SvgVertex> = vertices.into_library_owned_vec();
+                let mut indices: Vec<u32> = indices.into_library_owned_vec();
+                all_vertices.append(&mut vertices);
+                all_indices.append(&mut indices);
+                all_indices.push(GL_RESTART_INDEX);
+            }
+            TesselatedCPUSvgNode { vertices: all_vertices.into(), indices: all_indices.into() }
+        },
+        SvgNode::MultiPolygon(ref mp) => tesselate_multi_polygon_fill(mp, fs),
+        SvgNode::Path(ref p) => tesselate_path_fill(p, fs),
+        SvgNode::Circle(ref c) => tesselate_circle_fill(c, fs),
+        SvgNode::Rect(ref r) => tesselate_rect_fill(r, fs),
+    }
+}
+
+pub fn tesselate_node_stroke(node: &SvgNode, ss: SvgStrokeStyle) -> TesselatedCPUSvgNode {
+    use rayon::prelude::*;
+    match &node {
+        SvgNode::MultiPolygonCollection(ref mpc) => {
+            let tesselated_multipolygons = mpc.as_ref().par_iter().map(|mp| tesselate_multi_polygon_stroke(mp, ss)).collect::<Vec<_>>();
+            let mut all_vertices = Vec::new();
+            let mut all_indices = Vec::new();
+            for TesselatedCPUSvgNode { vertices, indices } in tesselated_multipolygons {
+                let mut vertices: Vec<SvgVertex> = vertices.into_library_owned_vec();
+                let mut indices: Vec<u32> = indices.into_library_owned_vec();
+                all_vertices.append(&mut vertices);
+                all_indices.append(&mut indices);
+                all_indices.push(GL_RESTART_INDEX);
+            }
+            TesselatedCPUSvgNode { vertices: all_vertices.into(), indices: all_indices.into() }
+        },
+        SvgNode::MultiPolygon(ref mp) => tesselate_multi_polygon_stroke(mp, ss),
+        SvgNode::Path(ref p) => tesselate_path_stroke(p, ss),
+        SvgNode::Circle(ref c) => tesselate_circle_stroke(c, ss),
+        SvgNode::Rect(ref r) => tesselate_rect_stroke(r, ss),
     }
 }
 
@@ -746,6 +755,7 @@ pub enum SvgParseError {
     ParsingFailed(XmlError),
 }
 
+impl_result!(SvgXmlNode, SvgParseError, ResultSvgXmlNodeSvgParseError, copy = false, [Debug, Clone]);
 impl_result!(Svg, SvgParseError, ResultSvgSvgParseError, copy = false, [Debug, PartialEq, PartialOrd, Clone]);
 
 impl From<usvg::Error> for SvgParseError {

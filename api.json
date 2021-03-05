@@ -6206,19 +6206,7 @@
 						{"width": {"type": "usize"}},
 						{"height": {"type": "usize"}},
 						{"data_format": {"type": "RawImageFormat"}}
-					],
-					"constructors": {
-						"new": {
-						"doc": "Creates a new `RawImage` by loading the decoded bytes",
-						"fn_args": [
-							{"decoded_pixels": "U8Vec"},
-							{"width": "usize"},
-							{"height": "usize"},
-							{"data_format": "RawImageFormat"}
-						],
-						"fn_body": "RawImage { pixels: decoded_pixels, width, height, data_format: data_format }"
-						}
-					}
+					]
 				},
 				"RawImageFormat": {
 					"external": "azul_impl::resources::RawImageFormat",
@@ -6238,11 +6226,80 @@
 		"svg": {
 			"doc": "SVG parsing and rendering functions",
 			"classes": {
+				"Svg": {
+					"external": "azul_impl::svg::Svg",
+					"is_boxed_object": true,
+					"struct_fields": [
+						{"ptr": {"type": "*mut c_void"}}
+					],
+					"constructors": {
+						"parse_from": {
+							"fn_args": [
+								{"svg_bytes": "U8VecRef"},
+								{"parse_options": "SvgParseOptions"}
+							],
+							"returns": {"type": "ResultSvgSvgParseError"},
+							"fn_body": "azul_impl::svg::Svg::parse(svg_bytes.as_slice(), parse_options).into()"
+						}
+					},
+					"functions": {
+						"get_root": {
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "SvgXmlNode"},
+							"fn_body": "svg.root()"
+						},
+						"to_string": {
+							"fn_args": [
+								{"self": "ref"},
+								{"options": "SvgStringFormatOptions"}
+							],
+							"returns": {"type": "String"},
+							"fn_body": "svg.to_string(options).into()"
+						}
+					}
+				},
+				"SvgXmlNode": {
+					"external": "azul_impl::svg::SvgXmlNode",
+					"is_boxed_object": true,
+					"struct_fields": [
+						{"ptr": {"type": "*mut c_void"}}
+					],
+					"constructors": {
+						"parse_from": {
+							"fn_args": [
+								{"svg_bytes": "U8VecRef"},
+								{"parse_options": "SvgParseOptions"}
+							],
+							"returns": {"type": "ResultSvgXmlNodeSvgParseError"},
+							"fn_body": "azul_impl::svg::SvgXmlNode::parse(svg_bytes.as_slice(), parse_options).into()"
+						}
+					}
+				},
 				"SvgMultiPolygon": {
 					"external": "azul_impl::svg::SvgMultiPolygon",
 					"struct_fields": [
 						{"rings": {"type": "SvgPathVec"}}
-					]
+					],
+					"functions": {
+						"tesselate_fill": {
+							"fn_args": [
+								{"self": "ref"},
+								{"fill_style": "SvgFillStyle"}
+							],
+							"returns": {"type": "TesselatedCPUSvgNode"},
+							"fn_body": "azul_impl::svg::tesselate_multi_polygon_fill(svgmultipolygon, fill_style)"
+						},
+						"tesselate_stroke": {
+							"fn_args": [
+								{"self": "ref"},
+								{"stroke_style": "SvgStrokeStyle"}
+							],
+							"returns": {"type": "TesselatedCPUSvgNode"},
+							"fn_body": "azul_impl::svg::tesselate_multi_polygon_stroke(svgmultipolygon, stroke_style)"
+						}
+					}
 				},
 				"SvgNode": {
 					"external": "azul_impl::svg::SvgNode",
@@ -6252,14 +6309,41 @@
 						{"Path": {"type": "SvgPath"}},
 						{"Circle": {"type": "SvgCircle"}},
 						{"Rect": {"type": "SvgRect"}}
-					]
+					],
+					"functions": {
+						"tesselate_fill": {
+							"fn_args": [
+								{"self": "ref"},
+								{"fill_style": "SvgFillStyle"}
+							],
+							"returns": {"type": "TesselatedCPUSvgNode"},
+							"fn_body": "azul_impl::svg::tesselate_node_fill(svgnode, fill_style)"
+						},
+						"tesselate_stroke": {
+							"fn_args": [
+								{"self": "ref"},
+								{"stroke_style": "SvgStrokeStyle"}
+							],
+							"returns": {"type": "TesselatedCPUSvgNode"},
+							"fn_body": "azul_impl::svg::tesselate_node_stroke(svgnode, stroke_style)"
+						}
+					}
 				},
 				"SvgStyledNode": {
 					"external": "azul_impl::svg::SvgStyledNode",
 					"struct_fields": [
 						{"geometry": {"type": "SvgNode"}},
 						{"style": {"type": "SvgStyle"}}
-					]
+					],
+					"functions": {
+						"tesselate": {
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "TesselatedCPUSvgNode"},
+							"fn_body": "azul_impl::svg::tesselate_styled_node(svgstylednode)"
+						}
+					}
 				},
 				"SvgCircle": {
 					"external": "azul_impl::svg::SvgCircle",
@@ -6268,13 +6352,49 @@
 						{"center_x": {"type": "f32"}},
 						{"center_y": {"type": "f32"}},
 						{"radius": {"type": "f32"}}
-					]
+					],
+					"functions": {
+						"tesselate_fill": {
+							"fn_args": [
+								{"self": "ref"},
+								{"fill_style": "SvgFillStyle"}
+							],
+							"returns": {"type": "TesselatedCPUSvgNode"},
+							"fn_body": "azul_impl::svg::tesselate_circle_fill(svgcircle, fill_style)"
+						},
+						"tesselate_stroke": {
+							"fn_args": [
+								{"self": "ref"},
+								{"stroke_style": "SvgStrokeStyle"}
+							],
+							"returns": {"type": "TesselatedCPUSvgNode"},
+							"fn_body": "azul_impl::svg::tesselate_circle_stroke(svgcircle, stroke_style)"
+						}
+					}
 				},
 				"SvgPath": {
 					"external": "azul_impl::svg::SvgPath",
 					"struct_fields": [
 						{"items": {"type": "SvgPathElementVec"}}
-					]
+					],
+					"functions": {
+						"tesselate_fill": {
+							"fn_args": [
+								{"self": "ref"},
+								{"fill_style": "SvgFillStyle"}
+							],
+							"returns": {"type": "TesselatedCPUSvgNode"},
+							"fn_body": "azul_impl::svg::tesselate_path_fill(svgpath, fill_style)"
+						},
+						"tesselate_stroke": {
+							"fn_args": [
+								{"self": "ref"},
+								{"stroke_style": "SvgStrokeStyle"}
+							],
+							"returns": {"type": "TesselatedCPUSvgNode"},
+							"fn_body": "azul_impl::svg::tesselate_path_stroke(svgpath, stroke_style)"
+						}
+					}
 				},
 				"SvgPathElement": {
 					"external": "azul_impl::svg::SvgPathElement",
@@ -6295,14 +6415,6 @@
 				},
 				"SvgPoint": {
 					"external": "azul_impl::svg::SvgPoint",
-					"derive": ["Copy"],
-					"struct_fields": [
-						{"x": {"type": "f32"}},
-						{"y": {"type": "f32"}}
-					]
-				},
-				"SvgVertex": {
-					"external": "azul_impl::svg::SvgVertex",
 					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "f32"}},
@@ -6340,6 +6452,32 @@
 						{"radius_top_right": {"type": "f32"}},
 						{"radius_bottom_left": {"type": "f32"}},
 						{"radius_bottom_right": {"type": "f32"}}
+					],
+					"functions": {
+						"tesselate_fill": {
+							"fn_args": [
+								{"self": "ref"},
+								{"fill_style": "SvgFillStyle"}
+							],
+							"returns": {"type": "TesselatedCPUSvgNode"},
+							"fn_body": "azul_impl::svg::tesselate_rect_fill(svgrect, fill_style)"
+						},
+						"tesselate_stroke": {
+							"fn_args": [
+								{"self": "ref"},
+								{"stroke_style": "SvgStrokeStyle"}
+							],
+							"returns": {"type": "TesselatedCPUSvgNode"},
+							"fn_body": "azul_impl::svg::tesselate_rect_stroke(svgrect, stroke_style)"
+						}
+					}
+				},
+				"SvgVertex": {
+					"external": "azul_impl::svg::SvgVertex",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"x": {"type": "f32"}},
+						{"y": {"type": "f32"}}
 					]
 				},
 				"TesselatedCPUSvgNode": {
@@ -6347,15 +6485,6 @@
 					"struct_fields": [
 						{"vertices": {"type": "SvgVertexVec"}},
 						{"indices": {"type": "U32Vec"}}
-					]
-				},
-				"SvgLineCap": {
-					"external": "azul_impl::svg::SvgLineCap",
-					"derive": ["Copy"],
-					"enum_fields": [
-						{"Butt": {}},
-						{"Square": {}},
-						{"Round": {}}
 					]
 				},
 				"SvgParseOptions": {
@@ -6424,6 +6553,22 @@
 						}
 					}
 				},
+				"SvgStringFormatOptions": {
+					"external": "azul_impl::svg::SvgXmlOptions",
+					"struct_fields": [
+						{"use_single_quote": {"type": "bool", "doc": "Whether to use single or double quotes when formatting the SVG string"}},
+						{"indent": {"type": "Indent", "doc": "How to indent SVG nodes when formatting SVG"}},
+						{"attributes_indent": {"type": "Indent", "doc": "How to indent the attributes when formatting SVG"}}
+					]
+				},
+				"Indent": {
+					"external": "azul_impl::svg::Indent",
+					"enum_fields": [
+						{"None": {"doc": "No indentation"}},
+						{"Spaces": {"type": "u8", "doc": "Indent with n spaces"}},
+						{"Tabs": {"doc": "Indent with tab character"}}
+					]
+				},
 				"SvgFitTo": {
 					"external": "azul_impl::svg::SvgFitTo",
 					"derive": ["Copy"],
@@ -6432,53 +6577,6 @@
 						{"Width": {"type": "u32"}},
 						{"Height": {"type": "u32"}},
 						{"Zoom": {"type": "f32"}}
-					]
-				},
-				"Svg": {
-					"external": "azul_impl::svg::Svg",
-					"is_boxed_object": true,
-					"struct_fields": [
-						{"ptr": {"type": "*mut c_void"}}
-					],
-					"constructors": {
-						"parse": {
-							"fn_args": [
-								{"svg_bytes": "U8VecRef"},
-								{"parse_options": "SvgParseOptions"}
-							],
-							"returns": {"type": "ResultSvgSvgParseError"},
-							"fn_body": "azul_impl::svg::Svg::parse(svg_bytes.as_slice(), parse_options).into()"
-						}
-					}
-				},
-				"SvgXmlNode": {
-					"external": "azul_impl::svg::SvgXmlNode",
-					"is_boxed_object": true,
-					"struct_fields": [
-						{"ptr": {"type": "*mut c_void"}}
-					]
-				},
-				"SvgLineJoin": {
-					"external": "azul_impl::svg::SvgLineJoin",
-					"derive": ["Copy"],
-					"enum_fields": [
-						{"Miter": {}},
-						{"MiterClip": {}},
-						{"Round": {}},
-						{"Bevel": {}}
-					]
-				},
-				"SvgDashPattern": {
-					"external": "azul_impl::svg::SvgDashPattern",
-					"derive": ["Copy"],
-					"struct_fields": [
-						{"offset": {"type": "usize"}},
-						{"length_1": {"type": "usize"}},
-						{"gap_1": {"type": "usize"}},
-						{"length_2": {"type": "usize"}},
-						{"gap_2": {"type": "usize"}},
-						{"length_3": {"type": "usize"}},
-						{"gap_3": {"type": "usize"}}
 					]
 				},
 				"SvgStyle": {
@@ -6510,6 +6608,38 @@
 						{"miter_limit": {"type": "usize", "doc": "Limit for caps on path edges if line_join is set to `Miter`, (multiplied * 1000 as usize). Must be greater than or equal to 1px (`1000`). Default value = 1px (`1000`)"}},
 						{"tolerance": {"type": "usize", "doc": "Maximum allowed distance between path points when tesselating curves. Default value = 0.1px (`100`)"}},
 						{"apply_line_width": {"type": "bool", "doc": "When set to false, the generated vertices will all be positioned in the center. The width can be applied later on (eg in a vertex shader) by adding the vertex normal multiplied by the line with to each vertex position. Default value = `false`"}}
+					]
+				},
+				"SvgLineJoin": {
+					"external": "azul_impl::svg::SvgLineJoin",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Miter": {}},
+						{"MiterClip": {}},
+						{"Round": {}},
+						{"Bevel": {}}
+					]
+				},
+				"SvgLineCap": {
+					"external": "azul_impl::svg::SvgLineCap",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Butt": {}},
+						{"Square": {}},
+						{"Round": {}}
+					]
+				},
+				"SvgDashPattern": {
+					"external": "azul_impl::svg::SvgDashPattern",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"offset": {"type": "usize"}},
+						{"length_1": {"type": "usize"}},
+						{"gap_1": {"type": "usize"}},
+						{"length_2": {"type": "usize"}},
+						{"gap_2": {"type": "usize"}},
+						{"length_3": {"type": "usize"}},
+						{"gap_3": {"type": "usize"}}
 					]
 				}
 			}
@@ -8353,6 +8483,13 @@
 		"error": {
 			"doc": "Definition of error and `Result<T, E>`  types",
 			"classes": {
+				"ResultSvgXmlNodeSvgParseError": {
+					"external": "azul_impl::svg::ResultSvgXmlNodeSvgParseError",
+					"enum_fields": [
+						{"Ok": {"type": "SvgXmlNode"}},
+						{"Err": { "type": "SvgParseError" }}
+					]
+				},
 				"ResultSvgSvgParseError": {
 					"external": "azul_impl::svg::ResultSvgSvgParseError",
 					"enum_fields": [

@@ -1154,6 +1154,14 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzFontId {
         pub id: usize,
     }
+    /// Re-export of rust-allocated (stack based) `Svg` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvg {
+        pub(crate) ptr: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvgXmlNode {
+        pub(crate) ptr: *mut c_void,
+    }
     /// Re-export of rust-allocated (stack based) `SvgCircle` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgCircle {
         pub center_x: f32,
@@ -1162,11 +1170,6 @@ mod dll {
     }
     /// Re-export of rust-allocated (stack based) `SvgPoint` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgPoint {
-        pub x: f32,
-        pub y: f32,
-    }
-    /// Re-export of rust-allocated (stack based) `SvgVertex` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgVertex {
         pub x: f32,
         pub y: f32,
     }
@@ -1181,11 +1184,10 @@ mod dll {
         pub radius_bottom_left: f32,
         pub radius_bottom_right: f32,
     }
-    /// Re-export of rust-allocated (stack based) `SvgLineCap` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgLineCap {
-        Butt,
-        Square,
-        Round,
+    /// Re-export of rust-allocated (stack based) `SvgVertex` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgVertex {
+        pub x: f32,
+        pub y: f32,
     }
     /// Re-export of rust-allocated (stack based) `ShapeRendering` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzShapeRendering {
@@ -1209,6 +1211,12 @@ mod dll {
         Empty,
         System,
     }
+    /// Re-export of rust-allocated (stack based) `Indent` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzIndent {
+        None,
+        Spaces(u8),
+        Tabs,
+    }
     /// Re-export of rust-allocated (stack based) `SvgFitTo` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgFitTo {
         Original,
@@ -1216,20 +1224,18 @@ mod dll {
         Height(u32),
         Zoom(f32),
     }
-    /// Re-export of rust-allocated (stack based) `Svg` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvg {
-        pub(crate) ptr: *mut c_void,
-    }
-    /// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvgXmlNode {
-        pub(crate) ptr: *mut c_void,
-    }
     /// Re-export of rust-allocated (stack based) `SvgLineJoin` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgLineJoin {
         Miter,
         MiterClip,
         Round,
         Bevel,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgLineCap` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgLineCap {
+        Butt,
+        Square,
+        Round,
     }
     /// Re-export of rust-allocated (stack based) `SvgDashPattern` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgDashPattern {
@@ -2677,6 +2683,12 @@ mod dll {
         pub ctrl_1: AzSvgPoint,
         pub ctrl_2: AzSvgPoint,
         pub end: AzSvgPoint,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgStringFormatOptions` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgStringFormatOptions {
+        pub use_single_quote: bool,
+        pub indent: AzIndent,
+        pub attributes_indent: AzIndent,
     }
     /// Re-export of rust-allocated (stack based) `SvgFillStyle` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgFillStyle {
@@ -4154,6 +4166,11 @@ mod dll {
         pub cap: usize,
         pub destructor: AzStylesheetVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `ResultSvgXmlNodeSvgParseError` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultSvgXmlNodeSvgParseError {
+        Ok(AzSvgXmlNode),
+        Err(AzSvgParseError),
+    }
     /// Re-export of rust-allocated (stack based) `ResultSvgSvgParseError` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultSvgSvgParseError {
         Ok(AzSvg),
@@ -4477,14 +4494,27 @@ mod dll {
         pub(crate) fn AzTextureFlags_default() -> AzTextureFlags;
         pub(crate) fn AzImageId_new() -> AzImageId;
         pub(crate) fn AzFontId_new() -> AzFontId;
-        pub(crate) fn AzRawImage_new(_:  AzU8Vec, _:  usize, _:  usize, _:  AzRawImageFormat) -> AzRawImage;
-        pub(crate) fn AzSvgParseOptions_default() -> AzSvgParseOptions;
-        pub(crate) fn AzSvgRenderOptions_default() -> AzSvgRenderOptions;
-        pub(crate) fn AzSvg_parse(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
+        pub(crate) fn AzSvg_parseFrom(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
+        pub(crate) fn AzSvg_getRoot(_:  &AzSvg) -> AzSvgXmlNode;
+        pub(crate) fn AzSvg_toString(_:  &AzSvg, _:  AzSvgStringFormatOptions) -> AzString;
         pub(crate) fn AzSvg_delete(_:  &mut AzSvg);
         pub(crate) fn AzSvg_deepCopy(_:  &AzSvg) -> AzSvg;
+        pub(crate) fn AzSvgXmlNode_parseFrom(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgXmlNodeSvgParseError;
         pub(crate) fn AzSvgXmlNode_delete(_:  &mut AzSvgXmlNode);
         pub(crate) fn AzSvgXmlNode_deepCopy(_:  &AzSvgXmlNode) -> AzSvgXmlNode;
+        pub(crate) fn AzSvgMultiPolygon_tesselateFill(_:  &AzSvgMultiPolygon, _:  AzSvgFillStyle) -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzSvgMultiPolygon_tesselateStroke(_:  &AzSvgMultiPolygon, _:  AzSvgStrokeStyle) -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzSvgNode_tesselateFill(_:  &AzSvgNode, _:  AzSvgFillStyle) -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzSvgNode_tesselateStroke(_:  &AzSvgNode, _:  AzSvgStrokeStyle) -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzSvgStyledNode_tesselate(_:  &AzSvgStyledNode) -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzSvgCircle_tesselateFill(_:  &AzSvgCircle, _:  AzSvgFillStyle) -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzSvgCircle_tesselateStroke(_:  &AzSvgCircle, _:  AzSvgStrokeStyle) -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzSvgPath_tesselateFill(_:  &AzSvgPath, _:  AzSvgFillStyle) -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzSvgPath_tesselateStroke(_:  &AzSvgPath, _:  AzSvgStrokeStyle) -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzSvgRect_tesselateFill(_:  &AzSvgRect, _:  AzSvgFillStyle) -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzSvgRect_tesselateStroke(_:  &AzSvgRect, _:  AzSvgStrokeStyle) -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzSvgParseOptions_default() -> AzSvgParseOptions;
+        pub(crate) fn AzSvgRenderOptions_default() -> AzSvgRenderOptions;
         pub(crate) fn AzTimerId_unique() -> AzTimerId;
         pub(crate) fn AzTimer_new(_:  AzRefAny, _:  AzTimerCallbackType, _:  AzGetSystemTimeFn) -> AzTimer;
         pub(crate) fn AzTimer_withDelay(_:  AzTimer, _:  AzDuration) -> AzTimer;
@@ -9019,7 +9049,6 @@ pub mod resources {
     //! Struct definition for image / font / text IDs
     use crate::dll::*;
     use core::ffi::c_void;
-    use crate::vec::U8Vec;
     /// `ImageMask` struct
     
 #[doc(inline)] pub use crate::dll::AzImageMask as ImageMask;
@@ -9060,11 +9089,6 @@ pub mod resources {
     /// `RawImage` struct
     
 #[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
-    impl RawImage {
-        /// Creates a new `RawImage` by loading the decoded bytes
-        pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { unsafe { crate::dll::AzRawImage_new(decoded_pixels, width, height, data_format) } }
-    }
-
 }
 
 pub mod svg {
@@ -9073,21 +9097,78 @@ pub mod svg {
     use crate::dll::*;
     use core::ffi::c_void;
     use crate::gl::U8VecRef;
+    /// `Svg` struct
+    
+#[doc(inline)] pub use crate::dll::AzSvg as Svg;
+    impl Svg {
+        /// Creates a new `Svg` instance.
+        pub fn parse_from(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgSvgParseError { unsafe { crate::dll::AzSvg_parseFrom(svg_bytes, parse_options) } }
+        /// Calls the `Svg::get_root` function.
+        pub fn get_root(&self)  -> crate::svg::SvgXmlNode { unsafe { crate::dll::AzSvg_getRoot(self) } }
+        /// Calls the `Svg::to_string` function.
+        pub fn to_string(&self, options: SvgStringFormatOptions)  -> crate::str::String { unsafe { crate::dll::AzSvg_toString(self, options) } }
+    }
+
+    impl Clone for Svg { fn clone(&self) -> Self { unsafe { crate::dll::AzSvg_deepCopy(self) } } }
+    impl Drop for Svg { fn drop(&mut self) { unsafe { crate::dll::AzSvg_delete(self) } } }
+    /// `SvgXmlNode` struct
+    
+#[doc(inline)] pub use crate::dll::AzSvgXmlNode as SvgXmlNode;
+    impl SvgXmlNode {
+        /// Creates a new `SvgXmlNode` instance.
+        pub fn parse_from(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgXmlNodeSvgParseError { unsafe { crate::dll::AzSvgXmlNode_parseFrom(svg_bytes, parse_options) } }
+    }
+
+    impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::AzSvgXmlNode_deepCopy(self) } } }
+    impl Drop for SvgXmlNode { fn drop(&mut self) { unsafe { crate::dll::AzSvgXmlNode_delete(self) } } }
     /// `SvgMultiPolygon` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgMultiPolygon as SvgMultiPolygon;
+    impl SvgMultiPolygon {
+        /// Calls the `SvgMultiPolygon::tesselate_fill` function.
+        pub fn tesselate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TesselatedCPUSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tesselateFill(self, fill_style) } }
+        /// Calls the `SvgMultiPolygon::tesselate_stroke` function.
+        pub fn tesselate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TesselatedCPUSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tesselateStroke(self, stroke_style) } }
+    }
+
     /// `SvgNode` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgNode as SvgNode;
+    impl SvgNode {
+        /// Calls the `SvgNode::tesselate_fill` function.
+        pub fn tesselate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TesselatedCPUSvgNode { unsafe { crate::dll::AzSvgNode_tesselateFill(self, fill_style) } }
+        /// Calls the `SvgNode::tesselate_stroke` function.
+        pub fn tesselate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TesselatedCPUSvgNode { unsafe { crate::dll::AzSvgNode_tesselateStroke(self, stroke_style) } }
+    }
+
     /// `SvgStyledNode` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgStyledNode as SvgStyledNode;
+    impl SvgStyledNode {
+        /// Calls the `SvgStyledNode::tesselate` function.
+        pub fn tesselate(&self)  -> crate::svg::TesselatedCPUSvgNode { unsafe { crate::dll::AzSvgStyledNode_tesselate(self) } }
+    }
+
     /// `SvgCircle` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgCircle as SvgCircle;
+    impl SvgCircle {
+        /// Calls the `SvgCircle::tesselate_fill` function.
+        pub fn tesselate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TesselatedCPUSvgNode { unsafe { crate::dll::AzSvgCircle_tesselateFill(self, fill_style) } }
+        /// Calls the `SvgCircle::tesselate_stroke` function.
+        pub fn tesselate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TesselatedCPUSvgNode { unsafe { crate::dll::AzSvgCircle_tesselateStroke(self, stroke_style) } }
+    }
+
     /// `SvgPath` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgPath as SvgPath;
+    impl SvgPath {
+        /// Calls the `SvgPath::tesselate_fill` function.
+        pub fn tesselate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TesselatedCPUSvgNode { unsafe { crate::dll::AzSvgPath_tesselateFill(self, fill_style) } }
+        /// Calls the `SvgPath::tesselate_stroke` function.
+        pub fn tesselate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TesselatedCPUSvgNode { unsafe { crate::dll::AzSvgPath_tesselateStroke(self, stroke_style) } }
+    }
+
     /// `SvgPathElement` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgPathElement as SvgPathElement;
@@ -9097,9 +9178,6 @@ pub mod svg {
     /// `SvgPoint` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgPoint as SvgPoint;
-    /// `SvgVertex` struct
-    
-#[doc(inline)] pub use crate::dll::AzSvgVertex as SvgVertex;
     /// `SvgQuadraticCurve` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgQuadraticCurve as SvgQuadraticCurve;
@@ -9109,12 +9187,19 @@ pub mod svg {
     /// `SvgRect` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgRect as SvgRect;
+    impl SvgRect {
+        /// Calls the `SvgRect::tesselate_fill` function.
+        pub fn tesselate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TesselatedCPUSvgNode { unsafe { crate::dll::AzSvgRect_tesselateFill(self, fill_style) } }
+        /// Calls the `SvgRect::tesselate_stroke` function.
+        pub fn tesselate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TesselatedCPUSvgNode { unsafe { crate::dll::AzSvgRect_tesselateStroke(self, stroke_style) } }
+    }
+
+    /// `SvgVertex` struct
+    
+#[doc(inline)] pub use crate::dll::AzSvgVertex as SvgVertex;
     /// `TesselatedCPUSvgNode` struct
     
 #[doc(inline)] pub use crate::dll::AzTesselatedCPUSvgNode as TesselatedCPUSvgNode;
-    /// `SvgLineCap` struct
-    
-#[doc(inline)] pub use crate::dll::AzSvgLineCap as SvgLineCap;
     /// `SvgParseOptions` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgParseOptions as SvgParseOptions;
@@ -9143,30 +9228,15 @@ pub mod svg {
         pub fn default() -> Self { unsafe { crate::dll::AzSvgRenderOptions_default() } }
     }
 
+    /// `SvgStringFormatOptions` struct
+    
+#[doc(inline)] pub use crate::dll::AzSvgStringFormatOptions as SvgStringFormatOptions;
+    /// `Indent` struct
+    
+#[doc(inline)] pub use crate::dll::AzIndent as Indent;
     /// `SvgFitTo` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgFitTo as SvgFitTo;
-    /// `Svg` struct
-    
-#[doc(inline)] pub use crate::dll::AzSvg as Svg;
-    impl Svg {
-        /// Creates a new `Svg` instance.
-        pub fn parse(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgSvgParseError { unsafe { crate::dll::AzSvg_parse(svg_bytes, parse_options) } }
-    }
-
-    impl Clone for Svg { fn clone(&self) -> Self { unsafe { crate::dll::AzSvg_deepCopy(self) } } }
-    impl Drop for Svg { fn drop(&mut self) { unsafe { crate::dll::AzSvg_delete(self) } } }
-    /// `SvgXmlNode` struct
-    
-#[doc(inline)] pub use crate::dll::AzSvgXmlNode as SvgXmlNode;
-    impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::AzSvgXmlNode_deepCopy(self) } } }
-    impl Drop for SvgXmlNode { fn drop(&mut self) { unsafe { crate::dll::AzSvgXmlNode_delete(self) } } }
-    /// `SvgLineJoin` struct
-    
-#[doc(inline)] pub use crate::dll::AzSvgLineJoin as SvgLineJoin;
-    /// `SvgDashPattern` struct
-    
-#[doc(inline)] pub use crate::dll::AzSvgDashPattern as SvgDashPattern;
     /// `SvgStyle` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgStyle as SvgStyle;
@@ -9176,6 +9246,15 @@ pub mod svg {
     /// `SvgStrokeStyle` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgStrokeStyle as SvgStrokeStyle;
+    /// `SvgLineJoin` struct
+    
+#[doc(inline)] pub use crate::dll::AzSvgLineJoin as SvgLineJoin;
+    /// `SvgLineCap` struct
+    
+#[doc(inline)] pub use crate::dll::AzSvgLineCap as SvgLineCap;
+    /// `SvgDashPattern` struct
+    
+#[doc(inline)] pub use crate::dll::AzSvgDashPattern as SvgDashPattern;
 }
 
 pub mod task {
@@ -10343,6 +10422,9 @@ pub mod error {
     //! Definition of error and `Result<T, E>`  types
     use crate::dll::*;
     use core::ffi::c_void;
+    /// `ResultSvgXmlNodeSvgParseError` struct
+    
+#[doc(inline)] pub use crate::dll::AzResultSvgXmlNodeSvgParseError as ResultSvgXmlNodeSvgParseError;
     /// `ResultSvgSvgParseError` struct
     
 #[doc(inline)] pub use crate::dll::AzResultSvgSvgParseError as ResultSvgSvgParseError;

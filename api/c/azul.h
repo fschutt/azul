@@ -1388,6 +1388,16 @@ struct AzFontId {
 };
 typedef struct AzFontId AzFontId;
 
+struct AzSvg {
+    void* restrict ptr;
+};
+typedef struct AzSvg AzSvg;
+
+struct AzSvgXmlNode {
+    void* restrict ptr;
+};
+typedef struct AzSvgXmlNode AzSvgXmlNode;
+
 struct AzSvgCircle {
     float center_x;
     float center_y;
@@ -1401,12 +1411,6 @@ struct AzSvgPoint {
 };
 typedef struct AzSvgPoint AzSvgPoint;
 
-struct AzSvgVertex {
-    float x;
-    float y;
-};
-typedef struct AzSvgVertex AzSvgVertex;
-
 struct AzSvgRect {
     float width;
     float height;
@@ -1419,12 +1423,11 @@ struct AzSvgRect {
 };
 typedef struct AzSvgRect AzSvgRect;
 
-enum AzSvgLineCap {
-   AzSvgLineCap_Butt,
-   AzSvgLineCap_Square,
-   AzSvgLineCap_Round,
+struct AzSvgVertex {
+    float x;
+    float y;
 };
-typedef enum AzSvgLineCap AzSvgLineCap;
+typedef struct AzSvgVertex AzSvgVertex;
 
 enum AzShapeRendering {
    AzShapeRendering_OptimizeSpeed,
@@ -1451,6 +1454,29 @@ enum AzFontDatabase {
    AzFontDatabase_System,
 };
 typedef enum AzFontDatabase AzFontDatabase;
+
+enum AzIndentTag {
+   AzIndentTag_None,
+   AzIndentTag_Spaces,
+   AzIndentTag_Tabs,
+};
+typedef enum AzIndentTag AzIndentTag;
+
+struct AzIndentVariant_None { AzIndentTag tag; };
+typedef struct AzIndentVariant_None AzIndentVariant_None;
+struct AzIndentVariant_Spaces { AzIndentTag tag; uint8_t payload; };
+typedef struct AzIndentVariant_Spaces AzIndentVariant_Spaces;
+struct AzIndentVariant_Tabs { AzIndentTag tag; };
+typedef struct AzIndentVariant_Tabs AzIndentVariant_Tabs;
+union AzIndent {
+    AzIndentVariant_None None;
+    AzIndentVariant_Spaces Spaces;
+    AzIndentVariant_Tabs Tabs;
+};
+typedef union AzIndent AzIndent;
+#define AzIndent_None { .None = { .tag = AzIndentTag_None } }
+#define AzIndent_Spaces(v) { .Spaces = { .tag = AzIndentTag_Spaces, .payload = v } }
+#define AzIndent_Tabs { .Tabs = { .tag = AzIndentTag_Tabs } }
 
 enum AzSvgFitToTag {
    AzSvgFitToTag_Original,
@@ -1480,16 +1506,6 @@ typedef union AzSvgFitTo AzSvgFitTo;
 #define AzSvgFitTo_Height(v) { .Height = { .tag = AzSvgFitToTag_Height, .payload = v } }
 #define AzSvgFitTo_Zoom(v) { .Zoom = { .tag = AzSvgFitToTag_Zoom, .payload = v } }
 
-struct AzSvg {
-    void* restrict ptr;
-};
-typedef struct AzSvg AzSvg;
-
-struct AzSvgXmlNode {
-    void* restrict ptr;
-};
-typedef struct AzSvgXmlNode AzSvgXmlNode;
-
 enum AzSvgLineJoin {
    AzSvgLineJoin_Miter,
    AzSvgLineJoin_MiterClip,
@@ -1497,6 +1513,13 @@ enum AzSvgLineJoin {
    AzSvgLineJoin_Bevel,
 };
 typedef enum AzSvgLineJoin AzSvgLineJoin;
+
+enum AzSvgLineCap {
+   AzSvgLineCap_Butt,
+   AzSvgLineCap_Square,
+   AzSvgLineCap_Round,
+};
+typedef enum AzSvgLineCap AzSvgLineCap;
 
 struct AzSvgDashPattern {
     size_t offset;
@@ -5445,6 +5468,13 @@ struct AzSvgCubicCurve {
 };
 typedef struct AzSvgCubicCurve AzSvgCubicCurve;
 
+struct AzSvgStringFormatOptions {
+    bool  use_single_quote;
+    AzIndent indent;
+    AzIndent attributes_indent;
+};
+typedef struct AzSvgStringFormatOptions AzSvgStringFormatOptions;
+
 struct AzSvgFillStyle {
     AzSvgLineJoin line_join;
     size_t miter_limit;
@@ -8650,6 +8680,24 @@ struct AzStylesheetVec {
 };
 typedef struct AzStylesheetVec AzStylesheetVec;
 
+enum AzResultSvgXmlNodeSvgParseErrorTag {
+   AzResultSvgXmlNodeSvgParseErrorTag_Ok,
+   AzResultSvgXmlNodeSvgParseErrorTag_Err,
+};
+typedef enum AzResultSvgXmlNodeSvgParseErrorTag AzResultSvgXmlNodeSvgParseErrorTag;
+
+struct AzResultSvgXmlNodeSvgParseErrorVariant_Ok { AzResultSvgXmlNodeSvgParseErrorTag tag; AzSvgXmlNode payload; };
+typedef struct AzResultSvgXmlNodeSvgParseErrorVariant_Ok AzResultSvgXmlNodeSvgParseErrorVariant_Ok;
+struct AzResultSvgXmlNodeSvgParseErrorVariant_Err { AzResultSvgXmlNodeSvgParseErrorTag tag; AzSvgParseError payload; };
+typedef struct AzResultSvgXmlNodeSvgParseErrorVariant_Err AzResultSvgXmlNodeSvgParseErrorVariant_Err;
+union AzResultSvgXmlNodeSvgParseError {
+    AzResultSvgXmlNodeSvgParseErrorVariant_Ok Ok;
+    AzResultSvgXmlNodeSvgParseErrorVariant_Err Err;
+};
+typedef union AzResultSvgXmlNodeSvgParseError AzResultSvgXmlNodeSvgParseError;
+#define AzResultSvgXmlNodeSvgParseError_Ok(v) { .Ok = { .tag = AzResultSvgXmlNodeSvgParseErrorTag_Ok, .payload = v } }
+#define AzResultSvgXmlNodeSvgParseError_Err(v) { .Err = { .tag = AzResultSvgXmlNodeSvgParseErrorTag_Err, .payload = v } }
+
 enum AzResultSvgSvgParseErrorTag {
    AzResultSvgSvgParseErrorTag_Ok,
    AzResultSvgSvgParseErrorTag_Err,
@@ -9162,14 +9210,27 @@ extern DLLIMPORT void AzGLsyncPtr_delete(AzGLsyncPtr* restrict instance);
 extern DLLIMPORT AzTextureFlags AzTextureFlags_default();
 extern DLLIMPORT AzImageId AzImageId_new();
 extern DLLIMPORT AzFontId AzFontId_new();
-extern DLLIMPORT AzRawImage AzRawImage_new(AzU8Vec  decoded_pixels, size_t width, size_t height, AzRawImageFormat  data_format);
-extern DLLIMPORT AzSvgParseOptions AzSvgParseOptions_default();
-extern DLLIMPORT AzSvgRenderOptions AzSvgRenderOptions_default();
-extern DLLIMPORT AzSvg AzSvg_parse(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
+extern DLLIMPORT AzSvg AzSvg_parseFrom(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
+extern DLLIMPORT AzSvgXmlNode AzSvg_getRoot(AzSvg* const svg);
+extern DLLIMPORT AzString AzSvg_toString(AzSvg* const svg, AzSvgStringFormatOptions  options);
 extern DLLIMPORT void AzSvg_delete(AzSvg* restrict instance);
 extern DLLIMPORT AzSvg AzSvg_deepCopy(AzSvg* const instance);
+extern DLLIMPORT AzSvgXmlNode AzSvgXmlNode_parseFrom(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
 extern DLLIMPORT void AzSvgXmlNode_delete(AzSvgXmlNode* restrict instance);
 extern DLLIMPORT AzSvgXmlNode AzSvgXmlNode_deepCopy(AzSvgXmlNode* const instance);
+extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgMultiPolygon_tesselateFill(AzSvgMultiPolygon* const svgmultipolygon, AzSvgFillStyle  fill_style);
+extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgMultiPolygon_tesselateStroke(AzSvgMultiPolygon* const svgmultipolygon, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgNode_tesselateFill(AzSvgNode* const svgnode, AzSvgFillStyle  fill_style);
+extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgNode_tesselateStroke(AzSvgNode* const svgnode, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgStyledNode_tesselate(AzSvgStyledNode* const svgstylednode);
+extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgCircle_tesselateFill(AzSvgCircle* const svgcircle, AzSvgFillStyle  fill_style);
+extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgCircle_tesselateStroke(AzSvgCircle* const svgcircle, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgPath_tesselateFill(AzSvgPath* const svgpath, AzSvgFillStyle  fill_style);
+extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgPath_tesselateStroke(AzSvgPath* const svgpath, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgRect_tesselateFill(AzSvgRect* const svgrect, AzSvgFillStyle  fill_style);
+extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgRect_tesselateStroke(AzSvgRect* const svgrect, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzSvgParseOptions AzSvgParseOptions_default();
+extern DLLIMPORT AzSvgRenderOptions AzSvgRenderOptions_default();
 extern DLLIMPORT AzTimerId AzTimerId_unique();
 extern DLLIMPORT AzTimer AzTimer_new(AzRefAny  timer_data, AzTimerCallbackType  callback, AzGetSystemTimeFn  get_system_time_fn);
 extern DLLIMPORT AzTimer AzTimer_withDelay(const AzTimer timer, AzDuration  delay);
