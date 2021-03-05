@@ -8894,6 +8894,13 @@ extern DLLIMPORT AzInlineTextHitVec AzInlineText_hitTest(AzInlineText* const inl
 extern DLLIMPORT AzHidpiAdjustedBounds AzIFrameCallbackInfo_getBounds(AzIFrameCallbackInfo* const iframecallbackinfo);
 extern DLLIMPORT AzOptionGl AzGlCallbackInfo_getGlContext(AzGlCallbackInfo* const glcallbackinfo);
 extern DLLIMPORT AzHidpiAdjustedBounds AzGlCallbackInfo_getBounds(AzGlCallbackInfo* const glcallbackinfo);
+extern DLLIMPORT AzDomNodeId AzGlCallbackInfo_getCallbackNodeId(AzGlCallbackInfo* const glcallbackinfo);
+extern DLLIMPORT AzOptionInlineText AzGlCallbackInfo_getInlineText(AzGlCallbackInfo* const glcallbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzGlCallbackInfo_getParent(AzGlCallbackInfo* restrict glcallbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzGlCallbackInfo_getPreviousSibling(AzGlCallbackInfo* restrict glcallbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzGlCallbackInfo_getNextSibling(AzGlCallbackInfo* restrict glcallbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzGlCallbackInfo_getFirstChild(AzGlCallbackInfo* restrict glcallbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzGlCallbackInfo_getLastChild(AzGlCallbackInfo* restrict glcallbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT bool  AzRefCount_canBeShared(AzRefCount* const refcount);
 extern DLLIMPORT bool  AzRefCount_canBeSharedMut(AzRefCount* const refcount);
 extern DLLIMPORT void AzRefCount_increaseRef(AzRefCount* restrict refcount);

@@ -4209,6 +4209,13 @@ mod dll {
         pub(crate) fn AzIFrameCallbackInfo_getBounds(_:  &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds;
         pub(crate) fn AzGlCallbackInfo_getGlContext(_:  &AzGlCallbackInfo) -> AzOptionGl;
         pub(crate) fn AzGlCallbackInfo_getBounds(_:  &AzGlCallbackInfo) -> AzHidpiAdjustedBounds;
+        pub(crate) fn AzGlCallbackInfo_getCallbackNodeId(_:  &AzGlCallbackInfo) -> AzDomNodeId;
+        pub(crate) fn AzGlCallbackInfo_getInlineText(_:  &AzGlCallbackInfo, _:  AzDomNodeId) -> AzOptionInlineText;
+        pub(crate) fn AzGlCallbackInfo_getParent(_:  &mut AzGlCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzGlCallbackInfo_getPreviousSibling(_:  &mut AzGlCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzGlCallbackInfo_getNextSibling(_:  &mut AzGlCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzGlCallbackInfo_getFirstChild(_:  &mut AzGlCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
+        pub(crate) fn AzGlCallbackInfo_getLastChild(_:  &mut AzGlCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
         pub(crate) fn AzRefCount_canBeShared(_:  &AzRefCount) -> bool;
         pub(crate) fn AzRefCount_canBeSharedMut(_:  &AzRefCount) -> bool;
         pub(crate) fn AzRefCount_increaseRef(_:  &mut AzRefCount);
@@ -5135,6 +5142,20 @@ pub mod callbacks {
         pub fn get_gl_context(&self)  -> crate::option::OptionGl { unsafe { crate::dll::AzGlCallbackInfo_getGlContext(self) } }
         /// Returns a copy of the internal `HidpiAdjustedBounds`
         pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { unsafe { crate::dll::AzGlCallbackInfo_getBounds(self) } }
+        /// Returns the `DomNodeId` that this callback was called on
+        pub fn get_callback_node_id(&self)  -> crate::callbacks::DomNodeId { unsafe { crate::dll::AzGlCallbackInfo_getCallbackNodeId(self) } }
+        /// If the node is a `Text` node, returns the layouted inline glyphs
+        pub fn get_inline_text(&self, node_id: DomNodeId)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzGlCallbackInfo_getInlineText(self, node_id) } }
+        /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_parent(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzGlCallbackInfo_getParent(self, node_id) } }
+        /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_previous_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzGlCallbackInfo_getPreviousSibling(self, node_id) } }
+        /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_next_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzGlCallbackInfo_getNextSibling(self, node_id) } }
+        /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_first_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzGlCallbackInfo_getFirstChild(self, node_id) } }
+        /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_last_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzGlCallbackInfo_getLastChild(self, node_id) } }
     }
 
     /// `GlCallbackReturn` struct

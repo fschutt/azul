@@ -1473,6 +1473,68 @@
 							],
 							"returns": {"type": "HidpiAdjustedBounds"},
 							"fn_body": "glcallbackinfo.get_bounds()"
+						},
+						"get_callback_node_id": {
+							"doc": "Returns the `DomNodeId` that this callback was called on",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "DomNodeId"},
+							"fn_body": "glcallbackinfo.get_callback_node_id()"
+						},
+						"get_inline_text": {
+							"doc": "If the node is a `Text` node, returns the layouted inline glyphs",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": {"type": "OptionInlineText"},
+							"fn_body": "glcallbackinfo.get_inline_text(node_id).into()"
+						},
+						"get_parent": {
+							"doc": "Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": {"type": "OptionDomNodeId"},
+							"fn_body": "glcallbackinfo.get_parent(node_id).into()"
+						},
+						"get_previous_sibling": {
+							"doc": "Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": {"type": "OptionDomNodeId"},
+							"fn_body": "glcallbackinfo.get_previous_sibling(node_id).into()"
+						},
+						"get_next_sibling": {
+							"doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": {"type": "OptionDomNodeId"},
+							"fn_body": "glcallbackinfo.get_next_sibling(node_id).into()"
+						},
+						"get_first_child": {
+							"doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": {"type": "OptionDomNodeId"},
+							"fn_body": "glcallbackinfo.get_first_child(node_id).into()"
+						},
+						"get_last_child": {
+							"doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": {"type": "OptionDomNodeId"},
+							"fn_body": "glcallbackinfo.get_last_child(node_id).into()"
 						}
 					}
 				},

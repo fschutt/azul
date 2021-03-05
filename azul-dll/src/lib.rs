@@ -421,6 +421,20 @@ pub use AzGlCallbackInfoTT as AzGlCallbackInfo;
 #[no_mangle] pub extern "C" fn AzGlCallbackInfo_getGlContext(glcallbackinfo: &AzGlCallbackInfo) -> AzOptionGl { glcallbackinfo.get_gl_context().into() }
 /// Returns a copy of the internal `HidpiAdjustedBounds`
 #[no_mangle] pub extern "C" fn AzGlCallbackInfo_getBounds(glcallbackinfo: &AzGlCallbackInfo) -> AzHidpiAdjustedBounds { glcallbackinfo.get_bounds() }
+/// Returns the `DomNodeId` that this callback was called on
+#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getCallbackNodeId(glcallbackinfo: &AzGlCallbackInfo) -> AzDomNodeId { glcallbackinfo.get_callback_node_id() }
+/// If the node is a `Text` node, returns the layouted inline glyphs
+#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getInlineText(glcallbackinfo: &AzGlCallbackInfo, node_id: AzDomNodeId) -> AzOptionInlineText { glcallbackinfo.get_inline_text(node_id).into() }
+/// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getParent(glcallbackinfo: &mut AzGlCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { glcallbackinfo.get_parent(node_id).into() }
+/// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getPreviousSibling(glcallbackinfo: &mut AzGlCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { glcallbackinfo.get_previous_sibling(node_id).into() }
+/// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getNextSibling(glcallbackinfo: &mut AzGlCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { glcallbackinfo.get_next_sibling(node_id).into() }
+/// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getFirstChild(glcallbackinfo: &mut AzGlCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { glcallbackinfo.get_first_child(node_id).into() }
+/// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getLastChild(glcallbackinfo: &mut AzGlCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { glcallbackinfo.get_last_child(node_id).into() }
 
 /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
 pub type AzGlCallbackReturnTT = azul_impl::callbacks::GlCallbackReturn;
