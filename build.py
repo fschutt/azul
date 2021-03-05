@@ -1494,7 +1494,7 @@ def replace_primitive_ctype(input):
     # C: #include <stdint.h>
     # C++: #include <cstdlib>
     switcher = {
-        "*const": "* const ",
+        "*const": "* ", # TODO: figure out proper c semantics - the VALUE is const, not the POINTER!
         "*mut": "* restrict ",
         "i8": "int8_t",
         "u8": "uint8_t",

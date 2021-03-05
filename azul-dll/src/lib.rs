@@ -466,7 +466,7 @@ pub use AzSystemCallbacksTT as AzSystemCallbacks;
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
 pub use AzDomTT as AzDom;
-/// Returns the number of nodes in the DOM
+/// Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)
 #[no_mangle] pub extern "C" fn AzDom_nodeCount(dom: &AzDom) -> usize { dom.node_count() }
 
 /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
@@ -6774,7 +6774,7 @@ mod test_sizes {
     #[repr(C)]     pub struct AzDom {
         pub root: AzNodeData,
         pub children: AzDomVec,
-        pub estimated_total_children: usize,
+        pub total_children: usize,
     }
     /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
     #[repr(C)]     pub struct AzCssRuleBlock {

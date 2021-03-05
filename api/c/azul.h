@@ -280,7 +280,7 @@ typedef void (*AzInstantPtrDestructorFnType)(void* restrict A);
 
 
 struct AzApp {
-    void* const ptr;
+    void* ptr;
 };
 typedef struct AzApp AzApp;
 
@@ -1274,7 +1274,7 @@ enum AzGlType {
 typedef enum AzGlType AzGlType;
 
 struct AzU8VecRef {
-    uint8_t* const ptr;
+    uint8_t* ptr;
     size_t len;
 };
 typedef struct AzU8VecRef AzU8VecRef;
@@ -1286,25 +1286,25 @@ struct AzU8VecRefMut {
 typedef struct AzU8VecRefMut AzU8VecRefMut;
 
 struct AzF32VecRef {
-    float* const ptr;
+    float* ptr;
     size_t len;
 };
 typedef struct AzF32VecRef AzF32VecRef;
 
 struct AzI32VecRef {
-    int32_t* const ptr;
+    int32_t* ptr;
     size_t len;
 };
 typedef struct AzI32VecRef AzI32VecRef;
 
 struct AzGLuintVecRef {
-    uint32_t* const ptr;
+    uint32_t* ptr;
     size_t len;
 };
 typedef struct AzGLuintVecRef AzGLuintVecRef;
 
 struct AzGLenumVecRef {
-    uint32_t* const ptr;
+    uint32_t* ptr;
     size_t len;
 };
 typedef struct AzGLenumVecRef AzGLenumVecRef;
@@ -1334,13 +1334,13 @@ struct AzGLfloatVecRefMut {
 typedef struct AzGLfloatVecRefMut AzGLfloatVecRefMut;
 
 struct AzRefstr {
-    uint8_t* const ptr;
+    uint8_t* ptr;
     size_t len;
 };
 typedef struct AzRefstr AzRefstr;
 
 struct AzGLsyncPtr {
-    void* const ptr;
+    void* ptr;
 };
 typedef struct AzGLsyncPtr AzGLsyncPtr;
 
@@ -2511,7 +2511,7 @@ typedef enum AzOptionX11VisualTag AzOptionX11VisualTag;
 
 struct AzOptionX11VisualVariant_None { AzOptionX11VisualTag tag; };
 typedef struct AzOptionX11VisualVariant_None AzOptionX11VisualVariant_None;
-struct AzOptionX11VisualVariant_Some { AzOptionX11VisualTag tag; void* const payload; };
+struct AzOptionX11VisualVariant_Some { AzOptionX11VisualTag tag; void* payload; };
 typedef struct AzOptionX11VisualVariant_Some AzOptionX11VisualVariant_Some;
 union AzOptionX11Visual {
     AzOptionX11VisualVariant_None None;
@@ -2804,7 +2804,7 @@ struct AzHidpiAdjustedBounds {
 typedef struct AzHidpiAdjustedBounds AzHidpiAdjustedBounds;
 
 struct AzIFrameCallbackInfo {
-    void* const resources;
+    void* resources;
     AzHidpiAdjustedBounds bounds;
     AzLogicalSize scroll_size;
     AzLogicalPosition scroll_offset;
@@ -5262,7 +5262,7 @@ struct AzParentWithNodeDepth {
 typedef struct AzParentWithNodeDepth AzParentWithNodeDepth;
 
 struct AzGl {
-    void* const ptr;
+    void* ptr;
     AzRendererType renderer_type;
 };
 typedef struct AzGl AzGl;
@@ -5277,7 +5277,7 @@ struct AzTexture {
 typedef struct AzTexture AzTexture;
 
 struct AzRefstrVecRef {
-    AzRefstr* const ptr;
+    AzRefstr* ptr;
     size_t len;
 };
 typedef struct AzRefstrVecRef AzRefstrVecRef;
@@ -5332,7 +5332,7 @@ struct AzThreadReceiver {
 typedef struct AzThreadReceiver AzThreadReceiver;
 
 struct AzVideoModeVec {
-    AzVideoMode* const ptr;
+    AzVideoMode* ptr;
     size_t len;
     size_t cap;
     AzVideoModeVecDestructor destructor;
@@ -5342,7 +5342,7 @@ typedef struct AzVideoModeVec AzVideoModeVec;
 struct AzDom;
 typedef struct AzDom AzDom;
 struct AzDomVec {
-    AzDom* const ptr;
+    AzDom* ptr;
     size_t len;
     size_t cap;
     AzDomVecDestructor destructor;
@@ -5350,7 +5350,7 @@ struct AzDomVec {
 typedef struct AzDomVec AzDomVec;
 
 struct AzStyleBackgroundPositionVec {
-    AzStyleBackgroundPosition* const ptr;
+    AzStyleBackgroundPosition* ptr;
     size_t len;
     size_t cap;
     AzStyleBackgroundPositionVecDestructor destructor;
@@ -5358,7 +5358,7 @@ struct AzStyleBackgroundPositionVec {
 typedef struct AzStyleBackgroundPositionVec AzStyleBackgroundPositionVec;
 
 struct AzStyleBackgroundRepeatVec {
-    AzStyleBackgroundRepeat* const ptr;
+    AzStyleBackgroundRepeat* ptr;
     size_t len;
     size_t cap;
     AzStyleBackgroundRepeatVecDestructor destructor;
@@ -5366,7 +5366,7 @@ struct AzStyleBackgroundRepeatVec {
 typedef struct AzStyleBackgroundRepeatVec AzStyleBackgroundRepeatVec;
 
 struct AzStyleBackgroundSizeVec {
-    AzStyleBackgroundSize* const ptr;
+    AzStyleBackgroundSize* ptr;
     size_t len;
     size_t cap;
     AzStyleBackgroundSizeVecDestructor destructor;
@@ -5374,7 +5374,7 @@ struct AzStyleBackgroundSizeVec {
 typedef struct AzStyleBackgroundSizeVec AzStyleBackgroundSizeVec;
 
 struct AzSvgVertexVec {
-    AzSvgVertex* const ptr;
+    AzSvgVertex* ptr;
     size_t len;
     size_t cap;
     AzSvgVertexVecDestructor destructor;
@@ -5382,7 +5382,7 @@ struct AzSvgVertexVec {
 typedef struct AzSvgVertexVec AzSvgVertexVec;
 
 struct AzU32Vec {
-    uint32_t* const ptr;
+    uint32_t* ptr;
     size_t len;
     size_t cap;
     AzU32VecDestructor destructor;
@@ -5390,7 +5390,7 @@ struct AzU32Vec {
 typedef struct AzU32Vec AzU32Vec;
 
 struct AzXWindowTypeVec {
-    AzXWindowType* const ptr;
+    AzXWindowType* ptr;
     size_t len;
     size_t cap;
     AzXWindowTypeVecDestructor destructor;
@@ -5398,7 +5398,7 @@ struct AzXWindowTypeVec {
 typedef struct AzXWindowTypeVec AzXWindowTypeVec;
 
 struct AzVirtualKeyCodeVec {
-    AzVirtualKeyCode* const ptr;
+    AzVirtualKeyCode* ptr;
     size_t len;
     size_t cap;
     AzVirtualKeyCodeVecDestructor destructor;
@@ -5406,7 +5406,7 @@ struct AzVirtualKeyCodeVec {
 typedef struct AzVirtualKeyCodeVec AzVirtualKeyCodeVec;
 
 struct AzCascadeInfoVec {
-    AzCascadeInfo* const ptr;
+    AzCascadeInfo* ptr;
     size_t len;
     size_t cap;
     AzCascadeInfoVecDestructor destructor;
@@ -5414,7 +5414,7 @@ struct AzCascadeInfoVec {
 typedef struct AzCascadeInfoVec AzCascadeInfoVec;
 
 struct AzScanCodeVec {
-    uint32_t* const ptr;
+    uint32_t* ptr;
     size_t len;
     size_t cap;
     AzScanCodeVecDestructor destructor;
@@ -5422,7 +5422,7 @@ struct AzScanCodeVec {
 typedef struct AzScanCodeVec AzScanCodeVec;
 
 struct AzU8Vec {
-    uint8_t* const ptr;
+    uint8_t* ptr;
     size_t len;
     size_t cap;
     AzU8VecDestructor destructor;
@@ -5430,7 +5430,7 @@ struct AzU8Vec {
 typedef struct AzU8Vec AzU8Vec;
 
 struct AzGLuintVec {
-    uint32_t* const ptr;
+    uint32_t* ptr;
     size_t len;
     size_t cap;
     AzGLuintVecDestructor destructor;
@@ -5438,7 +5438,7 @@ struct AzGLuintVec {
 typedef struct AzGLuintVec AzGLuintVec;
 
 struct AzGLintVec {
-    int32_t* const ptr;
+    int32_t* ptr;
     size_t len;
     size_t cap;
     AzGLintVecDestructor destructor;
@@ -5446,7 +5446,7 @@ struct AzGLintVec {
 typedef struct AzGLintVec AzGLintVec;
 
 struct AzNodeIdVec {
-    AzNodeId* const ptr;
+    AzNodeId* ptr;
     size_t len;
     size_t cap;
     AzNodeIdVecDestructor destructor;
@@ -5454,7 +5454,7 @@ struct AzNodeIdVec {
 typedef struct AzNodeIdVec AzNodeIdVec;
 
 struct AzNodeVec {
-    AzNode* const ptr;
+    AzNode* ptr;
     size_t len;
     size_t cap;
     AzNodeVecDestructor destructor;
@@ -5462,7 +5462,7 @@ struct AzNodeVec {
 typedef struct AzNodeVec AzNodeVec;
 
 struct AzParentWithNodeDepthVec {
-    AzParentWithNodeDepth* const ptr;
+    AzParentWithNodeDepth* ptr;
     size_t len;
     size_t cap;
     AzParentWithNodeDepthVecDestructor destructor;
@@ -5916,7 +5916,7 @@ struct AzInvalidSpaceError {
 typedef struct AzInvalidSpaceError AzInvalidSpaceError;
 
 struct AzInstantPtr {
-    void* const ptr;
+    void* ptr;
     AzInstantPtrCloneFn clone_fn;
     AzInstantPtrDestructorFn destructor;
 };
@@ -6021,13 +6021,13 @@ typedef struct AzMouseState AzMouseState;
 struct AzGlCallbackInfo {
     AzDomNodeId callback_node_id;
     AzHidpiAdjustedBounds bounds;
-    AzOptionGl* const gl_context;
-    void* const resources;
-    AzNodeVec* const node_hierarchy;
-    void* const words_cache;
-    void* const shaped_words_cache;
-    void* const positioned_words_cache;
-    void* const positioned_rects;
+    AzOptionGl* gl_context;
+    void* resources;
+    AzNodeVec* node_hierarchy;
+    void* words_cache;
+    void* shaped_words_cache;
+    void* positioned_words_cache;
+    void* positioned_rects;
 };
 typedef struct AzGlCallbackInfo AzGlCallbackInfo;
 
@@ -6037,10 +6037,10 @@ struct AzGlCallbackReturn {
 typedef struct AzGlCallbackReturn AzGlCallbackReturn;
 
 struct AzLayoutInfo {
-    AzWindowSize* const window_size;
+    AzWindowSize* window_size;
     void* restrict window_size_width_stops;
     void* restrict window_size_height_stops;
-    void* const resources;
+    void* resources;
 };
 typedef struct AzLayoutInfo AzLayoutInfo;
 
@@ -6424,7 +6424,7 @@ struct AzString {
 typedef struct AzString AzString;
 
 struct AzStyleTransformVec {
-    AzStyleTransform* const ptr;
+    AzStyleTransform* ptr;
     size_t len;
     size_t cap;
     AzStyleTransformVecDestructor destructor;
@@ -6432,7 +6432,7 @@ struct AzStyleTransformVec {
 typedef struct AzStyleTransformVec AzStyleTransformVec;
 
 struct AzSvgPathElementVec {
-    AzSvgPathElement* const ptr;
+    AzSvgPathElement* ptr;
     size_t len;
     size_t cap;
     AzSvgPathElementVecDestructor destructor;
@@ -6440,7 +6440,7 @@ struct AzSvgPathElementVec {
 typedef struct AzSvgPathElementVec AzSvgPathElementVec;
 
 struct AzStringVec {
-    AzString* const ptr;
+    AzString* ptr;
     size_t len;
     size_t cap;
     AzStringVecDestructor destructor;
@@ -6448,7 +6448,7 @@ struct AzStringVec {
 typedef struct AzStringVec AzStringVec;
 
 struct AzLinearColorStopVec {
-    AzLinearColorStop* const ptr;
+    AzLinearColorStop* ptr;
     size_t len;
     size_t cap;
     AzLinearColorStopVecDestructor destructor;
@@ -6456,7 +6456,7 @@ struct AzLinearColorStopVec {
 typedef struct AzLinearColorStopVec AzLinearColorStopVec;
 
 struct AzRadialColorStopVec {
-    AzRadialColorStop* const ptr;
+    AzRadialColorStop* ptr;
     size_t len;
     size_t cap;
     AzRadialColorStopVecDestructor destructor;
@@ -6464,7 +6464,7 @@ struct AzRadialColorStopVec {
 typedef struct AzRadialColorStopVec AzRadialColorStopVec;
 
 struct AzStyledNodeVec {
-    AzStyledNode* const ptr;
+    AzStyledNode* ptr;
     size_t len;
     size_t cap;
     AzStyledNodeVecDestructor destructor;
@@ -6472,7 +6472,7 @@ struct AzStyledNodeVec {
 typedef struct AzStyledNodeVec AzStyledNodeVec;
 
 struct AzTagIdsToNodeIdsMappingVec {
-    AzTagIdToNodeIdMapping* const ptr;
+    AzTagIdToNodeIdMapping* ptr;
     size_t len;
     size_t cap;
     AzTagIdsToNodeIdsMappingVecDestructor destructor;
@@ -6712,12 +6712,12 @@ struct AzRefCountInner {
 typedef struct AzRefCountInner AzRefCountInner;
 
 struct AzRefCount {
-    AzRefCountInner* const ptr;
+    AzRefCountInner* ptr;
 };
 typedef struct AzRefCount AzRefCount;
 
 struct AzRefAny {
-    void* const _internal_ptr;
+    void* _internal_ptr;
     bool  is_dead;
     AzRefCount sharing_info;
 };
@@ -7161,7 +7161,7 @@ struct AzThreadWriteBackMsg {
 typedef struct AzThreadWriteBackMsg AzThreadWriteBackMsg;
 
 struct AzMonitorVec {
-    AzMonitor* const ptr;
+    AzMonitor* ptr;
     size_t len;
     size_t cap;
     AzMonitorVecDestructor destructor;
@@ -7169,7 +7169,7 @@ struct AzMonitorVec {
 typedef struct AzMonitorVec AzMonitorVec;
 
 struct AzIdOrClassVec {
-    AzIdOrClass* const ptr;
+    AzIdOrClass* ptr;
     size_t len;
     size_t cap;
     AzIdOrClassVecDestructor destructor;
@@ -7177,7 +7177,7 @@ struct AzIdOrClassVec {
 typedef struct AzIdOrClassVec AzIdOrClassVec;
 
 struct AzStyleBackgroundContentVec {
-    AzStyleBackgroundContent* const ptr;
+    AzStyleBackgroundContent* ptr;
     size_t len;
     size_t cap;
     AzStyleBackgroundContentVecDestructor destructor;
@@ -7185,7 +7185,7 @@ struct AzStyleBackgroundContentVec {
 typedef struct AzStyleBackgroundContentVec AzStyleBackgroundContentVec;
 
 struct AzSvgPathVec {
-    AzSvgPath* const ptr;
+    AzSvgPath* ptr;
     size_t len;
     size_t cap;
     AzSvgPathVecDestructor destructor;
@@ -7193,7 +7193,7 @@ struct AzSvgPathVec {
 typedef struct AzSvgPathVec AzSvgPathVec;
 
 struct AzVertexAttributeVec {
-    AzVertexAttribute* const ptr;
+    AzVertexAttribute* ptr;
     size_t len;
     size_t cap;
     AzVertexAttributeVecDestructor destructor;
@@ -7201,7 +7201,7 @@ struct AzVertexAttributeVec {
 typedef struct AzVertexAttributeVec AzVertexAttributeVec;
 
 struct AzCssPathSelectorVec {
-    AzCssPathSelector* const ptr;
+    AzCssPathSelector* ptr;
     size_t len;
     size_t cap;
     AzCssPathSelectorVecDestructor destructor;
@@ -7209,7 +7209,7 @@ struct AzCssPathSelectorVec {
 typedef struct AzCssPathSelectorVec AzCssPathSelectorVec;
 
 struct AzCallbackDataVec {
-    AzCallbackData* const ptr;
+    AzCallbackData* ptr;
     size_t len;
     size_t cap;
     AzCallbackDataVecDestructor destructor;
@@ -7217,7 +7217,7 @@ struct AzCallbackDataVec {
 typedef struct AzCallbackDataVec AzCallbackDataVec;
 
 struct AzDebugMessageVec {
-    AzDebugMessage* const ptr;
+    AzDebugMessage* ptr;
     size_t len;
     size_t cap;
     AzDebugMessageVecDestructor destructor;
@@ -7225,7 +7225,7 @@ struct AzDebugMessageVec {
 typedef struct AzDebugMessageVec AzDebugMessageVec;
 
 struct AzStringPairVec {
-    AzStringPair* const ptr;
+    AzStringPair* ptr;
     size_t len;
     size_t cap;
     AzStringPairVecDestructor destructor;
@@ -7870,7 +7870,7 @@ typedef union AzThreadReceiveMsg AzThreadReceiveMsg;
 #define AzThreadReceiveMsg_Update(v) { .Update = { .tag = AzThreadReceiveMsgTag_Update, .payload = v } }
 
 struct AzCssPropertyVec {
-    AzCssProperty* const ptr;
+    AzCssProperty* ptr;
     size_t len;
     size_t cap;
     AzCssPropertyVecDestructor destructor;
@@ -7878,7 +7878,7 @@ struct AzCssPropertyVec {
 typedef struct AzCssPropertyVec AzCssPropertyVec;
 
 struct AzSvgMultiPolygonVec {
-    AzSvgMultiPolygon* const ptr;
+    AzSvgMultiPolygon* ptr;
     size_t len;
     size_t cap;
     AzSvgMultiPolygonVecDestructor destructor;
@@ -7938,28 +7938,28 @@ struct AzWindowState {
 typedef struct AzWindowState AzWindowState;
 
 struct AzCallbackInfo {
-    void* const current_window_state;
+    void* current_window_state;
     AzWindowState* restrict modifiable_window_state;
-    AzOptionGl* const gl_context;
+    AzOptionGl* gl_context;
     void* restrict resources;
     void* restrict timers;
     void* restrict threads;
     void* restrict new_windows;
-    AzRawWindowHandle* const current_window_handle;
-    void* const node_hierarchy;
-    AzSystemCallbacks* const system_callbacks;
+    AzRawWindowHandle* current_window_handle;
+    void* node_hierarchy;
+    AzSystemCallbacks* system_callbacks;
     void* restrict datasets;
     bool * restrict stop_propagation;
     void* restrict focus_target;
-    void* const words_cache;
-    void* const shaped_words_cache;
-    void* const positioned_words_cache;
-    void* const positioned_rects;
+    void* words_cache;
+    void* shaped_words_cache;
+    void* positioned_words_cache;
+    void* positioned_rects;
     void* restrict words_changed_in_callbacks;
     void* restrict images_changed_in_callbacks;
     void* restrict image_masks_changed_in_callbacks;
     void* restrict css_properties_changed_in_callbacks;
-    void* const current_scroll_states;
+    void* current_scroll_states;
     void* restrict nodes_scrolled_in_callback;
     AzDomNodeId hit_dom_node;
     AzOptionLayoutPoint cursor_relative_to_item;
@@ -8055,7 +8055,7 @@ struct AzSvgStyledNode {
 typedef struct AzSvgStyledNode AzSvgStyledNode;
 
 struct AzNodeDataInlineCssPropertyVec {
-    AzNodeDataInlineCssProperty* const ptr;
+    AzNodeDataInlineCssProperty* ptr;
     size_t len;
     size_t cap;
     AzNodeDataInlineCssPropertyVecDestructor destructor;
@@ -8201,7 +8201,7 @@ typedef union AzCssDeclaration AzCssDeclaration;
 #define AzCssDeclaration_Dynamic(v) { .Dynamic = { .tag = AzCssDeclarationTag_Dynamic, .payload = v } }
 
 struct AzCssDeclarationVec {
-    AzCssDeclaration* const ptr;
+    AzCssDeclaration* ptr;
     size_t len;
     size_t cap;
     AzCssDeclarationVecDestructor destructor;
@@ -8209,7 +8209,7 @@ struct AzCssDeclarationVec {
 typedef struct AzCssDeclarationVec AzCssDeclarationVec;
 
 struct AzNodeDataVec {
-    AzNodeData* const ptr;
+    AzNodeData* ptr;
     size_t len;
     size_t cap;
     AzNodeDataVecDestructor destructor;
@@ -8307,7 +8307,7 @@ typedef union AzXmlError AzXmlError;
 struct AzDom {
     AzNodeData root;
     AzDomVec children;
-    size_t estimated_total_children;
+    size_t total_children;
 };
 typedef struct AzDom AzDom;
 
@@ -8330,7 +8330,7 @@ struct AzStyledDom {
 typedef struct AzStyledDom AzStyledDom;
 
 struct AzCssRuleBlockVec {
-    AzCssRuleBlock* const ptr;
+    AzCssRuleBlock* ptr;
     size_t len;
     size_t cap;
     AzCssRuleBlockVecDestructor destructor;
@@ -8408,7 +8408,7 @@ struct AzStylesheet {
 typedef struct AzStylesheet AzStylesheet;
 
 struct AzStylesheetVec {
-    AzStylesheet* const ptr;
+    AzStylesheet* ptr;
     size_t len;
     size_t cap;
     AzStylesheetVecDestructor destructor;
@@ -8643,7 +8643,7 @@ extern DLLIMPORT void AzRefCount_increaseRefmut(AzRefCount* restrict refcount);
 extern DLLIMPORT void AzRefCount_decreaseRefmut(AzRefCount* restrict refcount);
 extern DLLIMPORT void AzRefCount_delete(AzRefCount* restrict instance);
 extern DLLIMPORT AzRefCount AzRefCount_deepCopy(AzRefCount* const instance);
-extern DLLIMPORT AzRefAny AzRefAny_newC(void* const ptr, size_t len, uint64_t type_id, AzString  type_name, AzRefAnyDestructorType  destructor);
+extern DLLIMPORT AzRefAny AzRefAny_newC(void* ptr, size_t len, uint64_t type_id, AzString  type_name, AzRefAnyDestructorType  destructor);
 extern DLLIMPORT bool  AzRefAny_isType(AzRefAny* const refany, uint64_t type_id);
 extern DLLIMPORT AzString AzRefAny_getTypeName(AzRefAny* const refany);
 extern DLLIMPORT AzRefAny AzRefAny_clone(AzRefAny* restrict refany);
@@ -8664,8 +8664,8 @@ extern DLLIMPORT AzStyledDom AzStyledDom_new(AzDom  dom, AzCss  css);
 extern DLLIMPORT void AzStyledDom_append(AzStyledDom* restrict styleddom, AzStyledDom  dom);
 extern DLLIMPORT size_t AzStyledDom_nodeCount(AzStyledDom* const styleddom);
 extern DLLIMPORT AzGlType AzGl_getType(AzGl* const gl);
-extern DLLIMPORT void AzGl_bufferDataUntyped(AzGl* const gl, uint32_t target, ssize_t size, void* const data, uint32_t usage);
-extern DLLIMPORT void AzGl_bufferSubDataUntyped(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t size, void* const data);
+extern DLLIMPORT void AzGl_bufferDataUntyped(AzGl* const gl, uint32_t target, ssize_t size, void* data, uint32_t usage);
+extern DLLIMPORT void AzGl_bufferSubDataUntyped(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t size, void* data);
 extern DLLIMPORT void AzGl_mapBuffer(AzGl* const gl, uint32_t target, uint32_t access);
 extern DLLIMPORT void AzGl_mapBufferRange(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t length, uint32_t access);
 extern DLLIMPORT uint8_t AzGl_unmapBuffer(AzGl* const gl, uint32_t target);
@@ -8849,7 +8849,7 @@ extern DLLIMPORT void AzGl_stencilFunc(AzGl* const gl, uint32_t func, int32_t re
 extern DLLIMPORT void AzGl_stencilFuncSeparate(AzGl* const gl, uint32_t face, uint32_t func, int32_t ref_, uint32_t mask);
 extern DLLIMPORT void AzGl_stencilOp(AzGl* const gl, uint32_t sfail, uint32_t dpfail, uint32_t dppass);
 extern DLLIMPORT void AzGl_stencilOpSeparate(AzGl* const gl, uint32_t face, uint32_t sfail, uint32_t dpfail, uint32_t dppass);
-extern DLLIMPORT void AzGl_eglImageTargetTexture2DOes(AzGl* const gl, uint32_t target, void* const image);
+extern DLLIMPORT void AzGl_eglImageTargetTexture2DOes(AzGl* const gl, uint32_t target, void* image);
 extern DLLIMPORT void AzGl_generateMipmap(AzGl* const gl, uint32_t target);
 extern DLLIMPORT void AzGl_insertEventMarkerExt(AzGl* const gl, AzRefstr  message);
 extern DLLIMPORT void AzGl_pushGroupMarkerExt(AzGl* const gl, AzRefstr  message);
@@ -8879,10 +8879,10 @@ extern DLLIMPORT void AzGl_bindVertexArrayApple(AzGl* const gl, uint32_t vao);
 extern DLLIMPORT void AzGl_deleteVertexArraysApple(AzGl* const gl, AzGLuintVecRef  vertex_arrays);
 extern DLLIMPORT void AzGl_copyTextureChromium(AzGl* const gl, uint32_t source_id, int32_t source_level, uint32_t dest_target, uint32_t dest_id, int32_t dest_level, int32_t internal_format, uint32_t dest_type, uint8_t unpack_flip_y, uint8_t unpack_premultiply_alpha, uint8_t unpack_unmultiply_alpha);
 extern DLLIMPORT void AzGl_copySubTextureChromium(AzGl* const gl, uint32_t source_id, int32_t source_level, uint32_t dest_target, uint32_t dest_id, int32_t dest_level, int32_t x_offset, int32_t y_offset, int32_t x, int32_t y, int32_t width, int32_t height, uint8_t unpack_flip_y, uint8_t unpack_premultiply_alpha, uint8_t unpack_unmultiply_alpha);
-extern DLLIMPORT void AzGl_eglImageTargetRenderbufferStorageOes(AzGl* const gl, uint32_t target, void* const image);
+extern DLLIMPORT void AzGl_eglImageTargetRenderbufferStorageOes(AzGl* const gl, uint32_t target, void* image);
 extern DLLIMPORT void AzGl_copyTexture3DAngle(AzGl* const gl, uint32_t source_id, int32_t source_level, uint32_t dest_target, uint32_t dest_id, int32_t dest_level, int32_t internal_format, uint32_t dest_type, uint8_t unpack_flip_y, uint8_t unpack_premultiply_alpha, uint8_t unpack_unmultiply_alpha);
 extern DLLIMPORT void AzGl_copySubTexture3DAngle(AzGl* const gl, uint32_t source_id, int32_t source_level, uint32_t dest_target, uint32_t dest_id, int32_t dest_level, int32_t x_offset, int32_t y_offset, int32_t z_offset, int32_t x, int32_t y, int32_t z, int32_t width, int32_t height, int32_t depth, uint8_t unpack_flip_y, uint8_t unpack_premultiply_alpha, uint8_t unpack_unmultiply_alpha);
-extern DLLIMPORT void AzGl_bufferStorage(AzGl* const gl, uint32_t target, ssize_t size, void* const data, uint32_t flags);
+extern DLLIMPORT void AzGl_bufferStorage(AzGl* const gl, uint32_t target, ssize_t size, void* data, uint32_t flags);
 extern DLLIMPORT void AzGl_flushMappedBufferRange(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t length);
 extern DLLIMPORT void AzGl_delete(AzGl* restrict instance);
 extern DLLIMPORT AzGl AzGl_deepCopy(AzGl* const instance);
@@ -8972,5 +8972,67 @@ extern DLLIMPORT AzInstantPtr AzInstantPtr_deepCopy(AzInstantPtr* const instance
     .children = AzDomVec_empty, \
     .estimated_total_children = 0, \
 }
+
+#define AZ_REFLECT(structName, destructor) \
+    /* in C all statics are guaranteed to have a unique address, use that address as a TypeId */ \
+    static uint64_t const structName##_RttiTypePtrId = 0; \
+    static uint64_t const structName##_RttiTypeId = (uint64_t)(&structName##_RttiTypePtrId); \
+    static AzString const structName##_Type_RttiString = AzString_fromConstStr(#structName); \
+    \
+    AzRefAny structName##_upcast(structName const s) { \
+        return AzRefAny_newC(&s, sizeof(structName), structName##_RttiTypeId, structName##_Type_RttiString, destructor); \
+    } \
+    \
+    /* generate structNameRef and structNameRefMut structs*/ \
+    typedef struct { const structName* ptr; AzRefCount sharing_info; } structName##Ref; \
+    typedef struct { structName* restrict ptr; AzRefCount sharing_info; } structName##RefMut; \
+    \
+    structName##Ref structName##Ref_create(AzRefAny* const refany) { \
+        structName##Ref val = { .ptr = 0, .sharing_info = AzRefCount_deepCopy(&refany->sharing_info) };    \
+        return val;    \
+    } \
+    \
+    structName##RefMut structName##RefMut_create(AzRefAny* const refany) { \
+        structName##RefMut val = { .ptr = 0, .sharing_info = AzRefCount_deepCopy(&refany->sharing_info), };    \
+        return val;    \
+    } \
+    \
+    /* if downcastRef returns true, the downcast worked */ \
+    bool structName##_downcastRef(AzRefAny* restrict refany, structName##Ref * restrict result) { \
+        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } else { \
+            if (!AzRefCount_canBeShared(&refany->sharing_info)) { return false; } else {\
+                AzRefCount_increaseRef(&refany->sharing_info); \
+                result->ptr = (structName* const)(refany->_internal_ptr); \
+                return true; \
+            } \
+        } \
+    } \
+    \
+    /* if downcastRefMut returns true, the mutable downcast worked */ \
+    bool structName##_downcastMut(AzRefAny* restrict refany, structName##RefMut * restrict result) { \
+        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } else { \
+            if (!AzRefCount_canBeSharedMut(&refany->sharing_info)) { return false; }  else {\
+                AzRefCount_increaseRefmut(&refany->sharing_info); \
+                result->ptr = (structName* restrict)(refany->_internal_ptr); \
+                return true; \
+            } \
+        } \
+    } \
+    \
+    /* releases a structNameRef (decreases the RefCount) */ \
+    bool structName##Ref_delete(structName##Ref* restrict value) { \
+        AzRefCount_decreaseRef(&value->sharing_info); \
+    }\
+    \
+    /* releases a structNameRefMut (decreases the mutable RefCount) */ \
+    bool structName##RefMut_delete(structName##RefMut* restrict value) { \
+        AzRefCount_decreaseRefmut(&value->sharing_info); \
+    }\
+    /* releases a structNameRefAny (checks if the RefCount is 0 and calls the destructor) */ \
+    bool structName##RefAny_delete(AzRefAny* restrict refany) { \
+        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } \
+        AzRefAny_delete(refany); \
+        return true; \
+    }
 
 #endif /* AZUL_H */

@@ -3980,7 +3980,7 @@ mod dll {
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzDom {
         pub root: AzNodeData,
         pub children: AzDomVec,
-        pub estimated_total_children: usize,
+        pub total_children: usize,
     }
     /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzCssRuleBlock {
@@ -5334,7 +5334,7 @@ pub mod dom {
     
 #[doc(inline)] pub use crate::dll::AzDom as Dom;
     impl Dom {
-        /// Returns the number of nodes in the DOM
+        /// Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)
         pub fn node_count(&self)  -> usize { unsafe { crate::dll::AzDom_nodeCount(self) } }
     }
 
