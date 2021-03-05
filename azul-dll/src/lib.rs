@@ -524,6 +524,8 @@ pub type AzDomTT = azul_impl::dom::Dom;
 pub use AzDomTT as AzDom;
 /// Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)
 #[no_mangle] pub extern "C" fn AzDom_nodeCount(dom: &AzDom) -> usize { dom.node_count() }
+/// Same as `StyledDom::new(dom, css)`
+#[no_mangle] pub extern "C" fn AzDom_style(dom: AzDom, css: AzCss) -> AzStyledDom { dom.style(css) }
 
 /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
 pub type AzGlTextureNodeTT = azul_impl::dom::GlTextureNode;
@@ -1357,10 +1359,16 @@ pub type AzStyledDomTT = azul_impl::styled_dom::StyledDom;
 pub use AzStyledDomTT as AzStyledDom;
 /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
 #[no_mangle] pub extern "C" fn AzStyledDom_new(dom: AzDom, css: AzCss) -> AzStyledDom { AzStyledDom::new(dom, css) }
+/// Returns a DOM loaded from an XML file
+#[no_mangle] pub extern "C" fn AzStyledDom_fromXml(xml_string: AzString) -> AzStyledDom { azul_impl::app::extra::styled_dom_from_str(xml_string.as_str(), "") }
+/// Same as `from_xml`, but loads the file relative to the current directory
+#[no_mangle] pub extern "C" fn AzStyledDom_fromFile(xml_file_path: AzString) -> AzStyledDom { azul_impl::app::extra::styled_dom_from_file(xml_file_path.as_str()) }
 /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
 #[no_mangle] pub extern "C" fn AzStyledDom_append(styleddom: &mut AzStyledDom, dom: AzStyledDom) { styleddom.append(dom); }
 /// Returns the number of nodes in the styled DOM
 #[no_mangle] pub extern "C" fn AzStyledDom_nodeCount(styleddom: &AzStyledDom) -> usize { styleddom.node_count() }
+/// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
+#[no_mangle] pub extern "C" fn AzStyledDom_getHtmlString(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string().into() }
 
 /// Re-export of rust-allocated (stack based) `Gl` struct
 pub type AzGlTT = azul_impl::gl::GlContextPtr;
@@ -6930,6 +6938,7 @@ mod test_sizes {
         pub renderer_type: AzOptionRendererOptions,
         pub theme: AzOptionWindowTheme,
         pub create_callback: AzOptionCallback,
+        pub hot_reload: bool,
     }
     /// Defines the keyboard input focus target
     #[repr(C, u8)]     pub enum AzFocusTarget {

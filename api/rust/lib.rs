@@ -4032,6 +4032,7 @@ mod dll {
         pub renderer_type: AzOptionRendererOptions,
         pub theme: AzOptionWindowTheme,
         pub create_callback: AzOptionCallback,
+        pub hot_reload: bool,
     }
     /// Defines the keyboard input focus target
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzFocusTarget {
@@ -4234,6 +4235,7 @@ mod dll {
         pub(crate) fn AzLayoutInfo_windowHeightLargerThan(_:  &mut AzLayoutInfo, _:  f32) -> bool;
         pub(crate) fn AzLayoutInfo_windowHeightSmallerThan(_:  &mut AzLayoutInfo, _:  f32) -> bool;
         pub(crate) fn AzDom_nodeCount(_:  &AzDom) -> usize;
+        pub(crate) fn AzDom_style(_:  AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn AzOn_intoEventFilter(_:  AzOn) -> AzEventFilter;
         pub(crate) fn AzCss_empty() -> AzCss;
         pub(crate) fn AzCss_fromString(_:  AzString) -> AzCss;
@@ -4242,8 +4244,11 @@ mod dll {
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
+        pub(crate) fn AzStyledDom_fromXml(_:  AzString) -> AzStyledDom;
+        pub(crate) fn AzStyledDom_fromFile(_:  AzString) -> AzStyledDom;
         pub(crate) fn AzStyledDom_append(_:  &mut AzStyledDom, _:  AzStyledDom);
         pub(crate) fn AzStyledDom_nodeCount(_:  &AzStyledDom) -> usize;
+        pub(crate) fn AzStyledDom_getHtmlString(_:  &AzStyledDom) -> AzString;
         pub(crate) fn AzGl_getType(_:  &AzGl) -> AzGlType;
         pub(crate) fn AzGl_bufferDataUntyped(_:  &AzGl, _:  u32, _:  isize, _:  *const c_void, _:  u32);
         pub(crate) fn AzGl_bufferSubDataUntyped(_:  &AzGl, _:  u32, _:  isize, _:  isize, _:  *const c_void);
@@ -5519,12 +5524,15 @@ pub mod dom {
         fn from(on: On) -> AzEventFilter {
             on.into_event_filter()
         }
-    }    /// `Dom` struct
+    }    use crate::css::Css;
+    /// `Dom` struct
     
 #[doc(inline)] pub use crate::dll::AzDom as Dom;
     impl Dom {
         /// Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)
         pub fn node_count(&self)  -> usize { unsafe { crate::dll::AzDom_nodeCount(self) } }
+        /// Same as `StyledDom::new(dom, css)`
+        pub fn style(self, css: Css)  -> crate::style::StyledDom { unsafe { crate::dll::AzDom_style(self, css) } }
     }
 
     /// `GlTextureNode` struct
@@ -6730,6 +6738,7 @@ pub mod style {
     use core::ffi::c_void;
     use crate::dom::Dom;
     use crate::css::Css;
+    use crate::str::String;
     /// `Node` struct
     
 #[doc(inline)] pub use crate::dll::AzNode as Node;
@@ -6765,10 +6774,16 @@ pub mod style {
     impl StyledDom {
         /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
         pub fn new(dom: Dom, css: Css) -> Self { unsafe { crate::dll::AzStyledDom_new(dom, css) } }
+        /// Returns a DOM loaded from an XML file
+        pub fn from_xml(xml_string: String) -> Self { unsafe { crate::dll::AzStyledDom_fromXml(xml_string) } }
+        /// Same as `from_xml`, but loads the file relative to the current directory
+        pub fn from_file(xml_file_path: String) -> Self { unsafe { crate::dll::AzStyledDom_fromFile(xml_file_path) } }
         /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
         pub fn append(&mut self, dom: StyledDom)  { unsafe { crate::dll::AzStyledDom_append(self, dom) } }
         /// Returns the number of nodes in the styled DOM
         pub fn node_count(&self)  -> usize { unsafe { crate::dll::AzStyledDom_nodeCount(self) } }
+        /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
+        pub fn get_html_string(&self)  -> crate::str::String { unsafe { crate::dll::AzStyledDom_getHtmlString(self) } }
     }
 
 }

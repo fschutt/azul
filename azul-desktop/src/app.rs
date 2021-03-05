@@ -24,6 +24,7 @@ use crate::{
 };
 use azul_core::{
     window::{WindowCreateOptions, LazyFcCache, FullWindowState},
+    task::{Timer, TimerId},
     gl::GlContextPtr,
     callbacks::{RefAny, UpdateScreen},
     app_resources::{AppConfig, AppResources},
@@ -235,6 +236,8 @@ fn run_inner(app: App) -> ! {
             &mut active_windows,
             &mut resources,
             &mut fc_cache,
+            &mut timers,
+            &config,
         );
 
         if let Some(init_callback) = create_callback.as_ref() {
@@ -881,6 +884,8 @@ fn run_inner(app: App) -> ! {
                 &mut active_windows,
                 &mut resources,
                 &mut fc_cache,
+                &mut timers,
+                &config,
             );
 
             if let Some(init_callback) = create_callback.as_ref() {
@@ -1167,7 +1172,11 @@ fn create_window(
     active_windows: &mut BTreeMap<GlutinWindowId, Window>,
     app_resources: &mut AppResources,
     fc_cache: &mut LazyFcCache,
+    timers: &mut BTreeMap<GlutinWindowId, BTreeMap<TimerId, Timer>>,
+    config: &AppConfig,
 ) -> Option<GlutinWindowId> {
+
+    let should_hot_reload_window = window_create_options.hot_reload;
 
     let window = Window::new(
          data,
@@ -1190,6 +1199,33 @@ fn create_window(
 
     let glutin_window_id = window.display.window().id();
     active_windows.insert(glutin_window_id, window);
+
+    // push hot reload timer that triggers a UI restyle every 200ms
+    if should_hot_reload_window {
+
+        use azul_core::task::{TimerId, Timer, TerminateTimer};
+        use azul_core::callbacks::{
+            RefAny, TimerCallbackInfo,
+            TimerCallbackReturn, UpdateScreen
+        };
+        use std::time::Duration as StdDuration;
+
+        extern "C" fn hot_reload_timer(_: &mut RefAny, _: &mut RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
+            TimerCallbackReturn {
+                should_update: UpdateScreen::RegenerateStyledDomForCurrentWindow,
+                should_terminate: TerminateTimer::Continue,
+            }
+        }
+
+        let timer = Timer::new(data.clone_into_library_memory(), hot_reload_timer, config.system_callbacks.get_system_time_fn)
+        .with_interval(StdDuration::from_millis(200).into());
+
+        timers
+        .entry(glutin_window_id)
+        .or_insert_with(|| BTreeMap::default())
+        .insert(TimerId::unique(), timer);
+    }
+
     Some(glutin_window_id)
 }
 
@@ -1206,4 +1242,45 @@ fn close_window(mut window: Window, app_resources: &mut AppResources) {
     txn.update_resources(resources_to_delete.into_iter().map(wr_translate_resource_update).collect());
     window.render_api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
     window.render_api.delete_document(wr_translate_document_id(window.internal.document_id));
+}
+
+pub mod extra {
+
+    use azul_css::Css;
+    use azul_core::dom::{Dom, NodeType};
+    use azul_core::styled_dom::StyledDom;
+
+    // extra functions that can't be implemented in azul_core
+    pub fn styled_dom_from_file(path: &str) -> StyledDom {
+        match std::fs::read_to_string(path) {
+            Ok(o) => styled_dom_from_str(&o, &format!("{} ", path)),
+            Err(e) => {
+                Dom::new(NodeType::Body).with_children(vec![
+                    Dom::new(NodeType::Label(format!("Failed to load file \"{}\": {}", path, e).into()))
+                ].into()).style(Css::empty())
+            }
+        }
+    }
+
+    pub fn styled_dom_from_str(s: &str, err_extra: &str) -> StyledDom {
+        use azulc_lib::xml_parser::XmlComponentMap;
+
+        let root_nodes = match azulc_lib::xml_parser::parse_xml_string(s) {
+            Ok(o) => o,
+            Err(e) => {
+                return Dom::new(NodeType::Body).with_children(vec![
+                    Dom::new(NodeType::Label(format!("{}XML parser error: {}:\r\n{}", err_extra, e, s).into()))
+                ].into()).style(Css::empty());
+            }
+        };
+
+        match azulc_lib::xml_parser::str_to_dom(&root_nodes, &mut XmlComponentMap::default()) {
+            Ok(o) => o,
+            Err(e) => {
+                Dom::new(NodeType::Body).with_children(vec![
+                    Dom::new(NodeType::Label(format!("{}XML to DOM error: {}:\r\n{}", err_extra, e, s).into()))
+                ].into()).style(Css::empty())
+            }
+        }
+    }
 }

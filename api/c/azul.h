@@ -8359,6 +8359,7 @@ struct AzWindowCreateOptions {
     AzOptionRendererOptions renderer_type;
     AzOptionWindowTheme theme;
     AzOptionCallback create_callback;
+    bool  hot_reload;
 };
 typedef struct AzWindowCreateOptions AzWindowCreateOptions;
 
@@ -8919,6 +8920,7 @@ extern DLLIMPORT bool  AzLayoutInfo_windowWidthSmallerThan(AzLayoutInfo* restric
 extern DLLIMPORT bool  AzLayoutInfo_windowHeightLargerThan(AzLayoutInfo* restrict layoutinfo, float width);
 extern DLLIMPORT bool  AzLayoutInfo_windowHeightSmallerThan(AzLayoutInfo* restrict layoutinfo, float width);
 extern DLLIMPORT size_t AzDom_nodeCount(AzDom* const dom);
+extern DLLIMPORT AzStyledDom AzDom_style(const AzDom dom, AzCss  css);
 extern DLLIMPORT AzEventFilter AzOn_intoEventFilter(const AzOn on);
 extern DLLIMPORT AzCss AzCss_empty();
 extern DLLIMPORT AzCss AzCss_fromString(AzString  s);
@@ -8927,8 +8929,11 @@ extern DLLIMPORT AzString AzColorU_toHash(AzColorU* const coloru);
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);
 extern DLLIMPORT AzCssPropertyCache AzCssPropertyCache_deepCopy(AzCssPropertyCache* const instance);
 extern DLLIMPORT AzStyledDom AzStyledDom_new(AzDom  dom, AzCss  css);
+extern DLLIMPORT AzStyledDom AzStyledDom_fromXml(AzString  xml_string);
+extern DLLIMPORT AzStyledDom AzStyledDom_fromFile(AzString  xml_file_path);
 extern DLLIMPORT void AzStyledDom_append(AzStyledDom* restrict styleddom, AzStyledDom  dom);
 extern DLLIMPORT size_t AzStyledDom_nodeCount(AzStyledDom* const styleddom);
+extern DLLIMPORT AzString AzStyledDom_getHtmlString(AzStyledDom* const styleddom);
 extern DLLIMPORT AzGlType AzGl_getType(AzGl* const gl);
 extern DLLIMPORT void AzGl_bufferDataUntyped(AzGl* const gl, uint32_t target, ssize_t size, void* data, uint32_t usage);
 extern DLLIMPORT void AzGl_bufferSubDataUntyped(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t size, void* data);

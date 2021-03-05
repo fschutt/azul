@@ -1708,6 +1708,9 @@ pub struct WindowCreateOptions {
     pub theme: OptionWindowTheme,
     /// Optional callback to run when the window has been created (runs only once on startup)
     pub create_callback: OptionCallback,
+    /// If set to true, will hot-reload the UI every 200ms, useful in combination with `StyledDom::from_file()`
+    /// to hot-reload the UI from a file while developing.
+    pub hot_reload: bool,
 }
 
 impl Default for WindowCreateOptions {
@@ -1717,6 +1720,7 @@ impl Default for WindowCreateOptions {
             renderer: OptionRendererOptions::None,
             theme: OptionWindowTheme::None,
             create_callback: OptionCallback::None,
+            hot_reload: false,
         }
     }
 }

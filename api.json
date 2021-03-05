@@ -90,7 +90,8 @@
 						{"state": {"type": "WindowState", "doc": "Initial state of the window on the first frame"}},
 						{"renderer_type": {"type": "OptionRendererOptions", "doc": "If not `None`, azul will try to create a window with the specific renderer type and **crash** if the renderer is not available for whatever reason"}},
 						{"theme": {"type": "OptionWindowTheme", "doc": "Initially the `theme` on the `WindowState` is set to the OS theme - use this field to override the operating systems `Dark` or `Light` mode"}},
-						{"create_callback": {"type": "OptionCallback", "doc": "Callback to run **once** when the window is initially created"}}
+						{"create_callback": {"type": "OptionCallback", "doc": "Callback to run **once** when the window is initially created"}},
+						{"hot_reload": {"type": "bool", "doc": "If set to true, will hot-reload the UI every 200ms. Default: false"}}
 					],
 					"constructors": {
 						"new": {
@@ -1800,6 +1801,15 @@
 							],
 							"returns": {"type": "usize"},
 							"fn_body": "dom.node_count()"
+						},
+						"style": {
+							"doc": "Same as `StyledDom::new(dom, css)`",
+							"fn_args": [
+								{"self": "value"},
+								{"css": "Css"}
+							],
+							"returns": {"type": "StyledDom"},
+							"fn_body": "dom.style(css)"
 						}
 					}
 				},
@@ -4038,6 +4048,20 @@
 								{"css": "Css"}
 							],
 							"fn_body":"AzStyledDom::new(dom, css)"
+						},
+						"from_xml": {
+							"doc": "Returns a DOM loaded from an XML file",
+							"fn_args": [
+								{"xml_string": "String"}
+							],
+							"fn_body": "azul_impl::app::extra::styled_dom_from_str(xml_string.as_str(), \"\")"
+						},
+						"from_file": {
+							"doc": "Same as `from_xml`, but loads the file relative to the current directory",
+							"fn_args": [
+								{"xml_file_path": "String"}
+							],
+							"fn_body": "azul_impl::app::extra::styled_dom_from_file(xml_file_path.as_str())"
 						}
 					},
 					"functions": {
@@ -4056,6 +4080,14 @@
 							],
 							"returns": {"type": "usize"},
 							"fn_body": "styleddom.node_count()"
+						},
+						"get_html_string": {
+							"doc": "Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "String"},
+							"fn_body": "styleddom.get_html_string().into()"
 						}
 					}
 				}
