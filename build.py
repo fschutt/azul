@@ -1726,25 +1726,26 @@ def build_dll():
 
     if platform == "linux" or platform == "linux2": # TODO: freebsd?
         # On linux, optimize for different CPUs, so that we can package for debian multiarch
-        os.system('rustup toolchain install nightly-x86_64-unknown-linux-gnu')
-        os.system('rustup override set nightly-x86_64-unknown-linux-gnu')
-        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=x86_64-unknown-linux-gnu --all-features --release')
-        os.system('rustup toolchain install nightly-i686-unknown-linux-gnu')
-        os.system('rustup override set nightly-i686-unknown-linux-gnu')
-        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=i686-unknown-linux-gnu --all-features --release')
+        os.system("""
+            cd azul-dll
+            rustup toolchain install stable-x86_64-unknown-linux-gnu
+            rustup override set stable-x86_64-unknown-linux-gnu
+            RUSTLFLAGS="-Ctarget-feature=-crt-static" cargo build --target=x86_64-unknown-linux-gnu --all-features --release
+            cd ..
+        """)
     elif platform == "darwin":
         os.system('rustup toolchain install nightly-x86_64-unknown-darwin-gnu')
         os.system('rustup override set nightly-x86_64-unknown-darwin-gnu')
-        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=x86_64-unknown-darwin-gnu --all-features --release')
+        os.system('cargo build --target=x86_64-unknown-darwin-gnu --all-features --release')
         os.system('rustup toolchain install nightly-i686-unknown-darwin-gnu')
         os.system('rustup override set nightly-i686-unknown-darwin-gnu')
-        os.system('RUSTFLAGS="-C target-feature=-crt-static -Zstrip=symbols -Zshare-generics=y" cargo build --target=i686-unknown-darwin-gnu --all-features --release')
+        os.system('cargo build --target=i686-unknown-darwin-gnu --all-features --release')
     elif platform == "win32":
         os.system("""
             cd azul-dll
             rustup toolchain install stable-x86_64-pc-windows-msvc
             rustup override set stable-x86_64-pc-windows-msvc
-            cargo build --target=x86_64-pc-windows-msvc --all-features --release
+            RUSTFLAGS="-Ctarget-feature=-crt-static" cargo build --target=x86_64-pc-windows-msvc --all-features --release
             rustup toolchain install stable-i686-pc-windows-msvc
             rustup override set stable-i686-pc-windows-msvc
             cargo build --target=i686-pc-windows-msvc --all-features --release

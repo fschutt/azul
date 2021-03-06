@@ -79,7 +79,7 @@ extern crate alloc;
 extern crate azul_css;
 extern crate azul_core;
 extern crate unicode_normalization;
-extern crate allsorts;
+extern crate allsorts_no_std;
 #[macro_use(tiny_vec)]
 extern crate tinyvec;
 

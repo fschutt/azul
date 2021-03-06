@@ -38,33 +38,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5192ec435945d87bc2f70992b4d818154b5feede43c09fb7592146374eac90a6"
 
 [[package]]
-name = "alloc-stdlib"
-version = "0.2.1"
+name = "allsorts-rental"
+version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "697ed7edc0f1711de49ce108c541623a0af97c6c60b2f6e2b65229847ac843c2"
+checksum = "eeec998df93f88cba680ee51451090e1f534c287ca58d00833b313546f37dde4"
 dependencies = [
- "alloc-no-stdlib",
+ "rental-impl",
+ "stable_deref_trait",
 ]
 
 [[package]]
-name = "allsorts"
-version = "0.5.1"
+name = "allsorts_no_std"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb87814c8bb3a307c3fd61242685529281396618f8dee5277c54a56f4f734d55"
+checksum = "2b1f15a255feb9e74daf63adc5998412cae6c54237cf9f5dfb2542d50d4232dc"
 dependencies = [
+ "alloc-no-stdlib",
+ "allsorts-rental",
  "bitflags",
  "bitreader",
  "brotli-decompressor",
  "byteorder",
  "encoding_rs",
- "flate2",
  "glyph-names",
  "itertools",
  "lazy_static",
  "libc",
  "log",
+ "miniz_oxide 0.4.4",
  "num-traits",
- "rental",
  "rustc-hash",
  "tinyvec",
  "ucd-trie",
@@ -213,7 +215,7 @@ checksum = "c303bfdf857413adbd19d9b15dddd9b4adb8e2be7e493c8a38d9fc6179a074ac"
 name = "azul-text-layout"
 version = "0.0.5"
 dependencies = [
- "allsorts",
+ "allsorts_no_std",
  "azul-core",
  "azul-css",
  "rayon",
@@ -317,7 +319,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1052e1c3b8d4d80eb84a8b94f0a1498797b5fb96314c001156a1c761940ef4ec"
 dependencies = [
  "alloc-no-stdlib",
- "alloc-stdlib",
 ]
 
 [[package]]
@@ -821,7 +822,6 @@ dependencies = [
  "cfg-if 1.0.0",
  "crc32fast",
  "libc",
- "libz-sys",
  "miniz_oxide 0.4.4",
 ]
 
@@ -939,7 +939,7 @@ dependencies = [
 [[package]]
 name = "glsl-to-cxx"
 version = "0.1.0"
-source = "git+https://github.com/servo/webrender?rev=e6e2622d97a9828da2d68fe9edf6b066fda908a5#e6e2622d97a9828da2d68fe9edf6b066fda908a5"
+source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
 dependencies = [
  "glsl",
 ]
@@ -1184,17 +1184,6 @@ name = "libm"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
-
-[[package]]
-name = "libz-sys"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "602113192b08db8f38796c4e85c39e960c145965140e918018bcde1952429655"
-dependencies = [
- "cc",
- "pkg-config",
- "vcpkg",
-]
 
 [[package]]
 name = "lock_api"
@@ -1647,7 +1636,7 @@ dependencies = [
 [[package]]
 name = "peek-poke"
 version = "0.2.0"
-source = "git+https://github.com/servo/webrender?rev=e6e2622d97a9828da2d68fe9edf6b066fda908a5#e6e2622d97a9828da2d68fe9edf6b066fda908a5"
+source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
 dependencies = [
  "euclid 0.22.2",
  "peek-poke-derive",
@@ -1656,7 +1645,7 @@ dependencies = [
 [[package]]
 name = "peek-poke-derive"
 version = "0.2.1"
-source = "git+https://github.com/servo/webrender?rev=e6e2622d97a9828da2d68fe9edf6b066fda908a5#e6e2622d97a9828da2d68fe9edf6b066fda908a5"
+source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1784,16 +1773,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rental"
-version = "0.5.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8545debe98b2b139fb04cad8618b530e9b07c152d99a5de83c860b877d67847f"
-dependencies = [
- "rental-impl",
- "stable_deref_trait",
-]
-
-[[package]]
 name = "rental-impl"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1815,11 +1794,11 @@ dependencies = [
 
 [[package]]
 name = "rust-fontconfig"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7aa55d7bb670708b7b35cc41257779df748eb03324fd2339d7f3f6560ee3dd7"
+checksum = "24948333419936d5d5c9fa2329846045313ea2539f647cc04c0e1f37ad8d2a10"
 dependencies = [
- "allsorts",
+ "allsorts_no_std",
  "mmapio",
  "xmlparser",
 ]
@@ -1998,7 +1977,7 @@ dependencies = [
 [[package]]
 name = "swgl"
 version = "0.1.0"
-source = "git+https://github.com/servo/webrender?rev=e6e2622d97a9828da2d68fe9edf6b066fda908a5#e6e2622d97a9828da2d68fe9edf6b066fda908a5"
+source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
 dependencies = [
  "cc",
  "gleam",
@@ -2147,9 +2126,9 @@ checksum = "eab1e2c61f9441613aca1a1c88803bb36df292990aada6abb5133b9b532e07ec"
 
 [[package]]
 name = "unicode-joining-type"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8896d2fce4865edb68e5a39b48f4281d041f743de5b9f0380ba4dd0ef51497e4"
+checksum = "7f679bc6da501427c9911a6f7fdb0e35238d49fecda2c80704042442233bebda"
 
 [[package]]
 name = "unicode-normalization"
@@ -2194,12 +2173,6 @@ checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
 dependencies = [
  "getrandom",
 ]
-
-[[package]]
-name = "vcpkg"
-version = "0.2.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b00bca6106a5e23f3eee943593759b7fcddb00554332e856d990c893966879fb"
 
 [[package]]
 name = "version_check"
@@ -2310,7 +2283,7 @@ dependencies = [
 [[package]]
 name = "webrender"
 version = "0.61.0"
-source = "git+https://github.com/servo/webrender?rev=e6e2622d97a9828da2d68fe9edf6b066fda908a5#e6e2622d97a9828da2d68fe9edf6b066fda908a5"
+source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
 dependencies = [
  "bincode",
  "bitflags",
@@ -2350,7 +2323,7 @@ dependencies = [
 [[package]]
 name = "webrender_api"
 version = "0.61.0"
-source = "git+https://github.com/servo/webrender?rev=e6e2622d97a9828da2d68fe9edf6b066fda908a5#e6e2622d97a9828da2d68fe9edf6b066fda908a5"
+source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
 dependencies = [
  "app_units",
  "bitflags",
@@ -2372,7 +2345,7 @@ dependencies = [
 [[package]]
 name = "webrender_build"
 version = "0.0.1"
-source = "git+https://github.com/servo/webrender?rev=e6e2622d97a9828da2d68fe9edf6b066fda908a5#e6e2622d97a9828da2d68fe9edf6b066fda908a5"
+source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
 dependencies = [
  "bitflags",
  "lazy_static",
@@ -2470,7 +2443,7 @@ dependencies = [
 [[package]]
 name = "wr_malloc_size_of"
 version = "0.0.1"
-source = "git+https://github.com/servo/webrender?rev=e6e2622d97a9828da2d68fe9edf6b066fda908a5#e6e2622d97a9828da2d68fe9edf6b066fda908a5"
+source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
 dependencies = [
  "app_units",
  "euclid 0.22.2",
