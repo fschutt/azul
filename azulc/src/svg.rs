@@ -21,6 +21,7 @@ use lyon::{
 use crate::xml::XmlError;
 use alloc::boxed::Box;
 
+#[allow(non_camel_case_types)]
 pub enum c_void { }
 
 const GL_RESTART_INDEX: u32 = core::u32::MAX;
@@ -842,6 +843,7 @@ fn decode_raster_glyph_image(i: owned_ttf_parser::RasterGlyphImage) -> Option<Ra
         width: sub_width,
         height: sub_height,
         pixels: data.into(),
+        premultiplied_alpha: false,
         data_format: RawImageFormat::RGBA8,
     })
 }

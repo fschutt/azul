@@ -1403,6 +1403,13 @@ struct AzFontId {
 };
 typedef struct AzFontId AzFontId;
 
+enum AzEncodeImageError {
+   AzEncodeImageError_InsufficientMemory,
+   AzEncodeImageError_DimensionError,
+   AzEncodeImageError_Unknown,
+};
+typedef enum AzEncodeImageError AzEncodeImageError;
+
 struct AzSvg {
     void* restrict ptr;
 };
@@ -6079,6 +6086,24 @@ typedef union AzOptionU8VecRef AzOptionU8VecRef;
 #define AzOptionU8VecRef_None { .None = { .tag = AzOptionU8VecRefTag_None } }
 #define AzOptionU8VecRef_Some(v) { .Some = { .tag = AzOptionU8VecRefTag_Some, .payload = v } }
 
+enum AzResultU8VecEncodeImageErrorTag {
+   AzResultU8VecEncodeImageErrorTag_Ok,
+   AzResultU8VecEncodeImageErrorTag_Err,
+};
+typedef enum AzResultU8VecEncodeImageErrorTag AzResultU8VecEncodeImageErrorTag;
+
+struct AzResultU8VecEncodeImageErrorVariant_Ok { AzResultU8VecEncodeImageErrorTag tag; AzU8Vec payload; };
+typedef struct AzResultU8VecEncodeImageErrorVariant_Ok AzResultU8VecEncodeImageErrorVariant_Ok;
+struct AzResultU8VecEncodeImageErrorVariant_Err { AzResultU8VecEncodeImageErrorTag tag; AzEncodeImageError payload; };
+typedef struct AzResultU8VecEncodeImageErrorVariant_Err AzResultU8VecEncodeImageErrorVariant_Err;
+union AzResultU8VecEncodeImageError {
+    AzResultU8VecEncodeImageErrorVariant_Ok Ok;
+    AzResultU8VecEncodeImageErrorVariant_Err Err;
+};
+typedef union AzResultU8VecEncodeImageError AzResultU8VecEncodeImageError;
+#define AzResultU8VecEncodeImageError_Ok(v) { .Ok = { .tag = AzResultU8VecEncodeImageErrorTag_Ok, .payload = v } }
+#define AzResultU8VecEncodeImageError_Err(v) { .Err = { .tag = AzResultU8VecEncodeImageErrorTag_Err, .payload = v } }
+
 struct AzNonXmlCharError {
     uint32_t ch;
     AzSvgParseErrorPosition pos;
@@ -6562,6 +6587,7 @@ struct AzRawImage {
     AzU8Vec pixels;
     size_t width;
     size_t height;
+    bool  has_premultiplied_alpha;
     AzRawImageFormat data_format;
 };
 typedef struct AzRawImage AzRawImage;
@@ -9219,6 +9245,13 @@ extern DLLIMPORT void AzGLsyncPtr_delete(AzGLsyncPtr* restrict instance);
 extern DLLIMPORT AzTextureFlags AzTextureFlags_default();
 extern DLLIMPORT AzImageId AzImageId_new();
 extern DLLIMPORT AzFontId AzFontId_new();
+extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeBmp(AzRawImage* const rawimage);
+extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePng(AzRawImage* const rawimage);
+extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeJpeg(AzRawImage* const rawimage);
+extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTga(AzRawImage* const rawimage);
+extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePnm(AzRawImage* const rawimage);
+extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeGif(AzRawImage* const rawimage);
+extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTiff(AzRawImage* const rawimage);
 extern DLLIMPORT AzSvg AzSvg_parseFrom(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
 extern DLLIMPORT AzSvgXmlNode AzSvg_getRoot(AzSvg* const svg);
 extern DLLIMPORT AzString AzSvg_toString(AzSvg* const svg, AzSvgStringFormatOptions  options);
@@ -9278,6 +9311,7 @@ extern DLLIMPORT void AzCssDeclarationVec_delete(AzCssDeclarationVec* restrict i
 extern DLLIMPORT void AzCssPathSelectorVec_delete(AzCssPathSelectorVec* restrict instance);
 extern DLLIMPORT void AzStylesheetVec_delete(AzStylesheetVec* restrict instance);
 extern DLLIMPORT void AzCssRuleBlockVec_delete(AzCssRuleBlockVec* restrict instance);
+extern DLLIMPORT AzU8VecRef AzU8Vec_asRefVec(AzU8Vec* const u8vec);
 extern DLLIMPORT void AzU8Vec_delete(AzU8Vec* restrict instance);
 extern DLLIMPORT void AzCallbackDataVec_delete(AzCallbackDataVec* restrict instance);
 extern DLLIMPORT void AzDebugMessageVec_delete(AzDebugMessageVec* restrict instance);

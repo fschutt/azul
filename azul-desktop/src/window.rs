@@ -266,7 +266,7 @@ pub struct Window {
     pub(crate) render_api: WrRenderApi,
     // software_context: Option<Rc<swgl::Context>>
     hardware_gl: Rc<dyn Gl>,
-    software_gl: Option<Rc<swgl::Context>>,
+    // software_gl: Option<Rc<swgl::Context>>,
     /// Main renderer, responsible for rendering all windows
     ///
     /// This is `Some()` because of the `FakeDisplay` destructor: On shutdown,
@@ -285,6 +285,7 @@ impl Window {
         parse_font_fn: azul_layout::text_layout::parse_font_fn,
     };
 
+    /*
     // copied from server/webrender/wrench
     fn upload_software_to_native(&self) {
         let swgl = match self.software_gl.as_ref() {
@@ -307,19 +308,25 @@ impl Window {
         gl.delete_textures(&[tex]);
         gl.finish();
     }
+    */
 
     fn get_gl_context(&self) -> Rc<dyn Gl> {
+        /*
         match self.software_gl.as_ref() {
             Some(sw) => sw.clone(),
             None => self.hardware_gl.clone(),
-        }
+        }*/
+        self.hardware_gl.clone()
     }
 
     pub(crate) fn get_gl_context_ptr(&self) -> GlContextPtr {
+        /*
         match self.software_gl.as_ref() {
             Some(sw) => GlContextPtr::new(RendererType::Software, sw.clone()),
             None => GlContextPtr::new(RendererType::Hardware, self.hardware_gl.clone()),
         }
+        */
+        GlContextPtr::new(RendererType::Hardware, self.hardware_gl.clone())
     }
 
     /// Creates a new window
@@ -386,7 +393,7 @@ impl Window {
         // TODO: change this - see minifb for a pure-software window!
         let hardware_gl = Self::initialize_hardware_gl_context(&window_context.context().unwrap())?;
         let mut renderer_sender = None;
-        let mut software_gl = None;
+        // let mut software_gl = None;
 
         // Note: Notifier is fairly useless, since rendering is
         // completely single-threaded, see comments on RenderNotifier impl
@@ -414,12 +421,14 @@ impl Window {
 
             match rt {
                 RendererType::Software => {
+                    /*
                     let s = Self::initialize_software_gl_context();
                     let notifier = Box::new(Notifier::new(window_id, proxy.clone()));
                     if let Ok(r) = WrRenderer::new(s.clone(), notifier, gen_opts(), WR_SHADER_CACHE) {
                         renderer_sender = Some(r);
                     }
                     software_gl = Some(s);
+                    */
                     break;
                 },
                 RendererType::Hardware => {
@@ -482,10 +491,14 @@ impl Window {
         let mut initial_resource_updates = Vec::new();
         let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
 
+        let gl_context_ptr = GlContextPtr::new(RendererType::Hardware, hardware_gl.clone());
+
+        /*
         let gl_context_ptr = match software_gl.as_ref() {
             Some(s) => GlContextPtr::new(RendererType::Software, s.clone()),
             None => GlContextPtr::new(RendererType::Hardware, hardware_gl.clone()),
         };
+        */
 
         let internal = WindowInternal::new(
             WindowInternalInit {
@@ -506,7 +519,7 @@ impl Window {
             display: window_context,
             render_api,
             renderer: Some(renderer),
-            software_gl,
+            // software_gl,
             hardware_gl,
             internal,
         };
@@ -591,9 +604,11 @@ impl Window {
         }
     }
 
+    /*
     fn initialize_software_gl_context() -> Rc<swgl::Context> {
         Rc::new(swgl::Context::create())
     }
+    */
 
     /// Calls the layout function again and updates the self.internal.gl_texture_cache field
     pub fn regenerate_styled_dom(
@@ -1191,9 +1206,11 @@ impl Drop for Window {
             renderer.deinit();
         }
 
+        /*
         if let Some(sw) = self.software_gl.as_mut() {
             sw.destroy();
         }
+        */
     }
 }
 

@@ -602,6 +602,7 @@ impl RawImage {
             pixels: Vec::new().into(),
             width: 0,
             height: 0,
+            premultiplied_alpha: false,
             data_format: RawImageFormat::RGBA8
         }
     }

@@ -728,6 +728,7 @@ pub(crate) const fn translate_epoch_wr(epoch: WrEpoch) -> Epoch {
     Epoch(epoch.0)
 }
 
+/*
 #[inline]
 pub(crate) fn translate_image_descriptor_wr(descriptor: WrImageDescriptor) -> ImageDescriptor {
     ImageDescriptor {
@@ -761,6 +762,7 @@ pub fn translate_image_format_wr(input: WrImageFormat) -> ImageFormat {
         WrImageFormat::RGBA8 => ImageFormat::RGBA8,
     }
 }
+*/
 
 // core -> webrender
 
@@ -935,15 +937,33 @@ pub fn wr_translate_border_style(input: CssBorderStyle) -> WrBorderStyle {
 
 #[inline(always)]
 pub fn wr_translate_image_format(input: ImageFormat) -> WrImageFormat {
+    // TODO: re-code the image formats !
+
+    /*
+        R8,
+        RG8,
+        RGB8,
+        RGBA8,
+        R16,
+        RG16,
+        RGB16,
+        RGBA16,
+        BGR8,
+        BGRA8,
+    */
+
     match input {
         ImageFormat::R8 => WrImageFormat::R8,
+        ImageFormat::RG8 => WrImageFormat::RG8,
+        ImageFormat::RGBA8 => WrImageFormat::RGBA8,
         ImageFormat::R16 => WrImageFormat::R16,
         ImageFormat::RG16 => WrImageFormat::RG16,
         ImageFormat::BGRA8 => WrImageFormat::BGRA8,
-        ImageFormat::RGBAF32 => WrImageFormat::RGBAF32,
-        ImageFormat::RG8 => WrImageFormat::RG8,
-        ImageFormat::RGBAI32 => WrImageFormat::RGBAI32,
-        ImageFormat::RGBA8 => WrImageFormat::RGBA8,
+
+        ImageFormat::RGB16 => panic!("webrender: unsupported image format RGB16"),
+        ImageFormat::RGB8 => panic!("webrender: unsupported image format RGB8, need alpha channel"),
+        ImageFormat::RGBA16 => panic!("webrender: unsupported image format RGBA16"),
+        ImageFormat::BGR8 => panic!("webrender: unsupported image format BGR8"),
     }
 }
 

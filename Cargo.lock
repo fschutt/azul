@@ -168,7 +168,7 @@ dependencies = [
  "log",
  "raw-window-handle",
  "rust-fontconfig",
- "swgl",
+ "strfmt",
  "tinyfiledialogs",
  "webrender",
 ]
@@ -928,23 +928,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "glsl"
-version = "4.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05b734216bb31c65d063e0264c8bbc688be12441bce2363a179c05a5f63c8fb1"
-dependencies = [
- "nom 5.1.2",
-]
-
-[[package]]
-name = "glsl-to-cxx"
-version = "0.1.0"
-source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
-dependencies = [
- "glsl",
-]
-
-[[package]]
 name = "glslopt"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1464,16 +1447,6 @@ dependencies = [
 
 [[package]]
 name = "nom"
-version = "5.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffb4262d26ed83a1c0a33a38fe2bb15797329c85770da05e6b828ddb782627af"
-dependencies = [
- "memchr",
- "version_check",
-]
-
-[[package]]
-name = "nom"
 version = "6.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7413f999671bd4745a7b624bd370a569fb6bc574b23c83a3c5ed2e453f3d5e2"
@@ -1953,6 +1926,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
+name = "strfmt"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b278b244ef7aa5852b277f52dd0c6cac3a109919e1f6d699adde63251227a30f"
+
+[[package]]
 name = "strsim"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1972,17 +1951,6 @@ checksum = "9c536faaff1a10837cfe373142583f6e27d81e96beba339147e77b67c9f260ff"
 dependencies = [
  "float-cmp",
  "siphasher",
-]
-
-[[package]]
-name = "swgl"
-version = "0.1.0"
-source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
-dependencies = [
- "cc",
- "gleam",
- "glsl-to-cxx",
- "webrender_build",
 ]
 
 [[package]]
@@ -2505,7 +2473,7 @@ version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a9a231574ae78801646617cefd13bfe94be907c0e4fa979cfd8b770aa3c5d08"
 dependencies = [
- "nom 6.1.2",
+ "nom",
 ]
 
 [[package]]

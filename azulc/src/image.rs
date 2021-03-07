@@ -2,6 +2,7 @@
 
 use azul_core::app_resources::LoadedImageSource;
 use alloc::vec::Vec;
+use azul_core::app_resources::RawImageFormat;
 
 pub use image_crate::{ImageError, DynamicImage, GenericImageView};
 
@@ -16,7 +17,7 @@ pub fn decode_image_data(image_data: &[u8]) -> Result<LoadedImageSource, ImageEr
 
 pub fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, ImageError> {
     use azul_core::app_resources::{
-        RawImageFormat, ImageDescriptor, ImageDescriptorFlags, ImageData,
+        ImageDescriptor, ImageDescriptorFlags, ImageData,
         is_image_opaque, premultiply
     };
 
@@ -176,31 +177,90 @@ pub fn normalize_u16(i: u16) -> u8 {
     ((65535.0 / i as f32) * 255.0) as u8
 }
 
+const fn translate_rawimage_colortype(i: RawImageFormat) -> image_crate::ColorType {
+    match i {
+        RawImageFormat::R8 => image_crate::ColorType::L8,
+        RawImageFormat::RG8 => image_crate::ColorType::La8,
+        RawImageFormat::RGB8 => image_crate::ColorType::Rgb8,
+        RawImageFormat::RGBA8 => image_crate::ColorType::Rgba8,
+        RawImageFormat::R16 => image_crate::ColorType::L16,
+        RawImageFormat::RG16 => image_crate::ColorType::La16,
+        RawImageFormat::RGB16 => image_crate::ColorType::Rgb16,
+        RawImageFormat::RGBA16 => image_crate::ColorType::Rgba16,
+        RawImageFormat::BGR8 => image_crate::ColorType::Bgr8,
+        RawImageFormat::BGRA8 => image_crate::ColorType::Bgra8,
+    }
+}
+
+#[cfg(feature = "std")]
 pub mod encode {
-    use image_crate::{
-        PngEncoder, JpgEncoder, TgaEncoder,
-        DxtEncoder, PnmEncoder, TiffEncoder, HdrEncoder
+
+    use super::translate_rawimage_colortype;
+    use image_crate::codecs::{
+        bmp::BmpEncoder,
+        png::PngEncoder,
+        jpeg::JpegEncoder,
+        tga::TgaEncoder,
+        gif::GifEncoder,
+        dxt::DxtEncoder,
+        pnm::PnmEncoder,
+        tiff::TiffEncoder,
+        hdr::HdrEncoder,
     };
+    use azul_css::U8Vec;
+    use image_crate::error::ImageError;
+    use image::error::LimitError;
+    use image::error::LimitErrorKind;
+    use std::io::Cursor;
+    use azul_core::app_resources::RawImage;
 
     #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
     #[repr(C)]
     pub enum EncodeImageError {
-        OutOfMemory,
+        InsufficientMemory,
+        DimensionError,
         Unknown,
     }
 
-    pub fn encode_bmp(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {
-
+    fn translate_image_error_encode(i: ImageError) -> EncodeImageError {
+        match i {
+            ImageError::Limits(l) => match l.kind() {
+                LimitErrorKind::InsufficientMemory => EncodeImageError::InsufficientMemory,
+                LimitErrorKind::DimensionError => EncodeImageError::DimensionError,
+                _ => EncodeImageError::Unknown,
+            },
+            _ => EncodeImageError::Unknown,
+        }
     }
-    pub fn encode_png(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
-    pub fn encode_jpg(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
-    pub fn encode_tga(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
-    pub fn encode_dxt(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
-    pub fn encode_pnm(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
-    pub fn encode_tiff(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
-    pub fn encode_hdr(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
-}
 
-pub mod decode {
+    impl_result!(U8Vec, EncodeImageError, ResultU8VecEncodeImageError, copy = false, [Debug, Clone]);
 
+    macro_rules! encode_func {($func:ident, $encoder:ident) => (
+        pub fn $func(image: &RawImage) -> ResultU8VecEncodeImageError {
+            let mut result = Vec::<u8>::new();
+
+            {
+                let mut cursor = Cursor::new(&mut result);
+                let mut encoder = $encoder::new(&mut cursor);
+                if let Err(e) = encoder.encode(
+                    image.pixels.as_ref(),
+                    image.width as u32,
+                    image.height as u32,
+                    translate_rawimage_colortype(image.data_format),
+                ) {
+                    return ResultU8VecEncodeImageError::Err(translate_image_error_encode(e));
+                }
+            }
+
+            ResultU8VecEncodeImageError::Ok(result.into())
+        }
+    )}
+
+    encode_func!(encode_bmp, BmpEncoder);
+    encode_func!(encode_png, PngEncoder);
+    encode_func!(encode_jpeg, JpegEncoder);
+    encode_func!(encode_tga, TgaEncoder);
+    encode_func!(encode_tiff, TiffEncoder);
+    encode_func!(encode_gif, GifEncoder);
+    encode_func!(encode_pnm, PnmEncoder);
 }

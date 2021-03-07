@@ -1,5 +1,6 @@
 use azul_css::{U8Vec, AzString, OptionAzString};
 
+#[allow(non_camel_case_types)]
 pub enum c_void { }
 
 #[repr(C)]

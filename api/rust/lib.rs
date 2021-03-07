@@ -1167,6 +1167,12 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzFontId {
         pub id: usize,
     }
+    /// Re-export of rust-allocated (stack based) `EncodeImageError` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzEncodeImageError {
+        InsufficientMemory,
+        DimensionError,
+        Unknown,
+    }
     /// Re-export of rust-allocated (stack based) `Svg` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvg {
         pub(crate) ptr: *mut c_void,
@@ -2969,6 +2975,11 @@ mod dll {
         None,
         Some(AzU8VecRef),
     }
+    /// Re-export of rust-allocated (stack based) `ResultU8VecEncodeImageError` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultU8VecEncodeImageError {
+        Ok(AzU8Vec),
+        Err(AzEncodeImageError),
+    }
     /// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzNonXmlCharError {
         pub ch: u32,
@@ -3184,6 +3195,7 @@ mod dll {
         pub pixels: AzU8Vec,
         pub width: usize,
         pub height: usize,
+        pub has_premultiplied_alpha: bool,
         pub data_format: AzRawImageFormat,
     }
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
@@ -4502,6 +4514,13 @@ mod dll {
         pub(crate) fn AzTextureFlags_default() -> AzTextureFlags;
         pub(crate) fn AzImageId_new() -> AzImageId;
         pub(crate) fn AzFontId_new() -> AzFontId;
+        pub(crate) fn AzRawImage_encodeBmp(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
+        pub(crate) fn AzRawImage_encodePng(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
+        pub(crate) fn AzRawImage_encodeJpeg(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
+        pub(crate) fn AzRawImage_encodeTga(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
+        pub(crate) fn AzRawImage_encodePnm(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
+        pub(crate) fn AzRawImage_encodeGif(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
+        pub(crate) fn AzRawImage_encodeTiff(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzSvg_parseFrom(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
         pub(crate) fn AzSvg_getRoot(_:  &AzSvg) -> AzSvgXmlNode;
         pub(crate) fn AzSvg_toString(_:  &AzSvg, _:  AzSvgStringFormatOptions) -> AzString;
@@ -4561,6 +4580,7 @@ mod dll {
         pub(crate) fn AzCssPathSelectorVec_delete(_:  &mut AzCssPathSelectorVec);
         pub(crate) fn AzStylesheetVec_delete(_:  &mut AzStylesheetVec);
         pub(crate) fn AzCssRuleBlockVec_delete(_:  &mut AzCssRuleBlockVec);
+        pub(crate) fn AzU8Vec_asRefVec(_:  &AzU8Vec) -> AzU8VecRef;
         pub(crate) fn AzU8Vec_delete(_:  &mut AzU8Vec);
         pub(crate) fn AzCallbackDataVec_delete(_:  &mut AzCallbackDataVec);
         pub(crate) fn AzDebugMessageVec_delete(_:  &mut AzDebugMessageVec);
@@ -9113,9 +9133,29 @@ pub mod resources {
     /// `SystemFontSource` struct
     
 #[doc(inline)] pub use crate::dll::AzSystemFontSource as SystemFontSource;
+    /// `EncodeImageError` struct
+    
+#[doc(inline)] pub use crate::dll::AzEncodeImageError as EncodeImageError;
     /// `RawImage` struct
     
 #[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
+    impl RawImage {
+        /// Encodes the RawImage in the BMP image format
+        pub fn encode_bmp(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeBmp(self) } }
+        /// Encodes the RawImage in the PNG image format
+        pub fn encode_png(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodePng(self) } }
+        /// Encodes the RawImage in the JPG image format
+        pub fn encode_jpeg(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeJpeg(self) } }
+        /// Encodes the RawImage in the TGA image format
+        pub fn encode_tga(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeTga(self) } }
+        /// Encodes the RawImage in the PNM image format
+        pub fn encode_pnm(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodePnm(self) } }
+        /// Encodes the RawImage in the GIF image format
+        pub fn encode_gif(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeGif(self) } }
+        /// Encodes the RawImage in the TIFF image format
+        pub fn encode_tiff(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeTiff(self) } }
+    }
+
 }
 
 pub mod svg {
@@ -9849,6 +9889,11 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `U8Vec`
     
 #[doc(inline)] pub use crate::dll::AzU8Vec as U8Vec;
+    impl U8Vec {
+        /// Calls the `U8Vec::as_ref_vec` function.
+        pub fn as_ref_vec(&self)  -> crate::gl::U8VecRef { unsafe { crate::dll::AzU8Vec_asRefVec(self) } }
+    }
+
     /// Wrapper over a Rust-allocated `CallbackData`
     
 #[doc(inline)] pub use crate::dll::AzCallbackDataVec as CallbackDataVec;
@@ -10449,6 +10494,9 @@ pub mod error {
     //! Definition of error and `Result<T, E>`  types
     use crate::dll::*;
     use core::ffi::c_void;
+    /// `ResultU8VecEncodeImageError` struct
+    
+#[doc(inline)] pub use crate::dll::AzResultU8VecEncodeImageError as ResultU8VecEncodeImageError;
     /// `ResultSvgXmlNodeSvgParseError` struct
     
 #[doc(inline)] pub use crate::dll::AzResultSvgXmlNodeSvgParseError as ResultSvgXmlNodeSvgParseError;

@@ -1725,10 +1725,10 @@ def build_dll():
     # cwd = root_folder + "/azul-dll"
 
     if platform == "linux" or platform == "linux2": # TODO: freebsd?
+        #             rustup toolchain install stable-x86_64-unknown-linux-gnu  &&
+        #             rustup override set stable-x86_64-unknown-linux-gnu  &&
         os.system("""
             cd azul-dll  &&
-            rustup toolchain install stable-x86_64-unknown-linux-gnu  &&
-            rustup override set stable-x86_64-unknown-linux-gnu  &&
             RUSTLFLAGS="-Ctarget-feature=-crt-static" cargo build --lib --target=x86_64-unknown-linux-gnu --all-features --release  &&
             cd ..
         """)

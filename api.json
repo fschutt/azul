@@ -6143,13 +6143,15 @@
 					"derive": ["Copy"],
 					"enum_fields": [
 						{"R8": {}},
+						{"RG8": {}},
+						{"RGB8": {}},
+						{"RGBA8": {}},
 						{"R16": {}},
 						{"RG16": {}},
-						{"BGRA8": {}},
-						{"RGBAF32": {}},
-						{"RG8": {}},
-						{"RGBAI32": {}},
-						{"RGBA8": {}}
+						{"RGB16": {}},
+						{"RGBA16": {}},
+						{"BGR8": {}},
+						{"BGRA8": {}}
 					]
 				},
 				"ImageId": {
@@ -6217,86 +6219,79 @@
 						{ "load_glyph_outlines": {"type": "bool", "doc": "Whether the glyph outlines should be loaded - must be explicitly enabled in order to save RAM" } }
 					]
 				},
+				"EncodeImageError": {
+					"external": "azul_impl::resources::encode::EncodeImageError",
+					"enum_fields": [
+						{"InsufficientMemory": {"doc": "Not enough memory available to perform the encoding operation"}},
+						{"DimensionError": {"doc": "Width x height x channels does not match the image data"}},
+						{"Unknown": {"doc": "Unknown error"}}
+					]
+				},
 				"RawImage": {
 					"external": "azul_impl::resources::RawImage",
 					"struct_fields": [
-						{"pixels": {"type": "U8Vec"}},
-						{"width": {"type": "usize"}},
-						{"height": {"type": "usize"}},
-						{"data_format": {"type": "RawImageFormat"}}
+						{"pixels": {"type": "U8Vec", "doc": "Decoded image bytes"}},
+						{"width": {"type": "usize", "doc": "Width of the image"}},
+						{"height": {"type": "usize", "doc": "Height of the image"}},
+						{"has_premultiplied_alpha": {"type": "bool", "doc": "Whether the image already has the alpha channel premultiplied"}},
+						{"data_format": {"type": "RawImageFormat", "doc": "Which data format (channels) the image uses"}}
 					],
 					"functions": {
 						"encode_bmp": {
 							"doc": "Encodes the RawImage in the BMP image format",
 							"fn_args": [
-								{"self": "value"}
+								{"self": "ref"}
 							],
-							"returns": "U8Vec",
-							"fn_body": ""
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_bmp(rawimage)"
 						},
 						"encode_png": {
 							"doc": "Encodes the RawImage in the PNG image format",
 							"fn_args": [
-								{"self": "value"}
+								{"self": "ref"}
 							],
-							"returns": "U8Vec",
-							"fn_body": ""
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_png(rawimage)"
 						},
-						"encode_jpg": {
+						"encode_jpeg": {
 							"doc": "Encodes the RawImage in the JPG image format",
 							"fn_args": [
-								{"self": "value"}
+								{"self": "ref"}
 							],
-							"returns": "U8Vec",
-							"fn_body": ""
-						},
-						"encode_webp": {
-							"doc": "Encodes the RawImage in the WEBP image format",
-							"fn_args": [
-								{"self": "value"}
-							],
-							"returns": "U8Vec",
-							"fn_body": ""
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_jpeg(rawimage)"
 						},
 						"encode_tga": {
 							"doc": "Encodes the RawImage in the TGA image format",
 							"fn_args": [
-								{"self": "value"}
+								{"self": "ref"}
 							],
-							"returns": "U8Vec",
-							"fn_body": ""
-						},
-						"encode_dxt": {
-							"doc": "Encodes the RawImage in the DXT image format",
-							"fn_args": [
-								{"self": "value"}
-							],
-							"returns": "U8Vec",
-							"fn_body": ""
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_tga(rawimage)"
 						},
 						"encode_pnm": {
 							"doc": "Encodes the RawImage in the PNM image format",
 							"fn_args": [
-								{"self": "value"}
+								{"self": "ref"}
 							],
-							"returns": "U8Vec",
-							"fn_body": ""
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_pnm(rawimage)"
+						},
+						"encode_gif": {
+							"doc": "Encodes the RawImage in the GIF image format",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_gif(rawimage)"
 						},
 						"encode_tiff": {
 							"doc": "Encodes the RawImage in the TIFF image format",
 							"fn_args": [
-								{"self": "value"}
+								{"self": "ref"}
 							],
-							"returns": "U8Vec",
-							"fn_body": ""
-						},
-						"encode_hdr": {
-							"doc": "Encodes the RawImage in the HDR image format",
-							"fn_args": [
-								{"self": "value"}
-							],
-							"returns": "U8Vec",
-							"fn_body": ""
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_tiff(rawimage)"
 						}
 					}
 				},
@@ -7393,37 +7388,13 @@
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "U8VecDestructor" } }
 					],
-					"constructors": {
-						"decompress_brotli": {
-
-						},
-						"decompress_gzip": {
-
-						},
-						"decompress_lzw": {
-
-						},
-					},
 					"functions": {
 						"as_ref_vec": {
 							"fn_args": [
 								{"self": "ref"}
-							]
-						},
-						"compress_brotli": {
-							"fn_args": [
-								{"self": "ref"}
-							]
-						},
-						"compress_gzip": {
-							"fn_args": [
-								{"self": "ref"}
-							]
-						},
-						"compress_lzw": {
-							"fn_args": [
-								{"self": "ref"}
-							]
+							],
+							"returns": {"type": "U8VecRef"},
+							"fn_body": "u8vec.as_ref().into()"
 						}
 					}
 				},
@@ -8608,6 +8579,13 @@
 		"error": {
 			"doc": "Definition of error and `Result<T, E>`  types",
 			"classes": {
+				"ResultU8VecEncodeImageError": {
+					"external": "azul_impl::resources::encode::ResultU8VecEncodeImageError",
+					"enum_fields": [
+						{"Ok": {"type": "U8Vec"}},
+						{"Err": { "type": "EncodeImageError" }}
+					]
+				},
 				"ResultSvgXmlNodeSvgParseError": {
 					"external": "azul_impl::svg::ResultSvgXmlNodeSvgParseError",
 					"enum_fields": [

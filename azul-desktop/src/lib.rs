@@ -15,6 +15,7 @@ extern crate core;
 #[macro_use]
 extern crate alloc;
 
+extern crate strfmt;
 #[macro_use]
 extern crate azul_css;
 extern crate rust_fontconfig;
@@ -57,6 +58,8 @@ pub mod window;
 /// Font & image resource handling, lookup and caching
 pub mod resources {
     pub use azul_core::app_resources::*;
+    pub use azulc_lib::image::*;
+    pub use azulc_lib::font::*;
 }
 mod compositor;
 #[cfg(feature = "logging")]
