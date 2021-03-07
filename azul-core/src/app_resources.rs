@@ -736,7 +736,6 @@ impl ShapedWords {
     pub fn get_baseline_px(&self, target_font_size: f32) -> f32 {
         target_font_size + self.get_descender(target_font_size)
     }
-
     /// NOTE: descender is NEGATIVE
     pub fn get_descender(&self, target_font_size: f32) -> f32 {
         self.font_metrics_descender as f32 / self.font_metrics_units_per_em as f32 * target_font_size
@@ -786,14 +785,6 @@ pub enum GlyphOrigin {
 pub enum Placement {
     None,
     Distance(PlacementDistance),
-    Anchor(AnchorPlacement),
-}
-
-#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
-#[repr(C)]
-pub struct AnchorPlacement {
-    pub x: Anchor,
-    pub y: Anchor,
 }
 
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
@@ -808,38 +799,66 @@ impl Placement {
     pub fn get_placement_relative(&self, units_per_em: u16, target_font_size: f32) -> LogicalPosition {
         let font_metrics_divisor = units_per_em as f32 / target_font_size;
         match self {
-            Placement::None | Placement::Anchor(_) => LogicalPosition::new(0.0, 0.0),
+            Placement::None => LogicalPosition::new(0.0, 0.0),
             Placement::Distance(PlacementDistance { x, y }) => LogicalPosition::new(*x as f32 / font_metrics_divisor, *y as f32 / font_metrics_divisor),
         }
     }
 }
 
+/// When not Attachment::None indicates that this glyph
+/// is an attachment with placement indicated by the variant.
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C, u8)]
-pub enum MarkPlacement {
+pub enum Attachment {
     None,
     MarkAnchor(MarkAnchorPlacement),
+    /// An overprint mark.
+    ///
+    /// This mark is shown at the same position as the base glyph.
+    ///
+    /// Fields: (base glyph index in `Vec<GlyphInfo>`)
     MarkOverprint(usize),
+    CursiveAnchor(CursiveAnchorPlacement),
 }
 
+/// Cursive anchored placement.
+///
+/// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-3-cursive-attachment-positioning-subtable
+#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+#[repr(C)]
+pub struct CursiveAnchorPlacement {
+    /// exit glyph index in the `Vec<GlyphInfo>`
+    pub exit_glyph_index: usize,
+    /// exit glyph anchor
+    pub exit_glyph_anchor: Anchor,
+    /// entry glyph anchor
+    pub entry_glyph_anchor: Anchor,
+}
+
+/// An anchored mark.
+///
+/// This is a mark where its anchor is aligned with the base glyph anchor.
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
 pub struct MarkAnchorPlacement {
-    pub index: usize,
-    pub _0: Anchor,
-    pub _1: Anchor,
+    /// base glyph index in `Vec<GlyphInfo>`
+    pub base_glyph_index: usize,
+    /// base glyph anchor
+    pub base_glyph_anchor: Anchor,
+    /// mark anchor
+    pub mark_anchor: Anchor,
 }
 
-impl MarkPlacement {
+impl Attachment {
     #[inline]
     pub fn get_placement_relative(&self, units_per_em: u16, target_font_size: f32) -> (f32, f32) {
         match self {
-            MarkPlacement::None => (0.0, 0.0),
-            MarkPlacement::MarkAnchor(anchor) => {
+            Attachment::None => (0.0, 0.0),
+            Attachment::MarkAnchor(anchor) => {
                 let font_metrics_divisor = units_per_em as f32 / target_font_size;
-                (anchor._0.x as f32 / font_metrics_divisor, anchor._0.y as f32 / font_metrics_divisor)
+                (anchor.mark_anchor.x as f32 / font_metrics_divisor, anchor.mark_anchor.y as f32 / font_metrics_divisor)
             },
-            MarkPlacement::MarkOverprint(_) => (0.0, 0.0),
+            Attachment::MarkOverprint(_) | Attachment::CursiveAnchor(_) => (0.0, 0.0),
         }
     }
 }
@@ -883,7 +902,7 @@ pub struct GlyphInfo {
     pub glyph: RawGlyph,
     pub size: Advance,
     pub placement: Placement,
-    pub mark_placement: MarkPlacement,
+    pub attachment: Attachment,
 }
 
 #[cfg(feature = "multithreading")]
@@ -939,17 +958,21 @@ pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_po
 
                         // if the character is a mark, the mark displacement has to be added ON TOP OF the existing displacement
                         // the origin should be relative to the word, not the final text
-                        let (letter_spacing_for_glyph, origin) = match glyph_info.mark_placement {
-                            MarkPlacement::None => {
+                        let (letter_spacing_for_glyph, origin) = match glyph_info.attachment {
+                            Attachment::None => {
                                 (letter_spacing_px, LogicalPosition::new(x_pos_in_word_px + displacement.x, displacement.y))
                             },
-                            MarkPlacement::MarkAnchor(MarkAnchorPlacement { index, .. }) => {
-                                let anchor = &all_glyphs_in_this_word[index];
+                            Attachment::MarkAnchor(MarkAnchorPlacement { base_glyph_index, .. }) => {
+                                let anchor = &all_glyphs_in_this_word[base_glyph_index];
                                 (0.0, anchor.bounds.origin + displacement) // TODO: wrong
                             },
-                            MarkPlacement::MarkOverprint(index) => {
+                            Attachment::MarkOverprint(index) => {
                                 let anchor = &all_glyphs_in_this_word[index];
-                                (0.0,anchor.bounds.origin + displacement)
+                                (0.0, anchor.bounds.origin + displacement)
+                            },
+                            Attachment::CursiveAnchor(CursiveAnchorPlacement { exit_glyph_index, .. }) => {
+                                let anchor = &all_glyphs_in_this_word[exit_glyph_index];
+                                (0.0, anchor.bounds.origin + displacement) // TODO: wrong
                             },
                         };
 
@@ -1073,7 +1096,7 @@ impl ShapedWord {
     }
     /// Returns the number of glyphs THAT ARE NOT DIACRITIC MARKS
     pub fn number_of_glyphs(&self) -> usize {
-        self.glyph_infos.iter().filter(|i| i.mark_placement == MarkPlacement::None).count()
+        self.glyph_infos.iter().filter(|i| i.attachment == Attachment::None).count()
     }
 }
 

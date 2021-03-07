@@ -1,6 +1,6 @@
 use azul_core::app_resources::{
     FontMetrics, VariationSelector, Anchor,
-    GlyphOrigin, RawGlyph, Placement, MarkPlacement,
+    GlyphOrigin, RawGlyph, Placement, Attachment,
     GlyphInfo, Advance,
 };
 use tinyvec::tiny_vec;
@@ -839,7 +839,7 @@ fn translate_info(i: &allsorts_no_std::gpos::Info, size: Advance) -> GlyphInfo {
         glyph: translate_raw_glyph(&i.glyph),
         size,
         placement: translate_placement(&i.placement),
-        mark_placement: translate_mark_placement(&i.mark_placement),
+        attachment: translate_attachment(&i.attachment),
     }
 }
 
@@ -887,29 +887,30 @@ const fn translate_glyph_origin(g: &allsorts_no_std::gsub::GlyphOrigin) -> Glyph
 #[inline]
 const fn translate_placement(p: &allsorts_no_std::gpos::Placement) -> Placement {
     use allsorts_no_std::gpos::Placement::*;
-    use azul_core::app_resources::{PlacementDistance, AnchorPlacement};
+    use azul_core::app_resources::PlacementDistance;
     match p {
         None => Placement::None,
         Distance(x, y) => Placement::Distance(PlacementDistance { x: *x, y: *y }),
-        Anchor(a, b) => Placement::Anchor(AnchorPlacement {
-            x: translate_anchor(a),
-            y: translate_anchor(b),
-        }),
     }
 }
 
 #[inline]
-const fn translate_mark_placement(mp: &allsorts_no_std::gpos::MarkPlacement) -> MarkPlacement {
-    use allsorts_no_std::gpos::MarkPlacement::*;
-    use azul_core::app_resources::MarkAnchorPlacement;
-    match mp {
-        None => MarkPlacement::None,
-        MarkAnchor(a, b, c) => MarkPlacement::MarkAnchor(MarkAnchorPlacement {
-            index: *a,
-            _0: translate_anchor(b),
-            _1: translate_anchor(c),
+const fn translate_attachment(a: &allsorts_no_std::gpos::Attachment) -> Attachment {
+    use allsorts_no_std::gpos::Attachment::*;
+    use azul_core::app_resources::{MarkAnchorPlacement, CursiveAnchorPlacement};
+    match a {
+        None => Attachment::None,
+        MarkOverprint(a) => Attachment::MarkOverprint(*a),
+        MarkAnchor(a, b, c) => Attachment::MarkAnchor(MarkAnchorPlacement {
+            base_glyph_index: *a,
+            base_glyph_anchor: translate_anchor(b),
+            mark_anchor: translate_anchor(c),
         }),
-        MarkOverprint(a) => MarkPlacement::MarkOverprint(*a),
+        CursiveAnchor(a, b, c) => Attachment::CursiveAnchor(CursiveAnchorPlacement {
+            exit_glyph_index: *a,
+            exit_glyph_anchor: translate_anchor(b),
+            entry_glyph_anchor: translate_anchor(c),
+        }),
     }
 }
 
