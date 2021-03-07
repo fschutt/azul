@@ -359,13 +359,15 @@ impl ::core::fmt::Debug for IdNamespace {
 #[repr(C)]
 pub enum RawImageFormat {
     R8,
+    RG8,
+    RGB8,
+    RGBA8,
     R16,
     RG16,
+    RGB16,
+    RGBA16,
+    BGR8,
     BGRA8,
-    RGBAF32,
-    RG8,
-    RGBAI32,
-    RGBA8,
 }
 
 static IMAGE_KEY: AtomicU32 = AtomicU32::new(0);
@@ -590,6 +592,7 @@ pub struct RawImage {
     pub pixels: U8Vec,
     pub width: usize,
     pub height: usize,
+    pub premultiplied_alpha: bool,
     pub data_format: RawImageFormat,
 }
 

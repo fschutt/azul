@@ -6224,7 +6224,81 @@
 						{"width": {"type": "usize"}},
 						{"height": {"type": "usize"}},
 						{"data_format": {"type": "RawImageFormat"}}
-					]
+					],
+					"functions": {
+						"encode_bmp": {
+							"doc": "Encodes the RawImage in the BMP image format",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"returns": "U8Vec",
+							"fn_body": ""
+						},
+						"encode_png": {
+							"doc": "Encodes the RawImage in the PNG image format",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"returns": "U8Vec",
+							"fn_body": ""
+						},
+						"encode_jpg": {
+							"doc": "Encodes the RawImage in the JPG image format",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"returns": "U8Vec",
+							"fn_body": ""
+						},
+						"encode_webp": {
+							"doc": "Encodes the RawImage in the WEBP image format",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"returns": "U8Vec",
+							"fn_body": ""
+						},
+						"encode_tga": {
+							"doc": "Encodes the RawImage in the TGA image format",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"returns": "U8Vec",
+							"fn_body": ""
+						},
+						"encode_dxt": {
+							"doc": "Encodes the RawImage in the DXT image format",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"returns": "U8Vec",
+							"fn_body": ""
+						},
+						"encode_pnm": {
+							"doc": "Encodes the RawImage in the PNM image format",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"returns": "U8Vec",
+							"fn_body": ""
+						},
+						"encode_tiff": {
+							"doc": "Encodes the RawImage in the TIFF image format",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"returns": "U8Vec",
+							"fn_body": ""
+						},
+						"encode_hdr": {
+							"doc": "Encodes the RawImage in the HDR image format",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"returns": "U8Vec",
+							"fn_body": ""
+						}
+					}
 				},
 				"RawImageFormat": {
 					"external": "azul_impl::resources::RawImageFormat",
@@ -7318,7 +7392,40 @@
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "U8VecDestructor" } }
-					]
+					],
+					"constructors": {
+						"decompress_brotli": {
+
+						},
+						"decompress_gzip": {
+
+						},
+						"decompress_lzw": {
+
+						},
+					},
+					"functions": {
+						"as_ref_vec": {
+							"fn_args": [
+								{"self": "ref"}
+							]
+						},
+						"compress_brotli": {
+							"fn_args": [
+								{"self": "ref"}
+							]
+						},
+						"compress_gzip": {
+							"fn_args": [
+								{"self": "ref"}
+							]
+						},
+						"compress_lzw": {
+							"fn_args": [
+								{"self": "ref"}
+							]
+						}
+					}
 				},
 				"CallbackDataVec": {
 					"doc": "Wrapper over a Rust-allocated `CallbackData`",

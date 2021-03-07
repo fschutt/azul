@@ -175,3 +175,32 @@ pub fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, I
 pub fn normalize_u16(i: u16) -> u8 {
     ((65535.0 / i as f32) * 255.0) as u8
 }
+
+pub mod encode {
+    use image_crate::{
+        PngEncoder, JpgEncoder, TgaEncoder,
+        DxtEncoder, PnmEncoder, TiffEncoder, HdrEncoder
+    };
+
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
+    #[repr(C)]
+    pub enum EncodeImageError {
+        OutOfMemory,
+        Unknown,
+    }
+
+    pub fn encode_bmp(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {
+
+    }
+    pub fn encode_png(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
+    pub fn encode_jpg(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
+    pub fn encode_tga(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
+    pub fn encode_dxt(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
+    pub fn encode_pnm(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
+    pub fn encode_tiff(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
+    pub fn encode_hdr(image: &RawImage) -> Result<Vec<u8>, EncodeImageError> {}
+}
+
+pub mod decode {
+
+}
