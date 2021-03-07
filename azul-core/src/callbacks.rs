@@ -31,7 +31,7 @@ use crate::{
     window::{
         WindowSize, WindowState, FullWindowState, LogicalPosition, OptionChar,
         LogicalSize, PhysicalSize, UpdateFocusWarning, WindowCreateOptions,
-        RawWindowHandle, KeyboardState, MouseState, LogicalRect,
+        RawWindowHandle, KeyboardState, MouseState, LogicalRect, WindowTheme,
     },
     task::{
         Timer, Thread, TimerId, ThreadId, Instant, ExternalSystemCallbacks,
@@ -1383,6 +1383,8 @@ pub struct LayoutInfo {
     /// the window size - mobile / desktop view). Should be later removed
     /// in favor of "resize" handlers and @media queries.
     window_size: *const WindowSize,
+    /// Registers whether the UI is dependent on the window theme
+    theme: *const WindowTheme,
     /// Optimization for resizing: If a DOM has no Iframes and the window size
     /// does not change the state of the UI, then resizing the window will not
     /// result in calls to the .layout() function (since the resulting UI would
@@ -1393,6 +1395,8 @@ pub struct LayoutInfo {
     window_size_width_stops: *mut Vec<f32>,
     /// Same as `window_size_width_stops` but for the height of the window.
     window_size_height_stops: *mut Vec<f32>,
+    /// Registers whether the UI is theme-dependent
+    is_theme_dependent: *mut bool,
     /// Allows the layout() function to reference app resources such as FontIDs or ImageIDs
     resources: *const AppResources,
 }
@@ -1401,21 +1405,27 @@ impl LayoutInfo {
 
     pub fn new<'a>(
         window_size: &'a WindowSize,
+        theme: &'a WindowTheme,
         window_size_width_stops: &'a mut Vec<f32>,
         window_size_height_stops: &'a mut Vec<f32>,
+        is_theme_dependent: &'a mut bool,
         resources: &'a AppResources,
     ) -> Self {
         Self {
             window_size: window_size as *const WindowSize,
+            theme: theme as *const WindowTheme,
             window_size_width_stops: window_size_width_stops as *mut Vec<f32>,
             window_size_height_stops: window_size_height_stops as *mut Vec<f32>,
+            is_theme_dependent: is_theme_dependent as *mut bool,
             resources: resources as *const AppResources,
         }
     }
 
     fn internal_get_window_size<'a>(&'a self) -> &'a WindowSize { unsafe { &*self.window_size } }
-    fn internal_get_window_size_width_stops<'a>(&'a self) -> &'a mut Vec<f32> { unsafe { &mut *self.window_size_width_stops } }
-    fn internal_get_window_size_height_stops<'a>(&'a self) -> &'a mut Vec<f32> { unsafe { &mut *self.window_size_height_stops } }
+    fn internal_get_theme<'a>(&'a self) -> &'a WindowTheme { unsafe { &*self.theme } }
+    fn internal_get_window_size_width_stops<'a>(&'a mut self) -> &'a mut Vec<f32> { unsafe { &mut *self.window_size_width_stops } }
+    fn internal_get_window_size_height_stops<'a>(&'a mut self) -> &'a mut Vec<f32> { unsafe { &mut *self.window_size_height_stops } }
+    fn internal_get_is_theme_dependent<'a>(&'a mut self) -> &'a mut bool { unsafe { &mut *self.is_theme_dependent } }
     fn internal_get_resources<'a>(&'a self) -> &'a AppResources { unsafe { &*self.resources } }
 
     /// Returns whether the window width is larger than `width`,
@@ -1459,6 +1469,11 @@ impl LayoutInfo {
     pub fn window_height_smaller_than(&mut self, height: f32) -> bool {
         self.internal_get_window_size_height_stops().push(height);
         self.internal_get_window_size().get_logical_size().height < height
+    }
+
+    pub fn uses_dark_theme(&mut self) -> bool {
+        *self.internal_get_is_theme_dependent() = true;
+        *self.internal_get_theme() == WindowTheme::DarkMode
     }
 }
 

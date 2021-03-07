@@ -1,10 +1,21 @@
 
-/* macro to turn a compile-time string into a compile-time AzString
+/* Macro to turn a compile-time string into a compile-time AzString
  *
- * AzString foo = AZ_STATIC_STRING(\"MyString\");
+ * static AzString foo = AzString_fromConstStr(\"MyString\");
  */
-#define AzString_fromConstStr(s) { .vec = { .ptr = s, .len = sizeof(s) - 1, .cap = sizeof(s) - 1, .destructor = { .NoDestructor = { .tag = AzU8VecDestructorTag_NoDestructor, }, }, }, }
+#define AzString_fromConstStr(s) { \
+    .vec = { \
+        .ptr = s, \
+        .len = sizeof(s) - 1, \
+        .cap = sizeof(s) - 1, \
+        .destructor = AzU8VecDestructor_NoDestructor, \
+    } \
+}
 
+/* Macro to initialize a compile-time AzNodeData struct
+ *
+ * static AzNodeData foo = AzNodeData_new(AzNodeType_Div);
+ */
 #define AzNodeData_new(nt) { \
     .node_type = nt, \
     .dataset = AzOptionRefAny_None, \
@@ -15,12 +26,64 @@
     .tab_index = AzOptionTabIndex_None, \
 }
 
+/* Macro to initialize a compile-time AzDom struct
+ *
+ * static AzDom foo = AzDom_new(AzNodeType_Div);
+ */
 #define AzDom_new(nt) { \
     .root = AzNodeData_new(nt),\
     .children = AzDomVec_empty, \
     .total_children = 0, \
 }
 
+/* Macro to initialize the default AppConfig struct, must be in a header file
+ * so that the LayoutSolverVersion is defined by the binary, not the library -
+ * this way upgrading the library won't break the application layout
+ *
+ * AzAppConfig foo = AzAppConfig_default();
+ */
+#define AzAppConfig_default() { \
+    .layout_model = AzLayoutSolverVersion_March2021, \
+    .log_level = AzAppLogLevel_Error, \
+    .enable_visual_panic_hook = true, \
+    .enable_logging_on_panic = true, \
+    .enable_tab_navigation = true, \
+    .system_callbacks = AzSystemCallbacks::library_internal(), \
+}
+
+/* Macro to generate reflection metadata for a given struct - for a "structName" of "foo", generates:
+ *
+ * constants:
+ * - a foo_RttiTypeId, which serves as the "type ID" for that struct
+ * - a foo_RttiString, a compile-time string that identifies the class
+ *
+ * structs:
+ * - struct fooRef(): immutable reference to a RefAny<foo>
+ * - struct fooRefMut(): mutable reference to a RefAny<foo>
+ *
+ * functions:
+ * - AzRefAny foo_upcast(myStructInstance): upcasts a #structName to a RefAny
+ *
+ * - fooRef_create(AzRefAny): creates a new fooRef, but does not yet downcast it (.ptr is set to nullptr)
+ * - fooRefMut_create(AzRefAny): creates a new fooRefMut, but does not yet downcast it (.ptr is set to nullptr)
+ *
+ * - bool foo_downcastRef(AzRefAny, fooRef* restrict): downcasts the RefAny immutably, if true is returned then the fooRef is properly initialized
+ * - bool foo_downcastMut(AzRefAny, fooRefMut* restrict): downcasts the RefAny mutably, if true is returned then the fooRef is properly initialized
+ *
+ * - void fooRef_delete(fooRef): disposes of the fooRef and decreases the immutable reference count
+ * - void fooRefMut_delete(fooRefMut): disposes of the fooRefMut and decreases the mutable reference count
+ * - bool fooRefAny_delete(AzRefAny): disposes of the AzRefAny type, returns false if the AzRefAny is not of type RefAny<foo>
+ *
+ * USAGE:
+ *
+ *     typedef struct { } foo;
+ *
+ *     // -- destructor of foo, azul will call this function once the refcount hits 0
+ *     // note: the function expects a void*, but you can just use a foo*
+ *     void fooDestructor(foo* restrict destructorPtr) { }
+ *
+ *     AZ_REFLECT(foo, fooDestructor)
+*/
 #define AZ_REFLECT(structName, destructor) \
     /* in C all statics are guaranteed to have a unique address, use that address as a TypeId */ \
     static uint64_t const structName##_RttiTypePtrId = 0; \
@@ -68,12 +131,12 @@
     } \
     \
     /* releases a structNameRef (decreases the RefCount) */ \
-    bool structName##Ref_delete(structName##Ref* restrict value) { \
+    void structName##Ref_delete(structName##Ref* restrict value) { \
         AzRefCount_decreaseRef(&value->sharing_info); \
     }\
     \
     /* releases a structNameRefMut (decreases the mutable RefCount) */ \
-    bool structName##RefMut_delete(structName##RefMut* restrict value) { \
+    void structName##RefMut_delete(structName##RefMut* restrict value) { \
         AzRefCount_decreaseRefmut(&value->sharing_info); \
     }\
     /* releases a structNameRefAny (checks if the RefCount is 0 and calls the destructor) */ \

@@ -52,18 +52,13 @@
 					"external": "azul_impl::resources::AppConfig",
 					"doc": "Configuration for optional features, such as whether to enable logging or panic hooks",
 					"struct_fields": [
+						{"layout_solver": {"type": "LayoutSolverVersion", "doc": "Which layout solver version to use, necessary so that future upgrades don't break the layout of old programs"}},
 						{"log_level": {"type": "AppLogLevel", "doc": "If enabled, logs error and info messages"}},
 						{"enable_visual_panic_hook": {"type": "bool", "doc": "If the app crashes / panics, a window with a message box pops up"}},
 						{"enable_logging_on_panic": {"type": "bool", "doc": "If set, a backtrace + error information gets logged to stdout (if the log_level is not `LogLevel::Off`)"}},
 						{"enable_tab_navigation": {"type": "bool", "doc": "Whether keyboard navigation should be enabled"}},
 						{"system_callbacks": {"type": "SystemCallbacks", "doc": "External callbacks to create a thread or get the curent time"}}
-					],
-					"constructors": {
-						"default": {
-							"doc": "Creates a new AppConfig with default values",
-							"fn_body": "AppConfig::default()"
-						}
-					}
+					]
 				},
 				"AppLogLevel": {
 					"doc": "Configuration to set which messages should be logged.",
@@ -76,6 +71,13 @@
 						{"Info": {"doc": "Log informational messages"}},
 						{"Debug": {"doc": "Log debug messages"}},
 						{"Trace": {"doc": "Log tracing information"}}
+					]
+				},
+				"LayoutSolverVersion": {
+					"external": "azul_impl::resources::LayoutSolverVersion",
+					"doc": "Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.",
+					"enum_fields": [
+						{"March2021": {"doc": "Default, current layout solver version"}}
 					]
 				}
 			}
@@ -1732,9 +1734,11 @@
 					"external": "azul_impl::callbacks::LayoutInfo",
 					"clone": false,
 					"struct_fields": [
-						{"window_size": {"type": "*const WindowSize"}},
+						{"window_size": {"type": "*const c_void"}},
+						{"theme": {"type": "*const c_void"}},
 						{"window_size_width_stops": {"type": "*mut c_void"}},
 						{"window_size_height_stops": {"type": "*mut c_void"}},
+						{"is_theme_dependent": {"type": "*mut c_void"}},
 						{"resources": {"type": "*const c_void"}}
 					],
 					"functions": {
@@ -1769,6 +1773,14 @@
 							],
 							"returns": {"type": "bool"},
 							"fn_body": "layoutinfo.window_height_smaller_than(width)"
+						},
+						"uses_dark_theme": {
+							"doc": "Returns whether the window uses a dark or light theme - azul will register that the UI is dependent on theming and call the layout callback again when the theme changes",
+							"fn_args": [
+								{"self": "refmut"}
+							],
+							"returns": {"type": "bool"},
+							"fn_body": "layoutinfo.uses_dark_theme()"
 						}
 					}
 				},
@@ -1778,7 +1790,13 @@
 					"struct_fields": [
 						{"create_thread_fn": {"type": "CreateThreadFn"}},
 						{"get_system_time_fn": {"type": "GetSystemTimeFn"}}
-					]
+					],
+					"constructors": {
+						"library_internal": {
+							"doc": "Use the default, library-internal callbacks instead of providing your own",
+							"fn_body": "AzSystemCallbacks::rust_internal()"
+						}
+					}
 				}
 			}
 		},

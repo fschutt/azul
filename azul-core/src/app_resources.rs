@@ -26,6 +26,9 @@ use rust_fontconfig::FcFontCache;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct AppConfig {
+    /// Which layout model to use - used for versioning changes in the layout
+    /// solver so that upgrading azul won't break existing apps
+    pub layout_solver: LayoutSolverVersion,
     /// If enabled, logs error and info messages.
     ///
     /// Default is `LevelFilter::Error` to log all errors by default
@@ -43,17 +46,11 @@ pub struct AppConfig {
     pub system_callbacks: ExternalSystemCallbacks,
 }
 
-#[cfg(feature = "std")]
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            log_level: AppLogLevel::Error,
-            enable_visual_panic_hook: true,
-            enable_logging_on_panic: true,
-            enable_tab_navigation: true,
-            system_callbacks: ExternalSystemCallbacks::rust_internal(),
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum LayoutSolverVersion {
+    /// Current layout model
+    March2021,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -174,6 +174,10 @@ mod dll {
         Debug,
         Trace,
     }
+    /// Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzLayoutSolverVersion {
+        March2021,
+    }
     /// Whether the renderer has VSync enabled
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzVsync {
         Enabled,
@@ -614,6 +618,15 @@ mod dll {
     pub type AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver);
     /// `AzRefAnyDestructorType` struct
     pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
+    /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzLayoutInfo {
+        pub window_size: *const c_void,
+        pub theme: *const c_void,
+        pub window_size_width_stops: *mut c_void,
+        pub window_size_height_stops: *mut c_void,
+        pub is_theme_dependent: *mut c_void,
+        pub resources: *const c_void,
+    }
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOn {
         MouseOver,
@@ -2996,6 +3009,7 @@ mod dll {
     }
     /// Configuration for optional features, such as whether to enable logging or panic hooks
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzAppConfig {
+        pub layout_solver: AzLayoutSolverVersion,
         pub log_level: AzAppLogLevel,
         pub enable_visual_panic_hook: bool,
         pub enable_logging_on_panic: bool,
@@ -3072,13 +3086,6 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlCallbackReturn {
         pub texture: AzOptionTexture,
-    }
-    /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzLayoutInfo {
-        pub window_size: *const AzWindowSize,
-        pub window_size_width_stops: *mut c_void,
-        pub window_size_height_stops: *mut c_void,
-        pub resources: *const c_void,
     }
     /// Re-export of rust-allocated (stack based) `EventFilter` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzEventFilter {
@@ -4188,7 +4195,6 @@ mod dll {
         pub(crate) fn AzApp_getMonitors(_:  &AzApp) -> AzMonitorVec;
         pub(crate) fn AzApp_run(_:  AzApp, _:  AzWindowCreateOptions);
         pub(crate) fn AzApp_delete(_:  &mut AzApp);
-        pub(crate) fn AzAppConfig_default() -> AzAppConfig;
         pub(crate) fn AzWindowCreateOptions_new(_:  AzLayoutCallbackType) -> AzWindowCreateOptions;
         pub(crate) fn AzWindowState_new(_:  AzLayoutCallbackType) -> AzWindowState;
         pub(crate) fn AzWindowState_default() -> AzWindowState;
@@ -4251,6 +4257,8 @@ mod dll {
         pub(crate) fn AzLayoutInfo_windowWidthSmallerThan(_:  &mut AzLayoutInfo, _:  f32) -> bool;
         pub(crate) fn AzLayoutInfo_windowHeightLargerThan(_:  &mut AzLayoutInfo, _:  f32) -> bool;
         pub(crate) fn AzLayoutInfo_windowHeightSmallerThan(_:  &mut AzLayoutInfo, _:  f32) -> bool;
+        pub(crate) fn AzLayoutInfo_usesDarkTheme(_:  &mut AzLayoutInfo) -> bool;
+        pub(crate) fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks;
         pub(crate) fn AzDom_nodeCount(_:  &AzDom) -> usize;
         pub(crate) fn AzDom_style(_:  AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn AzOn_intoEventFilter(_:  AzOn) -> AzEventFilter;
@@ -4595,7 +4603,21 @@ pub mod app {
     //! `App` construction and configuration
     use crate::dll::*;
     use core::ffi::c_void;
-    use crate::callbacks::RefAny;
+    impl Default for AppConfig {
+        fn default() -> Self {
+            Self {
+                // note: this field should never be changed, apps that
+                // want to use a newer layout model need to explicitly set
+                // it or use a header shim for ABI compat
+                layout_model: LayoutSolverVersion::March2021,
+                log_level: AppLogLevel::Error,
+                enable_visual_panic_hook: true,
+                enable_logging_on_panic: true,
+                enable_tab_navigation: true,
+                system_callbacks: ExternalSystemCallbacks::rust_internal(),
+            }
+        }
+    }    use crate::callbacks::RefAny;
     use crate::window::WindowCreateOptions;
     /// Main application class
     
@@ -4615,14 +4637,12 @@ pub mod app {
     /// Configuration for optional features, such as whether to enable logging or panic hooks
     
 #[doc(inline)] pub use crate::dll::AzAppConfig as AppConfig;
-    impl AppConfig {
-        /// Creates a new AppConfig with default values
-        pub fn default() -> Self { unsafe { crate::dll::AzAppConfig_default() } }
-    }
-
     /// Configuration to set which messages should be logged.
     
 #[doc(inline)] pub use crate::dll::AzAppLogLevel as AppLogLevel;
+    /// Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.
+    
+#[doc(inline)] pub use crate::dll::AzLayoutSolverVersion as LayoutSolverVersion;
 }
 
 pub mod window {
@@ -5273,11 +5293,18 @@ pub mod callbacks {
         pub fn window_height_larger_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::AzLayoutInfo_windowHeightLargerThan(self, width) } }
         /// Calls the `LayoutInfo::window_height_smaller_than` function.
         pub fn window_height_smaller_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::AzLayoutInfo_windowHeightSmallerThan(self, width) } }
+        /// Returns whether the window uses a dark or light theme - azul will register that the UI is dependent on theming and call the layout callback again when the theme changes
+        pub fn uses_dark_theme(&mut self)  -> bool { unsafe { crate::dll::AzLayoutInfo_usesDarkTheme(self) } }
     }
 
     /// External system callbacks to get the system time or create / manage threads
     
 #[doc(inline)] pub use crate::dll::AzSystemCallbacks as SystemCallbacks;
+    impl SystemCallbacks {
+        /// Use the default, library-internal callbacks instead of providing your own
+        pub fn library_internal() -> Self { unsafe { crate::dll::AzSystemCallbacks_libraryInternal() } }
+    }
+
 }
 
 pub mod dom {

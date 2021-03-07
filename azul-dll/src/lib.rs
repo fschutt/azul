@@ -39,12 +39,14 @@ pub use AzAppTT as AzApp;
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 pub type AzAppConfigTT = azul_impl::resources::AppConfig;
 pub use AzAppConfigTT as AzAppConfig;
-/// Creates a new AppConfig with default values
-#[no_mangle] pub extern "C" fn AzAppConfig_default() -> AzAppConfig { AppConfig::default() }
 
 /// Configuration to set which messages should be logged.
 pub type AzAppLogLevelTT = azul_impl::resources::AppLogLevel;
 pub use AzAppLogLevelTT as AzAppLogLevel;
+
+/// Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.
+pub type AzLayoutSolverVersionTT = azul_impl::resources::LayoutSolverVersion;
+pub use AzLayoutSolverVersionTT as AzLayoutSolverVersion;
 
 /// Options on how to initially create the window
 pub type AzWindowCreateOptionsTT = azul_impl::window::WindowCreateOptions;
@@ -514,10 +516,14 @@ pub use AzLayoutInfoTT as AzLayoutInfo;
 #[no_mangle] pub extern "C" fn AzLayoutInfo_windowHeightLargerThan(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_height_larger_than(width) }
 /// Equivalent to the Rust `LayoutInfo::window_height_smaller_than()` function.
 #[no_mangle] pub extern "C" fn AzLayoutInfo_windowHeightSmallerThan(layoutinfo: &mut AzLayoutInfo, width: f32) -> bool { layoutinfo.window_height_smaller_than(width) }
+/// Returns whether the window uses a dark or light theme - azul will register that the UI is dependent on theming and call the layout callback again when the theme changes
+#[no_mangle] pub extern "C" fn AzLayoutInfo_usesDarkTheme(layoutinfo: &mut AzLayoutInfo) -> bool { layoutinfo.uses_dark_theme() }
 
 /// External system callbacks to get the system time or create / manage threads
 pub type AzSystemCallbacksTT = azul_impl::task::ExternalSystemCallbacks;
 pub use AzSystemCallbacksTT as AzSystemCallbacks;
+/// Use the default, library-internal callbacks instead of providing your own
+#[no_mangle] pub extern "C" fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks { AzSystemCallbacks::rust_internal() }
 
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
@@ -3119,6 +3125,10 @@ mod test_sizes {
         Debug,
         Trace,
     }
+    /// Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.
+    #[repr(C)]     pub enum AzLayoutSolverVersion {
+        March2021,
+    }
     /// Whether the renderer has VSync enabled
     #[repr(C)]     pub enum AzVsync {
         Enabled,
@@ -3559,6 +3569,15 @@ mod test_sizes {
     pub type AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver);
     /// `AzRefAnyDestructorType` struct
     pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
+    /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
+    #[repr(C)]     pub struct AzLayoutInfo {
+        pub window_size: *const c_void,
+        pub theme: *const c_void,
+        pub window_size_width_stops: *mut c_void,
+        pub window_size_height_stops: *mut c_void,
+        pub is_theme_dependent: *mut c_void,
+        pub resources: *const c_void,
+    }
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
     #[repr(C)]     pub enum AzOn {
         MouseOver,
@@ -5941,6 +5960,7 @@ mod test_sizes {
     }
     /// Configuration for optional features, such as whether to enable logging or panic hooks
     #[repr(C)]     pub struct AzAppConfig {
+        pub layout_solver: AzLayoutSolverVersion,
         pub log_level: AzAppLogLevel,
         pub enable_visual_panic_hook: bool,
         pub enable_logging_on_panic: bool,
@@ -6017,13 +6037,6 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
     #[repr(C)]     pub struct AzGlCallbackReturn {
         pub texture: AzOptionTexture,
-    }
-    /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
-    #[repr(C)]     pub struct AzLayoutInfo {
-        pub window_size: *const AzWindowSize,
-        pub window_size_width_stops: *mut c_void,
-        pub window_size_height_stops: *mut c_void,
-        pub resources: *const c_void,
     }
     /// Re-export of rust-allocated (stack based) `EventFilter` struct
     #[repr(C, u8)]     pub enum AzEventFilter {
@@ -7133,6 +7146,7 @@ mod test_sizes {
          use core::alloc::Layout;
         assert_eq!((Layout::new::<azul_impl::app::AzAppPtr>(), "AzApp"), (Layout::new::<AzApp>(), "AzApp"));
         assert_eq!((Layout::new::<azul_impl::resources::AppLogLevel>(), "AzAppLogLevel"), (Layout::new::<AzAppLogLevel>(), "AzAppLogLevel"));
+        assert_eq!((Layout::new::<azul_impl::resources::LayoutSolverVersion>(), "AzLayoutSolverVersion"), (Layout::new::<AzLayoutSolverVersion>(), "AzLayoutSolverVersion"));
         assert_eq!((Layout::new::<azul_impl::window::Vsync>(), "AzVsync"), (Layout::new::<AzVsync>(), "AzVsync"));
         assert_eq!((Layout::new::<azul_impl::window::Srgb>(), "AzSrgb"), (Layout::new::<AzSrgb>(), "AzSrgb"));
         assert_eq!((Layout::new::<azul_impl::window::HwAcceleration>(), "AzHwAcceleration"), (Layout::new::<AzHwAcceleration>(), "AzHwAcceleration"));
@@ -7172,6 +7186,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallback>(), "AzTimerCallback"), (Layout::new::<AzTimerCallback>(), "AzTimerCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::WriteBackCallback>(), "AzWriteBackCallback"), (Layout::new::<AzWriteBackCallback>(), "AzWriteBackCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::ThreadCallback>(), "AzThreadCallback"), (Layout::new::<AzThreadCallback>(), "AzThreadCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutInfo>(), "AzLayoutInfo"), (Layout::new::<AzLayoutInfo>(), "AzLayoutInfo"));
         assert_eq!((Layout::new::<azul_impl::dom::On>(), "AzOn"), (Layout::new::<AzOn>(), "AzOn"));
         assert_eq!((Layout::new::<azul_impl::dom::HoverEventFilter>(), "AzHoverEventFilter"), (Layout::new::<AzHoverEventFilter>(), "AzHoverEventFilter"));
         assert_eq!((Layout::new::<azul_impl::dom::FocusEventFilter>(), "AzFocusEventFilter"), (Layout::new::<AzFocusEventFilter>(), "AzFocusEventFilter"));
@@ -7529,7 +7544,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_core::callbacks::InlineTextContents>(), "AzInlineTextContents"), (Layout::new::<AzInlineTextContents>(), "AzInlineTextContents"));
         assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackInfo>(), "AzGlCallbackInfo"), (Layout::new::<AzGlCallbackInfo>(), "AzGlCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackReturn>(), "AzGlCallbackReturn"), (Layout::new::<AzGlCallbackReturn>(), "AzGlCallbackReturn"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutInfo>(), "AzLayoutInfo"), (Layout::new::<AzLayoutInfo>(), "AzLayoutInfo"));
         assert_eq!((Layout::new::<azul_impl::dom::EventFilter>(), "AzEventFilter"), (Layout::new::<AzEventFilter>(), "AzEventFilter"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathPseudoSelector>(), "AzCssPathPseudoSelector"), (Layout::new::<AzCssPathPseudoSelector>(), "AzCssPathPseudoSelector"));
         assert_eq!((Layout::new::<azul_impl::css::LinearColorStop>(), "AzLinearColorStop"), (Layout::new::<AzLinearColorStop>(), "AzLinearColorStop"));

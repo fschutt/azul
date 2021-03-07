@@ -784,6 +784,7 @@ impl WindowInternal {
 
         let mut stop_sizes_width = Vec::new();
         let mut stop_sizes_height = Vec::new();
+        let mut is_theme_dependent = false;
 
         let current_window_state: FullWindowState = init.window_create_options.state.into();
 
@@ -792,8 +793,10 @@ impl WindowInternal {
             let layout_callback = current_window_state.layout_callback.clone();
             let layout_info = LayoutInfo::new(
                 &current_window_state.size,
+                &current_window_state.theme,
                 &mut stop_sizes_width,
                 &mut stop_sizes_height,
+                &mut is_theme_dependent,
                 app_resources,
             );
 
@@ -867,6 +870,7 @@ impl WindowInternal {
         // TODO: Use these "stop sizes" to optimize not calling layout() on redrawing!
         let mut stop_sizes_width = Vec::new();
         let mut stop_sizes_height = Vec::new();
+        let mut is_theme_dependent = false;
 
         let id_namespace = self.id_namespace;
 
@@ -875,8 +879,10 @@ impl WindowInternal {
             let layout_callback = self.current_window_state.layout_callback.clone();
             let layout_info = LayoutInfo::new(
                 &self.current_window_state.size,
+                &self.current_window_state.theme,
                 &mut stop_sizes_width,
                 &mut stop_sizes_height,
+                &mut is_theme_dependent,
                 app_resources,
             );
 
