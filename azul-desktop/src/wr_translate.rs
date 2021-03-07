@@ -1223,7 +1223,6 @@ fn wr_translate_image_buffer_kind(buffer_kind: ImageBufferKind) -> WrImageBuffer
         ImageBufferKind::Texture2D => WrImageBufferKind::Texture2D,
         ImageBufferKind::TextureRect => WrImageBufferKind::TextureRect,
         ImageBufferKind::TextureExternal => WrImageBufferKind::TextureExternal,
-        ImageBufferKind::Texture2DArray => WrImageBufferKind::Texture2DArray,
     }
 }
 
