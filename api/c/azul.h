@@ -112,6 +112,10 @@ typedef void (*AzThreadReceiverDestructorFnType)(AzThreadReceiver* restrict A);
 
 typedef void (*AzThreadSenderDestructorFnType)(AzThreadSender* restrict A);
 
+struct AzFmtArgVec;
+typedef struct AzFmtArgVec AzFmtArgVec;
+typedef void (*AzFmtArgVecDestructorType)(AzFmtArgVec* restrict A);
+
 struct AzInlineLineVec;
 typedef struct AzInlineLineVec AzInlineLineVec;
 typedef void (*AzInlineLineVecDestructorType)(AzInlineLineVec* restrict A);
@@ -1625,6 +1629,29 @@ struct AzThreadSenderDestructorFn {
     AzThreadSenderDestructorFnType cb;
 };
 typedef struct AzThreadSenderDestructorFn AzThreadSenderDestructorFn;
+
+enum AzFmtArgVecDestructorTag {
+   AzFmtArgVecDestructorTag_DefaultRust,
+   AzFmtArgVecDestructorTag_NoDestructor,
+   AzFmtArgVecDestructorTag_External,
+};
+typedef enum AzFmtArgVecDestructorTag AzFmtArgVecDestructorTag;
+
+struct AzFmtArgVecDestructorVariant_DefaultRust { AzFmtArgVecDestructorTag tag; };
+typedef struct AzFmtArgVecDestructorVariant_DefaultRust AzFmtArgVecDestructorVariant_DefaultRust;
+struct AzFmtArgVecDestructorVariant_NoDestructor { AzFmtArgVecDestructorTag tag; };
+typedef struct AzFmtArgVecDestructorVariant_NoDestructor AzFmtArgVecDestructorVariant_NoDestructor;
+struct AzFmtArgVecDestructorVariant_External { AzFmtArgVecDestructorTag tag; AzFmtArgVecDestructorType payload; };
+typedef struct AzFmtArgVecDestructorVariant_External AzFmtArgVecDestructorVariant_External;
+union AzFmtArgVecDestructor {
+    AzFmtArgVecDestructorVariant_DefaultRust DefaultRust;
+    AzFmtArgVecDestructorVariant_NoDestructor NoDestructor;
+    AzFmtArgVecDestructorVariant_External External;
+};
+typedef union AzFmtArgVecDestructor AzFmtArgVecDestructor;
+#define AzFmtArgVecDestructor_DefaultRust { .DefaultRust = { .tag = AzFmtArgVecDestructorTag_DefaultRust } }
+#define AzFmtArgVecDestructor_NoDestructor { .NoDestructor = { .tag = AzFmtArgVecDestructorTag_NoDestructor } }
+#define AzFmtArgVecDestructor_External(v) { .External = { .tag = AzFmtArgVecDestructorTag_External, .payload = v } }
 
 enum AzInlineLineVecDestructorTag {
    AzInlineLineVecDestructorTag_DefaultRust,
@@ -7409,6 +7436,103 @@ struct AzThreadWriteBackMsg {
 };
 typedef struct AzThreadWriteBackMsg AzThreadWriteBackMsg;
 
+enum AzFmtValueTag {
+   AzFmtValueTag_Bool,
+   AzFmtValueTag_Uchar,
+   AzFmtValueTag_Schar,
+   AzFmtValueTag_Ushort,
+   AzFmtValueTag_Sshort,
+   AzFmtValueTag_Uint,
+   AzFmtValueTag_Sint,
+   AzFmtValueTag_Ulong,
+   AzFmtValueTag_Slong,
+   AzFmtValueTag_Isize,
+   AzFmtValueTag_Usize,
+   AzFmtValueTag_Float,
+   AzFmtValueTag_Double,
+   AzFmtValueTag_Str,
+   AzFmtValueTag_StrVec,
+};
+typedef enum AzFmtValueTag AzFmtValueTag;
+
+struct AzFmtValueVariant_Bool { AzFmtValueTag tag; bool payload; };
+typedef struct AzFmtValueVariant_Bool AzFmtValueVariant_Bool;
+struct AzFmtValueVariant_Uchar { AzFmtValueTag tag; uint8_t payload; };
+typedef struct AzFmtValueVariant_Uchar AzFmtValueVariant_Uchar;
+struct AzFmtValueVariant_Schar { AzFmtValueTag tag; int8_t payload; };
+typedef struct AzFmtValueVariant_Schar AzFmtValueVariant_Schar;
+struct AzFmtValueVariant_Ushort { AzFmtValueTag tag; uint16_t payload; };
+typedef struct AzFmtValueVariant_Ushort AzFmtValueVariant_Ushort;
+struct AzFmtValueVariant_Sshort { AzFmtValueTag tag; int16_t payload; };
+typedef struct AzFmtValueVariant_Sshort AzFmtValueVariant_Sshort;
+struct AzFmtValueVariant_Uint { AzFmtValueTag tag; uint32_t payload; };
+typedef struct AzFmtValueVariant_Uint AzFmtValueVariant_Uint;
+struct AzFmtValueVariant_Sint { AzFmtValueTag tag; int32_t payload; };
+typedef struct AzFmtValueVariant_Sint AzFmtValueVariant_Sint;
+struct AzFmtValueVariant_Ulong { AzFmtValueTag tag; uint64_t payload; };
+typedef struct AzFmtValueVariant_Ulong AzFmtValueVariant_Ulong;
+struct AzFmtValueVariant_Slong { AzFmtValueTag tag; int64_t payload; };
+typedef struct AzFmtValueVariant_Slong AzFmtValueVariant_Slong;
+struct AzFmtValueVariant_Isize { AzFmtValueTag tag; ssize_t payload; };
+typedef struct AzFmtValueVariant_Isize AzFmtValueVariant_Isize;
+struct AzFmtValueVariant_Usize { AzFmtValueTag tag; size_t payload; };
+typedef struct AzFmtValueVariant_Usize AzFmtValueVariant_Usize;
+struct AzFmtValueVariant_Float { AzFmtValueTag tag; float payload; };
+typedef struct AzFmtValueVariant_Float AzFmtValueVariant_Float;
+struct AzFmtValueVariant_Double { AzFmtValueTag tag; double payload; };
+typedef struct AzFmtValueVariant_Double AzFmtValueVariant_Double;
+struct AzFmtValueVariant_Str { AzFmtValueTag tag; AzString payload; };
+typedef struct AzFmtValueVariant_Str AzFmtValueVariant_Str;
+struct AzFmtValueVariant_StrVec { AzFmtValueTag tag; AzStringVec payload; };
+typedef struct AzFmtValueVariant_StrVec AzFmtValueVariant_StrVec;
+union AzFmtValue {
+    AzFmtValueVariant_Bool Bool;
+    AzFmtValueVariant_Uchar Uchar;
+    AzFmtValueVariant_Schar Schar;
+    AzFmtValueVariant_Ushort Ushort;
+    AzFmtValueVariant_Sshort Sshort;
+    AzFmtValueVariant_Uint Uint;
+    AzFmtValueVariant_Sint Sint;
+    AzFmtValueVariant_Ulong Ulong;
+    AzFmtValueVariant_Slong Slong;
+    AzFmtValueVariant_Isize Isize;
+    AzFmtValueVariant_Usize Usize;
+    AzFmtValueVariant_Float Float;
+    AzFmtValueVariant_Double Double;
+    AzFmtValueVariant_Str Str;
+    AzFmtValueVariant_StrVec StrVec;
+};
+typedef union AzFmtValue AzFmtValue;
+#define AzFmtValue_Bool(v) { .Bool = { .tag = AzFmtValueTag_Bool, .payload = v } }
+#define AzFmtValue_Uchar(v) { .Uchar = { .tag = AzFmtValueTag_Uchar, .payload = v } }
+#define AzFmtValue_Schar(v) { .Schar = { .tag = AzFmtValueTag_Schar, .payload = v } }
+#define AzFmtValue_Ushort(v) { .Ushort = { .tag = AzFmtValueTag_Ushort, .payload = v } }
+#define AzFmtValue_Sshort(v) { .Sshort = { .tag = AzFmtValueTag_Sshort, .payload = v } }
+#define AzFmtValue_Uint(v) { .Uint = { .tag = AzFmtValueTag_Uint, .payload = v } }
+#define AzFmtValue_Sint(v) { .Sint = { .tag = AzFmtValueTag_Sint, .payload = v } }
+#define AzFmtValue_Ulong(v) { .Ulong = { .tag = AzFmtValueTag_Ulong, .payload = v } }
+#define AzFmtValue_Slong(v) { .Slong = { .tag = AzFmtValueTag_Slong, .payload = v } }
+#define AzFmtValue_Isize(v) { .Isize = { .tag = AzFmtValueTag_Isize, .payload = v } }
+#define AzFmtValue_Usize(v) { .Usize = { .tag = AzFmtValueTag_Usize, .payload = v } }
+#define AzFmtValue_Float(v) { .Float = { .tag = AzFmtValueTag_Float, .payload = v } }
+#define AzFmtValue_Double(v) { .Double = { .tag = AzFmtValueTag_Double, .payload = v } }
+#define AzFmtValue_Str(v) { .Str = { .tag = AzFmtValueTag_Str, .payload = v } }
+#define AzFmtValue_StrVec(v) { .StrVec = { .tag = AzFmtValueTag_StrVec, .payload = v } }
+
+struct AzFmtArg {
+    AzString key;
+    AzFmtValue value;
+};
+typedef struct AzFmtArg AzFmtArg;
+
+struct AzFmtArgVec {
+    AzFmtArg* ptr;
+    size_t len;
+    size_t cap;
+    AzFmtArgVecDestructor destructor;
+};
+typedef struct AzFmtArgVec AzFmtArgVec;
+
 struct AzInlineWordVec {
     AzInlineWord* ptr;
     size_t len;
@@ -8755,6 +8879,10 @@ struct AzCss {
 };
 typedef struct AzCss AzCss;
 
+AzFmtArg AzFmtArgVecArray[] = {};
+#define AzFmtArgVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzFmtArg), .cap = sizeof(v) / sizeof(AzFmtArg), .destructor = { .NoDestructor = { .tag = AzFmtArgVecDestructorTag_NoDestructor, }, }, }
+#define AzFmtArgVec_empty { .ptr = &AzFmtArgVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzFmtArgVecDestructorTag_NoDestructor, }, }, }
+
 AzInlineLine AzInlineLineVecArray[] = {};
 #define AzInlineLineVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzInlineLine), .cap = sizeof(v) / sizeof(AzInlineLine), .destructor = { .NoDestructor = { .tag = AzInlineLineVecDestructorTag_NoDestructor, }, }, }
 #define AzInlineLineVec_empty { .ptr = &AzInlineLineVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzInlineLineVecDestructorTag_NoDestructor, }, }, }
@@ -9252,7 +9380,8 @@ extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTga(AzRawImage* 
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePnm(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeGif(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTiff(AzRawImage* const rawimage);
-extern DLLIMPORT AzSvg AzSvg_parseFrom(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
+extern DLLIMPORT AzSvg AzSvg_fromString(AzString  svg_string, AzSvgParseOptions  parse_options);
+extern DLLIMPORT AzSvg AzSvg_fromBytes(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
 extern DLLIMPORT AzSvgXmlNode AzSvg_getRoot(AzSvg* const svg);
 extern DLLIMPORT AzString AzSvg_toString(AzSvg* const svg, AzSvgStringFormatOptions  options);
 extern DLLIMPORT void AzSvg_delete(AzSvg* restrict instance);
@@ -9282,6 +9411,9 @@ extern DLLIMPORT bool  AzThreadSender_send(AzThreadSender* restrict threadsender
 extern DLLIMPORT void AzThreadSender_delete(AzThreadSender* restrict instance);
 extern DLLIMPORT AzOptionThreadSendMsg AzThreadReceiver_receive(AzThreadReceiver* restrict threadreceiver);
 extern DLLIMPORT void AzThreadReceiver_delete(AzThreadReceiver* restrict instance);
+extern DLLIMPORT AzString AzString_format(AzString  format, AzFmtArgVec  args);
+extern DLLIMPORT AzString AzString_trim(AzString* const string);
+extern DLLIMPORT void AzFmtArgVec_delete(AzFmtArgVec* restrict instance);
 extern DLLIMPORT void AzInlineLineVec_delete(AzInlineLineVec* restrict instance);
 extern DLLIMPORT void AzInlineWordVec_delete(AzInlineWordVec* restrict instance);
 extern DLLIMPORT void AzInlineGlyphVec_delete(AzInlineGlyphVec* restrict instance);

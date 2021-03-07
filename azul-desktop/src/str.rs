@@ -1,23 +1,26 @@
 // extra string functions intended for C development
 
+use azul_css::{AzString, StringVec};
+use std::fmt;
+
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum FmtValue {
-    Bool(bool)
-    Uchar(u8)
-    Schar(i8)
-    Ushort(u16)
-    Sshort(i16)
-    Uint(u32)
-    Sint(i32)
-    Ulong(u64)
-    Slong(i64)
-    Isize(isize)
-    Usize(usize)
-    Float(f32)
-    Double(f64)
-    Str(AzString)
-    StrVec(AzStringVec)
+    Bool(bool),
+    Uchar(u8),
+    Schar(i8),
+    Ushort(u16),
+    Sshort(i16),
+    Uint(u32),
+    Sint(i32),
+    Ulong(u64),
+    Slong(i64),
+    Isize(isize),
+    Usize(usize),
+    Float(f32),
+    Double(f64),
+    Str(AzString),
+    StrVec(StringVec),
 }
 
 impl fmt::Display for FmtValue {
@@ -38,6 +41,7 @@ impl fmt::Display for FmtValue {
             FmtValue::Double(v) => v.fmt(f),
             FmtValue::Str(v) => v.as_str().fmt(f),
             FmtValue::StrVec(sv) => {
+                use std::fmt::Debug;
                 let vec: Vec<&str> = sv.as_ref().iter().map(|s| s.as_str()).collect();
                 vec.fmt(f)
             }
@@ -55,9 +59,9 @@ pub struct FmtArg {
 impl_vec!(FmtArg, FmtArgVec, FmtArgVecDestructor);
 impl_vec_clone!(FmtArg, FmtArgVec, FmtArgVecDestructor);
 
-pub fn fmt_string(format: AzString, args: FmtArgVec) -> AzString {
+pub fn fmt_string(format: AzString, args: FmtArgVec) -> String {
     use strfmt::Format;
-    let format_map = args.iter().map(|a| (a.key, a.value)).collect();
+    let format_map = args.iter().map(|a| (a.key.clone().into_library_owned_string(), a.value.clone())).collect();
     match format.as_str().format(&format_map) {
         Ok(o) => o,
         Err(e) => format!("{}", e),

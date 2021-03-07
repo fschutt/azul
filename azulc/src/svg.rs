@@ -1147,39 +1147,6 @@ pub struct FontInfo {
 impl_option!(LineMetrics, OptionLineMetrics, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 impl_option!(ScriptMetrics, OptionScriptMetrics, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
-/// Every unit in the SVG font is unscaled, meaning it's mapped from 0.0 to 1.0,
-/// so that it can simply be multiplied by the font size later on.
-const FAKE_GLYPH_SCALE: f32 = 1000.0;
-static ALL_TABLE_NAMES: [owned_ttf_parser::TableName;27] = [
-    owned_ttf_parser::TableName::AxisVariations,
-    owned_ttf_parser::TableName::CharacterToGlyphIndexMapping,
-    owned_ttf_parser::TableName::ColorBitmapData,
-    owned_ttf_parser::TableName::ColorBitmapLocation,
-    owned_ttf_parser::TableName::CompactFontFormat,
-    owned_ttf_parser::TableName::CompactFontFormat2,
-    owned_ttf_parser::TableName::FontVariations,
-    owned_ttf_parser::TableName::GlyphData,
-    owned_ttf_parser::TableName::GlyphDefinition,
-    owned_ttf_parser::TableName::GlyphVariations,
-    owned_ttf_parser::TableName::Header,
-    owned_ttf_parser::TableName::HorizontalHeader,
-    owned_ttf_parser::TableName::HorizontalMetrics,
-    owned_ttf_parser::TableName::HorizontalMetricsVariations,
-    owned_ttf_parser::TableName::IndexToLocation,
-    owned_ttf_parser::TableName::Kerning,
-    owned_ttf_parser::TableName::MaximumProfile,
-    owned_ttf_parser::TableName::MetricsVariations,
-    owned_ttf_parser::TableName::Naming,
-    owned_ttf_parser::TableName::PostScript,
-    owned_ttf_parser::TableName::ScalableVectorGraphics,
-    owned_ttf_parser::TableName::StandardBitmapGraphics,
-    owned_ttf_parser::TableName::VerticalHeader,
-    owned_ttf_parser::TableName::VerticalMetrics,
-    owned_ttf_parser::TableName::VerticalMetricsVariations,
-    owned_ttf_parser::TableName::VerticalOrigin,
-    owned_ttf_parser::TableName::WindowsMetrics,
-];
-
 impl Font {
 
     /// Parse all paths from a font using rusttype

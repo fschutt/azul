@@ -1344,6 +1344,14 @@ mod dll {
     #[repr(C)]  #[derive(Clone)]   pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+    /// Re-export of rust-allocated (stack based) `FmtArgVecDestructor` struct
+    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzFmtArgVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzFmtArgVecDestructorType),
+    }
+    /// `AzFmtArgVecDestructorType` struct
+    pub type AzFmtArgVecDestructorType = extern "C" fn(&mut AzFmtArgVec);
     /// Re-export of rust-allocated (stack based) `InlineLineVecDestructor` struct
     #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzInlineLineVecDestructor {
         DefaultRust,
@@ -3645,6 +3653,36 @@ mod dll {
         pub data: AzRefAny,
         pub callback: AzWriteBackCallback,
     }
+    /// Re-export of rust-allocated (stack based) `FmtValue` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzFmtValue {
+        Bool(bool),
+        Uchar(u8),
+        Schar(i8),
+        Ushort(u16),
+        Sshort(i16),
+        Uint(u32),
+        Sint(i32),
+        Ulong(u64),
+        Slong(i64),
+        Isize(isize),
+        Usize(usize),
+        Float(f32),
+        Double(f64),
+        Str(AzString),
+        StrVec(AzStringVec),
+    }
+    /// Re-export of rust-allocated (stack based) `FmtArg` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFmtArg {
+        pub key: AzString,
+        pub value: AzFmtValue,
+    }
+    /// Wrapper over a Rust-allocated `Vec<FmtArg>`
+    #[repr(C)]     pub struct AzFmtArgVec {
+        pub(crate) ptr: *const AzFmtArg,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzFmtArgVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<InlineWord>`
     #[repr(C)]     pub struct AzInlineWordVec {
         pub(crate) ptr: *const AzInlineWord,
@@ -4521,7 +4559,8 @@ mod dll {
         pub(crate) fn AzRawImage_encodePnm(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeGif(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeTiff(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
-        pub(crate) fn AzSvg_parseFrom(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
+        pub(crate) fn AzSvg_fromString(_:  AzString, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
+        pub(crate) fn AzSvg_fromBytes(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
         pub(crate) fn AzSvg_getRoot(_:  &AzSvg) -> AzSvgXmlNode;
         pub(crate) fn AzSvg_toString(_:  &AzSvg, _:  AzSvgStringFormatOptions) -> AzString;
         pub(crate) fn AzSvg_delete(_:  &mut AzSvg);
@@ -4551,6 +4590,9 @@ mod dll {
         pub(crate) fn AzThreadSender_delete(_:  &mut AzThreadSender);
         pub(crate) fn AzThreadReceiver_receive(_:  &mut AzThreadReceiver) -> AzOptionThreadSendMsg;
         pub(crate) fn AzThreadReceiver_delete(_:  &mut AzThreadReceiver);
+        pub(crate) fn AzString_format(_:  AzString, _:  AzFmtArgVec) -> AzString;
+        pub(crate) fn AzString_trim(_:  &AzString) -> AzString;
+        pub(crate) fn AzFmtArgVec_delete(_:  &mut AzFmtArgVec);
         pub(crate) fn AzInlineLineVec_delete(_:  &mut AzInlineLineVec);
         pub(crate) fn AzInlineWordVec_delete(_:  &mut AzInlineWordVec);
         pub(crate) fn AzInlineGlyphVec_delete(_:  &mut AzInlineGlyphVec);
@@ -9163,13 +9205,16 @@ pub mod svg {
     //! SVG parsing and rendering functions
     use crate::dll::*;
     use core::ffi::c_void;
+    use crate::str::String;
     use crate::gl::U8VecRef;
     /// `Svg` struct
     
 #[doc(inline)] pub use crate::dll::AzSvg as Svg;
     impl Svg {
         /// Creates a new `Svg` instance.
-        pub fn parse_from(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgSvgParseError { unsafe { crate::dll::AzSvg_parseFrom(svg_bytes, parse_options) } }
+        pub fn from_string(svg_string: String, parse_options: SvgParseOptions) ->  crate::error::ResultSvgSvgParseError { unsafe { crate::dll::AzSvg_fromString(svg_string, parse_options) } }
+        /// Creates a new `Svg` instance.
+        pub fn from_bytes(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgSvgParseError { unsafe { crate::dll::AzSvg_fromBytes(svg_bytes, parse_options) } }
         /// Calls the `Svg::get_root` function.
         pub fn get_root(&self)  -> crate::svg::SvgXmlNode { unsafe { crate::dll::AzSvg_getRoot(self) } }
         /// Calls the `Svg::to_string` function.
@@ -9499,9 +9544,23 @@ pub mod str {
                 vec: crate::vec::U8Vec::from_const_slice(s.as_bytes())
             }
         }
-    }    /// `String` struct
+    }    use crate::vec::FmtArgVec;
+    /// `FmtValue` struct
+    
+#[doc(inline)] pub use crate::dll::AzFmtValue as FmtValue;
+    /// `FmtArg` struct
+    
+#[doc(inline)] pub use crate::dll::AzFmtArg as FmtArg;
+    /// `String` struct
     
 #[doc(inline)] pub use crate::dll::AzString as String;
+    impl String {
+        /// Creates a dynamically formatted String from a fomat string + named arguments
+        pub fn format(format: String, args: FmtArgVec) -> Self { unsafe { crate::dll::AzString_format(format, args) } }
+        /// Trims whitespace from the start / end of the string
+        pub fn trim(&self)  -> crate::str::String { unsafe { crate::dll::AzString_trim(self) } }
+    }
+
 }
 
 pub mod vec {
@@ -9799,7 +9858,10 @@ pub mod vec {
             vec.into()
             // v dropped here
         }
-    }    /// Wrapper over a Rust-allocated `Vec<InlineLine>`
+    }    /// Wrapper over a Rust-allocated `Vec<FmtArg>`
+    
+#[doc(inline)] pub use crate::dll::AzFmtArgVec as FmtArgVec;
+    /// Wrapper over a Rust-allocated `Vec<InlineLine>`
     
 #[doc(inline)] pub use crate::dll::AzInlineLineVec as InlineLineVec;
     /// Wrapper over a Rust-allocated `Vec<InlineWord>`
@@ -9936,6 +9998,12 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `NodeDataVec`
     
 #[doc(inline)] pub use crate::dll::AzNodeDataVec as NodeDataVec;
+    /// `FmtArgVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzFmtArgVecDestructor as FmtArgVecDestructor;
+    /// `FmtArgVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzFmtArgVecDestructorType as FmtArgVecDestructorType;
     /// `InlineLineVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzInlineLineVecDestructor as InlineLineVecDestructor;

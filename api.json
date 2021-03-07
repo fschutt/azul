@@ -6320,7 +6320,15 @@
 						{"ptr": {"type": "*mut c_void"}}
 					],
 					"constructors": {
-						"parse_from": {
+						"from_string": {
+							"fn_args": [
+								{"svg_string": "String"},
+								{"parse_options": "SvgParseOptions"}
+							],
+							"returns": {"type": "ResultSvgSvgParseError"},
+							"fn_body": "azul_impl::svg::Svg::parse(svg_string.as_ref().as_bytes(), parse_options).into()"
+						},
+						"from_bytes": {
 							"fn_args": [
 								{"svg_bytes": "U8VecRef"},
 								{"parse_options": "SvgParseOptions"}
@@ -7047,17 +7055,75 @@
 		"str": {
 			"doc": "Definition of azuls internal `String` wrappers",
 			"classes": {
+				"FmtValue": {
+					"external": "azul_impl::str::FmtValue",
+					"enum_fields": [
+						{"Bool": {"type": "bool"}},
+						{"Uchar": {"type": "u8"}},
+						{"Schar": {"type": "i8"}},
+						{"Ushort": {"type": "u16"}},
+						{"Sshort": {"type": "i16"}},
+						{"Uint": {"type": "u32"}},
+						{"Sint": {"type": "i32"}},
+						{"Ulong": {"type": "u64"}},
+						{"Slong": {"type": "i64"}},
+						{"Isize": {"type": "isize"}},
+						{"Usize": {"type": "usize"}},
+						{"Float": {"type": "f32"}},
+						{"Double": {"type": "f64"}},
+						{"Str": {"type": "String"}},
+						{"StrVec": {"type": "StringVec"}}
+					]
+				},
+				"FmtArg": {
+					"external": "azul_impl::str::FmtArg",
+					"struct_fields": [
+						{"key": {"type": "String"}},
+						{"value": {"type": "FmtValue"}}
+					]
+				},
 				"String": {
 					"external": "azul_impl::css::AzString",
 					"struct_fields": [
 						{ "vec": { "type": "U8Vec" } }
-					]
+					],
+					"constructors": {
+						"format": {
+							"doc": "Creates a dynamically formatted String from a fomat string + named arguments",
+							"fn_args": [
+								{"format": "String"},
+								{"args": "FmtArgVec"}
+							],
+							"fn_body": "azul_impl::str::fmt_string(format, args).into()"
+						}
+					},
+					"functions": {
+						"trim": {
+							"doc": "Trims whitespace from the start / end of the string",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "String"},
+							"fn_body": "string.as_str().trim().to_string().into()"
+						}
+					}
 				}
 			}
 		},
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"FmtArgVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<FmtArg>`",
+					"custom_destructor": true,
+					"external": "azul_impl::str::FmtArgVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const FmtArg" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "FmtArgVecDestructor" } }
+					]
+				},
 				"InlineLineVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<InlineLine>`",
 					"custom_destructor": true,
@@ -7551,6 +7617,22 @@
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "NodeDataVecDestructor" } }
 					]
+				},
+				"FmtArgVecDestructor": {
+				    "external": "azul_impl::str::FmtArgVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "FmtArgVecDestructorType"}}
+				    ]
+				},
+				"FmtArgVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "FmtArgVec", "ref": "refmut"}
+				        ]
+				    }
 				},
 				"InlineLineVecDestructor": {
 				    "external": "azul_impl::callbacks::InlineLineVecDestructor",

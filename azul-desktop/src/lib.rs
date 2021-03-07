@@ -47,6 +47,7 @@ pub use azul_core::callbacks;
 /// CSS type definitions / CSS parsing functions
 #[cfg(any(feature = "css_parser", feature = "native_style"))]
 pub mod css;
+pub mod str;
 /// Bindings to the native file-chooser, color picker, etc. dialogs
 pub mod dialogs;
 pub use azul_core::dom;

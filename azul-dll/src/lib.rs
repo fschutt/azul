@@ -2006,8 +2006,11 @@ pub use AzRawImageTT as AzRawImage;
 pub type AzSvgTT = azul_impl::svg::Svg;
 pub use AzSvgTT as AzSvg;
 /// Creates a new `Svg` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `Svg::parse_from()` constructor.
-#[no_mangle] pub extern "C" fn AzSvg_parseFrom(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzResultSvgSvgParseError { azul_impl::svg::Svg::parse(svg_bytes.as_slice(), parse_options).into() }
+/// Equivalent to the Rust `Svg::from_string()` constructor.
+#[no_mangle] pub extern "C" fn AzSvg_fromString(svg_string: AzString, parse_options: AzSvgParseOptions) -> AzResultSvgSvgParseError { azul_impl::svg::Svg::parse(svg_string.as_ref().as_bytes(), parse_options).into() }
+/// Creates a new `Svg` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Svg::from_bytes()` constructor.
+#[no_mangle] pub extern "C" fn AzSvg_fromBytes(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzResultSvgSvgParseError { azul_impl::svg::Svg::parse(svg_bytes.as_slice(), parse_options).into() }
 /// Equivalent to the Rust `Svg::get_root()` function.
 #[no_mangle] pub extern "C" fn AzSvg_getRoot(svg: &AzSvg) -> AzSvgXmlNode { svg.root() }
 /// Equivalent to the Rust `Svg::to_string()` function.
@@ -2278,9 +2281,27 @@ pub type AzThreadSenderDestructorFnType = extern "C" fn(&mut AzThreadSender);
 pub type AzThreadSenderDestructorFnTT = azul_impl::task::ThreadSenderDestructorCallback;
 pub use AzThreadSenderDestructorFnTT as AzThreadSenderDestructorFn;
 
+/// Re-export of rust-allocated (stack based) `FmtValue` struct
+pub type AzFmtValueTT = azul_impl::str::FmtValue;
+pub use AzFmtValueTT as AzFmtValue;
+
+/// Re-export of rust-allocated (stack based) `FmtArg` struct
+pub type AzFmtArgTT = azul_impl::str::FmtArg;
+pub use AzFmtArgTT as AzFmtArg;
+
 /// Re-export of rust-allocated (stack based) `String` struct
 pub type AzStringTT = azul_impl::css::AzString;
 pub use AzStringTT as AzString;
+/// Creates a dynamically formatted String from a fomat string + named arguments
+#[no_mangle] pub extern "C" fn AzString_format(format: AzString, args: AzFmtArgVec) -> AzString { azul_impl::str::fmt_string(format, args).into() }
+/// Trims whitespace from the start / end of the string
+#[no_mangle] pub extern "C" fn AzString_trim(string: &AzString) -> AzString { string.as_str().trim().to_string().into() }
+
+/// Wrapper over a Rust-allocated `Vec<FmtArg>`
+pub type AzFmtArgVecTT = azul_impl::str::FmtArgVec;
+pub use AzFmtArgVecTT as AzFmtArgVec;
+/// Destructor: Takes ownership of the `FmtArgVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFmtArgVec_delete(object: &mut AzFmtArgVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<InlineLine>`
 pub type AzInlineLineVecTT = azul_impl::callbacks::InlineLineVec;
@@ -2548,6 +2569,11 @@ pub use AzNodeDataVecTT as AzNodeDataVec;
 /// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzNodeDataVec_delete(object: &mut AzNodeDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `FmtArgVecDestructor` struct
+pub type AzFmtArgVecDestructorTT = azul_impl::str::FmtArgVecDestructor;
+pub use AzFmtArgVecDestructorTT as AzFmtArgVecDestructor;
+
+pub type AzFmtArgVecDestructorType = extern "C" fn(&mut AzFmtArgVec);
 /// Re-export of rust-allocated (stack based) `InlineLineVecDestructor` struct
 pub type AzInlineLineVecDestructorTT = azul_impl::callbacks::InlineLineVecDestructor;
 pub use AzInlineLineVecDestructorTT as AzInlineLineVecDestructor;
@@ -4319,6 +4345,14 @@ mod test_sizes {
     #[repr(C)]     pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+    /// Re-export of rust-allocated (stack based) `FmtArgVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzFmtArgVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzFmtArgVecDestructorType),
+    }
+    /// `AzFmtArgVecDestructorType` struct
+    pub type AzFmtArgVecDestructorType = extern "C" fn(&mut AzFmtArgVec);
     /// Re-export of rust-allocated (stack based) `InlineLineVecDestructor` struct
     #[repr(C, u8)]     pub enum AzInlineLineVecDestructor {
         DefaultRust,
@@ -6620,6 +6654,36 @@ mod test_sizes {
         pub data: AzRefAny,
         pub callback: AzWriteBackCallback,
     }
+    /// Re-export of rust-allocated (stack based) `FmtValue` struct
+    #[repr(C, u8)]     pub enum AzFmtValue {
+        Bool(bool),
+        Uchar(u8),
+        Schar(i8),
+        Ushort(u16),
+        Sshort(i16),
+        Uint(u32),
+        Sint(i32),
+        Ulong(u64),
+        Slong(i64),
+        Isize(isize),
+        Usize(usize),
+        Float(f32),
+        Double(f64),
+        Str(AzString),
+        StrVec(AzStringVec),
+    }
+    /// Re-export of rust-allocated (stack based) `FmtArg` struct
+    #[repr(C)]     pub struct AzFmtArg {
+        pub key: AzString,
+        pub value: AzFmtValue,
+    }
+    /// Wrapper over a Rust-allocated `Vec<FmtArg>`
+    #[repr(C)]     pub struct AzFmtArgVec {
+        pub(crate) ptr: *const AzFmtArg,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzFmtArgVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<InlineWord>`
     #[repr(C)]     pub struct AzInlineWordVec {
         pub(crate) ptr: *const AzInlineWord,
@@ -7312,6 +7376,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadDestructorCallback>(), "AzThreadDestructorFn"), (Layout::new::<AzThreadDestructorFn>(), "AzThreadDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
+        assert_eq!((Layout::new::<azul_impl::str::FmtArgVecDestructor>(), "AzFmtArgVecDestructor"), (Layout::new::<AzFmtArgVecDestructor>(), "AzFmtArgVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineLineVecDestructor>(), "AzInlineLineVecDestructor"), (Layout::new::<AzInlineLineVecDestructor>(), "AzInlineLineVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineWordVecDestructor>(), "AzInlineWordVecDestructor"), (Layout::new::<AzInlineWordVecDestructor>(), "AzInlineWordVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineGlyphVecDestructor>(), "AzInlineGlyphVecDestructor"), (Layout::new::<AzInlineGlyphVecDestructor>(), "AzInlineGlyphVecDestructor"));
@@ -7656,6 +7721,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgStyle>(), "AzSvgStyle"), (Layout::new::<AzSvgStyle>(), "AzSvgStyle"));
         assert_eq!((Layout::new::<azul_impl::task::Thread>(), "AzThread"), (Layout::new::<AzThread>(), "AzThread"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadWriteBackMsg>(), "AzThreadWriteBackMsg"), (Layout::new::<AzThreadWriteBackMsg>(), "AzThreadWriteBackMsg"));
+        assert_eq!((Layout::new::<azul_impl::str::FmtValue>(), "AzFmtValue"), (Layout::new::<AzFmtValue>(), "AzFmtValue"));
+        assert_eq!((Layout::new::<azul_impl::str::FmtArg>(), "AzFmtArg"), (Layout::new::<AzFmtArg>(), "AzFmtArg"));
+        assert_eq!((Layout::new::<azul_impl::str::FmtArgVec>(), "AzFmtArgVec"), (Layout::new::<AzFmtArgVec>(), "AzFmtArgVec"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineWordVec>(), "AzInlineWordVec"), (Layout::new::<AzInlineWordVec>(), "AzInlineWordVec"));
         assert_eq!((Layout::new::<azul_impl::window::MonitorVec>(), "AzMonitorVec"), (Layout::new::<AzMonitorVec>(), "AzMonitorVec"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClassVec>(), "AzIdOrClassVec"), (Layout::new::<AzIdOrClassVec>(), "AzIdOrClassVec"));
