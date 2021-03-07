@@ -9339,13 +9339,13 @@ extern DLLIMPORT AzInstantPtr AzInstantPtr_deepCopy(AzInstantPtr* const instance
  *
  * AzAppConfig foo = AzAppConfig_default();
  */
-#define AzAppConfig_default() { \
-    .layout_model = AzLayoutSolverVersion_March2021, \
+#define AzAppConfig_default(...) { \
+    .layout_solver = AzLayoutSolverVersion_March2021, \
     .log_level = AzAppLogLevel_Error, \
     .enable_visual_panic_hook = true, \
     .enable_logging_on_panic = true, \
     .enable_tab_navigation = true, \
-    .system_callbacks = AzSystemCallbacks::library_internal(), \
+    .system_callbacks = AzSystemCallbacks_libraryInternal(), \
 }
 
 /* Macro to generate reflection metadata for a given struct - for a "structName" of "foo", generates:
