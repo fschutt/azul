@@ -1414,6 +1414,20 @@ enum AzEncodeImageError {
 };
 typedef enum AzEncodeImageError AzEncodeImageError;
 
+enum AzDecodeImageError {
+   AzDecodeImageError_InsufficientMemory,
+   AzDecodeImageError_DimensionError,
+   AzDecodeImageError_UnsupportedImageFormat,
+   AzDecodeImageError_Unknown,
+};
+typedef enum AzDecodeImageError AzDecodeImageError;
+
+enum AzImagePixelEndian {
+   AzImagePixelEndian_Big,
+   AzImagePixelEndian_Little,
+};
+typedef enum AzImagePixelEndian AzImagePixelEndian;
+
 struct AzSvg {
     void* restrict ptr;
 };
@@ -6113,6 +6127,24 @@ typedef union AzOptionU8VecRef AzOptionU8VecRef;
 #define AzOptionU8VecRef_None { .None = { .tag = AzOptionU8VecRefTag_None } }
 #define AzOptionU8VecRef_Some(v) { .Some = { .tag = AzOptionU8VecRefTag_Some, .payload = v } }
 
+enum AzResultU8VecDecodeImageErrorTag {
+   AzResultU8VecDecodeImageErrorTag_Ok,
+   AzResultU8VecDecodeImageErrorTag_Err,
+};
+typedef enum AzResultU8VecDecodeImageErrorTag AzResultU8VecDecodeImageErrorTag;
+
+struct AzResultU8VecDecodeImageErrorVariant_Ok { AzResultU8VecDecodeImageErrorTag tag; AzU8Vec payload; };
+typedef struct AzResultU8VecDecodeImageErrorVariant_Ok AzResultU8VecDecodeImageErrorVariant_Ok;
+struct AzResultU8VecDecodeImageErrorVariant_Err { AzResultU8VecDecodeImageErrorTag tag; AzDecodeImageError payload; };
+typedef struct AzResultU8VecDecodeImageErrorVariant_Err AzResultU8VecDecodeImageErrorVariant_Err;
+union AzResultU8VecDecodeImageError {
+    AzResultU8VecDecodeImageErrorVariant_Ok Ok;
+    AzResultU8VecDecodeImageErrorVariant_Err Err;
+};
+typedef union AzResultU8VecDecodeImageError AzResultU8VecDecodeImageError;
+#define AzResultU8VecDecodeImageError_Ok(v) { .Ok = { .tag = AzResultU8VecDecodeImageErrorTag_Ok, .payload = v } }
+#define AzResultU8VecDecodeImageError_Err(v) { .Err = { .tag = AzResultU8VecDecodeImageErrorTag_Err, .payload = v } }
+
 enum AzResultU8VecEncodeImageErrorTag {
    AzResultU8VecEncodeImageErrorTag_Ok,
    AzResultU8VecEncodeImageErrorTag_Err,
@@ -6616,6 +6648,7 @@ struct AzRawImage {
     size_t height;
     bool  has_premultiplied_alpha;
     AzRawImageFormat data_format;
+    AzImagePixelEndian endian_16bit;
 };
 typedef struct AzRawImage AzRawImage;
 
@@ -9373,6 +9406,7 @@ extern DLLIMPORT void AzGLsyncPtr_delete(AzGLsyncPtr* restrict instance);
 extern DLLIMPORT AzTextureFlags AzTextureFlags_default();
 extern DLLIMPORT AzImageId AzImageId_new();
 extern DLLIMPORT AzFontId AzFontId_new();
+extern DLLIMPORT AzRawImage AzRawImage_fromAnyBytes(AzU8VecRef  bytes);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeBmp(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePng(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeJpeg(AzRawImage* const rawimage);

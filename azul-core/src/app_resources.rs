@@ -588,23 +588,414 @@ pub enum ImmediateFontId {
 /// Raw image made up of raw pixels (either BRGA8 or A8)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+pub enum ImagePixelEndian {
+    Big,
+    Little,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct RawImage {
     pub pixels: U8Vec,
     pub width: usize,
     pub height: usize,
     pub premultiplied_alpha: bool,
     pub data_format: RawImageFormat,
+    /// If the image format is 16 bits, which endianness to the pixels use: [hi_bit, lo_bit] or [lo_bit, hi_bit]
+    pub endian_16bit: ImagePixelEndian,
 }
 
 impl RawImage {
+
+    /// Returns a null / empty image
     pub fn null_image() -> Self {
         Self {
             pixels: Vec::new().into(),
             width: 0,
             height: 0,
-            premultiplied_alpha: false,
-            data_format: RawImageFormat::RGBA8
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::BGRA8,
+            endian_16bit: ImagePixelEndian::Big,
         }
+    }
+
+    /// Encodes a RawImage as BGRA8 bytes and premultiplies it if the alpha is not premultiplied
+    ///
+    /// Returns None if the width * height * BPP does not match
+    ///
+    /// TODO: autovectorization fails spectacularly, need to manually optimize!
+    pub fn into_loaded_image_source(self) -> Option<LoadedImageSource> {
+
+        #[inline]
+        fn convert_be(a: u8, b: u8) -> u16 {
+            u16::from_be_bytes([a, b])
+        }
+
+        #[inline]
+        fn convert_le(a: u8, b: u8) -> u16 {
+            u16::from_le_bytes([a, b])
+        }
+
+        // From webrender/wrench
+        // These are slow. Gecko's gfx/2d/Swizzle.cpp has better versions
+        #[inline(always)]
+        fn premultiply_alpha(array: &mut [u8]) {
+            if array.len() != 4 { return; }
+            let a = u32::from(array[3]);
+            array[0] = (((array[0] as u32 * a) + 128) / 255) as u8;
+            array[1] = (((array[1] as u32 * a) + 128) / 255) as u8;
+            array[2] = (((array[2] as u32 * a) + 128) / 255) as u8;
+        }
+
+        #[inline(always)]
+        fn normalize_u16(i: u16) -> u8 {
+            ((core::u16::MAX as f32 / i as f32) * core::u8::MAX as f32) as u8
+        }
+
+        let RawImage {
+            width,
+            height,
+            pixels,
+            data_format,
+            premultiplied_alpha,
+            endian_16bit
+        } = self;
+
+        const FOUR_BPP: usize = 4;
+        const TWO_CHANNELS: usize = 2;
+        const THREE_CHANNELS: usize = 3;
+        const FOUR_CHANNELS: usize = 4;
+
+        const U16_MULTIPLIER: usize = 2;
+
+        let mut is_opaque = true;
+        let mut pixels: Vec<u8> = pixels.into_library_owned_vec();
+
+        let endian_conversion_func = match endian_16bit {
+            ImagePixelEndian::Little => convert_le,
+            ImagePixelEndian::Big => convert_be,
+        };
+
+        let expected_len = width * height;
+
+        let bytes = match data_format {
+            RawImageFormat::R8 => {
+
+                if pixels.len() != expected_len {
+                    return None;
+                }
+
+                let mut px = vec![0; expected_len * FOUR_BPP];
+
+                // TODO: check that this function is SIMD optimized
+                for (pixel_index, grey) in pixels.into_iter().enumerate() {
+                    px[pixel_index * FOUR_BPP] = grey;
+                    px[(pixel_index * FOUR_BPP) + 1] = grey;
+                    px[(pixel_index * FOUR_BPP) + 2] = grey;
+                    px[(pixel_index * FOUR_BPP) + 3] = 0xff;
+                }
+
+                px
+            },
+            RawImageFormat::RG8 => {
+
+                if pixels.len() != expected_len * TWO_CHANNELS {
+                    return None;
+                }
+
+                let mut px = vec![0; expected_len * FOUR_BPP];
+
+                // TODO: check that this function is SIMD optimized
+                for (pixel_index, greyalpha) in pixels.chunks_exact(TWO_CHANNELS).enumerate() {
+
+                    let grey = greyalpha[0];
+                    let alpha = greyalpha[1];
+
+                    if alpha != 255 { is_opaque = false; }
+
+                    px[pixel_index * FOUR_BPP] = grey;
+                    px[(pixel_index * FOUR_BPP) + 1] = grey;
+                    px[(pixel_index * FOUR_BPP) + 2] = grey;
+                    px[(pixel_index * FOUR_BPP) + 3] = alpha;
+                }
+
+                px
+            },
+            RawImageFormat::RGB8 => {
+
+                if pixels.len() != expected_len * THREE_CHANNELS {
+                    return None;
+                }
+
+                let mut px = vec![0; expected_len * FOUR_BPP];
+
+                // TODO: check that this function is SIMD optimized
+                for (pixel_index, rgb) in pixels.chunks_exact(THREE_CHANNELS).enumerate() {
+
+                    let red = rgb[0];
+                    let green = rgb[1];
+                    let blue = rgb[2];
+
+                    px[pixel_index * FOUR_BPP] = blue;
+                    px[(pixel_index * FOUR_BPP) + 1] = green;
+                    px[(pixel_index * FOUR_BPP) + 2] = red;
+                    px[(pixel_index * FOUR_BPP) + 3] = 0xff;
+                }
+
+                px
+            },
+            RawImageFormat::RGBA8 => {
+
+                if pixels.len() != expected_len * FOUR_CHANNELS {
+                    return None;
+                }
+
+                // TODO: check that this function is SIMD optimized
+                // no extra allocation necessary, but swizzling
+                if premultiplied_alpha {
+                    for rgba in pixels.chunks_exact_mut(4) {
+                        let r = rgba[0];
+                        let g = rgba[1];
+                        let b = rgba[2];
+                        let a = rgba[3];
+                        if a != 255 { is_opaque = false; }
+                        rgba[0] = b;
+                        rgba[1] = r;
+                        rgba[2] = g;
+                        rgba[3] = a;
+                    }
+                } else {
+                    for rgba in pixels.chunks_exact_mut(4) {
+                        if rgba[3] != 255 { is_opaque = false; }
+                        rgba[0] = rgba[3];
+                        rgba[1] = rgba[2];
+                        rgba[2] = rgba[1];
+                        rgba[3] = rgba[0];
+                        premultiply_alpha(rgba); // <-
+                    }
+                }
+
+                pixels
+            },
+            RawImageFormat::R16 => {
+
+                if pixels.len() != expected_len {
+                    return None;
+                }
+
+                let mut px = vec![0; expected_len * FOUR_BPP];
+
+                // TODO: check that this function is SIMD optimized
+                for (pixel_index, grey) in pixels.chunks_exact(U16_MULTIPLIER).into_iter().enumerate() {
+                    let grey_lobit = grey[0];
+                    let grey_hibit = grey[1];
+                    let grey_u16 = (endian_conversion_func)(grey_lobit, grey_hibit);
+                    let grey_u8 = normalize_u16(grey_u16);
+                    px[pixel_index * FOUR_BPP] = grey_u8;
+                    px[(pixel_index * FOUR_BPP) + 1] = grey_u8;
+                    px[(pixel_index * FOUR_BPP) + 2] = grey_u8;
+                    px[(pixel_index * FOUR_BPP) + 3] = 0xff;
+                }
+
+                px
+            },
+            RawImageFormat::RG16 => {
+
+                if pixels.len() != expected_len * TWO_CHANNELS * U16_MULTIPLIER {
+                    return None;
+                }
+
+                let mut px = vec![0; expected_len * FOUR_BPP];
+
+                // TODO: check that this function is SIMD optimized
+                for (pixel_index, greyalpha) in pixels.chunks_exact(TWO_CHANNELS * U16_MULTIPLIER).enumerate() {
+
+                    let grey_lobit = greyalpha[0];
+                    let grey_hibit = greyalpha[1];
+                    let grey_u16 = (endian_conversion_func)(grey_lobit, grey_hibit);
+                    let grey_u8 = normalize_u16(grey_u16);
+
+                    let alpha_lobit = greyalpha[2];
+                    let alpha_hibit = greyalpha[3];
+                    let alpha_u16 = (endian_conversion_func)(alpha_lobit, alpha_hibit);
+                    let alpha_u8 = normalize_u16(alpha_u16);
+
+                    if alpha_u8 != 255 { is_opaque = false; }
+
+                    px[pixel_index * FOUR_BPP] = grey_u8;
+                    px[(pixel_index * FOUR_BPP) + 1] = grey_u8;
+                    px[(pixel_index * FOUR_BPP) + 2] = grey_u8;
+                    px[(pixel_index * FOUR_BPP) + 3] = alpha_u8;
+                }
+
+                px
+            },
+            RawImageFormat::RGB16 => {
+
+                if pixels.len() != expected_len * THREE_CHANNELS * U16_MULTIPLIER {
+                    return None;
+                }
+
+                let mut px = vec![0; expected_len * FOUR_BPP];
+
+                // TODO: check that this function is SIMD optimized
+                for (pixel_index, rgb) in pixels.chunks_exact(THREE_CHANNELS * U16_MULTIPLIER).enumerate() {
+
+                    let red_lobit = rgb[0];
+                    let red_hibit = rgb[1];
+                    let red_u16 = (endian_conversion_func)(red_lobit, red_hibit);
+                    let red_u8 = normalize_u16(red_u16);
+
+                    let green_lobit = rgb[2];
+                    let green_hibit = rgb[3];
+                    let green_u16 = (endian_conversion_func)(green_lobit, green_hibit);
+                    let green_u8 = normalize_u16(green_u16);
+
+                    let blue_lobit = rgb[4];
+                    let blue_hibit = rgb[5];
+                    let blue_u16 = (endian_conversion_func)(blue_lobit, blue_hibit);
+                    let blue_u8 = normalize_u16(blue_u16);
+
+                    px[pixel_index * FOUR_BPP] = blue_u8;
+                    px[(pixel_index * FOUR_BPP) + 1] = green_u8;
+                    px[(pixel_index * FOUR_BPP) + 2] = red_u8;
+                    px[(pixel_index * FOUR_BPP) + 3] = 0xff;
+                }
+
+                px
+            },
+            RawImageFormat::RGBA16 => {
+
+                if pixels.len() != expected_len * FOUR_CHANNELS * U16_MULTIPLIER {
+                    return None;
+                }
+
+                let mut px = vec![0; expected_len * FOUR_BPP];
+
+                // TODO: check that this function is SIMD optimized
+                if premultiplied_alpha {
+                    for (pixel_index, rgba) in pixels.chunks_exact(FOUR_CHANNELS * U16_MULTIPLIER).enumerate() {
+
+                        let red_lobit = rgba[0];
+                        let red_hibit = rgba[1];
+                        let red_u16 = (endian_conversion_func)(red_lobit, red_hibit);
+                        let red_u8 = normalize_u16(red_u16);
+
+                        let green_lobit = rgba[2];
+                        let green_hibit = rgba[3];
+                        let green_u16 = (endian_conversion_func)(green_lobit, green_hibit);
+                        let green_u8 = normalize_u16(green_u16);
+
+                        let blue_lobit = rgba[4];
+                        let blue_hibit = rgba[5];
+                        let blue_u16 = (endian_conversion_func)(blue_lobit, blue_hibit);
+                        let blue_u8 = normalize_u16(blue_u16);
+
+                        let alpha_lobit = rgba[4];
+                        let alpha_hibit = rgba[5];
+                        let alpha_u16 = (endian_conversion_func)(alpha_lobit, alpha_hibit);
+                        let alpha_u8 = normalize_u16(alpha_u16);
+
+                        if alpha_u8 != 255 { is_opaque = false; }
+
+                        px[pixel_index * FOUR_BPP] = blue_u8;
+                        px[(pixel_index * FOUR_BPP) + 1] = green_u8;
+                        px[(pixel_index * FOUR_BPP) + 2] = red_u8;
+                        px[(pixel_index * FOUR_BPP) + 3] = alpha_u8;
+                    }
+                } else {
+                    for (pixel_index, rgba) in pixels.chunks_exact(FOUR_CHANNELS * U16_MULTIPLIER).enumerate() {
+
+                        let red_lobit = rgba[0];
+                        let red_hibit = rgba[1];
+                        let red_u16 = (endian_conversion_func)(red_lobit, red_hibit);
+                        let red_u8 = normalize_u16(red_u16);
+
+                        let green_lobit = rgba[2];
+                        let green_hibit = rgba[3];
+                        let green_u16 = (endian_conversion_func)(green_lobit, green_hibit);
+                        let green_u8 = normalize_u16(green_u16);
+
+                        let blue_lobit = rgba[4];
+                        let blue_hibit = rgba[5];
+                        let blue_u16 = (endian_conversion_func)(blue_lobit, blue_hibit);
+                        let blue_u8 = normalize_u16(blue_u16);
+
+                        let alpha_lobit = rgba[4];
+                        let alpha_hibit = rgba[5];
+                        let alpha_u16 = (endian_conversion_func)(alpha_lobit, alpha_hibit);
+                        let alpha_u8 = normalize_u16(alpha_u16);
+
+                        if alpha_u8 != 255 { is_opaque = false; }
+
+                        px[pixel_index * FOUR_BPP] = blue_u8;
+                        px[(pixel_index * FOUR_BPP) + 1] = green_u8;
+                        px[(pixel_index * FOUR_BPP) + 2] = red_u8;
+                        px[(pixel_index * FOUR_BPP) + 3] = alpha_u8;
+                        premultiply_alpha(&mut px[(pixel_index * FOUR_BPP)..((pixel_index * FOUR_BPP) + FOUR_BPP)]);
+                    }
+                }
+
+                px
+            },
+            RawImageFormat::BGR8 => {
+
+                if pixels.len() != expected_len * THREE_CHANNELS {
+                    return None;
+                }
+
+                let mut px = vec![0; expected_len * FOUR_BPP];
+
+                // TODO: check that this function is SIMD optimized
+                for (pixel_index, bgr) in pixels.chunks_exact(THREE_CHANNELS).enumerate() {
+
+                    let blue = bgr[0];
+                    let green = bgr[1];
+                    let red = bgr[2];
+
+                    px[pixel_index * FOUR_BPP] = blue;
+                    px[(pixel_index * FOUR_BPP) + 1] = green;
+                    px[(pixel_index * FOUR_BPP) + 2] = red;
+                    px[(pixel_index * FOUR_BPP) + 3] = 0xff;
+                }
+
+                px
+            },
+            RawImageFormat::BGRA8 => {
+
+                if pixels.len() != expected_len * FOUR_BPP {
+                    return None;
+                }
+
+                if premultiplied_alpha {
+                    for bgra in pixels.chunks_exact(FOUR_CHANNELS) {
+                        if bgra[3] != 255 { is_opaque = false; break; }
+                    }
+                } else {
+                    for bgra in pixels.chunks_exact_mut(4) {
+                        if bgra[3] != 255 { is_opaque = false; }
+                        premultiply_alpha(bgra);
+                    }
+                }
+
+                pixels
+            },
+        };
+
+        Some(LoadedImageSource {
+            image_bytes_decoded: ImageData::Raw(bytes.into()),
+            image_descriptor: ImageDescriptor {
+                format: RawImageFormat::BGRA8,
+                width,
+                height,
+                offset: 0,
+                stride: None.into(),
+                flags: ImageDescriptorFlags {
+                    is_opaque,
+                    allow_mipmaps: true,
+                }
+            },
+        })
     }
 }
 
@@ -1944,39 +2335,4 @@ pub fn delete_resources(
             },
         }
     }
-}
-
-pub fn is_image_opaque(format: RawImageFormat, bytes: &[u8]) -> bool {
-    match format {
-        RawImageFormat::BGRA8 => {
-            let mut is_opaque = true;
-            for i in 0..(bytes.len() / 4) {
-                if bytes[i * 4 + 3] != 255 {
-                    is_opaque = false;
-                    break;
-                }
-            }
-            is_opaque
-        }
-        RawImageFormat::R8 => true,
-        _ => unreachable!(),
-    }
-}
-
-// From webrender/wrench
-// These are slow. Gecko's gfx/2d/Swizzle.cpp has better versions
-pub fn premultiply(data: &mut [u8]) {
-    for pixel in data.chunks_mut(4) {
-        let a = u32::from(pixel[3]);
-        pixel[0] = (((pixel[0] as u32 * a) + 128) / 255) as u8;
-        pixel[1] = (((pixel[1] as u32 * a) + 128) / 255) as u8;
-        pixel[2] = (((pixel[2] as u32 * a) + 128) / 255) as u8;
-    }
-}
-
-#[test]
-fn test_premultiply() {
-    let mut color = [255, 0, 0, 127];
-    premultiply(&mut color);
-    assert_eq!(color, [127, 0, 0, 127]);
 }

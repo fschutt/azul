@@ -1173,6 +1173,18 @@ mod dll {
         DimensionError,
         Unknown,
     }
+    /// Re-export of rust-allocated (stack based) `DecodeImageError` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzDecodeImageError {
+        InsufficientMemory,
+        DimensionError,
+        UnsupportedImageFormat,
+        Unknown,
+    }
+    /// Re-export of rust-allocated (stack based) `ImagePixelEndian` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzImagePixelEndian {
+        Big,
+        Little,
+    }
     /// Re-export of rust-allocated (stack based) `Svg` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvg {
         pub(crate) ptr: *mut c_void,
@@ -2983,6 +2995,11 @@ mod dll {
         None,
         Some(AzU8VecRef),
     }
+    /// Re-export of rust-allocated (stack based) `ResultU8VecDecodeImageError` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultU8VecDecodeImageError {
+        Ok(AzU8Vec),
+        Err(AzDecodeImageError),
+    }
     /// Re-export of rust-allocated (stack based) `ResultU8VecEncodeImageError` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultU8VecEncodeImageError {
         Ok(AzU8Vec),
@@ -3205,6 +3222,7 @@ mod dll {
         pub height: usize,
         pub has_premultiplied_alpha: bool,
         pub data_format: AzRawImageFormat,
+        pub endian_16bit: AzImagePixelEndian,
     }
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgPathElement {
@@ -4552,6 +4570,7 @@ mod dll {
         pub(crate) fn AzTextureFlags_default() -> AzTextureFlags;
         pub(crate) fn AzImageId_new() -> AzImageId;
         pub(crate) fn AzFontId_new() -> AzFontId;
+        pub(crate) fn AzRawImage_fromAnyBytes(_:  AzU8VecRef) -> AzResultU8VecDecodeImageError;
         pub(crate) fn AzRawImage_encodeBmp(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodePng(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeJpeg(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
@@ -9138,6 +9157,7 @@ pub mod resources {
     //! Struct definition for image / font / text IDs
     use crate::dll::*;
     use core::ffi::c_void;
+    use crate::gl::U8VecRef;
     /// `ImageMask` struct
     
 #[doc(inline)] pub use crate::dll::AzImageMask as ImageMask;
@@ -9178,10 +9198,18 @@ pub mod resources {
     /// `EncodeImageError` struct
     
 #[doc(inline)] pub use crate::dll::AzEncodeImageError as EncodeImageError;
+    /// `DecodeImageError` struct
+    
+#[doc(inline)] pub use crate::dll::AzDecodeImageError as DecodeImageError;
+    /// `ImagePixelEndian` struct
+    
+#[doc(inline)] pub use crate::dll::AzImagePixelEndian as ImagePixelEndian;
     /// `RawImage` struct
     
 #[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
     impl RawImage {
+        /// Decodes a RawImage from any supported image format - automatically guesses the format based on magic header
+        pub fn from_any_bytes(bytes: U8VecRef) ->  crate::error::ResultU8VecDecodeImageError { unsafe { crate::dll::AzRawImage_fromAnyBytes(bytes) } }
         /// Encodes the RawImage in the BMP image format
         pub fn encode_bmp(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeBmp(self) } }
         /// Encodes the RawImage in the PNG image format
@@ -10562,6 +10590,9 @@ pub mod error {
     //! Definition of error and `Result<T, E>`  types
     use crate::dll::*;
     use core::ffi::c_void;
+    /// `ResultU8VecDecodeImageError` struct
+    
+#[doc(inline)] pub use crate::dll::AzResultU8VecDecodeImageError as ResultU8VecDecodeImageError;
     /// `ResultU8VecEncodeImageError` struct
     
 #[doc(inline)] pub use crate::dll::AzResultU8VecEncodeImageError as ResultU8VecEncodeImageError;

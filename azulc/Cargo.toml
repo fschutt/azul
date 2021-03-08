@@ -46,7 +46,7 @@ usvg                    = { version = "0.13.1",  default-features = false, optio
 resvg                   = { version = "0.13.1",  default-features = false, optional = true }
 roxmltree               = { version = "0.13.0",  default-features = false, optional = true }
 owned_ttf_parser        = { version = "0.6.0",   default-features = false, optional = true }
-tiny-skia               = { version = "0.5.1",   default-features = false, optional = true }
+tiny-skia               = { version = "0.5.1",   default-features = false, optional = true, features = ["libm"] }
 
 [features]
 std = ["azul-core/std", "azul-layout/std"]

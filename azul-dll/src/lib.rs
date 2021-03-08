@@ -1984,9 +1984,19 @@ pub use AzSystemFontSourceTT as AzSystemFontSource;
 pub type AzEncodeImageErrorTT = azul_impl::resources::encode::EncodeImageError;
 pub use AzEncodeImageErrorTT as AzEncodeImageError;
 
+/// Re-export of rust-allocated (stack based) `DecodeImageError` struct
+pub type AzDecodeImageErrorTT = azul_impl::resources::decode::DecodeImageError;
+pub use AzDecodeImageErrorTT as AzDecodeImageError;
+
+/// Re-export of rust-allocated (stack based) `ImagePixelEndian` struct
+pub type AzImagePixelEndianTT = azul_impl::resources::ImagePixelEndian;
+pub use AzImagePixelEndianTT as AzImagePixelEndian;
+
 /// Re-export of rust-allocated (stack based) `RawImage` struct
 pub type AzRawImageTT = azul_impl::resources::RawImage;
 pub use AzRawImageTT as AzRawImage;
+/// Decodes a RawImage from any supported image format - automatically guesses the format based on magic header
+#[no_mangle] pub extern "C" fn AzRawImage_fromAnyBytes(bytes: AzU8VecRef) -> AzResultU8VecDecodeImageError { azul_impl::resources::decode::decode_any(bytes) }
 /// Encodes the RawImage in the BMP image format
 #[no_mangle] pub extern "C" fn AzRawImage_encodeBmp(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError { azul_impl::resources::encode::encode_bmp(rawimage) }
 /// Encodes the RawImage in the PNG image format
@@ -2953,6 +2963,10 @@ pub use AzOptionUsizeTT as AzOptionUsize;
 /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
 pub type AzOptionU8VecRefTT = azul_impl::gl::OptionU8VecRef;
 pub use AzOptionU8VecRefTT as AzOptionU8VecRef;
+
+/// Re-export of rust-allocated (stack based) `ResultU8VecDecodeImageError` struct
+pub type AzResultU8VecDecodeImageErrorTT = azul_impl::resources::decode::ResultU8VecDecodeImageError;
+pub use AzResultU8VecDecodeImageErrorTT as AzResultU8VecDecodeImageError;
 
 /// Re-export of rust-allocated (stack based) `ResultU8VecEncodeImageError` struct
 pub type AzResultU8VecEncodeImageErrorTT = azul_impl::resources::encode::ResultU8VecEncodeImageError;
@@ -4173,6 +4187,18 @@ mod test_sizes {
         InsufficientMemory,
         DimensionError,
         Unknown,
+    }
+    /// Re-export of rust-allocated (stack based) `DecodeImageError` struct
+    #[repr(C)]     pub enum AzDecodeImageError {
+        InsufficientMemory,
+        DimensionError,
+        UnsupportedImageFormat,
+        Unknown,
+    }
+    /// Re-export of rust-allocated (stack based) `ImagePixelEndian` struct
+    #[repr(C)]     pub enum AzImagePixelEndian {
+        Big,
+        Little,
     }
     /// Re-export of rust-allocated (stack based) `Svg` struct
     #[repr(C)]     pub struct AzSvg {
@@ -5984,6 +6010,11 @@ mod test_sizes {
         None,
         Some(AzU8VecRef),
     }
+    /// Re-export of rust-allocated (stack based) `ResultU8VecDecodeImageError` struct
+    #[repr(C, u8)]     pub enum AzResultU8VecDecodeImageError {
+        Ok(AzU8Vec),
+        Err(AzDecodeImageError),
+    }
     /// Re-export of rust-allocated (stack based) `ResultU8VecEncodeImageError` struct
     #[repr(C, u8)]     pub enum AzResultU8VecEncodeImageError {
         Ok(AzU8Vec),
@@ -6206,6 +6237,7 @@ mod test_sizes {
         pub height: usize,
         pub has_premultiplied_alpha: bool,
         pub data_format: AzRawImageFormat,
+        pub endian_16bit: AzImagePixelEndian,
     }
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
     #[repr(C, u8)]     pub enum AzSvgPathElement {
@@ -7347,6 +7379,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::resources::ImageId>(), "AzImageId"), (Layout::new::<AzImageId>(), "AzImageId"));
         assert_eq!((Layout::new::<azul_impl::resources::FontId>(), "AzFontId"), (Layout::new::<AzFontId>(), "AzFontId"));
         assert_eq!((Layout::new::<azul_impl::resources::encode::EncodeImageError>(), "AzEncodeImageError"), (Layout::new::<AzEncodeImageError>(), "AzEncodeImageError"));
+        assert_eq!((Layout::new::<azul_impl::resources::decode::DecodeImageError>(), "AzDecodeImageError"), (Layout::new::<AzDecodeImageError>(), "AzDecodeImageError"));
+        assert_eq!((Layout::new::<azul_impl::resources::ImagePixelEndian>(), "AzImagePixelEndian"), (Layout::new::<AzImagePixelEndian>(), "AzImagePixelEndian"));
         assert_eq!((Layout::new::<azul_impl::svg::Svg>(), "AzSvg"), (Layout::new::<AzSvg>(), "AzSvg"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgXmlNode>(), "AzSvgXmlNode"), (Layout::new::<AzSvgXmlNode>(), "AzSvgXmlNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgCircle>(), "AzSvgCircle"), (Layout::new::<AzSvgCircle>(), "AzSvgCircle"));
@@ -7628,6 +7662,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::OptionTabIndex>(), "AzOptionTabIndex"), (Layout::new::<AzOptionTabIndex>(), "AzOptionTabIndex"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::OptionTagId>(), "AzOptionTagId"), (Layout::new::<AzOptionTagId>(), "AzOptionTagId"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionU8VecRef>(), "AzOptionU8VecRef"), (Layout::new::<AzOptionU8VecRef>(), "AzOptionU8VecRef"));
+        assert_eq!((Layout::new::<azul_impl::resources::decode::ResultU8VecDecodeImageError>(), "AzResultU8VecDecodeImageError"), (Layout::new::<AzResultU8VecDecodeImageError>(), "AzResultU8VecDecodeImageError"));
         assert_eq!((Layout::new::<azul_impl::resources::encode::ResultU8VecEncodeImageError>(), "AzResultU8VecEncodeImageError"), (Layout::new::<AzResultU8VecEncodeImageError>(), "AzResultU8VecEncodeImageError"));
         assert_eq!((Layout::new::<azul_impl::xml::NonXmlCharError>(), "AzNonXmlCharError"), (Layout::new::<AzNonXmlCharError>(), "AzNonXmlCharError"));
         assert_eq!((Layout::new::<azul_impl::xml::InvalidCharError>(), "AzInvalidCharError"), (Layout::new::<AzInvalidCharError>(), "AzInvalidCharError"));

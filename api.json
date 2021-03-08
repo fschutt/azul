@@ -6227,6 +6227,22 @@
 						{"Unknown": {"doc": "Unknown error"}}
 					]
 				},
+				"DecodeImageError": {
+					"external": "azul_impl::resources::decode::DecodeImageError",
+					"enum_fields": [
+						{"InsufficientMemory": {"doc": "Not enough memory available to perform the encoding operation"}},
+						{"DimensionError": {"doc": "Width x height x channels does not match the image data"}},
+						{"UnsupportedImageFormat": {"doc": "The image format is not supported"}},
+						{"Unknown": {"doc": "Unknown error"}}
+					]
+				},
+				"ImagePixelEndian": {
+					"external": "azul_impl::resources::ImagePixelEndian",
+					"enum_fields": [
+						{"Big": {"doc": "Big endianness"}},
+						{"Little": {"doc": "Little endianness"}}
+					]
+				},
 				"RawImage": {
 					"external": "azul_impl::resources::RawImage",
 					"struct_fields": [
@@ -6234,8 +6250,19 @@
 						{"width": {"type": "usize", "doc": "Width of the image"}},
 						{"height": {"type": "usize", "doc": "Height of the image"}},
 						{"has_premultiplied_alpha": {"type": "bool", "doc": "Whether the image already has the alpha channel premultiplied"}},
-						{"data_format": {"type": "RawImageFormat", "doc": "Which data format (channels) the image uses"}}
+						{"data_format": {"type": "RawImageFormat", "doc": "Which data format (channels) the image uses"}},
+						{"endian_16bit": {"type": "ImagePixelEndian", "doc": "If the data format uses 16 bits, which endianness do the pixels have"}}
 					],
+					"constructors": {
+						"from_any_bytes": {
+							"doc": "Decodes a RawImage from any supported image format - automatically guesses the format based on magic header",
+							"fn_args": [
+								{"bytes": "U8VecRef"}
+							],
+							"returns": {"type": "ResultU8VecDecodeImageError"},
+							"fn_body": "azul_impl::resources::decode::decode_any(bytes)"
+						}
+					},
 					"functions": {
 						"encode_bmp": {
 							"doc": "Encodes the RawImage in the BMP image format",
@@ -8661,6 +8688,13 @@
 		"error": {
 			"doc": "Definition of error and `Result<T, E>`  types",
 			"classes": {
+				"ResultU8VecDecodeImageError": {
+					"external": "azul_impl::resources::decode::ResultU8VecDecodeImageError",
+					"enum_fields": [
+						{"Ok": {"type": "U8Vec"}},
+						{"Err": { "type": "DecodeImageError" }}
+					]
+				},
 				"ResultU8VecEncodeImageError": {
 					"external": "azul_impl::resources::encode::ResultU8VecEncodeImageError",
 					"enum_fields": [

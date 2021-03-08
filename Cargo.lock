@@ -261,6 +261,7 @@ dependencies = [
  "resvg",
  "roxmltree",
  "rust-fontconfig",
+ "tiny-skia 0.5.1",
  "usvg",
  "xmlparser",
 ]
@@ -1775,7 +1776,7 @@ dependencies = [
  "png",
  "rgb",
  "svgfilters",
- "tiny-skia",
+ "tiny-skia 0.4.2",
  "usvg",
 ]
 
@@ -2090,6 +2091,19 @@ dependencies = [
  "bytemuck",
  "png",
  "wide",
+]
+
+[[package]]
+name = "tiny-skia"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bf81f2900d2e235220e6f31ec9f63ade6a7f59090c556d74fe949bb3b15e9fe"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "bytemuck",
+ "cfg-if 1.0.0",
+ "libm",
 ]
 
 [[package]]
