@@ -1,4 +1,5 @@
 use azul_css::{U8Vec, AzString, OptionAzString};
+use crate::xml_parser::XmlNode;
 
 #[allow(non_camel_case_types)]
 pub enum c_void { }
@@ -39,26 +40,15 @@ impl<'a> From<roxmltree::Attribute<'a>> for XmlQualifiedName {
 
 #[repr(C)]
 pub struct Xml {
-    doc: Box<roxmltree::Document>,
+    root: Vec<XmlNode>,
 }
 
 impl Xml {
-    fn new(doc: roxmltree::Document) -> Self { Self { doc: Box::new(doc) } }
-    pub fn parse(s: &str) -> Result<Xml, XmlError> { Ok(Self::new(roxmltree::Document::parse(s)?)) }
-    pub fn root(&self) -> XmlNode { XmlNode::new(self.doc.root_element().clone()) }
-}
-
-#[repr(C)]
-pub struct XmlNode {
-    node: Box<roxmltree::Node>,
-}
-
-impl XmlNode {
-    fn new(doc: roxmltree::Node) -> Self { Self { ptr: Box::new(doc) } }
-    pub fn get_attribute(&self, attribute_key: &str) -> Option<AzString> { self.node.attribute(attribute_key).map(|v| v.to_string().into()) }
-    pub fn attributes(&self) -> Vec<XmlQualifiedName> { self.node.attributes().iter().map(|v| v.clone().into()).collect() }
-    pub fn text(&self) -> Option<String> { self.node.text().map(|s| s.to_string()) }
-    pub fn children(&self) -> Vec<XmlNode> { self.node.children().map(|c| XmlNode::new(c.clone())).collect() }
+    pub fn parse(s: &str) -> Result<Xml, XmlError> {
+        Ok(Self {
+            root: crate::xml_parser::parse_xml_string(s)?,
+        })
+    }
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
@@ -209,6 +199,9 @@ pub enum XmlError {
     DuplicatedAttribute(DuplicatedAttributeError),
     NoRootNode,
     SizeLimit,
+    DtdDetected,
+    /// Invalid hierarchy close tags, i.e `<app></p></app>`
+    MalformedHierarchy(AzString, AzString),
     ParserError(XmlParseError),
 }
 
@@ -267,6 +260,7 @@ impl From<roxmltree::Error> for XmlError {
             roxmltree::Error::DuplicatedAttribute(s, tp) => XmlError::DuplicatedAttribute(DuplicatedAttributeError { attribute: s.into(), pos: tp.into() }),
             roxmltree::Error::NoRootNode => XmlError::NoRootNode,
             roxmltree::Error::SizeLimit => XmlError::SizeLimit,
+            roxmltree::Error::DtdDetected => XmlError::DtdDetected,
             roxmltree::Error::ParserError(s) => XmlError::ParserError(s.into()),
         }
     }

@@ -232,6 +232,14 @@ struct AzCssRuleBlockVec;
 typedef struct AzCssRuleBlockVec AzCssRuleBlockVec;
 typedef void (*AzCssRuleBlockVecDestructorType)(AzCssRuleBlockVec* restrict A);
 
+struct AzF32Vec;
+typedef struct AzF32Vec AzF32Vec;
+typedef void (*AzF32VecDestructorType)(AzF32Vec* restrict A);
+
+struct AzU16Vec;
+typedef struct AzU16Vec AzU16Vec;
+typedef void (*AzU16VecDestructorType)(AzU16Vec* restrict A);
+
 struct AzU8Vec;
 typedef struct AzU8Vec AzU8Vec;
 typedef void (*AzU8VecDestructorType)(AzU8Vec* restrict A);
@@ -1410,6 +1418,7 @@ typedef struct AzFontId AzFontId;
 enum AzEncodeImageError {
    AzEncodeImageError_InsufficientMemory,
    AzEncodeImageError_DimensionError,
+   AzEncodeImageError_InvalidData,
    AzEncodeImageError_Unknown,
 };
 typedef enum AzEncodeImageError AzEncodeImageError;
@@ -1421,12 +1430,6 @@ enum AzDecodeImageError {
    AzDecodeImageError_Unknown,
 };
 typedef enum AzDecodeImageError AzDecodeImageError;
-
-enum AzImagePixelEndian {
-   AzImagePixelEndian_Big,
-   AzImagePixelEndian_Little,
-};
-typedef enum AzImagePixelEndian AzImagePixelEndian;
 
 struct AzSvg {
     void* restrict ptr;
@@ -2333,6 +2336,52 @@ typedef union AzCssRuleBlockVecDestructor AzCssRuleBlockVecDestructor;
 #define AzCssRuleBlockVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCssRuleBlockVecDestructorTag_DefaultRust } }
 #define AzCssRuleBlockVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCssRuleBlockVecDestructorTag_NoDestructor } }
 #define AzCssRuleBlockVecDestructor_External(v) { .External = { .tag = AzCssRuleBlockVecDestructorTag_External, .payload = v } }
+
+enum AzF32VecDestructorTag {
+   AzF32VecDestructorTag_DefaultRust,
+   AzF32VecDestructorTag_NoDestructor,
+   AzF32VecDestructorTag_External,
+};
+typedef enum AzF32VecDestructorTag AzF32VecDestructorTag;
+
+struct AzF32VecDestructorVariant_DefaultRust { AzF32VecDestructorTag tag; };
+typedef struct AzF32VecDestructorVariant_DefaultRust AzF32VecDestructorVariant_DefaultRust;
+struct AzF32VecDestructorVariant_NoDestructor { AzF32VecDestructorTag tag; };
+typedef struct AzF32VecDestructorVariant_NoDestructor AzF32VecDestructorVariant_NoDestructor;
+struct AzF32VecDestructorVariant_External { AzF32VecDestructorTag tag; AzF32VecDestructorType payload; };
+typedef struct AzF32VecDestructorVariant_External AzF32VecDestructorVariant_External;
+union AzF32VecDestructor {
+    AzF32VecDestructorVariant_DefaultRust DefaultRust;
+    AzF32VecDestructorVariant_NoDestructor NoDestructor;
+    AzF32VecDestructorVariant_External External;
+};
+typedef union AzF32VecDestructor AzF32VecDestructor;
+#define AzF32VecDestructor_DefaultRust { .DefaultRust = { .tag = AzF32VecDestructorTag_DefaultRust } }
+#define AzF32VecDestructor_NoDestructor { .NoDestructor = { .tag = AzF32VecDestructorTag_NoDestructor } }
+#define AzF32VecDestructor_External(v) { .External = { .tag = AzF32VecDestructorTag_External, .payload = v } }
+
+enum AzU16VecDestructorTag {
+   AzU16VecDestructorTag_DefaultRust,
+   AzU16VecDestructorTag_NoDestructor,
+   AzU16VecDestructorTag_External,
+};
+typedef enum AzU16VecDestructorTag AzU16VecDestructorTag;
+
+struct AzU16VecDestructorVariant_DefaultRust { AzU16VecDestructorTag tag; };
+typedef struct AzU16VecDestructorVariant_DefaultRust AzU16VecDestructorVariant_DefaultRust;
+struct AzU16VecDestructorVariant_NoDestructor { AzU16VecDestructorTag tag; };
+typedef struct AzU16VecDestructorVariant_NoDestructor AzU16VecDestructorVariant_NoDestructor;
+struct AzU16VecDestructorVariant_External { AzU16VecDestructorTag tag; AzU16VecDestructorType payload; };
+typedef struct AzU16VecDestructorVariant_External AzU16VecDestructorVariant_External;
+union AzU16VecDestructor {
+    AzU16VecDestructorVariant_DefaultRust DefaultRust;
+    AzU16VecDestructorVariant_NoDestructor NoDestructor;
+    AzU16VecDestructorVariant_External External;
+};
+typedef union AzU16VecDestructor AzU16VecDestructor;
+#define AzU16VecDestructor_DefaultRust { .DefaultRust = { .tag = AzU16VecDestructorTag_DefaultRust } }
+#define AzU16VecDestructor_NoDestructor { .NoDestructor = { .tag = AzU16VecDestructorTag_NoDestructor } }
+#define AzU16VecDestructor_External(v) { .External = { .tag = AzU16VecDestructorTag_External, .payload = v } }
 
 enum AzU8VecDestructorTag {
    AzU8VecDestructorTag_DefaultRust,
@@ -5665,6 +5714,22 @@ struct AzScanCodeVec {
 };
 typedef struct AzScanCodeVec AzScanCodeVec;
 
+struct AzU16Vec {
+    uint16_t* ptr;
+    size_t len;
+    size_t cap;
+    AzU16VecDestructor destructor;
+};
+typedef struct AzU16Vec AzU16Vec;
+
+struct AzF32Vec {
+    float* ptr;
+    size_t len;
+    size_t cap;
+    AzF32VecDestructor destructor;
+};
+typedef struct AzF32Vec AzF32Vec;
+
 struct AzU8Vec {
     uint8_t* ptr;
     size_t len;
@@ -5856,6 +5921,24 @@ union AzOptionLayoutPoint {
 typedef union AzOptionLayoutPoint AzOptionLayoutPoint;
 #define AzOptionLayoutPoint_None { .None = { .tag = AzOptionLayoutPointTag_None } }
 #define AzOptionLayoutPoint_Some(v) { .Some = { .tag = AzOptionLayoutPointTag_Some, .payload = v } }
+
+enum AzOptionLayoutSizeTag {
+   AzOptionLayoutSizeTag_None,
+   AzOptionLayoutSizeTag_Some,
+};
+typedef enum AzOptionLayoutSizeTag AzOptionLayoutSizeTag;
+
+struct AzOptionLayoutSizeVariant_None { AzOptionLayoutSizeTag tag; };
+typedef struct AzOptionLayoutSizeVariant_None AzOptionLayoutSizeVariant_None;
+struct AzOptionLayoutSizeVariant_Some { AzOptionLayoutSizeTag tag; AzLayoutSize payload; };
+typedef struct AzOptionLayoutSizeVariant_Some AzOptionLayoutSizeVariant_Some;
+union AzOptionLayoutSize {
+    AzOptionLayoutSizeVariant_None None;
+    AzOptionLayoutSizeVariant_Some Some;
+};
+typedef union AzOptionLayoutSize AzOptionLayoutSize;
+#define AzOptionLayoutSize_None { .None = { .tag = AzOptionLayoutSizeTag_None } }
+#define AzOptionLayoutSize_Some(v) { .Some = { .tag = AzOptionLayoutSizeTag_Some, .payload = v } }
 
 enum AzOptionWindowThemeTag {
    AzOptionWindowThemeTag_None,
@@ -6126,24 +6209,6 @@ union AzOptionU8VecRef {
 typedef union AzOptionU8VecRef AzOptionU8VecRef;
 #define AzOptionU8VecRef_None { .None = { .tag = AzOptionU8VecRefTag_None } }
 #define AzOptionU8VecRef_Some(v) { .Some = { .tag = AzOptionU8VecRefTag_Some, .payload = v } }
-
-enum AzResultU8VecDecodeImageErrorTag {
-   AzResultU8VecDecodeImageErrorTag_Ok,
-   AzResultU8VecDecodeImageErrorTag_Err,
-};
-typedef enum AzResultU8VecDecodeImageErrorTag AzResultU8VecDecodeImageErrorTag;
-
-struct AzResultU8VecDecodeImageErrorVariant_Ok { AzResultU8VecDecodeImageErrorTag tag; AzU8Vec payload; };
-typedef struct AzResultU8VecDecodeImageErrorVariant_Ok AzResultU8VecDecodeImageErrorVariant_Ok;
-struct AzResultU8VecDecodeImageErrorVariant_Err { AzResultU8VecDecodeImageErrorTag tag; AzDecodeImageError payload; };
-typedef struct AzResultU8VecDecodeImageErrorVariant_Err AzResultU8VecDecodeImageErrorVariant_Err;
-union AzResultU8VecDecodeImageError {
-    AzResultU8VecDecodeImageErrorVariant_Ok Ok;
-    AzResultU8VecDecodeImageErrorVariant_Err Err;
-};
-typedef union AzResultU8VecDecodeImageError AzResultU8VecDecodeImageError;
-#define AzResultU8VecDecodeImageError_Ok(v) { .Ok = { .tag = AzResultU8VecDecodeImageErrorTag_Ok, .payload = v } }
-#define AzResultU8VecDecodeImageError_Err(v) { .Err = { .tag = AzResultU8VecDecodeImageErrorTag_Err, .payload = v } }
 
 enum AzResultU8VecEncodeImageErrorTag {
    AzResultU8VecEncodeImageErrorTag_Ok,
@@ -6642,13 +6707,35 @@ struct AzGetProgramBinaryReturn {
 };
 typedef struct AzGetProgramBinaryReturn AzGetProgramBinaryReturn;
 
+enum AzRawImageDataTag {
+   AzRawImageDataTag_U8,
+   AzRawImageDataTag_U16,
+   AzRawImageDataTag_F32,
+};
+typedef enum AzRawImageDataTag AzRawImageDataTag;
+
+struct AzRawImageDataVariant_U8 { AzRawImageDataTag tag; AzU8Vec payload; };
+typedef struct AzRawImageDataVariant_U8 AzRawImageDataVariant_U8;
+struct AzRawImageDataVariant_U16 { AzRawImageDataTag tag; AzU16Vec payload; };
+typedef struct AzRawImageDataVariant_U16 AzRawImageDataVariant_U16;
+struct AzRawImageDataVariant_F32 { AzRawImageDataTag tag; AzF32Vec payload; };
+typedef struct AzRawImageDataVariant_F32 AzRawImageDataVariant_F32;
+union AzRawImageData {
+    AzRawImageDataVariant_U8 U8;
+    AzRawImageDataVariant_U16 U16;
+    AzRawImageDataVariant_F32 F32;
+};
+typedef union AzRawImageData AzRawImageData;
+#define AzRawImageData_U8(v) { .U8 = { .tag = AzRawImageDataTag_U8, .payload = v } }
+#define AzRawImageData_U16(v) { .U16 = { .tag = AzRawImageDataTag_U16, .payload = v } }
+#define AzRawImageData_F32(v) { .F32 = { .tag = AzRawImageDataTag_F32, .payload = v } }
+
 struct AzRawImage {
-    AzU8Vec pixels;
+    AzRawImageData pixels;
     size_t width;
     size_t height;
     bool  has_premultiplied_alpha;
     AzRawImageFormat data_format;
-    AzImagePixelEndian endian_16bit;
 };
 typedef struct AzRawImage AzRawImage;
 
@@ -6682,6 +6769,7 @@ struct AzTesselatedCPUSvgNode {
 typedef struct AzTesselatedCPUSvgNode AzTesselatedCPUSvgNode;
 
 struct AzSvgRenderOptions {
+    AzOptionLayoutSize target_size;
     AzOptionColorU background_color;
     AzSvgFitTo fit;
 };
@@ -6849,6 +6937,24 @@ union AzOptionDuration {
 typedef union AzOptionDuration AzOptionDuration;
 #define AzOptionDuration_None { .None = { .tag = AzOptionDurationTag_None } }
 #define AzOptionDuration_Some(v) { .Some = { .tag = AzOptionDurationTag_Some, .payload = v } }
+
+enum AzResultRawImageDecodeImageErrorTag {
+   AzResultRawImageDecodeImageErrorTag_Ok,
+   AzResultRawImageDecodeImageErrorTag_Err,
+};
+typedef enum AzResultRawImageDecodeImageErrorTag AzResultRawImageDecodeImageErrorTag;
+
+struct AzResultRawImageDecodeImageErrorVariant_Ok { AzResultRawImageDecodeImageErrorTag tag; AzRawImage payload; };
+typedef struct AzResultRawImageDecodeImageErrorVariant_Ok AzResultRawImageDecodeImageErrorVariant_Ok;
+struct AzResultRawImageDecodeImageErrorVariant_Err { AzResultRawImageDecodeImageErrorTag tag; AzDecodeImageError payload; };
+typedef struct AzResultRawImageDecodeImageErrorVariant_Err AzResultRawImageDecodeImageErrorVariant_Err;
+union AzResultRawImageDecodeImageError {
+    AzResultRawImageDecodeImageErrorVariant_Ok Ok;
+    AzResultRawImageDecodeImageErrorVariant_Err Err;
+};
+typedef union AzResultRawImageDecodeImageError AzResultRawImageDecodeImageError;
+#define AzResultRawImageDecodeImageError_Ok(v) { .Ok = { .tag = AzResultRawImageDecodeImageErrorTag_Ok, .payload = v } }
+#define AzResultRawImageDecodeImageError_Err(v) { .Err = { .tag = AzResultRawImageDecodeImageErrorTag_Err, .payload = v } }
 
 struct AzDuplicatedNamespaceError {
     AzString ns;
@@ -9032,6 +9138,14 @@ AzCssRuleBlock AzCssRuleBlockVecArray[] = {};
 #define AzCssRuleBlockVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzCssRuleBlock), .cap = sizeof(v) / sizeof(AzCssRuleBlock), .destructor = { .NoDestructor = { .tag = AzCssRuleBlockVecDestructorTag_NoDestructor, }, }, }
 #define AzCssRuleBlockVec_empty { .ptr = &AzCssRuleBlockVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzCssRuleBlockVecDestructorTag_NoDestructor, }, }, }
 
+uint16_t AzU16VecArray[] = {};
+#define AzU16Vec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(uint16_t), .cap = sizeof(v) / sizeof(uint16_t), .destructor = { .NoDestructor = { .tag = AzU16VecDestructorTag_NoDestructor, }, }, }
+#define AzU16Vec_empty { .ptr = &AzU16VecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzU16VecDestructorTag_NoDestructor, }, }, }
+
+float AzF32VecArray[] = {};
+#define AzF32Vec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(float), .cap = sizeof(v) / sizeof(float), .destructor = { .NoDestructor = { .tag = AzF32VecDestructorTag_NoDestructor, }, }, }
+#define AzF32Vec_empty { .ptr = &AzF32VecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzF32VecDestructorTag_NoDestructor, }, }, }
+
 uint8_t AzU8VecArray[] = {};
 #define AzU8Vec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(uint8_t), .cap = sizeof(v) / sizeof(uint8_t), .destructor = { .NoDestructor = { .tag = AzU8VecDestructorTag_NoDestructor, }, }, }
 #define AzU8Vec_empty { .ptr = &AzU8VecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzU8VecDestructorTag_NoDestructor, }, }, }
@@ -9417,10 +9531,13 @@ extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTiff(AzRawImage*
 extern DLLIMPORT AzSvg AzSvg_fromString(AzString  svg_string, AzSvgParseOptions  parse_options);
 extern DLLIMPORT AzSvg AzSvg_fromBytes(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
 extern DLLIMPORT AzSvgXmlNode AzSvg_getRoot(AzSvg* const svg);
+extern DLLIMPORT AzOptionRawImage AzSvg_render(AzSvg* const svg, AzSvgRenderOptions  options);
 extern DLLIMPORT AzString AzSvg_toString(AzSvg* const svg, AzSvgStringFormatOptions  options);
 extern DLLIMPORT void AzSvg_delete(AzSvg* restrict instance);
 extern DLLIMPORT AzSvg AzSvg_deepCopy(AzSvg* const instance);
 extern DLLIMPORT AzSvgXmlNode AzSvgXmlNode_parseFrom(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
+extern DLLIMPORT AzOptionRawImage AzSvgXmlNode_render(AzSvgXmlNode* const svgxmlnode, AzSvgRenderOptions  options);
+extern DLLIMPORT AzString AzSvgXmlNode_toString(AzSvgXmlNode* const svgxmlnode, AzSvgStringFormatOptions  options);
 extern DLLIMPORT void AzSvgXmlNode_delete(AzSvgXmlNode* restrict instance);
 extern DLLIMPORT AzSvgXmlNode AzSvgXmlNode_deepCopy(AzSvgXmlNode* const instance);
 extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgMultiPolygon_tesselateFill(AzSvgMultiPolygon* const svgmultipolygon, AzSvgFillStyle  fill_style);
@@ -9477,6 +9594,8 @@ extern DLLIMPORT void AzCssDeclarationVec_delete(AzCssDeclarationVec* restrict i
 extern DLLIMPORT void AzCssPathSelectorVec_delete(AzCssPathSelectorVec* restrict instance);
 extern DLLIMPORT void AzStylesheetVec_delete(AzStylesheetVec* restrict instance);
 extern DLLIMPORT void AzCssRuleBlockVec_delete(AzCssRuleBlockVec* restrict instance);
+extern DLLIMPORT void AzU16Vec_delete(AzU16Vec* restrict instance);
+extern DLLIMPORT void AzF32Vec_delete(AzF32Vec* restrict instance);
 extern DLLIMPORT AzU8VecRef AzU8Vec_asRefVec(AzU8Vec* const u8vec);
 extern DLLIMPORT void AzU8Vec_delete(AzU8Vec* restrict instance);
 extern DLLIMPORT void AzCallbackDataVec_delete(AzCallbackDataVec* restrict instance);

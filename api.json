@@ -6224,6 +6224,7 @@
 					"enum_fields": [
 						{"InsufficientMemory": {"doc": "Not enough memory available to perform the encoding operation"}},
 						{"DimensionError": {"doc": "Width x height x channels does not match the image data"}},
+						{"InvalidData": {"doc": "The data did not match the type of data necessary for encoding - for example, HDR can only encode image data of type `F32Vec`, not `U8Vec`."}},
 						{"Unknown": {"doc": "Unknown error"}}
 					]
 				},
@@ -6236,22 +6237,22 @@
 						{"Unknown": {"doc": "Unknown error"}}
 					]
 				},
-				"ImagePixelEndian": {
-					"external": "azul_impl::resources::ImagePixelEndian",
+				"RawImageData": {
+					"external": "azul_impl::resources::RawImageData",
 					"enum_fields": [
-						{"Big": {"doc": "Big endianness"}},
-						{"Little": {"doc": "Little endianness"}}
+						{"U8": {"type": "U8Vec", "doc": "8-bit image data"}},
+						{"U16": {"type": "U16Vec", "doc": "16-bit image data"}},
+						{"F32": {"type": "F32Vec", "doc": "Floating-point image data"}}
 					]
 				},
 				"RawImage": {
 					"external": "azul_impl::resources::RawImage",
 					"struct_fields": [
-						{"pixels": {"type": "U8Vec", "doc": "Decoded image bytes"}},
+						{"pixels": {"type": "RawImageData", "doc": "Decoded image bytes"}},
 						{"width": {"type": "usize", "doc": "Width of the image"}},
 						{"height": {"type": "usize", "doc": "Height of the image"}},
 						{"has_premultiplied_alpha": {"type": "bool", "doc": "Whether the image already has the alpha channel premultiplied"}},
-						{"data_format": {"type": "RawImageFormat", "doc": "Which data format (channels) the image uses"}},
-						{"endian_16bit": {"type": "ImagePixelEndian", "doc": "If the data format uses 16 bits, which endianness do the pixels have"}}
+						{"data_format": {"type": "RawImageFormat", "doc": "Which data format (channels) the image uses"}}
 					],
 					"constructors": {
 						"from_any_bytes": {
@@ -6259,8 +6260,8 @@
 							"fn_args": [
 								{"bytes": "U8VecRef"}
 							],
-							"returns": {"type": "ResultU8VecDecodeImageError"},
-							"fn_body": "azul_impl::resources::decode::decode_any(bytes)"
+							"returns": {"type": "ResultRawImageDecodeImageError"},
+							"fn_body": "azul_impl::resources::decode::decode_raw_image_from_any_bytes(bytes.as_slice())"
 						}
 					},
 					"functions": {
@@ -6372,6 +6373,14 @@
 							"returns": {"type": "SvgXmlNode"},
 							"fn_body": "svg.root()"
 						},
+						"render": {
+							"fn_args": [
+								{"self": "ref"},
+								{"options": "SvgRenderOptions"}
+							],
+							"returns": {"type": "OptionRawImage"},
+							"fn_body": "svg.render(options).into()"
+						},
 						"to_string": {
 							"fn_args": [
 								{"self": "ref"},
@@ -6396,6 +6405,24 @@
 							],
 							"returns": {"type": "ResultSvgXmlNodeSvgParseError"},
 							"fn_body": "azul_impl::svg::SvgXmlNode::parse(svg_bytes.as_slice(), parse_options).into()"
+						}
+					},
+					"functions": {
+						"render": {
+							"fn_args": [
+								{"self": "ref"},
+								{"options": "SvgRenderOptions"}
+							],
+							"returns": {"type": "OptionRawImage"},
+							"fn_body": "svgxmlnode.render(options).into()"
+						},
+						"to_string": {
+							"fn_args": [
+								{"self": "ref"},
+								{"options": "SvgStringFormatOptions"}
+							],
+							"returns": {"type": "String"},
+							"fn_body": "svgxmlnode.to_string(options).into()"
 						}
 					}
 				},
@@ -6666,6 +6693,7 @@
 				"SvgRenderOptions": {
 					"external": "azul_impl::svg::SvgRenderOptions",
 					"struct_fields": [
+						{"target_size": {"type": "OptionLayoutSize"}},
 						{"background_color": {"type": "OptionColorU"}},
 						{"fit": {"type": "SvgFitTo"}}
 					],
@@ -7471,6 +7499,28 @@
 						{ "destructor": { "type": "CssRuleBlockVecDestructor" } }
 					]
 				},
+				"U16Vec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<u16>`",
+					"custom_destructor": true,
+					"external": "azul_impl::css::U16Vec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const u16" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "U16VecDestructor" } }
+					]
+				},
+				"F32Vec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<f32>`",
+					"custom_destructor": true,
+					"external": "azul_impl::css::F32Vec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const f32" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "F32VecDestructor" } }
+					]
+				},
 				"U8Vec": {
 					"doc": "Wrapper over a Rust-allocated `U8Vec`",
 					"custom_destructor": true,
@@ -8125,6 +8175,38 @@
 				        ]
 				    }
 				},
+				"F32VecDestructor": {
+				    "external": "azul_impl::css::F32VecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "F32VecDestructorType"}}
+				    ]
+				},
+				"F32VecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "F32Vec", "ref": "refmut"}
+				        ]
+				    }
+				},
+				"U16VecDestructor": {
+				    "external": "azul_impl::css::U16VecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "U16VecDestructorType"}}
+				    ]
+				},
+				"U16VecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "U16Vec", "ref": "refmut"}
+				        ]
+				    }
+				},
 				"U8VecDestructor": {
 				    "external": "azul_impl::css::U8VecDestructor",
 				    "derive": ["Copy"],
@@ -8457,6 +8539,14 @@
 						{"Some": { "type": "LayoutPoint" }}
 					]
 				},
+				"OptionLayoutSize": {
+					"external": "azul_impl::css::OptionLayoutSize",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "LayoutSize" }}
+					]
+				},
 				"OptionWindowTheme": {
 					"external": "azul_impl::window::OptionWindowTheme",
 					"derive": ["Copy"],
@@ -8688,10 +8778,10 @@
 		"error": {
 			"doc": "Definition of error and `Result<T, E>`  types",
 			"classes": {
-				"ResultU8VecDecodeImageError": {
-					"external": "azul_impl::resources::decode::ResultU8VecDecodeImageError",
+				"ResultRawImageDecodeImageError": {
+					"external": "azul_impl::resources::decode::ResultRawImageDecodeImageError",
 					"enum_fields": [
-						{"Ok": {"type": "U8Vec"}},
+						{"Ok": {"type": "RawImage"}},
 						{"Err": { "type": "DecodeImageError" }}
 					]
 				},

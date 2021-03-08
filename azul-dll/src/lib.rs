@@ -1988,15 +1988,15 @@ pub use AzEncodeImageErrorTT as AzEncodeImageError;
 pub type AzDecodeImageErrorTT = azul_impl::resources::decode::DecodeImageError;
 pub use AzDecodeImageErrorTT as AzDecodeImageError;
 
-/// Re-export of rust-allocated (stack based) `ImagePixelEndian` struct
-pub type AzImagePixelEndianTT = azul_impl::resources::ImagePixelEndian;
-pub use AzImagePixelEndianTT as AzImagePixelEndian;
+/// Re-export of rust-allocated (stack based) `RawImageData` struct
+pub type AzRawImageDataTT = azul_impl::resources::RawImageData;
+pub use AzRawImageDataTT as AzRawImageData;
 
 /// Re-export of rust-allocated (stack based) `RawImage` struct
 pub type AzRawImageTT = azul_impl::resources::RawImage;
 pub use AzRawImageTT as AzRawImage;
 /// Decodes a RawImage from any supported image format - automatically guesses the format based on magic header
-#[no_mangle] pub extern "C" fn AzRawImage_fromAnyBytes(bytes: AzU8VecRef) -> AzResultU8VecDecodeImageError { azul_impl::resources::decode::decode_any(bytes) }
+#[no_mangle] pub extern "C" fn AzRawImage_fromAnyBytes(bytes: AzU8VecRef) -> AzResultRawImageDecodeImageError { azul_impl::resources::decode::decode_raw_image_from_any_bytes(bytes.as_slice()) }
 /// Encodes the RawImage in the BMP image format
 #[no_mangle] pub extern "C" fn AzRawImage_encodeBmp(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError { azul_impl::resources::encode::encode_bmp(rawimage) }
 /// Encodes the RawImage in the PNG image format
@@ -2023,6 +2023,8 @@ pub use AzSvgTT as AzSvg;
 #[no_mangle] pub extern "C" fn AzSvg_fromBytes(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzResultSvgSvgParseError { azul_impl::svg::Svg::parse(svg_bytes.as_slice(), parse_options).into() }
 /// Equivalent to the Rust `Svg::get_root()` function.
 #[no_mangle] pub extern "C" fn AzSvg_getRoot(svg: &AzSvg) -> AzSvgXmlNode { svg.root() }
+/// Equivalent to the Rust `Svg::render()` function.
+#[no_mangle] pub extern "C" fn AzSvg_render(svg: &AzSvg, options: AzSvgRenderOptions) -> AzOptionRawImage { svg.render(options).into() }
 /// Equivalent to the Rust `Svg::to_string()` function.
 #[no_mangle] pub extern "C" fn AzSvg_toString(svg: &AzSvg, options: AzSvgStringFormatOptions) -> AzString { svg.to_string(options).into() }
 /// Destructor: Takes ownership of the `Svg` pointer and deletes it.
@@ -2036,6 +2038,10 @@ pub use AzSvgXmlNodeTT as AzSvgXmlNode;
 /// Creates a new `SvgXmlNode` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `SvgXmlNode::parse_from()` constructor.
 #[no_mangle] pub extern "C" fn AzSvgXmlNode_parseFrom(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzResultSvgXmlNodeSvgParseError { azul_impl::svg::SvgXmlNode::parse(svg_bytes.as_slice(), parse_options).into() }
+/// Equivalent to the Rust `SvgXmlNode::render()` function.
+#[no_mangle] pub extern "C" fn AzSvgXmlNode_render(svgxmlnode: &AzSvgXmlNode, options: AzSvgRenderOptions) -> AzOptionRawImage { svgxmlnode.render(options).into() }
+/// Equivalent to the Rust `SvgXmlNode::to_string()` function.
+#[no_mangle] pub extern "C" fn AzSvgXmlNode_toString(svgxmlnode: &AzSvgXmlNode, options: AzSvgStringFormatOptions) -> AzString { svgxmlnode.to_string(options).into() }
 /// Destructor: Takes ownership of the `SvgXmlNode` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzSvgXmlNode_delete(object: &mut AzSvgXmlNode) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
@@ -2487,6 +2493,18 @@ pub use AzCssRuleBlockVecTT as AzCssRuleBlockVec;
 /// Destructor: Takes ownership of the `CssRuleBlockVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzCssRuleBlockVec_delete(object: &mut AzCssRuleBlockVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Wrapper over a Rust-allocated `Vec<u16>`
+pub type AzU16VecTT = azul_impl::css::U16Vec;
+pub use AzU16VecTT as AzU16Vec;
+/// Destructor: Takes ownership of the `U16Vec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzU16Vec_delete(object: &mut AzU16Vec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<f32>`
+pub type AzF32VecTT = azul_impl::css::F32Vec;
+pub use AzF32VecTT as AzF32Vec;
+/// Destructor: Takes ownership of the `F32Vec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzF32Vec_delete(object: &mut AzF32Vec) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Wrapper over a Rust-allocated `U8Vec`
 pub type AzU8VecTT = azul_impl::css::U8Vec;
 pub use AzU8VecTT as AzU8Vec;
@@ -2729,6 +2747,16 @@ pub type AzCssRuleBlockVecDestructorTT = azul_impl::css::CssRuleBlockVecDestruct
 pub use AzCssRuleBlockVecDestructorTT as AzCssRuleBlockVecDestructor;
 
 pub type AzCssRuleBlockVecDestructorType = extern "C" fn(&mut AzCssRuleBlockVec);
+/// Re-export of rust-allocated (stack based) `F32VecDestructor` struct
+pub type AzF32VecDestructorTT = azul_impl::css::F32VecDestructor;
+pub use AzF32VecDestructorTT as AzF32VecDestructor;
+
+pub type AzF32VecDestructorType = extern "C" fn(&mut AzF32Vec);
+/// Re-export of rust-allocated (stack based) `U16VecDestructor` struct
+pub type AzU16VecDestructorTT = azul_impl::css::U16VecDestructor;
+pub use AzU16VecDestructorTT as AzU16VecDestructor;
+
+pub type AzU16VecDestructorType = extern "C" fn(&mut AzU16Vec);
 /// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
 pub type AzU8VecDestructorTT = azul_impl::css::U8VecDestructor;
 pub use AzU8VecDestructorTT as AzU8VecDestructor;
@@ -2848,6 +2876,10 @@ pub use AzOptionInlineTextTT as AzOptionInlineText;
 pub type AzOptionLayoutPointTT = azul_impl::css::OptionLayoutPoint;
 pub use AzOptionLayoutPointTT as AzOptionLayoutPoint;
 
+/// Re-export of rust-allocated (stack based) `OptionLayoutSize` struct
+pub type AzOptionLayoutSizeTT = azul_impl::css::OptionLayoutSize;
+pub use AzOptionLayoutSizeTT as AzOptionLayoutSize;
+
 /// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
 pub type AzOptionWindowThemeTT = azul_impl::window::OptionWindowTheme;
 pub use AzOptionWindowThemeTT as AzOptionWindowTheme;
@@ -2964,9 +2996,9 @@ pub use AzOptionUsizeTT as AzOptionUsize;
 pub type AzOptionU8VecRefTT = azul_impl::gl::OptionU8VecRef;
 pub use AzOptionU8VecRefTT as AzOptionU8VecRef;
 
-/// Re-export of rust-allocated (stack based) `ResultU8VecDecodeImageError` struct
-pub type AzResultU8VecDecodeImageErrorTT = azul_impl::resources::decode::ResultU8VecDecodeImageError;
-pub use AzResultU8VecDecodeImageErrorTT as AzResultU8VecDecodeImageError;
+/// Re-export of rust-allocated (stack based) `ResultRawImageDecodeImageError` struct
+pub type AzResultRawImageDecodeImageErrorTT = azul_impl::resources::decode::ResultRawImageDecodeImageError;
+pub use AzResultRawImageDecodeImageErrorTT as AzResultRawImageDecodeImageError;
 
 /// Re-export of rust-allocated (stack based) `ResultU8VecEncodeImageError` struct
 pub type AzResultU8VecEncodeImageErrorTT = azul_impl::resources::encode::ResultU8VecEncodeImageError;
@@ -4186,6 +4218,7 @@ mod test_sizes {
     #[repr(C)]     pub enum AzEncodeImageError {
         InsufficientMemory,
         DimensionError,
+        InvalidData,
         Unknown,
     }
     /// Re-export of rust-allocated (stack based) `DecodeImageError` struct
@@ -4194,11 +4227,6 @@ mod test_sizes {
         DimensionError,
         UnsupportedImageFormat,
         Unknown,
-    }
-    /// Re-export of rust-allocated (stack based) `ImagePixelEndian` struct
-    #[repr(C)]     pub enum AzImagePixelEndian {
-        Big,
-        Little,
     }
     /// Re-export of rust-allocated (stack based) `Svg` struct
     #[repr(C)]     pub struct AzSvg {
@@ -4611,6 +4639,22 @@ mod test_sizes {
     }
     /// `AzCssRuleBlockVecDestructorType` struct
     pub type AzCssRuleBlockVecDestructorType = extern "C" fn(&mut AzCssRuleBlockVec);
+    /// Re-export of rust-allocated (stack based) `F32VecDestructor` struct
+    #[repr(C, u8)]     pub enum AzF32VecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzF32VecDestructorType),
+    }
+    /// `AzF32VecDestructorType` struct
+    pub type AzF32VecDestructorType = extern "C" fn(&mut AzF32Vec);
+    /// Re-export of rust-allocated (stack based) `U16VecDestructor` struct
+    #[repr(C, u8)]     pub enum AzU16VecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzU16VecDestructorType),
+    }
+    /// `AzU16VecDestructorType` struct
+    pub type AzU16VecDestructorType = extern "C" fn(&mut AzU16Vec);
     /// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
     #[repr(C, u8)]     pub enum AzU8VecDestructor {
         DefaultRust,
@@ -5853,6 +5897,20 @@ mod test_sizes {
         pub cap: usize,
         pub destructor: AzScanCodeVecDestructor,
     }
+    /// Wrapper over a Rust-allocated `Vec<u16>`
+    #[repr(C)]     pub struct AzU16Vec {
+        pub(crate) ptr: *const u16,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzU16VecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<f32>`
+    #[repr(C)]     pub struct AzF32Vec {
+        pub(crate) ptr: *const f32,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzF32VecDestructor,
+    }
     /// Wrapper over a Rust-allocated `U8Vec`
     #[repr(C)]     pub struct AzU8Vec {
         pub(crate) ptr: *const u8,
@@ -5935,6 +5993,11 @@ mod test_sizes {
         None,
         Some(AzLayoutPoint),
     }
+    /// Re-export of rust-allocated (stack based) `OptionLayoutSize` struct
+    #[repr(C, u8)]     pub enum AzOptionLayoutSize {
+        None,
+        Some(AzLayoutSize),
+    }
     /// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
     #[repr(C, u8)]     pub enum AzOptionWindowTheme {
         None,
@@ -6009,11 +6072,6 @@ mod test_sizes {
     #[repr(C, u8)]     pub enum AzOptionU8VecRef {
         None,
         Some(AzU8VecRef),
-    }
-    /// Re-export of rust-allocated (stack based) `ResultU8VecDecodeImageError` struct
-    #[repr(C, u8)]     pub enum AzResultU8VecDecodeImageError {
-        Ok(AzU8Vec),
-        Err(AzDecodeImageError),
     }
     /// Re-export of rust-allocated (stack based) `ResultU8VecEncodeImageError` struct
     #[repr(C, u8)]     pub enum AzResultU8VecEncodeImageError {
@@ -6230,14 +6288,19 @@ mod test_sizes {
         pub _0: AzU8Vec,
         pub _1: u32,
     }
+    /// Re-export of rust-allocated (stack based) `RawImageData` struct
+    #[repr(C, u8)]     pub enum AzRawImageData {
+        U8(AzU8Vec),
+        U16(AzU16Vec),
+        F32(AzF32Vec),
+    }
     /// Re-export of rust-allocated (stack based) `RawImage` struct
     #[repr(C)]     pub struct AzRawImage {
-        pub pixels: AzU8Vec,
+        pub pixels: AzRawImageData,
         pub width: usize,
         pub height: usize,
         pub has_premultiplied_alpha: bool,
         pub data_format: AzRawImageFormat,
-        pub endian_16bit: AzImagePixelEndian,
     }
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
     #[repr(C, u8)]     pub enum AzSvgPathElement {
@@ -6252,6 +6315,7 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `SvgRenderOptions` struct
     #[repr(C)]     pub struct AzSvgRenderOptions {
+        pub target_size: AzOptionLayoutSize,
         pub background_color: AzOptionColorU,
         pub fit: AzSvgFitTo,
     }
@@ -6343,6 +6407,11 @@ mod test_sizes {
     #[repr(C, u8)]     pub enum AzOptionDuration {
         None,
         Some(AzDuration),
+    }
+    /// Re-export of rust-allocated (stack based) `ResultRawImageDecodeImageError` struct
+    #[repr(C, u8)]     pub enum AzResultRawImageDecodeImageError {
+        Ok(AzRawImage),
+        Err(AzDecodeImageError),
     }
     /// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
     #[repr(C)]     pub struct AzDuplicatedNamespaceError {
@@ -7380,7 +7449,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::resources::FontId>(), "AzFontId"), (Layout::new::<AzFontId>(), "AzFontId"));
         assert_eq!((Layout::new::<azul_impl::resources::encode::EncodeImageError>(), "AzEncodeImageError"), (Layout::new::<AzEncodeImageError>(), "AzEncodeImageError"));
         assert_eq!((Layout::new::<azul_impl::resources::decode::DecodeImageError>(), "AzDecodeImageError"), (Layout::new::<AzDecodeImageError>(), "AzDecodeImageError"));
-        assert_eq!((Layout::new::<azul_impl::resources::ImagePixelEndian>(), "AzImagePixelEndian"), (Layout::new::<AzImagePixelEndian>(), "AzImagePixelEndian"));
         assert_eq!((Layout::new::<azul_impl::svg::Svg>(), "AzSvg"), (Layout::new::<AzSvg>(), "AzSvg"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgXmlNode>(), "AzSvgXmlNode"), (Layout::new::<AzSvgXmlNode>(), "AzSvgXmlNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgCircle>(), "AzSvgCircle"), (Layout::new::<AzSvgCircle>(), "AzSvgCircle"));
@@ -7440,6 +7508,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::CssPathSelectorVecDestructor>(), "AzCssPathSelectorVecDestructor"), (Layout::new::<AzCssPathSelectorVecDestructor>(), "AzCssPathSelectorVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::StylesheetVecDestructor>(), "AzStylesheetVecDestructor"), (Layout::new::<AzStylesheetVecDestructor>(), "AzStylesheetVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVecDestructor>(), "AzCssRuleBlockVecDestructor"), (Layout::new::<AzCssRuleBlockVecDestructor>(), "AzCssRuleBlockVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::F32VecDestructor>(), "AzF32VecDestructor"), (Layout::new::<AzF32VecDestructor>(), "AzF32VecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::U16VecDestructor>(), "AzU16VecDestructor"), (Layout::new::<AzU16VecDestructor>(), "AzU16VecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::U8VecDestructor>(), "AzU8VecDestructor"), (Layout::new::<AzU8VecDestructor>(), "AzU8VecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::CallbackDataVecDestructor>(), "AzCallbackDataVecDestructor"), (Layout::new::<AzCallbackDataVecDestructor>(), "AzCallbackDataVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessageVecDestructor>(), "AzDebugMessageVecDestructor"), (Layout::new::<AzDebugMessageVecDestructor>(), "AzDebugMessageVecDestructor"));
@@ -7633,6 +7703,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"), (Layout::new::<AzVirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"));
         assert_eq!((Layout::new::<azul_impl::style::CascadeInfoVec>(), "AzCascadeInfoVec"), (Layout::new::<AzCascadeInfoVec>(), "AzCascadeInfoVec"));
         assert_eq!((Layout::new::<azul_impl::window::ScanCodeVec>(), "AzScanCodeVec"), (Layout::new::<AzScanCodeVec>(), "AzScanCodeVec"));
+        assert_eq!((Layout::new::<azul_impl::css::U16Vec>(), "AzU16Vec"), (Layout::new::<AzU16Vec>(), "AzU16Vec"));
+        assert_eq!((Layout::new::<azul_impl::css::F32Vec>(), "AzF32Vec"), (Layout::new::<AzF32Vec>(), "AzF32Vec"));
         assert_eq!((Layout::new::<azul_impl::css::U8Vec>(), "AzU8Vec"), (Layout::new::<AzU8Vec>(), "AzU8Vec"));
         assert_eq!((Layout::new::<azul_impl::gl::GLuintVec>(), "AzGLuintVec"), (Layout::new::<AzGLuintVec>(), "AzGLuintVec"));
         assert_eq!((Layout::new::<azul_impl::gl::GLintVec>(), "AzGLintVec"), (Layout::new::<AzGLintVec>(), "AzGLintVec"));
@@ -7647,6 +7719,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::OptionThreadSendMsg>(), "AzOptionThreadSendMsg"), (Layout::new::<AzOptionThreadSendMsg>(), "AzOptionThreadSendMsg"));
         assert_eq!((Layout::new::<azul_impl::css::OptionLayoutRect>(), "AzOptionLayoutRect"), (Layout::new::<AzOptionLayoutRect>(), "AzOptionLayoutRect"));
         assert_eq!((Layout::new::<azul_impl::css::OptionLayoutPoint>(), "AzOptionLayoutPoint"), (Layout::new::<AzOptionLayoutPoint>(), "AzOptionLayoutPoint"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionLayoutSize>(), "AzOptionLayoutSize"), (Layout::new::<AzOptionLayoutSize>(), "AzOptionLayoutSize"));
         assert_eq!((Layout::new::<azul_impl::window::OptionWindowTheme>(), "AzOptionWindowTheme"), (Layout::new::<AzOptionWindowTheme>(), "AzOptionWindowTheme"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::OptionNodeId>(), "AzOptionNodeId"), (Layout::new::<AzOptionNodeId>(), "AzOptionNodeId"));
         assert_eq!((Layout::new::<azul_impl::callbacks::OptionDomNodeId>(), "AzOptionDomNodeId"), (Layout::new::<AzOptionDomNodeId>(), "AzOptionDomNodeId"));
@@ -7662,7 +7735,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::OptionTabIndex>(), "AzOptionTabIndex"), (Layout::new::<AzOptionTabIndex>(), "AzOptionTabIndex"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::OptionTagId>(), "AzOptionTagId"), (Layout::new::<AzOptionTagId>(), "AzOptionTagId"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionU8VecRef>(), "AzOptionU8VecRef"), (Layout::new::<AzOptionU8VecRef>(), "AzOptionU8VecRef"));
-        assert_eq!((Layout::new::<azul_impl::resources::decode::ResultU8VecDecodeImageError>(), "AzResultU8VecDecodeImageError"), (Layout::new::<AzResultU8VecDecodeImageError>(), "AzResultU8VecDecodeImageError"));
         assert_eq!((Layout::new::<azul_impl::resources::encode::ResultU8VecEncodeImageError>(), "AzResultU8VecEncodeImageError"), (Layout::new::<AzResultU8VecEncodeImageError>(), "AzResultU8VecEncodeImageError"));
         assert_eq!((Layout::new::<azul_impl::xml::NonXmlCharError>(), "AzNonXmlCharError"), (Layout::new::<AzNonXmlCharError>(), "AzNonXmlCharError"));
         assert_eq!((Layout::new::<azul_impl::xml::InvalidCharError>(), "AzInvalidCharError"), (Layout::new::<AzInvalidCharError>(), "AzInvalidCharError"));
@@ -7693,6 +7765,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNode>(), "AzStyledNode"), (Layout::new::<AzStyledNode>(), "AzStyledNode"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"), (Layout::new::<AzTagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"));
         assert_eq!((Layout::new::<azul_impl::gl::GetProgramBinaryReturn>(), "AzGetProgramBinaryReturn"), (Layout::new::<AzGetProgramBinaryReturn>(), "AzGetProgramBinaryReturn"));
+        assert_eq!((Layout::new::<azul_impl::resources::RawImageData>(), "AzRawImageData"), (Layout::new::<AzRawImageData>(), "AzRawImageData"));
         assert_eq!((Layout::new::<azul_impl::resources::RawImage>(), "AzRawImage"), (Layout::new::<AzRawImage>(), "AzRawImage"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElement>(), "AzSvgPathElement"), (Layout::new::<AzSvgPathElement>(), "AzSvgPathElement"));
         assert_eq!((Layout::new::<azul_impl::svg::TesselatedCPUSvgNode>(), "AzTesselatedCPUSvgNode"), (Layout::new::<AzTesselatedCPUSvgNode>(), "AzTesselatedCPUSvgNode"));
@@ -7711,6 +7784,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::OptionWindowIcon>(), "AzOptionWindowIcon"), (Layout::new::<AzOptionWindowIcon>(), "AzOptionWindowIcon"));
         assert_eq!((Layout::new::<azul_impl::css::OptionAzString>(), "AzOptionString"), (Layout::new::<AzOptionString>(), "AzOptionString"));
         assert_eq!((Layout::new::<azul_impl::task::OptionDuration>(), "AzOptionDuration"), (Layout::new::<AzOptionDuration>(), "AzOptionDuration"));
+        assert_eq!((Layout::new::<azul_impl::resources::decode::ResultRawImageDecodeImageError>(), "AzResultRawImageDecodeImageError"), (Layout::new::<AzResultRawImageDecodeImageError>(), "AzResultRawImageDecodeImageError"));
         assert_eq!((Layout::new::<azul_impl::xml::DuplicatedNamespaceError>(), "AzDuplicatedNamespaceError"), (Layout::new::<AzDuplicatedNamespaceError>(), "AzDuplicatedNamespaceError"));
         assert_eq!((Layout::new::<azul_impl::xml::UnknownNamespaceError>(), "AzUnknownNamespaceError"), (Layout::new::<AzUnknownNamespaceError>(), "AzUnknownNamespaceError"));
         assert_eq!((Layout::new::<azul_impl::xml::UnexpectedCloseTagError>(), "AzUnexpectedCloseTagError"), (Layout::new::<AzUnexpectedCloseTagError>(), "AzUnexpectedCloseTagError"));

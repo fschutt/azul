@@ -3,7 +3,11 @@ use azul_core::{
     svg::*,
     app_resources::{RawImage, RawImageFormat},
 };
-use azul_css::{OptionI16, OptionU16, U8Vec, OptionAzString, OptionColorU, AzString, StringVec, ColorU};
+use azul_css::{
+    OptionI16, OptionU16, U8Vec, OptionAzString,
+    OptionColorU, AzString, StringVec, ColorU,
+    OptionLayoutSize,
+};
 use owned_ttf_parser::Font as TTFFont;
 use lyon::{
     tessellation::{
@@ -422,7 +426,7 @@ pub struct SvgXmlNode {
 
 impl SvgXmlNode {
 
-    fn new(node: usvg::Node) -> Self { Self { ptr: Box::new(node) } }
+    fn new(node: usvg::Node) -> Self { Self { node: Box::new(node) } }
 
     pub fn parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<SvgXmlNode, SvgParseError> {
         let svg = Svg::parse(svg_file_data, options)?;
@@ -430,18 +434,30 @@ impl SvgXmlNode {
     }
 
     pub fn render(&self, options: SvgRenderOptions) -> Option<RawImage> {
-        let (target_width, target_height) = options.get_width_height_node(&self.node);
+        use tiny_skia::Pixmap;
+        use azul_core::app_resources::RawImageData;
+
+        let (target_width, target_height) = options.get_width_height_node(&self.node)?;
+
         if target_height == 0 || target_width == 0 { return None; }
+
         let mut pixmap = Pixmap::new(target_width, target_height)?;
-        pixmap.fill(options.background_color.into_option().map(translate_color));
+        pixmap.fill(options.background_color.into_option().map(translate_color).unwrap_or(tiny_skia::Color::TRANSPARENT));
+
         let _ = resvg::render_node(&self.node, translate_fit_to(options.fit), pixmap.as_mut())?;
+
         Some(RawImage {
-            pixels: pixmap.take().into(),
+            pixels: RawImageData::U8(pixmap.take().into()),
             width: target_width as usize,
             height: target_height as usize,
             premultiplied_alpha: true,
             data_format: RawImageFormat::RGBA8,
         })
+    }
+
+    pub fn to_string(&self, options: SvgXmlOptions) -> String {
+        use usvg::NodeExt;
+        self.node.tree().to_string(options.into())
     }
 
     /*
@@ -466,12 +482,7 @@ impl fmt::Debug for Svg {
 
 impl Svg {
 
-    fn new(tree: usvg::Tree) -> Self { Self { ptr: Box::new(tree) } }
-
-    pub fn from_xml(xml: Xml) -> Result<Self, SvgParseError> {
-        // https://github.com/RazrFalcon/resvg/issues/308
-        Ok(Svg::new(xml.into_tree()))
-    }
+    fn new(tree: usvg::Tree) -> Self { Self { tree: Box::new(tree) } }
 
     /// NOTE: SVG file data may be Zlib compressed
     pub fn parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<Svg, SvgParseError> {
@@ -483,10 +494,34 @@ impl Svg {
         SvgXmlNode::new(self.tree.root())
     }
 
-    /*
-    pub fn render_to_image(&self, options: SvgRenderOptions) -> Option<RawImage> {
-        resvg::render(self.get_tree(), translate_fit_to(options.fit), options.background_color.into_option().map(translate_color)).map(translate_image)
+    pub fn render(&self, options: SvgRenderOptions) -> Option<RawImage> {
+        use tiny_skia::Pixmap;
+        use azul_core::app_resources::RawImageData;
+
+        let root = self.tree.root();
+        let (target_width, target_height) = options.get_width_height_node(&root)?;
+
+        if target_height == 0 || target_width == 0 { return None; }
+
+        let mut pixmap = Pixmap::new(target_width, target_height)?;
+        pixmap.fill(options.background_color.into_option().map(translate_color).unwrap_or(tiny_skia::Color::TRANSPARENT));
+
+        let _ = resvg::render_node(&root, translate_fit_to(options.fit), pixmap.as_mut())?;
+
+        Some(RawImage {
+            pixels: RawImageData::U8(pixmap.take().into()),
+            width: target_width as usize,
+            height: target_height as usize,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::RGBA8,
+        })
     }
+
+    /*
+        pub fn from_xml(xml: Xml) -> Result<Self, SvgParseError> {
+            // https://github.com/RazrFalcon/resvg/issues/308
+            Ok(Svg::new(xml.into_tree()))
+        }
     */
 
     pub fn to_string(&self, options: SvgXmlOptions) -> String {
@@ -562,20 +597,21 @@ pub struct SvgRenderOptions {
 }
 
 impl SvgRenderOptions {
-    pub fn get_width_height_node(&self, node: usvg::Node) -> (u32, u32) {
-        match self.as_ref() {
+    pub fn get_width_height_node(&self, node: &usvg::Node) -> Option<(u32, u32)> {
+        match self.target_size.as_ref() {
             None => {
-                let wh = node.calculate_bbox().size().to_screen_size();
-                (wh.width, wh.height)
+                use usvg::NodeExt;
+                let wh = node.calculate_bbox()?.size().to_screen_size();
+                Some((wh.width(), wh.height()))
             },
-            Some(s) => (s.width as u32, s.height as u32),
+            Some(s) => Some((s.width as u32, s.height as u32)),
         }
     }
 }
 
 #[allow(dead_code)]
-const fn translate_color(i: ColorU) -> usvg::Color {
-    usvg::Color { red: i.r, green: i.g, blue: i.b }
+fn translate_color(i: ColorU) -> tiny_skia::Color {
+    tiny_skia::Color::from_rgba8(i.r, i.g, i.b, i.a)
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -752,7 +788,7 @@ struct FontParser {
     current_pos: SvgPoint,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone)]
 #[repr(C, u8)]
 pub enum GlyphData {
     Outline(SvgMultiPolygon),
@@ -787,6 +823,7 @@ impl GlyphData {
 #[cfg(feature = "image_loading")]
 fn decode_raster_glyph_image(i: owned_ttf_parser::RasterGlyphImage) -> Option<RawImage> {
     use image_crate::GenericImage;
+    use azul_core::app_resources::RawImageData;
 
     let decoded = image_crate::load_from_memory_with_format(i.data, image_crate::ImageFormat::Png).ok()?;
     let mut decoded = decoded.into_rgba8();
@@ -798,7 +835,7 @@ fn decode_raster_glyph_image(i: owned_ttf_parser::RasterGlyphImage) -> Option<Ra
     Some(RawImage {
         width: sub_width,
         height: sub_height,
-        pixels: data.into(),
+        pixels: RawImageData::U8(data.into()),
         premultiplied_alpha: false,
         data_format: RawImageFormat::RGBA8,
     })

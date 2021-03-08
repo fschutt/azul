@@ -10,14 +10,15 @@ use azul_core::{
     dom::Dom,
     styled_dom::StyledDom,
 };
-use azul_css::Css;
+use azul_css::{AzString, Css};
 use azul_css_parser::CssParseError;
 use xmlparser::Tokenizer;
 
 #[cfg(feature = "std")]
 use std::path::Path;
 
-pub use xmlparser::{Error as XmlError, TextPos, StreamError};
+use crate::xml::XmlError;
+use crate::xml::XmlParseError;
 
 /// Error that can happen during hot-reload -
 /// stringified, since it is only used for printing and is not exposed in the public API
@@ -178,7 +179,7 @@ impl DomXml {
     ///
     /// Note: Needs at least one `<app></app>` node in order to not fail
     #[inline]
-    pub fn new(xml: &str, component_map: &mut XmlComponentMap) -> Result<Self, XmlParseError> {
+    pub fn new(xml: &str, component_map: &mut XmlComponentMap) -> Result<Self, DomXmlParseError> {
         let parsed_dom = parse_xml_string(xml)?;
         let dom = str_to_dom(&parsed_dom, component_map)?;
         Ok(Self {
@@ -205,14 +206,14 @@ impl DomXml {
         let xml = match fs::read_to_string(file_path) {
             Ok(xml) => xml,
             Err(e) => return Self {
-                parsed_dom: Dom::label(format!("{}", e)).style(Css::empty()),
+                parsed_dom: Dom::label(format!("{:?}", e)).style(Css::empty()),
             },
         };
 
         match Self::new(&xml, component_map) {
             Ok(o) => o,
             Err(e) =>  Self {
-                parsed_dom: Dom::label(format!("{}", e)).style(Css::empty()),
+                parsed_dom: Dom::label(format!("{:?}", e)).style(Css::empty()),
             },
         }
     }
@@ -332,6 +333,7 @@ impl XmlComponent for DynamicXmlComponent {
 
 /// Represents one XML node tag
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct XmlNode {
     /// Type of the node
     pub node_type: XmlTagName,
@@ -392,7 +394,7 @@ impl XmlComponentMap {
 }
 
 #[derive(Debug)]
-pub enum XmlParseError {
+pub enum DomXmlParseError {
     /// No `<app></app>` root component present
     NoRootComponent,
     /// The DOM can only have one root component, not multiple.
@@ -403,12 +405,16 @@ pub enum XmlParseError {
     /// hot-reloading and compiling, it doesn't matter that much.
     ParseError(XmlError),
     /// Invalid hierarchy close tags, i.e `<app></p></app>`
-    MalformedHierarchy(String, String),
+    MalformedHierarchy(AzString, AzString),
     /// A component raised an error while rendering the DOM - holds the component name + error string
     RenderDom(RenderDomError),
     /// Something went wrong while parsing an XML component
     Component(ComponentParseError),
 }
+
+impl_from!{ XmlError, DomXmlParseError::ParseError }
+impl_from!{ ComponentParseError, DomXmlParseError::Component }
+impl_from!{ RenderDomError, DomXmlParseError::RenderDom }
 
 /// Error that can happen from the translation from XML code to Rust code -
 /// stringified, since it is only used for printing and is not exposed in the public API
@@ -456,17 +462,14 @@ pub enum ComponentParseError {
     CssError(String),
 }
 
-impl_from!{ ComponentParseError, XmlParseError::Component }
-impl_from!{ RenderDomError, XmlParseError::RenderDom }
-
-impl fmt::Display for XmlParseError {
+impl fmt::Display for DomXmlParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::XmlParseError::*;
+        use self::DomXmlParseError::*;
         match self {
             NoRootComponent => write!(f, "No <app></app> component present - empty DOM"),
             MultipleRootComponents => write!(f, "Multiple <app/> components present, only one root node is allowed"),
-            ParseError(e) => write!(f, "XML parsing error: {}", e),
-            MalformedHierarchy(got, expected) => write!(f, "Invalid </{}> tag: expected </{}>", got, expected),
+            ParseError(e) => write!(f, "XML parsing error: {:?}", e),
+            MalformedHierarchy(got, expected) => write!(f, "Invalid </{}> tag: expected </{}>", got.as_str(), expected.as_str()),
             RenderDom(e) => write!(f, "Error while rendering DOM: \"{}\"", e),
             Component(c) => write!(f, "Error while parsing XML component: \"{}\"", c),
         }
@@ -539,11 +542,10 @@ use azul_core::{
 ///     ]
 /// )
 /// ```
-pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
+pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlError> {
 
     use xmlparser::Token::*;
     use xmlparser::ElementEnd::*;
-    use self::XmlParseError::*;
 
     let mut root_node = XmlNode::default();
 
@@ -556,7 +558,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
 
     for token in tokenizer {
 
-        let token = token.map_err(|e| ParseError(e))?;
+        let token = token.map_err(|e| XmlError::ParserError(e.into()))?;
         match token {
             ElementStart { local, .. } => {
                 if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
@@ -577,7 +579,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
                 let close_value = normalize_casing(close_value.as_str());
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
                     if last.node_type != close_value {
-                        return Err(MalformedHierarchy(close_value, last.node_type.clone()));
+                        return Err(XmlError::MalformedHierarchy(close_value.into(), last.node_type.clone().into()));
                     }
                 }
                 current_hierarchy.pop();
@@ -718,16 +720,16 @@ pub fn normalize_casing(input: &str) -> String {
 
 /// Find the one and only `<body>` node, return error if
 /// there is no app node or there are multiple app nodes
-pub fn get_body_node(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
+pub fn get_body_node(root_nodes: &[XmlNode]) -> Result<XmlNode, DomXmlParseError> {
 
     let mut body_node_iterator = root_nodes.iter().filter(|node| {
         let node_type_normalized = normalize_casing(&node.node_type);
         &node_type_normalized == "body"
     }).cloned();
 
-    let body_node = body_node_iterator.next().ok_or(XmlParseError::NoRootComponent)?;
+    let body_node = body_node_iterator.next().ok_or(DomXmlParseError::NoRootComponent)?;
     if body_node_iterator.next().is_some() {
-        Err(XmlParseError::MultipleRootComponents)
+        Err(DomXmlParseError::MultipleRootComponents)
     } else {
         Ok(body_node)
     }
@@ -771,7 +773,7 @@ pub fn find_attribute<'a>(node: &'a XmlNode, attribute: &str) -> Option<&'a Stri
 }
 
 /// Parses an XML string and returns a `StyledDom` with the components instantiated in the `<app></app>`
-pub fn str_to_dom(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap) -> Result<StyledDom, XmlParseError> {
+pub fn str_to_dom(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap) -> Result<StyledDom, DomXmlParseError> {
     let mut global_style = Css::empty();
     if let Some(head_node) = find_node_by_type(root_nodes, "head") {
         get_xml_components(&head_node.children, component_map)?;

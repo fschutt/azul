@@ -1171,6 +1171,7 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzEncodeImageError {
         InsufficientMemory,
         DimensionError,
+        InvalidData,
         Unknown,
     }
     /// Re-export of rust-allocated (stack based) `DecodeImageError` struct
@@ -1179,11 +1180,6 @@ mod dll {
         DimensionError,
         UnsupportedImageFormat,
         Unknown,
-    }
-    /// Re-export of rust-allocated (stack based) `ImagePixelEndian` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzImagePixelEndian {
-        Big,
-        Little,
     }
     /// Re-export of rust-allocated (stack based) `Svg` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvg {
@@ -1596,6 +1592,22 @@ mod dll {
     }
     /// `AzCssRuleBlockVecDestructorType` struct
     pub type AzCssRuleBlockVecDestructorType = extern "C" fn(&mut AzCssRuleBlockVec);
+    /// Re-export of rust-allocated (stack based) `F32VecDestructor` struct
+    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzF32VecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzF32VecDestructorType),
+    }
+    /// `AzF32VecDestructorType` struct
+    pub type AzF32VecDestructorType = extern "C" fn(&mut AzF32Vec);
+    /// Re-export of rust-allocated (stack based) `U16VecDestructor` struct
+    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzU16VecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzU16VecDestructorType),
+    }
+    /// `AzU16VecDestructorType` struct
+    pub type AzU16VecDestructorType = extern "C" fn(&mut AzU16Vec);
     /// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
     #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzU8VecDestructor {
         DefaultRust,
@@ -2838,6 +2850,20 @@ mod dll {
         pub cap: usize,
         pub destructor: AzScanCodeVecDestructor,
     }
+    /// Wrapper over a Rust-allocated `Vec<u16>`
+    #[repr(C)]     pub struct AzU16Vec {
+        pub(crate) ptr: *const u16,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzU16VecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `Vec<f32>`
+    #[repr(C)]     pub struct AzF32Vec {
+        pub(crate) ptr: *const f32,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzF32VecDestructor,
+    }
     /// Wrapper over a Rust-allocated `U8Vec`
     #[repr(C)]     pub struct AzU8Vec {
         pub(crate) ptr: *const u8,
@@ -2920,6 +2946,11 @@ mod dll {
         None,
         Some(AzLayoutPoint),
     }
+    /// Re-export of rust-allocated (stack based) `OptionLayoutSize` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionLayoutSize {
+        None,
+        Some(AzLayoutSize),
+    }
     /// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionWindowTheme {
         None,
@@ -2994,11 +3025,6 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionU8VecRef {
         None,
         Some(AzU8VecRef),
-    }
-    /// Re-export of rust-allocated (stack based) `ResultU8VecDecodeImageError` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultU8VecDecodeImageError {
-        Ok(AzU8Vec),
-        Err(AzDecodeImageError),
     }
     /// Re-export of rust-allocated (stack based) `ResultU8VecEncodeImageError` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultU8VecEncodeImageError {
@@ -3215,14 +3241,19 @@ mod dll {
         pub _0: AzU8Vec,
         pub _1: u32,
     }
+    /// Re-export of rust-allocated (stack based) `RawImageData` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzRawImageData {
+        U8(AzU8Vec),
+        U16(AzU16Vec),
+        F32(AzF32Vec),
+    }
     /// Re-export of rust-allocated (stack based) `RawImage` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzRawImage {
-        pub pixels: AzU8Vec,
+        pub pixels: AzRawImageData,
         pub width: usize,
         pub height: usize,
         pub has_premultiplied_alpha: bool,
         pub data_format: AzRawImageFormat,
-        pub endian_16bit: AzImagePixelEndian,
     }
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgPathElement {
@@ -3237,6 +3268,7 @@ mod dll {
     }
     /// Re-export of rust-allocated (stack based) `SvgRenderOptions` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgRenderOptions {
+        pub target_size: AzOptionLayoutSize,
         pub background_color: AzOptionColorU,
         pub fit: AzSvgFitTo,
     }
@@ -3328,6 +3360,11 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionDuration {
         None,
         Some(AzDuration),
+    }
+    /// Re-export of rust-allocated (stack based) `ResultRawImageDecodeImageError` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultRawImageDecodeImageError {
+        Ok(AzRawImage),
+        Err(AzDecodeImageError),
     }
     /// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzDuplicatedNamespaceError {
@@ -4570,7 +4607,7 @@ mod dll {
         pub(crate) fn AzTextureFlags_default() -> AzTextureFlags;
         pub(crate) fn AzImageId_new() -> AzImageId;
         pub(crate) fn AzFontId_new() -> AzFontId;
-        pub(crate) fn AzRawImage_fromAnyBytes(_:  AzU8VecRef) -> AzResultU8VecDecodeImageError;
+        pub(crate) fn AzRawImage_fromAnyBytes(_:  AzU8VecRef) -> AzResultRawImageDecodeImageError;
         pub(crate) fn AzRawImage_encodeBmp(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodePng(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeJpeg(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
@@ -4581,10 +4618,13 @@ mod dll {
         pub(crate) fn AzSvg_fromString(_:  AzString, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
         pub(crate) fn AzSvg_fromBytes(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
         pub(crate) fn AzSvg_getRoot(_:  &AzSvg) -> AzSvgXmlNode;
+        pub(crate) fn AzSvg_render(_:  &AzSvg, _:  AzSvgRenderOptions) -> AzOptionRawImage;
         pub(crate) fn AzSvg_toString(_:  &AzSvg, _:  AzSvgStringFormatOptions) -> AzString;
         pub(crate) fn AzSvg_delete(_:  &mut AzSvg);
         pub(crate) fn AzSvg_deepCopy(_:  &AzSvg) -> AzSvg;
         pub(crate) fn AzSvgXmlNode_parseFrom(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgXmlNodeSvgParseError;
+        pub(crate) fn AzSvgXmlNode_render(_:  &AzSvgXmlNode, _:  AzSvgRenderOptions) -> AzOptionRawImage;
+        pub(crate) fn AzSvgXmlNode_toString(_:  &AzSvgXmlNode, _:  AzSvgStringFormatOptions) -> AzString;
         pub(crate) fn AzSvgXmlNode_delete(_:  &mut AzSvgXmlNode);
         pub(crate) fn AzSvgXmlNode_deepCopy(_:  &AzSvgXmlNode) -> AzSvgXmlNode;
         pub(crate) fn AzSvgMultiPolygon_tesselateFill(_:  &AzSvgMultiPolygon, _:  AzSvgFillStyle) -> AzTesselatedCPUSvgNode;
@@ -4641,6 +4681,8 @@ mod dll {
         pub(crate) fn AzCssPathSelectorVec_delete(_:  &mut AzCssPathSelectorVec);
         pub(crate) fn AzStylesheetVec_delete(_:  &mut AzStylesheetVec);
         pub(crate) fn AzCssRuleBlockVec_delete(_:  &mut AzCssRuleBlockVec);
+        pub(crate) fn AzU16Vec_delete(_:  &mut AzU16Vec);
+        pub(crate) fn AzF32Vec_delete(_:  &mut AzF32Vec);
         pub(crate) fn AzU8Vec_asRefVec(_:  &AzU8Vec) -> AzU8VecRef;
         pub(crate) fn AzU8Vec_delete(_:  &mut AzU8Vec);
         pub(crate) fn AzCallbackDataVec_delete(_:  &mut AzCallbackDataVec);
@@ -9201,15 +9243,15 @@ pub mod resources {
     /// `DecodeImageError` struct
     
 #[doc(inline)] pub use crate::dll::AzDecodeImageError as DecodeImageError;
-    /// `ImagePixelEndian` struct
+    /// `RawImageData` struct
     
-#[doc(inline)] pub use crate::dll::AzImagePixelEndian as ImagePixelEndian;
+#[doc(inline)] pub use crate::dll::AzRawImageData as RawImageData;
     /// `RawImage` struct
     
 #[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
     impl RawImage {
         /// Decodes a RawImage from any supported image format - automatically guesses the format based on magic header
-        pub fn from_any_bytes(bytes: U8VecRef) ->  crate::error::ResultU8VecDecodeImageError { unsafe { crate::dll::AzRawImage_fromAnyBytes(bytes) } }
+        pub fn from_any_bytes(bytes: U8VecRef) ->  crate::error::ResultRawImageDecodeImageError { unsafe { crate::dll::AzRawImage_fromAnyBytes(bytes) } }
         /// Encodes the RawImage in the BMP image format
         pub fn encode_bmp(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeBmp(self) } }
         /// Encodes the RawImage in the PNG image format
@@ -9245,6 +9287,8 @@ pub mod svg {
         pub fn from_bytes(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgSvgParseError { unsafe { crate::dll::AzSvg_fromBytes(svg_bytes, parse_options) } }
         /// Calls the `Svg::get_root` function.
         pub fn get_root(&self)  -> crate::svg::SvgXmlNode { unsafe { crate::dll::AzSvg_getRoot(self) } }
+        /// Calls the `Svg::render` function.
+        pub fn render(&self, options: SvgRenderOptions)  -> crate::option::OptionRawImage { unsafe { crate::dll::AzSvg_render(self, options) } }
         /// Calls the `Svg::to_string` function.
         pub fn to_string(&self, options: SvgStringFormatOptions)  -> crate::str::String { unsafe { crate::dll::AzSvg_toString(self, options) } }
     }
@@ -9257,6 +9301,10 @@ pub mod svg {
     impl SvgXmlNode {
         /// Creates a new `SvgXmlNode` instance.
         pub fn parse_from(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgXmlNodeSvgParseError { unsafe { crate::dll::AzSvgXmlNode_parseFrom(svg_bytes, parse_options) } }
+        /// Calls the `SvgXmlNode::render` function.
+        pub fn render(&self, options: SvgRenderOptions)  -> crate::option::OptionRawImage { unsafe { crate::dll::AzSvgXmlNode_render(self, options) } }
+        /// Calls the `SvgXmlNode::to_string` function.
+        pub fn to_string(&self, options: SvgStringFormatOptions)  -> crate::str::String { unsafe { crate::dll::AzSvgXmlNode_toString(self, options) } }
     }
 
     impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::AzSvgXmlNode_deepCopy(self) } } }
@@ -9976,6 +10024,12 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `CssRuleBlock`
     
 #[doc(inline)] pub use crate::dll::AzCssRuleBlockVec as CssRuleBlockVec;
+    /// Wrapper over a Rust-allocated `Vec<u16>`
+    
+#[doc(inline)] pub use crate::dll::AzU16Vec as U16Vec;
+    /// Wrapper over a Rust-allocated `Vec<f32>`
+    
+#[doc(inline)] pub use crate::dll::AzF32Vec as F32Vec;
     /// Wrapper over a Rust-allocated `U8Vec`
     
 #[doc(inline)] pub use crate::dll::AzU8Vec as U8Vec;
@@ -10206,6 +10260,18 @@ pub mod vec {
     /// `CssRuleBlockVecDestructorType` struct
     
 #[doc(inline)] pub use crate::dll::AzCssRuleBlockVecDestructorType as CssRuleBlockVecDestructorType;
+    /// `F32VecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzF32VecDestructor as F32VecDestructor;
+    /// `F32VecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzF32VecDestructorType as F32VecDestructorType;
+    /// `U16VecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzU16VecDestructor as U16VecDestructor;
+    /// `U16VecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzU16VecDestructorType as U16VecDestructorType;
     /// `U8VecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzU8VecDestructor as U8VecDestructor;
@@ -10496,6 +10562,9 @@ pub mod option {
     /// `OptionLayoutPoint` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionLayoutPoint as OptionLayoutPoint;
+    /// `OptionLayoutSize` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionLayoutSize as OptionLayoutSize;
     /// `OptionWindowTheme` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionWindowTheme as OptionWindowTheme;
@@ -10590,9 +10659,9 @@ pub mod error {
     //! Definition of error and `Result<T, E>`  types
     use crate::dll::*;
     use core::ffi::c_void;
-    /// `ResultU8VecDecodeImageError` struct
+    /// `ResultRawImageDecodeImageError` struct
     
-#[doc(inline)] pub use crate::dll::AzResultU8VecDecodeImageError as ResultU8VecDecodeImageError;
+#[doc(inline)] pub use crate::dll::AzResultRawImageDecodeImageError as ResultRawImageDecodeImageError;
     /// `ResultU8VecEncodeImageError` struct
     
 #[doc(inline)] pub use crate::dll::AzResultU8VecEncodeImageError as ResultU8VecEncodeImageError;

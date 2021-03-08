@@ -1269,7 +1269,7 @@ pub mod extra {
             Ok(o) => o,
             Err(e) => {
                 return Dom::new(NodeType::Body).with_children(vec![
-                    Dom::new(NodeType::Label(format!("{}XML parser error: {}:\r\n{}", err_extra, e, s).into()))
+                    Dom::new(NodeType::Label(format!("{}XML parser error: {:?}:\r\n{}", err_extra, e, s).into()))
                 ].into()).style(Css::empty());
             }
         };
@@ -1278,7 +1278,7 @@ pub mod extra {
             Ok(o) => o,
             Err(e) => {
                 Dom::new(NodeType::Body).with_children(vec![
-                    Dom::new(NodeType::Label(format!("{}XML to DOM error: {}:\r\n{}", err_extra, e, s).into()))
+                    Dom::new(NodeType::Label(format!("{}XML to DOM error: {:?}:\r\n{}", err_extra, e, s).into()))
                 ].into()).style(Css::empty())
             }
         }

@@ -250,6 +250,8 @@ impl LayoutRect {
 #[repr(C)]
 pub struct LayoutSize { pub width: isize, pub height: isize }
 
+impl_option!(LayoutSize, OptionLayoutSize, [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]);
+
 impl fmt::Debug for LayoutSize {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)

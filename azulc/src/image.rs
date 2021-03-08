@@ -3,6 +3,13 @@
 #[cfg(feature = "std")]
 pub mod decode {
 
+    use azul_css::U8Vec;
+    use image_crate::error::ImageError;
+    use image_crate::error::LimitError;
+    use image_crate::error::LimitErrorKind;
+    use image_crate::DynamicImage;
+    use azul_core::app_resources::{RawImage, RawImageFormat};
+
     #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
     #[repr(C)]
     pub enum DecodeImageError {
@@ -23,20 +30,62 @@ pub mod decode {
         }
     }
 
-    impl_result!(U8Vec, DecodeImageError, ResultU8VecDecodeImageError, copy = false, [Debug, Clone]);
+    impl_result!(RawImage, DecodeImageError, ResultRawImageDecodeImageError, copy = false, [Debug, Clone]);
 
-    pub fn decode_raw_image_from_any_bytes(image_bytes: &[u8]) -> ResultU8VecDecodeImageError {
-        let image_format = match image_crate::guess_format(image_data) {
+    pub fn decode_raw_image_from_any_bytes(image_bytes: &[u8]) -> ResultRawImageDecodeImageError {
+
+        use azul_core::app_resources::RawImageData;
+
+        let image_format = match image_crate::guess_format(image_bytes) {
             Ok(o) => o,
-            Err(e) => { return ResultU8VecDecodeImageError::Err(translate_image_error_decode(e)); },
+            Err(e) => { return ResultRawImageDecodeImageError::Err(translate_image_error_decode(e)); },
         };
 
-        let decoded = match image_crate::load_from_memory_with_format(image_data, image_format) {
+        let decoded = match image_crate::load_from_memory_with_format(image_bytes, image_format) {
             Ok(o) => o,
-            Err(e) => { return ResultU8VecDecodeImageError::Err(translate_image_error_decode(e)); },
+            Err(e) => { return ResultRawImageDecodeImageError::Err(translate_image_error_decode(e)); },
         };
 
-        ResultU8VecDecodeImageError::Ok(decoded.into())
+        let ((width, height), data_format, pixels) = match decoded {
+            DynamicImage::ImageLuma8(i) => {
+                (i.dimensions(), RawImageFormat::R8, RawImageData::U8(i.into_vec().into()))
+            },
+            DynamicImage::ImageLumaA8(i) => {
+                (i.dimensions(), RawImageFormat::RG8, RawImageData::U8(i.into_vec().into()))
+            },
+            DynamicImage::ImageRgb8(i) => {
+                (i.dimensions(), RawImageFormat::RGB8, RawImageData::U8(i.into_vec().into()))
+            },
+            DynamicImage::ImageRgba8(i) => {
+                (i.dimensions(), RawImageFormat::RGBA8, RawImageData::U8(i.into_vec().into()))
+            },
+            DynamicImage::ImageBgr8(i) => {
+                (i.dimensions(), RawImageFormat::BGR8, RawImageData::U8(i.into_vec().into()))
+            },
+            DynamicImage::ImageBgra8(i) => {
+                (i.dimensions(), RawImageFormat::BGRA8, RawImageData::U8(i.into_vec().into()))
+            },
+            DynamicImage::ImageLuma16(i) => {
+                (i.dimensions(), RawImageFormat::R16, RawImageData::U16(i.into_vec().into()))
+            },
+            DynamicImage::ImageLumaA16(i) => {
+                (i.dimensions(), RawImageFormat::RG16, RawImageData::U16(i.into_vec().into()))
+            },
+            DynamicImage::ImageRgb16(i) => {
+                (i.dimensions(), RawImageFormat::RGB16, RawImageData::U16(i.into_vec().into()))
+            },
+            DynamicImage::ImageRgba16(i) => {
+                (i.dimensions(), RawImageFormat::RGBA16, RawImageData::U16(i.into_vec().into()))
+            },
+        };
+
+        ResultRawImageDecodeImageError::Ok(RawImage {
+            pixels,
+            width: width as usize,
+            height: height as usize,
+            premultiplied_alpha: false,
+            data_format,
+        })
     }
 }
 
@@ -44,6 +93,7 @@ pub mod decode {
 pub mod encode {
 
     use alloc::vec::Vec;
+    use azul_core::app_resources::RawImageFormat;
 
     use image_crate::codecs::{
         bmp::BmpEncoder,
@@ -68,6 +118,7 @@ pub mod encode {
     pub enum EncodeImageError {
         InsufficientMemory,
         DimensionError,
+        InvalidData,
         Unknown,
     }
 
@@ -99,15 +150,20 @@ pub mod encode {
 
     impl_result!(U8Vec, EncodeImageError, ResultU8VecEncodeImageError, copy = false, [Debug, Clone]);
 
-    macro_rules! encode_func {($func:ident, $encoder:ident) => (
+    macro_rules! encode_func {($func:ident, $encoder:ident, $get_fn:ident) => (
         pub fn $func(image: &RawImage) -> ResultU8VecEncodeImageError {
             let mut result = Vec::<u8>::new();
 
             {
                 let mut cursor = Cursor::new(&mut result);
                 let mut encoder = $encoder::new(&mut cursor);
+                let pixels = match image.pixels.$get_fn() {
+                    Some(s) => s,
+                    None => { return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData); },
+                };
+
                 if let Err(e) = encoder.encode(
-                    image.pixels.as_ref(),
+                    pixels.as_ref(),
                     image.width as u32,
                     image.height as u32,
                     translate_rawimage_colortype(image.data_format),
@@ -120,11 +176,11 @@ pub mod encode {
         }
     )}
 
-    encode_func!(encode_bmp, BmpEncoder);
-    encode_func!(encode_png, PngEncoder);
-    encode_func!(encode_jpeg, JpegEncoder);
-    encode_func!(encode_tga, TgaEncoder);
-    encode_func!(encode_tiff, TiffEncoder);
-    encode_func!(encode_gif, GifEncoder);
-    encode_func!(encode_pnm, PnmEncoder);
+    encode_func!(encode_bmp, BmpEncoder, get_u8_vec_ref);
+    encode_func!(encode_png, PngEncoder, get_u8_vec_ref);
+    encode_func!(encode_jpeg, JpegEncoder, get_u8_vec_ref);
+    encode_func!(encode_tga, TgaEncoder, get_u8_vec_ref);
+    encode_func!(encode_tiff, TiffEncoder, get_u8_vec_ref);
+    encode_func!(encode_gif, GifEncoder, get_u8_vec_ref);
+    encode_func!(encode_pnm, PnmEncoder, get_u8_vec_ref);
 }
