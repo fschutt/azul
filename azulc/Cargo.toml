@@ -15,7 +15,6 @@ autoexamples = false
 
 [lib]
 name = "azulc_lib"
-crate-type = ["rlib", "cdylib"]
 path = "src/lib.rs"
 
 [[bin]]
@@ -41,11 +40,13 @@ azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",     
 azul-layout             = { path = "../azul-layout",     default-features = false }
 image                   = { version = "0.23.12",         default-features = false,       optional = true,    features = ["gif", "jpeg", "png", "tiff", "bmp"]    }
 rust-fontconfig         = { version = "0.1.2",          default-features = false,       features = ["std"], optional = true }
-lyon                    = { version = "0.15.8",  default-features = false,  optional = true }
-rayon                   = { version = "1.5.0",   default-features = false,  optional = true }
-usvg                    = { version = "0.13.0",  default-features = false,  optional = true }
-roxmltree               = { version = "0.13.0",  default-features = false,  optional = true }
-owned_ttf_parser        = { version = "0.6.0",   default-features = false,  optional = true }
+lyon                    = { version = "0.15.8",  default-features = false, optional = true }
+rayon                   = { version = "1.5.0",   default-features = false, optional = true }
+usvg                    = { version = "0.13.1",  default-features = false, optional = true }
+resvg                   = { version = "0.13.1",  default-features = false, optional = true }
+roxmltree               = { version = "0.13.0",  default-features = false, optional = true }
+owned_ttf_parser        = { version = "0.6.0",   default-features = false, optional = true }
+tiny-skia               = { version = "0.5.1",   default-features = false, optional = true }
 
 [features]
 std = ["azul-core/std", "azul-layout/std"]
@@ -74,6 +75,6 @@ text_layout = ["azul-layout/text_layout"]
 # The SVG rendering module is pretty huge since it needs lyon - if you don't use
 # SVG rendering in your app, you can turn this off to increase compilation
 # speed and decrease your binary size
-svg = ["lyon", "owned_ttf_parser", "rayon", "usvg"]
+svg = ["lyon", "tiny-skia", "owned_ttf_parser", "rayon", "usvg", "resvg", "xml"]
 # Optional XML parser
 xml = ["roxmltree"]

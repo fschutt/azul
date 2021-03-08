@@ -39,33 +39,27 @@ impl<'a> From<roxmltree::Attribute<'a>> for XmlQualifiedName {
 
 #[repr(C)]
 pub struct Xml {
-    ptr: *mut c_void, // *mut roxmltree::Document
+    doc: Box<roxmltree::Document>,
 }
 
 impl Xml {
-    fn new(doc: roxmltree::Document) -> Self { Self { ptr: Box::into_raw(Box::new(doc)) as *mut c_void } }
-    fn get_doc<'a>(&'a self) -> &'a roxmltree::Document { unsafe { &*(self.ptr as *mut roxmltree::Document) } }
+    fn new(doc: roxmltree::Document) -> Self { Self { doc: Box::new(doc) } }
     pub fn parse(s: &str) -> Result<Xml, XmlError> { Ok(Self::new(roxmltree::Document::parse(s)?)) }
-    pub fn root(&self) -> XmlNode { XmlNode::new(self.get_doc().root_element().clone()) }
+    pub fn root(&self) -> XmlNode { XmlNode::new(self.doc.root_element().clone()) }
 }
-
-impl Drop for Xml { fn drop(&mut self) { let _ = unsafe { Box::from_raw(self.ptr as *mut roxmltree::Document) }; } }
 
 #[repr(C)]
 pub struct XmlNode {
-    ptr: *mut c_void, // *mut roxmltree::Node
+    node: Box<roxmltree::Node>,
 }
 
 impl XmlNode {
-    fn new(doc: roxmltree::Node) -> Self { Self { ptr: Box::into_raw(Box::new(doc)) as *mut c_void } }
-    fn get_node<'a>(&'a self) -> &'a roxmltree::Node { unsafe { &*(self.ptr as *mut roxmltree::Node) } }
-    pub fn get_attribute(&self, attribute_key: &str) -> Option<AzString> { self.get_node().attribute(attribute_key).map(|v| v.to_string().into()) }
-    pub fn attributes(&self) -> Vec<XmlQualifiedName> { self.get_node().attributes().iter().map(|v| v.clone().into()).collect() }
-    pub fn text(&self) -> Option<String> { self.get_node().text().map(|s| s.to_string()) }
-    pub fn children(&self) -> Vec<XmlNode> { self.get_node().children().map(|c| XmlNode::new(c.clone())).collect() }
+    fn new(doc: roxmltree::Node) -> Self { Self { ptr: Box::new(doc) } }
+    pub fn get_attribute(&self, attribute_key: &str) -> Option<AzString> { self.node.attribute(attribute_key).map(|v| v.to_string().into()) }
+    pub fn attributes(&self) -> Vec<XmlQualifiedName> { self.node.attributes().iter().map(|v| v.clone().into()).collect() }
+    pub fn text(&self) -> Option<String> { self.node.text().map(|s| s.to_string()) }
+    pub fn children(&self) -> Vec<XmlNode> { self.node.children().map(|c| XmlNode::new(c.clone())).collect() }
 }
-
-impl Drop for XmlNode { fn drop(&mut self) { let _ = unsafe { Box::from_raw(self.ptr as *mut roxmltree::Node) }; } }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C)]

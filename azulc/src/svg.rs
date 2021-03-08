@@ -21,6 +21,8 @@ use lyon::{
 use crate::xml::XmlError;
 use alloc::boxed::Box;
 
+extern crate tiny_skia;
+
 #[allow(non_camel_case_types)]
 pub enum c_void { }
 
@@ -412,31 +414,34 @@ pub fn tesselate_node_stroke(node: &SvgNode, ss: SvgStrokeStyle) -> TesselatedCP
 
 // ---------------------------- SVG RENDERING
 
+#[derive(Clone, Debug)]
 #[repr(C)]
 pub struct SvgXmlNode {
-    ptr: *mut c_void, // usvg::Node
-}
-
-impl Clone for SvgXmlNode {
-    fn clone(&self) -> Self {
-        Self::new(self.get_node().clone())
-    }
-}
-
-impl fmt::Debug for SvgXmlNode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.get_node().fmt(f)
-    }
+    node: Box<usvg::Node>, // usvg::Node
 }
 
 impl SvgXmlNode {
 
-    fn new(node: usvg::Node) -> Self { Self { ptr: Box::into_raw(Box::new(node)) as *mut c_void } }
-    fn get_node<'a>(&'a self) -> &'a usvg::Node { unsafe { &*(self.ptr as *mut usvg::Node) } }
+    fn new(node: usvg::Node) -> Self { Self { ptr: Box::new(node) } }
 
     pub fn parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<SvgXmlNode, SvgParseError> {
         let svg = Svg::parse(svg_file_data, options)?;
         Ok(svg.root())
+    }
+
+    pub fn render(&self, options: SvgRenderOptions) -> Option<RawImage> {
+        let (target_width, target_height) = options.get_width_height_node(&self.node);
+        if target_height == 0 || target_width == 0 { return None; }
+        let mut pixmap = Pixmap::new(target_width, target_height)?;
+        pixmap.fill(options.background_color.into_option().map(translate_color));
+        let _ = resvg::render_node(&self.node, translate_fit_to(options.fit), pixmap.as_mut())?;
+        Some(RawImage {
+            pixels: pixmap.take().into(),
+            width: target_width as usize,
+            height: target_height as usize,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::RGBA8,
+        })
     }
 
     /*
@@ -444,26 +449,13 @@ impl SvgXmlNode {
         // https://github.com/RazrFalcon/resvg/issues/308
         Ok(Svg::new(xml.into_tree()))
     }
-
-    pub fn render_to_image(&self, options: SvgRenderOptions) -> Option<RawImage> {
-        resvg::render_node(self.get_node(), translate_fit_to(options.fit), options.background_color.into_option().map(translate_color)).map(translate_image)
-    }
     */
 }
 
-impl Drop for SvgXmlNode {
-    fn drop(&mut self) { let _ = unsafe { Box::from_raw(self.ptr as *mut usvg::Node) }; }
-}
-
+#[derive(Clone)]
 #[repr(C)]
 pub struct Svg {
-    ptr: *mut c_void, // *mut usvg::Tree,
-}
-
-impl Clone for Svg {
-    fn clone(&self) -> Self {
-        Self::new(self.get_tree().clone())
-    }
+    tree: Box<usvg::Tree>, // *mut usvg::Tree,
 }
 
 impl fmt::Debug for Svg {
@@ -472,57 +464,14 @@ impl fmt::Debug for Svg {
     }
 }
 
-impl PartialOrd for Svg {
-    fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
-        self.to_string(SvgXmlOptions::default()).partial_cmp(&rhs.to_string(SvgXmlOptions::default()))
-    }
-}
-
-impl Ord for Svg {
-    fn cmp(&self, rhs: &Self) -> core::cmp::Ordering {
-        self.to_string(SvgXmlOptions::default()).cmp(&rhs.to_string(SvgXmlOptions::default()))
-    }
-}
-
-impl PartialEq for Svg {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.to_string(SvgXmlOptions::default()).eq(&rhs.to_string(SvgXmlOptions::default()))
-    }
-}
-
-impl Eq for Svg { }
-
-impl core::hash::Hash for Svg {
-    fn hash<H>(&self, state: &mut H) where H: core::hash::Hasher {
-        self.to_string(SvgXmlOptions::default()).hash(state)
-    }
-}
-
-/*
-#[inline]
-fn translate_image(img: resvg::Image) -> RawImage {
-    let width = img.width();
-    let height = img.height();
-    RawImage {
-        pixels: img.take().into(),
-        width: width as usize,
-        height: height as usize,
-        data_format: RawImageFormat::RGBA8,
-    }
-}
-*/
-
 impl Svg {
 
-    fn new(tree: usvg::Tree) -> Self { Self { ptr: Box::into_raw(Box::new(tree)) as *mut c_void } }
-    fn get_tree<'a>(&'a self) -> &'a usvg::Tree { unsafe { &*(self.ptr as *mut usvg::Tree) } }
+    fn new(tree: usvg::Tree) -> Self { Self { ptr: Box::new(tree) } }
 
-    /*
     pub fn from_xml(xml: Xml) -> Result<Self, SvgParseError> {
         // https://github.com/RazrFalcon/resvg/issues/308
         Ok(Svg::new(xml.into_tree()))
     }
-    */
 
     /// NOTE: SVG file data may be Zlib compressed
     pub fn parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<Svg, SvgParseError> {
@@ -531,7 +480,7 @@ impl Svg {
     }
 
     pub fn root(&self) -> SvgXmlNode {
-        SvgXmlNode::new(self.get_tree().root())
+        SvgXmlNode::new(self.tree.root())
     }
 
     /*
@@ -541,13 +490,7 @@ impl Svg {
     */
 
     pub fn to_string(&self, options: SvgXmlOptions) -> String {
-        self.get_tree().to_string(options.into())
-    }
-}
-
-impl Drop for Svg {
-    fn drop(&mut self) {
-        let _ = unsafe { Box::from_raw(self.ptr as *mut usvg::Tree) };
+        self.tree.to_string(options.into())
     }
 }
 
@@ -613,8 +556,21 @@ pub enum FontDatabase {
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgRenderOptions {
+    pub target_size: OptionLayoutSize,
     pub background_color: OptionColorU,
     pub fit: SvgFitTo,
+}
+
+impl SvgRenderOptions {
+    pub fn get_width_height_node(&self, node: usvg::Node) -> (u32, u32) {
+        match self.as_ref() {
+            None => {
+                let wh = node.calculate_bbox().size().to_screen_size();
+                (wh.width, wh.height)
+            },
+            Some(s) => (s.width as u32, s.height as u32),
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -757,7 +713,7 @@ pub enum SvgParseError {
 }
 
 impl_result!(SvgXmlNode, SvgParseError, ResultSvgXmlNodeSvgParseError, copy = false, [Debug, Clone]);
-impl_result!(Svg, SvgParseError, ResultSvgSvgParseError, copy = false, [Debug, PartialEq, PartialOrd, Clone]);
+impl_result!(Svg, SvgParseError, ResultSvgSvgParseError, copy = false, [Debug, Clone]);
 
 impl From<usvg::Error> for SvgParseError {
     fn from(e: usvg::Error) -> SvgParseError {
