@@ -112,6 +112,10 @@ typedef void (*AzThreadReceiverDestructorFnType)(AzThreadReceiver* restrict A);
 
 typedef void (*AzThreadSenderDestructorFnType)(AzThreadSender* restrict A);
 
+struct AzXmlNodeVec;
+typedef struct AzXmlNodeVec AzXmlNodeVec;
+typedef void (*AzXmlNodeVecDestructorType)(AzXmlNodeVec* restrict A);
+
 struct AzFmtArgVec;
 typedef struct AzFmtArgVec AzFmtArgVec;
 typedef void (*AzFmtArgVecDestructorType)(AzFmtArgVec* restrict A);
@@ -1410,11 +1414,6 @@ struct AzImageId {
 };
 typedef struct AzImageId AzImageId;
 
-struct AzFontId {
-    size_t id;
-};
-typedef struct AzFontId AzFontId;
-
 enum AzEncodeImageError {
    AzEncodeImageError_InsufficientMemory,
    AzEncodeImageError_DimensionError,
@@ -1430,6 +1429,11 @@ enum AzDecodeImageError {
    AzDecodeImageError_Unknown,
 };
 typedef enum AzDecodeImageError AzDecodeImageError;
+
+struct AzFontId {
+    size_t id;
+};
+typedef struct AzFontId AzFontId;
 
 struct AzSvg {
     void* restrict ptr;
@@ -1646,6 +1650,29 @@ struct AzThreadSenderDestructorFn {
     AzThreadSenderDestructorFnType cb;
 };
 typedef struct AzThreadSenderDestructorFn AzThreadSenderDestructorFn;
+
+enum AzXmlNodeVecDestructorTag {
+   AzXmlNodeVecDestructorTag_DefaultRust,
+   AzXmlNodeVecDestructorTag_NoDestructor,
+   AzXmlNodeVecDestructorTag_External,
+};
+typedef enum AzXmlNodeVecDestructorTag AzXmlNodeVecDestructorTag;
+
+struct AzXmlNodeVecDestructorVariant_DefaultRust { AzXmlNodeVecDestructorTag tag; };
+typedef struct AzXmlNodeVecDestructorVariant_DefaultRust AzXmlNodeVecDestructorVariant_DefaultRust;
+struct AzXmlNodeVecDestructorVariant_NoDestructor { AzXmlNodeVecDestructorTag tag; };
+typedef struct AzXmlNodeVecDestructorVariant_NoDestructor AzXmlNodeVecDestructorVariant_NoDestructor;
+struct AzXmlNodeVecDestructorVariant_External { AzXmlNodeVecDestructorTag tag; AzXmlNodeVecDestructorType payload; };
+typedef struct AzXmlNodeVecDestructorVariant_External AzXmlNodeVecDestructorVariant_External;
+union AzXmlNodeVecDestructor {
+    AzXmlNodeVecDestructorVariant_DefaultRust DefaultRust;
+    AzXmlNodeVecDestructorVariant_NoDestructor NoDestructor;
+    AzXmlNodeVecDestructorVariant_External External;
+};
+typedef union AzXmlNodeVecDestructor AzXmlNodeVecDestructor;
+#define AzXmlNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzXmlNodeVecDestructorTag_DefaultRust } }
+#define AzXmlNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzXmlNodeVecDestructorTag_NoDestructor } }
+#define AzXmlNodeVecDestructor_External(v) { .External = { .tag = AzXmlNodeVecDestructorTag_External, .payload = v } }
 
 enum AzFmtArgVecDestructorTag {
    AzFmtArgVecDestructorTag_DefaultRust,
@@ -5608,6 +5635,16 @@ struct AzThreadReceiver {
 };
 typedef struct AzThreadReceiver AzThreadReceiver;
 
+struct AzXmlNode;
+typedef struct AzXmlNode AzXmlNode;
+struct AzXmlNodeVec {
+    AzXmlNode* ptr;
+    size_t len;
+    size_t cap;
+    AzXmlNodeVecDestructor destructor;
+};
+typedef struct AzXmlNodeVec AzXmlNodeVec;
+
 struct AzInlineGlyphVec {
     AzInlineGlyph* ptr;
     size_t len;
@@ -6786,6 +6823,11 @@ struct AzSvgStrokeStyle {
     bool  apply_line_width;
 };
 typedef struct AzSvgStrokeStyle AzSvgStrokeStyle;
+
+struct AzXml {
+    AzXmlNodeVec root;
+};
+typedef struct AzXml AzXml;
 
 struct AzString {
     AzU8Vec vec;
@@ -8365,6 +8407,14 @@ struct AzSvgMultiPolygon {
 };
 typedef struct AzSvgMultiPolygon AzSvgMultiPolygon;
 
+struct AzXmlNode {
+    AzString tag;
+    AzStringPairVec attributes;
+    AzXmlNodeVec children;
+    AzOptionString text;
+};
+typedef struct AzXmlNode AzXmlNode;
+
 struct AzTimer {
     AzRefAny data;
     AzInstant created;
@@ -8917,6 +8967,24 @@ typedef union AzOptionDom AzOptionDom;
 #define AzOptionDom_None { .None = { .tag = AzOptionDomTag_None } }
 #define AzOptionDom_Some(v) { .Some = { .tag = AzOptionDomTag_Some, .payload = v } }
 
+enum AzResultXmlXmlErrorTag {
+   AzResultXmlXmlErrorTag_Ok,
+   AzResultXmlXmlErrorTag_Err,
+};
+typedef enum AzResultXmlXmlErrorTag AzResultXmlXmlErrorTag;
+
+struct AzResultXmlXmlErrorVariant_Ok { AzResultXmlXmlErrorTag tag; AzXml payload; };
+typedef struct AzResultXmlXmlErrorVariant_Ok AzResultXmlXmlErrorVariant_Ok;
+struct AzResultXmlXmlErrorVariant_Err { AzResultXmlXmlErrorTag tag; AzXmlError payload; };
+typedef struct AzResultXmlXmlErrorVariant_Err AzResultXmlXmlErrorVariant_Err;
+union AzResultXmlXmlError {
+    AzResultXmlXmlErrorVariant_Ok Ok;
+    AzResultXmlXmlErrorVariant_Err Err;
+};
+typedef union AzResultXmlXmlError AzResultXmlXmlError;
+#define AzResultXmlXmlError_Ok(v) { .Ok = { .tag = AzResultXmlXmlErrorTag_Ok, .payload = v } }
+#define AzResultXmlXmlError_Err(v) { .Err = { .tag = AzResultXmlXmlErrorTag_Err, .payload = v } }
+
 enum AzSvgParseErrorTag {
    AzSvgParseErrorTag_InvalidFileSuffix,
    AzSvgParseErrorTag_FileOpenFailed,
@@ -9017,6 +9085,10 @@ struct AzCss {
     AzStylesheetVec stylesheets;
 };
 typedef struct AzCss AzCss;
+
+AzXmlNode AzXmlNodeVecArray[] = {};
+#define AzXmlNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzXmlNode), .cap = sizeof(v) / sizeof(AzXmlNode), .destructor = { .NoDestructor = { .tag = AzXmlNodeVecDestructorTag_NoDestructor, }, }, }
+#define AzXmlNodeVec_empty { .ptr = &AzXmlNodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzXmlNodeVecDestructorTag_NoDestructor, }, }, }
 
 AzFmtArg AzFmtArgVecArray[] = {};
 #define AzFmtArgVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzFmtArg), .cap = sizeof(v) / sizeof(AzFmtArg), .destructor = { .NoDestructor = { .tag = AzFmtArgVecDestructorTag_NoDestructor, }, }, }
@@ -9518,8 +9590,7 @@ extern DLLIMPORT AzGl AzGl_deepCopy(AzGl* const instance);
 extern DLLIMPORT void AzTexture_delete(AzTexture* restrict instance);
 extern DLLIMPORT void AzGLsyncPtr_delete(AzGLsyncPtr* restrict instance);
 extern DLLIMPORT AzTextureFlags AzTextureFlags_default();
-extern DLLIMPORT AzImageId AzImageId_new();
-extern DLLIMPORT AzFontId AzFontId_new();
+extern DLLIMPORT AzImageId AzImageId_unique();
 extern DLLIMPORT AzRawImage AzRawImage_fromAnyBytes(AzU8VecRef  bytes);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeBmp(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePng(AzRawImage* const rawimage);
@@ -9528,6 +9599,7 @@ extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTga(AzRawImage* 
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePnm(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeGif(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTiff(AzRawImage* const rawimage);
+extern DLLIMPORT AzFontId AzFontId_unique();
 extern DLLIMPORT AzSvg AzSvg_fromString(AzString  svg_string, AzSvgParseOptions  parse_options);
 extern DLLIMPORT AzSvg AzSvg_fromBytes(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
 extern DLLIMPORT AzSvgXmlNode AzSvg_getRoot(AzSvg* const svg);
@@ -9553,6 +9625,7 @@ extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgRect_tesselateFill(AzSvgRect* const
 extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgRect_tesselateStroke(AzSvgRect* const svgrect, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT AzSvgParseOptions AzSvgParseOptions_default();
 extern DLLIMPORT AzSvgRenderOptions AzSvgRenderOptions_default();
+extern DLLIMPORT AzXml AzXml_fromStr(AzRefstr  xml_string);
 extern DLLIMPORT AzTimerId AzTimerId_unique();
 extern DLLIMPORT AzTimer AzTimer_new(AzRefAny  timer_data, AzTimerCallbackType  callback, AzGetSystemTimeFn  get_system_time_fn);
 extern DLLIMPORT AzTimer AzTimer_withDelay(const AzTimer timer, AzDuration  delay);
@@ -9564,6 +9637,8 @@ extern DLLIMPORT AzOptionThreadSendMsg AzThreadReceiver_receive(AzThreadReceiver
 extern DLLIMPORT void AzThreadReceiver_delete(AzThreadReceiver* restrict instance);
 extern DLLIMPORT AzString AzString_format(AzString  format, AzFmtArgVec  args);
 extern DLLIMPORT AzString AzString_trim(AzString* const string);
+extern DLLIMPORT AzRefstr AzString_asRefstr(AzString* const string);
+extern DLLIMPORT void AzXmlNodeVec_delete(AzXmlNodeVec* restrict instance);
 extern DLLIMPORT void AzFmtArgVec_delete(AzFmtArgVec* restrict instance);
 extern DLLIMPORT void AzInlineLineVec_delete(AzInlineLineVec* restrict instance);
 extern DLLIMPORT void AzInlineWordVec_delete(AzInlineWordVec* restrict instance);

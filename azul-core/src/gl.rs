@@ -77,7 +77,7 @@ impl core::fmt::Debug for Refstr {
 }
 
 impl Refstr {
-    fn as_str(&self) -> &str { unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.ptr, self.len)) } }
+    pub fn as_str(&self) -> &str { unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.ptr, self.len)) } }
 }
 
 impl From<&str> for Refstr {

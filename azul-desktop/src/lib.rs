@@ -89,6 +89,7 @@ pub mod svg {
 /// XML parsing
 pub mod xml {
     pub use azulc_lib::xml::*;
+    pub use azulc_lib::xml_parser::*;
 }
 
 /// Quick exports of common types

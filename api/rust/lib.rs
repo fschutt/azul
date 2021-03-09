@@ -1163,10 +1163,6 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzImageId {
         pub id: usize,
     }
-    /// Re-export of rust-allocated (stack based) `FontId` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzFontId {
-        pub id: usize,
-    }
     /// Re-export of rust-allocated (stack based) `EncodeImageError` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzEncodeImageError {
         InsufficientMemory,
@@ -1180,6 +1176,10 @@ mod dll {
         DimensionError,
         UnsupportedImageFormat,
         Unknown,
+    }
+    /// Re-export of rust-allocated (stack based) `FontId` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzFontId {
+        pub id: usize,
     }
     /// Re-export of rust-allocated (stack based) `Svg` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvg {
@@ -1352,6 +1352,14 @@ mod dll {
     #[repr(C)]  #[derive(Clone)]   pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+    /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
+    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzXmlNodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzXmlNodeVecDestructorType),
+    }
+    /// `AzXmlNodeVecDestructorType` struct
+    pub type AzXmlNodeVecDestructorType = extern "C" fn(&mut AzXmlNodeVec);
     /// Re-export of rust-allocated (stack based) `FmtArgVecDestructor` struct
     #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzFmtArgVecDestructor {
         DefaultRust,
@@ -2759,6 +2767,13 @@ mod dll {
         pub recv_fn: AzThreadRecvFn,
         pub destructor: AzThreadReceiverDestructorFn,
     }
+    /// Wrapper over a Rust-allocated `Vec<XmlNode>`
+    #[repr(C)]     pub struct AzXmlNodeVec {
+        pub(crate) ptr: *const AzXmlNode,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzXmlNodeVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<InlineGlyph>`
     #[repr(C)]     pub struct AzInlineGlyphVec {
         pub(crate) ptr: *const AzInlineGlyph,
@@ -3282,6 +3297,10 @@ mod dll {
         pub miter_limit: usize,
         pub tolerance: usize,
         pub apply_line_width: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `Xml` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzXml {
+        pub root: AzXmlNodeVec,
     }
     /// Re-export of rust-allocated (stack based) `String` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzString {
@@ -3978,6 +3997,13 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgMultiPolygon {
         pub rings: AzSvgPathVec,
     }
+    /// Re-export of rust-allocated (stack based) `XmlNode` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzXmlNode {
+        pub tag: AzString,
+        pub attributes: AzStringPairVec,
+        pub children: AzXmlNodeVec,
+        pub text: AzOptionString,
+    }
     /// Re-export of rust-allocated (stack based) `Timer` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTimer {
         pub data: AzRefAny,
@@ -4249,6 +4275,11 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionDom {
         None,
         Some(AzDom),
+    }
+    /// Re-export of rust-allocated (stack based) `ResultXmlXmlError` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultXmlXmlError {
+        Ok(AzXml),
+        Err(AzXmlError),
     }
     /// Re-export of rust-allocated (stack based) `SvgParseError` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzSvgParseError {
@@ -4605,8 +4636,7 @@ mod dll {
         pub(crate) fn AzTexture_delete(_:  &mut AzTexture);
         pub(crate) fn AzGLsyncPtr_delete(_:  &mut AzGLsyncPtr);
         pub(crate) fn AzTextureFlags_default() -> AzTextureFlags;
-        pub(crate) fn AzImageId_new() -> AzImageId;
-        pub(crate) fn AzFontId_new() -> AzFontId;
+        pub(crate) fn AzImageId_unique() -> AzImageId;
         pub(crate) fn AzRawImage_fromAnyBytes(_:  AzU8VecRef) -> AzResultRawImageDecodeImageError;
         pub(crate) fn AzRawImage_encodeBmp(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodePng(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
@@ -4615,6 +4645,7 @@ mod dll {
         pub(crate) fn AzRawImage_encodePnm(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeGif(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeTiff(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
+        pub(crate) fn AzFontId_unique() -> AzFontId;
         pub(crate) fn AzSvg_fromString(_:  AzString, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
         pub(crate) fn AzSvg_fromBytes(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
         pub(crate) fn AzSvg_getRoot(_:  &AzSvg) -> AzSvgXmlNode;
@@ -4640,6 +4671,7 @@ mod dll {
         pub(crate) fn AzSvgRect_tesselateStroke(_:  &AzSvgRect, _:  AzSvgStrokeStyle) -> AzTesselatedCPUSvgNode;
         pub(crate) fn AzSvgParseOptions_default() -> AzSvgParseOptions;
         pub(crate) fn AzSvgRenderOptions_default() -> AzSvgRenderOptions;
+        pub(crate) fn AzXml_fromStr(_:  AzRefstr) -> AzResultXmlXmlError;
         pub(crate) fn AzTimerId_unique() -> AzTimerId;
         pub(crate) fn AzTimer_new(_:  AzRefAny, _:  AzTimerCallbackType, _:  AzGetSystemTimeFn) -> AzTimer;
         pub(crate) fn AzTimer_withDelay(_:  AzTimer, _:  AzDuration) -> AzTimer;
@@ -4651,6 +4683,8 @@ mod dll {
         pub(crate) fn AzThreadReceiver_delete(_:  &mut AzThreadReceiver);
         pub(crate) fn AzString_format(_:  AzString, _:  AzFmtArgVec) -> AzString;
         pub(crate) fn AzString_trim(_:  &AzString) -> AzString;
+        pub(crate) fn AzString_asRefstr(_:  &AzString) -> AzRefstr;
+        pub(crate) fn AzXmlNodeVec_delete(_:  &mut AzXmlNodeVec);
         pub(crate) fn AzFmtArgVec_delete(_:  &mut AzFmtArgVec);
         pub(crate) fn AzInlineLineVec_delete(_:  &mut AzInlineLineVec);
         pub(crate) fn AzInlineWordVec_delete(_:  &mut AzInlineWordVec);
@@ -5160,7 +5194,7 @@ pub mod callbacks {
     }    use crate::window::{LogicalPosition, WindowCreateOptions, WindowState};
     use crate::css::CssProperty;
     use crate::str::String;
-    use crate::resources::{ImageMask, ImageSource};
+    use crate::image::{ImageMask, ImageSource};
     use crate::task::{ThreadId, Timer, TimerId};
     /// C-ABI stable wrapper over a `LayoutCallbackType`
     
@@ -9194,9 +9228,9 @@ pub mod gl {
 
 }
 
-pub mod resources {
+pub mod image {
     #![allow(dead_code, unused_imports)]
-    //! Struct definition for image / font / text IDs
+    //! Struct definitions for image loading
     use crate::dll::*;
     use core::ffi::c_void;
     use crate::gl::U8VecRef;
@@ -9211,32 +9245,12 @@ pub mod resources {
 #[doc(inline)] pub use crate::dll::AzImageId as ImageId;
     impl ImageId {
         /// Creates a new, unique `ImageId`
-        pub fn new() -> Self { unsafe { crate::dll::AzImageId_new() } }
-    }
-
-    /// `FontId` struct
-    
-#[doc(inline)] pub use crate::dll::AzFontId as FontId;
-    impl FontId {
-        /// Creates a new, unique `FontId`
-        pub fn new() -> Self { unsafe { crate::dll::AzFontId_new() } }
+        pub fn unique() -> Self { unsafe { crate::dll::AzImageId_unique() } }
     }
 
     /// `ImageSource` struct
     
 #[doc(inline)] pub use crate::dll::AzImageSource as ImageSource;
-    /// `FontSource` struct
-    
-#[doc(inline)] pub use crate::dll::AzFontSource as FontSource;
-    /// `EmbeddedFontSource` struct
-    
-#[doc(inline)] pub use crate::dll::AzEmbeddedFontSource as EmbeddedFontSource;
-    /// `FileFontSource` struct
-    
-#[doc(inline)] pub use crate::dll::AzFileFontSource as FileFontSource;
-    /// `SystemFontSource` struct
-    
-#[doc(inline)] pub use crate::dll::AzSystemFontSource as SystemFontSource;
     /// `EncodeImageError` struct
     
 #[doc(inline)] pub use crate::dll::AzEncodeImageError as EncodeImageError;
@@ -9268,6 +9282,33 @@ pub mod resources {
         pub fn encode_tiff(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeTiff(self) } }
     }
 
+}
+
+pub mod font {
+    #![allow(dead_code, unused_imports)]
+    //! Font decoding / parsing module
+    use crate::dll::*;
+    use core::ffi::c_void;
+    /// `FontSource` struct
+    
+#[doc(inline)] pub use crate::dll::AzFontSource as FontSource;
+    /// `FontId` struct
+    
+#[doc(inline)] pub use crate::dll::AzFontId as FontId;
+    impl FontId {
+        /// Creates a new, unique `FontId`
+        pub fn unique() -> Self { unsafe { crate::dll::AzFontId_unique() } }
+    }
+
+    /// `EmbeddedFontSource` struct
+    
+#[doc(inline)] pub use crate::dll::AzEmbeddedFontSource as EmbeddedFontSource;
+    /// `FileFontSource` struct
+    
+#[doc(inline)] pub use crate::dll::AzFileFontSource as FileFontSource;
+    /// `SystemFontSource` struct
+    
+#[doc(inline)] pub use crate::dll::AzSystemFontSource as SystemFontSource;
 }
 
 pub mod svg {
@@ -9443,6 +9484,31 @@ pub mod svg {
     /// `SvgDashPattern` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgDashPattern as SvgDashPattern;
+}
+
+pub mod xml {
+    #![allow(dead_code, unused_imports)]
+    //! XML parsing / decoding module
+    use crate::dll::*;
+    use core::ffi::c_void;
+    use crate::gl::Refstr;
+    /// `Xml` struct
+    
+#[doc(inline)] pub use crate::dll::AzXml as Xml;
+    impl Xml {
+        /// Parses an XML document with one or more root nodes
+        pub fn from_str(xml_string: Refstr) ->  crate::error::ResultXmlXmlError { unsafe { crate::dll::AzXml_fromStr(xml_string) } }
+    }
+
+    /// `XmlNode` struct
+    
+#[doc(inline)] pub use crate::dll::AzXmlNode as XmlNode;
+}
+
+pub mod fs {
+    #![allow(dead_code, unused_imports)]
+    use crate::dll::*;
+    use core::ffi::c_void;
 }
 
 pub mod task {
@@ -9635,6 +9701,8 @@ pub mod str {
         pub fn format(format: String, args: FmtArgVec) -> Self { unsafe { crate::dll::AzString_format(format, args) } }
         /// Trims whitespace from the start / end of the string
         pub fn trim(&self)  -> crate::str::String { unsafe { crate::dll::AzString_trim(self) } }
+        /// Returns a reference to the string - NOTE: the returned value is a reference to `self`, you MUST NOT drop the `String` object that the `Refstr` references
+        pub fn as_refstr(&self)  -> crate::gl::Refstr { unsafe { crate::dll::AzString_asRefstr(self) } }
     }
 
 }
@@ -9934,7 +10002,10 @@ pub mod vec {
             vec.into()
             // v dropped here
         }
-    }    /// Wrapper over a Rust-allocated `Vec<FmtArg>`
+    }    /// Wrapper over a Rust-allocated `Vec<XmlNode>`
+    
+#[doc(inline)] pub use crate::dll::AzXmlNodeVec as XmlNodeVec;
+    /// Wrapper over a Rust-allocated `Vec<FmtArg>`
     
 #[doc(inline)] pub use crate::dll::AzFmtArgVec as FmtArgVec;
     /// Wrapper over a Rust-allocated `Vec<InlineLine>`
@@ -10080,6 +10151,12 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `NodeDataVec`
     
 #[doc(inline)] pub use crate::dll::AzNodeDataVec as NodeDataVec;
+    /// `XmlNodeVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzXmlNodeVecDestructor as XmlNodeVecDestructor;
+    /// `XmlNodeVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzXmlNodeVecDestructorType as XmlNodeVecDestructorType;
     /// `FmtArgVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzFmtArgVecDestructor as FmtArgVecDestructor;
@@ -10659,6 +10736,9 @@ pub mod error {
     //! Definition of error and `Result<T, E>`  types
     use crate::dll::*;
     use core::ffi::c_void;
+    /// `ResultXmlXmlError` struct
+    
+#[doc(inline)] pub use crate::dll::AzResultXmlXmlError as ResultXmlXmlError;
     /// `ResultRawImageDecodeImageError` struct
     
 #[doc(inline)] pub use crate::dll::AzResultRawImageDecodeImageError as ResultRawImageDecodeImageError;

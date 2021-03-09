@@ -6127,8 +6127,8 @@
 				}
 			}
 		},
-		"resources": {
-			"doc": "Struct definition for image / font / text IDs",
+		"image": {
+			"doc": "Struct definitions for image loading",
 			"classes": {
 				"ImageMask": {
 					"external": "azul_impl::resources::ImageMask",
@@ -6161,22 +6161,9 @@
 						{ "id": { "type": "usize" } }
 					],
 					"constructors": {
-						"new": {
+						"unique": {
 							"doc": "Creates a new, unique `ImageId`",
 							"fn_body":"ImageId::new()"
-						}
-					}
-				},
-				"FontId": {
-					"external": "azul_impl::resources::FontId",
-					"derive": ["Copy"],
-					"struct_fields": [
-						{ "id": { "type": "usize" } }
-					],
-					"constructors": {
-						"new": {
-						"doc": "Creates a new, unique `FontId`",
-						"fn_body":"FontId::new()"
 						}
 					}
 				},
@@ -6186,37 +6173,6 @@
 						{ "Embedded": {"type": "U8Vec", "doc": "Bytes of the image, encoded in PNG / JPG / etc. format" } },
 						{ "File": {"type": "String", "doc": "References an (encoded!) image as a file from the file system that is loaded when necessary" } },
 						{ "Raw": {"type": "RawImage", "doc": "References a decoded (!) `RawImage` as the image source" } }
-					]
-				},
-				"FontSource": {
-					"external": "azul_impl::resources::FontSource",
-					"enum_fields": [
-						{ "Embedded": {"type": "EmbeddedFontSource", "doc": "References a font from a font file that is embedded into the binary (`&'static [u8]`) or loaded from a `Vec<u8>`" } },
-						{ "File": {"type": "FileFontSource", "doc": "References a font from a file path, which is loaded when necessary" } },
-						{ "System": {"type": "SystemFontSource", "doc": "References a font from from a system font identifier, such as `\"Arial\"` or `\"Helvetica\"`" } }
-					]
-				},
-				"EmbeddedFontSource": {
-					"external": "azul_impl::resources::EmbeddedFontSource",
-					"struct_fields": [
-						{ "postscript_id": {"type": "String", "doc": "ID of the font, such as `Arial` or `Roboto`" } },
-						{ "font_data": {"type": "U8Vec", "doc": "Bytes are the bytes of the font file" } },
-						{ "load_glyph_outlines": {"type": "bool", "doc": "Whether the glyph outlines should be loaded - must be explicitly enabled in order to save RAM" } }
-					]
-				},
-				"FileFontSource": {
-					"external": "azul_impl::resources::FileFontSource",
-					"struct_fields": [
-						{ "postscript_id": {"type": "String", "doc": "ID of the font, such as `Arial` or `Roboto`" } },
-						{ "file_path": {"type": "String", "doc": "Path to the file of the font" } },
-						{ "load_glyph_outlines": {"type": "bool", "doc": "Whether the glyph outlines should be loaded - must be explicitly enabled in order to save RAM" } }
-					]
-				},
-				"SystemFontSource": {
-					"external": "azul_impl::resources::SystemFontSource",
-					"struct_fields": [
-						{ "postscript_id": {"type": "String", "doc": "ID of the font, such as `Arial` or `Roboto`" } },
-						{ "load_glyph_outlines": {"type": "bool", "doc": "Whether the glyph outlines should be loaded - must be explicitly enabled in order to save RAM" } }
 					]
 				},
 				"EncodeImageError": {
@@ -6334,6 +6290,55 @@
 						{ "RG8": {"doc": "Bytes are in the RG-unsigned-8bit format" } },
 						{ "RGBAI32": {"doc": "Bytes are in the RGBA-signed-32bit format" } },
 						{ "RGBA8": {"doc": "Bytes are in the RGBA-unsigned-8bit format" } }
+					]
+				}
+			}
+		},
+		"font": {
+			"doc": "Font decoding / parsing module",
+			"classes": {
+				"FontSource": {
+					"external": "azul_impl::resources::FontSource",
+					"enum_fields": [
+						{ "Embedded": {"type": "EmbeddedFontSource", "doc": "References a font from a font file that is embedded into the binary (`&'static [u8]`) or loaded from a `Vec<u8>`" } },
+						{ "File": {"type": "FileFontSource", "doc": "References a font from a file path, which is loaded when necessary" } },
+						{ "System": {"type": "SystemFontSource", "doc": "References a font from from a system font identifier, such as `\"Arial\"` or `\"Helvetica\"`" } }
+					]
+				},
+				"FontId": {
+					"external": "azul_impl::resources::FontId",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{ "id": { "type": "usize" } }
+					],
+					"constructors": {
+						"unique": {
+							"doc": "Creates a new, unique `FontId`",
+							"fn_body":"FontId::new()"
+						}
+					}
+				},
+				"EmbeddedFontSource": {
+					"external": "azul_impl::resources::EmbeddedFontSource",
+					"struct_fields": [
+						{ "postscript_id": {"type": "String", "doc": "ID of the font, such as `Arial` or `Roboto`" } },
+						{ "font_data": {"type": "U8Vec", "doc": "Bytes are the bytes of the font file" } },
+						{ "load_glyph_outlines": {"type": "bool", "doc": "Whether the glyph outlines should be loaded - must be explicitly enabled in order to save RAM" } }
+					]
+				},
+				"FileFontSource": {
+					"external": "azul_impl::resources::FileFontSource",
+					"struct_fields": [
+						{ "postscript_id": {"type": "String", "doc": "ID of the font, such as `Arial` or `Roboto`" } },
+						{ "file_path": {"type": "String", "doc": "Path to the file of the font" } },
+						{ "load_glyph_outlines": {"type": "bool", "doc": "Whether the glyph outlines should be loaded - must be explicitly enabled in order to save RAM" } }
+					]
+				},
+				"SystemFontSource": {
+					"external": "azul_impl::resources::SystemFontSource",
+					"struct_fields": [
+						{ "postscript_id": {"type": "String", "doc": "ID of the font, such as `Arial` or `Roboto`" } },
+						{ "load_glyph_outlines": {"type": "bool", "doc": "Whether the glyph outlines should be loaded - must be explicitly enabled in order to save RAM" } }
 					]
 				}
 			}
@@ -6794,6 +6799,41 @@
 				}
 			}
 		},
+		"xml": {
+			"doc": "XML parsing / decoding module",
+			"classes": {
+				"Xml": {
+					"external": "azul_impl::xml::Xml",
+					"struct_fields": [
+						{"root": {"type": "XmlNodeVec", "doc": "Root node(s) of the XML document"}}
+					],
+					"constructors": {
+						"from_str": {
+							"doc": "Parses an XML document with one or more root nodes",
+							"fn_args": [
+								{"xml_string": "Refstr"}
+							],
+							"returns": {"type": "ResultXmlXmlError"},
+							"fn_body": "AzXml::parse(xml_string.as_str()).into()"
+						}
+					}
+				},
+				"XmlNode": {
+					"external": "azul_impl::xml::XmlNode",
+					"struct_fields": [
+						{"tag": {"type": "String", "doc": "Tag type of the node, i.e. the `p` part of `<p id=\"test\">Hello <span>World</span> </p>`"}},
+						{"attributes": {"type": "StringPairVec", "doc": "Attributes of the node, i.e. the `{ key: id, value: test }` part of `<p id=\"test\">Hello <span>World</span> </p>`"}},
+						{"children": {"type": "XmlNodeVec", "doc": "Attributes of the node, i.e. the `<span>World</span>` part of `<p id=\"test\">Hello <span>World</span> </p>`"}},
+						{"text": {"type": "OptionString", "doc": "Text content of the node, i.e. the `Hello` part of `<p id=\"test\">Hello</p>`"}}
+					]
+				}
+			}
+		},
+		"fs": {
+			"classes": {
+
+			}
+		},
 		"task": {
 			"doc": "Asyncronous timers / task / thread handlers for easy async loading",
 			"classes": {
@@ -7160,6 +7200,14 @@
 							],
 							"returns": {"type": "String"},
 							"fn_body": "string.as_str().trim().to_string().into()"
+						},
+						"as_refstr": {
+							"doc": "Returns a reference to the string - NOTE: the returned value is a reference to `self`, you MUST NOT drop the `String` object that the `Refstr` references",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "Refstr"},
+							"fn_body": "string.as_str().into()"
 						}
 					}
 				}
@@ -7168,6 +7216,17 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"XmlNodeVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<XmlNode>`",
+					"custom_destructor": true,
+					"external": "azul_impl::xml::XmlNodeVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const XmlNode" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "XmlNodeVecDestructor" } }
+					]
+				},
 				"FmtArgVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<FmtArg>`",
 					"custom_destructor": true,
@@ -7694,6 +7753,22 @@
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "NodeDataVecDestructor" } }
 					]
+				},
+				"XmlNodeVecDestructor": {
+				    "external": "azul_impl::xml::XmlNodeVecDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "XmlNodeVecDestructorType"}}
+				    ]
+				},
+				"XmlNodeVecDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "XmlNodeVec", "ref": "refmut"}
+				        ]
+				    }
 				},
 				"FmtArgVecDestructor": {
 				    "external": "azul_impl::str::FmtArgVecDestructor",
@@ -8778,6 +8853,13 @@
 		"error": {
 			"doc": "Definition of error and `Result<T, E>`  types",
 			"classes": {
+				"ResultXmlXmlError": {
+					"external": "azul_impl::xml::ResultXmlXmlError",
+					"enum_fields": [
+						{"Ok": {"type": "Xml"}},
+						{"Err": { "type": "XmlError" }}
+					]
+				},
 				"ResultRawImageDecodeImageError": {
 					"external": "azul_impl::resources::decode::ResultRawImageDecodeImageError",
 					"enum_fields": [

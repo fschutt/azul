@@ -1952,33 +1952,11 @@ pub use AzRawImageFormatTT as AzRawImageFormat;
 pub type AzImageIdTT = azul_impl::resources::ImageId;
 pub use AzImageIdTT as AzImageId;
 /// Creates a new, unique `ImageId`
-#[no_mangle] pub extern "C" fn AzImageId_new() -> AzImageId { ImageId::new() }
-
-/// Re-export of rust-allocated (stack based) `FontId` struct
-pub type AzFontIdTT = azul_impl::resources::FontId;
-pub use AzFontIdTT as AzFontId;
-/// Creates a new, unique `FontId`
-#[no_mangle] pub extern "C" fn AzFontId_new() -> AzFontId { FontId::new() }
+#[no_mangle] pub extern "C" fn AzImageId_unique() -> AzImageId { ImageId::new() }
 
 /// Re-export of rust-allocated (stack based) `ImageSource` struct
 pub type AzImageSourceTT = azul_impl::resources::ImageSource;
 pub use AzImageSourceTT as AzImageSource;
-
-/// Re-export of rust-allocated (stack based) `FontSource` struct
-pub type AzFontSourceTT = azul_impl::resources::FontSource;
-pub use AzFontSourceTT as AzFontSource;
-
-/// Re-export of rust-allocated (stack based) `EmbeddedFontSource` struct
-pub type AzEmbeddedFontSourceTT = azul_impl::resources::EmbeddedFontSource;
-pub use AzEmbeddedFontSourceTT as AzEmbeddedFontSource;
-
-/// Re-export of rust-allocated (stack based) `FileFontSource` struct
-pub type AzFileFontSourceTT = azul_impl::resources::FileFontSource;
-pub use AzFileFontSourceTT as AzFileFontSource;
-
-/// Re-export of rust-allocated (stack based) `SystemFontSource` struct
-pub type AzSystemFontSourceTT = azul_impl::resources::SystemFontSource;
-pub use AzSystemFontSourceTT as AzSystemFontSource;
 
 /// Re-export of rust-allocated (stack based) `EncodeImageError` struct
 pub type AzEncodeImageErrorTT = azul_impl::resources::encode::EncodeImageError;
@@ -2011,6 +1989,28 @@ pub use AzRawImageTT as AzRawImage;
 #[no_mangle] pub extern "C" fn AzRawImage_encodeGif(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError { azul_impl::resources::encode::encode_gif(rawimage) }
 /// Encodes the RawImage in the TIFF image format
 #[no_mangle] pub extern "C" fn AzRawImage_encodeTiff(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError { azul_impl::resources::encode::encode_tiff(rawimage) }
+
+/// Re-export of rust-allocated (stack based) `FontSource` struct
+pub type AzFontSourceTT = azul_impl::resources::FontSource;
+pub use AzFontSourceTT as AzFontSource;
+
+/// Re-export of rust-allocated (stack based) `FontId` struct
+pub type AzFontIdTT = azul_impl::resources::FontId;
+pub use AzFontIdTT as AzFontId;
+/// Creates a new, unique `FontId`
+#[no_mangle] pub extern "C" fn AzFontId_unique() -> AzFontId { FontId::new() }
+
+/// Re-export of rust-allocated (stack based) `EmbeddedFontSource` struct
+pub type AzEmbeddedFontSourceTT = azul_impl::resources::EmbeddedFontSource;
+pub use AzEmbeddedFontSourceTT as AzEmbeddedFontSource;
+
+/// Re-export of rust-allocated (stack based) `FileFontSource` struct
+pub type AzFileFontSourceTT = azul_impl::resources::FileFontSource;
+pub use AzFileFontSourceTT as AzFileFontSource;
+
+/// Re-export of rust-allocated (stack based) `SystemFontSource` struct
+pub type AzSystemFontSourceTT = azul_impl::resources::SystemFontSource;
+pub use AzSystemFontSourceTT as AzSystemFontSource;
 
 /// Re-export of rust-allocated (stack based) `Svg` struct
 pub type AzSvgTT = azul_impl::svg::Svg;
@@ -2187,6 +2187,16 @@ pub use AzSvgLineCapTT as AzSvgLineCap;
 pub type AzSvgDashPatternTT = azul_impl::svg::SvgDashPattern;
 pub use AzSvgDashPatternTT as AzSvgDashPattern;
 
+/// Re-export of rust-allocated (stack based) `Xml` struct
+pub type AzXmlTT = azul_impl::xml::Xml;
+pub use AzXmlTT as AzXml;
+/// Parses an XML document with one or more root nodes
+#[no_mangle] pub extern "C" fn AzXml_fromStr(xml_string: AzRefstr) -> AzResultXmlXmlError { AzXml::parse(xml_string.as_str()).into() }
+
+/// Re-export of rust-allocated (stack based) `XmlNode` struct
+pub type AzXmlNodeTT = azul_impl::xml::XmlNode;
+pub use AzXmlNodeTT as AzXmlNode;
+
 /// Re-export of rust-allocated (stack based) `TimerId` struct
 pub type AzTimerIdTT = azul_impl::task::TimerId;
 pub use AzTimerIdTT as AzTimerId;
@@ -2312,6 +2322,14 @@ pub use AzStringTT as AzString;
 #[no_mangle] pub extern "C" fn AzString_format(format: AzString, args: AzFmtArgVec) -> AzString { azul_impl::str::fmt_string(format, args).into() }
 /// Trims whitespace from the start / end of the string
 #[no_mangle] pub extern "C" fn AzString_trim(string: &AzString) -> AzString { string.as_str().trim().to_string().into() }
+/// Returns a reference to the string - NOTE: the returned value is a reference to `self`, you MUST NOT drop the `String` object that the `Refstr` references
+#[no_mangle] pub extern "C" fn AzString_asRefstr(string: &AzString) -> AzRefstr { string.as_str().into() }
+
+/// Wrapper over a Rust-allocated `Vec<XmlNode>`
+pub type AzXmlNodeVecTT = azul_impl::xml::XmlNodeVec;
+pub use AzXmlNodeVecTT as AzXmlNodeVec;
+/// Destructor: Takes ownership of the `XmlNodeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzXmlNodeVec_delete(object: &mut AzXmlNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<FmtArg>`
 pub type AzFmtArgVecTT = azul_impl::str::FmtArgVec;
@@ -2597,6 +2615,11 @@ pub use AzNodeDataVecTT as AzNodeDataVec;
 /// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzNodeDataVec_delete(object: &mut AzNodeDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
+pub type AzXmlNodeVecDestructorTT = azul_impl::xml::XmlNodeVecDestructor;
+pub use AzXmlNodeVecDestructorTT as AzXmlNodeVecDestructor;
+
+pub type AzXmlNodeVecDestructorType = extern "C" fn(&mut AzXmlNodeVec);
 /// Re-export of rust-allocated (stack based) `FmtArgVecDestructor` struct
 pub type AzFmtArgVecDestructorTT = azul_impl::str::FmtArgVecDestructor;
 pub use AzFmtArgVecDestructorTT as AzFmtArgVecDestructor;
@@ -2995,6 +3018,10 @@ pub use AzOptionUsizeTT as AzOptionUsize;
 /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
 pub type AzOptionU8VecRefTT = azul_impl::gl::OptionU8VecRef;
 pub use AzOptionU8VecRefTT as AzOptionU8VecRef;
+
+/// Re-export of rust-allocated (stack based) `ResultXmlXmlError` struct
+pub type AzResultXmlXmlErrorTT = azul_impl::xml::ResultXmlXmlError;
+pub use AzResultXmlXmlErrorTT as AzResultXmlXmlError;
 
 /// Re-export of rust-allocated (stack based) `ResultRawImageDecodeImageError` struct
 pub type AzResultRawImageDecodeImageErrorTT = azul_impl::resources::decode::ResultRawImageDecodeImageError;
@@ -4210,10 +4237,6 @@ mod test_sizes {
     #[repr(C)]     pub struct AzImageId {
         pub id: usize,
     }
-    /// Re-export of rust-allocated (stack based) `FontId` struct
-    #[repr(C)]     pub struct AzFontId {
-        pub id: usize,
-    }
     /// Re-export of rust-allocated (stack based) `EncodeImageError` struct
     #[repr(C)]     pub enum AzEncodeImageError {
         InsufficientMemory,
@@ -4227,6 +4250,10 @@ mod test_sizes {
         DimensionError,
         UnsupportedImageFormat,
         Unknown,
+    }
+    /// Re-export of rust-allocated (stack based) `FontId` struct
+    #[repr(C)]     pub struct AzFontId {
+        pub id: usize,
     }
     /// Re-export of rust-allocated (stack based) `Svg` struct
     #[repr(C)]     pub struct AzSvg {
@@ -4399,6 +4426,14 @@ mod test_sizes {
     #[repr(C)]     pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+    /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzXmlNodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzXmlNodeVecDestructorType),
+    }
+    /// `AzXmlNodeVecDestructorType` struct
+    pub type AzXmlNodeVecDestructorType = extern "C" fn(&mut AzXmlNodeVec);
     /// Re-export of rust-allocated (stack based) `FmtArgVecDestructor` struct
     #[repr(C, u8)]     pub enum AzFmtArgVecDestructor {
         DefaultRust,
@@ -5806,6 +5841,13 @@ mod test_sizes {
         pub recv_fn: AzThreadRecvFn,
         pub destructor: AzThreadReceiverDestructorFn,
     }
+    /// Wrapper over a Rust-allocated `Vec<XmlNode>`
+    #[repr(C)]     pub struct AzXmlNodeVec {
+        pub(crate) ptr: *const AzXmlNode,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzXmlNodeVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<InlineGlyph>`
     #[repr(C)]     pub struct AzInlineGlyphVec {
         pub(crate) ptr: *const AzInlineGlyph,
@@ -6329,6 +6371,10 @@ mod test_sizes {
         pub miter_limit: usize,
         pub tolerance: usize,
         pub apply_line_width: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `Xml` struct
+    #[repr(C)]     pub struct AzXml {
+        pub root: AzXmlNodeVec,
     }
     /// Re-export of rust-allocated (stack based) `String` struct
     #[repr(C)]     pub struct AzString {
@@ -7025,6 +7071,13 @@ mod test_sizes {
     #[repr(C)]     pub struct AzSvgMultiPolygon {
         pub rings: AzSvgPathVec,
     }
+    /// Re-export of rust-allocated (stack based) `XmlNode` struct
+    #[repr(C)]     pub struct AzXmlNode {
+        pub tag: AzString,
+        pub attributes: AzStringPairVec,
+        pub children: AzXmlNodeVec,
+        pub text: AzOptionString,
+    }
     /// Re-export of rust-allocated (stack based) `Timer` struct
     #[repr(C)]     pub struct AzTimer {
         pub data: AzRefAny,
@@ -7297,6 +7350,11 @@ mod test_sizes {
         None,
         Some(AzDom),
     }
+    /// Re-export of rust-allocated (stack based) `ResultXmlXmlError` struct
+    #[repr(C, u8)]     pub enum AzResultXmlXmlError {
+        Ok(AzXml),
+        Err(AzXmlError),
+    }
     /// Re-export of rust-allocated (stack based) `SvgParseError` struct
     #[repr(C, u8)]     pub enum AzSvgParseError {
         InvalidFileSuffix,
@@ -7446,9 +7504,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::TextureFlags>(), "AzTextureFlags"), (Layout::new::<AzTextureFlags>(), "AzTextureFlags"));
         assert_eq!((Layout::new::<azul_impl::resources::RawImageFormat>(), "AzRawImageFormat"), (Layout::new::<AzRawImageFormat>(), "AzRawImageFormat"));
         assert_eq!((Layout::new::<azul_impl::resources::ImageId>(), "AzImageId"), (Layout::new::<AzImageId>(), "AzImageId"));
-        assert_eq!((Layout::new::<azul_impl::resources::FontId>(), "AzFontId"), (Layout::new::<AzFontId>(), "AzFontId"));
         assert_eq!((Layout::new::<azul_impl::resources::encode::EncodeImageError>(), "AzEncodeImageError"), (Layout::new::<AzEncodeImageError>(), "AzEncodeImageError"));
         assert_eq!((Layout::new::<azul_impl::resources::decode::DecodeImageError>(), "AzDecodeImageError"), (Layout::new::<AzDecodeImageError>(), "AzDecodeImageError"));
+        assert_eq!((Layout::new::<azul_impl::resources::FontId>(), "AzFontId"), (Layout::new::<AzFontId>(), "AzFontId"));
         assert_eq!((Layout::new::<azul_impl::svg::Svg>(), "AzSvg"), (Layout::new::<AzSvg>(), "AzSvg"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgXmlNode>(), "AzSvgXmlNode"), (Layout::new::<AzSvgXmlNode>(), "AzSvgXmlNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgCircle>(), "AzSvgCircle"), (Layout::new::<AzSvgCircle>(), "AzSvgCircle"));
@@ -7478,6 +7536,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadDestructorCallback>(), "AzThreadDestructorFn"), (Layout::new::<AzThreadDestructorFn>(), "AzThreadDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
+        assert_eq!((Layout::new::<azul_impl::xml::XmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"), (Layout::new::<AzXmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::str::FmtArgVecDestructor>(), "AzFmtArgVecDestructor"), (Layout::new::<AzFmtArgVecDestructor>(), "AzFmtArgVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineLineVecDestructor>(), "AzInlineLineVecDestructor"), (Layout::new::<AzInlineLineVecDestructor>(), "AzInlineLineVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineWordVecDestructor>(), "AzInlineWordVecDestructor"), (Layout::new::<AzInlineWordVecDestructor>(), "AzInlineWordVecDestructor"));
@@ -7690,6 +7749,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgFillStyle>(), "AzSvgFillStyle"), (Layout::new::<AzSvgFillStyle>(), "AzSvgFillStyle"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSender>(), "AzThreadSender"), (Layout::new::<AzThreadSender>(), "AzThreadSender"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiver>(), "AzThreadReceiver"), (Layout::new::<AzThreadReceiver>(), "AzThreadReceiver"));
+        assert_eq!((Layout::new::<azul_impl::xml::XmlNodeVec>(), "AzXmlNodeVec"), (Layout::new::<AzXmlNodeVec>(), "AzXmlNodeVec"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineGlyphVec>(), "AzInlineGlyphVec"), (Layout::new::<AzInlineGlyphVec>(), "AzInlineGlyphVec"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineTextHitVec>(), "AzInlineTextHitVec"), (Layout::new::<AzInlineTextHitVec>(), "AzInlineTextHitVec"));
         assert_eq!((Layout::new::<azul_impl::window::VideoModeVec>(), "AzVideoModeVec"), (Layout::new::<AzVideoModeVec>(), "AzVideoModeVec"));
@@ -7771,6 +7831,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::TesselatedCPUSvgNode>(), "AzTesselatedCPUSvgNode"), (Layout::new::<AzTesselatedCPUSvgNode>(), "AzTesselatedCPUSvgNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgRenderOptions>(), "AzSvgRenderOptions"), (Layout::new::<AzSvgRenderOptions>(), "AzSvgRenderOptions"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStrokeStyle>(), "AzSvgStrokeStyle"), (Layout::new::<AzSvgStrokeStyle>(), "AzSvgStrokeStyle"));
+        assert_eq!((Layout::new::<azul_impl::xml::Xml>(), "AzXml"), (Layout::new::<AzXml>(), "AzXml"));
         assert_eq!((Layout::new::<azul_impl::css::AzString>(), "AzString"), (Layout::new::<AzString>(), "AzString"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformVec>(), "AzStyleTransformVec"), (Layout::new::<AzStyleTransformVec>(), "AzStyleTransformVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVec>(), "AzSvgPathElementVec"), (Layout::new::<AzSvgPathElementVec>(), "AzSvgPathElementVec"));
@@ -7858,6 +7919,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::VertexBuffer>(), "AzVertexBuffer"), (Layout::new::<AzVertexBuffer>(), "AzVertexBuffer"));
         assert_eq!((Layout::new::<azul_impl::resources::FontSource>(), "AzFontSource"), (Layout::new::<AzFontSource>(), "AzFontSource"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygon>(), "AzSvgMultiPolygon"), (Layout::new::<AzSvgMultiPolygon>(), "AzSvgMultiPolygon"));
+        assert_eq!((Layout::new::<azul_impl::xml::XmlNode>(), "AzXmlNode"), (Layout::new::<AzXmlNode>(), "AzXmlNode"));
         assert_eq!((Layout::new::<azul_impl::task::Timer>(), "AzTimer"), (Layout::new::<AzTimer>(), "AzTimer"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiveMsg>(), "AzThreadReceiveMsg"), (Layout::new::<AzThreadReceiveMsg>(), "AzThreadReceiveMsg"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineLineVec>(), "AzInlineLineVec"), (Layout::new::<AzInlineLineVec>(), "AzInlineLineVec"));
@@ -7890,6 +7952,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledDom>(), "AzStyledDom"), (Layout::new::<AzStyledDom>(), "AzStyledDom"));
         assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVec>(), "AzCssRuleBlockVec"), (Layout::new::<AzCssRuleBlockVec>(), "AzCssRuleBlockVec"));
         assert_eq!((Layout::new::<azul_impl::dom::OptionDom>(), "AzOptionDom"), (Layout::new::<AzOptionDom>(), "AzOptionDom"));
+        assert_eq!((Layout::new::<azul_impl::xml::ResultXmlXmlError>(), "AzResultXmlXmlError"), (Layout::new::<AzResultXmlXmlError>(), "AzResultXmlXmlError"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgParseError>(), "AzSvgParseError"), (Layout::new::<AzSvgParseError>(), "AzSvgParseError"));
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackReturn>(), "AzIFrameCallbackReturn"), (Layout::new::<AzIFrameCallbackReturn>(), "AzIFrameCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::css::Stylesheet>(), "AzStylesheet"), (Layout::new::<AzStylesheet>(), "AzStylesheet"));

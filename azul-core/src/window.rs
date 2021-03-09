@@ -1524,6 +1524,7 @@ pub struct AzStringPair {
 }
 
 impl_vec!(AzStringPair, StringPairVec, StringPairVecDestructor);
+impl_vec_mut!(AzStringPair, StringPairVec);
 impl_vec_debug!(AzStringPair, StringPairVec);
 impl_vec_partialord!(AzStringPair, StringPairVec);
 impl_vec_ord!(AzStringPair, StringPairVec);
@@ -1531,6 +1532,24 @@ impl_vec_clone!(AzStringPair, StringPairVec, StringPairVecDestructor);
 impl_vec_partialeq!(AzStringPair, StringPairVec);
 impl_vec_eq!(AzStringPair, StringPairVec);
 impl_vec_hash!(AzStringPair, StringPairVec);
+
+impl StringPairVec {
+    pub fn get_key(&self, search_key: &str) -> Option<&AzString> {
+        self.as_ref().iter().find_map(|v| if v.key.as_str() == search_key { Some(&v.value) } else { None })
+    }
+    pub fn get_key_mut(&mut self, search_key: &str) -> Option<&mut AzStringPair> {
+        self.as_mut().iter_mut().find(|v| v.key.as_str() == search_key)
+    }
+    pub fn insert<I: Into<AzString>>(&mut self, key: I, value: I) {
+        let key = key.into();
+        let value = value.into();
+        match self.get_key_mut(key.as_str()) {
+            None => { },
+            Some(s) => { s.value = value; return; }
+        }
+        self.push(AzStringPair { key, value });
+    }
+}
 
 impl_vec!(XWindowType, XWindowTypeVec, XWindowTypeVecDestructor);
 impl_vec_debug!(XWindowType, XWindowTypeVec);

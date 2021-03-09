@@ -1,5 +1,5 @@
 use azul_css::{U8Vec, AzString, OptionAzString};
-use crate::xml_parser::XmlNode;
+use crate::xml_parser::{XmlNode, XmlNodeVec};
 
 #[allow(non_camel_case_types)]
 pub enum c_void { }
@@ -38,9 +38,10 @@ impl<'a> From<roxmltree::Attribute<'a>> for XmlQualifiedName {
     }
 }
 
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C)]
 pub struct Xml {
-    root: Vec<XmlNode>,
+    root: XmlNodeVec,
 }
 
 impl Xml {
@@ -49,6 +50,7 @@ impl Xml {
             root: crate::xml_parser::parse_xml_string(s)?,
         })
     }
+    // to_string(&self) -> String
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
@@ -138,6 +140,8 @@ pub enum XmlParseError {
     InvalidCharData(XmlTextError),
     UnknownToken(XmlTextPos),
 }
+
+impl_result!(Xml, XmlError, ResultXmlXmlError, copy = false, [Debug, PartialEq, PartialOrd, Clone]);
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C)]

@@ -1274,7 +1274,7 @@ pub mod extra {
             }
         };
 
-        match azulc_lib::xml_parser::str_to_dom(&root_nodes, &mut XmlComponentMap::default()) {
+        match azulc_lib::xml_parser::str_to_dom(root_nodes.as_ref(), &mut XmlComponentMap::default()) {
             Ok(o) => o,
             Err(e) => {
                 Dom::new(NodeType::Body).with_children(vec![

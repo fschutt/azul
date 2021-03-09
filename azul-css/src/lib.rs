@@ -533,6 +533,12 @@ macro_rules! impl_option_inner {
                 $struct_name::None => None,
             }
         }
+        pub fn as_mut(&mut self) -> Option<&mut $struct_type> {
+            match self {
+                $struct_name::Some(x) => Some(x),
+                $struct_name::None => None,
+            }
+        }
         pub fn map<U, F: FnOnce($struct_type) -> U>(self, f: F) -> Option<U> {
             match self {
                 $struct_name::Some(x) => Some(f(x)),
@@ -715,6 +721,14 @@ pub struct AzString { pub vec: U8Vec }
 
 impl_option!(AzString, OptionAzString, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
+static DEFAULT_STR: &str = "";
+
+impl Default for AzString {
+    fn default() -> Self {
+        DEFAULT_STR.into()
+    }
+}
+
 impl<'a> From<&'a str> for AzString {
     fn from(s: &'a str) -> Self {
         s.to_string().into()
@@ -724,12 +738,6 @@ impl<'a> From<&'a str> for AzString {
 impl AsRef<str> for AzString {
     fn as_ref<'a>(&'a self) -> &'a str {
         self.as_str()
-    }
-}
-
-impl Default for AzString {
-    fn default() -> Self {
-        String::new().into()
     }
 }
 

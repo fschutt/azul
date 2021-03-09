@@ -656,8 +656,11 @@ def sort_structs_map(api_data, structs_map):
 
     # when encountering the class "DomVec", you must forward-declare the class "Dom",
     # because the type is recursive
-    extra_forward_delcarations = {"AzDomVec": {"type": "struct", "name": "AzDom"}}
-    forward_delcarations = OrderedDict([("AzDomVec", "Dom")])
+    extra_forward_delcarations = {
+        "AzDomVec": {"type": "struct", "name": "AzDom"},
+        "AzXmlNodeVec": {"type": "struct", "name": "AzXmlNode"},
+    }
+    forward_delcarations = OrderedDict([("AzDomVec", "Dom"), ("AzXmlNodeVec", "XmlNode")])
 
     classes_not_found = OrderedDict([])
 
