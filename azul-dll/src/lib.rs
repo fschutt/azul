@@ -2197,6 +2197,26 @@ pub use AzXmlTT as AzXml;
 pub type AzXmlNodeTT = azul_impl::xml::XmlNode;
 pub use AzXmlNodeTT as AzXmlNode;
 
+/// Re-export of rust-allocated (stack based) `File` struct
+pub type AzFileTT = azul_impl::file::File;
+pub use AzFileTT as AzFile;
+/// Opens a file at the given path. If the file exists, replaces it with a new file
+#[no_mangle] pub extern "C" fn AzFile_open(path: AzString) -> AzOptionFile { AzFile::open(path.as_str()).into() }
+/// Creates a file at the given path. If the file exists, replaces it with a new file
+#[no_mangle] pub extern "C" fn AzFile_create(path: AzString) -> AzOptionFile { AzFile::create(path.as_str()).into() }
+/// Reads the file to a UTF8-encoded String, returns None if the file can't be decoded correctly
+#[no_mangle] pub extern "C" fn AzFile_readToString(file: &mut AzFile) -> AzOptionString { file.read_to_string().into() }
+/// Reads the file as bytes, returns None if the file can't be decoded correctly
+#[no_mangle] pub extern "C" fn AzFile_readToBytes(file: &mut AzFile) -> AzOptionU8Vec { file.read_to_bytes().into() }
+/// Writes a string to the file, synchronizes the results before returning
+#[no_mangle] pub extern "C" fn AzFile_writeString(file: &mut AzFile, bytes: AzRefstr) -> bool { file.write_string(bytes.as_str()).is_some() }
+/// Writes some bytes to the file, synchronizes the results before returning
+#[no_mangle] pub extern "C" fn AzFile_writeBytes(file: &mut AzFile, bytes: AzU8VecRef) -> bool { file.write_bytes(bytes.as_slice()).is_some() }
+/// Destructor, closes the file handle
+#[no_mangle] pub extern "C" fn AzFile_close(file: AzFile) { file.close() }
+/// Destructor: Takes ownership of the `File` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFile_delete(object: &mut AzFile) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Re-export of rust-allocated (stack based) `TimerId` struct
 pub type AzTimerIdTT = azul_impl::task::TimerId;
 pub use AzTimerIdTT as AzTimerId;
@@ -2855,6 +2875,10 @@ pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionFile` struct
+pub type AzOptionFileTT = azul_impl::file::OptionFile;
+pub use AzOptionFileTT as AzOptionFile;
+
 /// Re-export of rust-allocated (stack based) `OptionGl` struct
 pub type AzOptionGlTT = azul_impl::gl::OptionGlContextPtr;
 pub use AzOptionGlTT as AzOptionGl;
@@ -3014,6 +3038,10 @@ pub use AzOptionInstantTT as AzOptionInstant;
 /// Re-export of rust-allocated (stack based) `OptionUsize` struct
 pub type AzOptionUsizeTT = azul_impl::gl::OptionUsize;
 pub use AzOptionUsizeTT as AzOptionUsize;
+
+/// Re-export of rust-allocated (stack based) `OptionU8Vec` struct
+pub type AzOptionU8VecTT = azul_impl::css::OptionU8Vec;
+pub use AzOptionU8VecTT as AzOptionU8Vec;
 
 /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
 pub type AzOptionU8VecRefTT = azul_impl::gl::OptionU8VecRef;
@@ -4347,6 +4375,10 @@ mod test_sizes {
         pub gap_2: usize,
         pub length_3: usize,
         pub gap_3: usize,
+    }
+    /// Re-export of rust-allocated (stack based) `File` struct
+    #[repr(C)]     pub struct AzFile {
+        pub(crate) ptr: *const c_void,
     }
     /// Re-export of rust-allocated (stack based) `TimerId` struct
     #[repr(C)]     pub struct AzTimerId {
@@ -5995,6 +6027,11 @@ mod test_sizes {
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `OptionFile` struct
+    #[repr(C, u8)]     pub enum AzOptionFile {
+        None,
+        Some(AzFile),
+    }
     /// Re-export of rust-allocated (stack based) `OptionGl` struct
     #[repr(C, u8)]     pub enum AzOptionGl {
         None,
@@ -6109,6 +6146,11 @@ mod test_sizes {
     #[repr(C, u8)]     pub enum AzOptionTagId {
         None,
         Some(AzTagId),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionU8Vec` struct
+    #[repr(C, u8)]     pub enum AzOptionU8Vec {
+        None,
+        Some(AzU8Vec),
     }
     /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
     #[repr(C, u8)]     pub enum AzOptionU8VecRef {
@@ -7522,6 +7564,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgLineJoin>(), "AzSvgLineJoin"), (Layout::new::<AzSvgLineJoin>(), "AzSvgLineJoin"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgLineCap>(), "AzSvgLineCap"), (Layout::new::<AzSvgLineCap>(), "AzSvgLineCap"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgDashPattern>(), "AzSvgDashPattern"), (Layout::new::<AzSvgDashPattern>(), "AzSvgDashPattern"));
+        assert_eq!((Layout::new::<azul_impl::file::File>(), "AzFile"), (Layout::new::<AzFile>(), "AzFile"));
         assert_eq!((Layout::new::<azul_impl::task::TimerId>(), "AzTimerId"), (Layout::new::<AzTimerId>(), "AzTimerId"));
         assert_eq!((Layout::new::<azul_impl::task::TerminateTimer>(), "AzTerminateTimer"), (Layout::new::<AzTerminateTimer>(), "AzTerminateTimer"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadId>(), "AzThreadId"), (Layout::new::<AzThreadId>(), "AzThreadId"));
@@ -7771,6 +7814,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
+        assert_eq!((Layout::new::<azul_impl::file::OptionFile>(), "AzOptionFile"), (Layout::new::<AzOptionFile>(), "AzOptionFile"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionGlContextPtr>(), "AzOptionGl"), (Layout::new::<AzOptionGl>(), "AzOptionGl"));
         assert_eq!((Layout::new::<azul_impl::css::OptionPercentageValue>(), "AzOptionPercentageValue"), (Layout::new::<AzOptionPercentageValue>(), "AzOptionPercentageValue"));
         assert_eq!((Layout::new::<azul_impl::css::OptionAngleValue>(), "AzOptionAngleValue"), (Layout::new::<AzOptionAngleValue>(), "AzOptionAngleValue"));
@@ -7794,6 +7838,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::resources::OptionImageMask>(), "AzOptionImageMask"), (Layout::new::<AzOptionImageMask>(), "AzOptionImageMask"));
         assert_eq!((Layout::new::<azul_impl::dom::OptionTabIndex>(), "AzOptionTabIndex"), (Layout::new::<AzOptionTabIndex>(), "AzOptionTabIndex"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::OptionTagId>(), "AzOptionTagId"), (Layout::new::<AzOptionTagId>(), "AzOptionTagId"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionU8Vec>(), "AzOptionU8Vec"), (Layout::new::<AzOptionU8Vec>(), "AzOptionU8Vec"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionU8VecRef>(), "AzOptionU8VecRef"), (Layout::new::<AzOptionU8VecRef>(), "AzOptionU8VecRef"));
         assert_eq!((Layout::new::<azul_impl::resources::encode::ResultU8VecEncodeImageError>(), "AzResultU8VecEncodeImageError"), (Layout::new::<AzResultU8VecEncodeImageError>(), "AzResultU8VecEncodeImageError"));
         assert_eq!((Layout::new::<azul_impl::xml::NonXmlCharError>(), "AzNonXmlCharError"), (Layout::new::<AzNonXmlCharError>(), "AzNonXmlCharError"));

@@ -863,6 +863,8 @@ impl_vec_partialeq!(u8, U8Vec);
 impl_vec_eq!(u8, U8Vec);
 impl_vec_hash!(u8, U8Vec);
 
+impl_option!(U8Vec, OptionU8Vec, copy = false, [Debug, Clone, PartialEq, Ord, PartialOrd, Eq, Hash]);
+
 impl_vec!(u16, U16Vec, U16VecDestructor);
 impl_vec_debug!(u16, U16Vec);
 impl_vec_partialord!(u16, U16Vec);

@@ -1274,6 +1274,10 @@ mod dll {
         pub length_3: usize,
         pub gap_3: usize,
     }
+    /// Re-export of rust-allocated (stack based) `File` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzFile {
+        pub(crate) ptr: *const c_void,
+    }
     /// Re-export of rust-allocated (stack based) `TimerId` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzTimerId {
         pub id: usize,
@@ -2921,6 +2925,11 @@ mod dll {
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `OptionFile` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFile {
+        None,
+        Some(AzFile),
+    }
     /// Re-export of rust-allocated (stack based) `OptionGl` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionGl {
         None,
@@ -3035,6 +3044,11 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionTagId {
         None,
         Some(AzTagId),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionU8Vec` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionU8Vec {
+        None,
+        Some(AzU8Vec),
     }
     /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
     #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionU8VecRef {
@@ -4672,6 +4686,14 @@ mod dll {
         pub(crate) fn AzSvgParseOptions_default() -> AzSvgParseOptions;
         pub(crate) fn AzSvgRenderOptions_default() -> AzSvgRenderOptions;
         pub(crate) fn AzXml_fromStr(_:  AzRefstr) -> AzResultXmlXmlError;
+        pub(crate) fn AzFile_open(_:  AzString) -> AzOptionFile;
+        pub(crate) fn AzFile_create(_:  AzString) -> AzOptionFile;
+        pub(crate) fn AzFile_readToString(_:  &mut AzFile) -> AzOptionString;
+        pub(crate) fn AzFile_readToBytes(_:  &mut AzFile) -> AzOptionU8Vec;
+        pub(crate) fn AzFile_writeString(_:  &mut AzFile, _:  AzRefstr) -> bool;
+        pub(crate) fn AzFile_writeBytes(_:  &mut AzFile, _:  AzU8VecRef) -> bool;
+        pub(crate) fn AzFile_close(_:  AzFile);
+        pub(crate) fn AzFile_delete(_:  &mut AzFile);
         pub(crate) fn AzTimerId_unique() -> AzTimerId;
         pub(crate) fn AzTimer_new(_:  AzRefAny, _:  AzTimerCallbackType, _:  AzGetSystemTimeFn) -> AzTimer;
         pub(crate) fn AzTimer_withDelay(_:  AzTimer, _:  AzDuration) -> AzTimer;
@@ -9507,8 +9529,32 @@ pub mod xml {
 
 pub mod fs {
     #![allow(dead_code, unused_imports)]
+    //! Filesystem / file input and output module
     use crate::dll::*;
     use core::ffi::c_void;
+    use crate::str::String;
+    use crate::gl::{Refstr, U8VecRef};
+    /// `File` struct
+    
+#[doc(inline)] pub use crate::dll::AzFile as File;
+    impl File {
+        /// Opens a file at the given path. If the file exists, replaces it with a new file
+        pub fn open(path: String) ->  crate::option::OptionFile { unsafe { crate::dll::AzFile_open(path) } }
+        /// Creates a file at the given path. If the file exists, replaces it with a new file
+        pub fn create(path: String) ->  crate::option::OptionFile { unsafe { crate::dll::AzFile_create(path) } }
+        /// Reads the file to a UTF8-encoded String, returns None if the file can't be decoded correctly
+        pub fn read_to_string(&mut self)  -> crate::option::OptionString { unsafe { crate::dll::AzFile_readToString(self) } }
+        /// Reads the file as bytes, returns None if the file can't be decoded correctly
+        pub fn read_to_bytes(&mut self)  -> crate::option::OptionU8Vec { unsafe { crate::dll::AzFile_readToBytes(self) } }
+        /// Writes a string to the file, synchronizes the results before returning
+        pub fn write_string(&mut self, bytes: Refstr)  -> bool { unsafe { crate::dll::AzFile_writeString(self, bytes) } }
+        /// Writes some bytes to the file, synchronizes the results before returning
+        pub fn write_bytes(&mut self, bytes: U8VecRef)  -> bool { unsafe { crate::dll::AzFile_writeBytes(self, bytes) } }
+        /// Destructor, closes the file handle
+        pub fn close(self)  { unsafe { crate::dll::AzFile_close(self) } }
+    }
+
+    impl Drop for File { fn drop(&mut self) { unsafe { crate::dll::AzFile_delete(self) } } }
 }
 
 pub mod task {
@@ -10606,6 +10652,9 @@ pub mod option {
     impl_option!(AzDuration, AzOptionDuration, [Debug, Copy, Clone]);
     impl_option!(AzInstant, AzOptionInstant, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
+    /// `OptionFile` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionFile as OptionFile;
     /// `OptionGl` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionGl as OptionGl;
@@ -10726,6 +10775,9 @@ pub mod option {
     /// `OptionUsize` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionUsize as OptionUsize;
+    /// `OptionU8Vec` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionU8Vec as OptionU8Vec;
     /// `OptionU8VecRef` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionU8VecRef as OptionU8VecRef;

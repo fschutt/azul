@@ -6830,8 +6830,77 @@
 			}
 		},
 		"fs": {
+			"doc": "Filesystem / file input and output module",
 			"classes": {
-
+				"File": {
+					"external": "azul_impl::file::File",
+					"is_boxed_object": true,
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*const c_void"}}
+					],
+					"constructors": {
+						"open": {
+							"doc": "Opens a file at the given path. If the file exists, replaces it with a new file",
+							"fn_args": [
+								{"path": "String"}
+							],
+							"returns": {"type": "OptionFile"},
+							"fn_body": "AzFile::open(path.as_str()).into()"
+						},
+						"create": {
+							"doc": "Creates a file at the given path. If the file exists, replaces it with a new file",
+							"fn_args": [
+								{"path": "String"}
+							],
+							"returns": {"type": "OptionFile"},
+							"fn_body": "AzFile::create(path.as_str()).into()"
+						}
+					},
+					"functions": {
+						"read_to_string": {
+							"doc": "Reads the file to a UTF8-encoded String, returns None if the file can't be decoded correctly",
+							"fn_args": [
+								{"self": "refmut"}
+							],
+							"returns": {"type": "OptionString"},
+							"fn_body": "file.read_to_string().into()"
+						},
+						"read_to_bytes": {
+							"doc": "Reads the file as bytes, returns None if the file can't be decoded correctly",
+							"fn_args": [
+								{"self": "refmut"}
+							],
+							"returns": {"type": "OptionU8Vec"},
+							"fn_body": "file.read_to_bytes().into()"
+						},
+						"write_string": {
+							"doc": "Writes a string to the file, synchronizes the results before returning",
+							"fn_args": [
+								{"self": "refmut"},
+								{"bytes": "Refstr"}
+							],
+							"returns": {"type": "bool"},
+							"fn_body": "file.write_string(bytes.as_str()).is_some()"
+						},
+						"write_bytes": {
+							"doc": "Writes some bytes to the file, synchronizes the results before returning",
+							"fn_args": [
+								{"self": "refmut"},
+								{"bytes": "U8VecRef"}
+							],
+							"returns": {"type": "bool"},
+							"fn_body": "file.write_bytes(bytes.as_slice()).is_some()"
+						},
+						"close": {
+							"doc": "Destructor, closes the file handle",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"fn_body": "file.close()"
+						}
+					}
+				}
 			}
 		},
 		"task": {
@@ -8527,6 +8596,13 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionFile": {
+				    "external": "azul_impl::file::OptionFile",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": { "type": "File" }}
+				    ]
+				},
 				"OptionGl": {
 				    "external": "azul_impl::gl::OptionGlContextPtr",
 				    "enum_fields": [
@@ -8839,6 +8915,13 @@
 						{"None": {}},
 						{"Some": { "type": "usize" }}
 					]
+				},
+				"OptionU8Vec": {
+				    "external": "azul_impl::css::OptionU8Vec",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": { "type": "U8Vec" }}
+				    ]
 				},
 				"OptionU8VecRef": {
 					"external": "azul_impl::gl::OptionU8VecRef",

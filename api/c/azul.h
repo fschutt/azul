@@ -1579,6 +1579,11 @@ struct AzSvgDashPattern {
 };
 typedef struct AzSvgDashPattern AzSvgDashPattern;
 
+struct AzFile {
+    void* ptr;
+};
+typedef struct AzFile AzFile;
+
 struct AzTimerId {
     size_t id;
 };
@@ -5815,6 +5820,24 @@ struct AzParentWithNodeDepthVec {
 };
 typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
 
+enum AzOptionFileTag {
+   AzOptionFileTag_None,
+   AzOptionFileTag_Some,
+};
+typedef enum AzOptionFileTag AzOptionFileTag;
+
+struct AzOptionFileVariant_None { AzOptionFileTag tag; };
+typedef struct AzOptionFileVariant_None AzOptionFileVariant_None;
+struct AzOptionFileVariant_Some { AzOptionFileTag tag; AzFile payload; };
+typedef struct AzOptionFileVariant_Some AzOptionFileVariant_Some;
+union AzOptionFile {
+    AzOptionFileVariant_None None;
+    AzOptionFileVariant_Some Some;
+};
+typedef union AzOptionFile AzOptionFile;
+#define AzOptionFile_None { .None = { .tag = AzOptionFileTag_None } }
+#define AzOptionFile_Some(v) { .Some = { .tag = AzOptionFileTag_Some, .payload = v } }
+
 enum AzOptionGlTag {
    AzOptionGlTag_None,
    AzOptionGlTag_Some,
@@ -6228,6 +6251,24 @@ union AzOptionTagId {
 typedef union AzOptionTagId AzOptionTagId;
 #define AzOptionTagId_None { .None = { .tag = AzOptionTagIdTag_None } }
 #define AzOptionTagId_Some(v) { .Some = { .tag = AzOptionTagIdTag_Some, .payload = v } }
+
+enum AzOptionU8VecTag {
+   AzOptionU8VecTag_None,
+   AzOptionU8VecTag_Some,
+};
+typedef enum AzOptionU8VecTag AzOptionU8VecTag;
+
+struct AzOptionU8VecVariant_None { AzOptionU8VecTag tag; };
+typedef struct AzOptionU8VecVariant_None AzOptionU8VecVariant_None;
+struct AzOptionU8VecVariant_Some { AzOptionU8VecTag tag; AzU8Vec payload; };
+typedef struct AzOptionU8VecVariant_Some AzOptionU8VecVariant_Some;
+union AzOptionU8Vec {
+    AzOptionU8VecVariant_None None;
+    AzOptionU8VecVariant_Some Some;
+};
+typedef union AzOptionU8Vec AzOptionU8Vec;
+#define AzOptionU8Vec_None { .None = { .tag = AzOptionU8VecTag_None } }
+#define AzOptionU8Vec_Some(v) { .Some = { .tag = AzOptionU8VecTag_Some, .payload = v } }
 
 enum AzOptionU8VecRefTag {
    AzOptionU8VecRefTag_None,
@@ -9626,6 +9667,14 @@ extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgRect_tesselateStroke(AzSvgRect* con
 extern DLLIMPORT AzSvgParseOptions AzSvgParseOptions_default();
 extern DLLIMPORT AzSvgRenderOptions AzSvgRenderOptions_default();
 extern DLLIMPORT AzXml AzXml_fromStr(AzRefstr  xml_string);
+extern DLLIMPORT AzFile AzFile_open(AzString  path);
+extern DLLIMPORT AzFile AzFile_create(AzString  path);
+extern DLLIMPORT AzOptionString AzFile_readToString(AzFile* restrict file);
+extern DLLIMPORT AzOptionU8Vec AzFile_readToBytes(AzFile* restrict file);
+extern DLLIMPORT bool  AzFile_writeString(AzFile* restrict file, AzRefstr  bytes);
+extern DLLIMPORT bool  AzFile_writeBytes(AzFile* restrict file, AzU8VecRef  bytes);
+extern DLLIMPORT void AzFile_close(const AzFile file);
+extern DLLIMPORT void AzFile_delete(AzFile* restrict instance);
 extern DLLIMPORT AzTimerId AzTimerId_unique();
 extern DLLIMPORT AzTimer AzTimer_new(AzRefAny  timer_data, AzTimerCallbackType  callback, AzGetSystemTimeFn  get_system_time_fn);
 extern DLLIMPORT AzTimer AzTimer_withDelay(const AzTimer timer, AzDuration  delay);
