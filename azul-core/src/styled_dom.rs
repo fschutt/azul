@@ -1430,10 +1430,13 @@ impl StyledDom {
     ///      <div id="test" />
     /// </div>
     /// ```
-    pub fn get_html_string(&self) -> String {
-        // TODO: This is wrong!
+    pub fn get_html_string(&self, custom_head: &str, custom_body: &str) -> String {
 
-        let mut output = String::new();
+        let mut output = format!("
+<html>
+    <head>{}</head>
+<body>
+        ", custom_head);
 
         for ParentWithNodeDepth { depth, node_id } in self.non_leaf_nodes.iter() {
 
@@ -1467,20 +1470,38 @@ impl StyledDom {
                 if let Some(content) = content.as_ref() {
                     output.push_str(content);
                 }
+            }
+        }
 
-                if node_has_children || content.is_some() {
-                    output.push_str(&node_data.debug_print_end());
-                }
+        for ParentWithNodeDepth { depth, node_id } in self.non_leaf_nodes.iter().rev() {
+
+            let node_id = match node_id.into_crate_internal() {
+                Some(s) => s,
+                None => continue,
+            };
+            let node_data = &self.node_data.as_container()[node_id];
+            let node_has_children = self.node_hierarchy.as_container()[node_id].first_child_id(node_id).is_some();
+
+            for child_id in node_id.az_children(&self.node_hierarchy.as_container()) {
+                let node_data = &self.node_data.as_container()[child_id];
+                let tabs = String::from("    ").repeat(*depth + 1);
+                output.push_str("\r\n");
+                output.push_str(&tabs);
+                output.push_str(&node_data.debug_print_end());
             }
 
             if node_has_children {
+                let tabs = String::from("    ").repeat(*depth);
                 output.push_str("\r\n");
                 output.push_str(&tabs);
                 output.push_str(&node_data.debug_print_end());
             }
         }
 
-        output.trim().to_string()
+        output.push_str(custom_body);
+        output.push_str("</body>");
+
+        output
     }
 
     #[cfg(feature = "multithreading")]

@@ -1098,42 +1098,6 @@ impl Dom {
     #[inline]
     pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.root.set_tab_index(tab_index); }
 
-    pub fn get_html_string(&self) -> String {
-
-        fn get_html_string_inner(dom: &Dom, output: &mut String, indent: usize) {
-            let tabs = String::from("    ").repeat(indent);
-
-            let content = dom.root.node_type.get_text_content();
-            let print_self_closing_tag = dom.children.is_empty() && content.is_none();
-
-            output.push_str("\r\n");
-            output.push_str(&tabs);
-            output.push_str(&dom.root.debug_print_start(print_self_closing_tag));
-
-            if let Some(content) = &content {
-                output.push_str(content);
-            }
-
-            if !print_self_closing_tag {
-
-                for c in dom.children.iter() {
-                    get_html_string_inner(c, output, indent + 1);
-                }
-
-                output.push_str("\r\n");
-                output.push_str(&tabs);
-                output.push_str(&dom.root.debug_print_end());
-            }
-        }
-
-        #[cfg(not(feature = "std"))]
-        use alloc::string::ToString;
-
-        let mut output = String::new();
-        get_html_string_inner(self, &mut output, 0);
-        output.trim().to_string()
-    }
-
     #[cfg(feature = "multithreading")]
     pub fn style(self, css: Css) -> StyledDom {
         StyledDom::new(self, css)

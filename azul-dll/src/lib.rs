@@ -1374,7 +1374,7 @@ pub use AzStyledDomTT as AzStyledDom;
 /// Returns the number of nodes in the styled DOM
 #[no_mangle] pub extern "C" fn AzStyledDom_nodeCount(styleddom: &AzStyledDom) -> usize { styleddom.node_count() }
 /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
-#[no_mangle] pub extern "C" fn AzStyledDom_getHtmlString(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string().into() }
+#[no_mangle] pub extern "C" fn AzStyledDom_getHtmlString(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string("", "").into() }
 
 /// Re-export of rust-allocated (stack based) `Gl` struct
 pub type AzGlTT = azul_impl::gl::GlContextPtr;
