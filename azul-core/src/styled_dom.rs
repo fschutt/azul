@@ -125,38 +125,22 @@ impl StyledNodeVec {
 }
 
 #[repr(C)]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct CssPropertyCachePtr {
-    pub ptr: *mut CssPropertyCache,
+    pub ptr: Box<CssPropertyCache>,
 }
-
-unsafe impl Send for CssPropertyCachePtr { } // necessary to build display list in parallel
-unsafe impl Sync for CssPropertyCachePtr { } // necessary to build display list in parallel
 
 impl CssPropertyCachePtr {
     pub fn new(cache: CssPropertyCache) -> Self {
         Self {
-            ptr: Box::into_raw(Box::new(cache))
+            ptr: Box::new(cache)
         }
     }
     fn downcast_mut<'a>(&'a mut self) -> &'a mut CssPropertyCache {
-        unsafe { &mut *self.ptr }
+        &mut *self.ptr
     }
 }
 
-impl Clone for CssPropertyCachePtr {
-    fn clone(&self) -> Self {
-        let p = unsafe { &*self.ptr };
-        Self::new(p.clone())
-    }
-}
-
-impl Drop for CssPropertyCachePtr {
-    fn drop(&mut self) {
-        let _ = unsafe { Box::from_raw(self.ptr) };
-    }
-
-}
 // NOTE: To avoid large memory allocations, this is a "cache" that stores all the CSS properties
 // found in the DOM. This cache exists on a per-DOM basis, so it scales independent of how many
 // nodes are in the DOM.
@@ -318,6 +302,11 @@ impl CssPropertyCache {
             inherit_props!(self.non_default_inline_active_props);
             inherit_props!(self.non_default_inline_focus_props);
         }
+    }
+
+    pub fn get_css_style_string(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> String {
+        // TODO!
+        String::new()
     }
 }
 
@@ -1165,12 +1154,12 @@ impl StyledDom {
 
     #[inline]
     pub fn get_css_property_cache<'a>(&'a self) -> &'a CssPropertyCache {
-        unsafe { &*self.css_property_cache.ptr }
+        &*self.css_property_cache.ptr
     }
 
     #[inline]
     pub fn get_css_property_cache_mut<'a>(&'a mut self) -> &'a mut CssPropertyCache {
-        unsafe { &mut *self.css_property_cache.ptr }
+        &mut *self.css_property_cache.ptr
     }
 
     /// Appends another `StyledDom` to the `self.root` without re-styling the DOM itself
@@ -1438,6 +1427,8 @@ impl StyledDom {
 <body>
         ", custom_head);
 
+        let css_property_cache = self.get_css_property_cache();
+
         for ParentWithNodeDepth { depth, node_id } in self.non_leaf_nodes.iter() {
 
             let node_id = match node_id.into_crate_internal() {
@@ -1445,12 +1436,12 @@ impl StyledDom {
                 None => continue,
             };
             let node_data = &self.node_data.as_container()[node_id];
+            let node_state = &self.styled_nodes.as_container()[node_id].state;
             let tabs = String::from("    ").repeat(*depth);
-            let node_has_children = self.node_hierarchy.as_container()[node_id].first_child_id(node_id).is_some();
 
             output.push_str("\r\n");
             output.push_str(&tabs);
-            output.push_str(&node_data.debug_print_start(node_has_children));
+            output.push_str(&node_data.debug_print_start(css_property_cache, &node_id, node_state));
 
             if let Some(content) = node_data.get_node_type().get_text_content().as_ref() {
                 output.push_str(content);
@@ -1459,12 +1450,12 @@ impl StyledDom {
             for child_id in node_id.az_children(&self.node_hierarchy.as_container()) {
 
                 let node_data = &self.node_data.as_container()[child_id];
-                let node_has_children = self.node_hierarchy.as_container()[child_id].first_child_id(child_id).is_some();
+                let node_state = &self.styled_nodes.as_container()[child_id].state;
                 let tabs = String::from("    ").repeat(*depth + 1);
 
                 output.push_str("\r\n");
                 output.push_str(&tabs);
-                output.push_str(&node_data.debug_print_start(node_has_children));
+                output.push_str(&node_data.debug_print_start(css_property_cache, &child_id, node_state));
 
                 let content = node_data.get_node_type().get_text_content();
                 if let Some(content) = content.as_ref() {
