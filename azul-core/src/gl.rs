@@ -1522,7 +1522,7 @@ impl_option!(GlContextPtr, OptionGlContextPtr, copy = false, [Debug, Clone, Part
 #[cfg(feature = "opengl")]
 impl core::fmt::Debug for GlContextPtr {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(f, "0x{:0x}", self.ptr as usize)
+        write!(f, "0x{:0x}", self.as_usize())
     }
 }
 
@@ -1530,7 +1530,7 @@ impl core::fmt::Debug for GlContextPtr {
 impl GlContextPtr {
     pub fn new(renderer_type: RendererType, gl_context: Rc<dyn Gl>) -> Self {
 
-        const SVG_VERTEX_SHADER: &str = "
+        const SVG_VERTEX_SHADER: &[u8] = b"
             #version 130
 
             precision mediump float;
@@ -1544,7 +1544,7 @@ impl GlContextPtr {
             }
         ";
 
-        const SVG_FRAGMENT_SHADER: &str = "
+        const SVG_FRAGMENT_SHADER: &[u8] = b"
             #version 130
 
             precision mediump float;
@@ -1557,7 +1557,7 @@ impl GlContextPtr {
             }
         ";
 
-        const FXAA_VERTEX_SHADER: &str = "
+        const FXAA_VERTEX_SHADER: &[u8] = b"
             #version 130
 
             /*
@@ -1614,7 +1614,7 @@ impl GlContextPtr {
             }
         ";
 
-        const FXAA_FRAGMENT_SHADER: &str = "
+        const FXAA_FRAGMENT_SHADER: &[u8] = b"
             #version 130
 
             /**
@@ -1731,11 +1731,11 @@ impl GlContextPtr {
         // compile SVG shader
 
         let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
-        gl_context.shader_source(vertex_shader_object, vec![AzString::from_const_str(SVG_VERTEX_SHADER)].into());
+        gl_context.shader_source(vertex_shader_object, &[SVG_VERTEX_SHADER]);
         gl_context.compile_shader(vertex_shader_object);
 
         let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
-        gl_context.shader_source(fragment_shader_object, vec![AzString::from_const_str(SVG_FRAGMENT_SHADER)].into());
+        gl_context.shader_source(fragment_shader_object, &[SVG_FRAGMENT_SHADER]);
         gl_context.compile_shader(fragment_shader_object);
 
         let svg_program_id = gl_context.create_program();
@@ -1749,11 +1749,11 @@ impl GlContextPtr {
         // compile FXAA shader
 
         let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
-        gl_context.shader_source(vertex_shader_object, vec![AzString::from_const_str(FXAA_VERTEX_SHADER)].into());
+        gl_context.shader_source(vertex_shader_object, &[FXAA_VERTEX_SHADER]);
         gl_context.compile_shader(vertex_shader_object);
 
         let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
-        gl_context.shader_source(fragment_shader_object, vec![AzString::from_const_str(FXAA_FRAGMENT_SHADER)].into());
+        gl_context.shader_source(fragment_shader_object, &[FXAA_FRAGMENT_SHADER]);
         gl_context.compile_shader(fragment_shader_object);
 
         let fxaa_program_id = gl_context.create_program();
@@ -1766,15 +1766,14 @@ impl GlContextPtr {
 
         Self {
             renderer_type,
-            current_gl_api,
             svg_shader: svg_program_id,
             fxaa_shader: fxaa_program_id,
-            ptr: Box::new(context),
+            ptr: Box::new(gl_context),
         }
     }
 
     pub fn get<'a>(&'a self) -> &'a Rc<dyn Gl> { &*self.ptr }
-    fn as_usize(&self) -> usize { self.ptr.as_ptr() as *const _ as usize }
+    fn as_usize(&self) -> usize { (Rc::as_ptr(&self.ptr) as *const c_void) as usize }
 }
 
 #[cfg(feature = "opengl")]
@@ -2005,13 +2004,6 @@ impl GlContextPtr {
     pub fn copy_sub_texture_3d_angle(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, x_offset: GLint, y_offset: GLint, z_offset: GLint, x: GLint, y: GLint, z: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) { self.get().copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
     pub fn buffer_storage(&self, target: GLenum, size: GLsizeiptr, data: *const GLvoid, flags: GLbitfield) { self.get().buffer_storage(target, size, data, flags) }
     pub fn flush_mapped_buffer_range(&self, target: GLenum, offset: GLintptr, length: GLsizeiptr) { self.get().flush_mapped_buffer_range(target, offset, length) }
-}
-
-#[cfg(feature = "opengl")]
-impl Clone for GlContextPtr {
-    fn clone(&self) -> Self {
-        Self::new(self.renderer_type, self.get().clone())
-    }
 }
 
 #[cfg(feature = "opengl")]

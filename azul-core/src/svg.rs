@@ -221,6 +221,29 @@ impl TesselatedSvgNode {
     }
 }
 
+impl TesselatedSvgNodeVec {
+    pub fn get_ref(&self) -> TesselatedSvgNodeVecRef {
+        let slice = self.as_ref();
+        TesselatedSvgNodeVecRef {
+            ptr: slice.as_ptr(),
+            len: slice.len(),
+        }
+    }
+}
+
+// C ABI wrapper over &[TesselatedSvgNode]
+#[repr(C)]
+pub struct TesselatedSvgNodeVecRef {
+    pub ptr: *const TesselatedSvgNode,
+    pub len: usize,
+}
+
+impl TesselatedSvgNodeVecRef {
+    pub fn as_slice<'a>(&'a self) -> &'a [TesselatedSvgNode] {
+        unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
 impl_vec!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor);
 impl_vec_debug!(SvgVertex, SvgVertexVec);
 impl_vec_partialord!(SvgVertex, SvgVertexVec);
@@ -234,7 +257,7 @@ pub struct TesselatedGPUSvgNode {
     pub vertex_index_buffer: VertexBuffer,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
 pub enum SvgStyle {
     Fill(SvgFillStyle),
@@ -261,7 +284,7 @@ impl SvgStyle {
         }
     }
 }
-#[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub enum SvgFillRule {
     Winding,
@@ -272,7 +295,7 @@ impl Default for SvgFillRule {
     fn default() -> Self { SvgFillRule::Winding }
 }
 
-#[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgTransform {
     pub sx: f32,
@@ -368,6 +391,9 @@ impl Default for SvgStrokeStyle {
             miter_limit: DEFAULT_MITER_LIMIT,
             tolerance: DEFAULT_TOLERANCE,
             apply_line_width: true,
+            anti_alias: true,
+            high_quality_aa: false,
+            transform: SvgTransform::default(),
         }
     }
 }
@@ -384,7 +410,7 @@ pub struct SvgDashPattern {
     pub gap_3: f32,
 }
 
-impl_option!(SvgDashPattern, OptionSvgDashPattern, [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]);
+impl_option!(SvgDashPattern, OptionSvgDashPattern, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 #[derive(Debug, Copy, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C)]
@@ -414,59 +440,3 @@ impl Default for SvgLineJoin {
         SvgLineJoin::Miter
     }
 }
-
-#[cfg(feature = "opengl")] mod internal_2 {
-
-    use super::*;
-    use crate::gl::{Uniform, Texture};
-    use crate::window::{LogicalSize, PhysicalSizeU32};
-    use gleam::gl;
-
-    /// NOTE: may not be called from more than 1 thread
-    pub fn get_svg_shader(gl_context: &GlContextPtr) -> Option<&SvgShader> {
-        if let Some(s) = unsafe { SVG_SHADER.as_ref() } {
-            Some(s)
-        } else {
-            let svg_shader = match SvgShader::new(gl_context) {
-                Ok(o) => o,
-                Err(_e) => {
-                    #[cfg(feature = "logging")] { error!("could not compile SVG shader: {}", _e); }
-                    return None;
-                },
-            };
-            unsafe {
-                SVG_SHADER = Some(svg_shader);
-                SVG_SHADER.as_ref()
-            }
-        }
-    }
-
-    pub fn upload_tesselated_path_to_gpu(gl_context: &GlContextPtr, cpu_data: &TesselatedSvgNode) -> Option<TesselatedGPUSvgNode> {
-        use crate::gl::IndexBufferFormat;
-        let shader = get_svg_shader(gl_context)?;
-        let vertex_index_buffer = VertexBuffer::new(&shader.program, cpu_data.vertices.as_ref(), cpu_data.indices.as_ref(), IndexBufferFormat::Triangles);
-        Some(TesselatedGPUSvgNode { vertex_index_buffer })
-    }
-
-    pub fn draw_gpu_buf_to_texture(buf: TesselatedGPUSvgNode, svg_size: LogicalSize, texture_size: PhysicalSizeU32) -> Option<Texture> {
-        use azul_css::ColorU;
-        let shader = get_svg_shader(&buf.vertex_index_buffer.vao.gl_context)?;
-        let shader = &shader.program;
-
-        buf.vertex_index_buffer.vao.gl_context.enable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
-        let uniforms = build_uniforms(svg_size);
-        let texture = shader.draw(&[(&buf, &uniforms)], Some(ColorU::TRANSPARENT), texture_size);
-        buf.vertex_index_buffer.vao.gl_context.disable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
-        Some(texture)
-    }
-
-    fn build_uniforms(bbox_size: LogicalSize) -> Vec<Uniform> {
-        use crate::gl::UniformType::*;
-        vec! [
-            // Vertex shader
-            Uniform::new(String::from("vBboxSize"), FloatVec2([bbox_size.width, bbox_size.height])),
-        ]
-    }
-}
-
-#[cfg(feature = "opengl")] pub use self::internal_2::*;

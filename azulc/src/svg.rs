@@ -2,11 +2,12 @@ use core::fmt;
 use azul_core::{
     svg::*,
     app_resources::{RawImage, RawImageFormat},
+    gl::{Texture, GlContextPtr},
 };
 use azul_css::{
     OptionI16, OptionU16, U8Vec, OptionAzString,
     OptionColorU, AzString, StringVec, ColorU,
-    OptionLayoutSize,
+    OptionLayoutSize, LayoutSize,
 };
 use owned_ttf_parser::Font as TTFFont;
 use lyon::{
@@ -55,12 +56,12 @@ fn translate_svg_line_cap(e: SvgLineCap) -> lyon::tessellation::LineCap {
 }
 
 fn translate_svg_stroke_style(e: SvgStrokeStyle) -> lyon::tessellation::StrokeOptions {
-    let target = lyon::tessellation::StrokeOptions::tolerance(e.get_tolerance())
+    let target = lyon::tessellation::StrokeOptions::tolerance(e.tolerance)
         .with_start_cap(translate_svg_line_cap(e.start_cap))
         .with_end_cap(translate_svg_line_cap(e.end_cap))
         .with_line_join(translate_svg_line_join(e.line_join))
-        .with_line_width(e.get_line_width())
-        .with_miter_limit(e.get_miter_limit());
+        .with_line_width(e.line_width)
+        .with_miter_limit(e.miter_limit);
 
     if !e.apply_line_width {
         target.dont_apply_line_width()
@@ -169,7 +170,7 @@ pub fn tesselate_multi_polygon_fill(polygon: &SvgMultiPolygon, fill_style: SvgFi
 
     let tess_result = tessellator.tessellate_path(
         &polygon,
-        &FillOptions::tolerance(fill_style.get_tolerance()),
+        &FillOptions::tolerance(fill_style.tolerance),
         &mut BuffersBuilder::new(&mut geometry, |pos: Point, _: FillAttributes| {
             let xy_arr = pos.to_array();
             SvgVertex { x: xy_arr[0], y: xy_arr[1] }
@@ -216,7 +217,7 @@ pub fn tesselate_path_fill(path: &SvgPath, fill_style: SvgFillStyle) -> Tesselat
 
     let tess_result = tessellator.tessellate_path(
         &polygon,
-        &FillOptions::tolerance(fill_style.get_tolerance()),
+        &FillOptions::tolerance(fill_style.tolerance),
         &mut BuffersBuilder::new(&mut geometry, |pos: Point, _: FillAttributes| {
             let xy_arr = pos.to_array();
             SvgVertex { x: xy_arr[0], y: xy_arr[1] }
@@ -262,7 +263,7 @@ pub fn tesselate_circle_fill(c: &SvgCircle, fill_style: SvgFillStyle) -> Tessela
     let tess_result = fill_circle(
         center,
         c.radius,
-        &FillOptions::tolerance(fill_style.get_tolerance()),
+        &FillOptions::tolerance(fill_style.tolerance),
         &mut BuffersBuilder::new(&mut geometry, |pos: Point| {
             let xy_arr = pos.to_array();
             SvgVertex { x: xy_arr[0], y: xy_arr[1] }
@@ -319,7 +320,7 @@ pub fn tesselate_rect_fill(r: &SvgRect, fill_style: SvgFillStyle) -> TesselatedS
     let tess_result = fill_rounded_rectangle(
         &rect,
         &radii,
-        &FillOptions::tolerance(fill_style.get_tolerance()),
+        &FillOptions::tolerance(fill_style.tolerance),
         &mut BuffersBuilder::new(&mut geometry, |pos: Point| {
             let xy_arr = pos.to_array();
             SvgVertex { x: xy_arr[0], y: xy_arr[1] }
@@ -371,19 +372,24 @@ pub fn tesselate_styled_node(node: &SvgStyledNode) -> TesselatedSvgNode {
 
 pub fn join_tesselated_nodes(nodes: &[TesselatedSvgNode]) -> TesselatedSvgNode {
 
-    let all_vertices = tesselated_multipolygons
-    .par_iter()
-    .flat_map(|t| t.vertices.as_ref())
-    .collect();
+    use rayon::iter::IntoParallelRefIterator;
+    use rayon::iter::ParallelIterator;
 
-    let all_indices = tesselated_multipolygons
+    let all_vertices = nodes
+    .as_ref()
+    .par_iter()
+    .flat_map(|t| t.vertices.clone().into_library_owned_vec())
+    .collect::<Vec<_>>();
+
+    let all_indices = nodes
+    .as_ref()
     .par_iter()
     .flat_map(|t| {
-        let mut indices = t.indices.into_library_owned_vec();
+        let mut indices = t.indices.clone().into_library_owned_vec();
         indices.push(GL_RESTART_INDEX);
-        indices.into_iter()
+        indices
     })
-    .collect();
+    .collect::<Vec<_>>();
 
     TesselatedSvgNode {
         vertices: all_vertices.into(),
@@ -434,20 +440,24 @@ pub fn tesselate_node_stroke(node: &SvgNode, ss: SvgStrokeStyle) -> TesselatedSv
 
 // NOTE: This is a separate step both in order to reuse GPU textures
 // and also because texture allocation is heavy and can be offloaded to a different thread
-pub fn allocate_clipmask_texture(gl_context: &GlContext, size: LayoutSize) -> Texture {
+pub fn allocate_clipmask_texture(gl_context: &GlContextPtr, size: LayoutSize) -> Texture {
+
+    use azul_core::gl::TextureFlags;
+    use azul_core::window::PhysicalSizeU32;
+
     let textures = gl_context.gen_textures(1);
     let texture_id = textures.get(0).unwrap();
 
     Texture {
-        texture_id: GLuint,
+        texture_id: *texture_id,
         format: RawImageFormat::R8,
         flags: TextureFlags {
             is_opaque: true,
             is_video_texture: false,
         },
         size: PhysicalSizeU32 {
-            width: size.width,
-            height: size.height
+            width: size.width.max(0) as u32,
+            height: size.height.max(0) as u32,
         },
         gl_context: gl_context.clone(),
     }
@@ -460,7 +470,8 @@ pub fn render_tesselated_node_gpu(
 ) -> Option<()> {
 
     use std::mem;
-    use azul_core::gl;
+    use gleam::gl;
+    use azul_core::gl::{GLuint, VertexAttributeType};
 
     const INDEX_TYPE: GLuint = gl::UNSIGNED_INT;
 
@@ -482,7 +493,7 @@ pub fn render_tesselated_node_gpu(
     let mut current_program = [0_i32];
     let mut current_framebuffers = [0_i32];
     let mut current_texture_2d = [0_i32];
-    let mut current_primitive_restart_enabled = [0_i32];
+    let mut current_primitive_restart_enabled = [0_u8];
 
     gl_context.get_boolean_v(gl::MULTISAMPLE, (&mut current_multisample[..]).into());
     gl_context.get_integer_v(gl::VERTEX_ARRAY, (&mut current_vertex_array[..]).into());
@@ -509,30 +520,30 @@ pub fn render_tesselated_node_gpu(
     gl_context.bind_buffer(gl::ARRAY_BUFFER, *vertex_buffer_id);
     gl_context.buffer_data_untyped(
         gl::ARRAY_BUFFER,
-        (mem::size_of::<SvgVertex>() * vertices.len()) as isize,
-        vertices.as_ptr() as *const c_void,
+        (mem::size_of::<SvgVertex>() * node.vertices.len()) as isize,
+        &node.vertices as *const _ as *const std::ffi::c_void,
         gl::STATIC_DRAW
     );
 
     gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, *index_buffer_id);
     gl_context.buffer_data_untyped(
         gl::ELEMENT_ARRAY_BUFFER,
-        (mem::size_of::<u32>() * indices.len()) as isize,
-        indices.as_ptr() as *const c_void,
+        (mem::size_of::<u32>() * node.indices.len()) as isize,
+        &node.indices as *const _ as *const std::ffi::c_void,
         gl::STATIC_DRAW
     );
 
     // stage 2: set up the data description
     let vertex_type = VertexAttributeType::Float;
     let vertex_count = 2;
-    let stride = vertex_type.get_mem_size() * vertex_count
+    let stride = vertex_type.get_mem_size() * vertex_count;
     let offset = 0;
     let vertices_are_normalized = false;
 
-    let vertex_attrib_location = gl_context.get_attrib_location(svg_shader, "vAttrXY")?;
+    let vertex_attrib_location = gl_context.get_attrib_location(svg_shader, "vAttrXY".into());
     gl_context.vertex_attrib_pointer(
         vertex_attrib_location as u32,
-        vertex_count,
+        vertex_count as i32,
         vertex_type.get_gl_id(),
         vertices_are_normalized,
         stride as i32,
@@ -542,7 +553,7 @@ pub fn render_tesselated_node_gpu(
 
     // stage 3: draw
 
-    gl_context.bind_texture(gl::TEXTURE_2D, *texture_id);
+    gl_context.bind_texture(gl::TEXTURE_2D, texture.texture_id);
     gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::R8 as i32, texture_size.width as i32, texture_size.height as i32, 0, gl::RED, gl::UNSIGNED_BYTE, None.into());
     gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
     gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
@@ -553,7 +564,7 @@ pub fn render_tesselated_node_gpu(
     let framebuffer_id = framebuffers.get(0)?;
     gl_context.bind_framebuffer(gl::FRAMEBUFFER, *framebuffer_id);
 
-    gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, *texture_id, 0);
+    gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture.texture_id, 0);
     gl_context.draw_buffers([gl::COLOR_ATTACHMENT0][..].into());
     gl_context.viewport(0, 0, texture_size.width as i32, texture_size.height as i32);
 
@@ -562,16 +573,16 @@ pub fn render_tesselated_node_gpu(
     gl_context.use_program(svg_shader);
     gl_context.disable(gl::MULTISAMPLE);
 
-    let bbox_uniform_location = gl_context.get_uniform_location(svg_shader, "vBboxSize");
+    let bbox_uniform_location = gl_context.get_uniform_location(svg_shader, "vBboxSize".into());
 
     gl_context.clear_color(0.0, 0.0, 0.0, 1.0);
     gl_context.clear(gl::COLOR_BUFFER_BIT);
-    gl_context.bind_vertex_array(gpu_svg_node.vertex_index_buffer.vertex_buffer_id);
-    gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, gpu_svg_node.vertex_index_buffer.index_buffer_id);
-    gl_context.uniform_2f(bbox_uniform_location, texture_size.width, texture_size.height);
-    gl_context.draw_elements(index_buffer_format.get_gl_id(), index_buffer_len as i32, INDEX_TYPE, 0);
+    gl_context.bind_vertex_array(*vertex_buffer_id);
+    gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, *index_buffer_id);
+    gl_context.uniform_2f(bbox_uniform_location, texture_size.width as f32, texture_size.height as f32);
+    gl_context.draw_elements(gl::TRIANGLES, node.indices.len() as i32, INDEX_TYPE, 0);
 
-    if style.get_anti_alias() {
+    if style.get_antialias() {
         gl_context.use_program(fxaa_shader);
 
         /*
@@ -593,9 +604,9 @@ pub fn render_tesselated_node_gpu(
     gl_context.use_program(current_program[0] as u32);
 
     // delete resources
-    gl_context.delete_framebuffers(&framebuffer_id[..]);
-    gl_context.delete_vertex_arrays(&current_vertex_array_object[..]);
-    gl_context.delete_buffers((&[vertex_buffer_id, index_buffer_id])[..].into());
+    gl_context.delete_framebuffers(framebuffers.as_ref().into());
+    gl_context.delete_vertex_arrays(([current_vertex_array_object[0] as u32])[..].into());
+    gl_context.delete_buffers(([*vertex_buffer_id, *index_buffer_id])[..].into());
 
     Some(())
 }
@@ -606,21 +617,33 @@ pub fn render_node_clipmask_cpu(
     style: SvgStyle,
 ) -> Option<()> {
 
-    use tiny_skia::{Pixmap as SkPixmap, Paint as SkPaint, Path as SkPath, FillRule as SkFillRule};
+    use tiny_skia::{
+        Pixmap as SkPixmap,
+        Paint as SkPaint,
+        Path as SkPath,
+        FillRule as SkFillRule,
+        PathBuilder as SkPathBuilder,
+        LineJoin as SkLineJoin,
+        LineCap as SkLineCap,
+        Transform as SkTransform,
+        Rect as SkRect,
+        Stroke as SkStroke,
+        StrokeDash as SkStrokeDash,
+    };
     use azul_core::app_resources::RawImageData;
 
-    fn tiny_skia_translate_node(node: &SvgNode) -> SkPath {
+    fn tiny_skia_translate_node(node: &SvgNode) -> Option<SkPath> {
 
         macro_rules! build_path {($path_builder:expr, $p:expr) => ({
             if $p.items.as_ref().is_empty() {
-                return SkPath::new();
+                return None;
             }
 
             let start = $p.items.as_ref()[0].get_start();
             $path_builder.move_to(start.x, start.y);
 
-            for path_element in p.items.as_ref() {
-                match $path_element {
+            for path_element in $p.items.as_ref() {
+                match path_element {
                     SvgPathElement::Line(l) => {
                         $path_builder.line_to(l.end.x, l.end.y);
                     },
@@ -632,9 +655,9 @@ pub fn render_node_clipmask_cpu(
                     },
                     SvgPathElement::CubicCurve(cc) => {
                         $path_builder.cubic_to(
-                            qc.ctrl_1.x, qc.ctrl_1.y,
-                            qc.ctrl_2.x, qc.ctrl_2.y,
-                            qc.end.x, qc.end.y
+                            cc.ctrl_1.x, cc.ctrl_1.y,
+                            cc.ctrl_2.x, cc.ctrl_2.y,
+                            cc.end.x, cc.end.y
                         );
                     },
                 }
@@ -648,37 +671,38 @@ pub fn render_node_clipmask_cpu(
         match node {
             SvgNode::MultiPolygonCollection(mpc) => {
                 let mut path_builder = SkPathBuilder::new();
-                for mp in mpc.items {
-                    for p in mp.paths {
+                for mp in mpc.iter() {
+                    for p in mp.rings.iter() {
                         build_path!(path_builder, p);
                     }
                 }
-                path_builder.finish().unwrap_or_else(|| SkPath::new())
+                path_builder.finish()
             },
             SvgNode::MultiPolygon(mp) => {
                 let mut path_builder = SkPathBuilder::new();
-                for p in mp.paths {
+                for p in mp.rings.iter() {
                     build_path!(path_builder, p);
                 }
-                path_builder.finish().unwrap_or_else(|| SkPath::new())
+                path_builder.finish()
             },
             SvgNode::Path(p) => {
                 let mut path_builder = SkPathBuilder::new();
                 build_path!(path_builder, p);
-                path_builder.finish().unwrap_or_else(|| SkPath::new())
+                path_builder.finish()
             },
             SvgNode::Circle(c) => {
-                SkPath::from_circle().unwrap_or_else(|| SkPath::new())
+                SkPathBuilder::from_circle(c.center_x, c.center_y, c.radius)
             },
             SvgNode::Rect(r) => {
-                SkPath::from_rect()
+                // TODO: rounded edges!
+                Some(SkPathBuilder::from_rect(SkRect::from_xywh(r.x, r.y, r.width, r.height)?))
             }
         }
     }
 
     let mut paint = SkPaint::default();
     paint.set_color_rgba8(255, 255, 255, 255);
-    paint.anti_alias = style.get_anti_alias();
+    paint.anti_alias = style.get_antialias();
     paint.force_hq_pipeline = style.get_high_quality_aa();
 
     let transform = style.get_transform();
@@ -691,18 +715,19 @@ pub fn render_node_clipmask_cpu(
         ty: transform.ty,
     };
 
-    let mut pixmap = SkPixmap::new(image.width, image.height)?;
-    let path = tiny_skia_translate_node(path);
+    let mut pixmap = SkPixmap::new(image.width as u32, image.height as u32)?;
+    let path = tiny_skia_translate_node(node)?;
     let clip_mask = None;
 
     match style {
         SvgStyle::Fill(fs) => {
+            use azul_core::svg::SvgFillRule;
             pixmap.fill_path(
                 &path,
                 &paint,
                 match fs.fill_rule {
-                    FillRule::Winding => SkFillRule::FillRule,
-                    FillRule::EvenOdd => SkFillRule::EvenOdd,
+                    SvgFillRule::Winding => SkFillRule::Winding,
+                    SvgFillRule::EvenOdd => SkFillRule::EvenOdd,
                 },
                 transform,
                 clip_mask,
@@ -710,20 +735,33 @@ pub fn render_node_clipmask_cpu(
         },
         SvgStyle::Stroke(ss) => {
             let stroke = SkStroke {
-                width: ,
-                miter_limit: ,
-                line_cap: ,
-                line_join: ,
-                dash: ,
+                width: ss.line_width,
+                miter_limit: ss.miter_limit,
+                line_cap: match ss.start_cap { // TODO: end_cap?
+                    SvgLineCap::Butt => SkLineCap::Butt,
+                    SvgLineCap::Square => SkLineCap::Square,
+                    SvgLineCap::Round => SkLineCap::Round,
+                },
+                line_join: match ss.line_join {
+                    SvgLineJoin::Miter | SvgLineJoin::MiterClip => SkLineJoin::Miter,
+                    SvgLineJoin::Round => SkLineJoin::Round,
+                    SvgLineJoin::Bevel => SkLineJoin::Bevel,
+                },
+                dash: ss.dash_pattern.as_ref().and_then(|d| {
+                    SkStrokeDash::new(vec![
+                        d.length_1,
+                        d.gap_1,
+                        d.length_2,
+                        d.gap_2,
+                        d.length_3,
+                        d.gap_3,
+                    ], d.offset)
+                }),
             };
             pixmap.stroke_path(
                 &path,
                 &paint,
                 &stroke,
-                match fill_rule {
-                    FillRule::Winding => SkFillRule::FillRule,
-                    FillRule::EvenOdd => SkFillRule::EvenOdd,
-                },
                 transform,
                 clip_mask,
             )?;
@@ -738,8 +776,8 @@ pub fn render_node_clipmask_cpu(
         .collect::<Vec<_>>();
 
     image.premultiplied_alpha = true;
-    image.pixels = RawImageData::U8(red_channel);
-    image.data_format: RawImageFormat::R8;
+    image.pixels = RawImageData::U8(red_channel.into());
+    image.data_format = RawImageFormat::R8;
 
     Some(())
 }

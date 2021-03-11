@@ -112,9 +112,9 @@ typedef void (*AzThreadReceiverDestructorFnType)(AzThreadReceiver* restrict A);
 
 typedef void (*AzThreadSenderDestructorFnType)(AzThreadSender* restrict A);
 
-struct AzTesselatedCPUSvgNodeVec;
-typedef struct AzTesselatedCPUSvgNodeVec AzTesselatedCPUSvgNodeVec;
-typedef void (*AzTesselatedCPUSvgNodeVecDestructorType)(AzTesselatedCPUSvgNodeVec* restrict A);
+struct AzTesselatedSvgNodeVec;
+typedef struct AzTesselatedSvgNodeVec AzTesselatedSvgNodeVec;
+typedef void (*AzTesselatedSvgNodeVecDestructorType)(AzTesselatedSvgNodeVec* restrict A);
 
 struct AzXmlNodeVec;
 typedef struct AzXmlNodeVec AzXmlNodeVec;
@@ -1660,28 +1660,28 @@ struct AzThreadSenderDestructorFn {
 };
 typedef struct AzThreadSenderDestructorFn AzThreadSenderDestructorFn;
 
-enum AzTesselatedCPUSvgNodeVecDestructorTag {
-   AzTesselatedCPUSvgNodeVecDestructorTag_DefaultRust,
-   AzTesselatedCPUSvgNodeVecDestructorTag_NoDestructor,
-   AzTesselatedCPUSvgNodeVecDestructorTag_External,
+enum AzTesselatedSvgNodeVecDestructorTag {
+   AzTesselatedSvgNodeVecDestructorTag_DefaultRust,
+   AzTesselatedSvgNodeVecDestructorTag_NoDestructor,
+   AzTesselatedSvgNodeVecDestructorTag_External,
 };
-typedef enum AzTesselatedCPUSvgNodeVecDestructorTag AzTesselatedCPUSvgNodeVecDestructorTag;
+typedef enum AzTesselatedSvgNodeVecDestructorTag AzTesselatedSvgNodeVecDestructorTag;
 
-struct AzTesselatedCPUSvgNodeVecDestructorVariant_DefaultRust { AzTesselatedCPUSvgNodeVecDestructorTag tag; };
-typedef struct AzTesselatedCPUSvgNodeVecDestructorVariant_DefaultRust AzTesselatedCPUSvgNodeVecDestructorVariant_DefaultRust;
-struct AzTesselatedCPUSvgNodeVecDestructorVariant_NoDestructor { AzTesselatedCPUSvgNodeVecDestructorTag tag; };
-typedef struct AzTesselatedCPUSvgNodeVecDestructorVariant_NoDestructor AzTesselatedCPUSvgNodeVecDestructorVariant_NoDestructor;
-struct AzTesselatedCPUSvgNodeVecDestructorVariant_External { AzTesselatedCPUSvgNodeVecDestructorTag tag; AzTesselatedCPUSvgNodeVecDestructorType payload; };
-typedef struct AzTesselatedCPUSvgNodeVecDestructorVariant_External AzTesselatedCPUSvgNodeVecDestructorVariant_External;
-union AzTesselatedCPUSvgNodeVecDestructor {
-    AzTesselatedCPUSvgNodeVecDestructorVariant_DefaultRust DefaultRust;
-    AzTesselatedCPUSvgNodeVecDestructorVariant_NoDestructor NoDestructor;
-    AzTesselatedCPUSvgNodeVecDestructorVariant_External External;
+struct AzTesselatedSvgNodeVecDestructorVariant_DefaultRust { AzTesselatedSvgNodeVecDestructorTag tag; };
+typedef struct AzTesselatedSvgNodeVecDestructorVariant_DefaultRust AzTesselatedSvgNodeVecDestructorVariant_DefaultRust;
+struct AzTesselatedSvgNodeVecDestructorVariant_NoDestructor { AzTesselatedSvgNodeVecDestructorTag tag; };
+typedef struct AzTesselatedSvgNodeVecDestructorVariant_NoDestructor AzTesselatedSvgNodeVecDestructorVariant_NoDestructor;
+struct AzTesselatedSvgNodeVecDestructorVariant_External { AzTesselatedSvgNodeVecDestructorTag tag; AzTesselatedSvgNodeVecDestructorType payload; };
+typedef struct AzTesselatedSvgNodeVecDestructorVariant_External AzTesselatedSvgNodeVecDestructorVariant_External;
+union AzTesselatedSvgNodeVecDestructor {
+    AzTesselatedSvgNodeVecDestructorVariant_DefaultRust DefaultRust;
+    AzTesselatedSvgNodeVecDestructorVariant_NoDestructor NoDestructor;
+    AzTesselatedSvgNodeVecDestructorVariant_External External;
 };
-typedef union AzTesselatedCPUSvgNodeVecDestructor AzTesselatedCPUSvgNodeVecDestructor;
-#define AzTesselatedCPUSvgNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzTesselatedCPUSvgNodeVecDestructorTag_DefaultRust } }
-#define AzTesselatedCPUSvgNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzTesselatedCPUSvgNodeVecDestructorTag_NoDestructor } }
-#define AzTesselatedCPUSvgNodeVecDestructor_External(v) { .External = { .tag = AzTesselatedCPUSvgNodeVecDestructorTag_External, .payload = v } }
+typedef union AzTesselatedSvgNodeVecDestructor AzTesselatedSvgNodeVecDestructor;
+#define AzTesselatedSvgNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzTesselatedSvgNodeVecDestructorTag_DefaultRust } }
+#define AzTesselatedSvgNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzTesselatedSvgNodeVecDestructorTag_NoDestructor } }
+#define AzTesselatedSvgNodeVecDestructor_External(v) { .External = { .tag = AzTesselatedSvgNodeVecDestructorTag_External, .payload = v } }
 
 enum AzXmlNodeVecDestructorTag {
    AzXmlNodeVecDestructorTag_DefaultRust,
@@ -6867,11 +6867,17 @@ typedef union AzSvgPathElement AzSvgPathElement;
 #define AzSvgPathElement_QuadraticCurve(v) { .QuadraticCurve = { .tag = AzSvgPathElementTag_QuadraticCurve, .payload = v } }
 #define AzSvgPathElement_CubicCurve(v) { .CubicCurve = { .tag = AzSvgPathElementTag_CubicCurve, .payload = v } }
 
-struct AzTesselatedCPUSvgNode {
+struct AzTesselatedSvgNode {
     AzSvgVertexVec vertices;
     AzU32Vec indices;
 };
-typedef struct AzTesselatedCPUSvgNode AzTesselatedCPUSvgNode;
+typedef struct AzTesselatedSvgNode AzTesselatedSvgNode;
+
+struct AzTesselatedSvgNodeVecRef {
+    AzTesselatedSvgNode* ptr;
+    size_t len;
+};
+typedef struct AzTesselatedSvgNodeVecRef AzTesselatedSvgNodeVecRef;
 
 struct AzSvgRenderOptions {
     AzOptionLayoutSize target_size;
@@ -6902,13 +6908,13 @@ struct AzString {
 };
 typedef struct AzString AzString;
 
-struct AzTesselatedCPUSvgNodeVec {
-    AzTesselatedCPUSvgNode* ptr;
+struct AzTesselatedSvgNodeVec {
+    AzTesselatedSvgNode* ptr;
     size_t len;
     size_t cap;
-    AzTesselatedCPUSvgNodeVecDestructor destructor;
+    AzTesselatedSvgNodeVecDestructor destructor;
 };
-typedef struct AzTesselatedCPUSvgNodeVec AzTesselatedCPUSvgNodeVec;
+typedef struct AzTesselatedSvgNodeVec AzTesselatedSvgNodeVec;
 
 struct AzStyleTransformVec {
     AzStyleTransform* ptr;
@@ -9162,9 +9168,9 @@ struct AzCss {
 };
 typedef struct AzCss AzCss;
 
-AzTesselatedCPUSvgNode AzTesselatedCPUSvgNodeVecArray[] = {};
-#define AzTesselatedCPUSvgNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzTesselatedCPUSvgNode), .cap = sizeof(v) / sizeof(AzTesselatedCPUSvgNode), .destructor = { .NoDestructor = { .tag = AzTesselatedCPUSvgNodeVecDestructorTag_NoDestructor, }, }, }
-#define AzTesselatedCPUSvgNodeVec_empty { .ptr = &AzTesselatedCPUSvgNodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzTesselatedCPUSvgNodeVecDestructorTag_NoDestructor, }, }, }
+AzTesselatedSvgNode AzTesselatedSvgNodeVecArray[] = {};
+#define AzTesselatedSvgNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzTesselatedSvgNode), .cap = sizeof(v) / sizeof(AzTesselatedSvgNode), .destructor = { .NoDestructor = { .tag = AzTesselatedSvgNodeVecDestructorTag_NoDestructor, }, }, }
+#define AzTesselatedSvgNodeVec_empty { .ptr = &AzTesselatedSvgNodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzTesselatedSvgNodeVecDestructorTag_NoDestructor, }, }, }
 
 AzXmlNode AzXmlNodeVecArray[] = {};
 #define AzXmlNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzXmlNode), .cap = sizeof(v) / sizeof(AzXmlNode), .destructor = { .NoDestructor = { .tag = AzXmlNodeVecDestructorTag_NoDestructor, }, }, }
@@ -9692,19 +9698,19 @@ extern DLLIMPORT AzOptionRawImage AzSvgXmlNode_render(AzSvgXmlNode* const svgxml
 extern DLLIMPORT AzString AzSvgXmlNode_toString(AzSvgXmlNode* const svgxmlnode, AzSvgStringFormatOptions  options);
 extern DLLIMPORT void AzSvgXmlNode_delete(AzSvgXmlNode* restrict instance);
 extern DLLIMPORT AzSvgXmlNode AzSvgXmlNode_deepCopy(AzSvgXmlNode* const instance);
-extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgMultiPolygon_tesselateFill(AzSvgMultiPolygon* const svgmultipolygon, AzSvgFillStyle  fill_style);
-extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgMultiPolygon_tesselateStroke(AzSvgMultiPolygon* const svgmultipolygon, AzSvgStrokeStyle  stroke_style);
-extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgNode_tesselateFill(AzSvgNode* const svgnode, AzSvgFillStyle  fill_style);
-extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgNode_tesselateStroke(AzSvgNode* const svgnode, AzSvgStrokeStyle  stroke_style);
-extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgStyledNode_tesselate(AzSvgStyledNode* const svgstylednode);
-extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgCircle_tesselateFill(AzSvgCircle* const svgcircle, AzSvgFillStyle  fill_style);
-extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgCircle_tesselateStroke(AzSvgCircle* const svgcircle, AzSvgStrokeStyle  stroke_style);
-extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgPath_tesselateFill(AzSvgPath* const svgpath, AzSvgFillStyle  fill_style);
-extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgPath_tesselateStroke(AzSvgPath* const svgpath, AzSvgStrokeStyle  stroke_style);
-extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgRect_tesselateFill(AzSvgRect* const svgrect, AzSvgFillStyle  fill_style);
-extern DLLIMPORT AzTesselatedCPUSvgNode AzSvgRect_tesselateStroke(AzSvgRect* const svgrect, AzSvgStrokeStyle  stroke_style);
-extern DLLIMPORT AzTesselatedCPUSvgNode AzTesselatedCPUSvgNode_empty();
-extern DLLIMPORT AzTesselatedCPUSvgNode AzTesselatedCPUSvgNode_fromNodes();
+extern DLLIMPORT AzTesselatedSvgNode AzSvgMultiPolygon_tesselateFill(AzSvgMultiPolygon* const svgmultipolygon, AzSvgFillStyle  fill_style);
+extern DLLIMPORT AzTesselatedSvgNode AzSvgMultiPolygon_tesselateStroke(AzSvgMultiPolygon* const svgmultipolygon, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTesselatedSvgNode AzSvgNode_tesselateFill(AzSvgNode* const svgnode, AzSvgFillStyle  fill_style);
+extern DLLIMPORT AzTesselatedSvgNode AzSvgNode_tesselateStroke(AzSvgNode* const svgnode, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTesselatedSvgNode AzSvgStyledNode_tesselate(AzSvgStyledNode* const svgstylednode);
+extern DLLIMPORT AzTesselatedSvgNode AzSvgCircle_tesselateFill(AzSvgCircle* const svgcircle, AzSvgFillStyle  fill_style);
+extern DLLIMPORT AzTesselatedSvgNode AzSvgCircle_tesselateStroke(AzSvgCircle* const svgcircle, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTesselatedSvgNode AzSvgPath_tesselateFill(AzSvgPath* const svgpath, AzSvgFillStyle  fill_style);
+extern DLLIMPORT AzTesselatedSvgNode AzSvgPath_tesselateStroke(AzSvgPath* const svgpath, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTesselatedSvgNode AzSvgRect_tesselateFill(AzSvgRect* const svgrect, AzSvgFillStyle  fill_style);
+extern DLLIMPORT AzTesselatedSvgNode AzSvgRect_tesselateStroke(AzSvgRect* const svgrect, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTesselatedSvgNode AzTesselatedSvgNode_empty();
+extern DLLIMPORT AzTesselatedSvgNode AzTesselatedSvgNode_fromNodes(AzTesselatedSvgNodeVecRef  nodes);
 extern DLLIMPORT AzSvgParseOptions AzSvgParseOptions_default();
 extern DLLIMPORT AzSvgRenderOptions AzSvgRenderOptions_default();
 extern DLLIMPORT AzXml AzXml_fromStr(AzRefstr  xml_string);
@@ -9728,7 +9734,8 @@ extern DLLIMPORT void AzThreadReceiver_delete(AzThreadReceiver* restrict instanc
 extern DLLIMPORT AzString AzString_format(AzString  format, AzFmtArgVec  args);
 extern DLLIMPORT AzString AzString_trim(AzString* const string);
 extern DLLIMPORT AzRefstr AzString_asRefstr(AzString* const string);
-extern DLLIMPORT void AzTesselatedCPUSvgNodeVec_delete(AzTesselatedCPUSvgNodeVec* restrict instance);
+extern DLLIMPORT AzTesselatedSvgNodeVecRef AzTesselatedSvgNodeVec_asRefVec(AzTesselatedSvgNodeVec* const tesselatedsvgnodevec);
+extern DLLIMPORT void AzTesselatedSvgNodeVec_delete(AzTesselatedSvgNodeVec* restrict instance);
 extern DLLIMPORT void AzXmlNodeVec_delete(AzXmlNodeVec* restrict instance);
 extern DLLIMPORT void AzFmtArgVec_delete(AzFmtArgVec* restrict instance);
 extern DLLIMPORT void AzInlineLineVec_delete(AzInlineLineVec* restrict instance);

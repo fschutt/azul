@@ -6442,7 +6442,7 @@
 								{"self": "ref"},
 								{"fill_style": "SvgFillStyle"}
 							],
-							"returns": {"type": "TesselatedCPUSvgNode"},
+							"returns": {"type": "TesselatedSvgNode"},
 							"fn_body": "azul_impl::svg::tesselate_multi_polygon_fill(svgmultipolygon, fill_style)"
 						},
 						"tesselate_stroke": {
@@ -6450,7 +6450,7 @@
 								{"self": "ref"},
 								{"stroke_style": "SvgStrokeStyle"}
 							],
-							"returns": {"type": "TesselatedCPUSvgNode"},
+							"returns": {"type": "TesselatedSvgNode"},
 							"fn_body": "azul_impl::svg::tesselate_multi_polygon_stroke(svgmultipolygon, stroke_style)"
 						}
 					}
@@ -6470,7 +6470,7 @@
 								{"self": "ref"},
 								{"fill_style": "SvgFillStyle"}
 							],
-							"returns": {"type": "TesselatedCPUSvgNode"},
+							"returns": {"type": "TesselatedSvgNode"},
 							"fn_body": "azul_impl::svg::tesselate_node_fill(svgnode, fill_style)"
 						},
 						"tesselate_stroke": {
@@ -6478,7 +6478,7 @@
 								{"self": "ref"},
 								{"stroke_style": "SvgStrokeStyle"}
 							],
-							"returns": {"type": "TesselatedCPUSvgNode"},
+							"returns": {"type": "TesselatedSvgNode"},
 							"fn_body": "azul_impl::svg::tesselate_node_stroke(svgnode, stroke_style)"
 						}
 					}
@@ -6494,7 +6494,7 @@
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": {"type": "TesselatedCPUSvgNode"},
+							"returns": {"type": "TesselatedSvgNode"},
 							"fn_body": "azul_impl::svg::tesselate_styled_node(svgstylednode)"
 						}
 					}
@@ -6513,7 +6513,7 @@
 								{"self": "ref"},
 								{"fill_style": "SvgFillStyle"}
 							],
-							"returns": {"type": "TesselatedCPUSvgNode"},
+							"returns": {"type": "TesselatedSvgNode"},
 							"fn_body": "azul_impl::svg::tesselate_circle_fill(svgcircle, fill_style)"
 						},
 						"tesselate_stroke": {
@@ -6521,7 +6521,7 @@
 								{"self": "ref"},
 								{"stroke_style": "SvgStrokeStyle"}
 							],
-							"returns": {"type": "TesselatedCPUSvgNode"},
+							"returns": {"type": "TesselatedSvgNode"},
 							"fn_body": "azul_impl::svg::tesselate_circle_stroke(svgcircle, stroke_style)"
 						}
 					}
@@ -6537,7 +6537,7 @@
 								{"self": "ref"},
 								{"fill_style": "SvgFillStyle"}
 							],
-							"returns": {"type": "TesselatedCPUSvgNode"},
+							"returns": {"type": "TesselatedSvgNode"},
 							"fn_body": "azul_impl::svg::tesselate_path_fill(svgpath, fill_style)"
 						},
 						"tesselate_stroke": {
@@ -6545,7 +6545,7 @@
 								{"self": "ref"},
 								{"stroke_style": "SvgStrokeStyle"}
 							],
-							"returns": {"type": "TesselatedCPUSvgNode"},
+							"returns": {"type": "TesselatedSvgNode"},
 							"fn_body": "azul_impl::svg::tesselate_path_stroke(svgpath, stroke_style)"
 						}
 					}
@@ -6613,7 +6613,7 @@
 								{"self": "ref"},
 								{"fill_style": "SvgFillStyle"}
 							],
-							"returns": {"type": "TesselatedCPUSvgNode"},
+							"returns": {"type": "TesselatedSvgNode"},
 							"fn_body": "azul_impl::svg::tesselate_rect_fill(svgrect, fill_style)"
 						},
 						"tesselate_stroke": {
@@ -6621,7 +6621,7 @@
 								{"self": "ref"},
 								{"stroke_style": "SvgStrokeStyle"}
 							],
-							"returns": {"type": "TesselatedCPUSvgNode"},
+							"returns": {"type": "TesselatedSvgNode"},
 							"fn_body": "azul_impl::svg::tesselate_rect_stroke(svgrect, stroke_style)"
 						}
 					}
@@ -6634,8 +6634,8 @@
 						{"y": {"type": "f32"}}
 					]
 				},
-				"TesselatedCPUSvgNode": {
-					"external": "azul_impl::svg::TesselatedCPUSvgNode",
+				"TesselatedSvgNode": {
+					"external": "azul_impl::svg::TesselatedSvgNode",
 					"struct_fields": [
 						{"vertices": {"type": "SvgVertexVec"}},
 						{"indices": {"type": "U32Vec"}}
@@ -6643,16 +6643,24 @@
 					"constructors": {
 						"empty": {
 							"doc": "Returns an empty buffer vertices / indices",
-							"fn_body": "AzTesselatedCPUSvgNode::empty()"
+							"fn_body": "AzTesselatedSvgNode::empty()"
 						},
 						"from_nodes": {
-							"doc": "Creates a new TesselatedCPUSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).",
-							"fn_arg": [
-								{"nodes": "TesselatedCPUSvgNodeVecRef"}
+							"doc": "Creates a new TesselatedSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).",
+							"fn_args": [
+								{"nodes": "TesselatedSvgNodeVecRef"}
 							],
 							"fn_body": "azul_impl::svg::join_tesselated_nodes(nodes.as_slice())"
 						}
 					}
+				},
+				"TesselatedSvgNodeVecRef": {
+					"external": "azul_impl::svg::TesselatedSvgNodeVecRef",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*const TesselatedSvgNode"}},
+						{"len": {"type": "usize"}}
+					]
 				},
 				"SvgParseOptions": {
 					"external": "azul_impl::svg::SvgParseOptions",
@@ -7298,16 +7306,26 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
-				"TesselatedCPUSvgNodeVec": {
-					"doc": "Wrapper over a Rust-allocated `Vec<TesselatedCPUSvgNode>`",
+				"TesselatedSvgNodeVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`",
 					"custom_destructor": true,
-					"external": "azul_impl::svg::TesselatedCPUSvgNodeVec",
+					"external": "azul_impl::svg::TesselatedSvgNodeVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const TesselatedCPUSvgNode" } },
+						{ "ptr": { "type": "*const TesselatedSvgNode" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } },
-						{ "destructor": { "type": "TesselatedCPUSvgNodeVecDestructor" } }
-					]
+						{ "destructor": { "type": "TesselatedSvgNodeVecDestructor" } }
+					],
+					"functions": {
+						"as_ref_vec": {
+							"doc": "Returns the `TesselatedSvgNodeVec` as a non-owning slice, NOTE: The `U8Vec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "TesselatedSvgNodeVecRef"},
+							"fn_body": "tesselatedsvgnodevec.get_ref()"
+						}
+					}
 				},
 				"XmlNodeVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<XmlNode>`",
@@ -7685,6 +7703,7 @@
 					],
 					"functions": {
 						"as_ref_vec": {
+							"doc": "Returns the `U8Vec` as a non-owning slice, NOTE: The `U8Vec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`",
 							"fn_args": [
 								{"self": "ref"}
 							],
@@ -7847,19 +7866,19 @@
 						{ "destructor": { "type": "NodeDataVecDestructor" } }
 					]
 				},
-				"TesselatedCPUSvgNodeVecDestructor": {
-				    "external": "azul_impl::svg::TesselatedCPUSvgNodeVecDestructor",
+				"TesselatedSvgNodeVecDestructor": {
+				    "external": "azul_impl::svg::TesselatedSvgNodeVecDestructor",
 				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"DefaultRust": {}},
 				        {"NoDestructor": {}},
-				        {"External": {"type": "TesselatedCPUSvgNodeVecDestructorType"}}
+				        {"External": {"type": "TesselatedSvgNodeVecDestructorType"}}
 				    ]
 				},
-				"TesselatedCPUSvgNodeVecDestructorType": {
+				"TesselatedSvgNodeVecDestructorType": {
 				    "callback_typedef": {
 				        "fn_args": [
-				            {"type": "TesselatedCPUSvgNodeVec", "ref": "refmut"}
+				            {"type": "TesselatedSvgNodeVec", "ref": "refmut"}
 				        ]
 				    }
 				},
