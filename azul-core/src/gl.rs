@@ -1498,10 +1498,22 @@ fn unimplemented() -> ! {
 
 #[cfg(feature = "opengl")]
 #[repr(C)]
+#[derive(Clone)]
 pub struct GlContextPtr {
-    pub ptr: *const c_void, // *const Rc<dyn Gl>
+    pub ptr: Box<Rc<dyn Gl>>,
+    /// SVG shader program (library-internal use)
+    pub svg_shader: GLuint,
+    /// FXAA shader program (library-internal use)
+    pub fxaa_shader: GLuint,
     /// Whether to force a hardware or software renderer
     pub renderer_type: RendererType,
+}
+
+impl Drop for GlContextPtr {
+    fn drop(&mut self) {
+        self.get().delete_program(self.svg_shader);
+        self.get().delete_program(self.fxaa_shader);
+    }
 }
 
 #[cfg(feature = "opengl")]
@@ -1517,13 +1529,252 @@ impl core::fmt::Debug for GlContextPtr {
 #[cfg(feature = "opengl")]
 impl GlContextPtr {
     pub fn new(renderer_type: RendererType, context: Rc<dyn Gl>) -> Self {
+
+        const SVG_VERTEX_SHADER: &str = "
+            #version 130
+
+            precision mediump float;
+
+            uniform vec2 vBboxSize;
+            in vec2 vAttrXY;
+            out vec4 vPosition;
+
+            void main() {
+                vPosition = vec4(vAttrXY / vBboxSize - vec2(1.0), 1.0, 1.0);
+            }
+        ";
+
+        const SVG_FRAGMENT_SHADER: &str = "
+            #version 130
+
+            precision mediump float;
+
+            in vec4 vPosition;
+            out vec4 fOutColor;
+
+            void main() {
+                fOutColor = vec4(1.0, 1.0, 1.0, 1.0);
+            }
+        ";
+
+        const FXAA_VERTEX_SHADER: &str = "
+            #version 130
+
+            /*
+                The MIT License (MIT)
+                Copyright (c) 2014 Matt DesLauriers
+
+                Permission is hereby granted, free of charge, to any person obtaining a copy
+                of this software and associated documentation files (the \"Software\"), to deal
+                in the Software without restriction, including without limitation the rights
+                to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+                copies of the Software, and to permit persons to whom the Software is
+                furnished to do so, subject to the following conditions:
+
+                The above copyright notice and this permission notice shall be included in all
+                copies or substantial portions of the Software.
+
+                THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,
+                EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+                MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+                IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+                DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+                OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+                OR OTHER DEALINGS IN THE SOFTWARE.
+            */
+
+            precision mediump float;
+
+            uniform vec2 iResolution;
+            in vec2 position;
+
+            out vec2 v_rgbNW;
+            out vec2 v_rgbNE;
+            out vec2 v_rgbSW;
+            out vec2 v_rgbSE;
+            out vec2 v_rgbM;
+            out vec4 vPosition;
+            out vec2 vUv;
+
+            void texcoords(vec2 fragCoord, vec2 resolution, out vec2 v_rgbNW, out vec2 v_rgbNE, out vec2 v_rgbSW, out vec2 v_rgbSE, out vec2 v_rgbM) {
+                vec2 inverseVP = 1.0 / resolution.xy;
+                v_rgbNW = (fragCoord + vec2(-1.0, -1.0)) * inverseVP;
+                v_rgbNE = (fragCoord + vec2(1.0, -1.0)) * inverseVP;
+                v_rgbSW = (fragCoord + vec2(-1.0, 1.0)) * inverseVP;
+                v_rgbSE = (fragCoord + vec2(1.0, 1.0)) * inverseVP;
+                v_rgbM = vec2(fragCoord * inverseVP);
+            }
+
+            void main(void) {
+               vPosition = vec4(position, 1.0, 1.0);
+               vUv = (position + 1.0) * 0.5;
+               vUv.y = 1.0 - vUv.y;
+               vec2 fragCoord = vUv * iResolution;
+               texcoords(fragCoord, iResolution, v_rgbNW, v_rgbNE, v_rgbSW, v_rgbSE, v_rgbM);
+            }
+        ";
+
+        const FXAA_FRAGMENT_SHADER: &str = "
+            #version 130
+
+            /**
+                Basic FXAA implementation based on the code on geeks3d.com with the
+                modification that the texture2DLod stuff was removed since it's
+                unsupported by WebGL.
+
+                --
+
+                From: https://github.com/mitsuhiko/webgl-meincraft
+                Copyright (c) 2011 by Armin Ronacher.
+                Some rights reserved.
+
+                Redistribution and use in source and binary forms, with or without
+                modification, are permitted provided that the following conditions are
+                met:
+                    * Redistributions of source code must retain the above copyright
+                      notice, this list of conditions and the following disclaimer.
+                    * Redistributions in binary form must reproduce the above
+                      copyright notice, this list of conditions and the following
+                      disclaimer in the documentation and/or other materials provided
+                      with the distribution.
+                    * The names of the contributors may not be used to endorse or
+                      promote products derived from this software without specific
+                      prior written permission.
+
+                THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+                \"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+                LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+                A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+                OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+                SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+                LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+                DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+                THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+                (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+                OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+            */
+
+            precision mediump float;
+
+            in vec2 v_rgbNW;
+            in vec2 v_rgbNE;
+            in vec2 v_rgbSW;
+            in vec2 v_rgbSE;
+            in vec2 v_rgbM;
+            in vec2 vUv;
+
+            uniform vec2 iResolution;
+            uniform sampler2D iChannel0;
+
+            #ifndef FXAA_REDUCE_MIN
+                #define FXAA_REDUCE_MIN   (1.0/ 128.0)
+            #endif
+            #ifndef FXAA_REDUCE_MUL
+                #define FXAA_REDUCE_MUL   (1.0 / 8.0)
+            #endif
+            #ifndef FXAA_SPAN_MAX
+                #define FXAA_SPAN_MAX     8.0
+            #endif
+
+            vec4 fxaa(sampler2D tex, vec2 fragCoord, vec2 resolution, vec2 v_rgbNW, vec2 v_rgbNE, vec2 v_rgbSW, vec2 v_rgbSE, vec2 v_rgbM) {
+                vec4 color;
+                mediump vec2 inverseVP = vec2(1.0 / resolution.x, 1.0 / resolution.y);
+                vec3 rgbNW = texture2D(tex, v_rgbNW).xyz;
+                vec3 rgbNE = texture2D(tex, v_rgbNE).xyz;
+                vec3 rgbSW = texture2D(tex, v_rgbSW).xyz;
+                vec3 rgbSE = texture2D(tex, v_rgbSE).xyz;
+                vec4 texColor = texture2D(tex, v_rgbM);
+                vec3 rgbM  = texColor.xyz;
+                vec3 luma = vec3(0.299, 0.587, 0.114);
+                float lumaNW = dot(rgbNW, luma);
+                float lumaNE = dot(rgbNE, luma);
+                float lumaSW = dot(rgbSW, luma);
+                float lumaSE = dot(rgbSE, luma);
+                float lumaM  = dot(rgbM,  luma);
+                float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+                float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+
+                mediump vec2 dir;
+                dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
+                dir.y =  ((lumaNW + lumaSW) - (lumaNE + lumaSE));
+
+                float dirReduce = max((lumaNW + lumaNE + lumaSW + lumaSE) *
+                                      (0.25 * FXAA_REDUCE_MUL), FXAA_REDUCE_MIN);
+
+                float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+                dir = min(vec2(FXAA_SPAN_MAX, FXAA_SPAN_MAX),
+                          max(vec2(-FXAA_SPAN_MAX, -FXAA_SPAN_MAX),
+                          dir * rcpDirMin)) * inverseVP;
+
+                vec3 rgbA = 0.5 * (
+                    texture2D(tex, fragCoord * inverseVP + dir * (1.0 / 3.0 - 0.5)).xyz +
+                    texture2D(tex, fragCoord * inverseVP + dir * (2.0 / 3.0 - 0.5)).xyz);
+                vec3 rgbB = rgbA * 0.5 + 0.25 * (
+                    texture2D(tex, fragCoord * inverseVP + dir * -0.5).xyz +
+                    texture2D(tex, fragCoord * inverseVP + dir * 0.5).xyz);
+
+                float lumaB = dot(rgbB, luma);
+                if ((lumaB < lumaMin) || (lumaB > lumaMax))
+                    color = vec4(rgbA, texColor.a);
+                else
+                    color = vec4(rgbB, texColor.a);
+                return color;
+            }
+
+            void main() {
+              mediump vec2 fragCoord = vUv * iResolution;
+              vec4 color = fxaa(iChannel0, fragCoord, iResolution, v_rgbNW, v_rgbNE, v_rgbSW, v_rgbSE, v_rgbM);
+              gl_FragColor = color;
+            }
+        ";
+
+        // compile SVG shader
+
+        let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
+        gl_context.shader_source(vertex_shader_object, vec![AzString::from_const_str(SVG_VERTEX_SHADER)].into());
+        gl_context.compile_shader(vertex_shader_object);
+
+        let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
+        gl_context.shader_source(fragment_shader_object, vec![AzString::from_const_str(SVG_FRAGMENT_SHADER)].into());
+        gl_context.compile_shader(fragment_shader_object);
+
+        let svg_program_id = gl_context.create_program();
+        gl_context.attach_shader(svg_program_id, vertex_shader_object);
+        gl_context.attach_shader(svg_program_id, fragment_shader_object);
+        gl_context.link_program(svg_program_id);
+
+        gl_context.delete_shader(vertex_shader_object);
+        gl_context.delete_shader(fragment_shader_object);
+
+        // compile FXAA shader
+
+        let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
+        gl_context.shader_source(vertex_shader_object, vec![AzString::from_const_str(FXAA_VERTEX_SHADER)].into());
+        gl_context.compile_shader(vertex_shader_object);
+
+        let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
+        gl_context.shader_source(fragment_shader_object, vec![AzString::from_const_str(FXAA_FRAGMENT_SHADER)].into());
+        gl_context.compile_shader(fragment_shader_object);
+
+        let fxaa_program_id = gl_context.create_program();
+        gl_context.attach_shader(fxaa_program_id, vertex_shader_object);
+        gl_context.attach_shader(fxaa_program_id, fragment_shader_object);
+        gl_context.link_program(fxaa_program_id);
+
+        gl_context.delete_shader(vertex_shader_object);
+        gl_context.delete_shader(fragment_shader_object);
+
         Self {
             renderer_type,
-            ptr: Box::into_raw(Box::new(context)) as *const c_void,
+            current_gl_api,
+            svg_shader: svg_program_id,
+            fxaa_shader: fxaa_program_id,
+            ptr: Box::new(context),
         }
     }
-    pub fn get<'a>(&'a self) -> &'a Rc<dyn Gl> { unsafe { &*(self.ptr as *const Rc<dyn Gl>) } }
-    fn as_usize(&self) -> usize { self.ptr as usize }
+
+    pub fn get<'a>(&'a self) -> &'a Rc<dyn Gl> { &*self.ptr }
+    fn as_usize(&self) -> usize { self.ptr.as_ptr() as *const _ as usize }
 }
 
 #[cfg(feature = "opengl")]
@@ -1784,13 +2035,6 @@ impl PartialOrd for GlContextPtr {
 impl Ord for GlContextPtr {
     fn cmp(&self, rhs: &Self) -> core::cmp::Ordering {
         self.as_usize().cmp(&rhs.as_usize())
-    }
-}
-
-#[cfg(feature = "opengl")]
-impl Drop for GlContextPtr {
-    fn drop(&mut self) {
-        let _ = unsafe { Box::from_raw(self.ptr as *mut Rc<dyn Gl>) };
     }
 }
 
@@ -2496,7 +2740,7 @@ impl GlShader {
         let depthbuffer_id = depthbuffers.get(0).unwrap();
 
         gl_context.bind_texture(gl::TEXTURE_2D, *texture_id);
-        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, texture_size.width as i32, texture_size.height as i32, 0, gl::RGBA, gl::UNSIGNED_BYTE, None.into());
+        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA8 as i32, texture_size.width as i32, texture_size.height as i32, 0, gl::RGBA8, gl::UNSIGNED_BYTE, None.into());
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
@@ -2529,8 +2773,6 @@ impl GlShader {
         let mut current_uniforms = vec![None;max_uniform_len];
 
         // Since the description of the vertex buffers is always the same, only the first layer needs to bind its VAO
-
-
         if let Some(clear_color) = clear_color {
             let clear_color: ColorF = clear_color.into();
             gl_context.clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);

@@ -50,33 +50,25 @@ pub struct App {
 
 #[derive(Debug)]
 #[repr(C)]
-pub struct AzAppPtr { /* ptr: *const App */ pub ptr: *const App }
+pub struct AzAppPtr {
+    pub ptr: Box<App>
+}
 
 impl AzAppPtr {
-    pub fn new(app: App) -> Self { Self { ptr: Box::into_raw(Box::new(app)) } }
-    pub fn get(self) -> App {
-        let p = unsafe { Box::<App>::from_raw(self.ptr as *mut App) };
-        ::std::mem::forget(self); // prevent double free because of Drop
-        *p
-    }
+    pub fn new(app: App) -> Self { Self { ptr: Box::new(app) } }
+    pub fn get(self) -> App { *self.ptr }
 }
 
 impl core::ops::Deref for AzAppPtr {
     type Target = App;
     fn deref(&self) -> &Self::Target {
-        unsafe { &*(self.ptr as *const App) }
+        &*self.ptr
     }
 }
 
 impl core::ops::DerefMut for AzAppPtr {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *(self.ptr as *mut App) }
-    }
-}
-
-impl Drop for AzAppPtr {
-    fn drop(&mut self) {
-        let _ = unsafe { Box::<App>::from_raw(self.ptr as *mut App) };
+        &mut *self.ptr
     }
 }
 

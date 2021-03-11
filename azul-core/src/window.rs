@@ -115,7 +115,6 @@ pub enum RawWindowHandle {
     Unsupported,
 }
 
-unsafe impl Sync for RawWindowHandle { }
 unsafe impl Send for RawWindowHandle { }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

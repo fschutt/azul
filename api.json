@@ -6639,7 +6639,20 @@
 					"struct_fields": [
 						{"vertices": {"type": "SvgVertexVec"}},
 						{"indices": {"type": "U32Vec"}}
-					]
+					],
+					"constructors": {
+						"empty": {
+							"doc": "Returns an empty buffer vertices / indices",
+							"fn_body": "AzTesselatedCPUSvgNode::empty()"
+						},
+						"from_nodes": {
+							"doc": "Creates a new TesselatedCPUSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).",
+							"fn_arg": [
+								{"nodes": "TesselatedCPUSvgNodeVecRef"}
+							],
+							"fn_body": "azul_impl::svg::join_tesselated_nodes(nodes.as_slice())"
+						}
+					}
 				},
 				"SvgParseOptions": {
 					"external": "azul_impl::svg::SvgParseOptions",
@@ -7285,6 +7298,17 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"TesselatedCPUSvgNodeVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<TesselatedCPUSvgNode>`",
+					"custom_destructor": true,
+					"external": "azul_impl::svg::TesselatedCPUSvgNodeVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const TesselatedCPUSvgNode" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } },
+						{ "destructor": { "type": "TesselatedCPUSvgNodeVecDestructor" } }
+					]
+				},
 				"XmlNodeVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<XmlNode>`",
 					"custom_destructor": true,
@@ -7822,6 +7846,22 @@
 						{ "cap": { "type": "usize" } },
 						{ "destructor": { "type": "NodeDataVecDestructor" } }
 					]
+				},
+				"TesselatedCPUSvgNodeDestructor": {
+				    "external": "azul_impl::svg::TesselatedCPUSvgNodeDestructor",
+				    "derive": ["Copy"],
+				    "enum_fields": [
+				        {"DefaultRust": {}},
+				        {"NoDestructor": {}},
+				        {"External": {"type": "TesselatedCPUSvgNodeDestructorType"}}
+				    ]
+				},
+				"TesselatedCPUSvgNodeDestructorType": {
+				    "callback_typedef": {
+				        "fn_args": [
+				            {"type": "TesselatedCPUSvgNodeVec", "ref": "refmut"}
+				        ]
+				    }
 				},
 				"XmlNodeVecDestructor": {
 				    "external": "azul_impl::xml::XmlNodeVecDestructor",
