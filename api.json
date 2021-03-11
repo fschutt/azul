@@ -7847,16 +7847,16 @@
 						{ "destructor": { "type": "NodeDataVecDestructor" } }
 					]
 				},
-				"TesselatedCPUSvgNodeDestructor": {
-				    "external": "azul_impl::svg::TesselatedCPUSvgNodeDestructor",
+				"TesselatedCPUSvgNodeVecDestructor": {
+				    "external": "azul_impl::svg::TesselatedCPUSvgNodeVecDestructor",
 				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"DefaultRust": {}},
 				        {"NoDestructor": {}},
-				        {"External": {"type": "TesselatedCPUSvgNodeDestructorType"}}
+				        {"External": {"type": "TesselatedCPUSvgNodeVecDestructorType"}}
 				    ]
 				},
-				"TesselatedCPUSvgNodeDestructorType": {
+				"TesselatedCPUSvgNodeVecDestructorType": {
 				    "callback_typedef": {
 				        "fn_args": [
 				            {"type": "TesselatedCPUSvgNodeVec", "ref": "refmut"}

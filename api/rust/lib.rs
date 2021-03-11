@@ -1356,6 +1356,14 @@ mod dll {
     #[repr(C)]  #[derive(Clone)]   pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+    /// Re-export of rust-allocated (stack based) `TesselatedCPUSvgNodeVecDestructor` struct
+    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzTesselatedCPUSvgNodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzTesselatedCPUSvgNodeVecDestructorType),
+    }
+    /// `AzTesselatedCPUSvgNodeVecDestructorType` struct
+    pub type AzTesselatedCPUSvgNodeVecDestructorType = extern "C" fn(&mut AzTesselatedCPUSvgNodeVec);
     /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
     #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzXmlNodeVecDestructor {
         DefaultRust,
@@ -3320,6 +3328,13 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzString {
         pub vec: AzU8Vec,
     }
+    /// Wrapper over a Rust-allocated `Vec<TesselatedCPUSvgNode>`
+    #[repr(C)]     pub struct AzTesselatedCPUSvgNodeVec {
+        pub(crate) ptr: *const AzTesselatedCPUSvgNode,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzTesselatedCPUSvgNodeVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
     #[repr(C)]     pub struct AzStyleTransformVec {
         pub(crate) ptr: *const AzStyleTransform,
@@ -4683,6 +4698,8 @@ mod dll {
         pub(crate) fn AzSvgPath_tesselateStroke(_:  &AzSvgPath, _:  AzSvgStrokeStyle) -> AzTesselatedCPUSvgNode;
         pub(crate) fn AzSvgRect_tesselateFill(_:  &AzSvgRect, _:  AzSvgFillStyle) -> AzTesselatedCPUSvgNode;
         pub(crate) fn AzSvgRect_tesselateStroke(_:  &AzSvgRect, _:  AzSvgStrokeStyle) -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzTesselatedCPUSvgNode_empty() -> AzTesselatedCPUSvgNode;
+        pub(crate) fn AzTesselatedCPUSvgNode_fromNodes() -> AzTesselatedCPUSvgNode;
         pub(crate) fn AzSvgParseOptions_default() -> AzSvgParseOptions;
         pub(crate) fn AzSvgRenderOptions_default() -> AzSvgRenderOptions;
         pub(crate) fn AzXml_fromStr(_:  AzRefstr) -> AzResultXmlXmlError;
@@ -4706,6 +4723,7 @@ mod dll {
         pub(crate) fn AzString_format(_:  AzString, _:  AzFmtArgVec) -> AzString;
         pub(crate) fn AzString_trim(_:  &AzString) -> AzString;
         pub(crate) fn AzString_asRefstr(_:  &AzString) -> AzRefstr;
+        pub(crate) fn AzTesselatedCPUSvgNodeVec_delete(_:  &mut AzTesselatedCPUSvgNodeVec);
         pub(crate) fn AzXmlNodeVec_delete(_:  &mut AzXmlNodeVec);
         pub(crate) fn AzFmtArgVec_delete(_:  &mut AzFmtArgVec);
         pub(crate) fn AzInlineLineVec_delete(_:  &mut AzInlineLineVec);
@@ -9451,6 +9469,13 @@ pub mod svg {
     /// `TesselatedCPUSvgNode` struct
     
 #[doc(inline)] pub use crate::dll::AzTesselatedCPUSvgNode as TesselatedCPUSvgNode;
+    impl TesselatedCPUSvgNode {
+        /// Returns an empty buffer vertices / indices
+        pub fn empty() -> Self { unsafe { crate::dll::AzTesselatedCPUSvgNode_empty() } }
+        /// Creates a new TesselatedCPUSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).
+        pub fn from_nodes() -> Self { unsafe { crate::dll::AzTesselatedCPUSvgNode_fromNodes() } }
+    }
+
     /// `SvgParseOptions` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgParseOptions as SvgParseOptions;
@@ -10048,7 +10073,10 @@ pub mod vec {
             vec.into()
             // v dropped here
         }
-    }    /// Wrapper over a Rust-allocated `Vec<XmlNode>`
+    }    /// Wrapper over a Rust-allocated `Vec<TesselatedCPUSvgNode>`
+    
+#[doc(inline)] pub use crate::dll::AzTesselatedCPUSvgNodeVec as TesselatedCPUSvgNodeVec;
+    /// Wrapper over a Rust-allocated `Vec<XmlNode>`
     
 #[doc(inline)] pub use crate::dll::AzXmlNodeVec as XmlNodeVec;
     /// Wrapper over a Rust-allocated `Vec<FmtArg>`
@@ -10197,6 +10225,12 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `NodeDataVec`
     
 #[doc(inline)] pub use crate::dll::AzNodeDataVec as NodeDataVec;
+    /// `TesselatedCPUSvgNodeVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzTesselatedCPUSvgNodeVecDestructor as TesselatedCPUSvgNodeVecDestructor;
+    /// `TesselatedCPUSvgNodeVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzTesselatedCPUSvgNodeVecDestructorType as TesselatedCPUSvgNodeVecDestructorType;
     /// `XmlNodeVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzXmlNodeVecDestructor as XmlNodeVecDestructor;

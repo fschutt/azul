@@ -1528,7 +1528,7 @@ impl core::fmt::Debug for GlContextPtr {
 
 #[cfg(feature = "opengl")]
 impl GlContextPtr {
-    pub fn new(renderer_type: RendererType, context: Rc<dyn Gl>) -> Self {
+    pub fn new(renderer_type: RendererType, gl_context: Rc<dyn Gl>) -> Self {
 
         const SVG_VERTEX_SHADER: &str = "
             #version 130

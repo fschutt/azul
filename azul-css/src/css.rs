@@ -155,6 +155,22 @@ pub enum CssPropertyValue<T> {
     Exact(T),
 }
 
+pub trait PrintAsCssValue {
+    fn print_as_css_value(&self) -> String;
+}
+
+impl<T: PrintAsCssValue> CssPropertyValue<T> {
+    pub fn get_css_value_fmt(&self) -> String {
+        match self {
+            CssPropertyValue::Auto => format!("auto"),
+            CssPropertyValue::None => format!("none"),
+            CssPropertyValue::Initial => format!("initial"),
+            CssPropertyValue::Inherit => format!("inherit"),
+            CssPropertyValue::Exact(e) => e.print_as_css_value(),
+        }
+    }
+}
+
 impl<T: fmt::Debug> fmt::Debug for CssPropertyValue<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::CssPropertyValue::*;

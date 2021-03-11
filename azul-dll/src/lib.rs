@@ -2120,6 +2120,10 @@ pub use AzSvgVertexTT as AzSvgVertex;
 /// Re-export of rust-allocated (stack based) `TesselatedCPUSvgNode` struct
 pub type AzTesselatedCPUSvgNodeTT = azul_impl::svg::TesselatedCPUSvgNode;
 pub use AzTesselatedCPUSvgNodeTT as AzTesselatedCPUSvgNode;
+/// Returns an empty buffer vertices / indices
+#[no_mangle] pub extern "C" fn AzTesselatedCPUSvgNode_empty() -> AzTesselatedCPUSvgNode { AzTesselatedCPUSvgNode::empty() }
+/// Creates a new TesselatedCPUSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).
+#[no_mangle] pub extern "C" fn AzTesselatedCPUSvgNode_fromNodes() -> AzTesselatedCPUSvgNode { azul_impl::svg::join_tesselated_nodes(nodes.as_slice()) }
 
 /// Re-export of rust-allocated (stack based) `SvgParseOptions` struct
 pub type AzSvgParseOptionsTT = azul_impl::svg::SvgParseOptions;
@@ -2344,6 +2348,12 @@ pub use AzStringTT as AzString;
 #[no_mangle] pub extern "C" fn AzString_trim(string: &AzString) -> AzString { string.as_str().trim().to_string().into() }
 /// Returns a reference to the string - NOTE: the returned value is a reference to `self`, you MUST NOT drop the `String` object that the `Refstr` references
 #[no_mangle] pub extern "C" fn AzString_asRefstr(string: &AzString) -> AzRefstr { string.as_str().into() }
+
+/// Wrapper over a Rust-allocated `Vec<TesselatedCPUSvgNode>`
+pub type AzTesselatedCPUSvgNodeVecTT = azul_impl::svg::TesselatedCPUSvgNodeVec;
+pub use AzTesselatedCPUSvgNodeVecTT as AzTesselatedCPUSvgNodeVec;
+/// Destructor: Takes ownership of the `TesselatedCPUSvgNodeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTesselatedCPUSvgNodeVec_delete(object: &mut AzTesselatedCPUSvgNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<XmlNode>`
 pub type AzXmlNodeVecTT = azul_impl::xml::XmlNodeVec;
@@ -2635,6 +2645,11 @@ pub use AzNodeDataVecTT as AzNodeDataVec;
 /// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzNodeDataVec_delete(object: &mut AzNodeDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `TesselatedCPUSvgNodeVecDestructor` struct
+pub type AzTesselatedCPUSvgNodeVecDestructorTT = azul_impl::svg::TesselatedCPUSvgNodeVecDestructor;
+pub use AzTesselatedCPUSvgNodeVecDestructorTT as AzTesselatedCPUSvgNodeVecDestructor;
+
+pub type AzTesselatedCPUSvgNodeVecDestructorType = extern "C" fn(&mut AzTesselatedCPUSvgNodeVec);
 /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
 pub type AzXmlNodeVecDestructorTT = azul_impl::xml::XmlNodeVecDestructor;
 pub use AzXmlNodeVecDestructorTT as AzXmlNodeVecDestructor;
@@ -4458,6 +4473,14 @@ mod test_sizes {
     #[repr(C)]     pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+    /// Re-export of rust-allocated (stack based) `TesselatedCPUSvgNodeVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzTesselatedCPUSvgNodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzTesselatedCPUSvgNodeVecDestructorType),
+    }
+    /// `AzTesselatedCPUSvgNodeVecDestructorType` struct
+    pub type AzTesselatedCPUSvgNodeVecDestructorType = extern "C" fn(&mut AzTesselatedCPUSvgNodeVec);
     /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
     #[repr(C, u8)]     pub enum AzXmlNodeVecDestructor {
         DefaultRust,
@@ -6422,6 +6445,13 @@ mod test_sizes {
     #[repr(C)]     pub struct AzString {
         pub vec: AzU8Vec,
     }
+    /// Wrapper over a Rust-allocated `Vec<TesselatedCPUSvgNode>`
+    #[repr(C)]     pub struct AzTesselatedCPUSvgNodeVec {
+        pub(crate) ptr: *const AzTesselatedCPUSvgNode,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzTesselatedCPUSvgNodeVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
     #[repr(C)]     pub struct AzStyleTransformVec {
         pub(crate) ptr: *const AzStyleTransform,
@@ -7579,6 +7609,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadDestructorCallback>(), "AzThreadDestructorFn"), (Layout::new::<AzThreadDestructorFn>(), "AzThreadDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
+        assert_eq!((Layout::new::<azul_impl::svg::TesselatedCPUSvgNodeVecDestructor>(), "AzTesselatedCPUSvgNodeVecDestructor"), (Layout::new::<AzTesselatedCPUSvgNodeVecDestructor>(), "AzTesselatedCPUSvgNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"), (Layout::new::<AzXmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::str::FmtArgVecDestructor>(), "AzFmtArgVecDestructor"), (Layout::new::<AzFmtArgVecDestructor>(), "AzFmtArgVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineLineVecDestructor>(), "AzInlineLineVecDestructor"), (Layout::new::<AzInlineLineVecDestructor>(), "AzInlineLineVecDestructor"));
@@ -7878,6 +7909,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgStrokeStyle>(), "AzSvgStrokeStyle"), (Layout::new::<AzSvgStrokeStyle>(), "AzSvgStrokeStyle"));
         assert_eq!((Layout::new::<azul_impl::xml::Xml>(), "AzXml"), (Layout::new::<AzXml>(), "AzXml"));
         assert_eq!((Layout::new::<azul_impl::css::AzString>(), "AzString"), (Layout::new::<AzString>(), "AzString"));
+        assert_eq!((Layout::new::<azul_impl::svg::TesselatedCPUSvgNodeVec>(), "AzTesselatedCPUSvgNodeVec"), (Layout::new::<AzTesselatedCPUSvgNodeVec>(), "AzTesselatedCPUSvgNodeVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformVec>(), "AzStyleTransformVec"), (Layout::new::<AzStyleTransformVec>(), "AzStyleTransformVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVec>(), "AzSvgPathElementVec"), (Layout::new::<AzSvgPathElementVec>(), "AzSvgPathElementVec"));
         assert_eq!((Layout::new::<azul_impl::css::StringVec>(), "AzStringVec"), (Layout::new::<AzStringVec>(), "AzStringVec"));
