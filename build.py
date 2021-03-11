@@ -442,25 +442,7 @@ def generate_rust_dll(api_data):
     structs_map = OrderedDict({})
     rust_functions_map = OrderedDict({})
 
-    code += """
-        extern crate azul_core;
-
-        #[cfg(target_arch = "wasm32")]
-        extern crate azul_web as azul_impl;
-        #[cfg(not(target_arch = "wasm32"))]
-        extern crate azul_desktop as azul_impl;
-
-        use core::ffi::c_void;
-        use azul_impl::{
-            css::{self, *},
-            callbacks::RefAny,
-            window::{WindowCreateOptions, WindowState},
-            resources::{RawImage, AppConfig, FontId, ImageId},
-            app::App,
-            task::{Timer, TimerId},
-            gl::TextureFlags,
-        };
-    """
+    code += read_file(root_folder + "/api/_patches/azul-dll/header.rs")
 
     for module_name in myapi_data.keys():
         module = myapi_data[module_name]["classes"]

@@ -2718,14 +2718,6 @@ mod dll {
         pub(crate) ptr: *const c_void,
         pub renderer_type: AzRendererType,
     }
-    /// Re-export of rust-allocated (stack based) `Texture` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTexture {
-        pub texture_id: u32,
-        pub format: AzRawImageFormat,
-        pub flags: AzTextureFlags,
-        pub size: AzPhysicalSizeU32,
-        pub gl_context: AzGl,
-    }
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRefstrVecRef {
         pub(crate) ptr: *const AzRefstr,
@@ -3033,11 +3025,6 @@ mod dll {
         None,
         Some(AzVirtualKeyCode),
     }
-    /// Re-export of rust-allocated (stack based) `OptionTexture` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTexture {
-        None,
-        Some(AzTexture),
-    }
     /// Re-export of rust-allocated (stack based) `OptionImageMask` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionImageMask {
         None,
@@ -3182,10 +3169,6 @@ mod dll {
         pub positioned_words_cache: *const c_void,
         pub positioned_rects: *const c_void,
     }
-    /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlCallbackReturn {
-        pub texture: AzOptionTexture,
-    }
     /// Re-export of rust-allocated (stack based) `EventFilter` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzEventFilter {
         Hover(AzHoverEventFilter),
@@ -3273,6 +3256,14 @@ mod dll {
         pub node_id: AzNodeId,
         pub tab_index: AzOptionTabIndex,
     }
+    /// Re-export of rust-allocated (stack based) `Texture` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTexture {
+        pub texture_id: u32,
+        pub format: AzRawImageFormat,
+        pub flags: AzTextureFlags,
+        pub size: AzPhysicalSizeU32,
+        pub gl_context: AzGl,
+    }
     /// C-ABI stable reexport of `(U8Vec, u32)`
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGetProgramBinaryReturn {
         pub _0: AzU8Vec,
@@ -3283,14 +3274,6 @@ mod dll {
         U8(AzU8Vec),
         U16(AzU16Vec),
         F32(AzF32Vec),
-    }
-    /// Re-export of rust-allocated (stack based) `RawImage` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzRawImage {
-        pub pixels: AzRawImageData,
-        pub width: usize,
-        pub height: usize,
-        pub has_premultiplied_alpha: bool,
-        pub data_format: AzRawImageFormat,
     }
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgPathElement {
@@ -3303,7 +3286,7 @@ mod dll {
         pub vertices: AzSvgVertexVec,
         pub indices: AzU32Vec,
     }
-    /// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecRef` struct
+    /// Rust wrapper over a `&[TesselatedSvgNode]` or `&Vec<TesselatedSvgNode>`
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTesselatedSvgNodeVecRef {
         pub(crate) ptr: *const AzTesselatedSvgNode,
         pub len: usize,
@@ -3389,11 +3372,6 @@ mod dll {
         pub cap: usize,
         pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
     }
-    /// Re-export of rust-allocated (stack based) `OptionRawImage` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionRawImage {
-        None,
-        Some(AzRawImage),
-    }
     /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTaskBarIcon {
         None,
@@ -3409,15 +3387,15 @@ mod dll {
         None,
         Some(AzString),
     }
+    /// Re-export of rust-allocated (stack based) `OptionTexture` struct
+    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTexture {
+        None,
+        Some(AzTexture),
+    }
     /// Re-export of rust-allocated (stack based) `OptionDuration` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionDuration {
         None,
         Some(AzDuration),
-    }
-    /// Re-export of rust-allocated (stack based) `ResultRawImageDecodeImageError` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultRawImageDecodeImageError {
-        Ok(AzRawImage),
-        Err(AzDecodeImageError),
     }
     /// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzDuplicatedNamespaceError {
@@ -3531,6 +3509,10 @@ mod dll {
         Return,
         Space,
         Word(AzInlineTextContents),
+    }
+    /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlCallbackReturn {
+        pub texture: AzOptionTexture,
     }
     /// Re-export of rust-allocated (stack based) `RefCountInner` struct
     #[repr(C)]     pub struct AzRefCountInner {
@@ -3699,6 +3681,14 @@ mod dll {
         pub _1: u32,
         pub _2: AzString,
     }
+    /// Re-export of rust-allocated (stack based) `RawImage` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzRawImage {
+        pub pixels: AzRawImageData,
+        pub width: usize,
+        pub height: usize,
+        pub alpha_premultiplied: bool,
+        pub data_format: AzRawImageFormat,
+    }
     /// Re-export of rust-allocated (stack based) `ImageSource` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzImageSource {
         Embedded(AzU8Vec),
@@ -3866,6 +3856,11 @@ mod dll {
         None,
         Some(AzRefAny),
     }
+    /// Re-export of rust-allocated (stack based) `OptionRawImage` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionRawImage {
+        None,
+        Some(AzRawImage),
+    }
     /// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionWaylandTheme {
         None,
@@ -3875,6 +3870,11 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionInstant {
         None,
         Some(AzInstant),
+    }
+    /// Re-export of rust-allocated (stack based) `ResultRawImageDecodeImageError` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultRawImageDecodeImageError {
+        Ok(AzRawImage),
+        Err(AzDecodeImageError),
     }
     /// Re-export of rust-allocated (stack based) `XmlStreamError` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzXmlStreamError {
@@ -4444,6 +4444,10 @@ mod dll {
         pub(crate) fn AzStyledDom_append(_:  &mut AzStyledDom, _:  AzStyledDom);
         pub(crate) fn AzStyledDom_nodeCount(_:  &AzStyledDom) -> usize;
         pub(crate) fn AzStyledDom_getHtmlString(_:  &AzStyledDom) -> AzString;
+        pub(crate) fn AzTexture_allocateClipMask(_:  AzGl, _:  AzLayoutSize) -> AzTexture;
+        pub(crate) fn AzTexture_drawClipMask(_:  &mut AzTexture, _:  *const AzTesselatedSvgNode) -> bool;
+        pub(crate) fn AzTexture_applyFxaa(_:  &mut AzTexture) -> bool;
+        pub(crate) fn AzTexture_delete(_:  &mut AzTexture);
         pub(crate) fn AzGl_getType(_:  &AzGl) -> AzGlType;
         pub(crate) fn AzGl_bufferDataUntyped(_:  &AzGl, _:  u32, _:  isize, _:  *const c_void, _:  u32);
         pub(crate) fn AzGl_bufferSubDataUntyped(_:  &AzGl, _:  u32, _:  isize, _:  isize, _:  *const c_void);
@@ -4667,11 +4671,12 @@ mod dll {
         pub(crate) fn AzGl_flushMappedBufferRange(_:  &AzGl, _:  u32, _:  isize, _:  isize);
         pub(crate) fn AzGl_delete(_:  &mut AzGl);
         pub(crate) fn AzGl_deepCopy(_:  &AzGl) -> AzGl;
-        pub(crate) fn AzTexture_delete(_:  &mut AzTexture);
         pub(crate) fn AzGLsyncPtr_delete(_:  &mut AzGLsyncPtr);
         pub(crate) fn AzTextureFlags_default() -> AzTextureFlags;
-        pub(crate) fn AzImageId_unique() -> AzImageId;
-        pub(crate) fn AzRawImage_fromAnyBytes(_:  AzU8VecRef) -> AzResultRawImageDecodeImageError;
+        pub(crate) fn AzRawImage_empty() -> AzRawImage;
+        pub(crate) fn AzRawImage_allocateClipMask(_:  AzLayoutSize) -> AzRawImage;
+        pub(crate) fn AzRawImage_decodeImageBytesAny(_:  AzU8VecRef) -> AzResultRawImageDecodeImageError;
+        pub(crate) fn AzRawImage_drawClipMask(_:  &mut AzRawImage, _:  *const AzSvgNode, _:  AzSvgStyle) -> bool;
         pub(crate) fn AzRawImage_encodeBmp(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodePng(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeJpeg(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
@@ -4679,6 +4684,7 @@ mod dll {
         pub(crate) fn AzRawImage_encodePnm(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeGif(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeTiff(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
+        pub(crate) fn AzImageId_unique() -> AzImageId;
         pub(crate) fn AzFontId_unique() -> AzFontId;
         pub(crate) fn AzSvg_fromString(_:  AzString, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
         pub(crate) fn AzSvg_fromBytes(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
@@ -8732,8 +8738,23 @@ pub mod gl {
     pub const ZOOM_X: GLenum = 0x0D16;
     pub const ZOOM_Y: GLenum = 0x0D17;
 
+    use crate::window::LayoutSize;
+    use crate::svg::TesselatedSvgNode;
     use crate::vec::{GLuintVec, StringVec};
     use crate::option::OptionU8VecRef;
+    /// `Texture` struct
+    
+#[doc(inline)] pub use crate::dll::AzTexture as Texture;
+    impl Texture {
+        /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
+        pub fn allocate_clip_mask(gl: Gl, size: LayoutSize) -> Self { unsafe { crate::dll::AzTexture_allocateClipMask(gl, size) } }
+        /// Draws a vertex / index buffer (aka. `&TesselatedSvgNode`) to the texture
+        pub fn draw_clip_mask(&mut self, node: *const AzTesselatedSvgNode)  -> bool { unsafe { crate::dll::AzTexture_drawClipMask(self, node) } }
+        /// Applies an FXAA filter to the texture
+        pub fn apply_fxaa(&mut self)  -> bool { unsafe { crate::dll::AzTexture_applyFxaa(self) } }
+    }
+
+    impl Drop for Texture { fn drop(&mut self) { unsafe { crate::dll::AzTexture_delete(self) } } }
     /// `Gl` struct
     
 #[doc(inline)] pub use crate::dll::AzGl as Gl;
@@ -9184,10 +9205,6 @@ pub mod gl {
 
     impl Clone for Gl { fn clone(&self) -> Self { unsafe { crate::dll::AzGl_deepCopy(self) } } }
     impl Drop for Gl { fn drop(&mut self) { unsafe { crate::dll::AzGl_delete(self) } } }
-    /// `Texture` struct
-    
-#[doc(inline)] pub use crate::dll::AzTexture as Texture;
-    impl Drop for Texture { fn drop(&mut self) { unsafe { crate::dll::AzTexture_delete(self) } } }
     /// `GlShaderPrecisionFormatReturn` struct
     
 #[doc(inline)] pub use crate::dll::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;
@@ -9279,7 +9296,37 @@ pub mod image {
     //! Struct definitions for image loading
     use crate::dll::*;
     use core::ffi::c_void;
+    use crate::window::LayoutSize;
     use crate::gl::U8VecRef;
+    use crate::svg::{SvgNode, SvgStyle};
+    /// `RawImage` struct
+    
+#[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
+    impl RawImage {
+        /// Returns a zero-sized image
+        pub fn empty() -> Self { unsafe { crate::dll::AzRawImage_empty() } }
+        /// Allocates a width * height, single-channel image with zeroed bytes
+        pub fn allocate_clip_mask(size: LayoutSize) -> Self { unsafe { crate::dll::AzRawImage_allocateClipMask(size) } }
+        /// Decodes a RawImage from any supported image format - automatically guesses the format based on magic header
+        pub fn decode_image_bytes_any(bytes: U8VecRef) ->  crate::error::ResultRawImageDecodeImageError { unsafe { crate::dll::AzRawImage_decodeImageBytesAny(bytes) } }
+        /// Calls the `RawImage::draw_clip_mask` function.
+        pub fn draw_clip_mask(&mut self, node: *const AzSvgNode, style: SvgStyle)  -> bool { unsafe { crate::dll::AzRawImage_drawClipMask(self, node, style) } }
+        /// Encodes the RawImage in the BMP image format
+        pub fn encode_bmp(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeBmp(self) } }
+        /// Encodes the RawImage in the PNG image format
+        pub fn encode_png(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodePng(self) } }
+        /// Encodes the RawImage in the JPG image format
+        pub fn encode_jpeg(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeJpeg(self) } }
+        /// Encodes the RawImage in the TGA image format
+        pub fn encode_tga(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeTga(self) } }
+        /// Encodes the RawImage in the PNM image format
+        pub fn encode_pnm(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodePnm(self) } }
+        /// Encodes the RawImage in the GIF image format
+        pub fn encode_gif(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeGif(self) } }
+        /// Encodes the RawImage in the TIFF image format
+        pub fn encode_tiff(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeTiff(self) } }
+    }
+
     /// `ImageMask` struct
     
 #[doc(inline)] pub use crate::dll::AzImageMask as ImageMask;
@@ -9306,28 +9353,6 @@ pub mod image {
     /// `RawImageData` struct
     
 #[doc(inline)] pub use crate::dll::AzRawImageData as RawImageData;
-    /// `RawImage` struct
-    
-#[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
-    impl RawImage {
-        /// Decodes a RawImage from any supported image format - automatically guesses the format based on magic header
-        pub fn from_any_bytes(bytes: U8VecRef) ->  crate::error::ResultRawImageDecodeImageError { unsafe { crate::dll::AzRawImage_fromAnyBytes(bytes) } }
-        /// Encodes the RawImage in the BMP image format
-        pub fn encode_bmp(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeBmp(self) } }
-        /// Encodes the RawImage in the PNG image format
-        pub fn encode_png(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodePng(self) } }
-        /// Encodes the RawImage in the JPG image format
-        pub fn encode_jpeg(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeJpeg(self) } }
-        /// Encodes the RawImage in the TGA image format
-        pub fn encode_tga(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeTga(self) } }
-        /// Encodes the RawImage in the PNM image format
-        pub fn encode_pnm(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodePnm(self) } }
-        /// Encodes the RawImage in the GIF image format
-        pub fn encode_gif(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeGif(self) } }
-        /// Encodes the RawImage in the TIFF image format
-        pub fn encode_tiff(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeTiff(self) } }
-    }
-
 }
 
 pub mod font {
@@ -9482,7 +9507,7 @@ pub mod svg {
         pub fn from_nodes(nodes: TesselatedSvgNodeVecRef) -> Self { unsafe { crate::dll::AzTesselatedSvgNode_fromNodes(nodes) } }
     }
 
-    /// `TesselatedSvgNodeVecRef` struct
+    /// Rust wrapper over a `&[TesselatedSvgNode]` or `&Vec<TesselatedSvgNode>`
     
 #[doc(inline)] pub use crate::dll::AzTesselatedSvgNodeVecRef as TesselatedSvgNodeVecRef;
     /// `SvgParseOptions` struct

@@ -4114,6 +4114,47 @@
 		"gl": {
 			"doc": "OpenGl helper types (`Texture`, `Gl`, etc.)",
 			"classes": {
+				"Texture": {
+					"external": "azul_impl::gl::Texture",
+					"clone": false,
+					"is_boxed_object": true,
+					"struct_fields": [
+						{"texture_id": {"type": "u32", "doc": "Raw OpenGL texture ID"}},
+						{"format": {"type": "RawImageFormat", "doc": "Format of this texture (rgba, brga, etc.)"}},
+						{"flags": {"type": "TextureFlags", "doc": "Hints and flags for optimization purposes"}},
+						{"size": {"type": "PhysicalSizeU32", "doc": "Size of this texture (in pixels)"}},
+						{"gl_context": {"type": "Gl", "doc": "A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)"}}
+					],
+					"constructors": {
+						"allocate_clip_mask": {
+							"doc": "Allocates an OpenGL texture of a given size with a single red channel (used for image masks)",
+							"fn_args": [
+								{"gl": "Gl"},
+								{"size": "LayoutSize"}
+							],
+							"fn_body": "azul_impl::svg::allocate_clipmask_texture(gl, size)"
+						}
+					},
+					"functions": {
+						"draw_clip_mask": {
+							"doc": "Draws a vertex / index buffer (aka. `&TesselatedSvgNode`) to the texture",
+							"fn_args": [
+								{"self": "refmut"},
+								{"node": "*const TesselatedSvgNode"}
+							],
+							"returns": {"type": "bool"},
+							"fn_body": "azul_impl::svg::render_tesselated_node_gpu(texture, unsafe { &*node }).is_some()"
+						},
+						"apply_fxaa": {
+							"doc": "Applies an FXAA filter to the texture",
+							"fn_args": [
+								{"self": "refmut"}
+							],
+							"returns": {"type": "bool"},
+							"fn_body": "azul_impl::svg::apply_fxaa(texture).is_some()"
+						}
+					}
+				},
 				"Gl": {
 					"external": "azul_impl::gl::GlContextPtr",
 					"is_boxed_object": true,
@@ -5870,18 +5911,6 @@
 					    }
 					}
 				},
-				"Texture": {
-					"external": "azul_impl::gl::Texture",
-					"clone": false,
-					"is_boxed_object": true,
-					"struct_fields": [
-						{"texture_id": {"type": "u32", "doc": "Raw OpenGL texture ID"}},
-						{"format": {"type": "RawImageFormat", "doc": "Format of this texture (rgba, brga, etc.)"}},
-						{"flags": {"type": "TextureFlags", "doc": "Hints and flags for optimization purposes"}},
-						{"size": {"type": "PhysicalSizeU32", "doc": "Size of this texture (in pixels)"}},
-						{"gl_context": {"type": "Gl", "doc": "A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)"}}
-					]
-				},
 				"GlShaderPrecisionFormatReturn": {
 					"external": "azul_impl::gl::GlShaderPrecisionFormatReturn",
 					"derive": ["Copy"],
@@ -6130,6 +6159,104 @@
 		"image": {
 			"doc": "Struct definitions for image loading",
 			"classes": {
+				"RawImage": {
+					"external": "azul_impl::resources::RawImage",
+					"struct_fields": [
+						{"pixels": {"type": "RawImageData", "doc": "Decoded image bytes"}},
+						{"width": {"type": "usize", "doc": "Width of the image"}},
+						{"height": {"type": "usize", "doc": "Height of the image"}},
+						{"alpha_premultiplied": {"type": "bool", "doc": "Whether the image already has the alpha channel premultiplied"}},
+						{"data_format": {"type": "RawImageFormat", "doc": "Which data format (channels) the image uses"}}
+					],
+					"constructors": {
+						"empty": {
+							"doc": "Returns a zero-sized image",
+							"fn_body": "AzRawImage::null_image()"
+						},
+						"allocate_clip_mask": {
+							"doc": "Allocates a width * height, single-channel image with zeroed bytes",
+							"fn_args": [
+								{"size": "LayoutSize"}
+							],
+							"fn_body": "AzRawImage::allocate_mask(size)"
+						},
+						"decode_image_bytes_any": {
+							"doc": "Decodes a RawImage from any supported image format - automatically guesses the format based on magic header",
+							"fn_args": [
+								{"bytes": "U8VecRef"}
+							],
+							"returns": {"type": "ResultRawImageDecodeImageError"},
+							"fn_body": "azul_impl::resources::decode::decode_raw_image_from_any_bytes(bytes.as_slice())"
+						}
+					},
+					"functions": {
+						"draw_clip_mask": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"node": "*const SvgNode"},
+								{"style": "SvgStyle"}
+							],
+							"returns": { "type": "bool" },
+							"fn_body": "azul_impl::svg::render_node_clipmask_cpu(rawimage, unsafe { &*node }, style).is_some()"
+						},
+						"encode_bmp": {
+							"doc": "Encodes the RawImage in the BMP image format",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_bmp(rawimage)"
+						},
+						"encode_png": {
+							"doc": "Encodes the RawImage in the PNG image format",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_png(rawimage)"
+						},
+						"encode_jpeg": {
+							"doc": "Encodes the RawImage in the JPG image format",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_jpeg(rawimage)"
+						},
+						"encode_tga": {
+							"doc": "Encodes the RawImage in the TGA image format",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_tga(rawimage)"
+						},
+						"encode_pnm": {
+							"doc": "Encodes the RawImage in the PNM image format",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_pnm(rawimage)"
+						},
+						"encode_gif": {
+							"doc": "Encodes the RawImage in the GIF image format",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_gif(rawimage)"
+						},
+						"encode_tiff": {
+							"doc": "Encodes the RawImage in the TIFF image format",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": {"type": "ResultU8VecEncodeImageError"},
+							"fn_body": "azul_impl::resources::encode::encode_tiff(rawimage)"
+						}
+					}
+				},
 				"ImageMask": {
 					"external": "azul_impl::resources::ImageMask",
 					"struct_fields": [
@@ -6200,84 +6327,6 @@
 						{"U16": {"type": "U16Vec", "doc": "16-bit image data"}},
 						{"F32": {"type": "F32Vec", "doc": "Floating-point image data"}}
 					]
-				},
-				"RawImage": {
-					"external": "azul_impl::resources::RawImage",
-					"struct_fields": [
-						{"pixels": {"type": "RawImageData", "doc": "Decoded image bytes"}},
-						{"width": {"type": "usize", "doc": "Width of the image"}},
-						{"height": {"type": "usize", "doc": "Height of the image"}},
-						{"has_premultiplied_alpha": {"type": "bool", "doc": "Whether the image already has the alpha channel premultiplied"}},
-						{"data_format": {"type": "RawImageFormat", "doc": "Which data format (channels) the image uses"}}
-					],
-					"constructors": {
-						"from_any_bytes": {
-							"doc": "Decodes a RawImage from any supported image format - automatically guesses the format based on magic header",
-							"fn_args": [
-								{"bytes": "U8VecRef"}
-							],
-							"returns": {"type": "ResultRawImageDecodeImageError"},
-							"fn_body": "azul_impl::resources::decode::decode_raw_image_from_any_bytes(bytes.as_slice())"
-						}
-					},
-					"functions": {
-						"encode_bmp": {
-							"doc": "Encodes the RawImage in the BMP image format",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "ResultU8VecEncodeImageError"},
-							"fn_body": "azul_impl::resources::encode::encode_bmp(rawimage)"
-						},
-						"encode_png": {
-							"doc": "Encodes the RawImage in the PNG image format",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "ResultU8VecEncodeImageError"},
-							"fn_body": "azul_impl::resources::encode::encode_png(rawimage)"
-						},
-						"encode_jpeg": {
-							"doc": "Encodes the RawImage in the JPG image format",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "ResultU8VecEncodeImageError"},
-							"fn_body": "azul_impl::resources::encode::encode_jpeg(rawimage)"
-						},
-						"encode_tga": {
-							"doc": "Encodes the RawImage in the TGA image format",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "ResultU8VecEncodeImageError"},
-							"fn_body": "azul_impl::resources::encode::encode_tga(rawimage)"
-						},
-						"encode_pnm": {
-							"doc": "Encodes the RawImage in the PNM image format",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "ResultU8VecEncodeImageError"},
-							"fn_body": "azul_impl::resources::encode::encode_pnm(rawimage)"
-						},
-						"encode_gif": {
-							"doc": "Encodes the RawImage in the GIF image format",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "ResultU8VecEncodeImageError"},
-							"fn_body": "azul_impl::resources::encode::encode_gif(rawimage)"
-						},
-						"encode_tiff": {
-							"doc": "Encodes the RawImage in the TIFF image format",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": {"type": "ResultU8VecEncodeImageError"},
-							"fn_body": "azul_impl::resources::encode::encode_tiff(rawimage)"
-						}
-					}
 				},
 				"RawImageFormat": {
 					"external": "azul_impl::resources::RawImageFormat",
@@ -6655,6 +6704,7 @@
 					}
 				},
 				"TesselatedSvgNodeVecRef": {
+					"doc": "Rust wrapper over a `&[TesselatedSvgNode]` or `&Vec<TesselatedSvgNode>`",
 					"external": "azul_impl::svg::TesselatedSvgNodeVecRef",
 					"clone": false,
 					"struct_fields": [

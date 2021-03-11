@@ -8,7 +8,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::string::String;
 use azul_css::{
-    OptionU16, OptionU32, OptionI16, LayoutRect, StyleFontSize,
+    OptionU16, OptionU32, OptionI16, LayoutRect, StyleFontSize, LayoutSize,
     ColorU, U8Vec, U16Vec, F32Vec, U32Vec, AzString, OptionI32, StringVec,
 };
 use crate::{
@@ -654,6 +654,17 @@ impl RawImage {
             height: 0,
             premultiplied_alpha: true,
             data_format: RawImageFormat::BGRA8,
+        }
+    }
+
+    /// Allocates a width * height, single-channel mask, used for drawing CPU image masks
+    pub fn allocate_mask(size: LayoutSize) -> Self {
+        Self {
+            pixels: RawImageData::U8(vec![0;size.width.max(0) as usize * size.height.max(0) as usize].into()),
+            width: size.width as usize,
+            height: size.height as usize,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::R8,
         }
     }
 

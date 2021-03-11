@@ -5596,15 +5596,6 @@ struct AzGl {
 };
 typedef struct AzGl AzGl;
 
-struct AzTexture {
-    uint32_t texture_id;
-    AzRawImageFormat format;
-    AzTextureFlags flags;
-    AzPhysicalSizeU32 size;
-    AzGl gl_context;
-};
-typedef struct AzTexture AzTexture;
-
 struct AzRefstrVecRef {
     AzRefstr* ptr;
     size_t len;
@@ -6207,24 +6198,6 @@ typedef union AzOptionVirtualKeyCode AzOptionVirtualKeyCode;
 #define AzOptionVirtualKeyCode_None { .None = { .tag = AzOptionVirtualKeyCodeTag_None } }
 #define AzOptionVirtualKeyCode_Some(v) { .Some = { .tag = AzOptionVirtualKeyCodeTag_Some, .payload = v } }
 
-enum AzOptionTextureTag {
-   AzOptionTextureTag_None,
-   AzOptionTextureTag_Some,
-};
-typedef enum AzOptionTextureTag AzOptionTextureTag;
-
-struct AzOptionTextureVariant_None { AzOptionTextureTag tag; };
-typedef struct AzOptionTextureVariant_None AzOptionTextureVariant_None;
-struct AzOptionTextureVariant_Some { AzOptionTextureTag tag; AzTexture payload; };
-typedef struct AzOptionTextureVariant_Some AzOptionTextureVariant_Some;
-union AzOptionTexture {
-    AzOptionTextureVariant_None None;
-    AzOptionTextureVariant_Some Some;
-};
-typedef union AzOptionTexture AzOptionTexture;
-#define AzOptionTexture_None { .None = { .tag = AzOptionTextureTag_None } }
-#define AzOptionTexture_Some(v) { .Some = { .tag = AzOptionTextureTag_Some, .payload = v } }
-
 enum AzOptionImageMaskTag {
    AzOptionImageMaskTag_None,
    AzOptionImageMaskTag_Some,
@@ -6487,11 +6460,6 @@ struct AzGlCallbackInfo {
     void* positioned_rects;
 };
 typedef struct AzGlCallbackInfo AzGlCallbackInfo;
-
-struct AzGlCallbackReturn {
-    AzOptionTexture texture;
-};
-typedef struct AzGlCallbackReturn AzGlCallbackReturn;
 
 enum AzEventFilterTag {
    AzEventFilterTag_Hover,
@@ -6806,6 +6774,15 @@ struct AzTagIdToNodeIdMapping {
 };
 typedef struct AzTagIdToNodeIdMapping AzTagIdToNodeIdMapping;
 
+struct AzTexture {
+    uint32_t texture_id;
+    AzRawImageFormat format;
+    AzTextureFlags flags;
+    AzPhysicalSizeU32 size;
+    AzGl gl_context;
+};
+typedef struct AzTexture AzTexture;
+
 struct AzGetProgramBinaryReturn {
     AzU8Vec _0;
     uint32_t _1;
@@ -6834,15 +6811,6 @@ typedef union AzRawImageData AzRawImageData;
 #define AzRawImageData_U8(v) { .U8 = { .tag = AzRawImageDataTag_U8, .payload = v } }
 #define AzRawImageData_U16(v) { .U16 = { .tag = AzRawImageDataTag_U16, .payload = v } }
 #define AzRawImageData_F32(v) { .F32 = { .tag = AzRawImageDataTag_F32, .payload = v } }
-
-struct AzRawImage {
-    AzRawImageData pixels;
-    size_t width;
-    size_t height;
-    bool  has_premultiplied_alpha;
-    AzRawImageFormat data_format;
-};
-typedef struct AzRawImage AzRawImage;
 
 enum AzSvgPathElementTag {
    AzSvgPathElementTag_Line,
@@ -6972,24 +6940,6 @@ struct AzTagIdsToNodeIdsMappingVec {
 };
 typedef struct AzTagIdsToNodeIdsMappingVec AzTagIdsToNodeIdsMappingVec;
 
-enum AzOptionRawImageTag {
-   AzOptionRawImageTag_None,
-   AzOptionRawImageTag_Some,
-};
-typedef enum AzOptionRawImageTag AzOptionRawImageTag;
-
-struct AzOptionRawImageVariant_None { AzOptionRawImageTag tag; };
-typedef struct AzOptionRawImageVariant_None AzOptionRawImageVariant_None;
-struct AzOptionRawImageVariant_Some { AzOptionRawImageTag tag; AzRawImage payload; };
-typedef struct AzOptionRawImageVariant_Some AzOptionRawImageVariant_Some;
-union AzOptionRawImage {
-    AzOptionRawImageVariant_None None;
-    AzOptionRawImageVariant_Some Some;
-};
-typedef union AzOptionRawImage AzOptionRawImage;
-#define AzOptionRawImage_None { .None = { .tag = AzOptionRawImageTag_None } }
-#define AzOptionRawImage_Some(v) { .Some = { .tag = AzOptionRawImageTag_Some, .payload = v } }
-
 enum AzOptionTaskBarIconTag {
    AzOptionTaskBarIconTag_None,
    AzOptionTaskBarIconTag_Some,
@@ -7044,6 +6994,24 @@ typedef union AzOptionString AzOptionString;
 #define AzOptionString_None { .None = { .tag = AzOptionStringTag_None } }
 #define AzOptionString_Some(v) { .Some = { .tag = AzOptionStringTag_Some, .payload = v } }
 
+enum AzOptionTextureTag {
+   AzOptionTextureTag_None,
+   AzOptionTextureTag_Some,
+};
+typedef enum AzOptionTextureTag AzOptionTextureTag;
+
+struct AzOptionTextureVariant_None { AzOptionTextureTag tag; };
+typedef struct AzOptionTextureVariant_None AzOptionTextureVariant_None;
+struct AzOptionTextureVariant_Some { AzOptionTextureTag tag; AzTexture payload; };
+typedef struct AzOptionTextureVariant_Some AzOptionTextureVariant_Some;
+union AzOptionTexture {
+    AzOptionTextureVariant_None None;
+    AzOptionTextureVariant_Some Some;
+};
+typedef union AzOptionTexture AzOptionTexture;
+#define AzOptionTexture_None { .None = { .tag = AzOptionTextureTag_None } }
+#define AzOptionTexture_Some(v) { .Some = { .tag = AzOptionTextureTag_Some, .payload = v } }
+
 enum AzOptionDurationTag {
    AzOptionDurationTag_None,
    AzOptionDurationTag_Some,
@@ -7061,24 +7029,6 @@ union AzOptionDuration {
 typedef union AzOptionDuration AzOptionDuration;
 #define AzOptionDuration_None { .None = { .tag = AzOptionDurationTag_None } }
 #define AzOptionDuration_Some(v) { .Some = { .tag = AzOptionDurationTag_Some, .payload = v } }
-
-enum AzResultRawImageDecodeImageErrorTag {
-   AzResultRawImageDecodeImageErrorTag_Ok,
-   AzResultRawImageDecodeImageErrorTag_Err,
-};
-typedef enum AzResultRawImageDecodeImageErrorTag AzResultRawImageDecodeImageErrorTag;
-
-struct AzResultRawImageDecodeImageErrorVariant_Ok { AzResultRawImageDecodeImageErrorTag tag; AzRawImage payload; };
-typedef struct AzResultRawImageDecodeImageErrorVariant_Ok AzResultRawImageDecodeImageErrorVariant_Ok;
-struct AzResultRawImageDecodeImageErrorVariant_Err { AzResultRawImageDecodeImageErrorTag tag; AzDecodeImageError payload; };
-typedef struct AzResultRawImageDecodeImageErrorVariant_Err AzResultRawImageDecodeImageErrorVariant_Err;
-union AzResultRawImageDecodeImageError {
-    AzResultRawImageDecodeImageErrorVariant_Ok Ok;
-    AzResultRawImageDecodeImageErrorVariant_Err Err;
-};
-typedef union AzResultRawImageDecodeImageError AzResultRawImageDecodeImageError;
-#define AzResultRawImageDecodeImageError_Ok(v) { .Ok = { .tag = AzResultRawImageDecodeImageErrorTag_Ok, .payload = v } }
-#define AzResultRawImageDecodeImageError_Err(v) { .Err = { .tag = AzResultRawImageDecodeImageErrorTag_Err, .payload = v } }
 
 struct AzDuplicatedNamespaceError {
     AzString ns;
@@ -7236,6 +7186,11 @@ typedef union AzInlineWord AzInlineWord;
 #define AzInlineWord_Return { .Return = { .tag = AzInlineWordTag_Return } }
 #define AzInlineWord_Space { .Space = { .tag = AzInlineWordTag_Space } }
 #define AzInlineWord_Word(v) { .Word = { .tag = AzInlineWordTag_Word, .payload = v } }
+
+struct AzGlCallbackReturn {
+    AzOptionTexture texture;
+};
+typedef struct AzGlCallbackReturn AzGlCallbackReturn;
 
 struct AzRefCountInner {
     size_t num_copies;
@@ -7600,6 +7555,15 @@ struct AzGetActiveUniformReturn {
 };
 typedef struct AzGetActiveUniformReturn AzGetActiveUniformReturn;
 
+struct AzRawImage {
+    AzRawImageData pixels;
+    size_t width;
+    size_t height;
+    bool  alpha_premultiplied;
+    AzRawImageFormat data_format;
+};
+typedef struct AzRawImage AzRawImage;
+
 enum AzImageSourceTag {
    AzImageSourceTag_Embedded,
    AzImageSourceTag_File,
@@ -7894,6 +7858,24 @@ typedef union AzOptionRefAny AzOptionRefAny;
 #define AzOptionRefAny_None { .None = { .tag = AzOptionRefAnyTag_None } }
 #define AzOptionRefAny_Some(v) { .Some = { .tag = AzOptionRefAnyTag_Some, .payload = v } }
 
+enum AzOptionRawImageTag {
+   AzOptionRawImageTag_None,
+   AzOptionRawImageTag_Some,
+};
+typedef enum AzOptionRawImageTag AzOptionRawImageTag;
+
+struct AzOptionRawImageVariant_None { AzOptionRawImageTag tag; };
+typedef struct AzOptionRawImageVariant_None AzOptionRawImageVariant_None;
+struct AzOptionRawImageVariant_Some { AzOptionRawImageTag tag; AzRawImage payload; };
+typedef struct AzOptionRawImageVariant_Some AzOptionRawImageVariant_Some;
+union AzOptionRawImage {
+    AzOptionRawImageVariant_None None;
+    AzOptionRawImageVariant_Some Some;
+};
+typedef union AzOptionRawImage AzOptionRawImage;
+#define AzOptionRawImage_None { .None = { .tag = AzOptionRawImageTag_None } }
+#define AzOptionRawImage_Some(v) { .Some = { .tag = AzOptionRawImageTag_Some, .payload = v } }
+
 enum AzOptionWaylandThemeTag {
    AzOptionWaylandThemeTag_None,
    AzOptionWaylandThemeTag_Some,
@@ -7929,6 +7911,24 @@ union AzOptionInstant {
 typedef union AzOptionInstant AzOptionInstant;
 #define AzOptionInstant_None { .None = { .tag = AzOptionInstantTag_None } }
 #define AzOptionInstant_Some(v) { .Some = { .tag = AzOptionInstantTag_Some, .payload = v } }
+
+enum AzResultRawImageDecodeImageErrorTag {
+   AzResultRawImageDecodeImageErrorTag_Ok,
+   AzResultRawImageDecodeImageErrorTag_Err,
+};
+typedef enum AzResultRawImageDecodeImageErrorTag AzResultRawImageDecodeImageErrorTag;
+
+struct AzResultRawImageDecodeImageErrorVariant_Ok { AzResultRawImageDecodeImageErrorTag tag; AzRawImage payload; };
+typedef struct AzResultRawImageDecodeImageErrorVariant_Ok AzResultRawImageDecodeImageErrorVariant_Ok;
+struct AzResultRawImageDecodeImageErrorVariant_Err { AzResultRawImageDecodeImageErrorTag tag; AzDecodeImageError payload; };
+typedef struct AzResultRawImageDecodeImageErrorVariant_Err AzResultRawImageDecodeImageErrorVariant_Err;
+union AzResultRawImageDecodeImageError {
+    AzResultRawImageDecodeImageErrorVariant_Ok Ok;
+    AzResultRawImageDecodeImageErrorVariant_Err Err;
+};
+typedef union AzResultRawImageDecodeImageError AzResultRawImageDecodeImageError;
+#define AzResultRawImageDecodeImageError_Ok(v) { .Ok = { .tag = AzResultRawImageDecodeImageErrorTag_Ok, .payload = v } }
+#define AzResultRawImageDecodeImageError_Err(v) { .Err = { .tag = AzResultRawImageDecodeImageErrorTag_Err, .payload = v } }
 
 enum AzXmlStreamErrorTag {
    AzXmlStreamErrorTag_UnexpectedEndOfStream,
@@ -9450,6 +9450,10 @@ extern DLLIMPORT AzStyledDom AzStyledDom_fromFile(AzString  xml_file_path);
 extern DLLIMPORT void AzStyledDom_append(AzStyledDom* restrict styleddom, AzStyledDom  dom);
 extern DLLIMPORT size_t AzStyledDom_nodeCount(AzStyledDom* const styleddom);
 extern DLLIMPORT AzString AzStyledDom_getHtmlString(AzStyledDom* const styleddom);
+extern DLLIMPORT AzTexture AzTexture_allocateClipMask(AzGl  gl, AzLayoutSize  size);
+extern DLLIMPORT bool  AzTexture_drawClipMask(AzTexture* restrict texture, AzTesselatedSvgNode * node);
+extern DLLIMPORT bool  AzTexture_applyFxaa(AzTexture* restrict texture);
+extern DLLIMPORT void AzTexture_delete(AzTexture* restrict instance);
 extern DLLIMPORT AzGlType AzGl_getType(AzGl* const gl);
 extern DLLIMPORT void AzGl_bufferDataUntyped(AzGl* const gl, uint32_t target, ssize_t size, void* data, uint32_t usage);
 extern DLLIMPORT void AzGl_bufferSubDataUntyped(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t size, void* data);
@@ -9673,11 +9677,12 @@ extern DLLIMPORT void AzGl_bufferStorage(AzGl* const gl, uint32_t target, ssize_
 extern DLLIMPORT void AzGl_flushMappedBufferRange(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t length);
 extern DLLIMPORT void AzGl_delete(AzGl* restrict instance);
 extern DLLIMPORT AzGl AzGl_deepCopy(AzGl* const instance);
-extern DLLIMPORT void AzTexture_delete(AzTexture* restrict instance);
 extern DLLIMPORT void AzGLsyncPtr_delete(AzGLsyncPtr* restrict instance);
 extern DLLIMPORT AzTextureFlags AzTextureFlags_default();
-extern DLLIMPORT AzImageId AzImageId_unique();
-extern DLLIMPORT AzRawImage AzRawImage_fromAnyBytes(AzU8VecRef  bytes);
+extern DLLIMPORT AzRawImage AzRawImage_empty();
+extern DLLIMPORT AzRawImage AzRawImage_allocateClipMask(AzLayoutSize  size);
+extern DLLIMPORT AzRawImage AzRawImage_decodeImageBytesAny(AzU8VecRef  bytes);
+extern DLLIMPORT bool  AzRawImage_drawClipMask(AzRawImage* restrict rawimage, AzSvgNode * node, AzSvgStyle  style);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeBmp(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePng(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeJpeg(AzRawImage* const rawimage);
@@ -9685,6 +9690,7 @@ extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTga(AzRawImage* 
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePnm(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeGif(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTiff(AzRawImage* const rawimage);
+extern DLLIMPORT AzImageId AzImageId_unique();
 extern DLLIMPORT AzFontId AzFontId_unique();
 extern DLLIMPORT AzSvg AzSvg_fromString(AzString  svg_string, AzSvgParseOptions  parse_options);
 extern DLLIMPORT AzSvg AzSvg_fromBytes(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);

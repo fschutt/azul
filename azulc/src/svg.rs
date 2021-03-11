@@ -440,7 +440,7 @@ pub fn tesselate_node_stroke(node: &SvgNode, ss: SvgStrokeStyle) -> TesselatedSv
 
 // NOTE: This is a separate step both in order to reuse GPU textures
 // and also because texture allocation is heavy and can be offloaded to a different thread
-pub fn allocate_clipmask_texture(gl_context: &GlContextPtr, size: LayoutSize) -> Texture {
+pub fn allocate_clipmask_texture(gl_context: GlContextPtr, size: LayoutSize) -> Texture {
 
     use azul_core::gl::TextureFlags;
     use azul_core::window::PhysicalSizeU32;
@@ -459,14 +459,19 @@ pub fn allocate_clipmask_texture(gl_context: &GlContextPtr, size: LayoutSize) ->
             width: size.width.max(0) as u32,
             height: size.height.max(0) as u32,
         },
-        gl_context: gl_context.clone(),
+        gl_context,
     }
+}
+
+/// Applies an FXAA filter to the texture
+pub fn apply_fxaa(texture: &mut Texture) -> Option<()> {
+    // TODO
+    Some(())
 }
 
 pub fn render_tesselated_node_gpu(
     texture: &mut Texture,
     node: &TesselatedSvgNode,
-    style: SvgStyle,
 ) -> Option<()> {
 
     use std::mem;
@@ -581,17 +586,6 @@ pub fn render_tesselated_node_gpu(
     gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, *index_buffer_id);
     gl_context.uniform_2f(bbox_uniform_location, texture_size.width as f32, texture_size.height as f32);
     gl_context.draw_elements(gl::TRIANGLES, node.indices.len() as i32, INDEX_TYPE, 0);
-
-    if style.get_antialias() {
-        gl_context.use_program(fxaa_shader);
-
-        /*
-        shader.uniforms.iResolution = [ canvas.width, canvas.height ]
-        shader.uniforms.iChannel0 = 0
-        */
-
-        // do_fxaa(&mut texture)
-    }
 
     // stage 4: cleanup - reset the OpenGL state
     if current_multisample[0] == gl::TRUE { gl_context.enable(gl::MULTISAMPLE); }
