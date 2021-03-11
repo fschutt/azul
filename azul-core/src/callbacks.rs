@@ -146,12 +146,13 @@ impl_option!(RefAny, OptionRefAny, copy = false, clone = false, [Debug, Hash, Pa
 
 // the refcount of RefAny is atomic, therefore `RefAny` is not `Sync`, but it is `Send`
 unsafe impl Send for RefAny { }
-// necessary for rayon to work
-unsafe impl Sync for RefAny { }
+// library-internal only - RefAny is not Sync outside of this library!
+unsafe impl Sync for RefAny { } // necessary for rayon to work
 
 impl RefAny {
 
-    /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID
+    /// Creates a new, type-erased pointer by casting the `T` value into a
+    /// `Vec<u8>` and saving the length + type ID
     pub fn new<T: 'static>(value: T) -> Self {
 
         extern "C" fn default_custom_destructor<U: 'static>(ptr: &mut c_void) {
@@ -180,7 +181,19 @@ impl RefAny {
         s
     }
 
-    pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, custom_destructor: extern "C" fn(&mut c_void)) -> Self {
+    /// C-ABI compatible function to create a `RefAny` across the C boundary
+    pub fn new_c(
+        // *const T
+        ptr: *const c_void,
+        // sizeof(T)
+        len: usize,
+        // unique ID of the type (used for type comparison when downcasting)
+        type_id: u64,
+        // name of the class such as "app::MyData", usually compiler- or macro-generated
+        type_name: AzString,
+        custom_destructor: extern "C" fn(&mut c_void)
+    ) -> Self {
+
         use core::ptr;
 
         // cast the struct as bytes
@@ -210,7 +223,13 @@ impl RefAny {
         }
     }
 
-    // In order to be able to modify the RefAny itself
+    /// In order to be able to use a &mut RefAny, we have to make
+    /// sure that the &mut is not pointing into &'static memory
+    /// (writing to static memory is UB)
+    ///
+    /// Therefore the solution is to perform a shallow clone,
+    /// which will just set the "is_dead" to false, which means that
+    /// the RefAny has been cloned at least once by the library
     pub fn clone_into_library_memory(&mut self) -> Self {
         self.sharing_info.downcast_mut().num_copies += 1; // bump refcount
         Self {
@@ -220,11 +239,13 @@ impl RefAny {
         }
     }
 
+    /// Checks whether the typeids match
     pub fn is_type(&self, type_id: u64) -> bool {
         self.sharing_info.downcast().type_id == type_id
     }
 
-    // Returns the typeid of `T` as a u64 (necessary because `core::any::TypeId` is not C-ABI compatible)
+    // Returns the typeid of `T` as a u64 (necessary because
+    // `core::any::TypeId` is not C-ABI compatible)
     #[inline]
     pub fn get_type_id_static<T: 'static>() -> u64 {
         use core::any::TypeId;
@@ -236,10 +257,12 @@ impl RefAny {
         struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
     }
 
+    // Returns the internal type ID
     pub fn get_type_id(&self) -> u64 {
         self.sharing_info.downcast().type_id
     }
 
+    // Returns the type name
     pub fn get_type_name(&self) -> AzString {
         self.sharing_info.downcast().type_name.clone()
     }

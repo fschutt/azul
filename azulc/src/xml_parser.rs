@@ -617,7 +617,7 @@ pub fn parse_xml_string(xml: &str) -> Result<XmlNodeVec, XmlError> {
 
 /// Given a root node, traverses along the hierarchy, and returns a
 /// mutable reference to the last child node of the root node
-pub fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a mut XmlNode> {
+fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a mut XmlNode> {
     let mut current_node = &*root_node;
     let mut iter = hierarchy.iter();
 
@@ -629,7 +629,7 @@ pub fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&
     // the borrow checker doesn't allow recursive mutable borrowing
     let node_ptr = current_node as *const XmlNode;
     let mut_node_ptr = node_ptr as *mut XmlNode;
-    Some(unsafe { &mut *mut_node_ptr })
+    Some(unsafe { &mut *mut_node_ptr }) // safe because we hold a &'a mut XmlNode
 }
 
 /// Compiles a XML `args="a: String, b: bool"` into a `["a" => "String", "b" => "bool"]` map
