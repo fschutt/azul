@@ -41,7 +41,7 @@ mod node_id {
         /// disabled in release mode.
         #[inline(always)]
         pub const fn new(value: usize) -> Self {
-            NodeId { index: unsafe { NonZeroUsize::new_unchecked(value + 1) } }
+            NodeId { index: unsafe { NonZeroUsize::new_unchecked(value.saturating_add(1)) } }
         }
 
         pub const fn from_usize(value: usize) -> Option<Self> {
@@ -292,7 +292,7 @@ impl<'a> Index<NodeId> for NodeHierarchyRef<'a> {
 
     #[inline]
     fn index(&self, node_id: NodeId) -> &Node {
-        unsafe { self.internal.get_unchecked(node_id.index()) }
+        &self.internal[node_id.index()]
     }
 }
 
@@ -301,14 +301,14 @@ impl<'a> Index<NodeId> for NodeHierarchyRefMut<'a> {
 
     #[inline]
     fn index(&self, node_id: NodeId) -> &Node {
-        unsafe { self.internal.get_unchecked(node_id.index()) }
+        &self.internal[node_id.index()]
     }
 }
 
 impl<'a> IndexMut<NodeId> for NodeHierarchyRefMut<'a> {
     #[inline]
     fn index_mut(&mut self, node_id: NodeId) -> &mut Node {
-        unsafe { self.internal.get_unchecked_mut(node_id.index()) }
+        &mut self.internal[node_id.index()]
     }
 }
 
@@ -422,7 +422,7 @@ impl<'a, T> Index<NodeId> for NodeDataContainerRef<'a, T> {
 
     #[inline]
     fn index(&self, node_id: NodeId) -> &T {
-        unsafe { self.internal.get_unchecked(node_id.index()) }
+        &self.internal[node_id.index()]
     }
 }
 
@@ -431,7 +431,7 @@ impl<'a, T> Index<NodeId> for NodeDataContainerRefMut<'a, T> {
 
     #[inline]
     fn index(&self, node_id: NodeId) -> &T {
-        unsafe { self.internal.get_unchecked(node_id.index()) }
+        &self.internal[node_id.index()]
     }
 }
 
@@ -439,7 +439,7 @@ impl<'a, T> IndexMut<NodeId> for NodeDataContainerRefMut<'a, T> {
 
     #[inline]
     fn index_mut(&mut self, node_id: NodeId) -> &mut T {
-        unsafe { self.internal.get_unchecked_mut(node_id.index()) }
+        &mut self.internal[node_id.index()]
     }
 }
 

@@ -150,6 +150,7 @@ impl Instant {
         }
     }
 }
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SystemTick {
