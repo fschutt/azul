@@ -57,13 +57,13 @@ extern "C" fn layout(data: &mut RefAny, _info: LayoutInfo) -> StyledDom {
     const DOM_CHILD: &[Dom] = &[Dom {
         root: NodeData::new(NodeType::Label(AzString::from_const_str(DOM_STRING))),
         children: DomVec::from_const_slice(&[]),
-        estimated_total_children: 0,
+        total_children: 0,
     }];
     const DOM_CHILDREN: DomVec = DomVec::from_const_slice(DOM_CHILD);
     const DOM: Dom = Dom {
         root: NodeData::body(),
         children: DOM_CHILDREN,
-        estimated_total_children: 2,
+        total_children: 2,
     };
 
     DOM.style(Css::empty())

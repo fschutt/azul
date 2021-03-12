@@ -2946,7 +2946,7 @@ mod dll {
         pub destructor: AzParentWithNodeDepthVecDestructor,
     }
     /// Re-export of rust-allocated (stack based) `OptionFile` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFile {
+    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFile {
         None,
         Some(AzFile),
     }
@@ -4837,16 +4837,17 @@ pub mod app {
     use core::ffi::c_void;
     impl Default for AppConfig {
         fn default() -> Self {
+            use crate::callbacks::SystemCallbacks;
             Self {
                 // note: this field should never be changed, apps that
                 // want to use a newer layout model need to explicitly set
                 // it or use a header shim for ABI compat
-                layout_model: LayoutSolverVersion::March2021,
+                layout_solver: LayoutSolverVersion::March2021,
                 log_level: AppLogLevel::Error,
                 enable_visual_panic_hook: true,
                 enable_logging_on_panic: true,
                 enable_tab_navigation: true,
-                system_callbacks: ExternalSystemCallbacks::rust_internal(),
+                system_callbacks: SystemCallbacks::library_internal(),
             }
         }
     }    use crate::callbacks::RefAny;
@@ -5552,14 +5553,12 @@ pub mod dom {
     use crate::callbacks::GlCallback;
     use crate::callbacks::GlCallbackType;
     use crate::callbacks::RefAny;
-    use crate::resources::ImageId;
-    use crate::resources::FontId;
+    use crate::image::ImageId;
+    use crate::font::FontId;
     use crate::vec::DomVec;
     use crate::vec::IdOrClassVec;
     use crate::vec::CallbackDataVec;
     use crate::vec::NodeDataInlineCssPropertyVec;
-    use crate::css::Css;
-    use crate::style::StyledDom;
 
     impl Dom {
 
@@ -5571,7 +5570,7 @@ pub mod dom {
             Self {
                 root: NodeData::new(node_type),
                 children: DEFAULT_VEC,
-                estimated_total_children: 0,
+                total_children: 0,
             }
         }
 
@@ -5619,9 +5618,9 @@ pub mod dom {
         pub fn set_callbacks(&mut self, callbacks: CallbackDataVec) { self.root.set_callbacks(callbacks); }
         #[inline(always)]
         pub fn set_children(&mut self, children: DomVec) {
-            self.estimated_total_children = 0;
+            self.total_children = 0;
             for c in children.iter() {
-                self.estimated_total_children += c.estimated_total_children + 1;
+                self.total_children += c.total_children + 1;
             }
             self.children = children;
         }
@@ -5629,8 +5628,6 @@ pub mod dom {
         pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.root.set_clip_mask(clip_mask); }
         #[inline(always)]
         pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.root.set_tab_index(tab_index); }
-        #[inline(always)]
-        pub fn style(self, css: Css) -> StyledDom { StyledDom::new(self, css) }
     }
 
     impl NodeData {
@@ -5767,16 +5764,16 @@ pub mod dom {
     impl core::iter::FromIterator<Dom> for Dom {
         fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
             use crate::vec::DomVec;
-            let mut estimated_total_children = 0;
+            let mut total_children = 0;
             let children = iter.into_iter().map(|c| {
-                estimated_total_children += c.estimated_total_children + 1;
+                total_children += c.total_children + 1;
                 c
             }).collect::<DomVec>();
 
             Dom {
                 root: NodeData::div(),
                 children,
-                estimated_total_children,
+                total_children,
             }
         }
     }
@@ -5787,14 +5784,14 @@ pub mod dom {
             let children = iter.into_iter().map(|c| Dom {
                 root: c,
                 children: DomVec::from_const_slice(&[]),
-                estimated_total_children: 0
+                total_children: 0
             }).collect::<DomVec>();
-            let estimated_total_children = children.len();
+            let total_children = children.len();
 
             Dom {
                 root: NodeData::div(),
                 children: children,
-                estimated_total_children,
+                total_children,
             }
         }
     }
@@ -10051,6 +10048,8 @@ pub mod vec {
 
     impl_vec!(u8,  AzU8Vec,  AzU8VecDestructor, az_u8_vec_destructor, AzU8Vec_delete);
     impl_vec_clone!(u8,  AzU8Vec,  AzU8VecDestructor);
+    impl_vec!(u16, AzU16Vec, AzU16VecDestructor, az_u16_vec_destructor, AzU16Vec_delete);
+    impl_vec_clone!(u16, AzU16Vec, AzU16VecDestructor);
     impl_vec!(u32, AzU32Vec, AzU32VecDestructor, az_u32_vec_destructor, AzU32Vec_delete);
     impl_vec_clone!(u32, AzU32Vec, AzU32VecDestructor);
     impl_vec!(u32, AzScanCodeVec, AzScanCodeVecDestructor, az_scan_code_vec_destructor, AzScanCodeVec_delete);
@@ -10059,6 +10058,22 @@ pub mod vec {
     impl_vec_clone!(u32, AzGLuintVec, AzGLuintVecDestructor);
     impl_vec!(i32, AzGLintVec, AzGLintVecDestructor, az_g_lint_vec_destructor, AzGLintVec_delete);
     impl_vec_clone!(i32, AzGLintVec, AzGLintVecDestructor);
+    impl_vec!(f32,  AzF32Vec,  AzF32VecDestructor, az_f32_vec_destructor, AzF32Vec_delete);
+    impl_vec_clone!(f32,  AzF32Vec,  AzF32VecDestructor);
+    impl_vec!(AzXmlNode,  AzXmlNodeVec,  AzXmlNodeVecDestructor, az_xml_node_vec_destructor, AzXmlNodeVec_delete);
+    impl_vec_clone!(AzXmlNode,  AzXmlNodeVec,  AzXmlNodeVecDestructor);
+    impl_vec!(AzInlineWord,  AzInlineWordVec,  AzInlineWordVecDestructor, az_inline_word_vec_destructor, AzInlineWordVec_delete);
+    impl_vec_clone!(AzInlineWord,  AzInlineWordVec,  AzInlineWordVecDestructor);
+    impl_vec!(AzInlineGlyph,  AzInlineGlyphVec,  AzInlineGlyphVecDestructor, az_inline_glyph_vec_destructor, AzInlineGlyphVec_delete);
+    impl_vec_clone!(AzInlineGlyph,  AzInlineGlyphVec,  AzInlineGlyphVecDestructor);
+    impl_vec!(AzInlineLine,  AzInlineLineVec,  AzInlineLineVecDestructor, az_inline_line_vec_destructor, AzInlineLineVec_delete);
+    impl_vec_clone!(AzInlineLine,  AzInlineLineVec,  AzInlineLineVecDestructor);
+    impl_vec!(AzFmtArg,  AzFmtArgVec,  AzFmtArgVecDestructor, az_fmt_arg_vec_destructor, AzFmtArgVec_delete);
+    impl_vec_clone!(AzFmtArg,  AzFmtArgVec,  AzFmtArgVecDestructor);
+    impl_vec!(AzInlineTextHit,  AzInlineTextHitVec,  AzInlineTextHitVecDestructor, az_inline_text_hit_vec_destructor, AzInlineTextHitVec_delete);
+    impl_vec_clone!(AzInlineTextHit,  AzInlineTextHitVec,  AzInlineTextHitVecDestructor);
+    impl_vec!(AzTesselatedSvgNode,  AzTesselatedSvgNodeVec,  AzTesselatedSvgNodeVecDestructor, az_tesselated_svg_node_vec_destructor, AzTesselatedSvgNodeVec_delete);
+    impl_vec_clone!(AzTesselatedSvgNode,  AzTesselatedSvgNodeVec,  AzTesselatedSvgNodeVecDestructor);
     impl_vec!(AzNodeDataInlineCssProperty, AzNodeDataInlineCssPropertyVec, NodeDataInlineCssPropertyVecDestructor, az_node_data_inline_css_property_vec_destructor, AzNodeDataInlineCssPropertyVec_delete);
     impl_vec_clone!(AzNodeDataInlineCssProperty, AzNodeDataInlineCssPropertyVec, NodeDataInlineCssPropertyVecDestructor);
     impl_vec!(AzIdOrClass, AzIdOrClassVec, IdOrClassVecDestructor, az_id_or_class_vec_destructor, AzIdOrClassVec_delete);

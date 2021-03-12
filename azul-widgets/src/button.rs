@@ -1,7 +1,7 @@
 use azul::{
     dom::TabIndex,
     style::StyledDom,
-    resources::ImageId,
+    image::ImageId,
     css::Css,
     str::String as AzString,
 };

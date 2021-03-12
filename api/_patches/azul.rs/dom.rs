@@ -6,14 +6,12 @@
     use crate::callbacks::GlCallback;
     use crate::callbacks::GlCallbackType;
     use crate::callbacks::RefAny;
-    use crate::resources::ImageId;
-    use crate::resources::FontId;
+    use crate::image::ImageId;
+    use crate::font::FontId;
     use crate::vec::DomVec;
     use crate::vec::IdOrClassVec;
     use crate::vec::CallbackDataVec;
     use crate::vec::NodeDataInlineCssPropertyVec;
-    use crate::css::Css;
-    use crate::style::StyledDom;
 
     impl Dom {
 
@@ -25,7 +23,7 @@
             Self {
                 root: NodeData::new(node_type),
                 children: DEFAULT_VEC,
-                estimated_total_children: 0,
+                total_children: 0,
             }
         }
 
@@ -73,9 +71,9 @@
         pub fn set_callbacks(&mut self, callbacks: CallbackDataVec) { self.root.set_callbacks(callbacks); }
         #[inline(always)]
         pub fn set_children(&mut self, children: DomVec) {
-            self.estimated_total_children = 0;
+            self.total_children = 0;
             for c in children.iter() {
-                self.estimated_total_children += c.estimated_total_children + 1;
+                self.total_children += c.total_children + 1;
             }
             self.children = children;
         }
@@ -83,8 +81,6 @@
         pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.root.set_clip_mask(clip_mask); }
         #[inline(always)]
         pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.root.set_tab_index(tab_index); }
-        #[inline(always)]
-        pub fn style(self, css: Css) -> StyledDom { StyledDom::new(self, css) }
     }
 
     impl NodeData {
@@ -221,16 +217,16 @@
     impl core::iter::FromIterator<Dom> for Dom {
         fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
             use crate::vec::DomVec;
-            let mut estimated_total_children = 0;
+            let mut total_children = 0;
             let children = iter.into_iter().map(|c| {
-                estimated_total_children += c.estimated_total_children + 1;
+                total_children += c.total_children + 1;
                 c
             }).collect::<DomVec>();
 
             Dom {
                 root: NodeData::div(),
                 children,
-                estimated_total_children,
+                total_children,
             }
         }
     }
@@ -241,14 +237,14 @@
             let children = iter.into_iter().map(|c| Dom {
                 root: c,
                 children: DomVec::from_const_slice(&[]),
-                estimated_total_children: 0
+                total_children: 0
             }).collect::<DomVec>();
-            let estimated_total_children = children.len();
+            let total_children = children.len();
 
             Dom {
                 root: NodeData::div(),
                 children: children,
-                estimated_total_children,
+                total_children,
             }
         }
     }

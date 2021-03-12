@@ -8736,6 +8736,7 @@
 			"classes": {
 				"OptionFile": {
 				    "external": "azul_impl::file::OptionFile",
+				    "clone": false,
 				    "enum_fields": [
 				        {"None": {}},
 				        {"Some": { "type": "File" }}
