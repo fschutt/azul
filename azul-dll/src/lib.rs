@@ -2185,6 +2185,14 @@ pub use AzSvgFitToTT as AzSvgFitTo;
 pub type AzSvgStyleTT = azul_impl::svg::SvgStyle;
 pub use AzSvgStyleTT as AzSvgStyle;
 
+/// Re-export of rust-allocated (stack based) `SvgFillRule` struct
+pub type AzSvgFillRuleTT = azul_impl::svg::SvgFillRule;
+pub use AzSvgFillRuleTT as AzSvgFillRule;
+
+/// Re-export of rust-allocated (stack based) `SvgTransform` struct
+pub type AzSvgTransformTT = azul_impl::svg::SvgTransform;
+pub use AzSvgTransformTT as AzSvgTransform;
+
 /// Re-export of rust-allocated (stack based) `SvgFillStyle` struct
 pub type AzSvgFillStyleTT = azul_impl::svg::SvgFillStyle;
 pub use AzSvgFillStyleTT as AzSvgFillStyle;
@@ -4384,6 +4392,20 @@ mod test_sizes {
         Height(u32),
         Zoom(f32),
     }
+    /// Re-export of rust-allocated (stack based) `SvgFillRule` struct
+    #[repr(C)]     pub enum AzSvgFillRule {
+        Winding,
+        EvenOdd,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgTransform` struct
+    #[repr(C)]     pub struct AzSvgTransform {
+        pub sx: f32,
+        pub kx: f32,
+        pub ky: f32,
+        pub sy: f32,
+        pub tx: f32,
+        pub ty: f32,
+    }
     /// Re-export of rust-allocated (stack based) `SvgLineJoin` struct
     #[repr(C)]     pub enum AzSvgLineJoin {
         Miter,
@@ -4399,13 +4421,13 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `SvgDashPattern` struct
     #[repr(C)]     pub struct AzSvgDashPattern {
-        pub offset: usize,
-        pub length_1: usize,
-        pub gap_1: usize,
-        pub length_2: usize,
-        pub gap_2: usize,
-        pub length_3: usize,
-        pub gap_3: usize,
+        pub offset: f32,
+        pub length_1: f32,
+        pub gap_1: f32,
+        pub length_2: f32,
+        pub gap_2: f32,
+        pub length_3: f32,
+        pub gap_3: f32,
     }
     /// Re-export of rust-allocated (stack based) `File` struct
     #[repr(C)]     pub struct AzFile {
@@ -5849,6 +5871,8 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `Gl` struct
     #[repr(C)]     pub struct AzGl {
         pub(crate) ptr: *const c_void,
+        pub svg_shader: u32,
+        pub fxaa_shader: u32,
         pub renderer_type: AzRendererType,
     }
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
@@ -5889,8 +5913,12 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `SvgFillStyle` struct
     #[repr(C)]     pub struct AzSvgFillStyle {
         pub line_join: AzSvgLineJoin,
-        pub miter_limit: usize,
-        pub tolerance: usize,
+        pub miter_limit: f32,
+        pub tolerance: f32,
+        pub fill_rule: AzSvgFillRule,
+        pub transform: AzSvgTransform,
+        pub anti_alias: bool,
+        pub high_quality_aa: bool,
     }
     /// Re-export of rust-allocated (stack based) `ThreadSender` struct
     #[repr(C)]     pub struct AzThreadSender {
@@ -6436,10 +6464,13 @@ mod test_sizes {
         pub end_cap: AzSvgLineCap,
         pub line_join: AzSvgLineJoin,
         pub dash_pattern: AzOptionSvgDashPattern,
-        pub line_width: usize,
-        pub miter_limit: usize,
-        pub tolerance: usize,
+        pub line_width: f32,
+        pub miter_limit: f32,
+        pub tolerance: f32,
         pub apply_line_width: bool,
+        pub transform: AzSvgTransform,
+        pub anti_alias: bool,
+        pub high_quality_aa: bool,
     }
     /// Re-export of rust-allocated (stack based) `Xml` struct
     #[repr(C)]     pub struct AzXml {
@@ -7612,6 +7643,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::FontDatabase>(), "AzFontDatabase"), (Layout::new::<AzFontDatabase>(), "AzFontDatabase"));
         assert_eq!((Layout::new::<azul_impl::svg::Indent>(), "AzIndent"), (Layout::new::<AzIndent>(), "AzIndent"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgFitTo>(), "AzSvgFitTo"), (Layout::new::<AzSvgFitTo>(), "AzSvgFitTo"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgFillRule>(), "AzSvgFillRule"), (Layout::new::<AzSvgFillRule>(), "AzSvgFillRule"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgTransform>(), "AzSvgTransform"), (Layout::new::<AzSvgTransform>(), "AzSvgTransform"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgLineJoin>(), "AzSvgLineJoin"), (Layout::new::<AzSvgLineJoin>(), "AzSvgLineJoin"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgLineCap>(), "AzSvgLineCap"), (Layout::new::<AzSvgLineCap>(), "AzSvgLineCap"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgDashPattern>(), "AzSvgDashPattern"), (Layout::new::<AzSvgDashPattern>(), "AzSvgDashPattern"));

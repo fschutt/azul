@@ -4159,8 +4159,10 @@
 					"external": "azul_impl::gl::GlContextPtr",
 					"is_boxed_object": true,
 					"struct_fields": [
-						{"ptr": {"type": "*const c_void"}},
-						{"renderer_type": {"type": "RendererType"}}
+						{"ptr": {"type": "*const c_void", "doc": "Reference-counted pointer to the OpenGL context. Can not be copied between threads."}},
+						{"svg_shader": {"type": "u32", "doc": "OpenGL program ID of the SVG shader, compiled at startup"}},
+						{"fxaa_shader": {"type": "u32", "doc": "OpenGL program ID of the FXAA shader, compiled at startup"}},
+						{"renderer_type": {"type": "RendererType", "doc": "Extra flag to see whether we are using hardware OpenGL or software OpenGL"}}
 					],
 					"functions": {
 					    "get_type": {
@@ -6813,13 +6815,37 @@
 						{"Stroke": {"type": "SvgStrokeStyle"}}
 					]
 				},
+				"SvgFillRule": {
+					"external": "azul_impl::svg::SvgFillRule",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Winding": {"doc": "Use the winding order to determine the filled area"}},
+						{"EvenOdd": {"doc": "Use the even / odd rule to determine the filled area"}}
+					]
+				},
+				"SvgTransform": {
+					"external": "azul_impl::svg::SvgTransform",
+					"derive": ["Copy"],
+					"struct_fields": [
+						{"sx": {"type": "f32" }},
+						{"kx": {"type": "f32" }},
+						{"ky": {"type": "f32" }},
+						{"sy": {"type": "f32" }},
+						{"tx": {"type": "f32" }},
+						{"ty": {"type": "f32" }}
+					]
+				},
 				"SvgFillStyle": {
 					"external": "azul_impl::svg::SvgFillStyle",
 					"derive": ["Copy"],
 					"struct_fields": [
 						{"line_join": {"type": "SvgLineJoin", "doc": "How to tesselate edges in a path, default value = `Miter`"}},
-						{"miter_limit": {"type": "usize", "doc": "Limit for caps on path edges if line_join is set to `Miter`, (multiplied * 1000 as usize). Must be greater than or equal to 1px (`1000`). Default value = 1px (`1000`)"}},
-						{"tolerance": {"type": "usize", "doc": "Maximum allowed distance between path points when tesselating curves. Default value = 0.1px (`100`)"}}
+						{"miter_limit": {"type": "f32", "doc": "Limit for caps on path edges if line_join is set to `Miter`. Must be greater than or equal to 1px. Default value = 1.0"}},
+						{"tolerance": {"type": "f32", "doc": "Maximum allowed distance between path points when tesselating curves. Default value = 0.1 (px)"}},
+						{"fill_rule": {"type": "SvgFillRule", "doc": "Fill rule to use when painting the polygon"}},
+						{"transform": {"type": "SvgTransform", "doc": "Scaling / rotation / etc. transform to apply to the polygon before painting. NOTE: currently only implemented on CPU renderer"}},
+						{"anti_alias": {"type": "bool", "doc": "Whether the polygon is intended to be rendered anti-aliased"}},
+						{"high_quality_aa": {"type": "bool", "doc": "Whether anti-aliasing should use the fast approximate solution (true) or the high-quality slow one (false). Default: false"}}
 					]
 				},
 				"SvgStrokeStyle": {
@@ -6830,10 +6856,13 @@
 						{"end_cap": {"type": "SvgLineCap", "doc": "What cap to use at the end of each sub-path, default value = `Butt`"}},
 						{"line_join": {"type": "SvgLineJoin", "doc": "How to tesselate edges in a path, default value = `Miter`"}},
 						{"dash_pattern": {"type": "OptionSvgDashPattern", "doc": "Optional dash pattern for the stroke, default value = `None`"}},
-						{"line_width": {"type": "usize", "doc": "Width of the line in px, (multiplied * 1000 as usize). Default value = 1px (`1000`)"}},
-						{"miter_limit": {"type": "usize", "doc": "Limit for caps on path edges if line_join is set to `Miter`, (multiplied * 1000 as usize). Must be greater than or equal to 1px (`1000`). Default value = 1px (`1000`)"}},
-						{"tolerance": {"type": "usize", "doc": "Maximum allowed distance between path points when tesselating curves. Default value = 0.1px (`100`)"}},
-						{"apply_line_width": {"type": "bool", "doc": "When set to false, the generated vertices will all be positioned in the center. The width can be applied later on (eg in a vertex shader) by adding the vertex normal multiplied by the line with to each vertex position. Default value = `false`"}}
+						{"line_width": {"type": "f32", "doc": "Width of the line in px. Default value = 1.09 (px)"}},
+						{"miter_limit": {"type": "f32", "doc": "Limit for caps on path edges if line_join is set to `Miter`. Must be greater than or equal to 1.0 (px). Default value = 1.0"}},
+						{"tolerance": {"type": "f32", "doc": "Maximum allowed distance between path points when tesselating curves. Default value = 0.1 (px)"}},
+						{"apply_line_width": {"type": "bool", "doc": "When set to false, the generated vertices will all be positioned in the center. The width can be applied later on (eg in a vertex shader) by adding the vertex normal multiplied by the line with to each vertex position. Default value = `false`"}},
+						{"transform": {"type": "SvgTransform", "doc": "Scaling / rotation / etc. transform to apply to the polygon before painting. NOTE: currently only implemented on CPU renderer"}},
+						{"anti_alias": {"type": "bool", "doc": "Whether the polygon is intended to be rendered anti-aliased"}},
+						{"high_quality_aa": {"type": "bool", "doc": "Whether anti-aliasing should use the fast approximate solution (true) or the high-quality slow one (false). Default: false"}}
 					]
 				},
 				"SvgLineJoin": {
@@ -6859,13 +6888,13 @@
 					"external": "azul_impl::svg::SvgDashPattern",
 					"derive": ["Copy"],
 					"struct_fields": [
-						{"offset": {"type": "usize"}},
-						{"length_1": {"type": "usize"}},
-						{"gap_1": {"type": "usize"}},
-						{"length_2": {"type": "usize"}},
-						{"gap_2": {"type": "usize"}},
-						{"length_3": {"type": "usize"}},
-						{"gap_3": {"type": "usize"}}
+						{"offset": {"type": "f32"}},
+						{"length_1": {"type": "f32"}},
+						{"gap_1": {"type": "f32"}},
+						{"length_2": {"type": "f32"}},
+						{"gap_2": {"type": "f32"}},
+						{"length_3": {"type": "f32"}},
+						{"gap_3": {"type": "f32"}}
 					]
 				}
 			}

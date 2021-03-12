@@ -1251,6 +1251,20 @@ mod dll {
         Height(u32),
         Zoom(f32),
     }
+    /// Re-export of rust-allocated (stack based) `SvgFillRule` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgFillRule {
+        Winding,
+        EvenOdd,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgTransform` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgTransform {
+        pub sx: f32,
+        pub kx: f32,
+        pub ky: f32,
+        pub sy: f32,
+        pub tx: f32,
+        pub ty: f32,
+    }
     /// Re-export of rust-allocated (stack based) `SvgLineJoin` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgLineJoin {
         Miter,
@@ -1266,13 +1280,13 @@ mod dll {
     }
     /// Re-export of rust-allocated (stack based) `SvgDashPattern` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgDashPattern {
-        pub offset: usize,
-        pub length_1: usize,
-        pub gap_1: usize,
-        pub length_2: usize,
-        pub gap_2: usize,
-        pub length_3: usize,
-        pub gap_3: usize,
+        pub offset: f32,
+        pub length_1: f32,
+        pub gap_1: f32,
+        pub length_2: f32,
+        pub gap_2: f32,
+        pub length_3: f32,
+        pub gap_3: f32,
     }
     /// Re-export of rust-allocated (stack based) `File` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzFile {
@@ -2716,6 +2730,8 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `Gl` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGl {
         pub(crate) ptr: *const c_void,
+        pub svg_shader: u32,
+        pub fxaa_shader: u32,
         pub renderer_type: AzRendererType,
     }
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
@@ -2756,8 +2772,12 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `SvgFillStyle` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgFillStyle {
         pub line_join: AzSvgLineJoin,
-        pub miter_limit: usize,
-        pub tolerance: usize,
+        pub miter_limit: f32,
+        pub tolerance: f32,
+        pub fill_rule: AzSvgFillRule,
+        pub transform: AzSvgTransform,
+        pub anti_alias: bool,
+        pub high_quality_aa: bool,
     }
     /// Re-export of rust-allocated (stack based) `ThreadSender` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadSender {
@@ -3303,10 +3323,13 @@ mod dll {
         pub end_cap: AzSvgLineCap,
         pub line_join: AzSvgLineJoin,
         pub dash_pattern: AzOptionSvgDashPattern,
-        pub line_width: usize,
-        pub miter_limit: usize,
-        pub tolerance: usize,
+        pub line_width: f32,
+        pub miter_limit: f32,
+        pub tolerance: f32,
         pub apply_line_width: bool,
+        pub transform: AzSvgTransform,
+        pub anti_alias: bool,
+        pub high_quality_aa: bool,
     }
     /// Re-export of rust-allocated (stack based) `Xml` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzXml {
@@ -9550,6 +9573,12 @@ pub mod svg {
     /// `SvgStyle` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgStyle as SvgStyle;
+    /// `SvgFillRule` struct
+    
+#[doc(inline)] pub use crate::dll::AzSvgFillRule as SvgFillRule;
+    /// `SvgTransform` struct
+    
+#[doc(inline)] pub use crate::dll::AzSvgTransform as SvgTransform;
     /// `SvgFillStyle` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgFillStyle as SvgFillStyle;

@@ -1557,6 +1557,22 @@ typedef union AzSvgFitTo AzSvgFitTo;
 #define AzSvgFitTo_Height(v) { .Height = { .tag = AzSvgFitToTag_Height, .payload = v } }
 #define AzSvgFitTo_Zoom(v) { .Zoom = { .tag = AzSvgFitToTag_Zoom, .payload = v } }
 
+enum AzSvgFillRule {
+   AzSvgFillRule_Winding,
+   AzSvgFillRule_EvenOdd,
+};
+typedef enum AzSvgFillRule AzSvgFillRule;
+
+struct AzSvgTransform {
+    float sx;
+    float kx;
+    float ky;
+    float sy;
+    float tx;
+    float ty;
+};
+typedef struct AzSvgTransform AzSvgTransform;
+
 enum AzSvgLineJoin {
    AzSvgLineJoin_Miter,
    AzSvgLineJoin_MiterClip,
@@ -1573,13 +1589,13 @@ enum AzSvgLineCap {
 typedef enum AzSvgLineCap AzSvgLineCap;
 
 struct AzSvgDashPattern {
-    size_t offset;
-    size_t length_1;
-    size_t gap_1;
-    size_t length_2;
-    size_t gap_2;
-    size_t length_3;
-    size_t gap_3;
+    float offset;
+    float length_1;
+    float gap_1;
+    float length_2;
+    float gap_2;
+    float length_3;
+    float gap_3;
 };
 typedef struct AzSvgDashPattern AzSvgDashPattern;
 
@@ -5592,6 +5608,8 @@ typedef struct AzParentWithNodeDepth AzParentWithNodeDepth;
 
 struct AzGl {
     void* ptr;
+    uint32_t svg_shader;
+    uint32_t fxaa_shader;
     AzRendererType renderer_type;
 };
 typedef struct AzGl AzGl;
@@ -5639,8 +5657,12 @@ typedef struct AzSvgStringFormatOptions AzSvgStringFormatOptions;
 
 struct AzSvgFillStyle {
     AzSvgLineJoin line_join;
-    size_t miter_limit;
-    size_t tolerance;
+    float miter_limit;
+    float tolerance;
+    AzSvgFillRule fill_rule;
+    AzSvgTransform transform;
+    bool  anti_alias;
+    bool  high_quality_aa;
 };
 typedef struct AzSvgFillStyle AzSvgFillStyle;
 
@@ -6859,10 +6881,13 @@ struct AzSvgStrokeStyle {
     AzSvgLineCap end_cap;
     AzSvgLineJoin line_join;
     AzOptionSvgDashPattern dash_pattern;
-    size_t line_width;
-    size_t miter_limit;
-    size_t tolerance;
+    float line_width;
+    float miter_limit;
+    float tolerance;
     bool  apply_line_width;
+    AzSvgTransform transform;
+    bool  anti_alias;
+    bool  high_quality_aa;
 };
 typedef struct AzSvgStrokeStyle AzSvgStrokeStyle;
 
