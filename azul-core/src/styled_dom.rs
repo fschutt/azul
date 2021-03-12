@@ -152,31 +152,40 @@ impl CssPropertyCachePtr {
 // state (hover, active, focused, normal). This way we don't have to duplicate the CSS properties
 // onto every single node and exchange them when the style changes. Two caches can be appended
 // to each other by simply merging their NodeIds.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct CssPropertyCache {
-    // non-default CSS properties that were set on the DOM nodes themselves (inline properties)
-    pub non_default_inline_normal_props:    NodeDataContainer<Vec<CssProperty>>,
-    pub non_default_inline_hover_props:     NodeDataContainer<Vec<CssProperty>>,
-    pub non_default_inline_active_props:    NodeDataContainer<Vec<CssProperty>>,
-    pub non_default_inline_focus_props:     NodeDataContainer<Vec<CssProperty>>,
+    // number of nodes in the current DOM
+    pub node_count: usize,
+
+    // properties that were overridden in callbacks (not specific to any node state)
+    pub user_overridden_properties: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+
+    // non-default CSS properties that were cascaded from the parent
+    pub cascaded_normal_props:    BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub cascaded_hover_props:     BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub cascaded_active_props:    BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub cascaded_focus_props:     BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
 
     // non-default CSS properties that were set via a CSS file
-    pub non_default_css_normal_props:       NodeDataContainer<Vec<CssProperty>>,
-    pub non_default_css_hover_props:        NodeDataContainer<Vec<CssProperty>>,
-    pub non_default_css_active_props:       NodeDataContainer<Vec<CssProperty>>,
-    pub non_default_css_focus_props:        NodeDataContainer<Vec<CssProperty>>,
+    pub css_normal_props:        BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub css_hover_props:         BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub css_active_props:        BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub css_focus_props:         BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
 }
 
 impl CssPropertyCache {
-    pub fn restyle(&mut self,
+    /// Restyles the CSS property cache with a new CSS file
+    pub fn restyle(
+        &mut self,
         css: Css,
         node_data: &NodeDataContainerRef<NodeData>,
         node_hierarchy: &AzNodeVec,
         non_leaf_nodes: &ParentWithNodeDepthVec,
         html_tree: &NodeDataContainerRef<CascadeInfo>
     ) {
-
         use azul_css::{CssPathSelector, CssDeclaration, CssPathPseudoSelector};
+        use azul_css::CssPathSelector::*;
+        use azul_css::CssPathPseudoSelector::*;
 
         let css_is_empty = css.is_empty();
         if !css_is_empty {
@@ -200,7 +209,7 @@ impl CssPropertyCache {
                     })
                 })
                 .map(|prop| prop.clone())
-                .collect::<Vec<_>>()
+                .collect::<Vec<CssProperty>>()
             }};}
 
             // NOTE: This is wrong, but fast
@@ -212,50 +221,34 @@ impl CssPropertyCache {
             // but that can be fixed later
 
             // go through each HTML node (in parallel) and see which CSS rules match
-            let css_normal_rules = node_data.transform_nodeid(|node_id| {
-                let matched_rules = filter_rules!(None, node_id);
+            let css_normal_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> =
+                node_data.transform_nodeid_multithreaded_optional(|node_id| {
+                    let r = filter_rules!(None, node_id);
+                    if r.is_empty() { None } else { Some((node_id, r)) }
+                });
 
-                if matched_rules.is_empty() {
-                    Vec::new()
-                } else {
-                    matched_rules
-                }
+            let css_hover_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)>  =
+            node_data.transform_nodeid_multithreaded_optional(|node_id| {
+                let r = filter_rules!(Some(PseudoSelector(Hover)), node_id);
+                if r.is_empty() { None } else { Some((node_id, r)) }
             });
 
-            let css_hover_rules = node_data.transform_nodeid(|node_id| {
-                let matched_rules = filter_rules!(Some(CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover)), node_id);
-
-                if matched_rules.is_empty() {
-                    Vec::new()
-                } else {
-                    matched_rules
-                }
+            let css_active_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)>  =
+            node_data.transform_nodeid_multithreaded_optional(|node_id| {
+                let r = filter_rules!(Some(PseudoSelector(Active)), node_id);
+                if r.is_empty() { None } else { Some((node_id, r)) }
             });
 
-            let css_active_rules = node_data.transform_nodeid(|node_id| {
-                let matched_rules = filter_rules!(Some(CssPathSelector::PseudoSelector(CssPathPseudoSelector::Active)), node_id);
-
-                if matched_rules.is_empty() {
-                    Vec::new()
-                } else {
-                    matched_rules
-                }
+            let css_focus_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)>  =
+            node_data.transform_nodeid_multithreaded_optional(|node_id| {
+                let r = filter_rules!(Some(PseudoSelector(Focus)), node_id);
+                if r.is_empty() { None } else { Some((node_id, r)) }
             });
 
-            let css_focus_rules = node_data.transform_nodeid(|node_id| {
-                let matched_rules = filter_rules!(Some(CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus)), node_id);
-
-                if matched_rules.is_empty() {
-                    Vec::new()
-                } else {
-                    matched_rules
-                }
-            });
-
-            self.non_default_css_normal_props = css_normal_rules;
-            self.non_default_css_hover_props = css_hover_rules;
-            self.non_default_css_active_props = css_active_rules;
-            self.non_default_css_focus_props = css_focus_rules;
+            self.css_normal_props = css_normal_rules.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)))).collect();
+            self.css_hover_props = css_hover_props.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)))).collect();
+            self.css_active_props = css_active_props.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)))).collect();
+            self.css_focus_props = css_focus_props.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)))).collect();
         }
 
         // Inheritance: Inherit all values of the parent to the children, but
@@ -267,40 +260,78 @@ impl CssPropertyCache {
                 None => continue,
             };
 
-            macro_rules! inherit_props {($inherit_map:expr) => {
-                let parent_inheritable_css_props = {
-                    $inherit_map.as_ref()[parent_id]
+            // Inherit CSS properties from map A -> map B
+            // map B will be populated with all inherited CSS properties
+            macro_rules! inherit_props {($from_inherit_map:expr, $to_inherit_map:expr) => {
+                let parent_inheritable_css_props = $from_inherit_map
+                .get(parent_id)
+                .and_then(|map| {
+                    let parent_inherit_props = map
                     .iter()
-                    .filter_map(|value| if value.get_type().is_inheritable() { Some(value.clone()) } else { None })
-                    .collect::<Vec<_>>()
-                };
+                    .filter(|(css_prop_type, css_prop)| css_prop_type.is_inheritable())
+                    .cloned()
+                    .collect::<Vec<(CssPropertyType, CssProperty)>>();
+                    if parent_inherit_props.is_empty() { None } else { Some(parent_inherit_props) }
+                });
 
-                if parent_inheritable_css_props.is_empty() {
-                    continue;
-                }
-
-                // only override the rule if the child already has an inherited rule
-                for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
-                    for inherited_rule_value in parent_inheritable_css_props.iter() {
-                        if !($inherit_map.as_ref()[child_id].iter().any(|k| k.get_type() == inherited_rule_value.get_type())) {
-                            $inherit_map.as_ref_mut()[child_id].push(inherited_rule_value.clone());
+                match parent_inheritable_css_props {
+                    Some(pi) => {
+                        // only override the rule if the child does not already have an inherited rule
+                        for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
+                            let mut child_map = $to_inherit_map.entry(child_id).or_insert_with(|| BTreeMap::new());
+                            for (inherited_rule_type, inherited_rule_value) in pi.iter() {
+                                let _ = child_map.entry(inherited_rule_type).or_insert_with(|| inherited_rule_value.clone());
+                            }
                         }
-                    }
+                    },
+                    None => { },
                 }
             };}
 
+            macro_rules! inherit_inline_css_props {($filter_type:ident, $to_inherit_map:expr) => {
+                let parent_inheritable_css_props = &node_data[parent_id]
+                .inline_css_props
+                .iter()
+                 // test whether the property is a [normal, hover, focus, active] property
+                .filter_map(|css_prop| if let NodeDataInlineCssProperty::$filter_type(p) = css_prop { Some(p) } else { None })
+                // test whether the property is inheritable
+                .filter_map(|css_prop| css_prop.get_type().is_inheritable())
+                .cloned()
+                .collect::<Vec<CssProperty>>();
+
+                if !parent_inheritable_css_props.is_empty() {
+                    // only override the rule if the child does not already have an inherited rule
+                    for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
+                        let mut child_map = $to_inherit_map.entry(child_id).or_insert_with(|| BTreeMap::new());
+                        for inherited_rule in parent_inheritable_css_props.iter() {
+                            let _ = child_map.entry(inherited_rule.get_type()).or_insert_with(|| inherited_rule.clone());
+                        }
+                    }
+                }
+
+            };}
+
+            // strongest inheritance first
+
+            // Inherit inline CSS properties
+            inherit_props!(Normal, self.cascaded_normal_props);
+            inherit_props!(Hover, self.cascaded_hover_props);
+            inherit_props!(Active, self.cascaded_active_props);
+            inherit_props!(Focus, self.cascaded_focus_props);
+
+            // Inherit the CSS properties from the CSS file
             if !css_is_empty {
-                inherit_props!(self.non_default_css_normal_props);
-                inherit_props!(self.non_default_css_hover_props);
-                inherit_props!(self.non_default_css_active_props);
-                inherit_props!(self.non_default_css_focus_props);
+                inherit_props!(self.css_normal_props, self.cascaded_normal_props);
+                inherit_props!(self.css_hover_props, self.cascaded_hover_props);
+                inherit_props!(self.css_active_props, self.cascaded_active_props);
+                inherit_props!(self.css_focus_props, self.cascaded_focus_props);
             }
 
-            // also inherit from the inline css props
-            inherit_props!(self.non_default_inline_normal_props);
-            inherit_props!(self.non_default_inline_hover_props);
-            inherit_props!(self.non_default_inline_active_props);
-            inherit_props!(self.non_default_inline_focus_props);
+            // Inherit properties that were inherited in a previous iteration of the loop
+            inherit_props!(self.cascaded_normal_props, self.cascaded_normal_props);
+            inherit_props!(self.cascaded_hover_props, self.cascaded_hover_props);
+            inherit_props!(self.cascaded_active_props, self.cascaded_active_props);
+            inherit_props!(self.cascaded_focus_props, self.cascaded_focus_props);
         }
     }
 
@@ -379,57 +410,37 @@ impl CssPropertyCache {
     }
 }
 
+macro_rules! try_filter_for_inline_prop {($) => {
+
+};}
+
 macro_rules! get_property {
     ($self_id:expr, $node_id:expr, $node_state:expr, $css_property_type:expr, $as_downcast_fn:ident) => {
         {
-            let mut prop = None;
+            // NOTE: This function is slow, but it is going to be called on every
+            // node in parallel, so it should be rather fast in the end
 
-            // reverse order so we can early return
+            // First test if there is some user-defined override for the property
+            if let Some(prop) = $self_id.user_overridden_properties.get($node_id).and_then(|n| n.get($css_property_type)) {
+                if let Some(p_downcasted) = prop.$as_downcast_fn() {
+                    return Some(p_downcasted.clone());
+                }
+            }
+
+            // If that fails, see if there is an inline property that matches
             // :focus > :active > :hover > :normal
 
-            if $node_state.focused {
-                if let Some(s) = $self_id.non_default_inline_focus_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
-                    prop = Some(s.clone());
-                    return prop;
-                }
 
-                if let Some(s) = $self_id.non_default_css_focus_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
-                    prop = Some(s.clone());
-                    return prop;
-                }
-            }
+            // If that fails, see if there is a CSS property that matches
+            // :focus > :active > :hover > :normal
 
-            if $node_state.active {
-                if let Some(s) = $self_id.non_default_inline_active_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
-                    prop = Some(s.clone());
-                    return prop;
-                } else if let Some(s) = $self_id.non_default_css_active_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
-                    prop = Some(s.clone());
-                    return prop;
-                }
-            }
 
-            if $node_state.hover {
-                if let Some(s) = $self_id.non_default_inline_hover_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
-                    prop = Some(s.clone());
-                    return prop;
-                } else if let Some(s) = $self_id.non_default_css_hover_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
-                    prop = Some(s.clone());
-                    return prop;
-                }
-            }
+            // If that fails, see if there is a cascaded property matches
+            // :focus > :active > :hover > :normal
 
-            if $node_state.normal {
-                if let Some(s) = $self_id.non_default_inline_normal_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
-                    prop = Some(s.clone());
-                    return prop;
-                } else if let Some(s) = $self_id.non_default_css_normal_props.as_ref()[*$node_id].iter().find_map(|prop| if prop.get_type() == $css_property_type { prop.$as_downcast_fn() } else { None }) {
-                    prop = Some(s.clone());
-                    return prop;
-                }
-            }
 
-            prop
+            // Nothing found, use the default
+            return None;
         }
     }
 }
@@ -437,39 +448,39 @@ macro_rules! get_property {
 impl CssPropertyCache {
 
     pub fn empty(node_count: usize) -> Self {
-        const EMPTY_VEC: Vec<CssProperty> = Vec::new();
         Self {
-            // non-default CSS properties that were set on the DOM nodes themselves (inline properties)
-            non_default_inline_normal_props:    NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
-            non_default_inline_hover_props:     NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
-            non_default_inline_active_props:    NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
-            non_default_inline_focus_props:     NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
+            node_count,
+            user_overridden_properties: BTreeMap::new(),
 
-            // non-default CSS properties that were set via a CSS file
-            non_default_css_normal_props:    NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
-            non_default_css_hover_props:     NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
-            non_default_css_active_props:    NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
-            non_default_css_focus_props:     NodeDataContainer { internal: vec![EMPTY_VEC; node_count] },
+            cascaded_normal_props: BTreeMap::new(),
+            cascaded_hover_props: BTreeMap::new(),
+            cascaded_active_props: BTreeMap::new(),
+            cascaded_focus_props: BTreeMap::new(),
+
+            css_normal_props: BTreeMap::new(),
+            css_hover_props: BTreeMap::new(),
+            css_active_props: BTreeMap::new(),
+            css_focus_props: BTreeMap::new(),
         }
     }
 
     pub fn append(&mut self, other: &mut Self) {
 
-        // a: NodeDataContainer<Vec<Property>>
-        // b: NodeDataContainer<Vec<Property>>
-
         macro_rules! append_css_property_vec {($field_name:ident) => {{
-            self.$field_name.internal.append(&mut other.$field_name.internal);
+            for (node_id, property_map) in other.$field_name.into_iter() {
+                self.$field_name.insert(node_id + self.node_count, property_map);
+            }
         }};}
 
-        append_css_property_vec!(non_default_inline_normal_props);
-        append_css_property_vec!(non_default_inline_hover_props);
-        append_css_property_vec!(non_default_inline_active_props);
-        append_css_property_vec!(non_default_inline_focus_props);
-        append_css_property_vec!(non_default_css_normal_props);
-        append_css_property_vec!(non_default_css_hover_props);
-        append_css_property_vec!(non_default_css_active_props);
-        append_css_property_vec!(non_default_css_focus_props);
+        append_css_property_vec!(user_overridden_properties);
+        append_css_property_vec!(cascaded_normal_props);
+        append_css_property_vec!(cascaded_hover_props);
+        append_css_property_vec!(cascaded_active_props);
+        append_css_property_vec!(cascaded_focus_props);
+        append_css_property_vec!(css_normal_props);
+        append_css_property_vec!(css_hover_props);
+        append_css_property_vec!(css_active_props);
+        append_css_property_vec!(css_focus_props);
     }
 
     pub fn is_horizontal_overflow_visible(&self, node_id: &NodeId, node_state: &StyledNodeState) -> bool {
@@ -1038,6 +1049,7 @@ impl StyledDom {
         use crate::dom::{TabIndex, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec};
         use rayon::prelude::*;
 
+        let css_is_empty = css.is_empty();
         let mut compact_dom: CompactDom = dom.into();
         let non_leaf_nodes = compact_dom.node_hierarchy.as_ref().get_parents_sorted_by_depth();
         let node_hierarchy: AzNodeVec = compact_dom.node_hierarchy.internal.clone().iter().map(|i| (*i).into()).collect::<Vec<AzNode>>().into();
@@ -1046,79 +1058,9 @@ impl StyledDom {
         // fill out the css property cache: compute the inline properties first so that
         // we can early-return in case the css is empty
 
-        let inline_normal_props = compact_dom.node_data.as_ref_mut().transform_multithread(|node_data, _| {
-            let normal_inline_props = node_data.inline_css_props
-                .as_ref()
-                .par_iter()
-                .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Normal(p) => Some(p.clone()), _ => None })
-                .collect::<Vec<_>>();
-
-            if normal_inline_props.is_empty() {
-                Vec::new()
-            } else {
-                normal_inline_props
-            }
-        });
-
-        let inline_hover_props = compact_dom.node_data.as_ref_mut().transform_multithread(|node_data, _| {
-            let hover_inline_props = node_data.inline_css_props
-                .as_ref()
-                .par_iter()
-                .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Hover(p) => Some(p.clone()), _ => None })
-                .collect::<Vec<_>>();
-
-            if hover_inline_props.is_empty() {
-                Vec::new()
-            } else {
-                hover_inline_props
-            }
-        });
-
-        let inline_active_props = compact_dom.node_data.as_ref_mut().transform_multithread(|node_data, _| {
-            let active_inline_props = node_data.inline_css_props
-                .as_ref()
-                .par_iter()
-                .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Active(p) => Some(p.clone()), _ => None })
-                .collect::<Vec<_>>();
-
-            if active_inline_props.is_empty() {
-                Vec::new()
-            } else {
-                active_inline_props
-            }
-        });
-
-        let inline_focus_props = compact_dom.node_data.as_ref_mut().transform_multithread(|node_data, _| {
-            let focus_inline_props = node_data.inline_css_props
-                .as_ref()
-                .par_iter()
-                .filter_map(|css_prop| match css_prop { NodeDataInlineCssProperty::Focus(p) => Some(p.clone()), _ => None })
-                .collect::<Vec<_>>();
-
-            node_data.inline_css_props = NodeDataInlineCssPropertyVec::new(); // no need to retain the inline CSS properties in the DOM, clear here
-
-            if focus_inline_props.is_empty() {
-                Vec::new()
-            } else {
-                focus_inline_props
-            }
-        });
-
-        let mut css_property_cache = CssPropertyCache {
-            non_default_inline_normal_props: inline_normal_props,
-            non_default_inline_hover_props: inline_hover_props,
-            non_default_inline_active_props: inline_active_props,
-            non_default_inline_focus_props: inline_focus_props,
-
-            non_default_css_normal_props: NodeDataContainer { internal: vec![Vec::new(); compact_dom.node_data.len()] },
-            non_default_css_hover_props: NodeDataContainer { internal: vec![Vec::new(); compact_dom.node_data.len()] },
-            non_default_css_active_props: NodeDataContainer { internal: vec![Vec::new(); compact_dom.node_data.len()] },
-            non_default_css_focus_props: NodeDataContainer { internal: vec![Vec::new(); compact_dom.node_data.len()] },
-        };
+        let mut css_property_cache = CssPropertyCache::empty(compact_dom.node_data.len());
 
         let html_tree = construct_html_cascade_tree(&compact_dom.node_hierarchy.as_ref(), &non_leaf_nodes[..]);
-
-        let css_is_empty = css.is_empty();
 
         let non_leaf_nodes = non_leaf_nodes
         .par_iter()
@@ -1128,18 +1070,13 @@ impl StyledDom {
         let non_leaf_nodes: ParentWithNodeDepthVec = non_leaf_nodes.into();
 
         // apply all the styles from the CSS
-        if !css_is_empty {
-            css_property_cache.restyle(
-                css,
-                &compact_dom.node_data.as_ref(),
-                &node_hierarchy,
-                &non_leaf_nodes,
-                &html_tree.as_ref()
-            );
-        }
-
-        // CSS property cache is now built
-
+        css_property_cache.restyle(
+            css,
+            &compact_dom.node_data.as_ref(),
+            &node_hierarchy,
+            &non_leaf_nodes,
+            &html_tree.as_ref()
+        );
 
         // In order to hit-test `:hover` and `:active` selectors, need to insert tags for all rectangles
         // that have a non-:hover path, for example if we have `#thing:hover`, then all nodes selected by `#thing`
@@ -1153,6 +1090,7 @@ impl StyledDom {
             .par_iter()
             .enumerate()
             .filter_map(|(node_id, node_data)| {
+
             let node_id = NodeId::new(node_id);
 
             let should_auto_insert_tabindex = node_data.get_callbacks().iter().any(|cb| cb.event.is_focus_callback());
@@ -1512,7 +1450,7 @@ impl StyledDom {
             output.push_str(&tabs);
             output.push_str(&node_data.debug_print_start(css_property_cache, &node_id, node_state));
 
-            if let Some(content) = node_data.get_node_type().get_text_content().as_ref() {
+            if let Some(content) = node_data.get_node_type().format().as_ref() {
                 output.push_str(content);
             }
 
@@ -1526,7 +1464,7 @@ impl StyledDom {
                 output.push_str(&tabs);
                 output.push_str(&node_data.debug_print_start(css_property_cache, &child_id, node_state));
 
-                let content = node_data.get_node_type().get_text_content();
+                let content = node_data.get_node_type().format();
                 if let Some(content) = content.as_ref() {
                     output.push_str(content);
                 }

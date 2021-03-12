@@ -22,19 +22,19 @@ use crate::{
 };
 #[cfg(feature = "opengl")]
 use crate::callbacks::{GlCallback, GlCallbackType};
-use azul_css::{Css, AzString, NodeTypePath, CssProperty};
+use azul_css::{Css, AzString, NodeTypeTag, CssProperty};
 
 pub use crate::id_tree::{NodeHierarchy, Node, NodeId};
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
-/// Unique Ttag" that is used to annotate which rectangles are relevant for hit-testing
+/// Unique tag that is used to annotate which rectangles are relevant for hit-testing
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct TagId(pub u64);
 
 impl ::core::fmt::Display for TagId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ScrollTagId({})", self.0)
+        write!(f, "TagId({})", self.0)
     }
 }
 
@@ -44,6 +44,18 @@ impl ::core::fmt::Debug for TagId {
     }
 }
 
+impl TagId {
+    /// Creates a new, unique hit-testing tag ID
+    pub fn new() -> Self {
+        TagId(TAG_ID.fetch_add(1, Ordering::SeqCst) as u64)
+    }
+
+    /// Resets the counter (usually done after each frame) so that we can
+    /// track hit-testing Tag IDs of subsequent frames
+    pub fn reset() {
+        TAG_ID.swap(1, Ordering::SeqCst);
+    }
+}
 
 /// Same as the `TagId`, but only for scrollable nodes
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -61,24 +73,18 @@ impl ::core::fmt::Debug for ScrollTagId {
     }
 }
 
-impl TagId {
-    pub fn new() -> Self {
-        TagId(TAG_ID.fetch_add(1, Ordering::SeqCst) as u64)
-    }
-    pub fn reset() {
-        TAG_ID.swap(1, Ordering::SeqCst);
-    }
-}
-
 impl ScrollTagId {
+    /// Creates a new, unique scroll tag ID. Note that this should not
+    /// be used for identifying nodes, use the `DomNodeHash` instead.
     pub fn new() -> ScrollTagId {
         ScrollTagId(TagId::new())
     }
 }
 
-/// Calculated hash of a DOM node, used for querying attributes of the DOM node
+/// Calculated hash of a DOM node, used for identifying identical DOM
+/// nodes across frames
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
-pub struct DomHash(pub u64);
+pub struct DomNodeHash(pub u64);
 
 /// List of core DOM node types built-into by `azul`.
 #[derive(Debug, PartialEq, Hash, Eq, PartialOrd, Ord)]
@@ -90,7 +96,7 @@ pub enum NodeType {
     Body,
     /// Creates a line break in an inline text layout
     Br,
-    /// A small label that can be (optionally) be selectable with the mouse
+    /// A string of text
     Label(AzString),
     /// An image that is rendered by WebRender. The id is acquired by the
     /// `AppState::add_image()` function
@@ -98,8 +104,7 @@ pub enum NodeType {
     /// DOM that gets passed its width / height during the layout
     IFrame(IFrameNode),
     /// OpenGL texture. The `Svg` widget deserizalizes itself into a texture
-    /// Equality and Hash values are only checked by the OpenGl texture ID,
-    /// Azul does not check that the contents of two textures are the same
+    /// `Eq` and `Hash` traits are implemented using the OpenGl texture ID.
     #[cfg(feature = "opengl")]
     GlTexture(GlTextureNode),
 }
@@ -124,7 +129,8 @@ impl NodeType {
             })
         }
     }
-    pub(crate) fn get_text_content(&self) -> Option<String> {
+
+    pub(crate) fn format(&self) -> Option<String> {
         use self::NodeType::*;
         match self {
             Div | Body | Br => None,
@@ -137,17 +143,17 @@ impl NodeType {
     }
 
     #[inline]
-    pub fn get_path(&self) -> NodeTypePath {
+    pub fn get_path(&self) -> NodeTypeTag {
         use self::NodeType::*;
         match self {
-            Div => NodeTypePath::Div,
-            Body => NodeTypePath::Body,
-            Br => NodeTypePath::Br,
-            Label(_) => NodeTypePath::P,
-            Image(_) => NodeTypePath::Img,
+            Div => NodeTypeTag::Div,
+            Body => NodeTypeTag::Body,
+            Br => NodeTypeTag::Br,
+            Label(_) => NodeTypeTag::P,
+            Image(_) => NodeTypeTag::Img,
             #[cfg(feature = "opengl")]
-            GlTexture(_) => NodeTypePath::Texture,
-            IFrame(_) => NodeTypePath::IFrame,
+            GlTexture(_) => NodeTypeTag::Texture,
+            IFrame(_) => NodeTypeTag::IFrame,
         }
     }
 }
@@ -794,7 +800,7 @@ impl fmt::Display for NodeData {
         let html_type = self.node_type.get_path();
         let attributes_string = node_data_to_string(&self);
 
-        match self.node_type.get_text_content() {
+        match self.node_type.format() {
             Some(content) => write!(f, "<{}{}>{}</{}>", html_type, attributes_string, content, html_type),
             None => write!(f, "<{}{}/>", html_type, attributes_string)
         }
@@ -964,7 +970,7 @@ impl NodeData {
     #[inline(always)]
     pub fn with_tab_index(self, tab_index: OptionTabIndex) -> Self { Self { tab_index, .. self } }
 
-    pub fn calculate_node_data_hash(&self) -> DomHash {
+    pub fn calculate_node_data_hash(&self) -> DomNodeHash {
 
         use ahash::AHasher as HashAlgorithm;
         use core::hash::{Hash, Hasher};
@@ -972,7 +978,7 @@ impl NodeData {
         let mut hasher = HashAlgorithm::default();
         self.hash(&mut hasher);
 
-        DomHash(hasher.finish())
+        DomNodeHash(hasher.finish())
     }
 
     pub fn debug_print_start(&self, css_cache: &CssPropertyCache, node_id: &NodeId, node_state: &StyledNodeState) -> String {

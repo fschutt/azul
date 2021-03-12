@@ -1,7 +1,21 @@
 pub use tinyfiledialogs::{MessageBoxIcon, DefaultColorValue};
 
 /// Ok or cancel result, returned from the `msg_box_ok_cancel` function
+#[derive(Debug)]
+pub enum MsgBox {
+    /// reserved pointer (currently nullptr) for potential C extension
+    pub _reserved: *mut c_void,
+}
+
+/// Ok or cancel result, returned from the `msg_box_ok_cancel` function
+#[derive(Debug)]
+pub enum FileDialog {
+    /// reserved pointer (currently nullptr) for potential C extension
+    pub _reserved: *mut c_void,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub enum OkCancel {
     Ok,
     Cancel,
@@ -34,6 +48,7 @@ pub fn msg_box_ok_cancel(title: &str, message: &str, icon: MessageBoxIcon, defau
 
 /// Yes or No result, returned from the `msg_box_yes_no` function
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[repr(C)]
 pub enum YesNo {
     Yes,
     No,
@@ -61,6 +76,7 @@ impl From<::tinyfiledialogs::YesNo> for YesNo {
 
 /// MsgBox icon to use in the `msg_box_*` functions
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[repr(C)]
 pub enum MsgBoxIcon {
     Info,
     Warning,
@@ -134,19 +150,19 @@ pub fn color_picker_dialog(title: &str, default_value: Option<ColorValue>)
 ///
 /// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
 /// "doc" and "docx" files
-pub fn open_file_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>)
+pub fn open_file_dialog(title: &str, default_path: Option<&str>, filter_list: Option<&[&str]>)
 -> Option<String>
 {
     let filter_list = filter_list.map(|f| (f, ""));
     let path = default_path.unwrap_or("");
-    ::tinyfiledialogs::open_file_dialog("Open File", path, filter_list)
+    ::tinyfiledialogs::open_file_dialog(title, path, filter_list)
 }
 
 /// Open a directory, returns `None` if the user canceled the dialog
-pub fn open_directory_dialog(default_path: Option<&str>)
+pub fn open_directory_dialog(title: &str, default_path: Option<&str>)
 -> Option<String>
 {
-    ::tinyfiledialogs::select_folder_dialog("Open Folder", default_path.unwrap_or(""))
+    ::tinyfiledialogs::select_folder_dialog(title, default_path.unwrap_or(""))
 }
 
 /// Open multiple files at once, returns `None` if the user canceled the dialog,
@@ -154,20 +170,20 @@ pub fn open_directory_dialog(default_path: Option<&str>)
 ///
 /// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
 /// "doc" and "docx" files
-pub fn open_multiple_files_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>)
+pub fn open_multiple_files_dialog(title: &str, default_path: Option<&str>, filter_list: Option<&[&str]>)
 -> Option<Vec<String>>
 {
     let filter_list = filter_list.map(|f| (f, ""));
     let path = default_path.unwrap_or("");
-    ::tinyfiledialogs::open_file_dialog_multi("Open Folder", path, filter_list)
+    ::tinyfiledialogs::open_file_dialog_multi(title, path, filter_list)
 }
 
 /// Opens a save file dialog, returns `None` if the user canceled the dialog
-pub fn save_file_dialog(default_path: Option<&str>)
+pub fn save_file_dialog(title: &str, default_path: Option<&str>)
 -> Option<String>
 {
     let path = default_path.unwrap_or("");
-    ::tinyfiledialogs::save_file_dialog("Save File", path)
+    ::tinyfiledialogs::save_file_dialog(dialog, path)
 }
 
 // TODO (at least on Windows):

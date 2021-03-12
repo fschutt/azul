@@ -358,14 +358,14 @@ fn test_css_group_iterator() {
         Id("id_test".to_string().into()),
         Class("new_class".to_string().into()),
         Children,
-        Type(NodeTypePath::Div),
+        Type(NodeTypeTag::Div),
         Class("content".to_string().into()),
     ];
 
     let mut it = CssGroupIterator::new(&selectors);
 
     assert_eq!(it.next(), Some((vec![
-       &Type(NodeTypePath::Div),
+       &Type(NodeTypeTag::Div),
        &Class("content".to_string().into()),
     ], CssGroupSplitReason::Children)));
 

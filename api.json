@@ -79,6 +79,20 @@
 					"enum_fields": [
 						{"March2021": {"doc": "Default, current layout solver version"}}
 					]
+				},
+				"SystemCallbacks": {
+					"external": "azul_impl::task::ExternalSystemCallbacks",
+					"doc": "External system callbacks to get the system time or create / manage threads",
+					"struct_fields": [
+						{"create_thread_fn": {"type": "CreateThreadFn"}},
+						{"get_system_time_fn": {"type": "GetSystemTimeFn"}}
+					],
+					"constructors": {
+						"library_internal": {
+							"doc": "Use the default, library-internal callbacks instead of providing your own",
+							"fn_body": "AzSystemCallbacks::rust_internal()"
+						}
+					}
 				}
 			}
 		},
@@ -1781,20 +1795,6 @@
 							],
 							"returns": {"type": "bool"},
 							"fn_body": "layoutinfo.uses_dark_theme()"
-						}
-					}
-				},
-				"SystemCallbacks": {
-					"external": "azul_impl::task::ExternalSystemCallbacks",
-					"doc": "External system callbacks to get the system time or create / manage threads",
-					"struct_fields": [
-						{"create_thread_fn": {"type": "CreateThreadFn"}},
-						{"get_system_time_fn": {"type": "GetSystemTimeFn"}}
-					],
-					"constructors": {
-						"library_internal": {
-							"doc": "Use the default, library-internal callbacks instead of providing your own",
-							"fn_body": "AzSystemCallbacks::rust_internal()"
 						}
 					}
 				}
@@ -6998,6 +6998,111 @@
 								{"self": "value"}
 							],
 							"fn_body": "file.close()"
+						}
+					}
+				}
+			}
+		},
+		"dialog": {
+			"doc": "Interface for system file selection dialogs / popup message boxes, etc.",
+			"classes": {
+				"MsgBox": {
+					"external": "azul_impl::dialogs::MsgBox",
+					"clone": false,
+					"struct_fields": [
+						{"_reserved": {"type": "*mut c_void"}}
+					],
+					"constructors": {
+						"ok": {
+							"doc": "Opens an informational message box with only an \"OK\" button",
+							"fn_args": [
+								{"icon": "MsgBoxIcon"},
+								{"title": "AzString"},
+								{"message": "AzString"}
+							],
+							"returns": {"type": "bool"},
+							"fn_body": "azul_impl::dialogs::msg_box_ok(title.as_str(), message.as_str(), icon); true"
+						},
+						"ok_cancel": {
+							"doc": "Opens a ok / cancel message box. Blocks the current thread.",
+							"fn_args": [
+								{"icon": "MsgBoxIcon"},
+								{"title": "AzString"},
+								{"message": "AzString"},
+								{"default_value": "MsgBoxOkCancel"}
+							],
+							"returns": {"type": "MsgBoxOkCancel"},
+							"fn_body": "azul_impl::dialogs::msg_box_yes_no(icon, title.as_str(), message.as_str(), default_value)"
+						},
+						"yes_no": {
+							"doc": "Opens a yes / no message box. Blocks the current thread.",
+							"fn_args": [
+								{"icon": "MsgBoxIcon"},
+								{"title": "AzString"},
+								{"message": "AzString"},
+								{"default_value": "MsgBoxYesNo"}
+							],
+							"returns": {"type": "MsgBoxYesNo"},
+							"fn_body": "azul_impl::dialogs::msg_box_ok_cancel(icon, title.as_str(), message.as_str(), default_value)"
+						}
+					}
+				},
+				"MsgBoxIcon": {
+					"external": "azul_impl::dialogs::MsgBoxIcon",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Info": {}},
+						{"Warning": {}},
+						{"Error": {}},
+						{"Question": {}}
+					]
+				},
+				"MsgBoxYesNo": {
+					"external": "azul_impl::dialogs::YesNo",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Yes": {}},
+						{"No": {}}
+					]
+				},
+				"MsgBoxOkCancel": {
+					"external": "azul_impl::dialogs::OkCancel",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Ok": {}},
+						{"Cancel": {}}
+					]
+				},
+				"FileDialog": {
+					"external": "azul_impl::dialogs::FileDialog",
+					"clone": false,
+					"struct_fields": [
+						{"_reserved": {"type": "*mut c_void"}}
+					],
+					"constructors": {
+						"select_file": {
+							"returns": {"type": "OptionString"}
+						},
+						"select_multiple_files": {
+							"returns": {"type": "OptionStringVec"}
+						},
+						"save_file": {
+							"returns": {"type": "OptionString"}
+						},
+						"select_folder": {
+							"returns": {"type": "OptionString"}
+						}
+					}
+				},
+				"ColorPickerDialog": {
+					"external": "azul_impl::dialogs::ColorPickerDialog",
+					"clone": false,
+					"struct_fields": [
+						{"_reserved": {"type": "*mut c_void"}}
+					],
+					"constructors": {
+						"open": {
+							"returns": {"type": "OptionColorU"}
 						}
 					}
 				}

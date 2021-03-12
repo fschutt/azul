@@ -331,7 +331,7 @@ pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
 /// without carrying any of its associated data
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub enum NodeTypePath {
+pub enum NodeTypeTag {
     Body,
     Div,
     Br,
@@ -342,38 +342,38 @@ pub enum NodeTypePath {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum NodeTypePathParseError<'a> {
+pub enum NodeTypeTagParseError<'a> {
     Invalid(&'a str),
 }
 
-impl<'a> fmt::Display for NodeTypePathParseError<'a> {
+impl<'a> fmt::Display for NodeTypeTagParseError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self {
-            NodeTypePathParseError::Invalid(e) => write!(f, "Invalid node type: {}", e),
+            NodeTypeTagParseError::Invalid(e) => write!(f, "Invalid node type: {}", e),
         }
     }
 }
 
-const NODE_TYPE_PATH_MAP: [(NodeTypePath, &'static str); 6] = [
-    (NodeTypePath::Body, "body"),
-    (NodeTypePath::Div, "div"),
-    (NodeTypePath::P, "p"),
-    (NodeTypePath::Img, "img"),
-    (NodeTypePath::Texture, "texture"),
-    (NodeTypePath::IFrame, "iframe"),
+const NODE_TYPE_PATH_MAP: [(NodeTypeTag, &'static str); 6] = [
+    (NodeTypeTag::Body, "body"),
+    (NodeTypeTag::Div, "div"),
+    (NodeTypeTag::P, "p"),
+    (NodeTypeTag::Img, "img"),
+    (NodeTypeTag::Texture, "texture"),
+    (NodeTypeTag::IFrame, "iframe"),
 ];
 
-/// Parses the node type from a CSS string such as `"div"` => `NodeTypePath::Div`
-impl NodeTypePath {
-    pub fn from_str(css_key: &str) -> Result<Self, NodeTypePathParseError> {
+/// Parses the node type from a CSS string such as `"div"` => `NodeTypeTag::Div`
+impl NodeTypeTag {
+    pub fn from_str(css_key: &str) -> Result<Self, NodeTypeTagParseError> {
         NODE_TYPE_PATH_MAP.iter()
         .find(|(_, k)| css_key == *k)
         .and_then(|(v, _)| Some(*v))
-        .ok_or(NodeTypePathParseError::Invalid(css_key))
+        .ok_or(NodeTypeTagParseError::Invalid(css_key))
     }
 }
 
-impl fmt::Display for NodeTypePath {
+impl fmt::Display for NodeTypeTag {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let display_string = NODE_TYPE_PATH_MAP.iter()
             .find(|(v, _)| *self == *v)
@@ -391,7 +391,7 @@ impl fmt::Display for NodeTypePath {
 /// ```no_run,ignore
 /// "#div > .my_class:focus" ==
 /// [
-///   CssPathSelector::Type(NodeTypePath::Div),
+///   CssPathSelector::Type(NodeTypeTag::Div),
 ///   CssPathSelector::PseudoSelector(CssPathPseudoSelector::LimitChildren),
 ///   CssPathSelector::Class("my_class"),
 ///   CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus),
@@ -438,7 +438,7 @@ pub enum CssPathSelector {
     /// Represents the `*` selector
     Global,
     /// `div`, `p`, etc.
-    Type(NodeTypePath),
+    Type(NodeTypeTag),
     /// `.something`
     Class(AzString),
     /// `#something`
@@ -608,15 +608,15 @@ fn test_specificity() {
     use self::CssPathSelector::*;
     assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".to_string().into())].into() }), (1, 0, 0, 1));
     assert_eq!(get_specificity(&CssPath { selectors: vec![Class("hello".to_string().into())].into() }), (0, 1, 0, 1));
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Type(NodeTypePath::Div)].into() }), (0, 0, 1, 1));
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".to_string().into()), Type(NodeTypePath::Div)].into() }), (1, 0, 1, 2));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Type(NodeTypeTag::Div)].into() }), (0, 0, 1, 1));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".to_string().into()), Type(NodeTypeTag::Div)].into() }), (1, 0, 1, 2));
 }
 
 // Assert that order of the style items is correct (in order of CSS path specificity, lowest-to-highest)
 #[test]
 fn test_specificity_sort() {
     use self::CssPathSelector::*;
-    use crate::NodeTypePath::*;
+    use crate::NodeTypeTag::*;
 
     let mut input_style = Stylesheet {
         rules: vec![

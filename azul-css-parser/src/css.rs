@@ -15,7 +15,7 @@ use azul_css::{
     Css, CssDeclaration, Stylesheet, DynamicCssProperty,
     CssPropertyType, CssRuleBlock, CssPath, CssPathSelector,
     CssNthChildSelector, CssPathPseudoSelector, CssNthChildSelector::*,
-    NodeTypePath, NodeTypePathParseError, CombinedCssPropertyType, CssKeyMap,
+    NodeTypeTag, NodeTypeTagParseError, CombinedCssPropertyType, CssKeyMap,
 };
 
 /// Error that can happen during the parsing of a CSS value
@@ -49,7 +49,7 @@ pub enum CssParseErrorInner<'a> {
     /// Error while parsing a pseudo selector (like `:aldkfja`)
     PseudoSelectorParseError(CssPseudoSelectorParseError<'a>),
     /// The path has to be either `*`, `div`, `p` or something like that
-    NodeTypePath(NodeTypePathParseError<'a>),
+    NodeTypeTag(NodeTypeTagParseError<'a>),
     /// A certain property has an unknown key, for example: `alsdfkj: 500px` = `unknown CSS key "alsdfkj: 500px"`
     UnknownPropertyKey(&'a str, &'a str),
     /// `var()` can't be used on properties that expand to multiple values, since they would be ambigouus
@@ -65,7 +65,7 @@ impl_display!{ CssParseErrorInner<'a>, {
     MalformedCss => "Malformed Css",
     DynamicCssParseError(e) => format!("{}", e),
     PseudoSelectorParseError(e) => format!("Failed to parse pseudo-selector: {}", e),
-    NodeTypePath(e) => format!("Failed to parse CSS selector path: {}", e),
+    NodeTypeTag(e) => format!("Failed to parse CSS selector path: {}", e),
     UnknownPropertyKey(k, v) => format!("Unknown CSS key: \"{}: {}\"", k, v),
     VarOnShorthandProperty { key, value } => format!(
         "Error while parsing: \"{}: {};\": var() cannot be used on shorthand properties - use `{}-top` or `{}-x` as the key instead: ",
@@ -80,7 +80,7 @@ impl<'a> From<CssSyntaxError> for CssParseErrorInner<'a> {
 }
 
 impl_from! { DynamicCssParseError<'a>, CssParseErrorInner::DynamicCssParseError }
-impl_from! { NodeTypePathParseError<'a>, CssParseErrorInner::NodeTypePath }
+impl_from! { NodeTypeTagParseError<'a>, CssParseErrorInner::NodeTypeTag }
 impl_from! { CssPseudoSelectorParseError<'a>, CssParseErrorInner::PseudoSelectorParseError }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -313,12 +313,12 @@ pub enum CssPathParseError<'a> {
     UnexpectedEndOfStream(&'a str),
     SyntaxError(CssSyntaxError),
     /// The path has to be either `*`, `div`, `p` or something like that
-    NodeTypePath(NodeTypePathParseError<'a>),
+    NodeTypeTag(NodeTypeTagParseError<'a>),
     /// Error while parsing a pseudo selector (like `:aldkfja`)
     PseudoSelectorParseError(CssPseudoSelectorParseError<'a>),
 }
 
-impl_from! { NodeTypePathParseError<'a>, CssPathParseError::NodeTypePath }
+impl_from! { NodeTypeTagParseError<'a>, CssPathParseError::NodeTypeTag }
 impl_from! { CssPseudoSelectorParseError<'a>, CssPathParseError::PseudoSelectorParseError }
 
 impl<'a> From<CssSyntaxError> for CssPathParseError<'a> {
@@ -335,7 +335,7 @@ impl<'a> From<CssSyntaxError> for CssPathParseError<'a> {
 /// # use azul_css_parser::parse_css_path;
 /// # use azul_css::{
 /// #     CssPathSelector::*, CssPathPseudoSelector::*, CssPath,
-/// #     NodeTypePath::*, CssNthChildSelector::*
+/// #     NodeTypeTag::*, CssNthChildSelector::*
 /// # };
 ///
 /// assert_eq!(
@@ -370,7 +370,7 @@ pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'
                 selectors.push(CssPathSelector::Global);
             },
             Token::TypeSelector(div_type) => {
-                selectors.push(CssPathSelector::Type(NodeTypePath::from_str(div_type)?));
+                selectors.push(CssPathSelector::Type(NodeTypeTag::from_str(div_type)?));
             },
             Token::IdSelector(id) => {
                 selectors.push(CssPathSelector::Id(id.to_string().into()));
@@ -515,7 +515,7 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
             },
             Token::TypeSelector(div_type) => {
                 check_parser_is_outside_block!();
-                last_path.push(CssPathSelector::Type(NodeTypePath::from_str(div_type).map_err(|e| {
+                last_path.push(CssPathSelector::Type(NodeTypeTag::from_str(div_type).map_err(|e| {
                     CssParseError {
                         css_string,
                         error: e.into(),
@@ -717,7 +717,7 @@ fn test_css_parse_1() {
     let expected_css_rules = vec![CssRuleBlock {
         path: CssPath {
             selectors: vec![
-                CssPathSelector::Type(NodeTypePath::Div),
+                CssPathSelector::Type(NodeTypeTag::Div),
                 CssPathSelector::Id("my_id".to_string().into()),
                 CssPathSelector::Children,
                 // NOTE: This is technically wrong, the space between "#my_id"
@@ -747,14 +747,14 @@ fn test_css_parse_1() {
 #[test]
 fn test_css_simple_selector_parse() {
     use self::CssPathSelector::*;
-    use azul_css::NodeTypePath;
+    use azul_css::NodeTypeTag;
     let css = "div#id.my_class > p .new { }";
     let parsed = vec![
-        Type(NodeTypePath::Div),
+        Type(NodeTypeTag::Div),
         Id("id".to_string().into()),
         Class("my_class".to_string().into()),
         DirectChildren,
-        Type(NodeTypePath::P),
+        Type(NodeTypeTag::P),
         Children,
         Class("new".to_string().into())
     ];
@@ -876,10 +876,10 @@ fn test_multiple_rules() {
     let expected_rules = vec![
         // Rules are sorted by order of appearance in source string
         CssRuleBlock { path: CssPath { selectors: vec![Global].into() }, declarations: Vec::new().into() },
-        CssRuleBlock { path: CssPath { selectors: vec![Global, Type(NodeTypePath::Div), Class("my_class".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
-        CssRuleBlock { path: CssPath { selectors: vec![Global, Type(NodeTypePath::Div), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+        CssRuleBlock { path: CssPath { selectors: vec![Global, Type(NodeTypeTag::Div), Class("my_class".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+        CssRuleBlock { path: CssPath { selectors: vec![Global, Type(NodeTypeTag::Div), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
         CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
-        CssRuleBlock { path: CssPath { selectors: vec![Type(NodeTypePath::Div), Class("my_class".to_string().into()), Class("specific".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+        CssRuleBlock { path: CssPath { selectors: vec![Type(NodeTypeTag::Div), Class("my_class".to_string().into()), Class("specific".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
     ];
 
     assert_eq!(parsed_css, Css { stylesheets: vec![expected_rules.into()].into() });

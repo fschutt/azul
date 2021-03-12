@@ -13,7 +13,7 @@ use crate::{
     styled_dom::{StyledDom, AzNodeId, DomId},
     app_resources::{Words, ShapedWords, FontInstanceKey, WordPositions},
     id_tree::{NodeId, NodeDataContainer},
-    dom::{DomHash, ScrollTagId},
+    dom::{DomNodeHash, ScrollTagId},
     callbacks::{PipelineId, HitTestItem, ScrollHitTestItem},
     window::{ScrollStates, LogicalRect, LogicalSize},
 };
@@ -187,7 +187,7 @@ pub struct ScrolledNodes {
 pub struct OverflowingScrollNode {
     pub child_rect: LayoutRect,
     pub parent_external_scroll_id: ExternalScrollId,
-    pub parent_dom_hash: DomHash,
+    pub parent_dom_hash: DomNodeHash,
     pub scroll_tag_id: ScrollTagId,
 }
 
