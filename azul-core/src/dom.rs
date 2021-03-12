@@ -978,7 +978,7 @@ impl NodeData {
     pub fn debug_print_start(&self, css_cache: &CssPropertyCache, node_id: &NodeId, node_state: &StyledNodeState) -> String {
         let html_type = self.node_type.get_path();
         let attributes_string = node_data_to_string(&self);
-        let style = css_cache.get_css_style_string(self, node_id, node_state);
+        let style = css_cache.get_computed_css_style_string(node_id, node_state);
         format!("<{}{} style=\"{}\">", html_type, attributes_string, style)
     }
 
