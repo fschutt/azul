@@ -9,18 +9,20 @@ use alloc::vec::Vec;
 use alloc::collections::btree_map::BTreeMap;
 use azul_css::{
     CssProperty, LayoutSize, U8Vec, ColorU, OptionF32,
-    AzString, OptionAzString, LayoutPoint, LayoutRect, CssPath, OptionI32,
+    AzString, OptionAzString, LayoutPoint, LayoutRect,
+    CssPath, OptionI32,
 };
 use crate::{
     FastHashMap,
     app_resources::{AppResources, IdNamespace, ResourceUpdate, Epoch, ImageSource, ImageMask},
     styled_dom::{DomId, AzNodeId},
-    id_tree::NodeId,
+    id_tree::{NodeId, NodeDataContainerRef},
     callbacks::{OptionCallback, PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, UpdateScreen},
     ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId},
     display_list::{GlTextureCache, RenderCallbacks},
     callbacks::{LayoutCallback, LayoutCallbackType},
     task::{TimerId, ThreadId, Timer, Thread},
+    dom::NodeData,
 };
 use rust_fontconfig::FcFontCache;
 #[cfg(feature = "std")]
@@ -709,11 +711,12 @@ impl CursorTypeHitTest {
         let mut cursor_icon = MouseCursorType::Default;
 
         for (dom_id, hit_nodes) in hit_test.hovered_nodes.iter() {
-            for (node_id, _) in hit_nodes.regular_hit_test_nodes. iter() {
+            for (node_id, _) in hit_nodes.regular_hit_test_nodes.iter() {
 
                 // if the node has a non-default cursor: property, insert it
-                let styled_dom = & layout_results[dom_id.inner].styled_dom;
-                if let Some(cursor_prop) = styled_dom.get_css_property_cache().get_cursor(node_id, &styled_dom.styled_nodes.as_container()[*node_id].state) {
+                let styled_dom = &layout_results[dom_id.inner].styled_dom;
+                let node_data_container = styled_dom.node_data.as_container();
+                if let Some(cursor_prop) = styled_dom.get_css_property_cache().get_cursor(&node_data_container[*node_id], node_id, &styled_dom.styled_nodes.as_container()[*node_id].state) {
                     cursor_node = Some((*dom_id, *node_id));
                     cursor_icon = match cursor_prop.get_property().copied().unwrap_or_default() {
                         StyleCursor::Alias => MouseCursorType::Alias,

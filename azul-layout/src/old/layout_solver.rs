@@ -56,6 +56,7 @@ fn precalculate_wh_config(styled_dom: &StyledDom) -> NodeDataContainer<WhConfig>
     use rayon::prelude::*;
 
     let css_property_cache = styled_dom.get_css_property_cache();
+    let node_data_container = styled_dom.node_data.as_container();
 
     NodeDataContainer {
         internal: styled_dom.styled_nodes
@@ -66,14 +67,14 @@ fn precalculate_wh_config(styled_dom: &StyledDom) -> NodeDataContainer<WhConfig>
             let node_id = NodeId::new(node_id);
             WhConfig {
                 width: WidthConfig {
-                    exact: css_property_cache.get_width(&node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
-                    max: css_property_cache.get_max_width(&node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
-                    min: css_property_cache.get_min_width(&node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
+                    exact: css_property_cache.get_width(&node_data_container[node_id], &node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
+                    max: css_property_cache.get_max_width(&node_data_container[node_id], &node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
+                    min: css_property_cache.get_min_width(&node_data_container[node_id], &node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
                 },
                 height: HeightConfig {
-                    exact: css_property_cache.get_height(&node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
-                    max: css_property_cache.get_max_height(&node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
-                    min: css_property_cache.get_min_height(&node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
+                    exact: css_property_cache.get_height(&node_data_container[node_id], &node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
+                    max: css_property_cache.get_max_height(&node_data_container[node_id], &node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
+                    min: css_property_cache.get_min_height(&node_data_container[node_id], &node_id, &styled_node.state).and_then(|p| p.get_property().copied()),
                 },
             }
         })
@@ -1084,9 +1085,12 @@ fn get_y_positions<'a>(
 #[inline]
 pub fn get_layout_positions<'a>(styled_dom: &StyledDom) -> NodeDataContainer<LayoutPosition> {
     let cache = styled_dom.get_css_property_cache();
+    let node_data_container = styled_dom.node_data.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    assert!(node_data_container.internal.len() == styled_nodes.internal.len()); // elide bounds checking
     NodeDataContainer {
-        internal: styled_dom.styled_nodes.as_container().internal.par_iter().enumerate().map(|(node_id, styled_node)| {
-            cache.get_position(&NodeId::new(node_id), &styled_node.state).unwrap_or_default().get_property_or_default().unwrap_or_default()
+        internal: styled_nodes.internal.par_iter().enumerate().map(|(node_id, styled_node)| {
+            cache.get_position(&node_data_container.internal[node_id], &NodeId::new(node_id), &styled_node.state).unwrap_or_default().get_property_or_default().unwrap_or_default()
         }).collect()
     }
 }
@@ -1094,9 +1098,13 @@ pub fn get_layout_positions<'a>(styled_dom: &StyledDom) -> NodeDataContainer<Lay
 #[inline]
 pub fn get_layout_justify_contents<'a>(styled_dom: &StyledDom) -> NodeDataContainer<LayoutJustifyContent> {
     let cache = styled_dom.get_css_property_cache();
+    let node_data_container = styled_dom.node_data.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    assert!(node_data_container.internal.len() == styled_nodes.internal.len()); // elide bounds checking
+
     NodeDataContainer {
-        internal: styled_dom.styled_nodes.as_container().internal.par_iter().enumerate().map(|(node_id, styled_node)| {
-            cache.get_justify_content(&NodeId::new(node_id), &styled_node.state).unwrap_or_default().get_property_or_default().unwrap_or_default()
+        internal: styled_nodes.internal.par_iter().enumerate().map(|(node_id, styled_node)| {
+            cache.get_justify_content(&node_data_container.internal[node_id], &NodeId::new(node_id), &styled_node.state).unwrap_or_default().get_property_or_default().unwrap_or_default()
         }).collect()
     }
 }
@@ -1104,9 +1112,13 @@ pub fn get_layout_justify_contents<'a>(styled_dom: &StyledDom) -> NodeDataContai
 #[inline]
 pub fn get_layout_flex_directions<'a>(styled_dom: &StyledDom) -> NodeDataContainer<LayoutFlexDirection> {
     let cache = styled_dom.get_css_property_cache();
+    let node_data_container = styled_dom.node_data.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    assert!(node_data_container.internal.len() == styled_nodes.internal.len()); // elide bounds checking
+
     NodeDataContainer {
-        internal: styled_dom.styled_nodes.as_container().internal.par_iter().enumerate().map(|(node_id, styled_node)| {
-            cache.get_flex_direction(&NodeId::new(node_id), &styled_node.state).unwrap_or_default().get_property_or_default().unwrap_or_default()
+        internal: styled_nodes.internal.par_iter().enumerate().map(|(node_id, styled_node)| {
+            cache.get_flex_direction(&node_data_container.internal[node_id], &NodeId::new(node_id), &styled_node.state).unwrap_or_default().get_property_or_default().unwrap_or_default()
         }).collect()
     }
 }
@@ -1115,9 +1127,13 @@ pub fn get_layout_flex_directions<'a>(styled_dom: &StyledDom) -> NodeDataContain
 pub fn get_layout_flex_grows<'a>(styled_dom: &StyledDom) -> NodeDataContainer<f32> {
     // Prevent flex-grow and flex-shrink to be less than 0
     let cache = styled_dom.get_css_property_cache();
+    let node_data_container = styled_dom.node_data.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    assert!(node_data_container.internal.len() == styled_nodes.internal.len()); // elide bounds checking
+
     NodeDataContainer {
-        internal: styled_dom.styled_nodes.as_container().internal.par_iter().enumerate().map(|(node_id, styled_node)| {
-            cache.get_flex_grow(&NodeId::new(node_id), &styled_node.state)
+        internal: styled_nodes.internal.par_iter().enumerate().map(|(node_id, styled_node)| {
+            cache.get_flex_grow(&node_data_container.internal[node_id], &NodeId::new(node_id), &styled_node.state)
             .and_then(|g| g.get_property().copied())
             .and_then(|grow| Some(grow.inner.get().max(0.0)))
             .unwrap_or(DEFAULT_FLEX_GROW_FACTOR)
@@ -1181,49 +1197,51 @@ fn precalculate_all_offsets(styled_dom: &StyledDom) -> NodeDataContainer<AllOffs
     use rayon::prelude::*;
 
     let css_property_cache = styled_dom.get_css_property_cache();
+    let node_data_container = styled_dom.node_data.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    assert!(styled_nodes.internal.len() == node_data_container.internal.len()); // elide bounds check
 
     NodeDataContainer {
-        internal: styled_dom.styled_nodes
-        .as_container().internal
+        internal: styled_nodes.internal
         .par_iter()
         .enumerate()
-        .map(|(node_id, styled_node)| {
-            let node_id = NodeId::new(node_id);
+        .map(|(node_id_usize, styled_node)| {
+            let node_id = NodeId::new(node_id_usize);
             let state = &styled_node.state;
-            precalculate_offset(&css_property_cache, &node_id, state)
+            precalculate_offset(&node_data_container.internal[node_id_usize], &css_property_cache, &node_id, state)
         })
         .collect(),
     }
 }
 
-fn precalculate_offset(css_property_cache: &CssPropertyCache, node_id: &NodeId, state: &StyledNodeState) -> AllOffsets {
+fn precalculate_offset(node_data: &NodeData, css_property_cache: &CssPropertyCache, node_id: &NodeId, state: &StyledNodeState) -> AllOffsets {
     AllOffsets {
         border_widths: LayoutBorderOffsets {
-            left: css_property_cache.get_border_left_width(node_id, state),
-            right: css_property_cache.get_border_right_width(node_id, state),
-            top: css_property_cache.get_border_top_width(node_id, state),
-            bottom: css_property_cache.get_border_bottom_width(node_id, state),
+            left: css_property_cache.get_border_left_width(node_data, node_id, state),
+            right: css_property_cache.get_border_right_width(node_data, node_id, state),
+            top: css_property_cache.get_border_top_width(node_data, node_id, state),
+            bottom: css_property_cache.get_border_bottom_width(node_data, node_id, state),
         },
         padding: LayoutPaddingOffsets {
-            left: css_property_cache.get_padding_left(node_id, state),
-            right: css_property_cache.get_padding_right(node_id, state),
-            top: css_property_cache.get_padding_top(node_id, state),
-            bottom: css_property_cache.get_padding_bottom(node_id, state),
+            left: css_property_cache.get_padding_left(node_data, node_id, state),
+            right: css_property_cache.get_padding_right(node_data, node_id, state),
+            top: css_property_cache.get_padding_top(node_data, node_id, state),
+            bottom: css_property_cache.get_padding_bottom(node_data, node_id, state),
         },
         margin: LayoutMarginOffsets {
-            left: css_property_cache.get_margin_left(node_id, state),
-            right: css_property_cache.get_margin_right(node_id, state),
-            top: css_property_cache.get_margin_top(node_id, state),
-            bottom: css_property_cache.get_margin_bottom(node_id, state),
+            left: css_property_cache.get_margin_left(node_data, node_id, state),
+            right: css_property_cache.get_margin_right(node_data, node_id, state),
+            top: css_property_cache.get_margin_top(node_data, node_id, state),
+            bottom: css_property_cache.get_margin_bottom(node_data, node_id, state),
         },
         position: LayoutAbsolutePositions {
-            left: css_property_cache.get_left(node_id, state),
-            right: css_property_cache.get_right(node_id, state),
-            top: css_property_cache.get_top(node_id, state),
-            bottom: css_property_cache.get_bottom(node_id, state),
+            left: css_property_cache.get_left(node_data, node_id, state),
+            right: css_property_cache.get_right(node_data, node_id, state),
+            top: css_property_cache.get_top(node_data, node_id, state),
+            bottom: css_property_cache.get_bottom(node_data, node_id, state),
         },
-        overflow_x: css_property_cache.get_overflow_x(node_id, state),
-        overflow_y: css_property_cache.get_overflow_y(node_id, state),
+        overflow_x: css_property_cache.get_overflow_x(node_data, node_id, state),
+        overflow_y: css_property_cache.get_overflow_y(node_data, node_id, state),
     }
 }
 
@@ -1687,8 +1705,8 @@ fn position_nodes<'a>(
     for ParentWithNodeDepth { depth: _, node_id } in styled_dom.non_leaf_nodes.as_ref().iter() {
 
         let parent_node_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
-
         if !nodes_that_updated_positions.contains(&parent_node_id) { continue; };
+        let parent_node_data = &styled_dom.node_data.as_container()[parent_node_id];
 
         let parent_position = position_info[parent_node_id];
         let width = solved_widths[parent_node_id];
@@ -1775,9 +1793,9 @@ fn position_nodes<'a>(
                     let mut inline_text = InlineText { words, shaped_words };
                     let mut inline_text_layout = inline_text.get_text_layout(pipeline_id, parent_node_id, &word_positions.text_layout_options);
                     let (horz_alignment, vert_alignment) = determine_text_alignment(
-                        css_property_cache.get_align_items(&parent_node_id, parent_styled_node_state),
-                        css_property_cache.get_justify_content(&parent_node_id, parent_styled_node_state),
-                        css_property_cache.get_text_align(&parent_node_id, parent_styled_node_state),
+                        css_property_cache.get_align_items(parent_node_data, &parent_node_id, parent_styled_node_state),
+                        css_property_cache.get_justify_content(parent_node_data, &parent_node_id, parent_styled_node_state),
+                        css_property_cache.get_text_align(parent_node_data, &parent_node_id, parent_styled_node_state),
                     );
                     inline_text_layout.align_children_horizontal(horz_alignment);
                     inline_text_layout.align_children_vertical_in_parent_bounds(&parent_parent_size, vert_alignment);
@@ -1807,6 +1825,7 @@ fn position_nodes<'a>(
             let y_pos = y_positions[child_node_id].0;
             let child_position = position_info[child_node_id];
             let child_styled_node_state = &styled_nodes[child_node_id].state;
+            let child_node_data = &styled_dom.node_data.as_container()[child_node_id];
 
             let child_position = match child_position {
                 LayoutPosition::Static => PositionInfo::Static {
@@ -1869,9 +1888,9 @@ fn position_nodes<'a>(
                         use azul_text_layout::InlineText;
                         let mut inline_text_layout = InlineText { words, shaped_words }.get_text_layout(pipeline_id, child_node_id, &word_positions.text_layout_options);
                         let (horz_alignment, vert_alignment) = determine_text_alignment(
-                            css_property_cache.get_align_items(&child_node_id, child_styled_node_state),
-                            css_property_cache.get_justify_content(&child_node_id, child_styled_node_state),
-                            css_property_cache.get_text_align(&child_node_id, child_styled_node_state),
+                            css_property_cache.get_align_items(child_node_data, &child_node_id, child_styled_node_state),
+                            css_property_cache.get_justify_content(child_node_data, &child_node_id, child_styled_node_state),
+                            css_property_cache.get_text_align(child_node_data, &child_node_id, child_styled_node_state),
                         );
                         inline_text_layout.align_children_horizontal(horz_alignment);
                         inline_text_layout.align_children_vertical_in_parent_bounds(&parent_size, vert_alignment);
@@ -1950,6 +1969,7 @@ pub fn create_shaped_words<'a>(
 
     let css_property_cache = styled_dom.get_css_property_cache();
     let styled_nodes = styled_dom.styled_nodes.as_container();
+    let node_data = styled_dom.node_data.as_container();
 
     words
     .iter()
@@ -1957,7 +1977,8 @@ pub fn create_shaped_words<'a>(
 
         println!("{} - shape words", node_id);
         let styled_node_state = &styled_nodes[*node_id].state;
-        let css_font_ids = css_property_cache.get_font_id_or_default(node_id, styled_node_state);
+        let node_data = &node_data[*node_id];
+        let css_font_ids = css_property_cache.get_font_id_or_default(node_data, node_id, styled_node_state);
         let font_id = match app_resources.get_css_font_id(&css_font_ids) {
             Some(s) => ImmediateFontId::Resolved(*s),
             None => ImmediateFontId::Unresolved(css_font_ids),
@@ -1994,6 +2015,7 @@ fn create_word_positions<'a>(
     use azul_core::app_resources::{ImmediateFontId, font_size_to_au};
 
     let css_property_cache = styled_dom.get_css_property_cache();
+    let node_data_container = styled_dom.node_data.as_container();
 
     let collected =
     words
@@ -2001,12 +2023,13 @@ fn create_word_positions<'a>(
     .filter_map(|(node_id, words)| {
 
         if !word_positions_to_generate.contains(node_id) { return None; }
+        let node_data = &node_data_container[*node_id];
 
         let styled_node_state = styled_dom.get_styled_node_state(node_id);
-        let font_size = css_property_cache.get_font_size_or_default(node_id, &styled_node_state);
+        let font_size = css_property_cache.get_font_size_or_default(node_data, node_id, &styled_node_state);
         let font_size_au = font_size_to_au(font_size);
         let font_size_px = font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32);
-        let css_font_ids = css_property_cache.get_font_id_or_default(node_id, &styled_node_state);
+        let css_font_ids = css_property_cache.get_font_id_or_default(node_data, node_id, &styled_node_state);
 
         let font_id = match app_resources.get_css_font_id(&css_font_ids) {
             Some(s) => ImmediateFontId::Resolved(*s),
@@ -2017,11 +2040,11 @@ fn create_word_positions<'a>(
 
         let shaped_words = shaped_words.get(&node_id)?;
 
-        let text_can_overflow =  css_property_cache.get_overflow_x(node_id, &styled_node_state).unwrap_or_default().get_property_or_default().unwrap_or_default() != LayoutOverflow::Auto;
-        let letter_spacing = css_property_cache.get_letter_spacing(node_id, &styled_node_state).and_then(|ls| Some(ls.get_property()?.inner.to_pixels(DEFAULT_LETTER_SPACING)));
-        let word_spacing = css_property_cache.get_word_spacing(node_id, &styled_node_state).and_then(|ws| Some(ws.get_property()?.inner.to_pixels(DEFAULT_WORD_SPACING)));
-        let line_height = css_property_cache.get_line_height(node_id, &styled_node_state).and_then(|lh| Some(lh.get_property()?.inner.get()));
-        let tab_width = css_property_cache.get_tab_width(node_id, &styled_node_state).and_then(|tw| Some(tw.get_property()?.inner.get()));
+        let text_can_overflow =  css_property_cache.get_overflow_x(node_data, node_id, &styled_node_state).unwrap_or_default().get_property_or_default().unwrap_or_default() != LayoutOverflow::Auto;
+        let letter_spacing = css_property_cache.get_letter_spacing(node_data, node_id, &styled_node_state).and_then(|ls| Some(ls.get_property()?.inner.to_pixels(DEFAULT_LETTER_SPACING)));
+        let word_spacing = css_property_cache.get_word_spacing(node_data, node_id, &styled_node_state).and_then(|ws| Some(ws.get_property()?.inner.to_pixels(DEFAULT_WORD_SPACING)));
+        let line_height = css_property_cache.get_line_height(node_data, node_id, &styled_node_state).and_then(|lh| Some(lh.get_property()?.inner.get()));
+        let tab_width = css_property_cache.get_tab_width(node_data, node_id, &styled_node_state).and_then(|tw| Some(tw.get_property()?.inner.get()));
 
         let text_layout_options = ResolvedTextLayoutOptions {
             max_horizontal_width: if text_can_overflow {
@@ -2257,20 +2280,21 @@ pub fn do_the_relayout(
     nodes_to_relayout.keys().for_each(|node_id| {
         let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[*node_id].state;
         let css_property_cache = layout_result.styled_dom.get_css_property_cache();
+        let node_data = &layout_result.styled_dom.node_data.as_container()[*node_id];
 
-        let new_layout_position = css_property_cache.get_position(node_id, styled_node_state).and_then(|p| p.get_property().copied()).unwrap_or_default();
+        let new_layout_position = css_property_cache.get_position(node_data, node_id, styled_node_state).and_then(|p| p.get_property().copied()).unwrap_or_default();
         layout_result.layout_positions.as_ref_mut()[*node_id] = new_layout_position;
 
-        let new_flex_grow = css_property_cache.get_flex_grow(node_id, styled_node_state)
+        let new_flex_grow = css_property_cache.get_flex_grow(node_data, node_id, styled_node_state)
             .and_then(|g| g.get_property().copied())
             .and_then(|grow| Some(grow.inner.get().max(0.0)))
             .unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
         layout_result.layout_flex_grows.as_ref_mut()[*node_id] = new_flex_grow;
 
-        let new_flex_direction = css_property_cache.get_flex_direction(node_id, styled_node_state).and_then(|p| p.get_property().copied()).unwrap_or_default();
+        let new_flex_direction = css_property_cache.get_flex_direction(node_data, node_id, styled_node_state).and_then(|p| p.get_property().copied()).unwrap_or_default();
         layout_result.layout_flex_directions.as_ref_mut()[*node_id] = new_flex_direction;
 
-        let new_justify_content = css_property_cache.get_justify_content(node_id, styled_node_state).and_then(|p| p.get_property().copied()).unwrap_or_default();
+        let new_justify_content = css_property_cache.get_justify_content(node_data, node_id, styled_node_state).and_then(|p| p.get_property().copied()).unwrap_or_default();
         layout_result.layout_justify_contents.as_ref_mut()[*node_id] = new_justify_content;
     });
 
@@ -2295,6 +2319,7 @@ pub fn do_the_relayout(
 
         let node_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
         let parent_id = layout_result.styled_dom.node_hierarchy.as_container()[node_id].parent_id().unwrap_or(layout_result.styled_dom.root.into_crate_internal().unwrap());
+        let node_data = &layout_result.styled_dom.node_data.as_container()[node_id];
 
         let changes_for_this_node = match nodes_to_relayout.get(&node_id) {
             None => continue,
@@ -2318,9 +2343,9 @@ pub fn do_the_relayout(
             let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[node_id].state;
             let wh_config = WhConfig {
                 width: WidthConfig {
-                    exact: css_property_cache.get_width(&node_id, styled_node_state).and_then(|p| p.get_property().copied()),
-                    max: css_property_cache.get_max_width(&node_id, styled_node_state).and_then(|p| p.get_property().copied()),
-                    min: css_property_cache.get_min_width(&node_id, styled_node_state).and_then(|p| p.get_property().copied()),
+                    exact: css_property_cache.get_width(node_data, &node_id, styled_node_state).and_then(|p| p.get_property().copied()),
+                    max: css_property_cache.get_max_width(node_data, &node_id, styled_node_state).and_then(|p| p.get_property().copied()),
+                    min: css_property_cache.get_min_width(node_data, &node_id, styled_node_state).and_then(|p| p.get_property().copied()),
                 },
                 height: HeightConfig::default(),
             };
@@ -2340,9 +2365,9 @@ pub fn do_the_relayout(
             let wh_config = WhConfig {
                 width: WidthConfig::default(),
                 height: HeightConfig {
-                    exact: css_property_cache.get_height(&node_id, &styled_node_state).and_then(|p| p.get_property().copied()),
-                    max: css_property_cache.get_max_height(&node_id, &styled_node_state).and_then(|p| p.get_property().copied()),
-                    min: css_property_cache.get_min_height(&node_id, &styled_node_state).and_then(|p| p.get_property().copied()),
+                    exact: css_property_cache.get_height(node_data, &node_id, &styled_node_state).and_then(|p| p.get_property().copied()),
+                    max: css_property_cache.get_max_height(node_data, &node_id, &styled_node_state).and_then(|p| p.get_property().copied()),
+                    min: css_property_cache.get_min_height(node_data, &node_id, &styled_node_state).and_then(|p| p.get_property().copied()),
                 },
             };
             let parent_height = layout_result.preferred_heights.as_ref()[parent_id].clone().unwrap_or(root_size.height as f32);
@@ -2639,18 +2664,20 @@ pub fn do_the_relayout(
     }
 
     let css_property_cache = layout_result.styled_dom.get_css_property_cache();
+    let node_data_container = layout_result.styled_dom.node_data.as_container();
+
     let mut all_offsets_to_recalc = BTreeMap::new();
     for node_id in nodes_that_changed_size.iter() {
 
         all_offsets_to_recalc.entry(*node_id).or_insert_with(|| {
             let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[*node_id].state;
-            precalculate_offset(&css_property_cache, node_id, styled_node_state)
+            precalculate_offset(&node_data_container[*node_id], &css_property_cache, node_id, styled_node_state)
         });
 
         for child_id in node_id.az_children(&layout_result.styled_dom.node_hierarchy.as_container()) {
             all_offsets_to_recalc.entry(child_id).or_insert_with(|| {
                 let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[child_id].state;
-                precalculate_offset(&css_property_cache, &child_id, styled_node_state)
+                precalculate_offset(&node_data_container[*node_id], &css_property_cache, &child_id, styled_node_state)
             });
         }
     }
