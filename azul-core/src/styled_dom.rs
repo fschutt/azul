@@ -416,7 +416,7 @@ macro_rules! try_filter_for_inline_prop {($) => {
 };}
 
 macro_rules! get_property {
-    ($self_id:expr, $node_id:expr, $node_state:expr, $css_property_type:expr, $as_downcast_fn:ident) => {
+    ($self_id:expr, $node_data_container:expr, $node_id:expr, $node_state:expr, $css_property_type:expr, $as_downcast_fn:ident) => {
         {
             // NOTE: This function is slow, but it is going to be called on every
             // node in parallel, so it should be rather fast in the end
@@ -429,20 +429,117 @@ macro_rules! get_property {
                 return Some(p_downcasted.clone());
             }
 
-            // If that fails, see if there is an inline property that matches
-            // :focus > :active > :hover > :normal
+            let inline_css_props = &$node_data_container[*$node_id].inline_css_props;
 
+            if $node_state.normal || $node_state.active ||
+               $node_state.hover || $node_state.focused
+            {
+                // If that fails, see if there is an inline CSS property that matches
+                // :focus > :active > :hover > :normal
+                if let Some(p) = inline_css_props.as_ref().iter().find_map(|css_prop| {
 
-            // If that fails, see if there is a CSS property that matches
-            // :focus > :active > :hover > :normal
+                    if $node_state.focused {
+                        if let NodeDataInlineCssProperty::Focus(p) = css_prop {
+                            if let Some(p) = p.$as_downcast_fn() {
+                                return Some(p);
+                            }
+                        }
+                    }
 
+                    if $node_state.active {
+                        if let NodeDataInlineCssProperty::Active(p) = css_prop {
+                            if let Some(p) = p.$as_downcast_fn() {
+                                return Some(p);
+                            }
+                        }
+                    }
 
-            // If that fails, see if there is a cascaded property matches
-            // :focus > :active > :hover > :normal
+                    if $node_state.hover {
+                        if let NodeDataInlineCssProperty::Hover(p) = css_prop {
+                            if let Some(p) = p.$as_downcast_fn() {
+                                return Some(p);
+                            }
+                        }
+                    }
 
+                    if $node_state.normal {
+                        if let NodeDataInlineCssProperty::Normal(p) = css_prop {
+                            if let Some(p) = p.$as_downcast_fn() {
+                                return Some(p);
+                            }
+                        }
+                    }
+
+                    None
+                }) {
+                    return Some(p.clone());
+                }
+
+                // If that fails, see if there is a CSS property that matches
+                // :focus > :active > :hover > :normal
+                if $node_state.focused {
+                    if let Some(p) = $self_id.css_focus_props.get($node_id)
+                    .and_then(|map| map.get(&$css_property_type))
+                    .and_then(|prop| prop.$as_downcast_fn()) {
+                        return Some(p.clone());
+                    }
+                }
+                if $node_state.active {
+                    if let Some(p) = $self_id.css_active_props.get($node_id)
+                    .and_then(|map| map.get(&$css_property_type))
+                    .and_then(|prop| prop.$as_downcast_fn()) {
+                        return Some(p.clone());
+                    }
+                }
+                if $node_state.hover {
+                    if let Some(p) = $self_id.css_hover_props.get($node_id)
+                    .and_then(|map| map.get(&$css_property_type))
+                    .and_then(|prop| prop.$as_downcast_fn()) {
+                        return Some(p.clone());
+                    }
+                }
+                if $node_state.normal {
+                    if let Some(p) = $self_id.css_normal_props.get($node_id)
+                    .and_then(|map| map.get(&$css_property_type))
+                    .and_then(|prop| prop.$as_downcast_fn()) {
+                        return Some(p.clone());
+                    }
+                }
+
+                // If that fails, see if there is a cascaded property matches
+                // :focus > :active > :hover > :normal
+                if $node_state.focused {
+                    if let Some(p) = $self_id.cascaded_focus_props.get($node_id)
+                    .and_then(|map| map.get(&$css_property_type))
+                    .and_then(|prop| prop.$as_downcast_fn()) {
+                        return Some(p.clone());
+                    }
+                }
+                if $node_state.active {
+                    if let Some(p) = $self_id.cascaded_active_props.get($node_id)
+                    .and_then(|map| map.get(&$css_property_type))
+                    .and_then(|prop| prop.$as_downcast_fn()) {
+                        return Some(p.clone());
+                    }
+                }
+                if $node_state.hover {
+                    if let Some(p) = $self_id.cascaded_hover_props.get($node_id)
+                    .and_then(|map| map.get(&$css_property_type))
+                    .and_then(|prop| prop.$as_downcast_fn()) {
+                        return Some(p.clone());
+                    }
+                }
+                if $node_state.normal {
+                    if let Some(p) = $self_id.cascaded_normal_props.get($node_id)
+                    .and_then(|map| map.get(&$css_property_type))
+                    .and_then(|prop| prop.$as_downcast_fn()) {
+                        return Some(p.clone());
+                    }
+                }
+            }
 
             // Nothing found, use the default
-            return None;
+            None
         }
     }
 }
@@ -528,212 +625,212 @@ impl CssPropertyCache {
         self.get_box_shadow_bottom(node_id, node_state).is_some()
     }
 
-    pub fn get_background(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundContentVecValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Background, as_background)
+    pub fn get_background(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundContentVecValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Background, as_background)
     }
-    pub fn get_background_position(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundPositionVecValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BackgroundPosition, as_background_position)
+    pub fn get_background_position(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundPositionVecValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BackgroundPosition, as_background_position)
     }
-    pub fn get_background_size(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundSizeVecValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BackgroundSize, as_background_size)
+    pub fn get_background_size(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundSizeVecValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BackgroundSize, as_background_size)
     }
-    pub fn get_background_repeat(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundRepeatVecValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BackgroundRepeat, as_background_repeat)
+    pub fn get_background_repeat(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundRepeatVecValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BackgroundRepeat, as_background_repeat)
     }
-    pub fn get_font_size(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleFontSizeValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::FontSize, as_font_size)
+    pub fn get_font_size(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleFontSizeValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::FontSize, as_font_size)
     }
-    pub fn get_font_family(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleFontFamilyValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::FontFamily, as_font_family)
+    pub fn get_font_family(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleFontFamilyValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::FontFamily, as_font_family)
     }
-    pub fn get_text_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTextColorValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::TextColor, as_text_color)
+    pub fn get_text_color(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTextColorValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::TextColor, as_text_color)
     }
-    pub fn get_text_align(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTextAlignmentHorzValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::TextAlign, as_text_align)
+    pub fn get_text_align(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTextAlignmentHorzValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::TextAlign, as_text_align)
     }
-    pub fn get_line_height(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleLineHeightValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::LineHeight, as_line_height)
+    pub fn get_line_height(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleLineHeightValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::LineHeight, as_line_height)
     }
-    pub fn get_letter_spacing(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleLetterSpacingValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::LetterSpacing, as_letter_spacing)
+    pub fn get_letter_spacing(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleLetterSpacingValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::LetterSpacing, as_letter_spacing)
     }
-    pub fn get_word_spacing(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleWordSpacingValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::WordSpacing, as_word_spacing)
+    pub fn get_word_spacing(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleWordSpacingValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::WordSpacing, as_word_spacing)
     }
-    pub fn get_tab_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTabWidthValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::TabWidth, as_tab_width)
+    pub fn get_tab_width(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTabWidthValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::TabWidth, as_tab_width)
     }
-    pub fn get_cursor(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleCursorValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Cursor, as_cursor)
+    pub fn get_cursor(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleCursorValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Cursor, as_cursor)
     }
-    pub fn get_box_shadow_left(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBoxShadowValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BoxShadowLeft, as_box_shadow_left)
+    pub fn get_box_shadow_left(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBoxShadowValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BoxShadowLeft, as_box_shadow_left)
     }
-    pub fn get_box_shadow_right(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBoxShadowValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BoxShadowRight, as_box_shadow_right)
+    pub fn get_box_shadow_right(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBoxShadowValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BoxShadowRight, as_box_shadow_right)
     }
-    pub fn get_box_shadow_top(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBoxShadowValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BoxShadowTop, as_box_shadow_top)
+    pub fn get_box_shadow_top(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBoxShadowValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BoxShadowTop, as_box_shadow_top)
     }
-    pub fn get_box_shadow_bottom(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBoxShadowValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BoxShadowBottom, as_box_shadow_bottom)
+    pub fn get_box_shadow_bottom(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBoxShadowValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BoxShadowBottom, as_box_shadow_bottom)
     }
-    pub fn get_border_top_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderTopColorValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderTopColor, as_border_top_color)
+    pub fn get_border_top_color(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderTopColorValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderTopColor, as_border_top_color)
     }
-    pub fn get_border_left_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderLeftColorValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderLeftColor, as_border_left_color)
+    pub fn get_border_left_color(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderLeftColorValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderLeftColor, as_border_left_color)
     }
-    pub fn get_border_right_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderRightColorValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderRightColor, as_border_right_color)
+    pub fn get_border_right_color(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderRightColorValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderRightColor, as_border_right_color)
     }
-    pub fn get_border_bottom_color(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderBottomColorValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderBottomColor, as_border_bottom_color)
+    pub fn get_border_bottom_color(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderBottomColorValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderBottomColor, as_border_bottom_color)
     }
-    pub fn get_border_top_style(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderTopStyleValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderTopStyle, as_border_top_style)
+    pub fn get_border_top_style(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderTopStyleValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderTopStyle, as_border_top_style)
     }
-    pub fn get_border_left_style(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderLeftStyleValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderLeftStyle, as_border_left_style)
+    pub fn get_border_left_style(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderLeftStyleValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderLeftStyle, as_border_left_style)
     }
-    pub fn get_border_right_style(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderRightStyleValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderRightStyle, as_border_right_style)
+    pub fn get_border_right_style(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderRightStyleValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderRightStyle, as_border_right_style)
     }
-    pub fn get_border_bottom_style(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderBottomStyleValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderBottomStyle, as_border_bottom_style)
+    pub fn get_border_bottom_style(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderBottomStyleValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderBottomStyle, as_border_bottom_style)
     }
-    pub fn get_border_top_left_radius(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderTopLeftRadiusValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderTopLeftRadius, as_border_top_left_radius)
+    pub fn get_border_top_left_radius(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderTopLeftRadiusValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderTopLeftRadius, as_border_top_left_radius)
     }
-    pub fn get_border_top_right_radius(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderTopRightRadiusValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderTopRightRadius, as_border_top_right_radius)
+    pub fn get_border_top_right_radius(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderTopRightRadiusValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderTopRightRadius, as_border_top_right_radius)
     }
-    pub fn get_border_bottom_left_radius(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderBottomLeftRadiusValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderBottomLeftRadius, as_border_bottom_left_radius)
+    pub fn get_border_bottom_left_radius(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderBottomLeftRadiusValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderBottomLeftRadius, as_border_bottom_left_radius)
     }
-    pub fn get_border_bottom_right_radius(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderBottomRightRadiusValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderBottomRightRadius, as_border_bottom_right_radius)
+    pub fn get_border_bottom_right_radius(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBorderBottomRightRadiusValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderBottomRightRadius, as_border_bottom_right_radius)
     }
-    pub fn get_opacity(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleOpacityValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Opacity, as_opacity)
+    pub fn get_opacity(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleOpacityValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Opacity, as_opacity)
     }
-    pub fn get_transform(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTransformVecValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Transform, as_transform)
+    pub fn get_transform(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTransformVecValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Transform, as_transform)
     }
-    pub fn get_transform_origin(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTransformOriginValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::TransformOrigin, as_transform_origin)
+    pub fn get_transform_origin(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTransformOriginValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::TransformOrigin, as_transform_origin)
     }
-    pub fn get_perspective_origin(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StylePerspectiveOriginValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::PerspectiveOrigin, as_perspective_origin)
+    pub fn get_perspective_origin(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StylePerspectiveOriginValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::PerspectiveOrigin, as_perspective_origin)
     }
-    pub fn get_backface_visibility(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackfaceVisibilityValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BackfaceVisibility, as_backface_visibility)
+    pub fn get_backface_visibility(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackfaceVisibilityValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BackfaceVisibility, as_backface_visibility)
     }
-    pub fn get_display(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutDisplayValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Display, as_display)
+    pub fn get_display(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutDisplayValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Display, as_display)
     }
-    pub fn get_float(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFloatValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Float, as_float)
+    pub fn get_float(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFloatValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Float, as_float)
     }
-    pub fn get_box_sizing(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBoxSizingValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BoxSizing, as_box_sizing)
+    pub fn get_box_sizing(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBoxSizingValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BoxSizing, as_box_sizing)
     }
-    pub fn get_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutWidthValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Width, as_width)
+    pub fn get_width(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutWidthValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Width, as_width)
     }
-    pub fn get_height(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutHeightValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Height, as_height)
+    pub fn get_height(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutHeightValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Height, as_height)
     }
-    pub fn get_min_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMinWidthValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::MinWidth, as_min_width)
+    pub fn get_min_width(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMinWidthValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::MinWidth, as_min_width)
     }
-    pub fn get_min_height(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMinHeightValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::MinHeight, as_min_height)
+    pub fn get_min_height(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMinHeightValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::MinHeight, as_min_height)
     }
-    pub fn get_max_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMaxWidthValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::MaxWidth, as_max_width)
+    pub fn get_max_width(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMaxWidthValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::MaxWidth, as_max_width)
     }
-    pub fn get_max_height(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMaxHeightValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::MaxHeight, as_max_height)
+    pub fn get_max_height(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMaxHeightValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::MaxHeight, as_max_height)
     }
-    pub fn get_position(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPositionValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Position, as_position)
+    pub fn get_position(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPositionValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Position, as_position)
     }
-    pub fn get_top(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutTopValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Top, as_top)
+    pub fn get_top(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutTopValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Top, as_top)
     }
-    pub fn get_bottom(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBottomValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Bottom, as_bottom)
+    pub fn get_bottom(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBottomValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Bottom, as_bottom)
     }
-    pub fn get_right(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutRightValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Right, as_right)
+    pub fn get_right(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutRightValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Right, as_right)
     }
-    pub fn get_left(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutLeftValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::Left, as_left)
+    pub fn get_left(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutLeftValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::Left, as_left)
     }
-    pub fn get_padding_top(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPaddingTopValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::PaddingTop, as_padding_top)
+    pub fn get_padding_top(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPaddingTopValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::PaddingTop, as_padding_top)
     }
-    pub fn get_padding_bottom(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPaddingBottomValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::PaddingBottom, as_padding_bottom)
+    pub fn get_padding_bottom(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPaddingBottomValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::PaddingBottom, as_padding_bottom)
     }
-    pub fn get_padding_left(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPaddingLeftValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::PaddingLeft, as_padding_left)
+    pub fn get_padding_left(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPaddingLeftValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::PaddingLeft, as_padding_left)
     }
-    pub fn get_padding_right(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPaddingRightValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::PaddingRight, as_padding_right)
+    pub fn get_padding_right(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutPaddingRightValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::PaddingRight, as_padding_right)
     }
-    pub fn get_margin_top(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMarginTopValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::MarginTop, as_margin_top)
+    pub fn get_margin_top(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMarginTopValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::MarginTop, as_margin_top)
     }
-    pub fn get_margin_bottom(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMarginBottomValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::MarginBottom, as_margin_bottom)
+    pub fn get_margin_bottom(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMarginBottomValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::MarginBottom, as_margin_bottom)
     }
-    pub fn get_margin_left(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMarginLeftValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::MarginLeft, as_margin_left)
+    pub fn get_margin_left(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMarginLeftValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::MarginLeft, as_margin_left)
     }
-    pub fn get_margin_right(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMarginRightValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::MarginRight, as_margin_right)
+    pub fn get_margin_right(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutMarginRightValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::MarginRight, as_margin_right)
     }
-    pub fn get_border_top_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBorderTopWidthValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderTopWidth, as_border_top_width)
+    pub fn get_border_top_width(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBorderTopWidthValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderTopWidth, as_border_top_width)
     }
-    pub fn get_border_left_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBorderLeftWidthValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderLeftWidth, as_border_left_width)
+    pub fn get_border_left_width(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBorderLeftWidthValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderLeftWidth, as_border_left_width)
     }
-    pub fn get_border_right_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBorderRightWidthValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderRightWidth, as_border_right_width)
+    pub fn get_border_right_width(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBorderRightWidthValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderRightWidth, as_border_right_width)
     }
-    pub fn get_border_bottom_width(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBorderBottomWidthValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::BorderBottomWidth, as_border_bottom_width)
+    pub fn get_border_bottom_width(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutBorderBottomWidthValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BorderBottomWidth, as_border_bottom_width)
     }
-    pub fn get_overflow_x(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutOverflowValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::OverflowX, as_overflow_x)
+    pub fn get_overflow_x(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutOverflowValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::OverflowX, as_overflow_x)
     }
-    pub fn get_overflow_y(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutOverflowValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::OverflowY, as_overflow_y)
+    pub fn get_overflow_y(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutOverflowValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::OverflowY, as_overflow_y)
     }
-    pub fn get_flex_direction(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFlexDirectionValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::FlexDirection, as_direction)
+    pub fn get_flex_direction(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFlexDirectionValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::FlexDirection, as_direction)
     }
-    pub fn get_flex_wrap(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFlexWrapValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::FlexWrap, as_flex_wrap)
+    pub fn get_flex_wrap(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFlexWrapValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::FlexWrap, as_flex_wrap)
     }
-    pub fn get_flex_grow(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFlexGrowValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::FlexGrow, as_flex_grow)
+    pub fn get_flex_grow(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFlexGrowValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::FlexGrow, as_flex_grow)
     }
-    pub fn get_flex_shrink(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFlexShrinkValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::FlexShrink, as_flex_shrink)
+    pub fn get_flex_shrink(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutFlexShrinkValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::FlexShrink, as_flex_shrink)
     }
-    pub fn get_justify_content(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutJustifyContentValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::JustifyContent, as_justify_content)
+    pub fn get_justify_content(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutJustifyContentValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::JustifyContent, as_justify_content)
     }
-    pub fn get_align_items(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutAlignItemsValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::AlignItems, as_align_items)
+    pub fn get_align_items(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutAlignItemsValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::AlignItems, as_align_items)
     }
-    pub fn get_align_content(&self, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutAlignContentValue> {
-        get_property!(self, node_id, node_state, CssPropertyType::AlignContent, as_align_content)
+    pub fn get_align_content(&self, node_data: &NodeDataContainerRef<NodeData>, node_id: &NodeId, node_state: &StyledNodeState) -> Option<LayoutAlignContentValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::AlignContent, as_align_content)
     }
 }
 
