@@ -906,6 +906,8 @@ impl From<Vec<String>> for StringVec {
     }
 }
 
+impl_option!(StringVec, OptionStringVec, copy = false, [Debug, Clone, PartialOrd, PartialEq, Ord, Eq, Hash]);
+
 impl_option!(u16, OptionU16, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 impl_option!(u32, OptionU32, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 impl_option!(i16, OptionI16, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);

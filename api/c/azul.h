@@ -953,16 +953,16 @@ typedef union AzTabIndex AzTabIndex;
 #define AzTabIndex_OverrideInParent(v) { .OverrideInParent = { .tag = AzTabIndexTag_OverrideInParent, .payload = v } }
 #define AzTabIndex_NoKeyboardFocus { .NoKeyboardFocus = { .tag = AzTabIndexTag_NoKeyboardFocus } }
 
-enum AzNodeTypePath {
-   AzNodeTypePath_Body,
-   AzNodeTypePath_Div,
-   AzNodeTypePath_Br,
-   AzNodeTypePath_P,
-   AzNodeTypePath_Img,
-   AzNodeTypePath_Texture,
-   AzNodeTypePath_IFrame,
+enum AzNodeTypeTag {
+   AzNodeTypeTag_Body,
+   AzNodeTypeTag_Div,
+   AzNodeTypeTag_Br,
+   AzNodeTypeTag_P,
+   AzNodeTypeTag_Img,
+   AzNodeTypeTag_Texture,
+   AzNodeTypeTag_IFrame,
 };
-typedef enum AzNodeTypePath AzNodeTypePath;
+typedef enum AzNodeTypeTag AzNodeTypeTag;
 
 struct AzCssNthChildPattern {
     uint32_t repeat;
@@ -1603,6 +1603,41 @@ struct AzFile {
     void* ptr;
 };
 typedef struct AzFile AzFile;
+
+struct AzMsgBox {
+    void* restrict _reserved;
+};
+typedef struct AzMsgBox AzMsgBox;
+
+enum AzMsgBoxIcon {
+   AzMsgBoxIcon_Info,
+   AzMsgBoxIcon_Warning,
+   AzMsgBoxIcon_Error,
+   AzMsgBoxIcon_Question,
+};
+typedef enum AzMsgBoxIcon AzMsgBoxIcon;
+
+enum AzMsgBoxYesNo {
+   AzMsgBoxYesNo_Yes,
+   AzMsgBoxYesNo_No,
+};
+typedef enum AzMsgBoxYesNo AzMsgBoxYesNo;
+
+enum AzMsgBoxOkCancel {
+   AzMsgBoxOkCancel_Ok,
+   AzMsgBoxOkCancel_Cancel,
+};
+typedef enum AzMsgBoxOkCancel AzMsgBoxOkCancel;
+
+struct AzFileDialog {
+    void* restrict _reserved;
+};
+typedef struct AzFileDialog AzFileDialog;
+
+struct AzColorPickerDialog {
+    void* restrict _reserved;
+};
+typedef struct AzColorPickerDialog AzColorPickerDialog;
 
 struct AzTimerId {
     size_t id;
@@ -2943,6 +2978,12 @@ struct AzSystemTickDiff {
 };
 typedef struct AzSystemTickDiff AzSystemTickDiff;
 
+struct AzSystemCallbacks {
+    AzCreateThreadFn create_thread_fn;
+    AzGetSystemTimeFn get_system_time_fn;
+};
+typedef struct AzSystemCallbacks AzSystemCallbacks;
+
 struct AzRendererOptions {
     AzVsync vsync;
     AzSrgb srgb;
@@ -3163,12 +3204,6 @@ struct AzTimerCallbackReturn {
     AzTerminateTimer should_terminate;
 };
 typedef struct AzTimerCallbackReturn AzTimerCallbackReturn;
-
-struct AzSystemCallbacks {
-    AzCreateThreadFn create_thread_fn;
-    AzGetSystemTimeFn get_system_time_fn;
-};
-typedef struct AzSystemCallbacks AzSystemCallbacks;
 
 enum AzNotEventFilterTag {
    AzNotEventFilterTag_Hover,
@@ -6965,6 +7000,24 @@ struct AzTagIdsToNodeIdsMappingVec {
 };
 typedef struct AzTagIdsToNodeIdsMappingVec AzTagIdsToNodeIdsMappingVec;
 
+enum AzOptionStringVecTag {
+   AzOptionStringVecTag_None,
+   AzOptionStringVecTag_Some,
+};
+typedef enum AzOptionStringVecTag AzOptionStringVecTag;
+
+struct AzOptionStringVecVariant_None { AzOptionStringVecTag tag; };
+typedef struct AzOptionStringVecVariant_None AzOptionStringVecVariant_None;
+struct AzOptionStringVecVariant_Some { AzOptionStringVecTag tag; AzStringVec payload; };
+typedef struct AzOptionStringVecVariant_Some AzOptionStringVecVariant_Some;
+union AzOptionStringVec {
+    AzOptionStringVecVariant_None None;
+    AzOptionStringVecVariant_Some Some;
+};
+typedef union AzOptionStringVec AzOptionStringVec;
+#define AzOptionStringVec_None { .None = { .tag = AzOptionStringVecTag_None } }
+#define AzOptionStringVec_Some(v) { .Some = { .tag = AzOptionStringVecTag_Some, .payload = v } }
+
 enum AzOptionTaskBarIconTag {
    AzOptionTaskBarIconTag_None,
    AzOptionTaskBarIconTag_Some,
@@ -7335,7 +7388,7 @@ typedef enum AzCssPathSelectorTag AzCssPathSelectorTag;
 
 struct AzCssPathSelectorVariant_Global { AzCssPathSelectorTag tag; };
 typedef struct AzCssPathSelectorVariant_Global AzCssPathSelectorVariant_Global;
-struct AzCssPathSelectorVariant_Type { AzCssPathSelectorTag tag; AzNodeTypePath payload; };
+struct AzCssPathSelectorVariant_Type { AzCssPathSelectorTag tag; AzNodeTypeTag payload; };
 typedef struct AzCssPathSelectorVariant_Type AzCssPathSelectorVariant_Type;
 struct AzCssPathSelectorVariant_Class { AzCssPathSelectorTag tag; AzString payload; };
 typedef struct AzCssPathSelectorVariant_Class AzCssPathSelectorVariant_Class;
@@ -7669,6 +7722,12 @@ typedef union AzSvgStyle AzSvgStyle;
 #define AzSvgStyle_Fill(v) { .Fill = { .tag = AzSvgStyleTag_Fill, .payload = v } }
 #define AzSvgStyle_Stroke(v) { .Stroke = { .tag = AzSvgStyleTag_Stroke, .payload = v } }
 
+struct AzFileTypeList {
+    AzStringVec document_types;
+    AzString document_descriptor;
+};
+typedef struct AzFileTypeList AzFileTypeList;
+
 struct AzThread {
     void* restrict thread_handle;
     void* restrict sender;
@@ -7864,6 +7923,24 @@ struct AzStringPairVec {
     AzStringPairVecDestructor destructor;
 };
 typedef struct AzStringPairVec AzStringPairVec;
+
+enum AzOptionFileTypeListTag {
+   AzOptionFileTypeListTag_None,
+   AzOptionFileTypeListTag_Some,
+};
+typedef enum AzOptionFileTypeListTag AzOptionFileTypeListTag;
+
+struct AzOptionFileTypeListVariant_None { AzOptionFileTypeListTag tag; };
+typedef struct AzOptionFileTypeListVariant_None AzOptionFileTypeListVariant_None;
+struct AzOptionFileTypeListVariant_Some { AzOptionFileTypeListTag tag; AzFileTypeList payload; };
+typedef struct AzOptionFileTypeListVariant_Some AzOptionFileTypeListVariant_Some;
+union AzOptionFileTypeList {
+    AzOptionFileTypeListVariant_None None;
+    AzOptionFileTypeListVariant_Some Some;
+};
+typedef union AzOptionFileTypeList AzOptionFileTypeList;
+#define AzOptionFileTypeList_None { .None = { .tag = AzOptionFileTypeListTag_None } }
+#define AzOptionFileTypeList_Some(v) { .Some = { .tag = AzOptionFileTypeListTag_Some, .payload = v } }
 
 enum AzOptionRefAnyTag {
    AzOptionRefAnyTag_None,
@@ -9396,6 +9473,7 @@ extern DLLIMPORT void AzApp_addWindow(AzApp* restrict app, AzWindowCreateOptions
 extern DLLIMPORT AzMonitorVec AzApp_getMonitors(AzApp* const app);
 extern DLLIMPORT void AzApp_run(const AzApp app, AzWindowCreateOptions  window);
 extern DLLIMPORT void AzApp_delete(AzApp* restrict instance);
+extern DLLIMPORT AzSystemCallbacks AzSystemCallbacks_libraryInternal();
 extern DLLIMPORT AzWindowCreateOptions AzWindowCreateOptions_new(AzLayoutCallbackType  layout_callback);
 extern DLLIMPORT AzWindowState AzWindowState_new(AzLayoutCallbackType  layout_callback);
 extern DLLIMPORT AzWindowState AzWindowState_default();
@@ -9459,7 +9537,6 @@ extern DLLIMPORT bool  AzLayoutInfo_windowWidthSmallerThan(AzLayoutInfo* restric
 extern DLLIMPORT bool  AzLayoutInfo_windowHeightLargerThan(AzLayoutInfo* restrict layoutinfo, float width);
 extern DLLIMPORT bool  AzLayoutInfo_windowHeightSmallerThan(AzLayoutInfo* restrict layoutinfo, float width);
 extern DLLIMPORT bool  AzLayoutInfo_usesDarkTheme(AzLayoutInfo* restrict layoutinfo);
-extern DLLIMPORT AzSystemCallbacks AzSystemCallbacks_libraryInternal();
 extern DLLIMPORT size_t AzDom_nodeCount(AzDom* const dom);
 extern DLLIMPORT AzStyledDom AzDom_style(const AzDom dom, AzCss  css);
 extern DLLIMPORT AzEventFilter AzOn_intoEventFilter(const AzOn on);
@@ -9753,6 +9830,14 @@ extern DLLIMPORT bool  AzFile_writeString(AzFile* restrict file, AzRefstr  bytes
 extern DLLIMPORT bool  AzFile_writeBytes(AzFile* restrict file, AzU8VecRef  bytes);
 extern DLLIMPORT void AzFile_close(const AzFile file);
 extern DLLIMPORT void AzFile_delete(AzFile* restrict instance);
+extern DLLIMPORT AzMsgBox AzMsgBox_ok(AzMsgBoxIcon  icon, AzString  title, AzString  message);
+extern DLLIMPORT AzMsgBox AzMsgBox_okCancel(AzMsgBoxIcon  icon, AzString  title, AzString  message, AzMsgBoxOkCancel  default_value);
+extern DLLIMPORT AzMsgBox AzMsgBox_yesNo(AzMsgBoxIcon  icon, AzString  title, AzString  message, AzMsgBoxYesNo  default_value);
+extern DLLIMPORT AzFileDialog AzFileDialog_selectFile(AzString  title, AzOptionString  default_path, AzOptionFileTypeList  filter_list);
+extern DLLIMPORT AzFileDialog AzFileDialog_selectMultipleFiles(AzString  title, AzOptionString  default_path, AzOptionFileTypeList  filter_list);
+extern DLLIMPORT AzFileDialog AzFileDialog_selectFolder(AzString  title, AzOptionString  default_path);
+extern DLLIMPORT AzFileDialog AzFileDialog_saveFile(AzString  title, AzOptionString  default_path);
+extern DLLIMPORT AzColorPickerDialog AzColorPickerDialog_open(AzString  title, AzOptionColorU  default_color);
 extern DLLIMPORT AzTimerId AzTimerId_unique();
 extern DLLIMPORT AzTimer AzTimer_new(AzRefAny  timer_data, AzTimerCallbackType  callback, AzGetSystemTimeFn  get_system_time_fn);
 extern DLLIMPORT AzTimer AzTimer_withDelay(const AzTimer timer, AzDuration  delay);

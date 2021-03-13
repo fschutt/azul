@@ -615,6 +615,7 @@ impl IdOrClass {
         }
     }
 }
+
 // memory optimization: store all inline-normal / inline-hover / inline-* attributes
 // as one Vec instad of 4 separate Vecs
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -667,8 +668,8 @@ impl NodeData {
                 OptionRefAny::None => OptionRefAny::None,
                 OptionRefAny::Some(s) => OptionRefAny::Some(s.clone_into_library_memory()),
             },
-            ids_and_classes: self.ids_and_classes.clone().into_library_owned_vec().into(),
-            inline_css_props: self.inline_css_props.clone().into_library_owned_vec().into(),
+            ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
+            inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
             callbacks: self.callbacks.into_library_owned_vec().into(),
             clip_mask: self.clip_mask.clone(),
             tab_index: self.tab_index.clone(),

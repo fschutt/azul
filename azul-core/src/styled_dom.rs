@@ -39,7 +39,7 @@ use azul_css::{
 use crate::{
     FastBTreeSet, FastHashMap,
     id_tree::{NodeDataContainer, NodeDataContainerRef, Node, NodeId, NodeDataContainerRefMut},
-    dom::{Dom, NodeData, NodeDataVec, CompactDom, TagId, OptionTabIndex},
+    dom::{Dom, NodeData, NodeDataVec, CompactDom, TagId, OptionTabIndex, NodeDataInlineCssProperty},
     style::{
         CascadeInfo, CascadeInfoVec, construct_html_cascade_tree,
         matches_html_element, rule_ends_with,
@@ -222,10 +222,10 @@ impl CssPropertyCache {
 
             // go through each HTML node (in parallel) and see which CSS rules match
             let css_normal_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> =
-                node_data.transform_nodeid_multithreaded_optional(|node_id| {
-                    let r = filter_rules!(None, node_id);
-                    if r.is_empty() { None } else { Some((node_id, r)) }
-                });
+            node_data.transform_nodeid_multithreaded_optional(|node_id| {
+                let r = filter_rules!(None, node_id);
+                if r.is_empty() { None } else { Some((node_id, r)) }
+            });
 
             let css_hover_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)>  =
             node_data.transform_nodeid_multithreaded_optional(|node_id| {
@@ -245,10 +245,10 @@ impl CssPropertyCache {
                 if r.is_empty() { None } else { Some((node_id, r)) }
             });
 
-            self.css_normal_props = css_normal_rules.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)))).collect();
-            self.css_hover_props = css_hover_props.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)))).collect();
-            self.css_active_props = css_active_props.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)))).collect();
-            self.css_focus_props = css_focus_props.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)))).collect();
+            self.css_normal_props = css_normal_rules.internal.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)).collect())).collect();
+            self.css_hover_props = css_hover_rules.internal.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)).collect())).collect();
+            self.css_active_props = css_active_rules.internal.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)).collect())).collect();
+            self.css_focus_props = css_focus_rules.internal.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)).collect())).collect();
         }
 
         // Inheritance: Inherit all values of the parent to the children, but
@@ -264,12 +264,12 @@ impl CssPropertyCache {
             // map B will be populated with all inherited CSS properties
             macro_rules! inherit_props {($from_inherit_map:expr, $to_inherit_map:expr) => {
                 let parent_inheritable_css_props = $from_inherit_map
-                .get(parent_id)
+                .get(&parent_id)
                 .and_then(|map| {
                     let parent_inherit_props = map
                     .iter()
-                    .filter(|(css_prop_type, css_prop)| css_prop_type.is_inheritable())
-                    .cloned()
+                    .filter(|(css_prop_type, _)| css_prop_type.is_inheritable())
+                    .map(|(css_prop_type, css_prop)| (*css_prop_type, css_prop.clone()))
                     .collect::<Vec<(CssPropertyType, CssProperty)>>();
                     if parent_inherit_props.is_empty() { None } else { Some(parent_inherit_props) }
                 });
@@ -280,7 +280,7 @@ impl CssPropertyCache {
                         for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
                             let mut child_map = $to_inherit_map.entry(child_id).or_insert_with(|| BTreeMap::new());
                             for (inherited_rule_type, inherited_rule_value) in pi.iter() {
-                                let _ = child_map.entry(inherited_rule_type).or_insert_with(|| inherited_rule_value.clone());
+                                let _ = child_map.entry(*inherited_rule_type).or_insert_with(|| inherited_rule_value.clone());
                             }
                         }
                     },
@@ -288,6 +288,7 @@ impl CssPropertyCache {
                 }
             };}
 
+            // Same as inherit_props, but filters along the inline node data instead
             macro_rules! inherit_inline_css_props {($filter_type:ident, $to_inherit_map:expr) => {
                 let parent_inheritable_css_props = &node_data[parent_id]
                 .inline_css_props
@@ -295,14 +296,14 @@ impl CssPropertyCache {
                  // test whether the property is a [normal, hover, focus, active] property
                 .filter_map(|css_prop| if let NodeDataInlineCssProperty::$filter_type(p) = css_prop { Some(p) } else { None })
                 // test whether the property is inheritable
-                .filter_map(|css_prop| css_prop.get_type().is_inheritable())
+                .filter(|css_prop| css_prop.get_type().is_inheritable())
                 .cloned()
                 .collect::<Vec<CssProperty>>();
 
                 if !parent_inheritable_css_props.is_empty() {
                     // only override the rule if the child does not already have an inherited rule
                     for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
-                        let mut child_map = $to_inherit_map.entry(child_id).or_insert_with(|| BTreeMap::new());
+                        let child_map = $to_inherit_map.entry(child_id).or_insert_with(|| BTreeMap::new());
                         for inherited_rule in parent_inheritable_css_props.iter() {
                             let _ = child_map.entry(inherited_rule.get_type()).or_insert_with(|| inherited_rule.clone());
                         }
@@ -314,10 +315,10 @@ impl CssPropertyCache {
             // strongest inheritance first
 
             // Inherit inline CSS properties
-            inherit_props!(Normal, self.cascaded_normal_props);
-            inherit_props!(Hover, self.cascaded_hover_props);
-            inherit_props!(Active, self.cascaded_active_props);
-            inherit_props!(Focus, self.cascaded_focus_props);
+            inherit_inline_css_props!(Normal, self.cascaded_normal_props);
+            inherit_inline_css_props!(Hover, self.cascaded_hover_props);
+            inherit_inline_css_props!(Active, self.cascaded_active_props);
+            inherit_inline_css_props!(Focus, self.cascaded_focus_props);
 
             // Inherit the CSS properties from the CSS file
             if !css_is_empty {
@@ -421,10 +422,11 @@ macro_rules! get_property {
             // node in parallel, so it should be rather fast in the end
 
             // First test if there is some user-defined override for the property
-            if let Some(prop) = $self_id.user_overridden_properties.get($node_id).and_then(|n| n.get($css_property_type)) {
-                if let Some(p_downcasted) = prop.$as_downcast_fn() {
-                    return Some(p_downcasted.clone());
-                }
+            if let Some(p_downcasted) = $self_id.user_overridden_properties
+                .get($node_id)
+                .and_then(|n| n.get(&$css_property_type))
+                .and_then(|prop| prop.$as_downcast_fn()) {
+                return Some(p_downcasted.clone());
             }
 
             // If that fails, see if there is an inline property that matches
@@ -464,7 +466,7 @@ impl CssPropertyCache {
         }
     }
 
-    pub fn append(&mut self, other: &mut Self) {
+    pub fn append(&mut self, other: Self) {
 
         macro_rules! append_css_property_vec {($field_name:ident) => {{
             for (node_id, property_map) in other.$field_name.into_iter() {
@@ -994,8 +996,10 @@ macro_rules! diff_properties {($self_val:expr, $old_properties:expr, $new_proper
     }
 }};}
 
-macro_rules! restyle_nodes {($self_val:expr, $field:ident, $new_field_state:expr, $inline_props_field:ident, $css_props_field:ident, $nodes:expr) => {{
+macro_rules! restyle_nodes {($self_val:expr, $field:ident, $new_field_state:expr, $css_props_field:ident, $nodes:expr, $filter:ident) => {{
     use rayon::prelude::*;
+
+    let default_map = BTreeMap::new();
 
     let ret = $nodes
     .par_iter()
@@ -1012,22 +1016,26 @@ macro_rules! restyle_nodes {($self_val:expr, $field:ident, $new_field_state:expr
         let mut old_properties = FastHashMap::new();
 
         if current_node_state.$field {
-            for prop_value in $self_val.get_css_property_cache().$css_props_field.as_ref()[*node_id].iter() {
-                old_properties.insert(prop_value.get_type(), prop_value.clone());
+            for (prop_type, prop_value) in $self_val.get_css_property_cache().$css_props_field.get(node_id).unwrap_or(&default_map).iter() {
+                old_properties.insert(*prop_type, prop_value.clone());
             }
-            for prop_value in $self_val.get_css_property_cache().$inline_props_field.as_ref()[*node_id].iter() {
-                old_properties.insert(prop_value.get_type(), prop_value.clone());
+            for prop_value in $self_val.node_data.as_container()[*node_id].inline_css_props.as_ref().iter() {
+                if let NodeDataInlineCssProperty::$filter(prop_value) = prop_value {
+                    old_properties.insert(prop_value.get_type(), prop_value.clone());
+                }
             }
         }
 
         let mut new_properties = FastHashMap::new();
 
         if new_node_state.$field {
-            for prop_value in $self_val.get_css_property_cache().$css_props_field.as_ref()[*node_id].iter() {
-                new_properties.insert(prop_value.get_type(), prop_value.clone());
+            for (prop_type, prop_value) in $self_val.get_css_property_cache().$css_props_field.get(node_id).unwrap_or(&default_map).iter() {
+                new_properties.insert(*prop_type, prop_value.clone());
             }
-            for prop_value in $self_val.get_css_property_cache().$inline_props_field.as_ref()[*node_id].iter() {
-                new_properties.insert(prop_value.get_type(), prop_value.clone());
+            for prop_value in $self_val.node_data.as_container()[*node_id].inline_css_props.as_ref().iter() {
+                if let NodeDataInlineCssProperty::$filter(prop_value) = prop_value {
+                    new_properties.insert(prop_value.get_type(), prop_value.clone());
+                }
             }
         }
 
@@ -1046,11 +1054,10 @@ impl StyledDom {
     #[cfg(feature = "multithreading")]
     pub fn new(dom: Dom, css: Css) -> Self {
 
-        use crate::dom::{TabIndex, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec};
+        use crate::dom::{TabIndex, NodeDataInlineCssPropertyVec};
         use rayon::prelude::*;
 
-        let css_is_empty = css.is_empty();
-        let mut compact_dom: CompactDom = dom.into();
+        let compact_dom: CompactDom = dom.into();
         let non_leaf_nodes = compact_dom.node_hierarchy.as_ref().get_parents_sorted_by_depth();
         let node_hierarchy: AzNodeVec = compact_dom.node_hierarchy.internal.clone().iter().map(|i| (*i).into()).collect::<Vec<AzNode>>().into();
         let mut styled_nodes = vec![StyledNode { tag_id: OptionTagId::None, state: StyledNodeState::new() }; compact_dom.len()];
@@ -1099,9 +1106,18 @@ impl StyledDom {
                 None => if should_auto_insert_tabindex { Some(TabIndex::Auto) } else { None }
             };
 
-            let node_has_focus_props = !css_property_cache.non_default_inline_focus_props.as_ref()[node_id].is_empty() ||  !css_property_cache.non_default_css_focus_props.as_ref()[node_id].is_empty();
-            let node_has_hover_props = !css_property_cache.non_default_inline_hover_props.as_ref()[node_id].is_empty() ||  !css_property_cache.non_default_css_hover_props.as_ref()[node_id].is_empty();
-            let node_has_active_props = !css_property_cache.non_default_inline_active_props.as_ref()[node_id].is_empty() ||  !css_property_cache.non_default_css_active_props.as_ref()[node_id].is_empty();
+            let node_has_focus_props = !node_data.inline_css_props.as_ref().iter()
+            .any(|p| match p { NodeDataInlineCssProperty::Focus(_) => true, _ => false }) ||
+            !css_property_cache.css_focus_props.get(&node_id).is_none();
+
+            let node_has_hover_props = !node_data.inline_css_props.as_ref().iter()
+            .any(|p| match p { NodeDataInlineCssProperty::Hover(_) => true, _ => false }) ||
+            !css_property_cache.css_hover_props.get(&node_id).is_none();
+
+            let node_has_active_props = !node_data.inline_css_props.as_ref().iter()
+            .any(|p| match p { NodeDataInlineCssProperty::Active(_) => true, _ => false }) ||
+            !css_property_cache.css_active_props.get(&node_id).is_none();
+
             let node_has_not_only_window_callbacks = !node_data.get_callbacks().is_empty() && !node_data.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
             let node_has_non_default_cursor = css_property_cache.get_cursor(&node_id, &default_node_state).is_some();
 
@@ -1144,31 +1160,6 @@ impl StyledDom {
         }
     }
 
-    pub fn restyle(&mut self, css: Css) {
-        self.css_property_cache.downcast_mut()
-        .restyle(
-            css,
-            &self.node_data.as_container(),
-            &self.node_hierarchy,
-            &self.non_leaf_nodes,
-            &self.cascade_info.as_container()
-        );
-    }
-
-    pub fn node_count(&self) -> usize {
-        self.node_data.len()
-    }
-
-    #[inline]
-    pub fn get_css_property_cache<'a>(&'a self) -> &'a CssPropertyCache {
-        &*self.css_property_cache.ptr
-    }
-
-    #[inline]
-    pub fn get_css_property_cache_mut<'a>(&'a mut self) -> &'a mut CssPropertyCache {
-        &mut *self.css_property_cache.ptr
-    }
-
     /// Appends another `StyledDom` to the `self.root` without re-styling the DOM itself
     pub fn append(&mut self, mut other: Self) {
 
@@ -1196,7 +1187,7 @@ impl StyledDom {
         self.node_hierarchy.append(&mut other.node_hierarchy);
         self.node_data.append(&mut other.node_data);
         self.styled_nodes.append(&mut other.styled_nodes);
-        self.get_css_property_cache_mut().append(other.get_css_property_cache_mut());
+        self.get_css_property_cache_mut().append(*other.css_property_cache.ptr);
 
         for tag_id_node_id in other.tag_ids_to_node_ids.iter_mut() {
             tag_id_node_id.tag_id.inner += self_tag_len as u64;
@@ -1212,6 +1203,31 @@ impl StyledDom {
 
         self.non_leaf_nodes.append(&mut other.non_leaf_nodes);
         self.non_leaf_nodes.sort_by(|a, b| a.depth.cmp(&b.depth));
+    }
+
+    pub fn restyle(&mut self, css: Css) {
+        self.css_property_cache.downcast_mut()
+        .restyle(
+            css,
+            &self.node_data.as_container(),
+            &self.node_hierarchy,
+            &self.non_leaf_nodes,
+            &self.cascade_info.as_container()
+        );
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.node_data.len()
+    }
+
+    #[inline]
+    pub fn get_css_property_cache<'a>(&'a self) -> &'a CssPropertyCache {
+        &*self.css_property_cache.ptr
+    }
+
+    #[inline]
+    pub fn get_css_property_cache_mut<'a>(&'a mut self) -> &'a mut CssPropertyCache {
+        &mut *self.css_property_cache.ptr
     }
 
     pub fn get_styled_node_state(&self, node_id: &NodeId) -> StyledNodeState {
@@ -1335,32 +1351,37 @@ impl StyledDom {
     #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_nodes_hover(&mut self, nodes: &[NodeId], new_hover_state: bool) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        restyle_nodes!(self, hover, new_hover_state, non_default_inline_hover_props, non_default_css_hover_props, nodes)
+        restyle_nodes!(self, hover, new_hover_state, css_hover_props, nodes, Hover)
     }
 
     #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_nodes_active(&mut self, nodes: &[NodeId], new_active_state: bool) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        restyle_nodes!(self, active, new_active_state, non_default_inline_active_props, non_default_css_active_props, nodes)
+        restyle_nodes!(self, active, new_active_state, css_active_props, nodes, Active)
     }
 
     #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_nodes_focus(&mut self, nodes: &[NodeId], new_focus_state: bool) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        restyle_nodes!(self, focused, new_focus_state, non_default_inline_focus_props, non_default_css_focus_props, nodes)
+        restyle_nodes!(self, focused, new_focus_state, css_focus_props, nodes, Focus)
     }
 
     #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_inline_normal_props(&mut self, node_id: &NodeId, new_properties: &[CssProperty]) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+
+        let default_map = BTreeMap::new();
+
         // exchange the inline properties for the node n with the new properties
         let mut old_properties = BTreeMap::new();
 
-        for prop_value in self.get_css_property_cache().non_default_css_normal_props.as_ref()[*node_id].iter() {
-            old_properties.insert(prop_value.get_type(), prop_value.clone());
+        for (prop_type, prop_value) in self.get_css_property_cache().css_normal_props.get(node_id).unwrap_or(&default_map).iter() {
+            old_properties.insert(*prop_type, prop_value.clone());
         }
-        for prop_value in self.get_css_property_cache().non_default_inline_normal_props.as_ref()[*node_id].iter() {
-            old_properties.insert(prop_value.get_type(), prop_value.clone());
+        for prop_value in self.node_data.as_container()[*node_id].inline_css_props.as_ref().iter() {
+            if let NodeDataInlineCssProperty::Normal(prop_value) = prop_value {
+                old_properties.insert(prop_value.get_type(), prop_value.clone());
+            }
         }
 
         let new_properties: BTreeMap<_, _> = new_properties.iter().map(|c| (c.get_type(), c.clone())).collect();
@@ -1429,9 +1450,9 @@ impl StyledDom {
     pub fn get_html_string(&self, custom_head: &str, custom_body: &str) -> String {
 
         let mut output = format!("
-<html>
-    <head>{}</head>
-<body>
+            <html>
+                <head>{}</head>
+            <body>
         ", custom_head);
 
         let css_property_cache = self.get_css_property_cache();

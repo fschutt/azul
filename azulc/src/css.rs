@@ -75,15 +75,15 @@ fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
     }
 }
 
-fn format_node_type(n: &NodeTypePath) -> &'static str {
+fn format_node_type(n: &NodeTypeTag) -> &'static str {
     match n {
-        NodeTypePath::Body => "NodeTypePath::Body",
-        NodeTypePath::Div => "NodeTypePath::Div",
-        NodeTypePath::Br => "NodeTypePath::Br",
-        NodeTypePath::P => "NodeTypePath::P",
-        NodeTypePath::Img => "NodeTypePath::Img",
-        NodeTypePath::Texture => "NodeTypePath::Texture",
-        NodeTypePath::IFrame => "NodeTypePath::IFrame",
+        NodeTypeTag::Body => "NodeTypeTag::Body",
+        NodeTypeTag::Div => "NodeTypeTag::Div",
+        NodeTypeTag::Br => "NodeTypeTag::Br",
+        NodeTypeTag::P => "NodeTypeTag::P",
+        NodeTypeTag::Img => "NodeTypeTag::Img",
+        NodeTypeTag::Texture => "NodeTypeTag::Texture",
+        NodeTypeTag::IFrame => "NodeTypeTag::IFrame",
     }
 }
 

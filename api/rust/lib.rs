@@ -749,8 +749,8 @@ mod dll {
         OverrideInParent(u32),
         NoKeyboardFocus,
     }
-    /// Re-export of rust-allocated (stack based) `NodeTypePath` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzNodeTypePath {
+    /// Re-export of rust-allocated (stack based) `NodeTypeTag` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzNodeTypeTag {
         Body,
         Div,
         Br,
@@ -1292,6 +1292,35 @@ mod dll {
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzFile {
         pub(crate) ptr: *const c_void,
     }
+    /// Re-export of rust-allocated (stack based) `MsgBox` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzMsgBox {
+        pub _reserved: *mut c_void,
+    }
+    /// Type of message box icon
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzMsgBoxIcon {
+        Info,
+        Warning,
+        Error,
+        Question,
+    }
+    /// Value returned from a yes / no message box
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzMsgBoxYesNo {
+        Yes,
+        No,
+    }
+    /// Value returned from an ok / cancel message box
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzMsgBoxOkCancel {
+        Ok,
+        Cancel,
+    }
+    /// File picker dialog
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzFileDialog {
+        pub _reserved: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `ColorPickerDialog` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzColorPickerDialog {
+        pub _reserved: *mut c_void,
+    }
     /// Re-export of rust-allocated (stack based) `TimerId` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzTimerId {
         pub id: usize,
@@ -1822,6 +1851,11 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSystemTickDiff {
         pub tick_diff: u64,
     }
+    /// External system callbacks to get the system time or create / manage threads
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSystemCallbacks {
+        pub create_thread_fn: AzCreateThreadFn,
+        pub get_system_time_fn: AzGetSystemTimeFn,
+    }
     /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzRendererOptions {
         pub vsync: AzVsync,
@@ -1927,11 +1961,6 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzTimerCallbackReturn {
         pub should_update: AzUpdateScreen,
         pub should_terminate: AzTerminateTimer,
-    }
-    /// External system callbacks to get the system time or create / manage threads
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSystemCallbacks {
-        pub create_thread_fn: AzCreateThreadFn,
-        pub get_system_time_fn: AzGetSystemTimeFn,
     }
     /// Re-export of rust-allocated (stack based) `NotEventFilter` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzNotEventFilter {
@@ -3395,6 +3424,11 @@ mod dll {
         pub cap: usize,
         pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `OptionStringVec` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionStringVec {
+        None,
+        Some(AzStringVec),
+    }
     /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTaskBarIcon {
         None,
@@ -3593,7 +3627,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `CssPathSelector` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzCssPathSelector {
         Global,
-        Type(AzNodeTypePath),
+        Type(AzNodeTypeTag),
         Class(AzString),
         Id(AzString),
         PseudoSelector(AzCssPathPseudoSelector),
@@ -3757,6 +3791,11 @@ mod dll {
         Fill(AzSvgFillStyle),
         Stroke(AzSvgStrokeStyle),
     }
+    /// Re-export of rust-allocated (stack based) `FileTypeList` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFileTypeList {
+        pub document_types: AzStringVec,
+        pub document_descriptor: AzString,
+    }
     /// Re-export of rust-allocated (stack based) `Thread` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThread {
         pub thread_handle: *mut c_void,
@@ -3873,6 +3912,11 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStringPairVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionFileTypeList` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFileTypeList {
+        None,
+        Some(AzFileTypeList),
     }
     /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
     #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionRefAny {
@@ -4388,6 +4432,7 @@ mod dll {
         pub(crate) fn AzApp_getMonitors(_:  &AzApp) -> AzMonitorVec;
         pub(crate) fn AzApp_run(_:  AzApp, _:  AzWindowCreateOptions);
         pub(crate) fn AzApp_delete(_:  &mut AzApp);
+        pub(crate) fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks;
         pub(crate) fn AzWindowCreateOptions_new(_:  AzLayoutCallbackType) -> AzWindowCreateOptions;
         pub(crate) fn AzWindowState_new(_:  AzLayoutCallbackType) -> AzWindowState;
         pub(crate) fn AzWindowState_default() -> AzWindowState;
@@ -4451,7 +4496,6 @@ mod dll {
         pub(crate) fn AzLayoutInfo_windowHeightLargerThan(_:  &mut AzLayoutInfo, _:  f32) -> bool;
         pub(crate) fn AzLayoutInfo_windowHeightSmallerThan(_:  &mut AzLayoutInfo, _:  f32) -> bool;
         pub(crate) fn AzLayoutInfo_usesDarkTheme(_:  &mut AzLayoutInfo) -> bool;
-        pub(crate) fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks;
         pub(crate) fn AzDom_nodeCount(_:  &AzDom) -> usize;
         pub(crate) fn AzDom_style(_:  AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn AzOn_intoEventFilter(_:  AzOn) -> AzEventFilter;
@@ -4745,6 +4789,14 @@ mod dll {
         pub(crate) fn AzFile_writeBytes(_:  &mut AzFile, _:  AzU8VecRef) -> bool;
         pub(crate) fn AzFile_close(_:  AzFile);
         pub(crate) fn AzFile_delete(_:  &mut AzFile);
+        pub(crate) fn AzMsgBox_ok(_:  AzMsgBoxIcon, _:  AzString, _:  AzString) -> bool;
+        pub(crate) fn AzMsgBox_okCancel(_:  AzMsgBoxIcon, _:  AzString, _:  AzString, _:  AzMsgBoxOkCancel) -> AzMsgBoxOkCancel;
+        pub(crate) fn AzMsgBox_yesNo(_:  AzMsgBoxIcon, _:  AzString, _:  AzString, _:  AzMsgBoxYesNo) -> AzMsgBoxYesNo;
+        pub(crate) fn AzFileDialog_selectFile(_:  AzString, _:  AzOptionString, _:  AzOptionFileTypeList) -> AzOptionString;
+        pub(crate) fn AzFileDialog_selectMultipleFiles(_:  AzString, _:  AzOptionString, _:  AzOptionFileTypeList) -> AzOptionStringVec;
+        pub(crate) fn AzFileDialog_selectFolder(_:  AzString, _:  AzOptionString) -> AzOptionString;
+        pub(crate) fn AzFileDialog_saveFile(_:  AzString, _:  AzOptionString) -> AzOptionString;
+        pub(crate) fn AzColorPickerDialog_open(_:  AzString, _:  AzOptionColorU) -> AzOptionColorU;
         pub(crate) fn AzTimerId_unique() -> AzTimerId;
         pub(crate) fn AzTimer_new(_:  AzRefAny, _:  AzTimerCallbackType, _:  AzGetSystemTimeFn) -> AzTimer;
         pub(crate) fn AzTimer_withDelay(_:  AzTimer, _:  AzDuration) -> AzTimer;
@@ -4876,6 +4928,14 @@ pub mod app {
     /// Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.
     
 #[doc(inline)] pub use crate::dll::AzLayoutSolverVersion as LayoutSolverVersion;
+    /// External system callbacks to get the system time or create / manage threads
+    
+#[doc(inline)] pub use crate::dll::AzSystemCallbacks as SystemCallbacks;
+    impl SystemCallbacks {
+        /// Use the default, library-internal callbacks instead of providing your own
+        pub fn library_internal() -> Self { unsafe { crate::dll::AzSystemCallbacks_libraryInternal() } }
+    }
+
 }
 
 pub mod window {
@@ -5528,14 +5588,6 @@ pub mod callbacks {
         pub fn window_height_smaller_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::AzLayoutInfo_windowHeightSmallerThan(self, width) } }
         /// Returns whether the window uses a dark or light theme - azul will register that the UI is dependent on theming and call the layout callback again when the theme changes
         pub fn uses_dark_theme(&mut self)  -> bool { unsafe { crate::dll::AzLayoutInfo_usesDarkTheme(self) } }
-    }
-
-    /// External system callbacks to get the system time or create / manage threads
-    
-#[doc(inline)] pub use crate::dll::AzSystemCallbacks as SystemCallbacks;
-    impl SystemCallbacks {
-        /// Use the default, library-internal callbacks instead of providing your own
-        pub fn library_internal() -> Self { unsafe { crate::dll::AzSystemCallbacks_libraryInternal() } }
     }
 
 }
@@ -6482,9 +6534,9 @@ pub mod css {
     /// `CssPathSelector` struct
     
 #[doc(inline)] pub use crate::dll::AzCssPathSelector as CssPathSelector;
-    /// `NodeTypePath` struct
+    /// `NodeTypeTag` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeTypePath as NodeTypePath;
+#[doc(inline)] pub use crate::dll::AzNodeTypeTag as NodeTypeTag;
     /// `CssPathPseudoSelector` struct
     
 #[doc(inline)] pub use crate::dll::AzCssPathPseudoSelector as CssPathPseudoSelector;
@@ -9642,6 +9694,61 @@ pub mod fs {
     impl Drop for File { fn drop(&mut self) { unsafe { crate::dll::AzFile_delete(self) } } }
 }
 
+pub mod dialog {
+    #![allow(dead_code, unused_imports)]
+    //! Interface for system file selection dialogs / popup message boxes, etc.
+    use crate::dll::*;
+    use core::ffi::c_void;
+    use crate::str::String;
+    use crate::option::{OptionColorU, OptionFileTypeList, OptionString};
+    /// `MsgBox` struct
+    
+#[doc(inline)] pub use crate::dll::AzMsgBox as MsgBox;
+    impl MsgBox {
+        /// Opens an informational message box with only an "OK" button
+        pub fn ok(icon: MsgBoxIcon, title: String, message: String) -> bool { unsafe { crate::dll::AzMsgBox_ok(icon, title, message) } }
+        /// Opens a ok / cancel message box. Blocks the current thread.
+        pub fn ok_cancel(icon: MsgBoxIcon, title: String, message: String, default_value: MsgBoxOkCancel) ->  crate::dialog::MsgBoxOkCancel { unsafe { crate::dll::AzMsgBox_okCancel(icon, title, message, default_value) } }
+        /// Opens a yes / no message box. Blocks the current thread.
+        pub fn yes_no(icon: MsgBoxIcon, title: String, message: String, default_value: MsgBoxYesNo) ->  crate::dialog::MsgBoxYesNo { unsafe { crate::dll::AzMsgBox_yesNo(icon, title, message, default_value) } }
+    }
+
+    /// Type of message box icon
+    
+#[doc(inline)] pub use crate::dll::AzMsgBoxIcon as MsgBoxIcon;
+    /// Value returned from a yes / no message box
+    
+#[doc(inline)] pub use crate::dll::AzMsgBoxYesNo as MsgBoxYesNo;
+    /// Value returned from an ok / cancel message box
+    
+#[doc(inline)] pub use crate::dll::AzMsgBoxOkCancel as MsgBoxOkCancel;
+    /// File picker dialog
+    
+#[doc(inline)] pub use crate::dll::AzFileDialog as FileDialog;
+    impl FileDialog {
+        /// Select a single file using the system-native file picker. Blocks the current thread.
+        pub fn select_file(title: String, default_path: OptionString, filter_list: OptionFileTypeList) ->  crate::option::OptionString { unsafe { crate::dll::AzFileDialog_selectFile(title, default_path, filter_list) } }
+        /// Select multiple files using the system-native file picker. Blocks the current thread.
+        pub fn select_multiple_files(title: String, default_path: OptionString, filter_list: OptionFileTypeList) ->  crate::option::OptionStringVec { unsafe { crate::dll::AzFileDialog_selectMultipleFiles(title, default_path, filter_list) } }
+        /// Open a dialog prompting the user to select a directory to open. Blocks the current thread.
+        pub fn select_folder(title: String, default_path: OptionString) ->  crate::option::OptionString { unsafe { crate::dll::AzFileDialog_selectFolder(title, default_path) } }
+        /// Open a dialog prompting the user to save a file. Blocks the current thread.
+        pub fn save_file(title: String, default_path: OptionString) ->  crate::option::OptionString { unsafe { crate::dll::AzFileDialog_saveFile(title, default_path) } }
+    }
+
+    /// `FileTypeList` struct
+    
+#[doc(inline)] pub use crate::dll::AzFileTypeList as FileTypeList;
+    /// `ColorPickerDialog` struct
+    
+#[doc(inline)] pub use crate::dll::AzColorPickerDialog as ColorPickerDialog;
+    impl ColorPickerDialog {
+        /// Opens a system-native color picker dialog
+        pub fn open(title: String, default_color: OptionColorU) ->  crate::option::OptionColorU { unsafe { crate::dll::AzColorPickerDialog_open(title, default_color) } }
+    }
+
+}
+
 pub mod task {
     #![allow(dead_code, unused_imports)]
     //! Asyncronous timers / task / thread handlers for easy async loading
@@ -10769,6 +10876,12 @@ pub mod option {
     impl_option!(AzDuration, AzOptionDuration, [Debug, Copy, Clone]);
     impl_option!(AzInstant, AzOptionInstant, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
+    /// `OptionFileTypeList` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionFileTypeList as OptionFileTypeList;
+    /// `OptionStringVec` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionStringVec as OptionStringVec;
     /// `OptionFile` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionFile as OptionFile;

@@ -120,7 +120,7 @@ pub mod prelude {
             FragmentShaderCompileError, GlShaderLinkError, GlShaderCreateError,
         },
         dom::{
-            Dom, DomHash, NodeType, NodeData, On, TabIndex,
+            Dom, DomNodeHash, NodeType, NodeData, On, TabIndex,
             EventFilter, HoverEventFilter, FocusEventFilter, NotEventFilter, WindowEventFilter,
         },
         task::{TimerId, Timer, TerminateTimer, ThreadId, Thread, ThreadSender, ThreadReceiver, ThreadSendMsg, ThreadReceiveMsg, ThreadWriteBackMsg},

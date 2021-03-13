@@ -46,6 +46,12 @@ pub use AzAppLogLevelTT as AzAppLogLevel;
 pub type AzLayoutSolverVersionTT = azul_impl::resources::LayoutSolverVersion;
 pub use AzLayoutSolverVersionTT as AzLayoutSolverVersion;
 
+/// External system callbacks to get the system time or create / manage threads
+pub type AzSystemCallbacksTT = azul_impl::task::ExternalSystemCallbacks;
+pub use AzSystemCallbacksTT as AzSystemCallbacks;
+/// Use the default, library-internal callbacks instead of providing your own
+#[no_mangle] pub extern "C" fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks { AzSystemCallbacks::rust_internal() }
+
 /// Options on how to initially create the window
 pub type AzWindowCreateOptionsTT = azul_impl::window::WindowCreateOptions;
 pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
@@ -517,12 +523,6 @@ pub use AzLayoutInfoTT as AzLayoutInfo;
 /// Returns whether the window uses a dark or light theme - azul will register that the UI is dependent on theming and call the layout callback again when the theme changes
 #[no_mangle] pub extern "C" fn AzLayoutInfo_usesDarkTheme(layoutinfo: &mut AzLayoutInfo) -> bool { layoutinfo.uses_dark_theme() }
 
-/// External system callbacks to get the system time or create / manage threads
-pub type AzSystemCallbacksTT = azul_impl::task::ExternalSystemCallbacks;
-pub use AzSystemCallbacksTT as AzSystemCallbacks;
-/// Use the default, library-internal callbacks instead of providing your own
-#[no_mangle] pub extern "C" fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks { AzSystemCallbacks::rust_internal() }
-
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
 pub use AzDomTT as AzDom;
@@ -617,9 +617,9 @@ pub use AzCssPathTT as AzCssPath;
 pub type AzCssPathSelectorTT = azul_impl::css::CssPathSelector;
 pub use AzCssPathSelectorTT as AzCssPathSelector;
 
-/// Re-export of rust-allocated (stack based) `NodeTypePath` struct
-pub type AzNodeTypePathTT = azul_impl::css::NodeTypePath;
-pub use AzNodeTypePathTT as AzNodeTypePath;
+/// Re-export of rust-allocated (stack based) `NodeTypeTag` struct
+pub type AzNodeTypeTagTT = azul_impl::css::NodeTypeTag;
+pub use AzNodeTypeTagTT as AzNodeTypeTag;
 
 /// Re-export of rust-allocated (stack based) `CssPathPseudoSelector` struct
 pub type AzCssPathPseudoSelectorTT = azul_impl::css::CssPathPseudoSelector;
@@ -2243,6 +2243,50 @@ pub use AzFileTT as AzFile;
 /// Destructor: Takes ownership of the `File` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzFile_delete(object: &mut AzFile) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `MsgBox` struct
+pub type AzMsgBoxTT = azul_impl::dialogs::MsgBox;
+pub use AzMsgBoxTT as AzMsgBox;
+/// Opens an informational message box with only an "OK" button
+#[no_mangle] pub extern "C" fn AzMsgBox_ok(icon: AzMsgBoxIcon, title: AzString, message: AzString) -> bool { azul_impl::dialogs::msg_box_ok(title.as_str(), message.as_str(), icon.into()); true }
+/// Opens a ok / cancel message box. Blocks the current thread.
+#[no_mangle] pub extern "C" fn AzMsgBox_okCancel(icon: AzMsgBoxIcon, title: AzString, message: AzString, default_value: AzMsgBoxOkCancel) -> AzMsgBoxOkCancel { azul_impl::dialogs::msg_box_ok_cancel(title.as_str(), message.as_str(), icon.into(), default_value) }
+/// Opens a yes / no message box. Blocks the current thread.
+#[no_mangle] pub extern "C" fn AzMsgBox_yesNo(icon: AzMsgBoxIcon, title: AzString, message: AzString, default_value: AzMsgBoxYesNo) -> AzMsgBoxYesNo { azul_impl::dialogs::msg_box_yes_no(title.as_str(), message.as_str(), icon.into(), default_value) }
+
+/// Type of message box icon
+pub type AzMsgBoxIconTT = azul_impl::dialogs::MsgBoxIcon;
+pub use AzMsgBoxIconTT as AzMsgBoxIcon;
+
+/// Value returned from a yes / no message box
+pub type AzMsgBoxYesNoTT = azul_impl::dialogs::YesNo;
+pub use AzMsgBoxYesNoTT as AzMsgBoxYesNo;
+
+/// Value returned from an ok / cancel message box
+pub type AzMsgBoxOkCancelTT = azul_impl::dialogs::OkCancel;
+pub use AzMsgBoxOkCancelTT as AzMsgBoxOkCancel;
+
+/// File picker dialog
+pub type AzFileDialogTT = azul_impl::dialogs::FileDialog;
+pub use AzFileDialogTT as AzFileDialog;
+/// Select a single file using the system-native file picker. Blocks the current thread.
+#[no_mangle] pub extern "C" fn AzFileDialog_selectFile(title: AzString, default_path: AzOptionString, filter_list: AzOptionFileTypeList) -> AzOptionString { azul_impl::dialogs::open_file_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str()), filter_list.into_option().map(|s| s.into())).into() }
+/// Select multiple files using the system-native file picker. Blocks the current thread.
+#[no_mangle] pub extern "C" fn AzFileDialog_selectMultipleFiles(title: AzString, default_path: AzOptionString, filter_list: AzOptionFileTypeList) -> AzOptionStringVec { azul_impl::dialogs::open_multiple_files_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str()), filter_list.into_option().map(|s| s.into())).into() }
+/// Open a dialog prompting the user to select a directory to open. Blocks the current thread.
+#[no_mangle] pub extern "C" fn AzFileDialog_selectFolder(title: AzString, default_path: AzOptionString) -> AzOptionString { azul_impl::dialogs::open_directory_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str())).into() }
+/// Open a dialog prompting the user to save a file. Blocks the current thread.
+#[no_mangle] pub extern "C" fn AzFileDialog_saveFile(title: AzString, default_path: AzOptionString) -> AzOptionString { azul_impl::dialogs::save_file_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str())).into() }
+
+/// Re-export of rust-allocated (stack based) `FileTypeList` struct
+pub type AzFileTypeListTT = azul_impl::dialogs::FileTypeList;
+pub use AzFileTypeListTT as AzFileTypeList;
+
+/// Re-export of rust-allocated (stack based) `ColorPickerDialog` struct
+pub type AzColorPickerDialogTT = azul_impl::dialogs::ColorPickerDialog;
+pub use AzColorPickerDialogTT as AzColorPickerDialog;
+/// Opens a system-native color picker dialog
+#[no_mangle] pub extern "C" fn AzColorPickerDialog_open(title: AzString, default_color: AzOptionColorU) -> AzOptionColorU { azul_impl::dialogs::color_picker_dialog(title.as_str(), default_color.into_option().map(|s| s.into())).into() }
+
 /// Re-export of rust-allocated (stack based) `TimerId` struct
 pub type AzTimerIdTT = azul_impl::task::TimerId;
 pub use AzTimerIdTT as AzTimerId;
@@ -2914,6 +2958,14 @@ pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionFileTypeList` struct
+pub type AzOptionFileTypeListTT = azul_impl::dialogs::OptionFileTypeList;
+pub use AzOptionFileTypeListTT as AzOptionFileTypeList;
+
+/// Re-export of rust-allocated (stack based) `OptionStringVec` struct
+pub type AzOptionStringVecTT = azul_impl::css::OptionStringVec;
+pub use AzOptionStringVecTT as AzOptionStringVec;
+
 /// Re-export of rust-allocated (stack based) `OptionFile` struct
 pub type AzOptionFileTT = azul_impl::file::OptionFile;
 pub use AzOptionFileTT as AzOptionFile;
@@ -3890,8 +3942,8 @@ mod test_sizes {
         OverrideInParent(u32),
         NoKeyboardFocus,
     }
-    /// Re-export of rust-allocated (stack based) `NodeTypePath` struct
-    #[repr(C)]     pub enum AzNodeTypePath {
+    /// Re-export of rust-allocated (stack based) `NodeTypeTag` struct
+    #[repr(C)]     pub enum AzNodeTypeTag {
         Body,
         Div,
         Br,
@@ -4433,6 +4485,35 @@ mod test_sizes {
     #[repr(C)]     pub struct AzFile {
         pub(crate) ptr: *const c_void,
     }
+    /// Re-export of rust-allocated (stack based) `MsgBox` struct
+    #[repr(C)]     pub struct AzMsgBox {
+        pub _reserved: *mut c_void,
+    }
+    /// Type of message box icon
+    #[repr(C)]     pub enum AzMsgBoxIcon {
+        Info,
+        Warning,
+        Error,
+        Question,
+    }
+    /// Value returned from a yes / no message box
+    #[repr(C)]     pub enum AzMsgBoxYesNo {
+        Yes,
+        No,
+    }
+    /// Value returned from an ok / cancel message box
+    #[repr(C)]     pub enum AzMsgBoxOkCancel {
+        Ok,
+        Cancel,
+    }
+    /// File picker dialog
+    #[repr(C)]     pub struct AzFileDialog {
+        pub _reserved: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `ColorPickerDialog` struct
+    #[repr(C)]     pub struct AzColorPickerDialog {
+        pub _reserved: *mut c_void,
+    }
     /// Re-export of rust-allocated (stack based) `TimerId` struct
     #[repr(C)]     pub struct AzTimerId {
         pub id: usize,
@@ -4963,6 +5044,11 @@ mod test_sizes {
     #[repr(C)]     pub struct AzSystemTickDiff {
         pub tick_diff: u64,
     }
+    /// External system callbacks to get the system time or create / manage threads
+    #[repr(C)]     pub struct AzSystemCallbacks {
+        pub create_thread_fn: AzCreateThreadFn,
+        pub get_system_time_fn: AzGetSystemTimeFn,
+    }
     /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
     #[repr(C)]     pub struct AzRendererOptions {
         pub vsync: AzVsync,
@@ -5068,11 +5154,6 @@ mod test_sizes {
     #[repr(C)]     pub struct AzTimerCallbackReturn {
         pub should_update: AzUpdateScreen,
         pub should_terminate: AzTerminateTimer,
-    }
-    /// External system callbacks to get the system time or create / manage threads
-    #[repr(C)]     pub struct AzSystemCallbacks {
-        pub create_thread_fn: AzCreateThreadFn,
-        pub get_system_time_fn: AzGetSystemTimeFn,
     }
     /// Re-export of rust-allocated (stack based) `NotEventFilter` struct
     #[repr(C, u8)]     pub enum AzNotEventFilter {
@@ -6536,6 +6617,11 @@ mod test_sizes {
         pub cap: usize,
         pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `OptionStringVec` struct
+    #[repr(C, u8)]     pub enum AzOptionStringVec {
+        None,
+        Some(AzStringVec),
+    }
     /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
     #[repr(C, u8)]     pub enum AzOptionTaskBarIcon {
         None,
@@ -6734,7 +6820,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `CssPathSelector` struct
     #[repr(C, u8)]     pub enum AzCssPathSelector {
         Global,
-        Type(AzNodeTypePath),
+        Type(AzNodeTypeTag),
         Class(AzString),
         Id(AzString),
         PseudoSelector(AzCssPathPseudoSelector),
@@ -6898,6 +6984,11 @@ mod test_sizes {
         Fill(AzSvgFillStyle),
         Stroke(AzSvgStrokeStyle),
     }
+    /// Re-export of rust-allocated (stack based) `FileTypeList` struct
+    #[repr(C)]     pub struct AzFileTypeList {
+        pub document_types: AzStringVec,
+        pub document_descriptor: AzString,
+    }
     /// Re-export of rust-allocated (stack based) `Thread` struct
     #[repr(C)]     pub struct AzThread {
         pub thread_handle: *mut c_void,
@@ -7014,6 +7105,11 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStringPairVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionFileTypeList` struct
+    #[repr(C, u8)]     pub enum AzOptionFileTypeList {
+        None,
+        Some(AzFileTypeList),
     }
     /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
     #[repr(C, u8)]     pub enum AzOptionRefAny {
@@ -7577,7 +7673,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::ComponentEventFilter>(), "AzComponentEventFilter"), (Layout::new::<AzComponentEventFilter>(), "AzComponentEventFilter"));
         assert_eq!((Layout::new::<azul_impl::dom::ApplicationEventFilter>(), "AzApplicationEventFilter"), (Layout::new::<AzApplicationEventFilter>(), "AzApplicationEventFilter"));
         assert_eq!((Layout::new::<azul_impl::dom::TabIndex>(), "AzTabIndex"), (Layout::new::<AzTabIndex>(), "AzTabIndex"));
-        assert_eq!((Layout::new::<azul_impl::css::NodeTypePath>(), "AzNodeTypePath"), (Layout::new::<AzNodeTypePath>(), "AzNodeTypePath"));
+        assert_eq!((Layout::new::<azul_impl::css::NodeTypeTag>(), "AzNodeTypeTag"), (Layout::new::<AzNodeTypeTag>(), "AzNodeTypeTag"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildPattern>(), "AzCssNthChildPattern"), (Layout::new::<AzCssNthChildPattern>(), "AzCssNthChildPattern"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyType>(), "AzCssPropertyType"), (Layout::new::<AzCssPropertyType>(), "AzCssPropertyType"));
         assert_eq!((Layout::new::<azul_impl::css::ColorU>(), "AzColorU"), (Layout::new::<AzColorU>(), "AzColorU"));
@@ -7649,6 +7745,12 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgLineCap>(), "AzSvgLineCap"), (Layout::new::<AzSvgLineCap>(), "AzSvgLineCap"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgDashPattern>(), "AzSvgDashPattern"), (Layout::new::<AzSvgDashPattern>(), "AzSvgDashPattern"));
         assert_eq!((Layout::new::<azul_impl::file::File>(), "AzFile"), (Layout::new::<AzFile>(), "AzFile"));
+        assert_eq!((Layout::new::<azul_impl::dialogs::MsgBox>(), "AzMsgBox"), (Layout::new::<AzMsgBox>(), "AzMsgBox"));
+        assert_eq!((Layout::new::<azul_impl::dialogs::MsgBoxIcon>(), "AzMsgBoxIcon"), (Layout::new::<AzMsgBoxIcon>(), "AzMsgBoxIcon"));
+        assert_eq!((Layout::new::<azul_impl::dialogs::YesNo>(), "AzMsgBoxYesNo"), (Layout::new::<AzMsgBoxYesNo>(), "AzMsgBoxYesNo"));
+        assert_eq!((Layout::new::<azul_impl::dialogs::OkCancel>(), "AzMsgBoxOkCancel"), (Layout::new::<AzMsgBoxOkCancel>(), "AzMsgBoxOkCancel"));
+        assert_eq!((Layout::new::<azul_impl::dialogs::FileDialog>(), "AzFileDialog"), (Layout::new::<AzFileDialog>(), "AzFileDialog"));
+        assert_eq!((Layout::new::<azul_impl::dialogs::ColorPickerDialog>(), "AzColorPickerDialog"), (Layout::new::<AzColorPickerDialog>(), "AzColorPickerDialog"));
         assert_eq!((Layout::new::<azul_impl::task::TimerId>(), "AzTimerId"), (Layout::new::<AzTimerId>(), "AzTimerId"));
         assert_eq!((Layout::new::<azul_impl::task::TerminateTimer>(), "AzTerminateTimer"), (Layout::new::<AzTerminateTimer>(), "AzTerminateTimer"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadId>(), "AzThreadId"), (Layout::new::<AzThreadId>(), "AzThreadId"));
@@ -7724,6 +7826,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::SystemTick>(), "AzSystemTick"), (Layout::new::<AzSystemTick>(), "AzSystemTick"));
         assert_eq!((Layout::new::<azul_impl::task::SystemTimeDiff>(), "AzSystemTimeDiff"), (Layout::new::<AzSystemTimeDiff>(), "AzSystemTimeDiff"));
         assert_eq!((Layout::new::<azul_impl::task::SystemTickDiff>(), "AzSystemTickDiff"), (Layout::new::<AzSystemTickDiff>(), "AzSystemTickDiff"));
+        assert_eq!((Layout::new::<azul_impl::task::ExternalSystemCallbacks>(), "AzSystemCallbacks"), (Layout::new::<AzSystemCallbacks>(), "AzSystemCallbacks"));
         assert_eq!((Layout::new::<azul_impl::window::RendererOptions>(), "AzRendererOptions"), (Layout::new::<AzRendererOptions>(), "AzRendererOptions"));
         assert_eq!((Layout::new::<azul_impl::css::LayoutRect>(), "AzLayoutRect"), (Layout::new::<AzLayoutRect>(), "AzLayoutRect"));
         assert_eq!((Layout::new::<azul_impl::window::RawWindowHandle>(), "AzRawWindowHandle"), (Layout::new::<AzRawWindowHandle>(), "AzRawWindowHandle"));
@@ -7739,7 +7842,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_core::callbacks::InlineTextHit>(), "AzInlineTextHit"), (Layout::new::<AzInlineTextHit>(), "AzInlineTextHit"));
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackInfo>(), "AzIFrameCallbackInfo"), (Layout::new::<AzIFrameCallbackInfo>(), "AzIFrameCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackReturn>(), "AzTimerCallbackReturn"), (Layout::new::<AzTimerCallbackReturn>(), "AzTimerCallbackReturn"));
-        assert_eq!((Layout::new::<azul_impl::task::ExternalSystemCallbacks>(), "AzSystemCallbacks"), (Layout::new::<AzSystemCallbacks>(), "AzSystemCallbacks"));
         assert_eq!((Layout::new::<azul_impl::dom::NotEventFilter>(), "AzNotEventFilter"), (Layout::new::<AzNotEventFilter>(), "AzNotEventFilter"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildSelector>(), "AzCssNthChildSelector"), (Layout::new::<AzCssNthChildSelector>(), "AzCssNthChildSelector"));
         assert_eq!((Layout::new::<azul_impl::css::PixelValue>(), "AzPixelValue"), (Layout::new::<AzPixelValue>(), "AzPixelValue"));
@@ -7969,6 +8071,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::RadialColorStopVec>(), "AzRadialColorStopVec"), (Layout::new::<AzRadialColorStopVec>(), "AzRadialColorStopVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVec>(), "AzStyledNodeVec"), (Layout::new::<AzStyledNodeVec>(), "AzStyledNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"), (Layout::new::<AzTagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionStringVec>(), "AzOptionStringVec"), (Layout::new::<AzOptionStringVec>(), "AzOptionStringVec"));
         assert_eq!((Layout::new::<azul_impl::window::OptionTaskBarIcon>(), "AzOptionTaskBarIcon"), (Layout::new::<AzOptionTaskBarIcon>(), "AzOptionTaskBarIcon"));
         assert_eq!((Layout::new::<azul_impl::window::OptionWindowIcon>(), "AzOptionWindowIcon"), (Layout::new::<AzOptionWindowIcon>(), "AzOptionWindowIcon"));
         assert_eq!((Layout::new::<azul_impl::css::OptionAzString>(), "AzOptionString"), (Layout::new::<AzOptionString>(), "AzOptionString"));
@@ -8019,6 +8122,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgPath>(), "AzSvgPath"), (Layout::new::<AzSvgPath>(), "AzSvgPath"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgParseOptions>(), "AzSvgParseOptions"), (Layout::new::<AzSvgParseOptions>(), "AzSvgParseOptions"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStyle>(), "AzSvgStyle"), (Layout::new::<AzSvgStyle>(), "AzSvgStyle"));
+        assert_eq!((Layout::new::<azul_impl::dialogs::FileTypeList>(), "AzFileTypeList"), (Layout::new::<AzFileTypeList>(), "AzFileTypeList"));
         assert_eq!((Layout::new::<azul_impl::task::Thread>(), "AzThread"), (Layout::new::<AzThread>(), "AzThread"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadWriteBackMsg>(), "AzThreadWriteBackMsg"), (Layout::new::<AzThreadWriteBackMsg>(), "AzThreadWriteBackMsg"));
         assert_eq!((Layout::new::<azul_impl::str::FmtValue>(), "AzFmtValue"), (Layout::new::<AzFmtValue>(), "AzFmtValue"));
@@ -8034,6 +8138,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::CallbackDataVec>(), "AzCallbackDataVec"), (Layout::new::<AzCallbackDataVec>(), "AzCallbackDataVec"));
         assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessageVec>(), "AzDebugMessageVec"), (Layout::new::<AzDebugMessageVec>(), "AzDebugMessageVec"));
         assert_eq!((Layout::new::<azul_impl::window::StringPairVec>(), "AzStringPairVec"), (Layout::new::<AzStringPairVec>(), "AzStringPairVec"));
+        assert_eq!((Layout::new::<azul_impl::dialogs::OptionFileTypeList>(), "AzOptionFileTypeList"), (Layout::new::<AzOptionFileTypeList>(), "AzOptionFileTypeList"));
         assert_eq!((Layout::new::<azul_impl::callbacks::OptionRefAny>(), "AzOptionRefAny"), (Layout::new::<AzOptionRefAny>(), "AzOptionRefAny"));
         assert_eq!((Layout::new::<azul_impl::resources::OptionRawImage>(), "AzOptionRawImage"), (Layout::new::<AzOptionRawImage>(), "AzOptionRawImage"));
         assert_eq!((Layout::new::<azul_impl::window::OptionWaylandTheme>(), "AzOptionWaylandTheme"), (Layout::new::<AzOptionWaylandTheme>(), "AzOptionWaylandTheme"));

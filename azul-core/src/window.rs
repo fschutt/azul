@@ -1532,6 +1532,8 @@ impl_vec_partialeq!(AzStringPair, StringPairVec);
 impl_vec_eq!(AzStringPair, StringPairVec);
 impl_vec_hash!(AzStringPair, StringPairVec);
 
+impl_option!(StringPairVec, OptionStringPairVec, copy = false, [Debug, Clone, PartialOrd, PartialEq, Ord, Eq, Hash]);
+
 impl StringPairVec {
     pub fn get_key(&self, search_key: &str) -> Option<&AzString> {
         self.as_ref().iter().find_map(|v| if v.key.as_str() == search_key { Some(&v.value) } else { None })

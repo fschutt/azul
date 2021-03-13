@@ -2110,7 +2110,7 @@
 					"external": "azul_impl::css::CssPathSelector",
 					"enum_fields": [
 						{"Global": {}},
-						{"Type": {"type": "NodeTypePath"}},
+						{"Type": {"type": "NodeTypeTag"}},
 						{"Class": {"type": "String"}},
 						{"Id": {"type": "String"}},
 						{"PseudoSelector": {"type": "CssPathPseudoSelector"}},
@@ -2118,8 +2118,8 @@
 						{"Children": {}}
 					]
 				},
-				"NodeTypePath": {
-					"external": "azul_impl::css::NodeTypePath",
+				"NodeTypeTag": {
+					"external": "azul_impl::css::NodeTypeTag",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{"Body": {}},
@@ -7017,37 +7017,38 @@
 							"doc": "Opens an informational message box with only an \"OK\" button",
 							"fn_args": [
 								{"icon": "MsgBoxIcon"},
-								{"title": "AzString"},
-								{"message": "AzString"}
+								{"title": "String"},
+								{"message": "String"}
 							],
 							"returns": {"type": "bool"},
-							"fn_body": "azul_impl::dialogs::msg_box_ok(title.as_str(), message.as_str(), icon); true"
+							"fn_body": "azul_impl::dialogs::msg_box_ok(title.as_str(), message.as_str(), icon.into()); true"
 						},
 						"ok_cancel": {
 							"doc": "Opens a ok / cancel message box. Blocks the current thread.",
 							"fn_args": [
 								{"icon": "MsgBoxIcon"},
-								{"title": "AzString"},
-								{"message": "AzString"},
+								{"title": "String"},
+								{"message": "String"},
 								{"default_value": "MsgBoxOkCancel"}
 							],
 							"returns": {"type": "MsgBoxOkCancel"},
-							"fn_body": "azul_impl::dialogs::msg_box_yes_no(icon, title.as_str(), message.as_str(), default_value)"
+							"fn_body": "azul_impl::dialogs::msg_box_ok_cancel(title.as_str(), message.as_str(), icon.into(), default_value)"
 						},
 						"yes_no": {
 							"doc": "Opens a yes / no message box. Blocks the current thread.",
 							"fn_args": [
 								{"icon": "MsgBoxIcon"},
-								{"title": "AzString"},
-								{"message": "AzString"},
+								{"title": "String"},
+								{"message": "String"},
 								{"default_value": "MsgBoxYesNo"}
 							],
 							"returns": {"type": "MsgBoxYesNo"},
-							"fn_body": "azul_impl::dialogs::msg_box_ok_cancel(icon, title.as_str(), message.as_str(), default_value)"
+							"fn_body": "azul_impl::dialogs::msg_box_yes_no(title.as_str(), message.as_str(), icon.into(), default_value)"
 						}
 					}
 				},
 				"MsgBoxIcon": {
+					"doc": "Type of message box icon",
 					"external": "azul_impl::dialogs::MsgBoxIcon",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -7058,6 +7059,7 @@
 					]
 				},
 				"MsgBoxYesNo": {
+					"doc": "Value returned from a yes / no message box",
 					"external": "azul_impl::dialogs::YesNo",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -7066,6 +7068,7 @@
 					]
 				},
 				"MsgBoxOkCancel": {
+					"doc": "Value returned from an ok / cancel message box",
 					"external": "azul_impl::dialogs::OkCancel",
 					"derive": ["Copy"],
 					"enum_fields": [
@@ -7074,25 +7077,59 @@
 					]
 				},
 				"FileDialog": {
+					"doc": "File picker dialog",
 					"external": "azul_impl::dialogs::FileDialog",
 					"clone": false,
 					"struct_fields": [
-						{"_reserved": {"type": "*mut c_void"}}
+						{"_reserved": {"type": "*mut c_void", "doc": "Non-existent field for ABI stability. Do not use."}}
 					],
 					"constructors": {
 						"select_file": {
-							"returns": {"type": "OptionString"}
+							"doc": "Select a single file using the system-native file picker. Blocks the current thread.",
+							"fn_args": [
+								{"title": "String"},
+								{"default_path": "OptionString"},
+								{"filter_list": "OptionFileTypeList"}
+							],
+							"returns": {"type": "OptionString", "doc": "The path that the user wants to open, `None` if the user has cancelled or closed the dialog" },
+							"fn_body": "azul_impl::dialogs::open_file_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str()), filter_list.into_option().map(|s| s.into())).into()"
 						},
 						"select_multiple_files": {
-							"returns": {"type": "OptionStringVec"}
-						},
-						"save_file": {
-							"returns": {"type": "OptionString"}
+							"doc": "Select multiple files using the system-native file picker. Blocks the current thread.",
+							"fn_args": [
+								{"title": "String"},
+								{"default_path": "OptionString"},
+								{"filter_list": "OptionFileTypeList"}
+							],
+							"returns": {"type": "OptionStringVec", "doc": "The path(s) that the user wants to open, `None` if the user has cancelled or closed the dialog" },
+							"fn_body": "azul_impl::dialogs::open_multiple_files_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str()), filter_list.into_option().map(|s| s.into())).into()"
 						},
 						"select_folder": {
-							"returns": {"type": "OptionString"}
+							"doc": "Open a dialog prompting the user to select a directory to open. Blocks the current thread.",
+							"fn_args": [
+								{"title": "String"},
+								{"default_path": "OptionString"}
+							],
+							"returns": {"type": "OptionString", "doc": "The folder that the user wants to open, `None` if the user has cancelled or closed the dialog" },
+							"fn_body": "azul_impl::dialogs::open_directory_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str())).into()"
+						},
+						"save_file": {
+							"doc": "Open a dialog prompting the user to save a file. Blocks the current thread.",
+							"fn_args": [
+								{"title": "String"},
+								{"default_path": "OptionString"}
+							],
+							"returns": {"type": "OptionString", "doc": "The path that the user wants to save the file to, `None` if the user has cancelled or closed the dialog"},
+							"fn_body": "azul_impl::dialogs::save_file_dialog(title.as_str(), default_path.as_ref().map(|s| s.as_str())).into()"
 						}
 					}
+				},
+				"FileTypeList": {
+					"external": "azul_impl::dialogs::FileTypeList",
+					"struct_fields": [
+						{"document_types": {"type": "StringVec", "doc": "A list of document types, such as [\"doc\", \"docx\", \"png\"]"}},
+						{"document_descriptor": {"type": "String", "doc": ""}}
+					]
 				},
 				"ColorPickerDialog": {
 					"external": "azul_impl::dialogs::ColorPickerDialog",
@@ -7102,7 +7139,13 @@
 					],
 					"constructors": {
 						"open": {
-							"returns": {"type": "OptionColorU"}
+							"doc": "Opens a system-native color picker dialog",
+							"fn_args": [
+								{"title": "String"},
+								{"default_color": "OptionColorU"}
+							],
+							"returns": {"type": "OptionColorU"},
+							"fn_body": "azul_impl::dialogs::color_picker_dialog(title.as_str(), default_color.into_option().map(|s| s.into())).into()"
 						}
 					}
 				}
@@ -8839,6 +8882,20 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionFileTypeList": {
+				    "external": "azul_impl::dialogs::OptionFileTypeList",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": { "type": "FileTypeList" }}
+				    ]
+				},
+				"OptionStringVec": {
+				    "external": "azul_impl::css::OptionStringVec",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": { "type": "StringVec" }}
+				    ]
+				},
 				"OptionFile": {
 				    "external": "azul_impl::file::OptionFile",
 				    "clone": false,
