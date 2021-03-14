@@ -953,16 +953,16 @@ typedef union AzTabIndex AzTabIndex;
 #define AzTabIndex_OverrideInParent(v) { .OverrideInParent = { .tag = AzTabIndexTag_OverrideInParent, .payload = v } }
 #define AzTabIndex_NoKeyboardFocus { .NoKeyboardFocus = { .tag = AzTabIndexTag_NoKeyboardFocus } }
 
-enum AzNodeTypeTag {
-   AzNodeTypeTag_Body,
-   AzNodeTypeTag_Div,
-   AzNodeTypeTag_Br,
-   AzNodeTypeTag_P,
-   AzNodeTypeTag_Img,
-   AzNodeTypeTag_Texture,
-   AzNodeTypeTag_IFrame,
+enum AzNodeTypeKey {
+   AzNodeTypeKey_Body,
+   AzNodeTypeKey_Div,
+   AzNodeTypeKey_Br,
+   AzNodeTypeKey_P,
+   AzNodeTypeKey_Img,
+   AzNodeTypeKey_Texture,
+   AzNodeTypeKey_IFrame,
 };
-typedef enum AzNodeTypeTag AzNodeTypeTag;
+typedef enum AzNodeTypeKey AzNodeTypeKey;
 
 struct AzCssNthChildPattern {
     uint32_t repeat;
@@ -7388,7 +7388,7 @@ typedef enum AzCssPathSelectorTag AzCssPathSelectorTag;
 
 struct AzCssPathSelectorVariant_Global { AzCssPathSelectorTag tag; };
 typedef struct AzCssPathSelectorVariant_Global AzCssPathSelectorVariant_Global;
-struct AzCssPathSelectorVariant_Type { AzCssPathSelectorTag tag; AzNodeTypeTag payload; };
+struct AzCssPathSelectorVariant_Type { AzCssPathSelectorTag tag; AzNodeTypeKey payload; };
 typedef struct AzCssPathSelectorVariant_Type AzCssPathSelectorVariant_Type;
 struct AzCssPathSelectorVariant_Class { AzCssPathSelectorTag tag; AzString payload; };
 typedef struct AzCssPathSelectorVariant_Class AzCssPathSelectorVariant_Class;

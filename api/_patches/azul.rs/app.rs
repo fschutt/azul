@@ -1,6 +1,5 @@
     impl Default for AppConfig {
         fn default() -> Self {
-            use crate::callbacks::SystemCallbacks;
             Self {
                 // note: this field should never be changed, apps that
                 // want to use a newer layout model need to explicitly set

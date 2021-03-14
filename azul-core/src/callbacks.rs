@@ -1644,7 +1644,9 @@ impl FocusTarget {
                 let resolved_node_id = html_node_tree
                     .as_container()
                     .linear_iter()
-                    .find(|node_id| matches_html_element(css_path, *node_id, &node_hierarchy.as_container(), &node_data.as_container(), &html_node_tree.as_container()))
+                    .find(|node_id| {
+                        matches_html_element(css_path, *node_id, &node_hierarchy.as_container(), &node_data.as_container(), &html_node_tree.as_container(), None)
+                    })
                     .ok_or(UpdateFocusWarning::CouldNotFindFocusNode(css_path.clone()))?;
                 Ok(Some(DomNodeId { dom: dom.clone(), node: AzNodeId::from_crate_internal(Some(resolved_node_id)) }))
             },

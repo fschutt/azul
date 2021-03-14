@@ -617,9 +617,9 @@ pub use AzCssPathTT as AzCssPath;
 pub type AzCssPathSelectorTT = azul_impl::css::CssPathSelector;
 pub use AzCssPathSelectorTT as AzCssPathSelector;
 
-/// Re-export of rust-allocated (stack based) `NodeTypeTag` struct
-pub type AzNodeTypeTagTT = azul_impl::css::NodeTypeTag;
-pub use AzNodeTypeTagTT as AzNodeTypeTag;
+/// Re-export of rust-allocated (stack based) `NodeTypeKey` struct
+pub type AzNodeTypeKeyTT = azul_impl::css::NodeTypeTag;
+pub use AzNodeTypeKeyTT as AzNodeTypeKey;
 
 /// Re-export of rust-allocated (stack based) `CssPathPseudoSelector` struct
 pub type AzCssPathPseudoSelectorTT = azul_impl::css::CssPathPseudoSelector;
@@ -3942,8 +3942,8 @@ mod test_sizes {
         OverrideInParent(u32),
         NoKeyboardFocus,
     }
-    /// Re-export of rust-allocated (stack based) `NodeTypeTag` struct
-    #[repr(C)]     pub enum AzNodeTypeTag {
+    /// Re-export of rust-allocated (stack based) `NodeTypeKey` struct
+    #[repr(C)]     pub enum AzNodeTypeKey {
         Body,
         Div,
         Br,
@@ -6820,7 +6820,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `CssPathSelector` struct
     #[repr(C, u8)]     pub enum AzCssPathSelector {
         Global,
-        Type(AzNodeTypeTag),
+        Type(AzNodeTypeKey),
         Class(AzString),
         Id(AzString),
         PseudoSelector(AzCssPathPseudoSelector),
@@ -7673,7 +7673,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::ComponentEventFilter>(), "AzComponentEventFilter"), (Layout::new::<AzComponentEventFilter>(), "AzComponentEventFilter"));
         assert_eq!((Layout::new::<azul_impl::dom::ApplicationEventFilter>(), "AzApplicationEventFilter"), (Layout::new::<AzApplicationEventFilter>(), "AzApplicationEventFilter"));
         assert_eq!((Layout::new::<azul_impl::dom::TabIndex>(), "AzTabIndex"), (Layout::new::<AzTabIndex>(), "AzTabIndex"));
-        assert_eq!((Layout::new::<azul_impl::css::NodeTypeTag>(), "AzNodeTypeTag"), (Layout::new::<AzNodeTypeTag>(), "AzNodeTypeTag"));
+        assert_eq!((Layout::new::<azul_impl::css::NodeTypeTag>(), "AzNodeTypeKey"), (Layout::new::<AzNodeTypeKey>(), "AzNodeTypeKey"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildPattern>(), "AzCssNthChildPattern"), (Layout::new::<AzCssNthChildPattern>(), "AzCssNthChildPattern"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyType>(), "AzCssPropertyType"), (Layout::new::<AzCssPropertyType>(), "AzCssPropertyType"));
         assert_eq!((Layout::new::<azul_impl::css::ColorU>(), "AzColorU"), (Layout::new::<AzColorU>(), "AzColorU"));

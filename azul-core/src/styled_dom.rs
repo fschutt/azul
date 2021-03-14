@@ -188,15 +188,24 @@ impl CssPropertyCache {
         use azul_css::CssPathPseudoSelector::*;
 
         let css_is_empty = css.is_empty();
+
         if !css_is_empty {
 
             let css = css.sort_by_specificity();
 
-            macro_rules! filter_rules {($styled_node_state:expr, $node_id:expr) => {{
+            macro_rules! filter_rules {($expected_pseudo_selector:expr, $node_id:expr) => {{
                 css
                 .rules() // can not be parallelized due to specificity order matching
-                .filter(|rule_block| rule_ends_with(&rule_block.path, $styled_node_state))
-                .filter(|rule_block| matches_html_element(&rule_block.path, $node_id, &node_hierarchy.as_container(), &node_data, &html_tree))
+                .filter(|rule_block| rule_ends_with(&rule_block.path, $expected_pseudo_selector))
+                .filter(|rule_block| matches_html_element(
+                    &rule_block.path,
+                    $node_id,
+                    &node_hierarchy.as_container(),
+                    &node_data,
+                    &html_tree,
+                    $expected_pseudo_selector
+                    )
+                )
                 // rule matched, now copy all the styles of this rule
                 .flat_map(|matched_rule| {
                     matched_rule.declarations
@@ -229,19 +238,19 @@ impl CssPropertyCache {
 
             let css_hover_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)>  =
             node_data.transform_nodeid_multithreaded_optional(|node_id| {
-                let r = filter_rules!(Some(PseudoSelector(Hover)), node_id);
+                let r = filter_rules!(Some(Hover), node_id);
                 if r.is_empty() { None } else { Some((node_id, r)) }
             });
 
             let css_active_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)>  =
             node_data.transform_nodeid_multithreaded_optional(|node_id| {
-                let r = filter_rules!(Some(PseudoSelector(Active)), node_id);
+                let r = filter_rules!(Some(Active), node_id);
                 if r.is_empty() { None } else { Some((node_id, r)) }
             });
 
             let css_focus_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)>  =
             node_data.transform_nodeid_multithreaded_optional(|node_id| {
-                let r = filter_rules!(Some(PseudoSelector(Focus)), node_id);
+                let r = filter_rules!(Some(Focus), node_id);
                 if r.is_empty() { None } else { Some((node_id, r)) }
             });
 
@@ -273,6 +282,7 @@ impl CssPropertyCache {
                     .collect::<Vec<(CssPropertyType, CssProperty)>>();
                     if parent_inherit_props.is_empty() { None } else { Some(parent_inherit_props) }
                 });
+
 
                 match parent_inheritable_css_props {
                     Some(pi) => {
@@ -1542,7 +1552,13 @@ impl StyledDom {
 
         let mut output = format!("
             <html>
-                <head>{}</head>
+                <head>
+                <style>
+                    body, html {{ width: 100%; height: 100%; }}
+                    * {{ margin: 0px; padding: 0px; flex: 1; }}
+                </style>
+                {}
+                </head>
             <body>
         ", custom_head);
 

@@ -656,7 +656,6 @@ impl Window {
             app_resources,
         );
 
-        println!("display_list: {:#?}", cached_display_list.root);
         let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id);
 
         let logical_size = WrLayoutSize::new(self.internal.current_window_state.size.dimensions.width, self.internal.current_window_state.size.dimensions.height);

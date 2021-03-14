@@ -1975,7 +1975,6 @@ pub fn create_shaped_words<'a>(
     .iter()
     .filter_map(|(node_id, words)| {
 
-        println!("{} - shape words", node_id);
         let styled_node_state = &styled_nodes[*node_id].state;
         let node_data = &node_data[*node_id];
         let css_font_ids = css_property_cache.get_font_id_or_default(node_data, node_id, styled_node_state);
@@ -1985,14 +1984,11 @@ pub fn create_shaped_words<'a>(
         };
 
         let loaded_font = app_resources.get_loaded_font_mut(pipeline_id, &font_id)?;
-        println!("{} - got loaded font!", node_id);
 
         // downcast the loaded_font.font from Box<dyn Any> to Box<azul_text_layout::text_shaping::ParsedFont>
         let parsed_font_downcasted = loaded_font.font.downcast_mut::<azul_text_layout::text_shaping::ParsedFont>()?;
-        println!("{} - got parsed font!", node_id);
 
         let shaped_words = shape_words(words, parsed_font_downcasted);
-        println!("{} - ok - words shaped!", node_id);
 
         Some((*node_id, shaped_words))
     }).collect()

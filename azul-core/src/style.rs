@@ -38,6 +38,7 @@ pub(crate) fn matches_html_element(
     node_hierarchy: &NodeDataContainerRef<AzNode>,
     node_data: &NodeDataContainerRef<NodeData>,
     html_node_tree: &NodeDataContainerRef<CascadeInfo>,
+    expected_path_ending: Option<CssPathPseudoSelector>,
 ) -> bool {
 
     use self::CssGroupSplitReason::*;
@@ -50,7 +51,10 @@ pub(crate) fn matches_html_element(
     let mut direct_parent_has_to_match = false;
     let mut last_selector_matched = true;
 
-    for (content_group, reason) in CssGroupIterator::new(css_path.selectors.as_ref()) {
+    let mut iterator = CssGroupIterator::new(css_path.selectors.as_ref());
+    while let Some((content_group, reason)) = iterator.next() {
+
+        let is_last_content_group = iterator.is_last_content_group();
         let cur_node_id = match current_node {
             Some(c) => c,
             None => {
@@ -60,7 +64,14 @@ pub(crate) fn matches_html_element(
                 return *content_group == [&CssPathSelector::Global];
             },
         };
-        let current_selector_matches = selector_group_matches(&content_group, &html_node_tree[cur_node_id], &node_data[cur_node_id]);
+
+        let current_selector_matches = selector_group_matches(
+            &content_group,
+            &html_node_tree[cur_node_id],
+            &node_data[cur_node_id],
+            expected_path_ending,
+            is_last_content_group
+        );
 
         if direct_parent_has_to_match && !current_selector_matches {
             // If the element was a ">" element and the current,
@@ -84,6 +95,18 @@ pub(crate) fn matches_html_element(
     last_selector_matched
 }
 
+/// A CSS group is a group of css selectors in a path that specify the rule that a
+/// certain node has to match, i.e. "div.main.foo" has to match three requirements:
+///
+/// - the node has to be of type div
+/// - the node has to have the class "main"
+/// - the node has to have the class "foo"
+///
+/// If any of these requirements are not met, the CSS block is discarded.
+///
+/// The CssGroupIterator splits the CSS path into semantic blocks, i.e.:
+///
+/// "body > .foo.main > #baz" will be split into ["body", ".foo.main" and "#baz"]
 pub(crate) struct CssGroupIterator<'a> {
     pub css_path: &'a [CssPathSelector],
     pub current_idx: usize,
@@ -92,7 +115,9 @@ pub(crate) struct CssGroupIterator<'a> {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) enum CssGroupSplitReason {
+    /// ".foo .main" - match any children
     Children,
+    /// ".foo > .main" - match only direct children
     DirectChildren,
 }
 
@@ -104,6 +129,9 @@ impl<'a> CssGroupIterator<'a> {
             current_idx: initial_len,
             last_reason: CssGroupSplitReason::Children,
         }
+    }
+    pub fn is_last_content_group(&self) -> bool {
+        self.current_idx.saturating_add(1) == self.css_path.len().saturating_sub(1)
     }
 }
 
@@ -192,8 +220,23 @@ pub(crate) fn construct_html_cascade_tree(node_hierarchy: &NodeHierarchyRef, nod
 
 /// TODO: This is wrong, but it's fast
 #[inline]
-pub fn rule_ends_with(path: &CssPath, target: Option<CssPathSelector>) -> bool {
-    path.selectors.as_ref().last() == target.as_ref()
+pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> bool {
+    match target {
+        None => match path.selectors.as_ref().last() {
+            None => false,
+            Some(q) => match q {
+                CssPathSelector::PseudoSelector(_) => false,
+                _ => true
+            }
+        },
+        Some(s) => match path.selectors.as_ref().last() {
+            None => false,
+            Some(q) => match q {
+                CssPathSelector::PseudoSelector(q) => *q == s,
+                _ => false
+            }
+        }
+    }
 }
 
 /// Matches a single group of items, panics on Children or DirectChildren selectors
@@ -204,6 +247,8 @@ pub(crate) fn selector_group_matches(
     selectors: &[&CssPathSelector],
     html_node: &CascadeInfo,
     node_data: &NodeData,
+    expected_path_ending: Option<CssPathPseudoSelector>,
+    is_last_content_group: bool,
 ) -> bool {
 
     use self::CssPathSelector::*;
@@ -226,42 +271,51 @@ pub(crate) fn selector_group_matches(
                     return false;
                 }
             },
-            PseudoSelector(CssPathPseudoSelector::First) => {
-                // Notice: index_in_parent is 1-indexed
-                if html_node.index_in_parent != 1 { return false; }
-            },
-            PseudoSelector(CssPathPseudoSelector::Last) => {
-                // Notice: index_in_parent is 1-indexed
-                if !html_node.is_last_child { return false; }
-            },
-            PseudoSelector(CssPathPseudoSelector::NthChild(x)) => {
-                use azul_css::CssNthChildPattern;
-                match *x {
-                    Number(value) => if html_node.index_in_parent != value { return false; },
-                    Even => if html_node.index_in_parent % 2 == 0 { return false; },
-                    Odd => if html_node.index_in_parent % 2 == 1 { return false; },
-                    Pattern(CssNthChildPattern { repeat, offset }) => {
-                        if html_node.index_in_parent >= offset &&
-                           ((html_node.index_in_parent - offset) % repeat != 0) {
-                            return false;
+            PseudoSelector(p) => {
+                match p {
+                    CssPathPseudoSelector::First => {
+                        // Notice: index_in_parent is 1-indexed
+                        if html_node.index_in_parent != 1 { return false; }
+                    },
+                    CssPathPseudoSelector::Last => {
+                        // Notice: index_in_parent is 1-indexed
+                        if !html_node.is_last_child { return false; }
+                    },
+                    CssPathPseudoSelector::NthChild(x) => {
+                        use azul_css::CssNthChildPattern;
+                        match *x {
+                            Number(value) => if html_node.index_in_parent != value { return false; },
+                            Even => if html_node.index_in_parent % 2 == 0 { return false; },
+                            Odd => if html_node.index_in_parent % 2 == 1 { return false; },
+                            Pattern(CssNthChildPattern { repeat, offset }) => {
+                                if html_node.index_in_parent >= offset &&
+                                   ((html_node.index_in_parent - offset) % repeat != 0) {
+                                    return false;
+                                }
+                            },
                         }
                     },
+
+                    // NOTE: for all other selectors such as :hover, :focus and :active,
+                    // we can only apply them if they appear in the last content group,
+                    // i.e. this will match "body > #main:hover", but not "body:hover > #main"
+                    CssPathPseudoSelector::Hover => {
+                        if !is_last_content_group { return false; }
+                        if expected_path_ending != Some(CssPathPseudoSelector::Hover) { return false; }
+                    },
+                    CssPathPseudoSelector::Active => {
+                        if !is_last_content_group { return false; }
+                        if expected_path_ending != Some(CssPathPseudoSelector::Active) { return false; }
+                    },
+                    CssPathPseudoSelector::Focus => {
+                        if !is_last_content_group { return false; }
+                        if expected_path_ending != Some(CssPathPseudoSelector::Focus) { return false; }
+                    }
                 }
-            },
-            PseudoSelector(CssPathPseudoSelector::Hover) => {
-                return false;
-                // if !html_node.is_hovered_over { return false; }
-            },
-            PseudoSelector(CssPathPseudoSelector::Active) => {
-                return false;
-                // if !html_node.is_active { return false; }
-            },
-            PseudoSelector(CssPathPseudoSelector::Focus) => {
-                return false;
-                // if !html_node.is_focused { return false; }
-            },
+            }
             DirectChildren | Children => {
-                panic!("Unreachable: DirectChildren or Children in CSS path!");
+                // panic!("Unreachable: DirectChildren or Children in CSS path!");
+                return false;
             },
         }
     }

@@ -749,8 +749,8 @@ mod dll {
         OverrideInParent(u32),
         NoKeyboardFocus,
     }
-    /// Re-export of rust-allocated (stack based) `NodeTypeTag` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzNodeTypeTag {
+    /// Re-export of rust-allocated (stack based) `NodeTypeKey` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzNodeTypeKey {
         Body,
         Div,
         Br,
@@ -3627,7 +3627,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `CssPathSelector` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzCssPathSelector {
         Global,
-        Type(AzNodeTypeTag),
+        Type(AzNodeTypeKey),
         Class(AzString),
         Id(AzString),
         PseudoSelector(AzCssPathPseudoSelector),
@@ -4889,7 +4889,6 @@ pub mod app {
     use core::ffi::c_void;
     impl Default for AppConfig {
         fn default() -> Self {
-            use crate::callbacks::SystemCallbacks;
             Self {
                 // note: this field should never be changed, apps that
                 // want to use a newer layout model need to explicitly set
@@ -6534,9 +6533,9 @@ pub mod css {
     /// `CssPathSelector` struct
     
 #[doc(inline)] pub use crate::dll::AzCssPathSelector as CssPathSelector;
-    /// `NodeTypeTag` struct
+    /// `NodeTypeKey` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeTypeTag as NodeTypeTag;
+#[doc(inline)] pub use crate::dll::AzNodeTypeKey as NodeTypeKey;
     /// `CssPathPseudoSelector` struct
     
 #[doc(inline)] pub use crate::dll::AzCssPathPseudoSelector as CssPathPseudoSelector;

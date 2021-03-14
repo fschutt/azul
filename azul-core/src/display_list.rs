@@ -899,12 +899,6 @@ pub fn displaylist_handle_rect<'a>(
 
             use crate::app_resources::get_inline_text;
 
-            println!("display list - encountered label {:?}", l);
-            println!("got words: {:?}", layout_result.words_cache.get(&rect_idx).is_some());
-            println!("got shaped words: {:?}", layout_result.shaped_words_cache.get(&rect_idx).is_some());
-            println!("got positioned_words: {:?}", layout_result.positioned_words_cache.get(&rect_idx).is_some());
-            println!("got text layout: {:#?}", positioned_rect.resolved_text_layout_options.as_ref());
-
             // compute the layouted glyphs here, this way it's easier
             // to reflow text since there is no cache that needs to be updated
             //

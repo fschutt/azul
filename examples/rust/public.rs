@@ -33,9 +33,9 @@ const DOM_CHILDREN: DomVec = DomVec::from_const_slice(DOM_CHILD);
 const DOM: Dom = Dom {
     root: NodeData::body(),
     children: DOM_CHILDREN,
-    total_children: 2,
+    total_children: 1,
 };
-const CSS: &str = "body { font-size: 50px; }";
+const CSS: &str = "body { font-size: 50px; } body:hover { color: red; }";
 
 extern "C" fn layout(data: &mut RefAny, _info: LayoutInfo) -> StyledDom {
 

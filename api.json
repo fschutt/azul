@@ -2110,7 +2110,7 @@
 					"external": "azul_impl::css::CssPathSelector",
 					"enum_fields": [
 						{"Global": {}},
-						{"Type": {"type": "NodeTypeTag"}},
+						{"Type": {"type": "NodeTypeKey"}},
 						{"Class": {"type": "String"}},
 						{"Id": {"type": "String"}},
 						{"PseudoSelector": {"type": "CssPathPseudoSelector"}},
@@ -2118,7 +2118,7 @@
 						{"Children": {}}
 					]
 				},
-				"NodeTypeTag": {
+				"NodeTypeKey": {
 					"external": "azul_impl::css::NodeTypeTag",
 					"derive": ["Copy"],
 					"enum_fields": [
