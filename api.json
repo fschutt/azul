@@ -4091,6 +4091,14 @@
 							],
 							"fn_body": "styleddom.append(dom);"
 						},
+						"restyle": {
+							"doc": "Restyles an already styled DOM with a new CSS - overwrites old styles, but does not replace them, useful for implementing user styles that are applied on top of the existing application style",
+							"fn_args": [
+								{"self": "refmut"},
+								{"css": "Css"}
+							],
+							"fn_body": "styleddom.restyle(css);"
+						},
 						"node_count": {
 							"doc": "Returns the number of nodes in the styled DOM",
 							"fn_args": [

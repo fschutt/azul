@@ -1369,6 +1369,8 @@ pub use AzStyledDomTT as AzStyledDom;
 #[no_mangle] pub extern "C" fn AzStyledDom_fromFile(xml_file_path: AzString) -> AzStyledDom { azul_impl::app::extra::styled_dom_from_file(xml_file_path.as_str()) }
 /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
 #[no_mangle] pub extern "C" fn AzStyledDom_append(styleddom: &mut AzStyledDom, dom: AzStyledDom) { styleddom.append(dom); }
+/// Restyles an already styled DOM with a new CSS - overwrites old styles, but does not replace them, useful for implementing user styles that are applied on top of the existing application style
+#[no_mangle] pub extern "C" fn AzStyledDom_restyle(styleddom: &mut AzStyledDom, css: AzCss) { styleddom.restyle(css); }
 /// Returns the number of nodes in the styled DOM
 #[no_mangle] pub extern "C" fn AzStyledDom_nodeCount(styleddom: &AzStyledDom) -> usize { styleddom.node_count() }
 /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
