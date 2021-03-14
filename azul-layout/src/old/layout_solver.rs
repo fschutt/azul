@@ -1777,40 +1777,6 @@ fn position_nodes<'a>(
             positioned_node_stack.push(parent_node_id);
         }
 
-        // set text, if any
-        let parent_text = if let (
-            Some(words),
-            Some(shaped_words),
-            Some((word_positions, _))
-        ) = (
-            word_cache.get(&parent_node_id),
-            shaped_words.get(&parent_node_id),
-            word_positions.get(&parent_node_id)
-        ) {
-            if nodes_that_need_to_redraw_text.contains(&parent_node_id) {
-                #[cfg(feature = "text_layout")] {
-                    use azul_text_layout::InlineText;
-                    let mut inline_text = InlineText { words, shaped_words };
-                    let mut inline_text_layout = inline_text.get_text_layout(pipeline_id, parent_node_id, &word_positions.text_layout_options);
-                    let (horz_alignment, vert_alignment) = determine_text_alignment(
-                        css_property_cache.get_align_items(parent_node_data, &parent_node_id, parent_styled_node_state),
-                        css_property_cache.get_justify_content(parent_node_data, &parent_node_id, parent_styled_node_state),
-                        css_property_cache.get_text_align(parent_node_data, &parent_node_id, parent_styled_node_state),
-                    );
-                    inline_text_layout.align_children_horizontal(horz_alignment);
-                    inline_text_layout.align_children_vertical_in_parent_bounds(&parent_parent_size, vert_alignment);
-                    Some((word_positions.text_layout_options.clone(), inline_text_layout))
-                }
-                #[cfg(not(feature = "text_layout"))] {
-                    None
-                }
-            } else {
-                positioned_rects[parent_node_id].resolved_text_layout_options.clone()
-            }
-        } else {
-            None
-        };
-
         for child_node_id in parent_node_id.az_children(&styled_dom.node_hierarchy.as_container()) {
 
             // copy the width and height from the parent node
@@ -1922,15 +1888,18 @@ fn position_nodes<'a>(
         let children_sum_rect = LayoutRect::union(children_sum_rects.into_iter());
         let parent_overflow = get_overflow(&parent_offsets.overflow_x, &parent_offsets.overflow_y, &parent_sum_rect, &children_sum_rect);
 
-        positioned_rects[parent_node_id] = PositionedRectangle {
-            size: parent_size,
-            position: parent_position_info,
-            padding: parent_padding,
-            margin: parent_margin,
-            border_widths: parent_border_widths,
-            resolved_text_layout_options: parent_text,
-            overflow: parent_overflow
-        };
+        // NOTE: Intentionally do not set text_layout_options,
+        // otherwise this would overwrite the existing text layout options
+        // Label / Text nodes are ALWAYS children of some parent node,
+        // they can not be root nodes. Therefore the children_iter() will take
+        // care of layouting the text
+        let parent_rect = &mut positioned_rects[parent_node_id];
+        parent_rect.size = parent_size;
+        parent_rect.position = parent_position_info;
+        parent_rect.padding = parent_padding;
+        parent_rect.margin = parent_margin;
+        parent_rect.border_widths = parent_border_widths;
+        parent_rect.overflow = parent_overflow;
 
         if parent_position != LayoutPosition::Static {
             positioned_node_stack.pop();
