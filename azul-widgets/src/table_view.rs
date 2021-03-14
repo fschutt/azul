@@ -219,6 +219,8 @@ impl TableViewState {
         .collect::<Dom>()
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROW_NUMBERS_CONTAINER_STYLE));
 
+        return row_numbers; // DEBUG
+
         const ROW_NUMBER_WRAPPER_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
             Normal(CssProperty::max_width(LayoutMaxWidth::const_px(30))),
@@ -371,7 +373,13 @@ impl TableViewState {
 
     pub fn render(&self, rows: Range<usize>, columns: Range<usize>) -> StyledDom {
         use azul::css::Css;
-        self.render_dom(rows, columns).style(Css::empty())
+        use azul::fs::File;
+        use azul::option::OptionFile;
+        let styled_dom = self.render_dom(rows, columns).style(Css::empty());
+        if let OptionFile::Some(mut file) = File::create("./iframe.html".into()) {
+            file.write_string(styled_dom.get_html_string().as_refstr());
+        }
+        styled_dom
     }
 }
 

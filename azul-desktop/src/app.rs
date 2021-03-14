@@ -334,6 +334,8 @@ fn run_inner(app: App) -> ! {
 
                 // run timers
                 let mut all_new_current_timers = BTreeMap::new();
+                let mut all_new_current_threads = BTreeMap::new();
+
                 for (window_id, mut timer_map) in timers.iter_mut() {
 
                     // for timers it makes sense to call them on the window,
@@ -355,7 +357,8 @@ fn run_inner(app: App) -> ! {
                     let mut new_timers = BTreeMap::new();
                     let mut modifiable_window_state = window.internal.current_window_state.clone().into();
 
-                    let mut cur_threads = threads.get_mut(window_id).unwrap();
+                    let mut threads_uninitialized = BTreeMap::new();
+                    let mut cur_threads = threads.get_mut(window_id).unwrap_or(&mut threads_uninitialized);
                     let current_scroll_states = window.internal.get_current_scroll_states();
 
                     let raw_window_handle = window.get_raw_window_handle();
@@ -463,7 +466,6 @@ fn run_inner(app: App) -> ! {
 
                 // run threads
                 // TODO: threads should not depend on the window being active (?)
-                let mut all_new_current_threads = BTreeMap::new();
                 for (window_id, mut thread_map) in threads.iter_mut() {
                     let window = match active_windows.get_mut(&window_id) {
                         Some(s) => s,
@@ -478,7 +480,8 @@ fn run_inner(app: App) -> ! {
                     let mut nodes_scrolled_in_threads = BTreeMap::new();
                     let mut new_focus_node = None;
                     let mut modifiable_window_state = window.internal.current_window_state.clone().into();
-                    let mut cur_timers = timers.get_mut(window_id).unwrap();
+                    let mut timers_uninitialized = BTreeMap::new();
+                    let mut cur_timers = timers.get_mut(window_id).unwrap_or(&mut timers_uninitialized);
                     let mut new_threads = BTreeMap::new();
 
                     let current_scroll_states = window.internal.get_current_scroll_states();

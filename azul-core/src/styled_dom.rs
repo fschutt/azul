@@ -1554,8 +1554,8 @@ impl StyledDom {
             <html>
                 <head>
                 <style>
-                    body, html {{ width: 100%; height: 100%; }}
-                    * {{ margin: 0px; padding: 0px; flex: 1; }}
+                    body, html {{ width: 100%; height: 100%; box-sizing:border-box; margin: 0px; padding: 0px; display: flex; }}
+                    body * {{ box-sizing:border-box; margin: 0px; padding: 0px; display: flex; width: 100%; height: 100%; }}
                 </style>
                 {}
                 </head>

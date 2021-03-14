@@ -39,7 +39,8 @@ const CSS: &str = "body { font-size: 50px; } body:hover { color: red; }";
 
 extern "C" fn layout(data: &mut RefAny, _info: LayoutInfo) -> StyledDom {
 
-    let styled_dom = DOM.style(Css::from_string(CSS.into()));
+    let styled_dom = StyledDom::from_file("./ui.xml".into());
+    /*DOM.style(Css::from_string(CSS.into()));*/
 
     if let OptionFile::Some(mut file) = File::create("./debug.html".into()) {
         file.write_string(styled_dom.get_html_string().as_refstr());
@@ -51,5 +52,7 @@ extern "C" fn layout(data: &mut RefAny, _info: LayoutInfo) -> StyledDom {
 fn main() {
     let data = RefAny::new(Data { counter: 5 });
     let app = App::new(data, AppConfig::default());
-    app.run(WindowCreateOptions::new(layout));
+    let mut window = WindowCreateOptions::new(layout);
+    window.hot_reload = true;
+    app.run(window);
 }
