@@ -1207,17 +1207,17 @@ impl StyledDom {
                 None => if should_auto_insert_tabindex { Some(TabIndex::Auto) } else { None }
             };
 
-            let node_has_focus_props = !node_data.inline_css_props.as_ref().iter()
+            let node_has_focus_props = node_data.inline_css_props.as_ref().iter()
             .any(|p| match p { NodeDataInlineCssProperty::Focus(_) => true, _ => false }) ||
-            !css_property_cache.css_focus_props.get(&node_id).is_none();
+            css_property_cache.css_focus_props.get(&node_id).is_some();
 
-            let node_has_hover_props = !node_data.inline_css_props.as_ref().iter()
+            let node_has_hover_props = node_data.inline_css_props.as_ref().iter()
             .any(|p| match p { NodeDataInlineCssProperty::Hover(_) => true, _ => false }) ||
-            !css_property_cache.css_hover_props.get(&node_id).is_none();
+            css_property_cache.css_hover_props.get(&node_id).is_some();
 
-            let node_has_active_props = !node_data.inline_css_props.as_ref().iter()
+            let node_has_active_props = node_data.inline_css_props.as_ref().iter()
             .any(|p| match p { NodeDataInlineCssProperty::Active(_) => true, _ => false }) ||
-            !css_property_cache.css_active_props.get(&node_id).is_none();
+            css_property_cache.css_active_props.get(&node_id).is_some();
 
             let node_has_not_only_window_callbacks = !node_data.get_callbacks().is_empty() && !node_data.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
             let node_has_non_default_cursor = css_property_cache.get_cursor(&node_data, &node_id, &default_node_state).is_some();
