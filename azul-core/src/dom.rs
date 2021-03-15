@@ -811,30 +811,23 @@ impl fmt::Display for NodeData {
 fn node_data_to_string(node_data: &NodeData) -> String {
 
     let mut id_string = String::new();
-    if !node_data.ids_and_classes.is_empty() {
-        id_string += " id = \"";
-        for id in node_data.ids_and_classes.iter().filter_map(|s| s.as_id()) {
-            id_string += id;
-        }
-        id_string += "\"";
+    let ids = node_data.ids_and_classes.as_ref().iter().filter_map(|s| s.as_id()).collect::<Vec<_>>().join(" ");
+    if !ids.is_empty() {
+        id_string = format!(" id=\"{}\" ", ids);
     }
 
     let mut class_string = String::new();
-    if !node_data.ids_and_classes.is_empty() {
-        class_string += " class = \"";
-        for class in node_data.ids_and_classes.iter().filter_map(|s| s.as_class()) {
-            class_string += class;
-        }
-        class_string += "\"";
+    let classes = node_data.ids_and_classes.as_ref().iter().filter_map(|s| s.as_class()).collect::<Vec<_>>().join(" ");
+    if !classes.is_empty() {
+        class_string = format!(" class=\"{}\" ", classes);
     }
 
-    let tabindex = if let OptionTabIndex::Some(tab_index) = node_data.tab_index {
-        format!(" tabindex=\"{}\"", tab_index.get_index())
-    } else {
-        String::new()
+    let mut tabindex_string = String::new();
+    if let OptionTabIndex::Some(tab_index) = node_data.tab_index {
+        tabindex_string = format!(" tabindex=\"{}\" ", tab_index.get_index());
     };
 
-    format!("{}{}{}", id_string, class_string, tabindex)
+    format!("{}{}{}", id_string, class_string, tabindex_string)
 }
 
 impl fmt::Debug for NodeData {
@@ -986,7 +979,7 @@ impl NodeData {
         let html_type = self.node_type.get_path();
         let attributes_string = node_data_to_string(&self);
         let style = css_cache.get_computed_css_style_string(&self, node_id, node_state);
-        format!("<{}{} style=\"{}\">", html_type, attributes_string, style)
+        format!("<{} data-az-node-id=\"{}\" {} style=\"{}\">", html_type, node_id.index(), attributes_string, style)
     }
 
     pub fn debug_print_end(&self) -> String {

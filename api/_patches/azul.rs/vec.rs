@@ -14,6 +14,7 @@
     macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name:ident, $c_destructor_fn_name:ident, $crate_dll_delete_fn:ident) => (
 
         unsafe impl Send for $struct_name { }
+        unsafe impl Sync for $struct_name { }
 
         impl fmt::Debug for $destructor_name {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

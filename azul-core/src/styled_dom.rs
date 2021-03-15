@@ -1550,29 +1550,53 @@ impl StyledDom {
     /// ```
     pub fn get_html_string(&self, custom_head: &str, custom_body: &str) -> String {
 
-        let mut output = format!("
-            <html>
-                <head>
-                <style>
-                    body, html {{ width: 100%; height: 100%; box-sizing:border-box; margin: 0px; padding: 0px; display: flex; }}
-                    body * {{ box-sizing:border-box; margin: 0px; padding: 0px; display: flex; width: 100%; height: 100%; }}
-                </style>
-                {}
-                </head>
-            <body>
-        ", custom_head);
-
         let css_property_cache = self.get_css_property_cache();
 
-        for ParentWithNodeDepth { depth, node_id } in self.non_leaf_nodes.iter() {
+        let mut output = String::new();
 
-            let node_id = match node_id.into_crate_internal() {
-                Some(s) => s,
-                None => continue,
-            };
+        // calls get_last_child() recursively until the last child of the last child of the ... has been found
+        fn recursive_get_last_child(node_id: NodeId, node_hierarchy: &[AzNode], target: &mut Option<NodeId>) {
+            match node_hierarchy[node_id.index()].last_child_id() {
+                None => return,
+                Some(s) => {
+                    *target = Some(s);
+                    recursive_get_last_child(s, node_hierarchy, target);
+                }
+            }
+        }
+
+        // After which nodes should a close tag be printed?
+        let mut should_print_close_tag_after_node = BTreeMap::new();
+
+        let should_print_close_tag_debug = self.non_leaf_nodes.iter().filter_map(|p| {
+            let parent_node_id = p.node_id.into_crate_internal()?;
+            let mut total_last_child = None;
+            recursive_get_last_child(parent_node_id, &self.node_hierarchy.as_ref(), &mut total_last_child);
+            let total_last_child = total_last_child?;
+            Some((parent_node_id, (total_last_child, p.depth)))
+        }).collect::<BTreeMap<_, _>>();
+
+        for (parent_id, (last_child, parent_depth)) in should_print_close_tag_debug {
+            should_print_close_tag_after_node.entry(last_child).or_insert_with(|| Vec::new()).push((parent_id, parent_depth));
+        }
+
+        let mut all_node_depths = self.non_leaf_nodes.iter().filter_map(|p| {
+            let parent_node_id = p.node_id.into_crate_internal()?;
+            Some((parent_node_id, p.depth))
+        }).collect::<BTreeMap<_, _>>();
+
+        for (parent_node_id, parent_depth) in self.non_leaf_nodes.iter().filter_map(|p| Some((p.node_id.into_crate_internal()?, p.depth))) {
+            for child_id in parent_node_id.az_children(&self.node_hierarchy.as_container()) {
+                all_node_depths.insert(child_id, parent_depth + 1);
+            }
+        }
+
+        for node_id in self.node_hierarchy.as_container().linear_iter() {
+            let depth = all_node_depths[&node_id];
+
             let node_data = &self.node_data.as_container()[node_id];
             let node_state = &self.styled_nodes.as_container()[node_id].state;
-            let tabs = String::from("    ").repeat(*depth);
+            let tabs = String::from("    ").repeat(depth);
 
             output.push_str("\r\n");
             output.push_str(&tabs);
@@ -1582,52 +1606,39 @@ impl StyledDom {
                 output.push_str(content);
             }
 
-            for child_id in node_id.az_children(&self.node_hierarchy.as_container()) {
+            let node_has_children = self.node_hierarchy.as_container()[node_id].first_child_id(node_id).is_some();
+            if !node_has_children {
+                let node_data = &self.node_data.as_container()[node_id];
+                output.push_str(&node_data.debug_print_end());
+            }
 
-                let node_data = &self.node_data.as_container()[child_id];
-                let node_state = &self.styled_nodes.as_container()[child_id].state;
-                let tabs = String::from("    ").repeat(*depth + 1);
-
-                output.push_str("\r\n");
-                output.push_str(&tabs);
-                output.push_str(&node_data.debug_print_start(css_property_cache, &child_id, node_state));
-
-                let content = node_data.get_node_type().format();
-                if let Some(content) = content.as_ref() {
-                    output.push_str(content);
+            if let Some(close_tag_vec) = should_print_close_tag_after_node.get(&node_id) {
+                let mut close_tag_vec = close_tag_vec.clone();
+                close_tag_vec.sort_by(|a, b| b.1.cmp(&a.1)); // sort by depth descending
+                for (close_tag_parent_id, close_tag_depth) in close_tag_vec {
+                    let node_data = &self.node_data.as_container()[close_tag_parent_id];
+                    let tabs = String::from("    ").repeat(close_tag_depth);
+                    output.push_str("\r\n");
+                    output.push_str(&tabs);
+                    output.push_str(&node_data.debug_print_end());
                 }
             }
         }
 
-        for ParentWithNodeDepth { depth, node_id } in self.non_leaf_nodes.iter().rev() {
-
-            let node_id = match node_id.into_crate_internal() {
-                Some(s) => s,
-                None => continue,
-            };
-            let node_data = &self.node_data.as_container()[node_id];
-            let node_has_children = self.node_hierarchy.as_container()[node_id].first_child_id(node_id).is_some();
-
-            for child_id in node_id.az_children(&self.node_hierarchy.as_container()) {
-                let node_data = &self.node_data.as_container()[child_id];
-                let tabs = String::from("    ").repeat(*depth + 1);
-                output.push_str("\r\n");
-                output.push_str(&tabs);
-                output.push_str(&node_data.debug_print_end());
-            }
-
-            if node_has_children {
-                let tabs = String::from("    ").repeat(*depth);
-                output.push_str("\r\n");
-                output.push_str(&tabs);
-                output.push_str(&node_data.debug_print_end());
-            }
-        }
-
-        output.push_str(custom_body);
-        output.push_str("</body>");
-
-        output
+        format!("
+<html>
+    <head>
+    <style>
+        body, html {{ width: 100%; height: 100%; box-sizing:border-box; margin: 0px; padding: 0px; display: flex; }}
+        body * {{ box-sizing:border-box; margin: 0px; padding: 0px; display: flex; width: 100%; height: 100%; }}
+    </style>
+    {}
+    </head>
+<body>
+{}
+{}
+</body>
+        ", custom_head, output, custom_body)
     }
 
     #[cfg(feature = "multithreading")]
