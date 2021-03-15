@@ -525,13 +525,13 @@ macro_rules! typed_arena {(
                     if let Some(max_width) = has_max_width_constraint {
                         // grow so that node.min_inner_size_px + node.flex_grow_px = max_width
                         let flex_grow_px = max_width - width_calculated_arena[*variable_child_id].min_inner_size_px;
-                        width_calculated_arena[*variable_child_id].flex_grow_px = flex_grow_px;
+                        width_calculated_arena[*variable_child_id].flex_grow_px += flex_grow_px;
 
                         max_width_violations.push(*variable_child_id);
                     } else {
                         // grow so that node.min_inner_size_px + node.flex_grow_px = added_space_for_one_child
                         let flex_grow_px = added_space_for_one_child - width_calculated_arena[*variable_child_id].min_inner_size_px;
-                        width_calculated_arena[*variable_child_id].flex_grow_px = flex_grow_px;
+                        width_calculated_arena[*variable_child_id].flex_grow_px += flex_grow_px;
                     }
                 }
 
@@ -1825,6 +1825,7 @@ fn position_nodes<'a>(
             };
 
             let parent_size = LogicalSize::new(parent_width.total(), parent_height.total());
+            let child_size_logical = LogicalSize::new(width.total(), height.total());
             let child_size = LayoutSize::new(width.total().round() as isize, height.total().round() as isize);
             let child_rect = LayoutRect::new(LayoutPoint::new(x_pos.round() as isize, y_pos.round() as isize), child_size);
 
@@ -1859,7 +1860,7 @@ fn position_nodes<'a>(
                             css_property_cache.get_text_align(child_node_data, &child_node_id, child_styled_node_state),
                         );
                         inline_text_layout.align_children_horizontal(horz_alignment);
-                        inline_text_layout.align_children_vertical_in_parent_bounds(&parent_size, vert_alignment);
+                        inline_text_layout.align_children_vertical_in_parent_bounds(&child_size_logical, vert_alignment);
                         Some((word_positions.text_layout_options.clone(), inline_text_layout))
                     }
                     #[cfg(not(feature = "text_layout"))] {

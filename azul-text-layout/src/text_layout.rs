@@ -350,9 +350,8 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
     use azul_core::ui_solver::InlineTextLine;
 
     let font_size_px = word_positions.text_layout_options.font_size_px;
-    let regular_line_height = scaled_words.get_line_height(font_size_px);
     let space_advance_px = scaled_words.get_space_advance_px(font_size_px);
-    let line_height_px = space_advance_px * word_positions.text_layout_options.line_height.as_ref().copied().unwrap_or(DEFAULT_LINE_HEIGHT);
+    let line_height_px = scaled_words.get_line_height(font_size_px);
 
     let mut last_word_index = 0;
 
@@ -364,8 +363,8 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
                 let start_word_idx = last_word_index;
                 let line = InlineTextLine {
                     bounds: LogicalRect {
-                        origin: LogicalPosition { x: 0.0, y: get_line_y_position(line_number, regular_line_height, line_height_px) },
-                        size: LogicalSize { width: *line_length, height: regular_line_height },
+                        origin: LogicalPosition { x: 0.0, y: get_line_y_position(line_number, font_size_px, line_height_px) },
+                        size: LogicalSize { width: *line_length, height: font_size_px + line_height_px },
                     },
                     word_start: start_word_idx,
                     word_end: *word_idx,
