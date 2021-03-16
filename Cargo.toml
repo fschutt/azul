@@ -25,6 +25,6 @@ opt-level = 3
 lto = "fat"
 panic = "abort"
 codegen-units = 1
-debug = false
+debug = true
 overflow-checks = false
 incremental = false

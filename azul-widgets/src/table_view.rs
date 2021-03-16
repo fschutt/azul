@@ -187,7 +187,9 @@ impl TableViewState {
             Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 })),
             Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 })),
         ];
-        static TOP_LEFT_EMPTY_RECT_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-top-left-rect"))];
+        static TOP_LEFT_EMPTY_RECT_CLASS: &[IdOrClass] = &[
+            IdOrClass::Class(AzString::from_const_str("az-table-top-left-rect"))
+        ];
 
         // Empty rectangle at the top left of the table
         let top_left_empty_rect = Dom::div()
@@ -201,7 +203,9 @@ impl TableViewState {
             Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
             Normal(CssProperty::box_shadow_right(SHADOW)),
         ];
-        static ROW_NUMBERS_CONTAINER_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-row-numbers-container"))];
+        static ROW_NUMBERS_CONTAINER_CLASS: &[IdOrClass] = &[
+            IdOrClass::Class(AzString::from_const_str("az-table-row-numbers-container"))
+        ];
 
         // Row numbers (first column - laid out vertical) - "1", "2", "3"
         let row_numbers = (rows.start..rows.end.saturating_sub(1)).map(|row_idx| {
@@ -227,19 +231,23 @@ impl TableViewState {
         .with_ids_and_classes(IdOrClassVec::from_const_slice(ROW_NUMBERS_CONTAINER_CLASS))
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROW_NUMBERS_CONTAINER_STYLE));
 
-        return row_numbers; // DEBUG
-
         static ROW_NUMBER_WRAPPER_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
             Normal(CssProperty::max_width(LayoutMaxWidth::const_px(30))),
         ];
-        static ROW_NUMBERS_WRAPPER_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-row-numbers-wrapper"))];
+        static ROW_NUMBERS_WRAPPER_CLASS: &[IdOrClass] = &[
+            IdOrClass::Class(AzString::from_const_str("az-table-row-numbers-wrapper"))
+        ];
 
         // first column: contains the "top left rect" + the column
         let row_number_wrapper = Dom::div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(ROW_NUMBERS_WRAPPER_CLASS))
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROW_NUMBER_WRAPPER_STYLE))
-        .with_children(AzDomVec::from(vec![top_left_empty_rect, row_numbers]));
+        .with_children(AzDomVec::from(vec![row_numbers]));
+
+        // Normal(CssProperty::margin_top(LayoutMarginTop::const_px(100))),
+
+        return row_number_wrapper; // DEBUG
 
         static ACTIVE_SELECTION_HANDLE_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::position(LayoutPosition::Absolute)),
@@ -249,7 +257,9 @@ impl TableViewState {
             Normal(CssProperty::bottom(LayoutBottom::const_px(-5))),
             Normal(CssProperty::right(LayoutRight::const_px(-5))),
         ];
-        static ACTIVE_SELECTION_HANDLE_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-active-selection-handle"))];
+        static ACTIVE_SELECTION_HANDLE_CLASS: &[IdOrClass] = &[
+            IdOrClass::Class(AzString::from_const_str("az-table-active-selection-handle"))
+        ];
 
         // currently active cell handle
         // TODO: add callbacks to modify selection

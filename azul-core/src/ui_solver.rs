@@ -643,6 +643,20 @@ impl PositionedRectangle {
         LayoutSize::new(libm::roundf(self.size.width) as isize, libm::roundf(self.size.height) as isize)
     }
 
+    /// Same as get_logical_relative_offset, but returns the relative offset, not the screen-space static one
+    #[inline]
+    pub(crate) fn get_logical_relative_offset(&self) -> LogicalPosition {
+        match self.position {
+            PositionInfo::Static { x_offset, y_offset, .. } |
+            PositionInfo::Fixed { x_offset, y_offset, .. } |
+            PositionInfo::Absolute { x_offset, y_offset, .. } |
+            PositionInfo::Relative { x_offset, y_offset, .. } => {
+                LogicalPosition::new(x_offset, y_offset)
+            },
+        }
+    }
+
+
     /// Same as get_static_offset, but not rounded
     #[inline]
     pub(crate) fn get_logical_static_offset(&self) -> LogicalPosition {

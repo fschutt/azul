@@ -2,10 +2,12 @@
 
 [target.'cfg(all(target_arch="x86_64", target_os="linux"))']
 rustflags = [
-    "-Ctarget-feature=-crt-static"
+    "-Ctarget-feature=-crt-static",
+    "-Ctarget_feature=sse4.2"
 ]
 
 [target.'cfg(all(target_arch="x86_64", target_os="windows"))']
 rustflags = [
-    "-Ctarget-feature=-crt-static"
+    "-Ctarget-feature=-crt-static",
+    "-Ctarget_feature=sse4.2"
 ]
