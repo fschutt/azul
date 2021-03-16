@@ -18,13 +18,13 @@ members = [
 opt-level = 3
 lto = "fat"
 panic = "abort"
-debug = true
+debug = false
 
 [profile.release]
 opt-level = 3
 lto = "fat"
 panic = "abort"
 codegen-units = 1
-debug = true
+debug = false
 overflow-checks = false
 incremental = false
