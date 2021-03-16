@@ -502,6 +502,7 @@ impl Default for LayoutCallback {
         Self { cb: default_layout_callback }
     }
 }
+
 // -- normal callback
 
 /// Stores a function pointer that is executed when the given UI element is hit
@@ -569,13 +570,28 @@ impl_option!(InlineText, OptionInlineText, copy = false, [Debug, Clone, PartialE
 impl InlineText {
 
     /// Returns the final, positioned glyphs from an inline text
-    pub fn get_layouted_glyphs(&self) -> LayoutedGlyphs {
+    ///
+    /// NOTE: It seems that at least in webrender, the glyphs have to be
+    /// positioned in relation to the screen (instead of relative to the parent container)
+    ///
+    /// The text_origin gets added to each glyph
+    ///
+    /// NOTE: The lines in the text are relative to the TOP left corner (of the text, i.e.
+    /// relative to the text_origin), but the word position is relative to the BOTTOM left
+    /// corner (of the line bounds)
+    pub fn get_layouted_glyphs(&self, text_origin: LogicalPosition) -> LayoutedGlyphs {
 
         use crate::display_list::GlyphInstance;
 
         let default: InlineGlyphVec = Vec::new().into();
         let default_ref = &default;
-        let baseline_descender_px = LogicalPosition::new(0.0, self.baseline_descender_px); // descender_px is NEGATIVE
+
+        // descender_px is NEGATIVE
+        let baseline_descender_px = LogicalPosition::new(0.0, self.baseline_descender_px);
+
+        // word origin is relative to the bottom left corner instead of the (expected) top left corner
+        // need to subtract the font size to correct this
+        let word_origin_correct_coordinate_space = LogicalPosition::new(0.0, -self.font_size_px);
 
         LayoutedGlyphs {
             glyphs: self.lines
@@ -597,7 +613,14 @@ impl InlineText {
                     .map(move |glyph| {
                         GlyphInstance {
                             index: glyph.glyph_index,
-                            point: line_origin + baseline_descender_px + word_origin + glyph.bounds.origin,
+                            point: {
+                                text_origin +
+                                line_origin +
+                                baseline_descender_px +
+                                word_origin +
+                                word_origin_correct_coordinate_space +
+                                glyph.bounds.origin
+                            },
                             size: glyph.bounds.size,
                         }
                     })

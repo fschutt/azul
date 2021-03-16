@@ -15,7 +15,7 @@ use crate::{
     id_tree::{NodeId, NodeDataContainer},
     dom::{DomNodeHash, ScrollTagId},
     callbacks::{PipelineId, HitTestItem, ScrollHitTestItem},
-    window::{ScrollStates, LogicalRect, LogicalSize},
+    window::{ScrollStates, LogicalPosition, LogicalRect, LogicalSize},
 };
 
 pub const DEFAULT_FONT_SIZE_PX: isize = 16;
@@ -39,6 +39,8 @@ impl_vec_debug!(InlineTextLayout, InlineTextLayoutVec);
 impl_vec_partialeq!(InlineTextLayout, InlineTextLayoutVec);
 impl_vec_partialord!(InlineTextLayout, InlineTextLayoutVec);
 
+/// NOTE: The bounds of the text line is the TOP left corner (relative to the text origin),
+/// but the word_position is the BOTTOM left corner (relative to the text line)
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct InlineTextLine {
@@ -630,15 +632,31 @@ impl PositionInfo {
 }
 impl PositionedRectangle {
 
+    #[inline]
     pub(crate) fn get_approximate_static_bounds(&self) -> LayoutRect {
         LayoutRect::new(self.get_static_offset(), self.get_content_size())
     }
 
     // Returns the rect where the content should be placed (for example the text itself)
+    #[inline]
     fn get_content_size(&self) -> LayoutSize {
         LayoutSize::new(libm::roundf(self.size.width) as isize, libm::roundf(self.size.height) as isize)
     }
 
+    /// Same as get_static_offset, but not rounded
+    #[inline]
+    pub(crate) fn get_logical_static_offset(&self) -> LogicalPosition {
+        match self.position {
+            PositionInfo::Static { static_x_offset, static_y_offset, .. } |
+            PositionInfo::Fixed { static_x_offset, static_y_offset, .. } |
+            PositionInfo::Absolute { static_x_offset, static_y_offset, .. } |
+            PositionInfo::Relative { static_x_offset, static_y_offset, .. } => {
+                LogicalPosition::new(static_x_offset, static_y_offset)
+            },
+        }
+    }
+
+    #[inline]
     fn get_static_offset(&self) -> LayoutPoint {
         match self.position {
             PositionInfo::Static { static_x_offset, static_y_offset, .. } |
@@ -650,6 +668,7 @@ impl PositionedRectangle {
         }
     }
 
+    #[inline]
     pub const fn to_layouted_rectangle(&self) -> LayoutedRectangle {
         LayoutedRectangle {
             size: self.size,
@@ -662,6 +681,7 @@ impl PositionedRectangle {
     }
 
     // Returns the rect that includes bounds, expanded by the padding + the border widths
+    #[inline]
     pub fn get_background_bounds(&self) -> (LogicalSize, PositionInfo) {
 
         use crate::ui_solver::PositionInfo::*;
@@ -684,6 +704,7 @@ impl PositionedRectangle {
         (b_size, b_position)
     }
 
+    #[inline]
     pub fn get_margin_box_width(&self) -> f32 {
         self.size.width +
         self.padding.total_horizontal() +
@@ -691,6 +712,7 @@ impl PositionedRectangle {
         self.margin.total_horizontal()
     }
 
+    #[inline]
     pub fn get_margin_box_height(&self) -> f32 {
         self.size.height +
         self.padding.total_vertical() +
@@ -698,12 +720,14 @@ impl PositionedRectangle {
         self.margin.total_vertical()
     }
 
+    #[inline]
     pub fn get_left_leading(&self) -> f32 {
         self.margin.left +
         self.padding.left +
         self.border_widths.left
     }
 
+    #[inline]
     pub fn get_top_leading(&self) -> f32 {
         self.margin.top +
         self.padding.top +

@@ -363,7 +363,7 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
                 let start_word_idx = last_word_index;
                 let line = InlineTextLine {
                     bounds: LogicalRect {
-                        origin: LogicalPosition { x: 0.0, y: get_line_y_position(line_number, font_size_px, line_height_px) },
+                        origin: LogicalPosition { x: 0.0, y: get_line_y_position(line_number, font_size_px, line_height_px) - line_height_px },
                         size: LogicalSize { width: *line_length, height: font_size_px + line_height_px },
                     },
                     word_start: start_word_idx,
@@ -381,7 +381,7 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
 /// NOTE: line_height_px has to be GREATER than font_size_px
 pub fn get_line_y_position(line_number: usize, font_size_px: f32, line_height_px: f32) -> f32 {
     // assert!(line_height_px >= font_size_px);
-    ((font_size_px + line_height_px) * line_number as f32) + font_size_px
+    (line_number as f32 * (font_size_px + line_height_px)) + font_size_px
 }
 
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]

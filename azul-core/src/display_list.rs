@@ -911,7 +911,7 @@ pub fn displaylist_handle_rect<'a>(
             ) {
 
                 let inline_text = get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout);
-                let layouted_glyphs = inline_text.get_layouted_glyphs();
+                let layouted_glyphs = inline_text.get_layouted_glyphs(positioned_rect.get_logical_static_offset());
                 let text_color = layout_result.styled_dom.get_css_property_cache().get_text_color_or_default(&html_node, &rect_idx, &styled_node.state);
                 let font_instance_key = word_positions.1;
 

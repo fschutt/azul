@@ -1853,7 +1853,16 @@ fn position_nodes<'a>(
                 if nodes_that_need_to_redraw_text.contains(&child_node_id) {
                     #[cfg(feature = "text_layout")] {
                         use azul_text_layout::InlineText;
-                        let mut inline_text_layout = InlineText { words, shaped_words }.get_text_layout(pipeline_id, child_node_id, &word_positions.text_layout_options);
+
+                        let mut inline_text_layout = InlineText { words, shaped_words }
+                        .get_text_layout(pipeline_id, child_node_id, &word_positions.text_layout_options);
+
+                        if words.internal_str.as_str() == "1" {
+                            println!("\"1\": inline_text_layout: {:#?}", inline_text_layout);
+                        } else if words.internal_str.as_str() == "5" {
+                            println!("\"5\": inline_text_layout: {:#?}", inline_text_layout);
+                        }
+
                         let (horz_alignment, vert_alignment) = determine_text_alignment(
                             css_property_cache.get_align_items(child_node_data, &child_node_id, child_styled_node_state),
                             css_property_cache.get_justify_content(child_node_data, &child_node_id, child_styled_node_state),

@@ -211,7 +211,7 @@ impl TableViewState {
                 Normal(CssProperty::flex_direction(LayoutFlexDirection::Row)),
                 Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
                 Normal(CssProperty::align_items(LayoutAlignItems::Center)),
-                Normal(CssProperty::min_height(LayoutMinHeight::const_px(20))),
+                Normal(CssProperty::min_height(LayoutMinHeight::const_px(40))),
                 Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
                 Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
                 Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 })),
@@ -226,8 +226,6 @@ impl TableViewState {
         .collect::<Dom>()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(ROW_NUMBERS_CONTAINER_CLASS))
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROW_NUMBERS_CONTAINER_STYLE));
-
-        println!("{:#?}", row_numbers);
 
         return row_numbers; // DEBUG
 
