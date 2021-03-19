@@ -633,6 +633,31 @@ impl<'a> Iterator for AzReverseChildren<'a> {
 
 
 impl NodeId {
+
+    // Traverse up through the hierarchy a node matching the predicate is found
+    //
+    // Necessary to resolve the last positioned (= relative)
+    // element of an absolute ndoe
+    pub fn get_nearest_matching_parent<'a, F>(
+        self,
+        node_hierarchy: &'a NodeDataContainerRef<'a, AzNode>,
+        predicate: F
+    ) -> Option<NodeId> where F: Fn(NodeId) -> bool {
+        let mut current_node = node_hierarchy[self].parent_id()?;
+        loop {
+            match predicate(current_node) {
+                true => { return Some(current_node); },
+                false => { current_node = node_hierarchy[current_node].parent_id()?; }
+            }
+        }
+    }
+
+    /// Return the children of this node (necessary for parallel iteration over children)
+    #[inline]
+    pub fn az_children_collect<'a>(self, node_hierarchy: &'a NodeDataContainerRef<'a, AzNode>) -> Vec<NodeId> {
+        self.az_children(node_hierarchy).collect()
+    }
+
     /// Return an iterator of references to this node’s children.
     #[inline]
     pub fn az_children<'a>(self, node_hierarchy: &'a NodeDataContainerRef<'a, AzNode>) -> AzChildren<'a> {

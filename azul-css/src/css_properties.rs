@@ -2894,6 +2894,12 @@ pub enum LayoutPosition {
     Fixed,
 }
 
+impl LayoutPosition {
+    pub fn is_positioned(&self) -> bool {
+        *self != LayoutPosition::Static
+    }
+}
+
 impl Default for LayoutPosition {
     fn default() -> Self {
         LayoutPosition::Static

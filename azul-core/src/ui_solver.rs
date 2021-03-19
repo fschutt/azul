@@ -239,6 +239,18 @@ impl WhConstraint {
             _ => false,
         }
     }
+
+    // The absolute positioned node might have a max-width constraint, which has a
+    // higher precedence than `top, bottom, left, right`.
+    pub fn calculate_from_relative_parent(&self, relative_parent_width: f32) -> f32 {
+        match self {
+            WhConstraint::EqualTo(e) => *e,
+            WhConstraint::Between(min, max) => {
+                relative_parent_width.max(*min).min(*max)
+            },
+            WhConstraint::Unconstrained => relative_parent_width,
+        }
+    }
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
