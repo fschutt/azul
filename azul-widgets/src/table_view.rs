@@ -215,7 +215,7 @@ impl TableViewState {
                 Normal(CssProperty::flex_direction(LayoutFlexDirection::Row)),
                 Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
                 Normal(CssProperty::align_items(LayoutAlignItems::Center)),
-                Normal(CssProperty::min_height(LayoutMinHeight::const_px(40))),
+                Normal(CssProperty::min_height(LayoutMinHeight::const_px(20))),
                 Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
                 Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
                 Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 })),
@@ -234,6 +234,7 @@ impl TableViewState {
         static ROW_NUMBER_WRAPPER_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
             Normal(CssProperty::max_width(LayoutMaxWidth::const_px(30))),
+            Normal(CssProperty::margin_top(LayoutMarginTop::const_px(5))),
         ];
         static ROW_NUMBERS_WRAPPER_CLASS: &[IdOrClass] = &[
             IdOrClass::Class(AzString::from_const_str("az-table-row-numbers-wrapper"))
@@ -244,10 +245,6 @@ impl TableViewState {
         .with_ids_and_classes(IdOrClassVec::from_const_slice(ROW_NUMBERS_WRAPPER_CLASS))
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROW_NUMBER_WRAPPER_STYLE))
         .with_children(AzDomVec::from(vec![row_numbers]));
-
-        // Normal(CssProperty::margin_top(LayoutMarginTop::const_px(100))),
-
-        // return row_number_wrapper; // DEBUG
 
         static ACTIVE_SELECTION_HANDLE_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::position(LayoutPosition::Absolute)),
@@ -328,7 +325,11 @@ impl TableViewState {
                 Normal(CssProperty::box_shadow_bottom(SHADOW)),
             ];
             static COLUMN_NAMES_WRAPPER_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-column-names-wrapper"))];
-            static ROWS_IN_COLUMN_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-row"))];
+
+            static ROWS_IN_COLUMN_STYLE: &[NodeDataInlineCssProperty] = &[
+                Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
+            ];
+            static ROWS_IN_COLUMN_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-rows"))];
 
             // avoid heap allocation
             let mut column_name_arr = [0;16];
@@ -366,7 +367,8 @@ impl TableViewState {
                     .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(CELL_STYLE))
             })
             .collect::<Dom>()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(ROWS_IN_COLUMN_CLASS));
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(ROWS_IN_COLUMN_CLASS))
+            .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROWS_IN_COLUMN_STYLE));
 
             static COLUMN_NAME_STYLE: &[NodeDataInlineCssProperty] = &[
                 Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),

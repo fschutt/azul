@@ -2792,7 +2792,7 @@ pub enum LayoutFlexDirection {
 
 impl Default for LayoutFlexDirection {
     fn default() -> Self {
-        LayoutFlexDirection::Row
+        LayoutFlexDirection::Column
     }
 }
 

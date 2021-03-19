@@ -435,6 +435,7 @@ macro_rules! typed_arena {(
                 parent_node.total() - parent_node.$get_padding_fn(parent_parent_width)
             };
 
+
             // 1. Set all child elements to their minimum required width or 0.0
             // if there is no min width
             let mut children_flex_grow = children
@@ -442,9 +443,19 @@ macro_rules! typed_arena {(
             .map(|child_id| {
                 if layout_positions[*child_id] != LayoutPosition::Absolute {
                     // so that node.min_width + node.flex_grow_px = exact_width
-                    let min_width = width_calculated_arena[*child_id].$preferred_field.min_needed_space().unwrap_or(0.0);
-                    let flex_grow_px = min_width - width_calculated_arena[*child_id].min_inner_size_px;
-                    flex_grow_px
+                    match width_calculated_arena[*child_id].$preferred_field {
+                        WhConstraint::Between(min, _) => {
+                            if min > width_calculated_arena[*child_id].min_inner_size_px {
+                                min - width_calculated_arena[*child_id].min_inner_size_px
+                            } else {
+                                0.0
+                            }
+                        },
+                        WhConstraint::EqualTo(exact) => {
+                            exact - width_calculated_arena[*child_id].min_inner_size_px
+                        },
+                        WhConstraint::Unconstrained => 0.0,
+                    }
                 } else {
                     // `position: absolute` items don't take space away from their siblings, rather
                     // they take the minimum needed space by their content
@@ -463,8 +474,11 @@ macro_rules! typed_arena {(
                     .calculate_from_relative_parent(relative_parent_width);
 
                     // expand so that node.min_inner_size_px + node.flex_grow_px = max_space_current_node
-                    let flex_grow_px = max_space_current_node - width_calculated_arena[*child_id].min_inner_size_px;
-                    flex_grow_px
+                    if max_space_current_node > width_calculated_arena[*child_id].min_inner_size_px {
+                        max_space_current_node - width_calculated_arena[*child_id].min_inner_size_px
+                    } else {
+                        0.0
+                    }
                 }
             })
             .collect::<Vec<f32>>();
@@ -670,8 +684,8 @@ macro_rules! typed_arena {(
                 let children = parent_id.az_children_collect(&node_hierarchy);
                 let flex_axis = layout_directions[*parent_id].get_axis();
 
-                if flex_axis == LayoutAxis::$main_axis {
-                    (parent_id, distribute_space_along_main_axis(
+                let result = if flex_axis == LayoutAxis::$main_axis {
+                    distribute_space_along_main_axis(
                         &parent_id,
                         &children,
                         node_hierarchy,
@@ -679,17 +693,19 @@ macro_rules! typed_arena {(
                         layout_positions,
                         &node_data.as_ref(),
                         root_width
-                    ))
+                    )
                 } else {
-                    (parent_id, distribute_space_along_cross_axis(
+                    distribute_space_along_cross_axis(
                         &parent_id,
                         &children,
                         node_hierarchy,
                         layout_positions,
                         &node_data.as_ref(),
                         root_width
-                    ))
-                }
+                    )
+                };
+
+                (parent_id, result)
             }).collect::<Vec<_>>();
 
             // write the flex-grow values of the children into the flex_grow_px
