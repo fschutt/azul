@@ -247,7 +247,7 @@ impl TableViewState {
 
         // Normal(CssProperty::margin_top(LayoutMarginTop::const_px(100))),
 
-        return row_number_wrapper; // DEBUG
+        // return row_number_wrapper; // DEBUG
 
         static ACTIVE_SELECTION_HANDLE_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::position(LayoutPosition::Absolute)),
@@ -462,9 +462,17 @@ impl TableView {
 
         // workaround for necessary_rows.ceil() not being available on no_std
         let necessary_rows_f32 = logical_size.height as f32 / table_view_state.default_row_height;
-        let necessary_rows = if (necessary_rows_f32 * 10.0) as isize % 10_isize != 0 { necessary_rows_f32 as usize + 1 } else { necessary_rows_f32 as usize };
+        let necessary_rows = if (necessary_rows_f32 * 10.0) as isize % 10_isize != 0 {
+            necessary_rows_f32 as usize + 1
+        } else {
+            necessary_rows_f32 as usize
+        };
         let necessary_columns_f32 = logical_size.width as f32 / table_view_state.default_column_width;
-        let necessary_columns = if (necessary_columns_f32 * 10.0) as isize % 10_isize != 0 { necessary_columns_f32 as usize + 1 } else { necessary_columns_f32 as usize };
+        let necessary_columns = if (necessary_columns_f32 * 10.0) as isize % 10_isize != 0 {
+            necessary_columns_f32 as usize + 1
+        } else {
+            necessary_columns_f32 as usize
+        };
 
         let table_height = (necessary_rows + padding_rows) as f32 * table_view_state.default_row_height;
         let table_width = (necessary_columns + padding_columns) as f32 * table_view_state.default_column_width;

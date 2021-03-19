@@ -52,7 +52,7 @@ tar = "0.4"
 flate2 = "1.0.14"
 
 [features]
-default = ["logging", "css_parser", "image_loading", "font_loading", "text_layout", "svg", "std"]
+default = ["std", "logging", "css_parser", "image_loading", "ico", "tga", "hdr", "jpeg_rayon", "dxt", "webp", "pnm", "font_loading", "text_layout", "svg"]
 # Enable standard library (on by default)
 std = ["azul-core/std", "azul-desktop/std", "azul-core/multithreading"]
 # Enable logging & error reporting

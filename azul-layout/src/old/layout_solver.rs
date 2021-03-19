@@ -250,9 +250,11 @@ macro_rules! typed_arena {(
 
     /// Fill out the preferred width of all nodes.
     ///
-    /// We could operate on the NodeDataContainer<StyledNode> directly, but that makes testing very
-    /// hard since we are only interested in testing or touching the layout. So this makes the
-    /// calculation maybe a few microseconds slower, but gives better testing capabilities
+    /// We could operate on the NodeDataContainer<StyledNode> directly,
+    /// but that makes testing very hard since we are only interested
+    /// in testing or touching the layout. So this makes the
+    /// calculation maybe a few microseconds slower, but gives better
+    /// testing capabilities
     ///
     /// NOTE: Later on, this could maybe be a NodeDataContainer<&'a RectLayout>.
     #[must_use]
@@ -342,7 +344,8 @@ macro_rules! typed_arena {(
         node_depths: &[ParentWithNodeDepth],
     ) {
 
-        // Reverse, since we want to go from the inside out (depth 5 needs to be filled out first)
+        // Reverse, since we want to go from the inside out
+        // (depth 5 needs to be filled out first)
         //
         // Set the preferred_width of the parent nodes
         for ParentWithNodeDepth { depth: _, node_id } in node_depths.iter().rev() {
@@ -392,10 +395,12 @@ macro_rules! typed_arena {(
         // but they aren't flex-growed or flex-shrinked yet
     }
 
-    /// Go from the root down and flex_grow the children if needed - respects the `width`,
-    /// `min_width` and `max_width` properties
+    /// Go from the root down and flex_grow the children if
+    /// needed - respects the `width`, `min_width` and `max_width`
+    /// properties
     ///
-    /// The layout step doesn't account for the min_width and max_width constraints,
+    /// The layout step doesn't account for the min_width
+    /// and max_width constraints,
     /// so we have to adjust them manually
     fn $apply_flex_grow_fn_name<'a, 'b>(
         node_data: &mut NodeDataContainer<$struct_name>,
@@ -408,8 +413,9 @@ macro_rules! typed_arena {(
         parents_to_recalc: &BTreeSet<NodeId>,
     ) {
 
-        /// Does the actual width layout, respects the `width`, `min_width` and `max_width`
-        /// properties as well as the `flex_grow` factor. `flex_shrink` currently does nothing.
+        /// Does the actual width layout, respects the `width`,
+        /// `min_width` and `max_width` properties as well as the
+        /// `flex_grow` factor. `flex_shrink` currently does nothing.
         fn distribute_space_along_main_axis<'a>(
             node_id: &NodeId,
             children: &[NodeId],
@@ -488,7 +494,8 @@ macro_rules! typed_arena {(
             // The fixed-width items are now considered solved,
             // so subtract them out of the width of the parent.
 
-            // Get the node ids that have to be expanded, exclude fixed-width and absolute childrens
+            // Get the node ids that have to be expanded, exclude
+            // fixed-width and absolute childrens
             let mut variable_width_childs = children
                 .par_iter()
                 .enumerate()
@@ -852,26 +859,42 @@ fn $fn_name<'a>(
         };
 
         let child_node = &solved_widths[child_id];
-        let child_node_parent_width = node_hierarchy[child_id].parent_id().map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
-        let child_margin_left = child_node.$margin_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
-        let child_margin_right = child_node.$margin_right.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
+        let child_node_parent_width = node_hierarchy[child_id].parent_id()
+        .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+        let child_margin_left = child_node.$margin_left.and_then(|x| {
+            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+        }).unwrap_or(0.0);
+        let child_margin_right = child_node.$margin_right.and_then(|x| {
+            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+        }).unwrap_or(0.0);
 
         let last_relative_node_id = child_id
         .get_nearest_matching_parent(node_hierarchy, |n| layout_positions[n].is_positioned())
         .unwrap_or(NodeId::new(0));
 
         let last_relative_node = &solved_widths[last_relative_node_id];
-        let last_relative_padding_left = last_relative_node.$padding_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
-        let last_relative_padding_right = last_relative_node.$padding_right.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
+        let last_relative_padding_left = last_relative_node.$padding_left.and_then(|x| {
+            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+        }).unwrap_or(0.0);
+        let last_relative_padding_right = last_relative_node.$padding_right.and_then(|x| {
+            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+        }).unwrap_or(0.0);
 
         let last_relative_node_x = arena_solved_data[last_relative_node_id].0 + last_relative_padding_left;
         let last_relative_node_inner_width = {
             let last_relative_node = &solved_widths[last_relative_node_id];
-            last_relative_node.min_inner_size_px + last_relative_node.flex_grow_px - (last_relative_padding_left + last_relative_padding_right)
+            last_relative_node.min_inner_size_px +
+            last_relative_node.flex_grow_px -
+            last_relative_padding_left -
+            last_relative_padding_right
         };
 
-        let child_left = child_node.$left.and_then(|s| Some(s.get_property()?.inner.to_pixels(child_node_parent_width)));
-        let child_right = child_node.$right.and_then(|s| Some(s.get_property()?.inner.to_pixels(child_node_parent_width)));
+        let child_left = child_node.$left.and_then(|s| {
+            Some(s.get_property()?.inner.to_pixels(child_node_parent_width))
+        });
+        let child_right = child_node.$right.and_then(|s| {
+            Some(s.get_property()?.inner.to_pixels(child_node_parent_width))
+        });
 
         if let Some(child_right) = child_right {
             // align right / bottom of last relative parent
@@ -910,9 +933,14 @@ fn $fn_name<'a>(
 
         // width: increase X according to the main axis, Y according to the cross_axis
         let child_node = &solved_widths[child_id];
-        let child_node_parent_width = node_hierarchy[child_id].parent_id().map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
-        let child_margin_left = child_node.$margin_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
-        let child_margin_right = child_node.$margin_right.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
+        let child_node_parent_width = node_hierarchy[child_id].parent_id()
+        .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+        let child_margin_left = child_node.$margin_left.and_then(|x| {
+            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+        }).unwrap_or(0.0);
+        let child_margin_right = child_node.$margin_right.and_then(|x| {
+            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+        }).unwrap_or(0.0);
 
         if layout_positions[child_id] == LayoutPosition::Absolute {
             (determine_child_x_absolute(
@@ -932,7 +960,11 @@ fn $fn_name<'a>(
                 Center => {
                     parent_x_position
                     + ((parent_inner_width as f32 / 2.0)
-                    - ((*sum_x_of_children_so_far + child_margin_right + child_width_with_padding) as f32 / 2.0))
+                    - ((
+                        *sum_x_of_children_so_far +
+                        child_margin_right +
+                        child_width_with_padding
+                    ) as f32 / 2.0))
                 },
                 SpaceBetween => {
                     parent_x_position // TODO!
@@ -957,9 +989,14 @@ fn $fn_name<'a>(
         parent_x_position: f32,
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>
     ) -> f32 {
+
         let child_node = &solved_widths[child_id];
-        let child_node_parent_width = node_hierarchy[child_id].parent_id().map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
-        let child_margin_left = child_node.$margin_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
+        let child_node_parent_width = node_hierarchy[child_id].parent_id()
+        .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+
+        let child_margin_left = child_node.$margin_left.and_then(|x| {
+            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+        }).unwrap_or(0.0);
 
         if layout_positions[child_id] == LayoutPosition::Absolute {
             determine_child_x_absolute(
@@ -974,7 +1011,7 @@ fn $fn_name<'a>(
         }
     }
 
-    use azul_css::{LayoutAxis, LayoutJustifyContent};
+    use azul_css::{LayoutAxis, LayoutJustifyContent::*};
 
     for ParentWithNodeDepth { depth: _, node_id } in node_depths.iter() {
 
@@ -987,9 +1024,15 @@ fn $fn_name<'a>(
         }
 
         let parent_node = &solved_widths[parent_id];
-        let parent_parent_width = node_hierarchy[parent_id].parent_id().map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
-        let parent_padding_left = parent_node.$padding_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(parent_parent_width))).unwrap_or(0.0) as f32;
-        let parent_padding_right = parent_node.$padding_right.and_then(|x| Some(x.get_property()?.inner.to_pixels(parent_parent_width))).unwrap_or(0.0) as f32;
+        let parent_parent_width = node_hierarchy[parent_id].parent_id()
+        .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+        let parent_padding_left = parent_node.$padding_left.and_then(|x| {
+            Some(x.get_property()?.inner.to_pixels(parent_parent_width))
+        }).unwrap_or(0.0) as f32;
+        let parent_padding_right = parent_node.$padding_right.and_then(|x| {
+            Some(x.get_property()?.inner.to_pixels(parent_parent_width))
+        }).unwrap_or(0.0) as f32;
+
         let parent_x_position = arena.as_ref()[parent_id].0 + parent_padding_left;
         let parent_direction = layout_directions[parent_id];
 
@@ -1040,12 +1083,15 @@ fn $fn_name<'a>(
             // If the direction is `flex-end`, we can't add the X position during the iteration,
             // so we have to "add" the diff to the parent_inner_width at the end
             let should_align_towards_end =
-                (!parent_direction.is_reverse() && main_axis_alignment == LayoutJustifyContent::End) ||
-                (parent_direction.is_reverse() && main_axis_alignment == LayoutJustifyContent::Start);
+                (parent_direction.is_reverse() && main_axis_alignment == Start) ||
+                (!parent_direction.is_reverse() && main_axis_alignment == End);
 
             if should_align_towards_end {
                 let diff = parent_inner_width - sum_x_of_children_so_far;
-                for child_id in parent_id.az_children(node_hierarchy).filter(|ch| layout_positions[*ch] != LayoutPosition::Absolute) {
+                for child_id in parent_id
+                    .az_children(node_hierarchy)
+                    .filter(|ch| layout_positions[*ch] != LayoutPosition::Absolute)
+                {
                     arena.as_ref_mut()[child_id].0 += diff;
                 }
             }
@@ -1107,7 +1153,16 @@ fn get_x_positions<'a>(
         Horizontal
     );
 
-    get_pos_x(arena, node_hierarchy, layout_positions, layout_directions, layout_justify_contents, node_depths, solved_widths, &parents_to_solve);
+    get_pos_x(
+        arena,
+        node_hierarchy,
+        layout_positions,
+        layout_directions,
+        layout_justify_contents,
+        node_depths,
+        solved_widths,
+        &parents_to_solve
+    );
 
     // Add the origin on top of the position
     for item in arena.internal.iter_mut() { item.0 += origin.x; }
@@ -1138,7 +1193,16 @@ fn get_y_positions<'a>(
         Vertical
     );
 
-    get_pos_y(arena, node_hierarchy, layout_positions, layout_directions, layout_justify_contents, node_depths, solved_heights, &parents_to_solve);
+    get_pos_y(
+        arena,
+        node_hierarchy,
+        layout_positions,
+        layout_directions,
+        layout_justify_contents,
+        node_depths,
+        solved_heights,
+        &parents_to_solve
+    );
 
     // Add the origin on top of the position
     for item in arena.internal.iter_mut() { item.0 += origin.y; }
@@ -1152,7 +1216,13 @@ pub fn get_layout_positions<'a>(styled_dom: &StyledDom) -> NodeDataContainer<Lay
     assert!(node_data_container.internal.len() == styled_nodes.internal.len()); // elide bounds checking
     NodeDataContainer {
         internal: styled_nodes.internal.par_iter().enumerate().map(|(node_id, styled_node)| {
-            cache.get_position(&node_data_container.internal[node_id], &NodeId::new(node_id), &styled_node.state).unwrap_or_default().get_property_or_default().unwrap_or_default()
+            cache.get_position(
+                &node_data_container.internal[node_id],
+                &NodeId::new(node_id),
+                &styled_node.state
+            ).unwrap_or_default()
+            .get_property_or_default()
+            .unwrap_or_default()
         }).collect()
     }
 }
@@ -1165,8 +1235,17 @@ pub fn get_layout_justify_contents<'a>(styled_dom: &StyledDom) -> NodeDataContai
     assert!(node_data_container.internal.len() == styled_nodes.internal.len()); // elide bounds checking
 
     NodeDataContainer {
-        internal: styled_nodes.internal.par_iter().enumerate().map(|(node_id, styled_node)| {
-            cache.get_justify_content(&node_data_container.internal[node_id], &NodeId::new(node_id), &styled_node.state).unwrap_or_default().get_property_or_default().unwrap_or_default()
+        internal: styled_nodes.internal
+        .par_iter()
+        .enumerate()
+        .map(|(node_id, styled_node)| {
+            cache.get_justify_content(
+                &node_data_container.internal[node_id],
+                &NodeId::new(node_id),
+                &styled_node.state
+            ).unwrap_or_default()
+            .get_property_or_default()
+            .unwrap_or_default()
         }).collect()
     }
 }
@@ -1179,8 +1258,17 @@ pub fn get_layout_flex_directions<'a>(styled_dom: &StyledDom) -> NodeDataContain
     assert!(node_data_container.internal.len() == styled_nodes.internal.len()); // elide bounds checking
 
     NodeDataContainer {
-        internal: styled_nodes.internal.par_iter().enumerate().map(|(node_id, styled_node)| {
-            cache.get_flex_direction(&node_data_container.internal[node_id], &NodeId::new(node_id), &styled_node.state).unwrap_or_default().get_property_or_default().unwrap_or_default()
+        internal: styled_nodes.internal
+        .par_iter()
+        .enumerate()
+        .map(|(node_id, styled_node)| {
+            cache.get_flex_direction(
+                &node_data_container.internal[node_id],
+                &NodeId::new(node_id),
+                &styled_node.state
+            ).unwrap_or_default()
+            .get_property_or_default()
+            .unwrap_or_default()
         }).collect()
     }
 }
@@ -1194,9 +1282,15 @@ pub fn get_layout_flex_grows<'a>(styled_dom: &StyledDom) -> NodeDataContainer<f3
     assert!(node_data_container.internal.len() == styled_nodes.internal.len()); // elide bounds checking
 
     NodeDataContainer {
-        internal: styled_nodes.internal.par_iter().enumerate().map(|(node_id, styled_node)| {
-            cache.get_flex_grow(&node_data_container.internal[node_id], &NodeId::new(node_id), &styled_node.state)
-            .and_then(|g| g.get_property().copied())
+        internal: styled_nodes.internal
+        .par_iter()
+        .enumerate()
+        .map(|(node_id, styled_node)| {
+            cache.get_flex_grow(
+                &node_data_container.internal[node_id],
+                &NodeId::new(node_id),
+                &styled_node.state
+            ).and_then(|g| g.get_property().copied())
             .and_then(|grow| Some(grow.inner.get().max(0.0)))
             .unwrap_or(DEFAULT_FLEX_GROW_FACTOR)
         }).collect()
@@ -1217,36 +1311,72 @@ fn get_overflow(
 
     match children_sum_rect {
         Some(children_sum_rect) => {
-            let overflow_x_amount = (parent_rect.size.width + parent_rect.origin.x) - (children_sum_rect.origin.x + children_sum_rect.size.width);
-            let overflow_y_amount = (parent_rect.size.height + parent_rect.origin.y) - (children_sum_rect.origin.y + children_sum_rect.size.height);
+
+            let overflow_x_amount = (parent_rect.size.width + parent_rect.origin.x) -
+                                    (children_sum_rect.origin.x + children_sum_rect.size.width);
+            let overflow_y_amount = (parent_rect.size.height + parent_rect.origin.y) -
+                                    (children_sum_rect.origin.y + children_sum_rect.size.height);
+
             OverflowInfo {
                 overflow_x: match overflow_x {
-                    LayoutOverflow::Scroll => DirectionalOverflowInfo::Scroll { amount: Some(overflow_x_amount) },
-                    LayoutOverflow::Auto => DirectionalOverflowInfo::Auto { amount: Some(overflow_x_amount) },
-                    LayoutOverflow::Hidden => DirectionalOverflowInfo::Hidden { amount: Some(overflow_x_amount) },
-                    LayoutOverflow::Visible => DirectionalOverflowInfo::Visible { amount: Some(overflow_x_amount) },
+                    LayoutOverflow::Scroll => DirectionalOverflowInfo::Scroll {
+                        amount: Some(overflow_x_amount)
+                    },
+                    LayoutOverflow::Auto => DirectionalOverflowInfo::Auto {
+                        amount: Some(overflow_x_amount)
+                    },
+                    LayoutOverflow::Hidden => DirectionalOverflowInfo::Hidden {
+                        amount: Some(overflow_x_amount)
+                    },
+                    LayoutOverflow::Visible => DirectionalOverflowInfo::Visible {
+                        amount: Some(overflow_x_amount)
+                    },
                 },
                 overflow_y: match overflow_y {
-                    LayoutOverflow::Scroll => DirectionalOverflowInfo::Scroll { amount: Some(overflow_y_amount) },
-                    LayoutOverflow::Auto => DirectionalOverflowInfo::Auto { amount: Some(overflow_y_amount) },
-                    LayoutOverflow::Hidden => DirectionalOverflowInfo::Hidden { amount: Some(overflow_y_amount) },
-                    LayoutOverflow::Visible => DirectionalOverflowInfo::Visible { amount: Some(overflow_y_amount) },
+                    LayoutOverflow::Scroll => DirectionalOverflowInfo::Scroll {
+                        amount: Some(overflow_y_amount)
+                    },
+                    LayoutOverflow::Auto => DirectionalOverflowInfo::Auto {
+                        amount: Some(overflow_y_amount)
+                    },
+                    LayoutOverflow::Hidden => DirectionalOverflowInfo::Hidden {
+                        amount: Some(overflow_y_amount)
+                    },
+                    LayoutOverflow::Visible => DirectionalOverflowInfo::Visible {
+                        amount: Some(overflow_y_amount)
+                    },
                 }
             }
         },
         None => {
             OverflowInfo {
                 overflow_x: match overflow_x {
-                    LayoutOverflow::Scroll => DirectionalOverflowInfo::Scroll { amount: None },
-                    LayoutOverflow::Auto => DirectionalOverflowInfo::Auto { amount: None },
-                    LayoutOverflow::Hidden => DirectionalOverflowInfo::Hidden { amount: None },
-                    LayoutOverflow::Visible => DirectionalOverflowInfo::Visible { amount: None },
+                    LayoutOverflow::Scroll => DirectionalOverflowInfo::Scroll {
+                        amount: None
+                    },
+                    LayoutOverflow::Auto => DirectionalOverflowInfo::Auto {
+                        amount: None
+                    },
+                    LayoutOverflow::Hidden => DirectionalOverflowInfo::Hidden {
+                        amount: None
+                    },
+                    LayoutOverflow::Visible => DirectionalOverflowInfo::Visible {
+                        amount: None
+                    },
                 },
                 overflow_y: match overflow_y {
-                    LayoutOverflow::Scroll => DirectionalOverflowInfo::Scroll { amount: None },
-                    LayoutOverflow::Auto => DirectionalOverflowInfo::Auto { amount: None },
-                    LayoutOverflow::Hidden => DirectionalOverflowInfo::Hidden { amount: None },
-                    LayoutOverflow::Visible => DirectionalOverflowInfo::Visible { amount: None },
+                    LayoutOverflow::Scroll => DirectionalOverflowInfo::Scroll {
+                        amount: None
+                    },
+                    LayoutOverflow::Auto => DirectionalOverflowInfo::Auto {
+                        amount: None
+                    },
+                    LayoutOverflow::Hidden => DirectionalOverflowInfo::Hidden {
+                        amount: None
+                    },
+                    LayoutOverflow::Visible => DirectionalOverflowInfo::Visible {
+                        amount: None
+                    },
                 }
             }
         }
@@ -1270,13 +1400,32 @@ fn precalculate_all_offsets(styled_dom: &StyledDom) -> NodeDataContainer<AllOffs
         .map(|(node_id_usize, styled_node)| {
             let node_id = NodeId::new(node_id_usize);
             let state = &styled_node.state;
-            precalculate_offset(&node_data_container.internal[node_id_usize], &css_property_cache, &node_id, state)
+            precalculate_offset(
+                &node_data_container.internal[node_id_usize],
+                &css_property_cache,
+                &node_id,
+                state
+            )
         })
         .collect(),
     }
 }
 
-fn precalculate_offset(node_data: &NodeData, css_property_cache: &CssPropertyCache, node_id: &NodeId, state: &StyledNodeState) -> AllOffsets {
+struct AllOffsets {
+    border_widths: LayoutBorderOffsets,
+    padding: LayoutPaddingOffsets,
+    margin: LayoutMarginOffsets,
+    position: LayoutAbsolutePositions,
+    overflow_x: Option<CssPropertyValue<LayoutOverflow>>,
+    overflow_y: Option<CssPropertyValue<LayoutOverflow>>,
+}
+
+fn precalculate_offset(
+    node_data: &NodeData,
+    css_property_cache: &CssPropertyCache,
+    node_id: &NodeId,
+    state: &StyledNodeState
+) -> AllOffsets {
     AllOffsets {
         border_widths: LayoutBorderOffsets {
             left: css_property_cache.get_border_left_width(node_data, node_id, state),
@@ -1307,16 +1456,7 @@ fn precalculate_offset(node_data: &NodeData, css_property_cache: &CssPropertyCac
     }
 }
 
-struct AllOffsets {
-    border_widths: LayoutBorderOffsets,
-    padding: LayoutPaddingOffsets,
-    margin: LayoutMarginOffsets,
-    position: LayoutAbsolutePositions,
-    overflow_x: Option<CssPropertyValue<LayoutOverflow>>,
-    overflow_y: Option<CssPropertyValue<LayoutOverflow>>,
-}
-
-pub struct LayoutAbsolutePositions {
+struct LayoutAbsolutePositions {
     left: Option<CssPropertyValue<LayoutLeft>>,
     right: Option<CssPropertyValue<LayoutRight>>,
     top: Option<CssPropertyValue<LayoutTop>>,
@@ -1324,7 +1464,7 @@ pub struct LayoutAbsolutePositions {
 }
 
 impl LayoutAbsolutePositions {
-    pub fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
+    fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
         ResolvedOffsets {
             left: self.left.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
             top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
@@ -1334,7 +1474,7 @@ impl LayoutAbsolutePositions {
     }
 }
 
-pub struct LayoutBorderOffsets {
+struct LayoutBorderOffsets {
     left: Option<CssPropertyValue<LayoutBorderLeftWidth>>,
     right: Option<CssPropertyValue<LayoutBorderRightWidth>>,
     top: Option<CssPropertyValue<LayoutBorderTopWidth>>,
@@ -1342,7 +1482,7 @@ pub struct LayoutBorderOffsets {
 }
 
 impl LayoutBorderOffsets {
-    pub fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
+    fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
         ResolvedOffsets {
             left: self.left.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
             top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
@@ -1352,7 +1492,7 @@ impl LayoutBorderOffsets {
     }
 }
 
-pub struct LayoutPaddingOffsets {
+struct LayoutPaddingOffsets {
     left: Option<CssPropertyValue<LayoutPaddingLeft>>,
     right: Option<CssPropertyValue<LayoutPaddingRight>>,
     top: Option<CssPropertyValue<LayoutPaddingTop>>,
@@ -1360,7 +1500,7 @@ pub struct LayoutPaddingOffsets {
 }
 
 impl LayoutPaddingOffsets {
-    pub fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
+    fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
         ResolvedOffsets {
             left: self.left.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
             top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
@@ -1378,7 +1518,7 @@ struct LayoutMarginOffsets {
 }
 
 impl LayoutMarginOffsets {
-    pub fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
+    fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
         ResolvedOffsets {
             left: self.left.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
             top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
@@ -1400,9 +1540,16 @@ pub fn do_the_layout(
     full_window_state: &FullWindowState,
 ) -> Vec<LayoutResult> {
 
+    use azul_core::callbacks::{HidpiAdjustedBounds, IFrameCallbackInfo, IFrameCallbackReturn};
+
     let mut current_dom_id = 0;
     let mut doms = vec![
-        (None, DomId { inner: current_dom_id }, styled_dom, LogicalRect::new(LogicalPosition::zero(), full_window_state.size.dimensions)),
+        (
+         None,
+         DomId { inner: current_dom_id },
+         styled_dom,
+         LogicalRect::new(LogicalPosition::zero(), full_window_state.size.dimensions)
+        ),
     ];
     let mut resolved_doms = Vec::new();
 
@@ -1435,12 +1582,9 @@ pub fn do_the_layout(
                 rect,
             );
 
-
             let mut iframe_mapping = BTreeMap::new();
 
             for iframe_node_id in layout_result.styled_dom.scan_for_iframe_callbacks() {
-
-                use azul_core::callbacks::{HidpiAdjustedBounds, IFrameCallbackInfo, IFrameCallbackReturn};
 
                 // Generate a new DomID
                 current_dom_id += 1;
@@ -1448,8 +1592,14 @@ pub fn do_the_layout(
                 iframe_mapping.insert(iframe_node_id, iframe_dom_id);
 
                 let bounds = &layout_result.rects.as_ref()[iframe_node_id];
-                let bounds_size = LayoutSize::new(bounds.size.width.round() as isize, bounds.size.height.round() as isize);
-                let hidpi_bounds = HidpiAdjustedBounds::from_bounds(bounds_size, full_window_state.size.hidpi_factor);
+                let bounds_size = LayoutSize::new(
+                    bounds.size.width.round() as isize,
+                    bounds.size.height.round() as isize
+                );
+                let hidpi_bounds = HidpiAdjustedBounds::from_bounds(
+                    bounds_size,
+                    full_window_state.size.hidpi_factor
+                );
 
                 // Invoke the IFrame callback
                 let iframe_return: IFrameCallbackReturn = {
@@ -1478,18 +1628,32 @@ pub fn do_the_layout(
 
                 // TODO: use other fields of iframe_return here!
 
-                let hovered_nodes = full_window_state.hovered_nodes.get(&iframe_dom_id).map(|i| i.regular_hit_test_nodes.clone()).unwrap_or_default().keys().cloned().collect::<Vec<_>>();
-                let active_nodes = if !full_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
+                let hovered_nodes = full_window_state.hovered_nodes
+                    .get(&iframe_dom_id)
+                    .map(|i| i.regular_hit_test_nodes.clone())
+                    .unwrap_or_default()
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>();
+
+                let active_nodes = if !full_window_state.mouse_state.mouse_down() {
+                    Vec::new()
+                } else {
+                    hovered_nodes.clone()
+                };
 
                 let _ = iframe_dom.restyle_nodes_hover(hovered_nodes.as_slice(), true);
                 let _ = iframe_dom.restyle_nodes_active(active_nodes.as_slice(), true);
                 if let Some(focused_node) = full_window_state.focused_node {
                     if focused_node.dom == iframe_dom_id {
-                        let _ = iframe_dom.restyle_nodes_focus(&[focused_node.node.into_crate_internal().unwrap()], true);
+                        let _ = iframe_dom.restyle_nodes_focus(&[
+                            focused_node.node.into_crate_internal().unwrap()
+                        ], true);
                     }
                 }
 
-                let bounds = LogicalRect::new(LogicalPosition::zero(), hidpi_bounds.get_logical_size()); // TODO: use the iframe static position here?
+                // TODO: use the iframe static position here?
+                let bounds = LogicalRect::new(LogicalPosition::zero(), hidpi_bounds.get_logical_size());
                 // push the styled iframe dom into the next iframes and repeat (recurse)
                 new_doms.push((Some(dom_id), iframe_dom_id, iframe_dom, bounds));
             }
@@ -1526,8 +1690,12 @@ pub fn do_the_layout_internal(
     // The NodeId has to be the **next** NodeId (the next sibling after the inline element)
     // let mut inline_text_blocks = BTreeMap::<NodeId, InlineText>::new();
 
-    let all_parents_btreeset = styled_dom.non_leaf_nodes.iter().filter_map(|p| Some(p.node_id.into_crate_internal()?)).collect::<BTreeSet<_>>();
-    let all_nodes_btreeset = (0..styled_dom.node_data.as_container().len()).map(|n| NodeId::new(n)).collect::<BTreeSet<_>>();
+    let all_parents_btreeset = styled_dom.non_leaf_nodes.iter().filter_map(|p| {
+        Some(p.node_id.into_crate_internal()?)
+    }).collect::<BTreeSet<_>>();
+
+    let all_nodes_btreeset = (0..styled_dom.node_data.as_container().len())
+        .map(|n| NodeId::new(n)).collect::<BTreeSet<_>>();
 
     let layout_position_info = get_layout_positions(&styled_dom);
     let layout_flex_grow_info = get_layout_flex_grows(&styled_dom);
@@ -1536,7 +1704,47 @@ pub fn do_the_layout_internal(
     let layout_offsets = precalculate_all_offsets(&styled_dom);
     let layout_width_heights = precalculate_wh_config(&styled_dom);
 
-    let content_widths_pre = NodeDataContainer { internal: vec![None; styled_dom.node_data.len()] };
+    // Break all strings into words and / or resolve the TextIds
+    let word_cache = {
+        #[cfg(feature = "text_layout")] {
+            create_word_cache(&styled_dom.node_data.as_container())
+        }
+        #[cfg(not(feature = "text_layout"))] {
+            BTreeMap::new()
+        }
+    };
+
+    // Scale the words to the correct size - TODO: Cache this in the app_resources!
+    let shaped_words = {
+        #[cfg(feature = "text_layout")] {
+            create_shaped_words(&pipeline_id, app_resources, &word_cache, &styled_dom)
+        }
+        #[cfg(not(feature = "text_layout"))] {
+            BTreeMap::new()
+        }
+    };
+
+
+    // Layout all words as if there was no max-width constraint
+    // (to get the texts "content width").
+    let mut word_positions_no_max_width = BTreeMap::new();
+    #[cfg(feature = "text_layout")]
+    create_word_positions(
+        &mut word_positions_no_max_width,
+        &all_nodes_btreeset,
+        &pipeline_id,
+        app_resources,
+        &word_cache,
+        &shaped_words,
+        &styled_dom,
+        None,
+    );
+
+    // Calculate the optional "intrinsic content widths" - i.e. the width
+    // of a text
+    let content_widths_pre = NodeDataContainer {
+        internal: vec![None; styled_dom.node_data.len()]
+    };
 
     let mut width_calculated_arena = width_calculated_rect_arena_from_rect_layout_arena(
         &layout_width_heights.as_ref(),
@@ -1558,58 +1766,12 @@ pub fn do_the_layout_internal(
         &all_parents_btreeset,
     );
 
-    // Break all strings into words and / or resolve the TextIds
-    let word_cache = {
-        #[cfg(feature = "text_layout")] {
-            create_word_cache(&styled_dom.node_data.as_container())
-        }
-        #[cfg(not(feature = "text_layout"))] {
-            BTreeMap::new()
-        }
+    // TODO: layout the words again, this time with the proper width constraints!
+
+    // TODO: Get the content height of the (text / image) content
+    let content_heights_pre = NodeDataContainer {
+        internal: vec![None; styled_dom.node_data.len()]
     };
-    // Scale the words to the correct size - TODO: Cache this in the app_resources!
-    let shaped_words = {
-        #[cfg(feature = "text_layout")] {
-            create_shaped_words(&pipeline_id, app_resources, &word_cache, &styled_dom)
-        }
-        #[cfg(not(feature = "text_layout"))] {
-            BTreeMap::new()
-        }
-    };
-
-    // Layout all words as if there was no max-width constraint (to get the texts "content width").
-    let mut word_positions_no_max_width = BTreeMap::new();
-    #[cfg(feature = "text_layout")]
-    create_word_positions(
-        &mut word_positions_no_max_width,
-        &all_nodes_btreeset,
-        &pipeline_id,
-        app_resources,
-        &word_cache,
-        &shaped_words,
-        &styled_dom,
-        &width_calculated_arena.as_ref(),
-    );
-
-    // Determine the preferred **content** width
-    // let content_widths = node_data.transform(|node, node_id| {
-    //     get_content_width(pipeline_id, &node_id, &node.get_node_type(), app_resources, &word_positions_no_max_width)
-    // });
-
-    // // Layout the words again, this time with the proper width constraints!
-    // let proper_max_widths = solved_widths.solved_widths.linear_iter().map(|node_id| {
-    //     (node_id, TextSizePx(solved_widths.solved_widths[node_id].total()))
-    // }).collect();
-
-    // let word_positions_with_max_width = create_word_positions(&word_cache, &shaped_words, display_rects, &proper_max_widths, &inline_text_blocks);
-
-    // Get the content height of the content
-    // let content_heights = node_data.transform(|node, node_id| {
-    //     let div_width = solved_widths.solved_widths[node_id].total();
-    //     get_content_height(pipeline_id, &node_id, &node.get_node_type(), app_resources, &word_positions_no_max_width, div_width)
-    // });
-
-    let content_heights_pre = NodeDataContainer { internal: vec![None; styled_dom.node_data.len()] };
 
     // TODO: The content height is not the final height!
     let mut height_calculated_arena = height_calculated_rect_arena_from_rect_layout_arena(
@@ -1632,7 +1794,9 @@ pub fn do_the_layout_internal(
         &all_parents_btreeset,
     );
 
-    let mut x_positions = NodeDataContainer::new(vec![HorizontalSolvedPosition(0.0); styled_dom.node_data.as_ref().len()]);
+    let mut x_positions = NodeDataContainer {
+        internal: vec![HorizontalSolvedPosition(0.0); styled_dom.node_data.len()].into(),
+    };
     get_x_positions(
         &mut x_positions,
         &width_calculated_arena.as_ref(),
@@ -1645,7 +1809,9 @@ pub fn do_the_layout_internal(
         &all_parents_btreeset,
     );
 
-    let mut y_positions = NodeDataContainer::new(vec![VerticalSolvedPosition(0.0); styled_dom.node_data.as_ref().len()]);
+    let mut y_positions = NodeDataContainer {
+        internal: vec![VerticalSolvedPosition(0.0); styled_dom.node_data.as_ref().len()].into(),
+    };
     get_y_positions(
         &mut y_positions,
         &height_calculated_arena.as_ref(),
@@ -1658,7 +1824,9 @@ pub fn do_the_layout_internal(
         &all_parents_btreeset,
     );
 
-    let mut positioned_rects = NodeDataContainer { internal: vec![PositionedRectangle::default(); styled_dom.node_data.len()].into() };
+    let mut positioned_rects = NodeDataContainer {
+        internal: vec![PositionedRectangle::default(); styled_dom.node_data.len()].into()
+    };
     let nodes_that_updated_positions = all_nodes_btreeset.clone();
     let nodes_that_need_to_redraw_text = all_nodes_btreeset.clone();
 
@@ -1762,6 +1930,7 @@ fn position_nodes<'a>(
     let mut positioned_node_stack = vec![NodeId::new(0)];
     let css_property_cache = styled_dom.get_css_property_cache();
     let styled_nodes = styled_dom.styled_nodes.as_container();
+    let node_hierarchy = &styled_dom.node_hierarchy.as_container();
 
     // create the final positioned rectangles
     for ParentWithNodeDepth { depth: _, node_id } in styled_dom.non_leaf_nodes.as_ref().iter() {
@@ -1777,7 +1946,7 @@ fn position_nodes<'a>(
         let y_pos = y_positions[parent_node_id].0;
         let parent_styled_node_state = &styled_nodes[parent_node_id].state;
 
-        let parent_parent_node_id = styled_dom.node_hierarchy.as_container()[parent_node_id].parent_id().unwrap_or(NodeId::new(0));
+        let parent_parent_node_id = node_hierarchy[parent_node_id].parent_id().unwrap_or(NodeId::new(0));
         let parent_x_pos = x_positions[parent_parent_node_id].0;
         let parent_y_pos = y_positions[parent_parent_node_id].0;
         let parent_parent_width = solved_widths[parent_parent_node_id];
@@ -1839,7 +2008,7 @@ fn position_nodes<'a>(
             positioned_node_stack.push(parent_node_id);
         }
 
-        for child_node_id in parent_node_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+        for child_node_id in parent_node_id.az_children(node_hierarchy) {
 
             // copy the width and height from the parent node
             let parent_width = width;
@@ -1930,8 +2099,10 @@ fn position_nodes<'a>(
                             css_property_cache.get_justify_content(child_node_data, &child_node_id, child_styled_node_state),
                             css_property_cache.get_text_align(child_node_data, &child_node_id, child_styled_node_state),
                         );
+
                         inline_text_layout.align_children_horizontal(horz_alignment);
                         inline_text_layout.align_children_vertical_in_parent_bounds(&child_size_logical, vert_alignment);
+
                         Some((word_positions.text_layout_options.clone(), inline_text_layout))
                     }
                     #[cfg(not(feature = "text_layout"))] {
@@ -1944,7 +2115,12 @@ fn position_nodes<'a>(
                 None
             };
 
-            let child_overflow = get_overflow(&child_offsets.overflow_x, &child_offsets.overflow_y, &child_rect, &None);
+            let child_overflow = get_overflow(
+                &child_offsets.overflow_x,
+                &child_offsets.overflow_y,
+                &child_rect,
+                &None
+            );
 
             positioned_rects[child_node_id] = PositionedRectangle {
                 size: LogicalSize::new(width.total(), height.total()),
@@ -1958,7 +2134,12 @@ fn position_nodes<'a>(
         }
 
         let children_sum_rect = LayoutRect::union(children_sum_rects.into_iter());
-        let parent_overflow = get_overflow(&parent_offsets.overflow_x, &parent_offsets.overflow_y, &parent_sum_rect, &children_sum_rect);
+        let parent_overflow = get_overflow(
+            &parent_offsets.overflow_x,
+            &parent_offsets.overflow_y,
+            &parent_sum_rect,
+            &children_sum_rect
+        );
 
         // NOTE: Intentionally do not set text_layout_options,
         // otherwise this would overwrite the existing text layout options
@@ -1986,13 +2167,18 @@ fn create_word_cache<'a>(
 {
     use azul_text_layout::text_layout::split_text_into_words;
 
-    let word_map = node_data.internal.par_iter().enumerate().map(|(node_id, node)| {
+    let word_map = node_data.internal
+    .par_iter()
+    .enumerate()
+    .map(|(node_id, node)| {
         let node_id = NodeId::new(node_id);
-        match node.get_node_type() {
-            NodeType::Label(string) => Some((node_id, split_text_into_words(string.as_str()))),
+        let string = match node.get_node_type() {
+            NodeType::Label(string) => Some(string.as_str()),
             _ => None,
-        }
-    }).collect::<Vec<_>>();
+        }?;
+        Some((node_id, split_text_into_words(string)))
+    })
+    .collect::<Vec<_>>();
 
     word_map.into_iter().filter_map(|a| a).collect()
 }
@@ -2007,6 +2193,7 @@ pub fn create_shaped_words<'a>(
 
     use azul_core::app_resources::ImmediateFontId;
     use azul_text_layout::text_layout::shape_words;
+    use azul_text_layout::text_shaping::ParsedFont;
 
     let css_property_cache = styled_dom.get_css_property_cache();
     let styled_nodes = styled_dom.styled_nodes.as_container();
@@ -2018,7 +2205,9 @@ pub fn create_shaped_words<'a>(
 
         let styled_node_state = &styled_nodes[*node_id].state;
         let node_data = &node_data[*node_id];
-        let css_font_ids = css_property_cache.get_font_id_or_default(node_data, node_id, styled_node_state);
+        let css_font_ids = css_property_cache
+        .get_font_id_or_default(node_data, node_id, styled_node_state);
+
         let font_id = match app_resources.get_css_font_id(&css_font_ids) {
             Some(s) => ImmediateFontId::Resolved(*s),
             None => ImmediateFontId::Unresolved(css_font_ids),
@@ -2026,8 +2215,8 @@ pub fn create_shaped_words<'a>(
 
         let loaded_font = app_resources.get_loaded_font_mut(pipeline_id, &font_id)?;
 
-        // downcast the loaded_font.font from Box<dyn Any> to Box<azul_text_layout::text_shaping::ParsedFont>
-        let parsed_font_downcasted = loaded_font.font.downcast_mut::<azul_text_layout::text_shaping::ParsedFont>()?;
+        // downcast the loaded_font.font from Box<dyn Any> to Box<ParsedFont>
+        let parsed_font_downcasted = loaded_font.font.downcast_mut::<ParsedFont>()?;
 
         let shaped_words = shape_words(words, parsed_font_downcasted);
 
@@ -2044,29 +2233,33 @@ fn create_word_positions<'a>(
     words: &BTreeMap<NodeId, Words>,
     shaped_words: &BTreeMap<NodeId, ShapedWords>,
     styled_dom: &'a StyledDom,
-    solved_widths: &'a NodeDataContainerRef<'a, WidthCalculatedRect>,
+    solved_widths: Option<&'a NodeDataContainerRef<'a, WidthCalculatedRect>>,
 ) {
 
     use azul_text_layout::text_layout::position_words;
-    use azul_core::ui_solver::{ResolvedTextLayoutOptions, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING};
     use azul_core::app_resources::{ImmediateFontId, font_size_to_au};
+    use azul_core::ui_solver::{
+        ResolvedTextLayoutOptions, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING
+    };
 
     let css_property_cache = styled_dom.get_css_property_cache();
     let node_data_container = styled_dom.node_data.as_container();
 
     let collected =
     words
-    .par_iter() // TODO: par_iter()!
+    .par_iter()
     .filter_map(|(node_id, words)| {
 
         if !word_positions_to_generate.contains(node_id) { return None; }
         let node_data = &node_data_container[*node_id];
 
         let styled_node_state = styled_dom.get_styled_node_state(node_id);
-        let font_size = css_property_cache.get_font_size_or_default(node_data, node_id, &styled_node_state);
+        let font_size = css_property_cache
+            .get_font_size_or_default(node_data, node_id, &styled_node_state);
         let font_size_au = font_size_to_au(font_size);
         let font_size_px = font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32);
-        let css_font_ids = css_property_cache.get_font_id_or_default(node_data, node_id, &styled_node_state);
+        let css_font_ids = css_property_cache
+            .get_font_id_or_default(node_data, node_id, &styled_node_state);
 
         let font_id = match app_resources.get_css_font_id(&css_font_ids) {
             Some(s) => ImmediateFontId::Resolved(*s),
@@ -2077,18 +2270,32 @@ fn create_word_positions<'a>(
 
         let shaped_words = shaped_words.get(&node_id)?;
 
-        let text_can_overflow =  css_property_cache.get_overflow_x(node_data, node_id, &styled_node_state).unwrap_or_default().get_property_or_default().unwrap_or_default() != LayoutOverflow::Auto;
-        let letter_spacing = css_property_cache.get_letter_spacing(node_data, node_id, &styled_node_state).and_then(|ls| Some(ls.get_property()?.inner.to_pixels(DEFAULT_LETTER_SPACING)));
-        let word_spacing = css_property_cache.get_word_spacing(node_data, node_id, &styled_node_state).and_then(|ws| Some(ws.get_property()?.inner.to_pixels(DEFAULT_WORD_SPACING)));
-        let line_height = css_property_cache.get_line_height(node_data, node_id, &styled_node_state).and_then(|lh| Some(lh.get_property()?.inner.get()));
-        let tab_width = css_property_cache.get_tab_width(node_data, node_id, &styled_node_state).and_then(|tw| Some(tw.get_property()?.inner.get()));
+        let text_can_overflow =  css_property_cache
+        .get_overflow_x(node_data, node_id, &styled_node_state)
+        .unwrap_or_default().get_property_or_default().unwrap_or_default() != LayoutOverflow::Auto;
+
+        let letter_spacing = css_property_cache
+        .get_letter_spacing(node_data, node_id, &styled_node_state)
+        .and_then(|ls| Some(ls.get_property()?.inner.to_pixels(DEFAULT_LETTER_SPACING)));
+
+        let word_spacing = css_property_cache
+        .get_word_spacing(node_data, node_id, &styled_node_state)
+        .and_then(|ws| Some(ws.get_property()?.inner.to_pixels(DEFAULT_WORD_SPACING)));
+
+        let line_height = css_property_cache
+        .get_line_height(node_data, node_id, &styled_node_state)
+        .and_then(|lh| Some(lh.get_property()?.inner.get()));
+
+        let tab_width = css_property_cache
+        .get_tab_width(node_data, node_id, &styled_node_state)
+        .and_then(|tw| Some(tw.get_property()?.inner.get()));
 
         let text_layout_options = ResolvedTextLayoutOptions {
-            max_horizontal_width: if text_can_overflow {
-                Some(solved_widths[*node_id].total() as f32)
+            max_horizontal_width: solved_widths.and_then(|sw| if text_can_overflow {
+                Some(sw[*node_id].total() as f32)
             } else {
                 None
-            }.into(),
+            }).into(),
             leading: None.into(), // TODO
             holes: Vec::new().into(), // TODO
             font_size_px,
@@ -2188,8 +2395,12 @@ fn get_nodes_that_need_scroll_clip(
             } else {
                 // overflow in y, but not in x direction
                 match overflow_y {
-                    DirectionalOverflowInfo::Scroll { amount: Some(s) } | DirectionalOverflowInfo::Auto { amount: Some(s) } => {
-                        Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width.round() as isize, parent_rect.size.height.round() as isize + *s)))
+                    DirectionalOverflowInfo::Scroll { amount: Some(s) } |
+                    DirectionalOverflowInfo::Auto { amount: Some(s) } => {
+                        Some(LayoutSize::new(
+                            parent_rect.size.width.round() as isize,
+                            parent_rect.size.height.round() as isize + *s
+                        ))
                     },
                     _ => None
                 }
@@ -2198,18 +2409,27 @@ fn get_nodes_that_need_scroll_clip(
             if overflow_y.is_none() || overflow_y.is_negative() {
                 // overflow in x, but not in y direction
                 match overflow_x {
-                    DirectionalOverflowInfo::Scroll { amount: Some(s) } | DirectionalOverflowInfo::Auto { amount: Some(s) } => {
-                        Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width.round() as isize + *s, parent_rect.size.height.round() as isize)))
+                    DirectionalOverflowInfo::Scroll { amount: Some(s) } |
+                    DirectionalOverflowInfo::Auto { amount: Some(s) } => {
+                        Some(LayoutSize::new(
+                            parent_rect.size.width.round() as isize + *s,
+                            parent_rect.size.height.round() as isize
+                        ))
                     },
                     _ => None
                 }
             } else {
                 // overflow in x and y direction
                 match overflow_x {
-                    DirectionalOverflowInfo::Scroll { amount: Some(q) } | DirectionalOverflowInfo::Auto { amount: Some(q) } => {
+                    DirectionalOverflowInfo::Scroll { amount: Some(q) } |
+                    DirectionalOverflowInfo::Auto { amount: Some(q) } => {
                         match overflow_y {
-                            DirectionalOverflowInfo::Scroll { amount: Some(s) } | DirectionalOverflowInfo::Auto { amount: Some(s) } => {
-                                Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width.round() as isize + *q, parent_rect.size.height.round() as isize + *s)))
+                            DirectionalOverflowInfo::Scroll { amount: Some(s) } |
+                            DirectionalOverflowInfo::Auto { amount: Some(s) } => {
+                                Some(LayoutSize::new(
+                                    parent_rect.size.width.round() as isize + *q,
+                                    parent_rect.size.height.round() as isize + *s
+                                ))
                             },
                             _ => None
                         }
@@ -2220,7 +2440,7 @@ fn get_nodes_that_need_scroll_clip(
         };
 
         let scroll_rect = match scroll_rect {
-            Some(s) => s,
+            Some(s) => LayoutRect::new(LayoutPoint::zero(), s),
             None => continue,
         };
 
@@ -2231,7 +2451,11 @@ fn get_nodes_that_need_scroll_clip(
         let parent_external_scroll_id  = ExternalScrollId(parent_dom_hash.0, pipeline_id);
 
         // Create a unique scroll tag for hit-testing
-        let scroll_tag_id = match display_list_rects.get(parent_id).and_then(|node| node.tag_id.into_option().map(|t| t.into_crate_internal())) {
+        let existing_tag = display_list_rects
+        .get(parent_id)
+        .and_then(|node| node.tag_id.into_option().map(|t| t.into_crate_internal()));
+
+        let scroll_tag_id = match existing_tag {
             Some(existing_tag) => ScrollTagId(existing_tag),
             None => {
                 if let Some(existing_overflowing_scroll_node) = scrolled_nodes.overflowing_nodes.get(node_id) {
@@ -2315,11 +2539,13 @@ pub fn do_the_relayout(
 
     // update the precalculated properties (position, flex-grow, flex-direction, justify-content)
     nodes_to_relayout.keys().for_each(|node_id| {
+
         let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[*node_id].state;
         let css_property_cache = layout_result.styled_dom.get_css_property_cache();
         let node_data = &layout_result.styled_dom.node_data.as_container()[*node_id];
 
-        let new_layout_position = css_property_cache.get_position(node_data, node_id, styled_node_state).and_then(|p| p.get_property().copied()).unwrap_or_default();
+        let new_layout_position = css_property_cache.get_position(node_data, node_id, styled_node_state)
+        .and_then(|p| p.get_property().copied()).unwrap_or_default();
         layout_result.layout_positions.as_ref_mut()[*node_id] = new_layout_position;
 
         let new_flex_grow = css_property_cache.get_flex_grow(node_data, node_id, styled_node_state)
@@ -2328,10 +2554,12 @@ pub fn do_the_relayout(
             .unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
         layout_result.layout_flex_grows.as_ref_mut()[*node_id] = new_flex_grow;
 
-        let new_flex_direction = css_property_cache.get_flex_direction(node_data, node_id, styled_node_state).and_then(|p| p.get_property().copied()).unwrap_or_default();
+        let new_flex_direction = css_property_cache.get_flex_direction(node_data, node_id, styled_node_state)
+        .and_then(|p| p.get_property().copied()).unwrap_or_default();
         layout_result.layout_flex_directions.as_ref_mut()[*node_id] = new_flex_direction;
 
-        let new_justify_content = css_property_cache.get_justify_content(node_data, node_id, styled_node_state).and_then(|p| p.get_property().copied()).unwrap_or_default();
+        let new_justify_content = css_property_cache.get_justify_content(node_data, node_id, styled_node_state)
+        .and_then(|p| p.get_property().copied()).unwrap_or_default();
         layout_result.layout_justify_contents.as_ref_mut()[*node_id] = new_justify_content;
     });
 
@@ -2355,7 +2583,8 @@ pub fn do_the_relayout(
     for ParentWithNodeDepth { depth: _, node_id } in layout_result.styled_dom.non_leaf_nodes.iter() {
 
         let node_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
-        let parent_id = layout_result.styled_dom.node_hierarchy.as_container()[node_id].parent_id().unwrap_or(layout_result.styled_dom.root.into_crate_internal().unwrap());
+        let parent_id = layout_result.styled_dom.node_hierarchy.as_container()[node_id].parent_id()
+        .unwrap_or(layout_result.styled_dom.root.into_crate_internal().unwrap());
         let node_data = &layout_result.styled_dom.node_data.as_container()[node_id];
 
         let changes_for_this_node = match nodes_to_relayout.get(&node_id) {
@@ -2380,15 +2609,23 @@ pub fn do_the_relayout(
             let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[node_id].state;
             let wh_config = WhConfig {
                 width: WidthConfig {
-                    exact: css_property_cache.get_width(node_data, &node_id, styled_node_state).and_then(|p| p.get_property().copied()),
-                    max: css_property_cache.get_max_width(node_data, &node_id, styled_node_state).and_then(|p| p.get_property().copied()),
-                    min: css_property_cache.get_min_width(node_data, &node_id, styled_node_state).and_then(|p| p.get_property().copied()),
+                    exact: css_property_cache.get_width(node_data, &node_id, styled_node_state)
+                    .and_then(|p| p.get_property().copied()),
+                    max: css_property_cache.get_max_width(node_data, &node_id, styled_node_state)
+                    .and_then(|p| p.get_property().copied()),
+                    min: css_property_cache.get_min_width(node_data, &node_id, styled_node_state)
+                    .and_then(|p| p.get_property().copied()),
                 },
                 height: HeightConfig::default(),
             };
 
             let parent_width = layout_result.preferred_widths.as_ref()[parent_id].clone().unwrap_or(root_size.width as f32);
-            let new_preferred_width = determine_preferred_width(&wh_config, layout_result.preferred_widths.as_ref()[node_id], parent_width);
+            let new_preferred_width = determine_preferred_width(
+                &wh_config,
+                layout_result.preferred_widths.as_ref()[node_id],
+                parent_width
+            );
+
             if new_preferred_width != solved_width_layout.preferred_width {
                 preferred_width_changed = (true, solved_width_layout.preferred_width.min_needed_space().unwrap_or(0.0));
                 solved_width_layout.preferred_width = new_preferred_width;
@@ -2402,13 +2639,21 @@ pub fn do_the_relayout(
             let wh_config = WhConfig {
                 width: WidthConfig::default(),
                 height: HeightConfig {
-                    exact: css_property_cache.get_height(node_data, &node_id, &styled_node_state).and_then(|p| p.get_property().copied()),
-                    max: css_property_cache.get_max_height(node_data, &node_id, &styled_node_state).and_then(|p| p.get_property().copied()),
-                    min: css_property_cache.get_min_height(node_data, &node_id, &styled_node_state).and_then(|p| p.get_property().copied()),
+                    exact: css_property_cache.get_height(node_data, &node_id, &styled_node_state)
+                    .and_then(|p| p.get_property().copied()),
+                    max: css_property_cache.get_max_height(node_data, &node_id, &styled_node_state)
+                    .and_then(|p| p.get_property().copied()),
+                    min: css_property_cache.get_min_height(node_data, &node_id, &styled_node_state)
+                    .and_then(|p| p.get_property().copied()),
                 },
             };
             let parent_height = layout_result.preferred_heights.as_ref()[parent_id].clone().unwrap_or(root_size.height as f32);
-            let new_preferred_height = determine_preferred_height(&wh_config, layout_result.preferred_heights.as_ref()[node_id], parent_height);
+            let new_preferred_height = determine_preferred_height(
+                &wh_config,
+                layout_result.preferred_heights.as_ref()[node_id],
+                parent_height
+            );
+
             if new_preferred_height != solved_height_layout.preferred_height {
                 preferred_height_changed = (true, solved_height_layout.preferred_height.min_needed_space().unwrap_or(0.0));
                 solved_height_layout.preferred_height = new_preferred_height;
@@ -2520,7 +2765,8 @@ pub fn do_the_relayout(
 
         if padding_y_changed {
             // need to recalc the heights of all children
-            // need to bubble the height of all current node children to the current node min_inner_size_px
+            // need to bubble the height of all current node children to the
+            // current node min_inner_size_px
             parents_that_need_to_recalc_height_of_children.insert(node_id);
             parents_that_need_to_reposition_children_y.insert(node_id);
         }
@@ -2682,7 +2928,7 @@ pub fn do_the_relayout(
         &layout_result.words_cache,
         &layout_result.shaped_words_cache,
         &layout_result.styled_dom,
-        &layout_result.width_calculated_rects.as_ref(),
+        Some(&layout_result.width_calculated_rects.as_ref()),
     );
 
     // determine which nodes changed their size and return

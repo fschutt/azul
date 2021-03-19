@@ -269,6 +269,13 @@ impl LayoutSize {
     pub const fn new(width: isize, height: isize) -> Self { Self { width, height } }
     #[inline(always)]
     pub const fn zero() -> Self { Self::new(0, 0) }
+    #[inline]
+    pub fn round(width: f32, height: f32) -> Self {
+        Self {
+            width: libm::roundf(width) as isize,
+            height: libm::roundf(height) as isize
+        }
+    }
 }
 
 /// Only used for calculations: Point coordinate (x, y) in layout space.
