@@ -208,14 +208,14 @@ impl TableViewState {
         ];
 
         // Row numbers (first column - laid out vertical) - "1", "2", "3"
-        let row_numbers = (rows.start..rows.end.saturating_sub(1)).map(|row_idx| {
+        let row_numbers = (rows.start..rows.end).map(|row_idx| {
 
             static ROW_NUMBERS_STYLE: &[NodeDataInlineCssProperty] = &[
                 Normal(CssProperty::font_size(StyleFontSize::const_px(14))),
                 Normal(CssProperty::flex_direction(LayoutFlexDirection::Row)),
                 Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
                 Normal(CssProperty::align_items(LayoutAlignItems::Center)),
-                Normal(CssProperty::min_height(LayoutMinHeight::const_px(20))),
+                Normal(CssProperty::max_height(LayoutMaxHeight::const_px(20))),
                 Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
                 Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
                 Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 })),
@@ -234,7 +234,6 @@ impl TableViewState {
         static ROW_NUMBER_WRAPPER_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
             Normal(CssProperty::max_width(LayoutMaxWidth::const_px(30))),
-            Normal(CssProperty::margin_top(LayoutMarginTop::const_px(5))),
         ];
         static ROW_NUMBERS_WRAPPER_CLASS: &[IdOrClass] = &[
             IdOrClass::Class(AzString::from_const_str("az-table-row-numbers-wrapper"))
@@ -244,7 +243,7 @@ impl TableViewState {
         let row_number_wrapper = Dom::div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(ROW_NUMBERS_WRAPPER_CLASS))
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROW_NUMBER_WRAPPER_STYLE))
-        .with_children(AzDomVec::from(vec![row_numbers]));
+        .with_children(AzDomVec::from(vec![top_left_empty_rect, row_numbers]));
 
         static ACTIVE_SELECTION_HANDLE_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::position(LayoutPosition::Absolute)),
@@ -309,9 +308,9 @@ impl TableViewState {
         .with_ids_and_classes(IdOrClassVec::from_const_slice(ACTIVE_SELECTION_CLASS))
         .with_children(AzDomVec::from(vec![current_active_selection_handle]));
 
-        let columns_table_container = columns.map(|col_idx| {
+        let mut column_doms = columns.map(|col_idx| {
 
-            static COLUMN_NAMES_WRAPPER_STYLE: &[NodeDataInlineCssProperty] = &[
+            static COLUMN_NAME_STYLE: &[NodeDataInlineCssProperty] = &[
                 Normal(CssProperty::height(LayoutHeight::const_px(20))),
                 Normal(CssProperty::font_family(SANS_SERIF_FONT_FAMILY)),
                 Normal(CssProperty::text_color(StyleTextColor { inner: COLOR_2D2D2D })),
@@ -319,12 +318,13 @@ impl TableViewState {
                 Normal(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(COLOR_E6E6E6_BACKGROUND))),
                 Normal(CssProperty::flex_direction(LayoutFlexDirection::Row)),
                 Normal(CssProperty::align_items(LayoutAlignItems::Center)),
+                Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
                 Normal(CssProperty::border_right_width(LayoutBorderRightWidth::const_px(1))),
                 Normal(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
                 Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 })),
                 Normal(CssProperty::box_shadow_bottom(SHADOW)),
             ];
-            static COLUMN_NAMES_WRAPPER_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-column-names-wrapper"))];
+            static COLUMN_NAME_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-column-name"))];
 
             static ROWS_IN_COLUMN_STYLE: &[NodeDataInlineCssProperty] = &[
                 Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
@@ -338,8 +338,8 @@ impl TableViewState {
             let s = unsafe { ::core::str::from_utf8_unchecked(slice) };
 
             let column_names = Dom::label(s.to_string())
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(COLUMN_NAMES_WRAPPER_CLASS))
-            .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMN_NAMES_WRAPPER_STYLE));
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(COLUMN_NAME_CLASS))
+            .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMN_NAME_STYLE));
 
             // rows in this column, laid out vertically
             let rows_in_this_column = (rows.start..rows.end).map(|row_idx| {
@@ -352,6 +352,8 @@ impl TableViewState {
                     static CELL_STYLE: &[NodeDataInlineCssProperty] = &[
                         Normal(CssProperty::align_items(LayoutAlignItems::FlexStart)),
                         Normal(CssProperty::height(LayoutHeight::const_px(20))),
+                        Normal(CssProperty::min_height(LayoutMinHeight::const_px(20))),
+                        Normal(CssProperty::max_height(LayoutMaxHeight::const_px(20))),
                         Normal(CssProperty::font_size(StyleFontSize::const_px(14))),
                         Normal(CssProperty::text_align(StyleTextAlignmentHorz::Left)),
                         Normal(CssProperty::text_color(StyleTextColor { inner: COLOR_BLACK })),
@@ -370,24 +372,32 @@ impl TableViewState {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ROWS_IN_COLUMN_CLASS))
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROWS_IN_COLUMN_STYLE));
 
-            static COLUMN_NAME_STYLE: &[NodeDataInlineCssProperty] = &[
+            static COLUMN_STYLE: &[NodeDataInlineCssProperty] = &[
                 Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
                 Normal(CssProperty::min_width(LayoutMinWidth::const_px(100))),
+                Normal(CssProperty::max_width(LayoutMaxWidth::const_px(100))),
+                Normal(CssProperty::width(LayoutWidth::const_px(100))),
                 Normal(CssProperty::border_right_width(LayoutBorderRightWidth::const_px(1))),
                 Normal(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
                 Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_D1D1D1 })),
             ];
-            static COLUMN_NAME_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-column-name"))];
+            static COLUMN_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-column"))];
 
             // Column name
             Dom::div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(COLUMN_NAME_CLASS))
-            .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMN_NAME_STYLE))
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(COLUMN_CLASS))
+            .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMN_STYLE))
             .with_children(AzDomVec::from(vec![column_names, rows_in_this_column]))
         })
-        .collect::<Dom>()
+        .collect::<Vec<Dom>>();
+
+        column_doms.push(current_active_selection);
+
+        let columns_table_container = Dom::div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(COLUMNS_TABLE_CONTAINER_CLASS))
-        .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMNS_TABLE_CONTAINER_STYLE));
+        .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMNS_TABLE_CONTAINER_STYLE))
+        .with_children(column_doms.into());
+
 
         static COLUMNS_TABLE_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::flex_direction(LayoutFlexDirection::Row)),
@@ -405,7 +415,7 @@ impl TableViewState {
         let dom = Dom::div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(IFRAME_DOM_CONTAINER_CLASS))
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(IFRAME_DOM_CONTAINER_STYLE))
-        .with_children(AzDomVec::from(vec![row_number_wrapper, columns_table_container, current_active_selection]));
+        .with_children(AzDomVec::from(vec![row_number_wrapper, columns_table_container]));
 
         dom
     }

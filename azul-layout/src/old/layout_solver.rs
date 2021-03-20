@@ -1035,6 +1035,7 @@ fn $fn_name<'a>(
             Some(s) => s,
             None => continue,
         };
+
         if !parents_to_solve.contains(&parent_id) {
             continue;
         }
@@ -1052,13 +1053,25 @@ fn $fn_name<'a>(
         let parent_x_position = arena.as_ref()[parent_id].0 + parent_padding_left;
         let parent_direction = layout_directions[parent_id];
 
+        if parent_id == NodeId::new(34) {
+            println!("{:?} - node 34 (column container): parent x position: {:?}", stringify!($fn_name), parent_x_position);
+        } else if parent_id == NodeId::new(35) {
+            println!("{:?} - node 35 (column A): parent x position: {:?}", stringify!($fn_name), parent_x_position);
+        } else if parent_id == NodeId::new(68) {
+            println!("{:?} - node 68 (column B): parent x position: {:?}", stringify!($fn_name), parent_x_position);
+        } else if parent_id == NodeId::new(101) {
+            println!("{:?} - node 101 (column C): parent x position: {:?}", stringify!($fn_name), parent_x_position);
+        } else if parent_id == NodeId::new(3) {
+            println!("{:?} - node 3 (row number wrapper): parent x position: {:?}", stringify!($fn_name), parent_x_position);
+        }
+
         let parent_inner_width = {
             parent_node.total() - (parent_padding_left + parent_padding_right)
         };
 
         if parent_direction.get_axis() == LayoutAxis::$axis {
 
-            // Along main axis: Take X of parent
+            // Along main axis: Increase X with width of current element
             let main_axis_alignment = layout_justify_contents[parent_id];
             let mut sum_x_of_children_so_far = 0.0;
 
@@ -1091,6 +1104,9 @@ fn $fn_name<'a>(
                         &sum_x_of_children_so_far,
                         node_hierarchy,
                     );
+                    if parent_id == NodeId::new(34) {
+                        println!("child id: {:?} - setting x = {:?}, x_so_far = {:?}", child_id, x, sum_x_of_children_so_far);
+                    }
                     arena.as_ref_mut()[child_id].0 = x;
                     sum_x_of_children_so_far += x_to_add;
                 }
@@ -1113,7 +1129,7 @@ fn $fn_name<'a>(
             }
 
         } else {
-            // Along cross axis: Increase X with width of current element
+            // Along cross axis: Take X of parent
 
             if parent_direction.is_reverse() {
                 for child_id in parent_id.az_reverse_children(node_hierarchy) {
