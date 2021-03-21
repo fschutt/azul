@@ -1330,7 +1330,6 @@ fn push_display_list_msg(
 
     let mut rect_spatial_id = parent_spatial_id;
 
-    /*
     if should_push_reference_frame {
 
         use webrender::api::{
@@ -1353,7 +1352,6 @@ fn push_display_list_msg(
             },
         );
     }
-    */
 
     if msg_position.is_positioned() {
         positioned_items.push((rect_spatial_id, parent_clip_id));
@@ -1482,7 +1480,7 @@ fn push_scroll_frame(
     */
 
     for child in scroll_frame.frame.children {
-        push_display_list_msg(builder, child, scroll_frame_clip_info.spatial_id, scroll_frame_clip_info.clip_id, positioned_items);
+        push_display_list_msg(builder, child, parent_spatial_id, hit_testing_clip_id, positioned_items);
     }
 }
 
