@@ -544,6 +544,7 @@ pub struct PositionedRectangle {
     pub margin: ResolvedOffsets,
     /// Border widths of the rectangle
     pub border_widths: ResolvedOffsets,
+    // TODO: box_shadow_widths
     /// If this is an inline rectangle, resolve the %-based font sizes
     /// and store them here.
     pub resolved_text_layout_options: Option<(ResolvedTextLayoutOptions, InlineTextLayout)>,
@@ -565,83 +566,6 @@ impl Default for PositionedRectangle {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
-pub struct OverflowInfo {
-    pub overflow_x: DirectionalOverflowInfo,
-    pub overflow_y: DirectionalOverflowInfo,
-}
-
-// stores how much the children overflow the parent in the given direction
-// if amount is negative, the children do not overflow the parent
-// if the amount is set to None, that means there are no children for this node, so no overflow can be calculated
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub enum DirectionalOverflowInfo {
-    Scroll { amount: Option<isize> },
-    Auto { amount: Option<isize> },
-    Hidden { amount: Option<isize> },
-    Visible { amount: Option<isize> },
-}
-
-impl Default for DirectionalOverflowInfo {
-    fn default() -> DirectionalOverflowInfo {
-        DirectionalOverflowInfo::Auto { amount: None }
-    }
-}
-
-impl DirectionalOverflowInfo {
-
-    #[inline]
-    pub fn get_amount(&self) -> Option<isize> {
-        match self {
-            DirectionalOverflowInfo::Scroll { amount: Some(s) } |
-            DirectionalOverflowInfo::Auto { amount: Some(s) } |
-            DirectionalOverflowInfo::Hidden { amount: Some(s) } |
-            DirectionalOverflowInfo::Visible { amount: Some(s) } => Some(*s),
-            _ => None
-        }
-    }
-
-    #[inline]
-    pub fn is_negative(&self) -> bool {
-        match self {
-            DirectionalOverflowInfo::Scroll { amount: Some(s) } |
-            DirectionalOverflowInfo::Auto { amount: Some(s) } |
-            DirectionalOverflowInfo::Hidden { amount: Some(s) } |
-            DirectionalOverflowInfo::Visible { amount: Some(s) } => { *s < 0_isize },
-            _ => true // no overflow = no scrollbar
-        }
-    }
-
-    #[inline]
-    pub fn is_none(&self) -> bool {
-        match self {
-            DirectionalOverflowInfo::Scroll { amount: None } |
-            DirectionalOverflowInfo::Auto { amount: None } |
-            DirectionalOverflowInfo::Hidden { amount: None } |
-            DirectionalOverflowInfo::Visible { amount: None } => true,
-            _ => false
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub enum PositionInfo {
-    Static { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
-    Fixed { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
-    Absolute { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
-    Relative { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
-}
-
-impl PositionInfo {
-    pub fn is_positioned(&self) -> bool {
-        match self {
-            PositionInfo::Static { .. } => false,
-            PositionInfo::Fixed { .. } => true,
-            PositionInfo::Absolute { .. } => true,
-            PositionInfo::Relative { .. } => true,
-        }
-    }
-}
 impl PositionedRectangle {
 
     #[inline]
@@ -758,6 +682,94 @@ impl PositionedRectangle {
         self.margin.top +
         self.padding.top +
         self.border_widths.top
+    }
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+pub struct OverflowInfo {
+    pub overflow_x: DirectionalOverflowInfo,
+    pub overflow_y: DirectionalOverflowInfo,
+}
+
+// stores how much the children overflow the parent in the given direction
+// if amount is negative, the children do not overflow the parent
+// if the amount is set to None, that means there are no children for this node, so no overflow can be calculated
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub enum DirectionalOverflowInfo {
+    Scroll { amount: Option<isize> },
+    Auto { amount: Option<isize> },
+    Hidden { amount: Option<isize> },
+    Visible { amount: Option<isize> },
+}
+
+impl Default for DirectionalOverflowInfo {
+    fn default() -> DirectionalOverflowInfo {
+        DirectionalOverflowInfo::Auto { amount: None }
+    }
+}
+
+impl DirectionalOverflowInfo {
+
+    #[inline]
+    pub fn get_amount(&self) -> Option<isize> {
+        match self {
+            DirectionalOverflowInfo::Scroll { amount: Some(s) } |
+            DirectionalOverflowInfo::Auto { amount: Some(s) } |
+            DirectionalOverflowInfo::Hidden { amount: Some(s) } |
+            DirectionalOverflowInfo::Visible { amount: Some(s) } => Some(*s),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn is_negative(&self) -> bool {
+        match self {
+            DirectionalOverflowInfo::Scroll { amount: Some(s) } |
+            DirectionalOverflowInfo::Auto { amount: Some(s) } |
+            DirectionalOverflowInfo::Hidden { amount: Some(s) } |
+            DirectionalOverflowInfo::Visible { amount: Some(s) } => { *s < 0_isize },
+            _ => true // no overflow = no scrollbar
+        }
+    }
+
+    #[inline]
+    pub fn is_none(&self) -> bool {
+        match self {
+            DirectionalOverflowInfo::Scroll { amount: None } |
+            DirectionalOverflowInfo::Auto { amount: None } |
+            DirectionalOverflowInfo::Hidden { amount: None } |
+            DirectionalOverflowInfo::Visible { amount: None } => true,
+            _ => false
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub enum PositionInfo {
+    Static { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+    Fixed { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+    Absolute { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+    Relative { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+}
+
+impl PositionInfo {
+    #[inline]
+    pub fn is_positioned(&self) -> bool {
+        match self {
+            PositionInfo::Static { .. } => false,
+            PositionInfo::Fixed { .. } => true,
+            PositionInfo::Absolute { .. } => true,
+            PositionInfo::Relative { .. } => true,
+        }
+    }
+    #[inline]
+    pub fn get_relative_offset(&self) -> (f32, f32) {
+        match self {
+            PositionInfo::Static { x_offset, y_offset, .. } |
+            PositionInfo::Fixed { x_offset, y_offset, .. } |
+            PositionInfo::Absolute { x_offset, y_offset, .. } |
+            PositionInfo::Relative { x_offset, y_offset, .. } => (*x_offset, *y_offset)
+        }
     }
 }
 

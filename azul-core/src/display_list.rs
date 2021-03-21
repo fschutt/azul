@@ -121,6 +121,14 @@ impl DisplayListMsg {
         }
     }
 
+    pub fn has_no_children(&self) -> bool {
+        use self::DisplayListMsg::*;
+        match self {
+            Frame(f) => { f.children.is_empty() },
+            ScrollFrame(sf) => { sf.frame.children.is_empty() },
+        }
+    }
+
     pub fn push_content(&mut self, content: LayoutRectContent) {
         use self::DisplayListMsg::*;
         match self {
