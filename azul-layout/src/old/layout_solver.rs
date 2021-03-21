@@ -121,77 +121,34 @@ macro_rules! determine_preferred {
     ///
     /// For example, if you have an image, the `preferred_inner_width` is the images width,
     /// if the node type is an text, the `preferred_inner_width` is the text height.
-    fn $fn_name(config: &WhConfig, preferred_inner_width: Option<f32>, parent_width: f32) -> WhConstraint {
+    fn $fn_name(config: &WhConfig, preferred_width: Option<f32>, parent_width: f32) -> WhConstraint {
 
-        let mut width = config.$width.exact.as_ref().map(|x| x.inner.to_pixels(parent_width).max(0.0));
+        let width     = config.$width.exact.as_ref().map(|x| x.inner.to_pixels(parent_width).max(0.0));
         let min_width = config.$width.min.as_ref().map(|x| x.inner.to_pixels(parent_width).max(0.0));
         let max_width = config.$width.max.as_ref().map(|x| x.inner.to_pixels(parent_width).max(0.0));
 
-        // TODO: correct for width / height less than 0 - "negative" width is impossible!
-
-        let (absolute_min, absolute_max) = {
-            if let (Some(min), Some(max)) = (min_width, max_width) {
-                if min_width < max_width {
-                    (Some(min), Some(max))
-                } else {
-                    // min-width > max_width: max_width wins
-                    (Some(max), Some(max))
-                }
-            } else {
-                (min_width, max_width)
-            }
-        };
-
-        // We only need to correct the width if the preferred width is in the range
-        // between min & max and the width isn't already specified as a style
-        if let Some(preferred_width) = preferred_inner_width {
-            if width.is_none() &&
-               preferred_width > absolute_min.unwrap_or(0.0) &&
-               preferred_width < absolute_max.unwrap_or(f32::MAX)
-            {
-                width = Some(preferred_width);
-            }
-        };
-
         if let Some(width) = width {
-            if let Some(max_width) = absolute_max {
-                if let Some(min_width) = absolute_min {
-                    if min_width < width && width < max_width {
-                        // normal: min_width < width < max_width
-                        WhConstraint::EqualTo(width)
-                    } else if width > max_width {
-                        WhConstraint::EqualTo(max_width)
-                    } else if width < min_width {
-                        WhConstraint::EqualTo(min_width)
-                    } else {
-                        WhConstraint::Unconstrained /* unreachable */
-                    }
-                } else {
-                    // width & max_width
-                    WhConstraint::EqualTo(width.min(max_width).max(0.0))
-                }
-            } else if let Some(min_width) = absolute_min {
-                // no max width, only width & min_width
-                WhConstraint::EqualTo(width.max(min_width).max(0.0))
-            } else {
-                // no min-width or max-width
-                WhConstraint::EqualTo(width)
-            }
+            WhConstraint::EqualTo(
+                width
+                .min(max_width.unwrap_or(f32::MAX))
+                .max(min_width.unwrap_or(0.0))
+            )
         } else {
             // no width, only min_width and max_width
-            if let Some(max_width) = absolute_max {
-                if let Some(min_width) = absolute_min {
-                    WhConstraint::Between(min_width, max_width.max(0.0))
-                } else {
-                    // TODO: check sign positive on max_width!
-                    WhConstraint::Between(0.0, max_width.max(0.0))
-                }
+            if let Some(max_width) = max_width {
+                WhConstraint::Between(
+                    min_width.unwrap_or(0.0)
+                       .max(preferred_width.unwrap_or(0.0))
+                       .min(max_width.min(f32::MAX)),
+                    max_width.max(0.0)
+                )
             } else {
-                if let Some(min_width) = absolute_min {
-                    if min_width <= parent_width {
-                        WhConstraint::Between(min_width, parent_width)
+                // no width or max_width, only min_width
+                if let Some(min_width) = min_width {
+                    if min_width.max(preferred_width.unwrap_or(0.0)) < parent_width.max(0.0) {
+                        WhConstraint::Between(min_width.max(preferred_width.unwrap_or(0.0)), parent_width.max(0.0))
                     } else {
-                        WhConstraint::EqualTo(min_width)
+                        WhConstraint::EqualTo(min_width.max(preferred_width.unwrap_or(0.0)))
                     }
                 } else {
                     // no width, min_width or max_width
@@ -1053,18 +1010,6 @@ fn $fn_name<'a>(
         let parent_x_position = arena.as_ref()[parent_id].0 + parent_padding_left;
         let parent_direction = layout_directions[parent_id];
 
-        if parent_id == NodeId::new(34) {
-            println!("{:?} - node 34 (column container): parent x position: {:?}", stringify!($fn_name), parent_x_position);
-        } else if parent_id == NodeId::new(35) {
-            println!("{:?} - node 35 (column A): parent x position: {:?}", stringify!($fn_name), parent_x_position);
-        } else if parent_id == NodeId::new(68) {
-            println!("{:?} - node 68 (column B): parent x position: {:?}", stringify!($fn_name), parent_x_position);
-        } else if parent_id == NodeId::new(101) {
-            println!("{:?} - node 101 (column C): parent x position: {:?}", stringify!($fn_name), parent_x_position);
-        } else if parent_id == NodeId::new(3) {
-            println!("{:?} - node 3 (row number wrapper): parent x position: {:?}", stringify!($fn_name), parent_x_position);
-        }
-
         let parent_inner_width = {
             parent_node.total() - (parent_padding_left + parent_padding_right)
         };
@@ -1104,9 +1049,6 @@ fn $fn_name<'a>(
                         &sum_x_of_children_so_far,
                         node_hierarchy,
                     );
-                    if parent_id == NodeId::new(34) {
-                        println!("child id: {:?} - setting x = {:?}, x_so_far = {:?}", child_id, x, sum_x_of_children_so_far);
-                    }
                     arena.as_ref_mut()[child_id].0 = x;
                     sum_x_of_children_so_far += x_to_add;
                 }
@@ -1964,6 +1906,35 @@ fn position_nodes<'a>(
     let styled_nodes = styled_dom.styled_nodes.as_container();
     let node_hierarchy = &styled_dom.node_hierarchy.as_container();
 
+    for ParentWithNodeDepth { depth, node_id } in styled_dom.non_leaf_nodes.as_ref().iter() {
+
+        let parent_node_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
+        let tabs = "    ".repeat(*depth);
+        let width = solved_widths[parent_node_id];
+        let height = solved_heights[parent_node_id];
+        let x_pos = x_positions[parent_node_id].0;
+        let y_pos = y_positions[parent_node_id].0;
+
+        println!("{}parent {}: {}x{} @ ({}, {}) (intrinsic={}x{}, flex_grow={}x{})",
+                 tabs, parent_node_id, width.total(), height.total(), x_pos, y_pos,
+                 width.min_inner_size_px,height.min_inner_size_px, width.flex_grow_px, height.flex_grow_px
+        );
+
+        for child_id in parent_node_id.az_children(node_hierarchy) {
+
+            let tabs = "    ".repeat(*depth + 1);
+            let width = solved_widths[child_id];
+            let height = solved_heights[child_id];
+            let x_pos = x_positions[child_id].0;
+            let y_pos = y_positions[child_id].0;
+
+            println!("{}child {}: {}x{} @ ({}, {}) width: intrinsic={}x{}, flex_grow={}x{})",
+                     tabs, child_id, width.total(), height.total(), x_pos, y_pos,
+                     width.min_inner_size_px,height.min_inner_size_px, width.flex_grow_px, height.flex_grow_px
+            );
+        }
+    }
+
     // create the final positioned rectangles
     for ParentWithNodeDepth { depth: _, node_id } in styled_dom.non_leaf_nodes.as_ref().iter() {
 
@@ -2119,12 +2090,6 @@ fn position_nodes<'a>(
 
                         let mut inline_text_layout = InlineText { words, shaped_words }
                         .get_text_layout(pipeline_id, child_node_id, &word_positions.text_layout_options);
-
-                        if words.internal_str.as_str() == "1" {
-                            println!("\"1\": inline_text_layout: {:#?}", inline_text_layout);
-                        } else if words.internal_str.as_str() == "5" {
-                            println!("\"5\": inline_text_layout: {:#?}", inline_text_layout);
-                        }
 
                         let (horz_alignment, vert_alignment) = determine_text_alignment(
                             css_property_cache.get_align_items(child_node_data, &child_node_id, child_styled_node_state),

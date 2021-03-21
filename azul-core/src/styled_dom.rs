@@ -1625,20 +1625,7 @@ impl StyledDom {
             }
         }
 
-        format!("
-<html>
-    <head>
-    <style>
-        body, html {{ width: 100%; height: 100%; box-sizing:border-box; margin: 0px; padding: 0px; display: flex; }}
-        body * {{ box-sizing:border-box; margin: 0px; padding: 0px; display: flex; width: 100%; height: 100%; flex-direction: column; }}
-    </style>
-    {}
-    </head>
-<body>
-{}
-{}
-</body>
-        ", custom_head, output, custom_body)
+        format!(include_str!("./default.html"), custom_head = custom_head, output = output, custom_body = custom_body)
     }
 
     #[cfg(feature = "multithreading")]

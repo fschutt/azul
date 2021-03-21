@@ -182,7 +182,9 @@ impl TableViewState {
         };
 
         static TOP_LEFT_EMPTY_RECT_STYLE: &[NodeDataInlineCssProperty] = &[
+            Normal(CssProperty::min_height(LayoutMinHeight::const_px(20))),
             Normal(CssProperty::height(LayoutHeight::const_px(20))),
+            Normal(CssProperty::max_height(LayoutMaxHeight::const_px(20))),
             Normal(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(COLOR_E6E6E6_BACKGROUND))),
             Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 })),
             Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 })),
@@ -215,12 +217,16 @@ impl TableViewState {
                 Normal(CssProperty::flex_direction(LayoutFlexDirection::Row)),
                 Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
                 Normal(CssProperty::align_items(LayoutAlignItems::Center)),
+                Normal(CssProperty::min_height(LayoutMinHeight::const_px(20))),
+                Normal(CssProperty::height(LayoutHeight::const_px(20))),
                 Normal(CssProperty::max_height(LayoutMaxHeight::const_px(20))),
                 Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
                 Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
                 Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 })),
             ];
-            static ROW_NUMBERS_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-row-numbers"))];
+            static ROW_NUMBERS_CLASS: &[IdOrClass] = &[
+                IdOrClass::Class(AzString::from_const_str("az-table-row-numbers"))
+            ];
 
             // NOTE: to_string() heap allocation is unavoidable
             NodeData::label((row_idx + 1).to_string())
@@ -234,6 +240,8 @@ impl TableViewState {
         static ROW_NUMBER_WRAPPER_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
             Normal(CssProperty::max_width(LayoutMaxWidth::const_px(30))),
+            Normal(CssProperty::width(LayoutWidth::const_px(30))),
+            Normal(CssProperty::min_width(LayoutMinWidth::const_px(30))),
         ];
         static ROW_NUMBERS_WRAPPER_CLASS: &[IdOrClass] = &[
             IdOrClass::Class(AzString::from_const_str("az-table-row-numbers-wrapper"))
