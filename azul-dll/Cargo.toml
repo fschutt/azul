@@ -20,7 +20,7 @@ edition = "2018"
 [lib]
 name = "azul"
 edition = "2018"
-crate-type = ["cdylib", "staticlib", "rlib"]
+crate-type = ["cdylib"]
 doc = false
 
 [profile.dev]
