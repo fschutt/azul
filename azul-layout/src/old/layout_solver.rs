@@ -1928,7 +1928,7 @@ fn position_nodes<'a>(
             let x_pos = x_positions[child_id].0;
             let y_pos = y_positions[child_id].0;
 
-            println!("{}child {}: {}x{} @ ({}, {}) width: intrinsic={}x{}, flex_grow={}x{})",
+            println!("{}child {}: {}x{} @ ({}, {}) (intrinsic={}x{}, flex_grow={}x{})",
                      tabs, child_id, width.total(), height.total(), x_pos, y_pos,
                      width.min_inner_size_px,height.min_inner_size_px, width.flex_grow_px, height.flex_grow_px
             );

@@ -445,10 +445,10 @@ impl PrintAsCssValue for StyleBoxShadow {
         format!("{} {} {} {} {} {}",
             self.offset[0],
             self.offset[1],
-            self.color.to_hash(),
             self.blur_radius,
             self.spread_radius,
-            self.clip_mode
+            self.color.to_hash(),
+            if self.clip_mode == BoxShadowClipMode::Outset { "" } else { "inset" },
         )
     }
 }
