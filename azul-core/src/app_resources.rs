@@ -510,6 +510,9 @@ macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
     }
 }}
 
+unique_id!(TransformKey, TRANSFORM_KEY_COUNTER);
+unique_id!(ColorKey, COLOR_KEY_COUNTER);
+unique_id!(OpacityKey, OPACITY_KEY_COUNTER);
 unique_id!(ImageId, IMAGE_ID_COUNTER);
 unique_id!(FontId, FONT_ID_COUNTER);
 

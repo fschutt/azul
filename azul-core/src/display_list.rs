@@ -22,7 +22,7 @@ use crate::{
         AppResources, AddImageMsg, ImageDescriptor, ImageDescriptorFlags,
         ImageKey, FontInstanceKey, ImageInfo, ImageId, PrimitiveFlags,
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn, ParseFontFn,
-        ResourceUpdate, IdNamespace,
+        ResourceUpdate, IdNamespace, TransformKey,
     },
     styled_dom::{DomId, StyledDom, ContentGroup},
     id_tree::NodeId,
@@ -201,6 +201,7 @@ pub struct DisplayListFrame {
     pub tag: Option<TagId>,
     // box shadow has to be pushed twice: once as inset and once as outset
     pub box_shadow: Option<BoxShadow>,
+    pub transform: Option<TransformKey>,
     pub content: Vec<LayoutRectContent>,
     pub children: Vec<DisplayListMsg>,
 }
@@ -823,6 +824,7 @@ pub fn displaylist_handle_rect<'a>(
         content: Vec::new(),
         children: Vec::new(),
         box_shadow: None,
+        transform: layout_result.gpu_value_cache.transform_keys.get(&rect_idx).copied(),
         clip_mask,
     };
 

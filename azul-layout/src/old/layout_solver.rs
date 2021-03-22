@@ -1655,7 +1655,7 @@ pub fn do_the_layout_internal(
     app_resources: &mut AppResources,
     pipeline_id: PipelineId,
     bounds: LogicalRect
-) -> LayoutResult {
+) -> (LayoutResult, GpuEventChanges) {
 
     let rect_size = bounds.size;
     let rect_offset = bounds.origin;
@@ -1836,7 +1836,9 @@ pub fn do_the_layout_internal(
 
     println!("layout: overflowing_rects: {:#?}", overflowing_rects);
 
-    LayoutResult {
+    let initial_gpu_keys = GpuValueCache::empty().synchronize(&positioned_rects.as_ref(), &styled_dom):
+
+    (LayoutResult {
         dom_id,
         parent_dom_id,
         styled_dom,
@@ -1858,7 +1860,8 @@ pub fn do_the_layout_internal(
         positioned_words_cache: word_positions_no_max_width,
         scrollable_nodes: overflowing_rects,
         iframe_mapping: BTreeMap::new(),
-    }
+        gpu_value_cache,
+    }, initial_gpu_keys)
 }
 
 /// Note: because this function is called both on layout() and relayout(),
@@ -2488,7 +2491,7 @@ pub fn do_the_relayout(
     app_resources: &mut AppResources,
     pipeline_id: PipelineId,
     nodes_to_relayout: &BTreeMap<NodeId, Vec<ChangedCssProperty>>
-) -> Vec<NodeId> {
+) -> RelayoutChanges {
 
     // shortcut: in most cases, the root size hasn't changed and there
     // are no nodes to relayout
@@ -2996,5 +2999,15 @@ pub fn do_the_relayout(
         pipeline_id,
     );
 
-    nodes_that_changed_size.into_iter().collect()
+    let gpu_key_changes = layout_Result.gpu_value_cache.synchronize(
+        &layout_result.rects.as_ref(),
+        &layout_result.styled_dom,
+    );
+
+    let resized_nodes = nodes_that_changed_size.into_iter().collect();
+
+    RelayoutChanges {
+        resized_nodes,
+        gpu_key_changes,
+    }
 }

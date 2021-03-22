@@ -21,6 +21,9 @@ use webrender::api::{
         LayoutVector2D as WrLayoutVector2D,
         LayoutTransform as WrLayoutTransform,
     },
+    TransformStyle as WrTransformStyle,
+    PropertyBinding as WrPropertyBinding,
+    ReferenceFrameKind as WrReferenceFrameKind,
     ImageBufferKind as WrImageBufferKind,
     CommonItemProperties as WrCommonItemProperties,
     FontKey as WrFontKey,
@@ -79,6 +82,7 @@ use azul_core::{
         ExternalImageType, ImageBufferKind, UpdateImage, ImageDirtyRect,
         Epoch, AddFontInstance, FontVariation, FontInstanceOptions,
         FontInstancePlatformOptions, SyntheticItalics, PrimitiveFlags,
+        TransformKey,
     },
     display_list::{
         CachedDisplayList, GlyphInstance, DisplayListScrollFrame,
@@ -1279,6 +1283,20 @@ fn wr_translate_image_dirty_rect(dirty_rect: ImageDirtyRect) -> WrImageDirtyRect
 }
 
 #[inline]
+pub(crate) const fn wr_translate_transform_key(t: TransformKey)
+-> (WrTransformStyle, WrPropertyBinding, WrReferenceFrameKind)
+{
+    (
+        WrTransformStyle::Flat,
+        WrPropertyBinding::Binding(WrPropertyBindingKey::new(t.inner)),
+        WrReferenceFrameKind::Binding(WrReferenceFrameKind::Transform {
+            is_2d_scale_translation: true,
+            should_snap: false,
+        })
+    )
+}
+
+#[inline]
 pub(crate) const fn wr_translate_transform(t: ComputedTransform3D) -> WrLayoutTransform {
     WrLayoutTransform::new(
         t.m[0][0], t.m[0][1], t.m[0][2], t.m[0][3],
@@ -1343,16 +1361,17 @@ fn push_display_list_msg(
     let mut rect_spatial_id = parent_spatial_id;
 
     if should_push_reference_frame {
-
-        use webrender::api::{
-            TransformStyle as WrTransformStyle,
-            PropertyBinding as WrPropertyBinding,
-            ReferenceFrameKind as WrReferenceFrameKind,
-        };
-        use webrender::api::units::LayoutTransform as WrLayoutTransform;
-
-        // let (relative_x, relative_y) = frame.position.get_relative_offset();
-        println!("pushing reference frame: ({}, {})", relative_x, relative_y);
+        let (transform_style, property_binding, reference_frame_kind) = match msg.get_transform_key() {
+            Some(s) => wr_translate_transform_key(s),
+            None => (
+                WrTransformStyle::Flat,
+                WrPropertyBinding::Value(WrLayoutTransform::identity()),
+                WrReferenceFrameKind::Transform {
+                    is_2d_scale_translation: true,
+                    should_snap: false,
+                }
+            )
+        }
         rect_spatial_id = builder.push_reference_frame(
             WrLayoutPoint::new(relative_x, relative_y),
             parent_spatial_id,

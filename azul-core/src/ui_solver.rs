@@ -383,10 +383,115 @@ pub struct LayoutResult {
     pub positioned_words_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     pub scrollable_nodes: ScrolledNodes,
     pub iframe_mapping: BTreeMap<NodeId, DomId>,
+    pub gpu_value_cache: GpuValueCache,
 }
 
 impl LayoutResult {
     pub fn get_bounds(&self) -> LayoutRect { LayoutRect::new(self.root_position, self.root_size) }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
+pub struct GpuValueCache {
+    pub transform_keys: BTreeMap<NodeId, TransformKey>,
+    pub current_transform_values: BTreeMap<NodeId, ComputedTransform3D>,
+    pub current_opacity_keys: BTreeMap<NodeId, OpacityKey>,
+    pub current_opacity_values: BTreeMap<NodeId, f32>,
+}
+
+pub enum GpuTransformKeyEvent {
+    Added(TransformKey, ComputedTransform3D),
+    Changed(TransformKey, ComputedTransform3D),
+    Removed(TransformKey),
+}
+
+pub enum GpuOpacityKeyEvent {
+    Added(OpacityKey, f32),
+    Changed(OpacityKey, f32),
+    Removed(OpacityKey),
+}
+
+pub struct GpuEventChanges {
+    pub transform_key_changes: Vec<GpuTransformKeyEvent>,
+    pub opacity_key_changes: Vec<OpacityKeyEvent>,
+}
+
+pub struct RelayoutChanges {
+    pub resized_nodes: Vec<NodeId>,
+    pub gpu_key_changes: GpuEventChanges,
+}
+
+impl GpuValueCache {
+
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    #[cfg(feature = "multithreading")]
+    fn synchronize<'a>(
+        &mut self,
+        positioned_rects: &NodeDataContainerRef<'a, PositionedRectangle>,
+        styled_dom: &StyledDom,
+    ) -> GpuEventChanges {
+
+        use rayon::prelude::*;
+
+        let css_property_cache = styled_dom.get_css_property_cache();
+        let node_data = styled_dom.node_data.as_container();
+        let node_states = styled_dom.styled_nodes.as_container();
+
+        let empty_transform_origin_vec: StyleTransformOriginVec = Vec::new().into();
+
+        // calculate the transform values of every single node
+        let all_current_transform_events = (0..styled_dom.len())
+        .par_iter()
+        .filter_map(|node_id| {
+            let node_id = NodeId::new(node_id);
+            let transform_origins = css_property_cache.get_transform_origin(node_data[node_id], node_id, node_states[node_id]);
+            let current_transform = css_property_cache.get_transform(node_data[node_id], node_id, node_states[node_id]).map(|t| {
+                let parent_width = positioned_rects[node_id].total();
+                let transform_origins = transform_origins.unwrap_or(&empty_transform_origin_vec);
+                ComputedTransform3D::from_style_transform_vec(t.as_ref(), transform_origins, parent_width)
+            });
+            let existing_transform = self.current_transform_values.get();
+
+            match (existing_transform, current_transform) => {
+                (None, None) => None, // no new transform, no old transform
+                (None, Some(new)) => Some(GpuTransformKeyEvent::Added(TransformKey::unique(), new)),
+                (Some(old), Some(new)) => Some(GpuTransformKeyEvent::Changed(self.transform_keys.get(&node_id).copied()?, old, new)),
+                (Some(old), None) => Some(GpuTransformKeyEvent::Removed(self.transform_keys.get(&node_id).copied()?)),
+            }
+        }).collect();
+
+        let all_current_opacity_events = (0..styled_dom.len())
+        .par_iter()
+        .filter_map(|node_id| {
+            let node_id = NodeId::new(node_id);
+            let current_opacity = css_property_cache.get_opacity().unwrap_or_default();
+            let existing_opacity = self.current_opacity_values.get();
+
+            match (existing_opacity, current_opacity) => {
+                (None, None) => None, // no new opacity, no old transform
+                (None, Some(new)) => Some(GpuOpacityKeyEvent::Added(OpacityKey::unique(), new.get())),
+                (Some(old), Some(new)) => Some(GpuOpacityKeyEvent::Changed(self.opacity_keys.get(&node_id).copied()?, old, new.get())),
+                (Some(old), None) => Some(GpuOpacityKeyEvent::Removed(self.opacity_keys.get(&node_id).copied()?)),
+            }
+        }).collect();
+
+        // current_transform_values
+        // current_opacity_values
+        // current_color_values
+        /*
+            pub transform_keys: BTreeMap<NodeId, TransformKey>,
+            pub current_transform_values: BTreeMap<NodeId, ComputedTransform3D>,
+            pub opacity_keys: BTreeMap<NodeId, OpacityKey>,
+            pub current_opacity_values: BTreeMap<NodeId, f32>,
+        */
+
+        GpuEventChanges {
+            transform_key_changes: ,
+            opacity_key_changes: ,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -836,9 +941,24 @@ impl ComputedTransform3D {
         )
     }
 
+    // Computes the matrix of a rect from a Vec<StyleTransform>
+    pub fn from_style_transform_vec(t_vec: &[StyleTransform], transform_origins: &[StyleTransformOrigin], percent_resolve: f32) -> Self {
+
+        // TODO: use correct SIMD optimization!
+        let mut matrix = Self::IDENTITY;
+        let default_origin = StyleTransformOrigin::default();
+
+        for (t_idx, t) in t_vec.iter().enumerate() {
+            let transform_origin = transform_origins.get(t_idx).unwrap_or(transform_origins.get(0).unwrap_or(&default_origin));
+            matrix.then(Self::from_style_transform(t, transform_origin, percent_resolve));
+        }
+
+        matrix
+    }
+
     /// Creates a new transform from a style transform using the
     /// parent width as a way to resolve for percentages
-    pub fn from_style_transform(t: StyleTransform, transform_origin: StyleTransformOrigin, percent_resolve: f32) -> Self {
+    pub fn from_style_transform(t: &StyleTransform, transform_origin: &StyleTransformOrigin, percent_resolve: f32) -> Self {
         use azul_css::StyleTransform::*;
         match t {
             Matrix(mat2d) => {
