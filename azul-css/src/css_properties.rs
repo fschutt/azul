@@ -1822,16 +1822,24 @@ impl PercentageValue {
 
     /// Same as `PercentageValue::new()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
     pub const fn const_new(value: isize) -> Self {
         Self { number: FloatValue::const_new(value) }
     }
 
+    #[inline]
     pub fn new(value: f32) -> Self {
         Self { number: value.into() }
     }
 
+    #[inline]
     pub fn get(&self) -> f32 {
         self.number.get()
+    }
+
+    #[inline]
+    pub fn normalized(&self) -> f32 {
+        self.get() / 100.0
     }
 }
 

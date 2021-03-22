@@ -19,6 +19,7 @@ use webrender::api::{
         LayoutSideOffsets as WrLayoutSideOffsets,
         ImageDirtyRect as WrImageDirtyRect,
         LayoutVector2D as WrLayoutVector2D,
+        LayoutTransform as WrLayoutTransform,
     },
     ImageBufferKind as WrImageBufferKind,
     CommonItemProperties as WrCommonItemProperties,
@@ -86,7 +87,7 @@ use azul_core::{
     },
     dom::TagId,
     display_list::DisplayListImageMask,
-    ui_solver::{ExternalScrollId, PositionInfo},
+    ui_solver::{ExternalScrollId, PositionInfo, ComputedTransform3D},
     window::{LogicalSize, LogicalPosition, LogicalRect, DebugState},
 };
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -1277,6 +1278,17 @@ fn wr_translate_image_dirty_rect(dirty_rect: ImageDirtyRect) -> WrImageDirtyRect
     }
 }
 
+#[inline]
+pub(crate) const fn wr_translate_transform(t: ComputedTransform3D) -> WrLayoutTransform {
+    WrLayoutTransform::new(
+        t.m[0][0], t.m[0][1], t.m[0][2], t.m[0][3],
+        t.m[1][0], t.m[1][1], t.m[1][2], t.m[1][3],
+        t.m[2][0], t.m[2][1], t.m[2][2], t.m[2][3],
+        t.m[3][0], t.m[3][1], t.m[3][2], t.m[3][3],
+    )
+}
+
+
 #[inline(always)]
 pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> WrExternalScrollId {
     WrExternalScrollId(scroll_id.0, wr_translate_pipeline_id(scroll_id.1))
@@ -1342,10 +1354,10 @@ fn push_display_list_msg(
         // let (relative_x, relative_y) = frame.position.get_relative_offset();
         println!("pushing reference frame: ({}, {})", relative_x, relative_y);
         rect_spatial_id = builder.push_reference_frame(
-            WrLayoutPoint::zero(),
+            WrLayoutPoint::new(relative_x, relative_y),
             parent_spatial_id,
             WrTransformStyle::Flat,
-            WrPropertyBinding::Value(WrLayoutTransform::translation(relative_x, relative_y, 0.0)),
+            WrPropertyBinding::Value(WrLayoutTransform::identity()),
             WrReferenceFrameKind::Transform {
                 is_2d_scale_translation: true,
                 should_snap: false,

@@ -8,6 +8,7 @@ use azul_css::{
     CssPropertyValue, LayoutMarginTop, LayoutMarginRight, LayoutMarginLeft, LayoutMarginBottom,
     LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingBottom,
     LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, LayoutFlexDirection, LayoutJustifyContent,
+    StyleTransform, StyleTransformOrigin,
 };
 use crate::{
     styled_dom::{StyledDom, AzNodeId, DomId},
@@ -789,4 +790,464 @@ pub struct LayoutedRectangle {
     pub border_widths: ResolvedOffsets,
     /// Determines if the rect should be clipped or not (TODO: x / y as separate fields!)
     pub overflow: OverflowInfo,
+}
+
+/// Computed transform of pixels in pixel space, optimized
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(packed)]
+pub struct ComputedTransform3D {
+    pub m:[[f32;4];4]
+}
+
+impl ComputedTransform3D {
+
+    pub const IDENTITY: Self = Self {
+        m: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    };
+
+    pub const fn new(
+        m11: f32, m12: f32, m13: f32, m14: f32,
+        m21: f32, m22: f32, m23: f32, m24: f32,
+        m31: f32, m32: f32, m33: f32, m34: f32,
+        m41: f32, m42: f32, m43: f32, m44: f32
+    ) -> Self {
+        Self {
+            m: [
+                [m11, m12, m13, m14],
+                [m21, m22, m23, m24],
+                [m31, m32, m33, m34],
+                [m41, m42, m43, m44],
+            ]
+        }
+    }
+
+    pub const fn new_2d(
+        m11: f32, m12: f32,
+        m21: f32, m22: f32,
+        m41: f32, m42: f32
+    ) -> Self {
+         Self::new(
+             m11,  m12, 0.0, 0.0,
+             m21,  m22, 0.0, 0.0,
+             0.0,  0.0, 1.0, 0.0,
+             m41,  m42, 0.0, 1.0
+        )
+    }
+
+    /// Creates a new transform from a style transform using the
+    /// parent width as a way to resolve for percentages
+    pub fn from_style_transform(t: StyleTransform, transform_origin: StyleTransformOrigin, percent_resolve: f32) -> Self {
+        use azul_css::StyleTransform::*;
+        match t {
+            Matrix(mat2d) => {
+                let a = mat2d.a.to_pixels(percent_resolve);
+                let b = mat2d.b.to_pixels(percent_resolve);
+                let c = mat2d.c.to_pixels(percent_resolve);
+                let d = mat2d.d.to_pixels(percent_resolve);
+                let tx = mat2d.tx.to_pixels(percent_resolve);
+                let ty = mat2d.ty.to_pixels(percent_resolve);
+
+                Self::new_2d(a, b, c, d, tx, ty)
+            },
+            Matrix3D(mat3d) => {
+                let m11 = mat3d.m11.to_pixels(percent_resolve);
+                let m12 = mat3d.m12.to_pixels(percent_resolve);
+                let m13 = mat3d.m13.to_pixels(percent_resolve);
+                let m14 = mat3d.m14.to_pixels(percent_resolve);
+                let m21 = mat3d.m21.to_pixels(percent_resolve);
+                let m22 = mat3d.m22.to_pixels(percent_resolve);
+                let m23 = mat3d.m23.to_pixels(percent_resolve);
+                let m24 = mat3d.m24.to_pixels(percent_resolve);
+                let m31 = mat3d.m31.to_pixels(percent_resolve);
+                let m32 = mat3d.m32.to_pixels(percent_resolve);
+                let m33 = mat3d.m33.to_pixels(percent_resolve);
+                let m34 = mat3d.m34.to_pixels(percent_resolve);
+                let m41 = mat3d.m41.to_pixels(percent_resolve);
+                let m42 = mat3d.m42.to_pixels(percent_resolve);
+                let m43 = mat3d.m43.to_pixels(percent_resolve);
+                let m44 = mat3d.m44.to_pixels(percent_resolve);
+
+                Self::new(
+                    m11,
+                    m12,
+                    m13,
+                    m14,
+                    m21,
+                    m22,
+                    m23,
+                    m24,
+                    m31,
+                    m32,
+                    m33,
+                    m34,
+                    m41,
+                    m42,
+                    m43,
+                    m44,
+                )
+            },
+            Translate(trans2d) => Self::new_translation(
+                trans2d.x.to_pixels(percent_resolve),
+                trans2d.y.to_pixels(percent_resolve),
+                0.0
+            ),
+            Translate3D(trans3d) => Self::new_translation(
+                trans3d.x.to_pixels(percent_resolve),
+                trans3d.y.to_pixels(percent_resolve),
+                trans3d.z.to_pixels(percent_resolve)
+            ),
+            TranslateX(trans_x) => Self::new_translation(trans_x.to_pixels(percent_resolve), 0.0, 0.0),
+            TranslateY(trans_y) => Self::new_translation(0.0, trans_y.to_pixels(percent_resolve), 0.0),
+            TranslateZ(trans_z) => Self::new_translation(0.0, 0.0, trans_z.to_pixels(percent_resolve)),
+            Rotate3D(rot3d) => {
+                let rotation_origin = (transform_origin.x.to_pixels(percent_resolve), transform_origin.y.to_pixels(percent_resolve));
+                Self::make_rotation(
+                    rotation_origin,
+                    rot3d.angle.to_degrees(),
+                    rot3d.x.normalized(),
+                    rot3d.y.normalized(),
+                    rot3d.z.normalized(),
+                )
+            },
+            RotateX(angle_x) => {
+                let rotation_origin = (transform_origin.x.to_pixels(percent_resolve), transform_origin.y.to_pixels(percent_resolve));
+                Self::make_rotation(
+                    rotation_origin,
+                    angle_x.to_degrees(),
+                    1.0,
+                    0.0,
+                    0.0,
+                )
+            },
+            RotateY(angle_y) => {
+                let rotation_origin = (transform_origin.x.to_pixels(percent_resolve), transform_origin.y.to_pixels(percent_resolve));
+                Self::make_rotation(
+                    rotation_origin,
+                    angle_y.to_degrees(),
+                    0.0,
+                    1.0,
+                    0.0,
+                )
+            },
+            Rotate(angle_z) | RotateZ(angle_z) => {
+                let rotation_origin = (transform_origin.x.to_pixels(percent_resolve), transform_origin.y.to_pixels(percent_resolve));
+                Self::make_rotation(
+                    rotation_origin,
+                    angle_z.to_degrees(),
+                    0.0,
+                    0.0,
+                    1.0,
+                )
+            },
+            Scale(scale2d) => Self::new_scale(
+                scale2d.x.normalized(),
+                scale2d.y.normalized(),
+                0.0,
+            ),
+            Scale3D(scale3d) => Self::new_scale(
+                scale3d.x.normalized(),
+                scale3d.y.normalized(),
+                scale3d.z.normalized(),
+            ),
+            ScaleX(scale_x) => Self::new_scale(scale_x.normalized(), 0.0, 0.0),
+            ScaleY(scale_y) => Self::new_scale(0.0, scale_y.normalized(), 0.0),
+            ScaleZ(scale_z) => Self::new_scale(0.0, 0.0, scale_z.normalized()),
+            Skew(skew2d) => Self::new_skew(skew2d.x.normalized(), skew2d.y.normalized()),
+            SkewX(skew_x) => Self::new_skew(skew_x.normalized(), 0.0),
+            SkewY(skew_y) => Self::new_skew(0.0, skew_y.normalized()),
+            Perspective(px) => Self::new_perspective(px.to_pixels(percent_resolve)),
+        }
+    }
+
+    #[inline]
+    pub const fn new_scale(x: f32, y: f32, z: f32) -> Self {
+        Self::new(
+            x,   0.0, 0.0, 0.0,
+            0.0, y,   0.0, 0.0,
+            0.0, 0.0, z,   0.0,
+            0.0, 0.0, 0.0, 1.0,
+        )
+    }
+
+    #[inline]
+    pub const fn new_translation(x: f32, y: f32, z: f32) -> Self {
+        Self::new(
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+             x,  y,   z,   1.0,
+        )
+    }
+
+    #[inline]
+    pub fn new_perspective(d: f32) -> Self {
+        Self::new(
+            1.0, 0.0, 0.0,  0.0,
+            0.0, 1.0, 0.0,  0.0,
+            0.0, 0.0, 1.0, -1.0 / d,
+            0.0, 0.0, 0.0,  1.0,
+        )
+    }
+
+    /// Create a 3d rotation transform from an angle / axis.
+    /// The supplied axis must be normalized.
+    #[inline]
+    pub fn new_rotation(x: f32, y: f32, z: f32, theta: f32) -> Self {
+
+        let xx = x * x;
+        let yy = y * y;
+        let zz = z * z;
+
+        let half_theta = theta / 2.0;
+        let sc = half_theta.sin() * half_theta.cos();
+        let sq = half_theta.sin() * half_theta.sin();
+
+        Self::new(
+            1.0 - 2.0 * (yy + zz) * sq,
+            2.0 * (x * y * sq + z * sc),
+            2.0 * (x * z * sq - y * sc),
+            0.0,
+
+
+            2.0 * (x * y * sq - z * sc),
+            1.0 - 2.0 * (xx + zz) * sq,
+            2.0 * (y * z * sq + x * sc),
+            0.0,
+
+            2.0 * (x * z * sq + y * sc),
+            2.0 * (y * z * sq - x * sc),
+            1.0 - 2.0 * (xx + yy) * sq,
+            0.0,
+
+            0.0,
+            0.0,
+            0.0,
+            1.0
+        )
+    }
+
+    #[inline]
+    pub fn new_skew(alpha: f32, beta: f32) -> Self {
+        let (sx, sy) = (beta.to_radians().tan(), alpha.to_radians().tan());
+        Self::new(
+            1.0, sx,  0.0, 0.0,
+            sy,  1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        )
+    }
+
+    /// Computes the sum of two matrices while applying `other` AFTER the current matrix.
+    #[must_use]
+    pub fn then(&self, other: &Self) -> Self {
+        Self::new(
+            self.m[0][0].mul_add(other.m[0][0], self.m[0][1].mul_add(other.m[1][0], self.m[0][2].mul_add(other.m[2][0], self.m[0][3] * other.m[3][0]))),
+            self.m[0][0].mul_add(other.m[0][1], self.m[0][1].mul_add(other.m[1][1], self.m[0][2].mul_add(other.m[2][1], self.m[0][3] * other.m[3][1]))),
+            self.m[0][0].mul_add(other.m[0][2], self.m[0][1].mul_add(other.m[1][2], self.m[0][2].mul_add(other.m[3][2], self.m[0][3] * other.m[3][2]))),
+            self.m[0][0].mul_add(other.m[0][3], self.m[0][1].mul_add(other.m[1][3], self.m[0][2].mul_add(other.m[2][3], self.m[0][3] * other.m[3][3]))),
+            self.m[1][0].mul_add(other.m[0][0], self.m[1][1].mul_add(other.m[1][0], self.m[1][2].mul_add(other.m[2][0], self.m[1][3] * other.m[3][0]))),
+            self.m[1][0].mul_add(other.m[0][1], self.m[1][1].mul_add(other.m[1][1], self.m[1][2].mul_add(other.m[2][1], self.m[1][3] * other.m[3][1]))),
+            self.m[1][0].mul_add(other.m[0][2], self.m[1][1].mul_add(other.m[1][2], self.m[1][2].mul_add(other.m[3][2], self.m[1][3] * other.m[3][2]))),
+            self.m[1][0].mul_add(other.m[0][3], self.m[1][1].mul_add(other.m[1][3], self.m[1][2].mul_add(other.m[2][3], self.m[1][3] * other.m[3][3]))),
+            self.m[2][0].mul_add(other.m[0][0], self.m[2][1].mul_add(other.m[1][0], self.m[3][2].mul_add(other.m[2][0], self.m[2][3] * other.m[3][0]))),
+            self.m[2][0].mul_add(other.m[0][1], self.m[2][1].mul_add(other.m[1][1], self.m[3][2].mul_add(other.m[2][1], self.m[2][3] * other.m[3][1]))),
+            self.m[2][0].mul_add(other.m[0][2], self.m[2][1].mul_add(other.m[1][2], self.m[3][2].mul_add(other.m[3][2], self.m[2][3] * other.m[3][2]))),
+            self.m[2][0].mul_add(other.m[0][3], self.m[2][1].mul_add(other.m[1][3], self.m[3][2].mul_add(other.m[2][3], self.m[2][3] * other.m[3][3]))),
+            self.m[3][0].mul_add(other.m[0][0], self.m[3][1].mul_add(other.m[1][0], self.m[3][2].mul_add(other.m[2][0], self.m[3][3] * other.m[3][0]))),
+            self.m[3][0].mul_add(other.m[0][1], self.m[3][1].mul_add(other.m[1][1], self.m[3][2].mul_add(other.m[2][1], self.m[3][3] * other.m[3][1]))),
+            self.m[3][0].mul_add(other.m[0][2], self.m[3][1].mul_add(other.m[1][2], self.m[3][2].mul_add(other.m[3][2], self.m[3][3] * other.m[3][2]))),
+            self.m[3][0].mul_add(other.m[0][3], self.m[3][1].mul_add(other.m[1][3], self.m[3][2].mul_add(other.m[2][3], self.m[3][3] * other.m[3][3]))),
+        )
+    }
+
+    /// Computes the inverse of the matrix, returns None if the determinant is zero.
+    #[must_use]
+    pub fn inverse(&self) -> Option<Self> {
+        let det = self.determinant();
+
+        if det == 0.0 {
+            return None;
+        }
+
+        // todo(gw): this could be made faster by special casing
+        // for simpler transform types.
+        let m = Self::new(
+            self.m[1][2]*self.m[2][3]*self.m[3][1] - self.m[1][3]*self.m[3][2]*self.m[3][1] +
+            self.m[1][3]*self.m[2][1]*self.m[3][2] - self.m[1][1]*self.m[2][3]*self.m[3][2] -
+            self.m[1][2]*self.m[2][1]*self.m[3][3] + self.m[1][1]*self.m[3][2]*self.m[3][3],
+
+            self.m[0][3]*self.m[3][2]*self.m[3][1] - self.m[0][2]*self.m[2][3]*self.m[3][1] -
+            self.m[0][3]*self.m[2][1]*self.m[3][2] + self.m[0][1]*self.m[2][3]*self.m[3][2] +
+            self.m[0][2]*self.m[2][1]*self.m[3][3] - self.m[0][1]*self.m[3][2]*self.m[3][3],
+
+            self.m[0][2]*self.m[1][3]*self.m[3][1] - self.m[0][3]*self.m[1][2]*self.m[3][1] +
+            self.m[0][3]*self.m[1][1]*self.m[3][2] - self.m[0][1]*self.m[1][3]*self.m[3][2] -
+            self.m[0][2]*self.m[1][1]*self.m[3][3] + self.m[0][1]*self.m[1][2]*self.m[3][3],
+
+            self.m[0][3]*self.m[1][2]*self.m[2][1] - self.m[0][2]*self.m[1][3]*self.m[2][1] -
+            self.m[0][3]*self.m[1][1]*self.m[3][2] + self.m[0][1]*self.m[1][3]*self.m[3][2] +
+            self.m[0][2]*self.m[1][1]*self.m[2][3] - self.m[0][1]*self.m[1][2]*self.m[2][3],
+
+            self.m[1][3]*self.m[3][2]*self.m[3][0] - self.m[1][2]*self.m[2][3]*self.m[3][0] -
+            self.m[1][3]*self.m[2][0]*self.m[3][2] + self.m[1][0]*self.m[2][3]*self.m[3][2] +
+            self.m[1][2]*self.m[2][0]*self.m[3][3] - self.m[1][0]*self.m[3][2]*self.m[3][3],
+
+            self.m[0][2]*self.m[2][3]*self.m[3][0] - self.m[0][3]*self.m[3][2]*self.m[3][0] +
+            self.m[0][3]*self.m[2][0]*self.m[3][2] - self.m[0][0]*self.m[2][3]*self.m[3][2] -
+            self.m[0][2]*self.m[2][0]*self.m[3][3] + self.m[0][0]*self.m[3][2]*self.m[3][3],
+
+            self.m[0][3]*self.m[1][2]*self.m[3][0] - self.m[0][2]*self.m[1][3]*self.m[3][0] -
+            self.m[0][3]*self.m[1][0]*self.m[3][2] + self.m[0][0]*self.m[1][3]*self.m[3][2] +
+            self.m[0][2]*self.m[1][0]*self.m[3][3] - self.m[0][0]*self.m[1][2]*self.m[3][3],
+
+            self.m[0][2]*self.m[1][3]*self.m[2][0] - self.m[0][3]*self.m[1][2]*self.m[2][0] +
+            self.m[0][3]*self.m[1][0]*self.m[3][2] - self.m[0][0]*self.m[1][3]*self.m[3][2] -
+            self.m[0][2]*self.m[1][0]*self.m[2][3] + self.m[0][0]*self.m[1][2]*self.m[2][3],
+
+            self.m[1][1]*self.m[2][3]*self.m[3][0] - self.m[1][3]*self.m[2][1]*self.m[3][0] +
+            self.m[1][3]*self.m[2][0]*self.m[3][1] - self.m[1][0]*self.m[2][3]*self.m[3][1] -
+            self.m[1][1]*self.m[2][0]*self.m[3][3] + self.m[1][0]*self.m[2][1]*self.m[3][3],
+
+            self.m[0][3]*self.m[2][1]*self.m[3][0] - self.m[0][1]*self.m[2][3]*self.m[3][0] -
+            self.m[0][3]*self.m[2][0]*self.m[3][1] + self.m[0][0]*self.m[2][3]*self.m[3][1] +
+            self.m[0][1]*self.m[2][0]*self.m[3][3] - self.m[0][0]*self.m[2][1]*self.m[3][3],
+
+            self.m[0][1]*self.m[1][3]*self.m[3][0] - self.m[0][3]*self.m[1][1]*self.m[3][0] +
+            self.m[0][3]*self.m[1][0]*self.m[3][1] - self.m[0][0]*self.m[1][3]*self.m[3][1] -
+            self.m[0][1]*self.m[1][0]*self.m[3][3] + self.m[0][0]*self.m[1][1]*self.m[3][3],
+
+            self.m[0][3]*self.m[1][1]*self.m[2][0] - self.m[0][1]*self.m[1][3]*self.m[2][0] -
+            self.m[0][3]*self.m[1][0]*self.m[2][1] + self.m[0][0]*self.m[1][3]*self.m[2][1] +
+            self.m[0][1]*self.m[1][0]*self.m[2][3] - self.m[0][0]*self.m[1][1]*self.m[2][3],
+
+            self.m[1][2]*self.m[2][1]*self.m[3][0] - self.m[1][1]*self.m[3][2]*self.m[3][0] -
+            self.m[1][2]*self.m[2][0]*self.m[3][1] + self.m[1][0]*self.m[3][2]*self.m[3][1] +
+            self.m[1][1]*self.m[2][0]*self.m[3][2] - self.m[1][0]*self.m[2][1]*self.m[3][2],
+
+            self.m[0][1]*self.m[3][2]*self.m[3][0] - self.m[0][2]*self.m[2][1]*self.m[3][0] +
+            self.m[0][2]*self.m[2][0]*self.m[3][1] - self.m[0][0]*self.m[3][2]*self.m[3][1] -
+            self.m[0][1]*self.m[2][0]*self.m[3][2] + self.m[0][0]*self.m[2][1]*self.m[3][2],
+
+            self.m[0][2]*self.m[1][1]*self.m[3][0] - self.m[0][1]*self.m[1][2]*self.m[3][0] -
+            self.m[0][2]*self.m[1][0]*self.m[3][1] + self.m[0][0]*self.m[1][2]*self.m[3][1] +
+            self.m[0][1]*self.m[1][0]*self.m[3][2] - self.m[0][0]*self.m[1][1]*self.m[3][2],
+
+            self.m[0][1]*self.m[1][2]*self.m[2][0] - self.m[0][2]*self.m[1][1]*self.m[2][0] +
+            self.m[0][2]*self.m[1][0]*self.m[2][1] - self.m[0][0]*self.m[1][2]*self.m[2][1] -
+            self.m[0][1]*self.m[1][0]*self.m[3][2] + self.m[0][0]*self.m[1][1]*self.m[3][2]
+        );
+
+        Some(m.multiply_scalar(1.0 / det))
+    }
+
+    /// Compute the determinant of the transform.
+    #[inline]
+    pub fn determinant(&self) -> f32 {
+        // TODO: SIMD
+        self.m[0][3] * self.m[1][2] * self.m[2][1] * self.m[3][0] -
+        self.m[0][2] * self.m[1][3] * self.m[2][1] * self.m[3][0] -
+        self.m[0][3] * self.m[1][1] * self.m[3][2] * self.m[3][0] +
+        self.m[0][1] * self.m[1][3] * self.m[3][2] * self.m[3][0] +
+        self.m[0][2] * self.m[1][1] * self.m[2][3] * self.m[3][0] -
+        self.m[0][1] * self.m[1][2] * self.m[2][3] * self.m[3][0] -
+        self.m[0][3] * self.m[1][2] * self.m[2][0] * self.m[3][1] +
+        self.m[0][2] * self.m[1][3] * self.m[2][0] * self.m[3][1] +
+        self.m[0][3] * self.m[1][0] * self.m[3][2] * self.m[3][1] -
+        self.m[0][0] * self.m[1][3] * self.m[3][2] * self.m[3][1] -
+        self.m[0][2] * self.m[1][0] * self.m[2][3] * self.m[3][1] +
+        self.m[0][0] * self.m[1][2] * self.m[2][3] * self.m[3][1] +
+        self.m[0][3] * self.m[1][1] * self.m[2][0] * self.m[3][2] -
+        self.m[0][1] * self.m[1][3] * self.m[2][0] * self.m[3][2] -
+        self.m[0][3] * self.m[1][0] * self.m[2][1] * self.m[3][2] +
+        self.m[0][0] * self.m[1][3] * self.m[2][1] * self.m[3][2] +
+        self.m[0][1] * self.m[1][0] * self.m[2][3] * self.m[3][2] -
+        self.m[0][0] * self.m[1][1] * self.m[2][3] * self.m[3][2] -
+        self.m[0][2] * self.m[1][1] * self.m[2][0] * self.m[3][3] +
+        self.m[0][1] * self.m[1][2] * self.m[2][0] * self.m[3][3] +
+        self.m[0][2] * self.m[1][0] * self.m[2][1] * self.m[3][3] -
+        self.m[0][0] * self.m[1][2] * self.m[2][1] * self.m[3][3] -
+        self.m[0][1] * self.m[1][0] * self.m[3][2] * self.m[3][3] +
+        self.m[0][0] * self.m[1][1] * self.m[3][2] * self.m[3][3]
+    }
+
+    /// Multiplies all of the transform's component by a scalar and returns the result.
+    #[must_use]
+    #[inline]
+    pub fn multiply_scalar(&self, x: f32) -> Self {
+        Self::new(
+            self.m[0][0] * x, self.m[0][1] * x, self.m[0][2] * x, self.m[0][3] * x,
+            self.m[1][0] * x, self.m[1][1] * x, self.m[1][2] * x, self.m[1][3] * x,
+            self.m[2][0] * x, self.m[2][1] * x, self.m[3][2] * x, self.m[2][3] * x,
+            self.m[3][0] * x, self.m[3][1] * x, self.m[3][2] * x, self.m[3][3] * x
+        )
+    }
+
+    /*
+
+    #[inline]
+    #[must_use]
+    pub unsafe fn then_sse(&self, x: f32) -> Self { }
+    #[inline]
+    #[must_use]
+    pub unsafe fn then_avx4(&self, x: f32) -> Self { }
+    #[inline]
+    #[must_use]
+    pub unsafe fn then_avx8(&self, x: f32) -> Self { }
+
+    #[inline]
+    #[must_use]
+    pub unsafe fn inverse_sse(&self, x: f32) -> Self { }
+    #[inline]
+    #[must_use]
+    pub unsafe fn inverse_avx4(&self, x: f32) -> Self { }
+    #[inline]
+    #[must_use]
+    pub unsafe fn inverse_avx8(&self, x: f32) -> Self { }
+
+    #[inline]
+    #[must_use]
+    pub unsafe fn determinant_sse(&self) -> f32 { }
+    #[inline]
+    #[must_use]
+    pub unsafe fn determinant_avx4(&self) -> f32 { }
+    #[inline]
+    #[must_use]
+    pub unsafe fn determinant_avx8(&self) -> f32 { }
+
+    #[inline]
+    #[must_use]
+    pub unsafe fn multiply_scalar_sse(&self, x: f32) -> Self { }
+    #[inline]
+    #[must_use]
+    pub unsafe fn multiply_scalar_avx4(&self, x: f32) -> Self { }
+    #[inline]
+    #[must_use]
+    pub unsafe fn multiply_scalar_avx8(&self, x: f32) -> Self { }
+
+    */
+
+    #[inline]
+    pub fn make_rotation(
+        rotation_origin: (f32, f32),
+        degrees: f32,
+        axis_x: f32,
+        axis_y: f32,
+        axis_z: f32,
+    ) -> Self {
+
+        let (origin_x, origin_y) = rotation_origin;
+        let pre_transform = Self::new_translation(-origin_x, -origin_y, -0.0);
+        let post_transform = Self::new_translation(origin_x, origin_y, 0.0);
+        let theta = 2.0_f32 * core::f32::consts::PI - degrees.to_radians();
+        let rotate_transform = Self::IDENTITY.then(&Self::new_rotation(axis_x, axis_y, axis_z, theta));
+
+        pre_transform
+        .then(&rotate_transform)
+        .then(&post_transform)
+    }
 }

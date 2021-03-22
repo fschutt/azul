@@ -1834,6 +1834,8 @@ pub fn do_the_layout_internal(
         pipeline_id,
     );
 
+    println!("layout: overflowing_rects: {:#?}", overflowing_rects);
+
     LayoutResult {
         dom_id,
         parent_dom_id,
