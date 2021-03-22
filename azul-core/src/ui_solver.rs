@@ -1039,6 +1039,19 @@ impl ComputedTransform3D {
         )
     }
 
+    // Transforms a 2D point into the target coordinate space
+    #[must_use]
+    pub fn transform_point2d(&self, point: LogicalPosition) -> Option<LogicalPosition> {
+        let w = p.x.mul_add(self.m[0][3], p.y.mul_add(self.m[1][3], self.m[3][3]);
+
+        if !w.is_sign_positive() { None }
+
+        let x = p.x.mul_add(self.m[0][0], p.y.mul_add(self.m[1][0], self.m[3][0]);
+        let y = p.x.mul_add(self.m[0][1], p.y.mul_add(self.m[1][1], self.m[3][1]);
+
+        Some(LogicalPosition { x: x / w, y: y / w }
+    }
+
     /// Computes the sum of two matrices while applying `other` AFTER the current matrix.
     #[must_use]
     pub fn then(&self, other: &Self) -> Self {
