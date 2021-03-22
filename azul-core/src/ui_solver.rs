@@ -403,10 +403,7 @@ impl HitTest {
 
 impl LayoutResult {
 
-    #[cfg(feature = "multithreading")]
     pub fn get_hits(&self, cursor: &LayoutPoint, scroll_states: &ScrollStates) -> HitTest {
-
-        use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 
         // TODO: SIMD-optimize!
 
@@ -414,7 +411,7 @@ impl LayoutResult {
         let regular_hit_test_nodes =
         self.styled_dom.tag_ids_to_node_ids
         .as_ref()
-        .par_iter()
+        .iter()
         .filter_map(|t| {
 
             let node_id = t.node_id.into_crate_internal()?;
