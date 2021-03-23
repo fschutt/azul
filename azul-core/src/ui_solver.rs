@@ -270,7 +270,7 @@ pub struct WidthCalculatedRect {
 impl WidthCalculatedRect {
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_horizontal(&self, parent_width: f32) -> f32 {
-        self.preferred_width.min_needed_space().unwrap_or(0.0) +
+        self.min_inner_size_px +
         self.margin_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
         self.margin_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
         self.padding_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
@@ -313,7 +313,7 @@ impl HeightCalculatedRect {
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_vertical(&self, parent_height: f32) -> f32 {
         let parent_height = parent_height as f32;
-        self.preferred_height.min_needed_space().unwrap_or(0.0) +
+        self.min_inner_size_px +
         self.margin_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +
         self.margin_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +
         self.padding_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +

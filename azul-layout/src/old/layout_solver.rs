@@ -195,7 +195,6 @@ macro_rules! typed_arena {(
     $from_rect_layout_arena_fn_name:ident,
     $bubble_fn_name:ident,
     $apply_flex_grow_fn_name:ident,
-    $sum_children_flex_basis_fn_name:ident,
     $main_axis:ident,
     $margin_left:ident,
     $margin_right:ident,
@@ -244,7 +243,7 @@ macro_rules! typed_arena {(
                 None => continue,
             };
 
-            let parent_width = node_hierarchy
+            let parent_parent_width = node_hierarchy
             .get(parent_id)
             .and_then(|t| {
                 new_nodes.as_ref().get(t.parent_id()?)
@@ -254,7 +253,7 @@ macro_rules! typed_arena {(
             .max_available_space()
             .unwrap_or(root_size_width);
 
-            let parent_width = $determine_preferred_fn(&nd, width, parent_width);
+            let parent_width = $determine_preferred_fn(&nd, width, parent_parent_width);
 
             new_nodes.as_ref_mut()[parent_id] = $struct_name {
                 // TODO: get the initial width of the rect content
@@ -266,7 +265,7 @@ macro_rules! typed_arena {(
                 $left: parent_offsets.position.$left.as_ref().copied(),
                 $right: parent_offsets.position.$right.as_ref().copied(),
                 flex_grow_px: 0.0,
-                min_inner_size_px: 0.0,
+                min_inner_size_px: parent_width.min_needed_space().unwrap_or(0.0),
             };
 
             for child_id in parent_id.az_children(node_hierarchy) {
@@ -274,9 +273,10 @@ macro_rules! typed_arena {(
                 let child_offsets = &offsets[child_id];
                 let width = match widths.get(child_id) { Some(s) => *s, None => continue, };
                 let parent_available_space = parent_width.max_available_space().unwrap_or(0.0);
+                let child_width = $determine_preferred_fn(&nd, width, parent_available_space);
                 new_nodes.as_ref_mut()[child_id] = $struct_name {
                     // TODO: get the initial width of the rect content
-                    $preferred_field: $determine_preferred_fn(&nd, width, parent_available_space),
+                    $preferred_field: child_width,
                     $margin_left: child_offsets.margin.$left.as_ref().copied(),
                     $margin_right: child_offsets.margin.$right.as_ref().copied(),
                     $padding_left: child_offsets.padding.$left.as_ref().copied(),
@@ -284,7 +284,7 @@ macro_rules! typed_arena {(
                     $left: child_offsets.position.$left.as_ref().copied(),
                     $right: child_offsets.position.$right.as_ref().copied(),
                     flex_grow_px: 0.0,
-                    min_inner_size_px: 0.0,
+                    min_inner_size_px: child_width.min_needed_space().unwrap_or(0.0),
                 }
             }
         }
@@ -299,54 +299,55 @@ macro_rules! typed_arena {(
         node_data: &mut NodeDataContainerRefMut<'b, $struct_name>,
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
         layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
+        layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
         node_depths: &[ParentWithNodeDepth],
+        root_size_width: f32,
     ) {
-
         // Reverse, since we want to go from the inside out
         // (depth 5 needs to be filled out first)
         //
         // Set the preferred_width of the parent nodes
-        for ParentWithNodeDepth { depth: _, node_id } in node_depths.iter().rev() {
+        for ParentWithNodeDepth { depth, node_id } in node_depths.iter().rev() {
 
             use self::WhConstraint::*;
 
-            let non_leaf_id = match node_id.into_crate_internal() {
+            let parent_id = match node_id.into_crate_internal() {
                 Some(s) => s,
                 None => continue,
             };
 
-            let parent_width = node_hierarchy[non_leaf_id].parent_id().and_then(|parent_id| {
-                node_data[parent_id].$preferred_field.min_needed_space()
-            }).unwrap_or(0.0);
-
-            // Sum of the direct children's flex-basis = the parents preferred width
-            let children_flex_basis = $sum_children_flex_basis_fn_name(
-                node_data, non_leaf_id, node_hierarchy, layout_positions
-            );
-
-            // Calculate the new flex-basis width
-            let parent_width_metrics = node_data[non_leaf_id];
-
-            // For calculating the inner width, subtract the parents padding
-            let parent_padding = node_data[non_leaf_id].$get_padding_fn(parent_width);
-
-            // If the children are larger than the parents preferred max-width or smaller
-            // than the parents min-width, adjust
-            let child_width = match parent_width_metrics.$preferred_field {
-                Between(min, max) => {
-                    if children_flex_basis > (max - parent_padding)  {
-                        max
-                    } else if children_flex_basis < (min + parent_padding) {
-                        min
-                    } else {
-                        children_flex_basis
-                    }
-                },
-                EqualTo(exact) => exact - parent_padding,
-                Unconstrained => children_flex_basis,
+            let parent_parent_width = match node_hierarchy[parent_id].parent_id() {
+                None => root_size_width,
+                Some(s) => node_data[parent_id].$preferred_field
+                    .max_available_space()
+                    .unwrap_or(root_size_width) // TODO: wrong
             };
 
-            node_data[non_leaf_id].min_inner_size_px = child_width;
+            let parent_width = node_data[parent_id].$preferred_field.max_available_space().unwrap_or(parent_parent_width);
+            let flex_axis = layout_directions[parent_id].get_axis();
+
+            let mut children_flex_basis = 0.0_f32;
+
+            parent_id
+            .az_children(node_hierarchy)
+            .filter(|child_id| layout_positions[*child_id] != LayoutPosition::Absolute)
+            .map(|child_id| (child_id, node_data[child_id].$get_flex_basis(parent_width)))
+            .for_each(|(child_id, flex_basis)| {
+                if flex_axis == LayoutAxis::$main_axis {
+                    children_flex_basis += flex_basis;
+                } else {
+                    // cross direction: take max flex basis of children
+                    children_flex_basis = children_flex_basis.max(flex_basis);
+                }
+            });
+
+            // if the children overflow, then the maximum width / height that can be
+            // bubbled is the max_height / max_width of the parent
+            let parent_max_available_space = node_data[parent_id].$preferred_field.max_available_space().unwrap_or(children_flex_basis);
+            let children_flex_basis = parent_max_available_space.min(children_flex_basis);
+
+            // bubble the min_inner_size_px to the parent
+            node_data[parent_id].min_inner_size_px = node_data[parent_id].min_inner_size_px.max(children_flex_basis);
         }
 
         // Now, the width of all elements should be filled,
@@ -677,23 +678,6 @@ macro_rules! typed_arena {(
             }
         }
     }
-
-    /// Returns the sum of the flex-basis of the current nodes' children
-    #[must_use]
-    fn $sum_children_flex_basis_fn_name<'a, 'b>(
-        node_data: &mut NodeDataContainerRefMut<'b, $struct_name>,
-        node_id: NodeId,
-        node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
-        layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-    ) -> f32 {
-        let parent_width = node_data[node_id].$preferred_field.max_available_space().unwrap_or(0.0);
-        node_id
-            .az_children(node_hierarchy)
-            .filter(|child_node_id| layout_positions[*child_node_id] != LayoutPosition::Absolute)
-            .map(|child_node_id| node_data[child_node_id].$get_flex_basis(parent_width))
-            .sum()
-    }
-
 )}
 
 typed_arena!(
@@ -705,7 +689,6 @@ typed_arena!(
     width_calculated_rect_arena_from_rect_layout_arena,
     bubble_preferred_widths_to_parents,
     width_calculated_rect_arena_apply_flex_grow,
-    width_calculated_rect_arena_sum_children_flex_basis,
     Horizontal,
     margin_left,
     margin_right,
@@ -724,7 +707,6 @@ typed_arena!(
     height_calculated_rect_arena_from_rect_layout_arena,
     bubble_preferred_heights_to_parents,
     height_calculated_rect_arena_apply_flex_grow,
-    height_calculated_rect_arena_sum_children_flex_basis,
     Vertical,
     margin_top,
     margin_bottom,
@@ -749,7 +731,9 @@ pub(crate) fn solve_flex_layout_width<'a, 'b>(
         &mut width_calculated_arena.as_ref_mut(),
         node_hierarchy,
         layout_positions,
-        node_depths
+        layout_directions,
+        node_depths,
+        window_width,
     );
     width_calculated_rect_arena_apply_flex_grow(
         width_calculated_arena,
@@ -778,7 +762,9 @@ pub(crate) fn solve_flex_layout_height<'a, 'b>(
         &mut height_calculated_arena.as_ref_mut(),
         node_hierarchy,
         layout_positions,
-        node_depths
+        layout_directions,
+        node_depths,
+        window_height
     );
     height_calculated_rect_arena_apply_flex_grow(
         height_calculated_arena,
