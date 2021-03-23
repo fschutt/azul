@@ -359,8 +359,7 @@ macro_rules! typed_arena {(
     /// properties
     ///
     /// The layout step doesn't account for the min_width
-    /// and max_width constraints,
-    /// so we have to adjust them manually
+    /// and max_width constraints, so we have to adjust them manually
     fn $apply_flex_grow_fn_name<'a, 'b>(
         node_data: &mut NodeDataContainer<$struct_name>,
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
@@ -543,64 +542,70 @@ macro_rules! typed_arena {(
         }
 
         fn distribute_space_along_cross_axis<'a>(
-            node_id: &NodeId,
+            parent_id: &NodeId,
             children: &[NodeId],
             node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
             layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
             width_calculated_arena: &'a NodeDataContainerRef<$struct_name>,
             root_width: f32
         ) -> Vec<f32> {
+
+            let parent_node_inner_width = {
+                // The inner space of the parent node, without the padding
+                let parent_node = &width_calculated_arena[*parent_id];
+                let parent_parent_width = node_hierarchy[*parent_id].parent_id()
+                .and_then(|p| width_calculated_arena[p].$preferred_field.max_available_space())
+                .unwrap_or(root_width);
+
+                parent_node.total() - parent_node.$get_padding_fn(parent_parent_width)
+            };
+
+            let nearest_relative_node = if layout_positions[*parent_id].is_positioned() {
+                *parent_id
+            } else {
+                parent_id.get_nearest_matching_parent(node_hierarchy, |n| layout_positions[n].is_positioned())
+                .unwrap_or(NodeId::new(0))
+            };
+
+            let last_relative_node_inner_width = {
+                let last_relative_node = &width_calculated_arena[nearest_relative_node];
+                let last_relative_node_parent_width = node_hierarchy[nearest_relative_node].parent_id()
+                .and_then(|p| width_calculated_arena[p].$preferred_field.max_available_space())
+                .unwrap_or(root_width);
+
+                last_relative_node.total() - last_relative_node.$get_padding_fn(last_relative_node_parent_width)
+            };
+
             children
             .par_iter()
             .map(|child_id| {
 
-                let parent_node_inner_width = if layout_positions[*child_id] != LayoutPosition::Absolute {
-                    // The inner space of the parent node, without the padding
-                    let parent_node = &width_calculated_arena[*node_id];
-                    let parent_parent_width = node_hierarchy[*node_id].parent_id()
-                    .and_then(|p| width_calculated_arena[p].$preferred_field.max_available_space())
-                    .unwrap_or(root_width);
-                    parent_node.total() - parent_node.$get_padding_fn(parent_parent_width)
+                let parent_node_inner_width = if layout_positions[*child_id] == LayoutPosition::Absolute {
+                    last_relative_node_inner_width
                 } else {
-                    let nearest_relative_parent_node = child_id
-                        .get_nearest_matching_parent(node_hierarchy, |n| layout_positions[n].is_positioned())
-                        .unwrap_or(NodeId::new(0));
-                    let last_relative_node = &width_calculated_arena[nearest_relative_parent_node];
-                    let last_relative_node_parent_width = node_hierarchy[nearest_relative_parent_node].parent_id()
-                    .and_then(|p| width_calculated_arena[p].$preferred_field.max_available_space())
-                    .unwrap_or(root_width);
-
-                    last_relative_node.total() - last_relative_node.$get_padding_fn(last_relative_node_parent_width)
+                    parent_node_inner_width
                 };
 
-                let preferred_width = {
+                let min_child_width = width_calculated_arena[*child_id].total() +
+                    width_calculated_arena[*child_id].$get_padding_fn(parent_node_inner_width);
+                    // + margin(child)
 
-                    let min_width = width_calculated_arena[*child_id].$preferred_field
-                        .min_needed_space()
-                        .unwrap_or(0.0);
+                let space_available = parent_node_inner_width - min_child_width;
 
-                    // If the min width of the cross axis is larger than the parent width, overflow
-                    if min_width > parent_node_inner_width {
-                        min_width
-                    } else {
-                        match width_calculated_arena[*child_id].$preferred_field.max_available_space() {
-                            Some(max_width) => {
-                                if max_width > parent_node_inner_width {
-                                    parent_node_inner_width
-                                } else {
-                                    max_width
-                                }
-                            },
-                            None => parent_node_inner_width,
-                        }
-                    }
-                };
-
-                // so that node.min_inner_size_px + node.flex_grow_px = preferred_width
-                let flex_grow_px = preferred_width - width_calculated_arena[*child_id].min_inner_size_px;
-                flex_grow_px
-
-            }).collect()
+                // If the min width of the cross axis is larger than the parent width, overflow
+                if space_available <= 0.0 {
+                    // do not grow the item - no space to distribute
+                    0.0
+                } else {
+                    let preferred_width = match width_calculated_arena[*child_id].$preferred_field.max_available_space() {
+                        Some(max_width) => parent_node_inner_width.min(max_width),
+                        None => parent_node_inner_width,
+                    };
+                    // flex_grow the item so that (space_available + node.flex_grow_px) = preferred_width (= either max_width or parent_width)
+                    preferred_width - min_child_width
+                }
+            })
+            .collect()
         }
 
         use azul_css::{LayoutAxis, LayoutPosition};
