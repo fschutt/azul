@@ -1291,7 +1291,7 @@ pub(crate) fn wr_translate_transform_key((t, matrix): &(TransformKey, ComputedTr
         WrTransformStyle::Flat,
         WrPropertyBinding::Binding(WrPropertyBindingKey::new(t.id as u64), wr_translate_transform(matrix)),
         WrReferenceFrameKind::Transform {
-            is_2d_scale_translation: true,
+            is_2d_scale_translation: false,
             should_snap: false,
         }
     )
@@ -1377,12 +1377,9 @@ fn push_display_list_msg(
         rect_spatial_id = builder.push_reference_frame(
             WrLayoutPoint::new(relative_x, relative_y),
             parent_spatial_id,
-            WrTransformStyle::Flat,
-            WrPropertyBinding::Value(WrLayoutTransform::identity()),
-            WrReferenceFrameKind::Transform {
-                is_2d_scale_translation: true,
-                should_snap: false,
-            },
+            transform_style,
+            property_binding,
+            reference_frame_kind,
         );
     }
 
