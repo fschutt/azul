@@ -148,6 +148,7 @@ impl TableViewState {
         use azul::vec::StringVec as AzStringVec;
         use azul::vec::StyleBackgroundContentVec;
         use azul::vec::NodeDataInlineCssPropertyVec;
+        use azul::vec::StyleTransformVec;
         use azul::vec::IdOrClassVec;
         use azul::dom::IdOrClass;
         use azul::dom::NodeDataInlineCssProperty;
@@ -198,13 +199,15 @@ impl TableViewState {
         .with_ids_and_classes(IdOrClassVec::from_const_slice(TOP_LEFT_EMPTY_RECT_CLASS))
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(TOP_LEFT_EMPTY_RECT_STYLE));
 
+        static TEST_TRANSFORM: &[StyleTransform] = &[StyleTransform::Rotate(AngleValue::const_deg(10))];
+
         static ROW_NUMBERS_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::font_family(SANS_SERIF_FONT_FAMILY)),
             Normal(CssProperty::text_color(StyleTextColor { inner: COLOR_2D2D2D })),
             Normal(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(COLOR_E6E6E6_BACKGROUND))),
             Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
             Normal(CssProperty::box_shadow_right(SHADOW)),
-            Normal(CssProperty::transform(vec![StyleTransform::Rotate(AngleValue::const_deg(10))])),
+            Normal(CssProperty::transform(StyleTransformVec::from_const_slice(TEST_TRANSFORM))),
         ];
         static ROW_NUMBERS_CONTAINER_CLASS: &[IdOrClass] = &[
             IdOrClass::Class(AzString::from_const_str("az-table-row-numbers-container"))

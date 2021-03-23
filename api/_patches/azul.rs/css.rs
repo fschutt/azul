@@ -328,6 +328,89 @@
         }
     }
 
+    impl AngleValue {
+
+        #[inline]
+        pub const fn zero() -> Self {
+            const ZERO_DEG: AngleValue = AngleValue::const_deg(0);
+            ZERO_DEG
+        }
+
+        /// Same as `PixelValue::px()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_deg(value: isize) -> Self {
+            Self::const_from_metric(AngleMetric::Degree, value)
+        }
+
+        /// Same as `PixelValue::em()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_rad(value: isize) -> Self {
+            Self::const_from_metric(AngleMetric::Radians, value)
+        }
+
+        /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_grad(value: isize) -> Self {
+            Self::const_from_metric(AngleMetric::Grad, value)
+        }
+
+        /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_turn(value: isize) -> Self {
+            Self::const_from_metric(AngleMetric::Turn, value)
+        }
+
+        #[inline]
+        pub fn const_percent(value: isize) -> Self {
+            Self::const_from_metric(AngleMetric::Percent, value)
+        }
+
+        #[inline]
+        pub const fn const_from_metric(metric: AngleMetric, value: isize) -> Self {
+            Self {
+                metric: metric,
+                number: FloatValue::const_new(value),
+            }
+        }
+
+        #[inline]
+        pub fn deg(value: f32) -> Self {
+            Self::from_metric(AngleMetric::Degree, value)
+        }
+
+        #[inline]
+        pub fn rad(value: f32) -> Self {
+            Self::from_metric(AngleMetric::Radians, value)
+        }
+
+        #[inline]
+        pub fn grad(value: f32) -> Self {
+            Self::from_metric(AngleMetric::Grad, value)
+        }
+
+        #[inline]
+        pub fn turn(value: f32) -> Self {
+            Self::from_metric(AngleMetric::Turn, value)
+        }
+
+        #[inline]
+        pub fn percent(value: f32) -> Self {
+            Self::from_metric(AngleMetric::Percent, value)
+        }
+
+        #[inline]
+        pub fn from_metric(metric: AngleMetric, value: f32) -> Self {
+            Self {
+                metric: metric,
+                number: FloatValue::new(value),
+            }
+        }
+    }
+
     impl PixelValue {
 
         #[inline]
@@ -452,6 +535,21 @@
         #[inline]
         fn from_metric(metric: SizeMetric, value: f32) -> Self {
             Self { inner: PixelValue::from_metric(metric, value) }
+        }
+    }
+
+    impl PercentageValue {
+
+        /// Same as `PercentageValue::new()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_new(value: isize) -> Self {
+            Self { number: FloatValue::const_new(value) }
+        }
+
+        #[inline]
+        pub fn new(value: f32) -> Self {
+            Self { number: value.into() }
         }
     }
 

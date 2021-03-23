@@ -3255,11 +3255,11 @@ mod dll {
         TranslateX(AzPixelValue),
         TranslateY(AzPixelValue),
         TranslateZ(AzPixelValue),
-        Rotate(AzPercentageValue),
+        Rotate(AzAngleValue),
         Rotate3D(AzStyleTransformRotate3D),
-        RotateX(AzPercentageValue),
-        RotateY(AzPercentageValue),
-        RotateZ(AzPercentageValue),
+        RotateX(AzAngleValue),
+        RotateY(AzAngleValue),
+        RotateZ(AzAngleValue),
         Scale(AzStyleTransformScale2D),
         Scale3D(AzStyleTransformScale3D),
         ScaleX(AzPercentageValue),
@@ -4752,8 +4752,6 @@ mod dll {
         pub(crate) fn AzRawImage_encodePnm(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeGif(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeTiff(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
-        pub(crate) fn AzImageId_unique() -> AzImageId;
-        pub(crate) fn AzFontId_unique() -> AzFontId;
         pub(crate) fn AzSvg_fromString(_:  AzString, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
         pub(crate) fn AzSvg_fromBytes(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
         pub(crate) fn AzSvg_getRoot(_:  &AzSvg) -> AzSvgXmlNode;
@@ -6263,6 +6261,89 @@ pub mod css {
         }
     }
 
+    impl AngleValue {
+
+        #[inline]
+        pub const fn zero() -> Self {
+            const ZERO_DEG: AngleValue = AngleValue::const_deg(0);
+            ZERO_DEG
+        }
+
+        /// Same as `PixelValue::px()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_deg(value: isize) -> Self {
+            Self::const_from_metric(AngleMetric::Degree, value)
+        }
+
+        /// Same as `PixelValue::em()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_rad(value: isize) -> Self {
+            Self::const_from_metric(AngleMetric::Radians, value)
+        }
+
+        /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_grad(value: isize) -> Self {
+            Self::const_from_metric(AngleMetric::Grad, value)
+        }
+
+        /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_turn(value: isize) -> Self {
+            Self::const_from_metric(AngleMetric::Turn, value)
+        }
+
+        #[inline]
+        pub fn const_percent(value: isize) -> Self {
+            Self::const_from_metric(AngleMetric::Percent, value)
+        }
+
+        #[inline]
+        pub const fn const_from_metric(metric: AngleMetric, value: isize) -> Self {
+            Self {
+                metric: metric,
+                number: FloatValue::const_new(value),
+            }
+        }
+
+        #[inline]
+        pub fn deg(value: f32) -> Self {
+            Self::from_metric(AngleMetric::Degree, value)
+        }
+
+        #[inline]
+        pub fn rad(value: f32) -> Self {
+            Self::from_metric(AngleMetric::Radians, value)
+        }
+
+        #[inline]
+        pub fn grad(value: f32) -> Self {
+            Self::from_metric(AngleMetric::Grad, value)
+        }
+
+        #[inline]
+        pub fn turn(value: f32) -> Self {
+            Self::from_metric(AngleMetric::Turn, value)
+        }
+
+        #[inline]
+        pub fn percent(value: f32) -> Self {
+            Self::from_metric(AngleMetric::Percent, value)
+        }
+
+        #[inline]
+        pub fn from_metric(metric: AngleMetric, value: f32) -> Self {
+            Self {
+                metric: metric,
+                number: FloatValue::new(value),
+            }
+        }
+    }
+
     impl PixelValue {
 
         #[inline]
@@ -6387,6 +6468,21 @@ pub mod css {
         #[inline]
         fn from_metric(metric: SizeMetric, value: f32) -> Self {
             Self { inner: PixelValue::from_metric(metric, value) }
+        }
+    }
+
+    impl PercentageValue {
+
+        /// Same as `PercentageValue::new()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_new(value: isize) -> Self {
+            Self { number: FloatValue::const_new(value) }
+        }
+
+        #[inline]
+        pub fn new(value: f32) -> Self {
+            Self { number: value.into() }
         }
     }
 
@@ -9410,11 +9506,6 @@ pub mod image {
     /// `ImageId` struct
     
 #[doc(inline)] pub use crate::dll::AzImageId as ImageId;
-    impl ImageId {
-        /// Creates a new, unique `ImageId`
-        pub fn unique() -> Self { unsafe { crate::dll::AzImageId_unique() } }
-    }
-
     /// `ImageSource` struct
     
 #[doc(inline)] pub use crate::dll::AzImageSource as ImageSource;
@@ -9440,11 +9531,6 @@ pub mod font {
     /// `FontId` struct
     
 #[doc(inline)] pub use crate::dll::AzFontId as FontId;
-    impl FontId {
-        /// Creates a new, unique `FontId`
-        pub fn unique() -> Self { unsafe { crate::dll::AzFontId_unique() } }
-    }
-
     /// `EmbeddedFontSource` struct
     
 #[doc(inline)] pub use crate::dll::AzEmbeddedFontSource as EmbeddedFontSource;

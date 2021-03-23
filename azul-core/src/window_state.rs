@@ -73,7 +73,7 @@ use crate::{
     callbacks:: {ScrollPosition, PipelineId, DomNodeId, HitTestItem, UpdateScreen},
     id_tree::NodeId,
     styled_dom::{DomId, ChangedCssProperty, AzNodeId},
-    ui_solver::LayoutResult,
+    ui_solver::{LayoutResult, RelayoutChanges},
     task::ExternalSystemCallbacks,
     window::{FullHitTest, RawWindowHandle, FullWindowState, ScrollStates, CallCallbacksResult},
 };
@@ -274,7 +274,7 @@ impl StyleAndLayoutChanges {
         pipeline_id: PipelineId,
         css_changes: &BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
         callbacks_new_focus: &Option<Option<DomNodeId>>,
-        relayout_cb: fn(LayoutRect, &mut LayoutResult, &mut AppResources, PipelineId, &RelayoutNodes) -> Vec<NodeId>
+        relayout_cb: fn(LayoutRect, &mut LayoutResult, &mut AppResources, PipelineId, &RelayoutNodes) -> RelayoutChanges
     ) -> StyleAndLayoutChanges {
 
         // immediately restyle the DOM to reflect the new :hover, :active and :focus nodes
@@ -359,6 +359,7 @@ impl StyleAndLayoutChanges {
         }
 
         let mut nodes_that_changed_size = BTreeMap::new();
+        let mut gpu_key_change_events = BTreeMap::new();
 
         // recursively relayout if there are layout_changes or the window size has changed
         let window_was_resized = window_size != layout_results[DomId::ROOT_ID.inner].root_size;
@@ -379,14 +380,20 @@ impl StyleAndLayoutChanges {
                 };
                 let default_layout_changes = BTreeMap::new();
                 let layout_changes = layout_changes.get(&dom_id).unwrap_or(&default_layout_changes);
-                let relayouted_nodes = (relayout_cb)(parent_rect, &mut layout_results[dom_id.inner], app_resources, pipeline_id, layout_changes);
+                let RelayoutChanges { resized_nodes, gpu_key_changes } = (relayout_cb)(
+                    parent_rect, &mut layout_results[dom_id.inner],
+                    app_resources, pipeline_id, layout_changes
+                );
+                if gpu_key_changes.is_empty() {
+                    gpu_key_change_events.insert(dom_id, gpu_key_changes);
+                }
 
-                if !relayouted_nodes.is_empty() {
+                if !resized_nodes.is_empty() {
                     new_iframes_to_relayout.extend(layout_results[dom_id.inner].iframe_mapping.iter()
                     .filter_map(|(node_id, dom_id)| {
-                        if relayouted_nodes.contains(node_id) { Some(dom_id) } else { None }
+                        if resized_nodes.contains(node_id) { Some(dom_id) } else { None }
                     }));
-                    nodes_that_changed_size.insert(dom_id, relayouted_nodes);
+                    nodes_that_changed_size.insert(dom_id, resized_nodes);
                 }
             }
 

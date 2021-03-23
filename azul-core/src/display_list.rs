@@ -16,13 +16,13 @@ use azul_css::{
 };
 use crate::{
     callbacks::PipelineId,
-    ui_solver::{ExternalScrollId, LayoutResult, PositionInfo},
+    ui_solver::{ExternalScrollId, LayoutResult, PositionInfo, ComputedTransform3D},
     window::{FullWindowState, LogicalRect, LogicalPosition, LogicalSize},
     app_resources::{
         AppResources, AddImageMsg, ImageDescriptor, ImageDescriptorFlags,
         ImageKey, FontInstanceKey, ImageInfo, ImageId, PrimitiveFlags,
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn, ParseFontFn,
-        ResourceUpdate, IdNamespace, TransformKey,
+        ResourceUpdate, IdNamespace, TransformKey, OpacityKey,
     },
     styled_dom::{DomId, StyledDom, ContentGroup},
     id_tree::NodeId,
@@ -104,6 +104,22 @@ pub enum DisplayListMsg {
 }
 
 impl DisplayListMsg {
+
+    pub fn get_transform_key(&self) -> Option<&(TransformKey, ComputedTransform3D)> {
+        use self::DisplayListMsg::*;
+        match self {
+            Frame(f) => f.transform.as_ref(),
+            ScrollFrame(sf) => sf.frame.transform.as_ref(),
+        }
+    }
+
+    pub fn get_opacity_key(&self) -> Option<&(OpacityKey, f32)> {
+        use self::DisplayListMsg::*;
+        match self {
+            Frame(f) => f.opacity.as_ref(),
+            ScrollFrame(sf) => sf.frame.opacity.as_ref(),
+        }
+    }
 
     pub fn get_position(&self) -> PositionInfo {
         use self::DisplayListMsg::*;
@@ -201,7 +217,8 @@ pub struct DisplayListFrame {
     pub tag: Option<TagId>,
     // box shadow has to be pushed twice: once as inset and once as outset
     pub box_shadow: Option<BoxShadow>,
-    pub transform: Option<TransformKey>,
+    pub transform: Option<(TransformKey, ComputedTransform3D)>,
+    pub opacity: Option<(OpacityKey, f32)>,
     pub content: Vec<LayoutRectContent>,
     pub children: Vec<DisplayListMsg>,
 }
@@ -253,6 +270,8 @@ impl DisplayListFrame {
             },
             border_radius: StyleBorderRadius::default(),
             box_shadow: None,
+            transform: None,
+            opacity: None,
             content: vec![],
             children: vec![],
             clip_mask: None,
@@ -714,7 +733,7 @@ impl SolvedLayout {
                     ImageInfo { key, descriptor }
                 );
 
-                image_resource_updates.push((ImageId::new(), add_img_msg));
+                image_resource_updates.push((ImageId::unique(), add_img_msg));
                 gl_texture_cache.solved_textures
                     .entry(dom_id.clone())
                     .or_insert_with(|| BTreeMap::new())
@@ -749,7 +768,7 @@ pub fn push_rectangles_into_displaylist<'a>(
 
     let children = root_content_group.children
         .as_ref()
-        .iter()// .par_iter()
+        .par_iter()
         .map(|child_content_group| {
             push_rectangles_into_displaylist(
                 child_content_group,
@@ -815,7 +834,7 @@ pub fn displaylist_handle_rect<'a>(
             bottom_right: layout_result.styled_dom.get_css_property_cache().get_border_bottom_right_radius(&html_node, &rect_idx, &styled_node.state),
         },
         flags: PrimitiveFlags {
-            is_backface_visible: true,
+            is_backface_visible: false, // TODO!
             is_scrollbar_container: false,
             is_scrollbar_thumb: false,
             prefer_compositor_surface: false,
@@ -824,7 +843,12 @@ pub fn displaylist_handle_rect<'a>(
         content: Vec::new(),
         children: Vec::new(),
         box_shadow: None,
-        transform: layout_result.gpu_value_cache.transform_keys.get(&rect_idx).copied(),
+        transform: layout_result.gpu_value_cache.transform_keys
+            .get(&rect_idx)
+            .and_then(|key| Some((*key, layout_result.gpu_value_cache.current_transform_values.get(&rect_idx).cloned()?))),
+        opacity: layout_result.gpu_value_cache.opacity_keys
+            .get(&rect_idx)
+            .and_then(|key| Some((*key, layout_result.gpu_value_cache.current_opacity_values.get(&rect_idx).cloned()?))),
         clip_mask,
     };
 
@@ -905,7 +929,7 @@ pub fn displaylist_handle_rect<'a>(
 
     match html_node.get_node_type() {
         Div | Body | Br => { },
-        Label(l) => {
+        Label(_) => {
 
             use crate::app_resources::get_inline_text;
 

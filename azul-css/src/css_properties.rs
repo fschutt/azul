@@ -605,6 +605,13 @@ macro_rules! impl_percentage_value{($struct:ident) => (
 )}
 
 macro_rules! impl_float_value{($struct:ident) => (
+    impl $struct {
+        #[inline]
+        pub fn get(&self) -> f32 {
+            self.inner.get()
+        }
+    }
+
     impl ::core::fmt::Display for $struct {
         fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
             write!(f, "{}", self.inner.get())

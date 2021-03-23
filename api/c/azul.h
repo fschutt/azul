@@ -6645,15 +6645,15 @@ struct AzStyleTransformVariant_TranslateY { AzStyleTransformTag tag; AzPixelValu
 typedef struct AzStyleTransformVariant_TranslateY AzStyleTransformVariant_TranslateY;
 struct AzStyleTransformVariant_TranslateZ { AzStyleTransformTag tag; AzPixelValue payload; };
 typedef struct AzStyleTransformVariant_TranslateZ AzStyleTransformVariant_TranslateZ;
-struct AzStyleTransformVariant_Rotate { AzStyleTransformTag tag; AzPercentageValue payload; };
+struct AzStyleTransformVariant_Rotate { AzStyleTransformTag tag; AzAngleValue payload; };
 typedef struct AzStyleTransformVariant_Rotate AzStyleTransformVariant_Rotate;
 struct AzStyleTransformVariant_Rotate3D { AzStyleTransformTag tag; AzStyleTransformRotate3D payload; };
 typedef struct AzStyleTransformVariant_Rotate3D AzStyleTransformVariant_Rotate3D;
-struct AzStyleTransformVariant_RotateX { AzStyleTransformTag tag; AzPercentageValue payload; };
+struct AzStyleTransformVariant_RotateX { AzStyleTransformTag tag; AzAngleValue payload; };
 typedef struct AzStyleTransformVariant_RotateX AzStyleTransformVariant_RotateX;
-struct AzStyleTransformVariant_RotateY { AzStyleTransformTag tag; AzPercentageValue payload; };
+struct AzStyleTransformVariant_RotateY { AzStyleTransformTag tag; AzAngleValue payload; };
 typedef struct AzStyleTransformVariant_RotateY AzStyleTransformVariant_RotateY;
-struct AzStyleTransformVariant_RotateZ { AzStyleTransformTag tag; AzPercentageValue payload; };
+struct AzStyleTransformVariant_RotateZ { AzStyleTransformTag tag; AzAngleValue payload; };
 typedef struct AzStyleTransformVariant_RotateZ AzStyleTransformVariant_RotateZ;
 struct AzStyleTransformVariant_Scale { AzStyleTransformTag tag; AzStyleTransformScale2D payload; };
 typedef struct AzStyleTransformVariant_Scale AzStyleTransformVariant_Scale;
@@ -9793,8 +9793,6 @@ extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTga(AzRawImage* 
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePnm(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeGif(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTiff(AzRawImage* const rawimage);
-extern DLLIMPORT AzImageId AzImageId_unique();
-extern DLLIMPORT AzFontId AzFontId_unique();
 extern DLLIMPORT AzSvg AzSvg_fromString(AzString  svg_string, AzSvgParseOptions  parse_options);
 extern DLLIMPORT AzSvg AzSvg_fromBytes(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
 extern DLLIMPORT AzSvgXmlNode AzSvg_getRoot(AzSvg* const svg);

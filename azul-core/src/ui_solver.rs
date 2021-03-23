@@ -12,8 +12,8 @@ use azul_css::{
 };
 use crate::{
     styled_dom::{StyledDom, AzNodeId, DomId},
-    app_resources::{Words, ShapedWords, FontInstanceKey, WordPositions},
-    id_tree::{NodeId, NodeDataContainer},
+    app_resources::{Words, ShapedWords, TransformKey, OpacityKey, FontInstanceKey, WordPositions},
+    id_tree::{NodeId, NodeDataContainer, NodeDataContainerRef},
     dom::{DomNodeHash, ScrollTagId},
     callbacks::{PipelineId, HitTestItem, ScrollHitTestItem},
     window::{ScrollStates, LogicalPosition, LogicalRect, LogicalSize},
@@ -394,30 +394,50 @@ impl LayoutResult {
 pub struct GpuValueCache {
     pub transform_keys: BTreeMap<NodeId, TransformKey>,
     pub current_transform_values: BTreeMap<NodeId, ComputedTransform3D>,
-    pub current_opacity_keys: BTreeMap<NodeId, OpacityKey>,
+    pub opacity_keys: BTreeMap<NodeId, OpacityKey>,
     pub current_opacity_values: BTreeMap<NodeId, f32>,
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum GpuTransformKeyEvent {
-    Added(TransformKey, ComputedTransform3D),
-    Changed(TransformKey, ComputedTransform3D),
-    Removed(TransformKey),
+    Added(NodeId, TransformKey, ComputedTransform3D),
+    Changed(NodeId, TransformKey, ComputedTransform3D, ComputedTransform3D),
+    Removed(NodeId, TransformKey),
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum GpuOpacityKeyEvent {
-    Added(OpacityKey, f32),
-    Changed(OpacityKey, f32),
-    Removed(OpacityKey),
+    Added(NodeId, OpacityKey, f32),
+    Changed(NodeId, OpacityKey, f32, f32),
+    Removed(NodeId, OpacityKey),
 }
 
+#[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
 pub struct GpuEventChanges {
     pub transform_key_changes: Vec<GpuTransformKeyEvent>,
-    pub opacity_key_changes: Vec<OpacityKeyEvent>,
+    pub opacity_key_changes: Vec<GpuOpacityKeyEvent>,
 }
 
+impl GpuEventChanges {
+    pub fn empty() -> Self {
+        Self::default()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.transform_key_changes.is_empty() &&
+        self.opacity_key_changes.is_empty()
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
 pub struct RelayoutChanges {
     pub resized_nodes: Vec<NodeId>,
     pub gpu_key_changes: GpuEventChanges,
+}
+
+impl RelayoutChanges {
+    pub fn empty() -> Self {
+        Self::default()
+    }
 }
 
 impl GpuValueCache {
@@ -427,7 +447,8 @@ impl GpuValueCache {
     }
 
     #[cfg(feature = "multithreading")]
-    fn synchronize<'a>(
+    #[must_use]
+    pub fn synchronize<'a>(
         &mut self,
         positioned_rects: &NodeDataContainerRef<'a, PositionedRectangle>,
         styled_dom: &StyledDom,
@@ -439,57 +460,90 @@ impl GpuValueCache {
         let node_data = styled_dom.node_data.as_container();
         let node_states = styled_dom.styled_nodes.as_container();
 
-        let empty_transform_origin_vec: StyleTransformOriginVec = Vec::new().into();
+        let default_transform_origin = StyleTransformOrigin::default();
 
-        // calculate the transform values of every single node
-        let all_current_transform_events = (0..styled_dom.len())
-        .par_iter()
+        // calculate the transform values of every single node that has a non-default transform
+        let all_current_transform_events = (0..styled_dom.node_data.len())
+        .into_par_iter()
         .filter_map(|node_id| {
             let node_id = NodeId::new(node_id);
-            let transform_origins = css_property_cache.get_transform_origin(node_data[node_id], node_id, node_states[node_id]);
-            let current_transform = css_property_cache.get_transform(node_data[node_id], node_id, node_states[node_id]).map(|t| {
-                let parent_width = positioned_rects[node_id].total();
-                let transform_origins = transform_origins.unwrap_or(&empty_transform_origin_vec);
-                ComputedTransform3D::from_style_transform_vec(t.as_ref(), transform_origins, parent_width)
+            let styled_node_state = &node_states[node_id].state;
+            let node_data = &node_data[node_id];
+            let current_transform = css_property_cache.get_transform(node_data, &node_id, styled_node_state)?.get_property().map(|t| {
+                let parent_width = positioned_rects[node_id].size.width;
+                let transform_origin = css_property_cache.get_transform_origin(node_data, &node_id, styled_node_state);
+                let transform_origin = transform_origin
+                    .as_ref()
+                    .and_then(|o| o.get_property())
+                    .unwrap_or(&default_transform_origin);
+                ComputedTransform3D::from_style_transform_vec(t.as_ref(), transform_origin, parent_width)
             });
-            let existing_transform = self.current_transform_values.get();
+            let existing_transform = self.current_transform_values.get(&node_id);
 
-            match (existing_transform, current_transform) => {
+            match (existing_transform, current_transform) {
                 (None, None) => None, // no new transform, no old transform
-                (None, Some(new)) => Some(GpuTransformKeyEvent::Added(TransformKey::unique(), new)),
-                (Some(old), Some(new)) => Some(GpuTransformKeyEvent::Changed(self.transform_keys.get(&node_id).copied()?, old, new)),
-                (Some(old), None) => Some(GpuTransformKeyEvent::Removed(self.transform_keys.get(&node_id).copied()?)),
+                (None, Some(new)) => Some(GpuTransformKeyEvent::Added(node_id, TransformKey::unique(), new)),
+                (Some(old), Some(new)) => Some(GpuTransformKeyEvent::Changed(node_id, self.transform_keys.get(&node_id).copied()?, *old, new)),
+                (Some(_old), None) => Some(GpuTransformKeyEvent::Removed(node_id, self.transform_keys.get(&node_id).copied()?)),
             }
-        }).collect();
+        }).collect::<Vec<GpuTransformKeyEvent>>();
 
-        let all_current_opacity_events = (0..styled_dom.len())
-        .par_iter()
+        // remove / add the transform keys accordingly
+        for event in all_current_transform_events.iter() {
+            match &event {
+                GpuTransformKeyEvent::Added(node_id, key, matrix) => {
+                    self.transform_keys.insert(*node_id, *key);
+                    self.current_transform_values.insert(*node_id, *matrix);
+                },
+                GpuTransformKeyEvent::Changed(node_id, _key, _old_state, new_state) => {
+                    self.current_transform_values.insert(*node_id, *new_state);
+                },
+                GpuTransformKeyEvent::Removed(node_id, _key) => {
+                    self.transform_keys.remove(node_id);
+                    self.current_transform_values.remove(node_id);
+                },
+            }
+        }
+
+        // calculate the opacity of every single node that has a non-default opacity
+        let all_current_opacity_events = (0..styled_dom.node_data.len())
+        .into_par_iter()
         .filter_map(|node_id| {
             let node_id = NodeId::new(node_id);
-            let current_opacity = css_property_cache.get_opacity().unwrap_or_default();
-            let existing_opacity = self.current_opacity_values.get();
+            let styled_node_state = &node_states[node_id].state;
+            let node_data = &node_data[node_id];
+            let current_opacity = css_property_cache.get_opacity(node_data, &node_id, styled_node_state)?;
+            let current_opacity = current_opacity.get_property();
+            let existing_opacity = self.current_opacity_values.get(&node_id);
 
-            match (existing_opacity, current_opacity) => {
+            match (existing_opacity, current_opacity) {
                 (None, None) => None, // no new opacity, no old transform
-                (None, Some(new)) => Some(GpuOpacityKeyEvent::Added(OpacityKey::unique(), new.get())),
-                (Some(old), Some(new)) => Some(GpuOpacityKeyEvent::Changed(self.opacity_keys.get(&node_id).copied()?, old, new.get())),
-                (Some(old), None) => Some(GpuOpacityKeyEvent::Removed(self.opacity_keys.get(&node_id).copied()?)),
+                (None, Some(new)) => Some(GpuOpacityKeyEvent::Added(node_id, OpacityKey::unique(), new.get())),
+                (Some(old), Some(new)) => Some(GpuOpacityKeyEvent::Changed(node_id, self.opacity_keys.get(&node_id).copied()?, *old, new.get())),
+                (Some(_old), None) => Some(GpuOpacityKeyEvent::Removed(node_id, self.opacity_keys.get(&node_id).copied()?)),
             }
-        }).collect();
+        }).collect::<Vec<GpuOpacityKeyEvent>>();
 
-        // current_transform_values
-        // current_opacity_values
-        // current_color_values
-        /*
-            pub transform_keys: BTreeMap<NodeId, TransformKey>,
-            pub current_transform_values: BTreeMap<NodeId, ComputedTransform3D>,
-            pub opacity_keys: BTreeMap<NodeId, OpacityKey>,
-            pub current_opacity_values: BTreeMap<NodeId, f32>,
-        */
+        // remove / add the opacity keys accordingly
+        for event in all_current_opacity_events.iter() {
+            match &event {
+                GpuOpacityKeyEvent::Added(node_id, key, opacity) => {
+                    self.opacity_keys.insert(*node_id, *key);
+                    self.current_opacity_values.insert(*node_id, *opacity);
+                },
+                GpuOpacityKeyEvent::Changed(node_id, _key, _old_state, new_state) => {
+                    self.current_opacity_values.insert(*node_id, *new_state);
+                },
+                GpuOpacityKeyEvent::Removed(node_id, _key) => {
+                    self.opacity_keys.remove(node_id);
+                    self.current_opacity_values.remove(node_id);
+                },
+            }
+        }
 
         GpuEventChanges {
-            transform_key_changes: ,
-            opacity_key_changes: ,
+            transform_key_changes: all_current_transform_events,
+            opacity_key_changes: all_current_opacity_events,
         }
     }
 }
@@ -942,15 +996,13 @@ impl ComputedTransform3D {
     }
 
     // Computes the matrix of a rect from a Vec<StyleTransform>
-    pub fn from_style_transform_vec(t_vec: &[StyleTransform], transform_origins: &[StyleTransformOrigin], percent_resolve: f32) -> Self {
+    pub fn from_style_transform_vec(t_vec: &[StyleTransform], transform_origin: &StyleTransformOrigin, percent_resolve: f32) -> Self {
 
         // TODO: use correct SIMD optimization!
         let mut matrix = Self::IDENTITY;
-        let default_origin = StyleTransformOrigin::default();
 
-        for (t_idx, t) in t_vec.iter().enumerate() {
-            let transform_origin = transform_origins.get(t_idx).unwrap_or(transform_origins.get(0).unwrap_or(&default_origin));
-            matrix.then(Self::from_style_transform(t, transform_origin, percent_resolve));
+        for t in t_vec.iter() {
+            matrix = matrix.then(&Self::from_style_transform(t, transform_origin, percent_resolve));
         }
 
         matrix
@@ -1161,15 +1213,15 @@ impl ComputedTransform3D {
 
     // Transforms a 2D point into the target coordinate space
     #[must_use]
-    pub fn transform_point2d(&self, point: LogicalPosition) -> Option<LogicalPosition> {
-        let w = p.x.mul_add(self.m[0][3], p.y.mul_add(self.m[1][3], self.m[3][3]);
+    pub fn transform_point2d(&self, p: LogicalPosition) -> Option<LogicalPosition> {
+        let w = p.x.mul_add(self.m[0][3], p.y.mul_add(self.m[1][3], self.m[3][3]));
 
-        if !w.is_sign_positive() { None }
+        if !w.is_sign_positive() { return None; }
 
-        let x = p.x.mul_add(self.m[0][0], p.y.mul_add(self.m[1][0], self.m[3][0]);
-        let y = p.x.mul_add(self.m[0][1], p.y.mul_add(self.m[1][1], self.m[3][1]);
+        let x = p.x.mul_add(self.m[0][0], p.y.mul_add(self.m[1][0], self.m[3][0]));
+        let y = p.x.mul_add(self.m[0][1], p.y.mul_add(self.m[1][1], self.m[3][1]));
 
-        Some(LogicalPosition { x: x / w, y: y / w }
+        Some(LogicalPosition { x: x / w, y: y / w })
     }
 
     /// Computes the sum of two matrices while applying `other` AFTER the current matrix.

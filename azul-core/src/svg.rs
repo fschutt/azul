@@ -2,12 +2,10 @@
 
 #[cfg(feature = "opengl")]
 use crate::gl::{
-    GlShader, VertexLayout, GlContextPtr,
+    VertexLayout,
     VertexLayoutDescription, VertexAttribute,
-    VertexAttributeType, GlApiVersion, VertexBuffer,
-    GlShaderCreateError,
+    VertexAttributeType, VertexBuffer,
 };
-use alloc::vec::Vec;
 use alloc::string::String;
 use azul_css::U32Vec;
 

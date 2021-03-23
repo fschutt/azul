@@ -16,13 +16,12 @@ use crate::{
     FastHashMap,
     app_resources::{AppResources, IdNamespace, ResourceUpdate, Epoch, ImageSource, ImageMask},
     styled_dom::{DomId, AzNodeId},
-    id_tree::{NodeId, NodeDataContainerRef},
+    id_tree::NodeId,
     callbacks::{OptionCallback, PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, UpdateScreen},
     ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId},
     display_list::{GlTextureCache, RenderCallbacks},
     callbacks::{LayoutCallback, LayoutCallbackType},
     task::{TimerId, ThreadId, Timer, Thread},
-    dom::NodeData,
 };
 use rust_fontconfig::FcFontCache;
 #[cfg(feature = "std")]

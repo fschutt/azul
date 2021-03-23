@@ -1983,8 +1983,6 @@ pub use AzRawImageFormatTT as AzRawImageFormat;
 /// Re-export of rust-allocated (stack based) `ImageId` struct
 pub type AzImageIdTT = azul_impl::resources::ImageId;
 pub use AzImageIdTT as AzImageId;
-/// Creates a new, unique `ImageId`
-#[no_mangle] pub extern "C" fn AzImageId_unique() -> AzImageId { ImageId::new() }
 
 /// Re-export of rust-allocated (stack based) `ImageSource` struct
 pub type AzImageSourceTT = azul_impl::resources::ImageSource;
@@ -2009,8 +2007,6 @@ pub use AzFontSourceTT as AzFontSource;
 /// Re-export of rust-allocated (stack based) `FontId` struct
 pub type AzFontIdTT = azul_impl::resources::FontId;
 pub use AzFontIdTT as AzFontId;
-/// Creates a new, unique `FontId`
-#[no_mangle] pub extern "C" fn AzFontId_unique() -> AzFontId { FontId::new() }
 
 /// Re-export of rust-allocated (stack based) `EmbeddedFontSource` struct
 pub type AzEmbeddedFontSourceTT = azul_impl::resources::EmbeddedFontSource;
@@ -6450,11 +6446,11 @@ mod test_sizes {
         TranslateX(AzPixelValue),
         TranslateY(AzPixelValue),
         TranslateZ(AzPixelValue),
-        Rotate(AzPercentageValue),
+        Rotate(AzAngleValue),
         Rotate3D(AzStyleTransformRotate3D),
-        RotateX(AzPercentageValue),
-        RotateY(AzPercentageValue),
-        RotateZ(AzPercentageValue),
+        RotateX(AzAngleValue),
+        RotateY(AzAngleValue),
+        RotateZ(AzAngleValue),
         Scale(AzStyleTransformScale2D),
         Scale3D(AzStyleTransformScale3D),
         ScaleX(AzPercentageValue),

@@ -499,12 +499,12 @@ macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
     #[repr(C)]
     pub struct $struct_name {
-        id: usize,
+        pub id: usize,
     }
 
     impl $struct_name {
 
-        pub fn new() -> Self {
+        pub fn unique() -> Self {
             Self { id: $counter_name.fetch_add(1, ::core::sync::atomic::Ordering::SeqCst) }
         }
     }
@@ -1581,7 +1581,7 @@ impl AppResources {
     }
 
     pub fn add_css_image_id<S: Into<String>>(&mut self, css_id: S) -> ImageId {
-        *self.css_ids_to_image_ids.entry(css_id.into()).or_insert_with(|| ImageId::new())
+        *self.css_ids_to_image_ids.entry(css_id.into()).or_insert_with(|| ImageId::unique())
     }
 
     pub fn has_css_image_id(&self, css_id: &str) -> bool {
@@ -1603,7 +1603,7 @@ impl AppResources {
     // -- FontId cache
 
     pub fn add_css_font_id(&mut self, css_id: StringVec) -> FontId {
-        *self.css_ids_to_font_ids.entry(css_id).or_insert_with(|| FontId::new())
+        *self.css_ids_to_font_ids.entry(css_id).or_insert_with(|| FontId::unique())
     }
 
     pub fn has_css_font_id(&self, css_id: &StringVec) -> bool {

@@ -21,6 +21,7 @@ use azul_core::{
         LayoutResult, PositionedRectangle, OverflowInfo, WhConstraint,
         WidthCalculatedRect, HeightCalculatedRect,
         HorizontalSolvedPosition, VerticalSolvedPosition,
+        GpuEventChanges, GpuValueCache, RelayoutChanges,
     },
     app_resources::{
         ResourceUpdate, IdNamespace,
@@ -1655,7 +1656,7 @@ pub fn do_the_layout_internal(
     app_resources: &mut AppResources,
     pipeline_id: PipelineId,
     bounds: LogicalRect
-) -> (LayoutResult, GpuEventChanges) {
+) -> LayoutResult {
 
     let rect_size = bounds.size;
     let rect_offset = bounds.origin;
@@ -1836,9 +1837,10 @@ pub fn do_the_layout_internal(
 
     println!("layout: overflowing_rects: {:#?}", overflowing_rects);
 
-    let initial_gpu_keys = GpuValueCache::empty().synchronize(&positioned_rects.as_ref(), &styled_dom):
+    let mut gpu_value_cache = GpuValueCache::empty();
+    let _ = gpu_value_cache.synchronize(&positioned_rects.as_ref(), &styled_dom);
 
-    (LayoutResult {
+    LayoutResult {
         dom_id,
         parent_dom_id,
         styled_dom,
@@ -1861,7 +1863,7 @@ pub fn do_the_layout_internal(
         scrollable_nodes: overflowing_rects,
         iframe_mapping: BTreeMap::new(),
         gpu_value_cache,
-    }, initial_gpu_keys)
+    }
 }
 
 /// Note: because this function is called both on layout() and relayout(),
@@ -2500,7 +2502,7 @@ pub fn do_the_relayout(
     let root_size_changed = root_bounds != layout_result.get_bounds();
 
     if !root_size_changed && nodes_to_relayout.is_empty() {
-        return Vec::new();
+        return RelayoutChanges::empty();
     }
 
     // merge the nodes to relayout by type so that we don't relayout twice
@@ -2524,7 +2526,16 @@ pub fn do_the_relayout(
     }).collect::<BTreeMap<NodeId, BTreeMap<CssPropertyType, ChangedCssProperty>>>();
 
     if !root_size_changed && nodes_to_relayout.is_empty() {
-        return Vec::new();
+        let resized_nodes = Vec::new();
+        let gpu_key_changes = layout_result.gpu_value_cache.synchronize(
+            &layout_result.rects.as_ref(),
+            &layout_result.styled_dom,
+        );
+
+        return RelayoutChanges {
+            resized_nodes,
+            gpu_key_changes,
+        };
     }
 
     // ---- step 1: recalc size
@@ -2999,7 +3010,7 @@ pub fn do_the_relayout(
         pipeline_id,
     );
 
-    let gpu_key_changes = layout_Result.gpu_value_cache.synchronize(
+    let gpu_key_changes = layout_result.gpu_value_cache.synchronize(
         &layout_result.rects.as_ref(),
         &layout_result.styled_dom,
     );

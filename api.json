@@ -3047,11 +3047,11 @@
 						{"TranslateX": {"type": "PixelValue"}},
 						{"TranslateY": {"type": "PixelValue"}},
 						{"TranslateZ": {"type": "PixelValue"}},
-						{"Rotate": {"type": "PercentageValue"}},
+						{"Rotate": {"type": "AngleValue"}},
 						{"Rotate3D": {"type": "StyleTransformRotate3D"}},
-						{"RotateX": {"type": "PercentageValue"}},
-						{"RotateY": {"type": "PercentageValue"}},
-						{"RotateZ": {"type": "PercentageValue"}},
+						{"RotateX": {"type": "AngleValue"}},
+						{"RotateY": {"type": "AngleValue"}},
+						{"RotateZ": {"type": "AngleValue"}},
 						{"Scale": {"type": "StyleTransformScale2D"}},
 						{"Scale3D": {"type": "StyleTransformScale3D"}},
 						{"ScaleX": {"type": "PercentageValue"}},
@@ -6296,13 +6296,7 @@
 					"derive": ["Copy"],
 					"struct_fields": [
 						{ "id": { "type": "usize" } }
-					],
-					"constructors": {
-						"unique": {
-							"doc": "Creates a new, unique `ImageId`",
-							"fn_body":"ImageId::new()"
-						}
-					}
+					]
 				},
 				"ImageSource": {
 					"external": "azul_impl::resources::ImageSource",
@@ -6369,13 +6363,7 @@
 					"derive": ["Copy"],
 					"struct_fields": [
 						{ "id": { "type": "usize" } }
-					],
-					"constructors": {
-						"unique": {
-							"doc": "Creates a new, unique `FontId`",
-							"fn_body":"FontId::new()"
-						}
-					}
+					]
 				},
 				"EmbeddedFontSource": {
 					"external": "azul_impl::resources::EmbeddedFontSource",

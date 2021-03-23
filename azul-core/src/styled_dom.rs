@@ -3,7 +3,7 @@ use core::{
 };
 use alloc::vec::Vec;
 use alloc::boxed::Box;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::collections::btree_map::BTreeMap;
 use azul_css::{
     Css, CssPath, CssProperty, CssPropertyType, AzString, StringVec,
@@ -183,8 +183,7 @@ impl CssPropertyCache {
         non_leaf_nodes: &ParentWithNodeDepthVec,
         html_tree: &NodeDataContainerRef<CascadeInfo>
     ) {
-        use azul_css::{CssPathSelector, CssDeclaration, CssPathPseudoSelector};
-        use azul_css::CssPathSelector::*;
+        use azul_css::CssDeclaration;
         use azul_css::CssPathPseudoSelector::*;
 
         let css_is_empty = css.is_empty();
@@ -1155,7 +1154,7 @@ impl StyledDom {
     #[cfg(feature = "multithreading")]
     pub fn new(dom: Dom, css: Css) -> Self {
 
-        use crate::dom::{TabIndex, NodeDataInlineCssPropertyVec};
+        use crate::dom::TabIndex;
         use rayon::prelude::*;
 
         let compact_dom: CompactDom = dom.into();
