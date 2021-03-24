@@ -806,315 +806,305 @@ pub(crate) fn solve_flex_layout_height<'a, 'b>(
     );
 }
 
-macro_rules! get_position {
-($fn_name:ident,
- $width_layout:ident,
- $height_solved_position:ident,
- $solved_widths_field:ident,
- $left:ident,
- $right:ident,
- $margin_left:ident,
- $margin_right:ident,
- $padding_left:ident,
- $padding_right:ident,
- $axis:ident
+macro_rules! get_position {(
+    $fn_name:ident,
+    $width_layout:ident,
+    $height_solved_position:ident,
+    $solved_widths_field:ident,
+    $left:ident,
+    $right:ident,
+    $margin_left:ident,
+    $margin_right:ident,
+    $get_padding_left:ident,
+    $get_padding_right:ident,
+    $axis:ident
 ) => (
-
-/// Traverses along the DOM and solve for the X or Y position
-fn $fn_name<'a>(
-    arena: &mut NodeDataContainer<$height_solved_position>,
-    node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
-    layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-    layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
-    layout_justify_contents: &NodeDataContainerRef<'a, LayoutJustifyContent>,
-    node_depths: &[ParentWithNodeDepth],
-    solved_widths: &NodeDataContainerRef<'a, $width_layout>,
-    parents_to_solve: &BTreeSet<NodeId>
-) {
-
-    /// Returns the absolute X for the child
-    fn determine_child_x_absolute<'a>(
-        child_id: NodeId,
-        arena_solved_data: &NodeDataContainerRef<'a, $height_solved_position>,
-        solved_widths: &NodeDataContainerRef<'a, $width_layout>,
-        layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
+    /// Traverses along the DOM and solve for the X or Y position
+    fn $fn_name<'a>(
+        arena: &mut NodeDataContainer<$height_solved_position>,
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
-    ) -> f32 {
-
-        let child_width_with_padding = {
-            let child_node = &solved_widths[child_id];
-            child_node.min_inner_size_px + child_node.flex_grow_px
-        };
-
-        let child_node = &solved_widths[child_id];
-        let child_node_parent_width = node_hierarchy[child_id].parent_id()
-        .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
-        let child_margin_left = child_node.$margin_left.and_then(|x| {
-            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
-        }).unwrap_or(0.0);
-        let child_margin_right = child_node.$margin_right.and_then(|x| {
-            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
-        }).unwrap_or(0.0);
-
-        let last_relative_node_id = child_id
-        .get_nearest_matching_parent(node_hierarchy, |n| layout_positions[n].is_positioned())
-        .unwrap_or(NodeId::new(0));
-
-        let last_relative_node = &solved_widths[last_relative_node_id];
-        let last_relative_padding_left = last_relative_node.$padding_left.and_then(|x| {
-            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
-        }).unwrap_or(0.0);
-        let last_relative_padding_right = last_relative_node.$padding_right.and_then(|x| {
-            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
-        }).unwrap_or(0.0);
-
-        let last_relative_node_x = arena_solved_data[last_relative_node_id].0 + last_relative_padding_left;
-        let last_relative_node_inner_width = {
-            let last_relative_node = &solved_widths[last_relative_node_id];
-            last_relative_node.min_inner_size_px +
-            last_relative_node.flex_grow_px -
-            last_relative_padding_left -
-            last_relative_padding_right
-        };
-
-        let child_left = child_node.$left.and_then(|s| {
-            Some(s.get_property()?.inner.to_pixels(child_node_parent_width))
-        });
-        let child_right = child_node.$right.and_then(|s| {
-            Some(s.get_property()?.inner.to_pixels(child_node_parent_width))
-        });
-
-        if let Some(child_right) = child_right {
-            // align right / bottom of last relative parent
-            last_relative_node_x
-            + last_relative_node_inner_width
-            - child_width_with_padding
-            - child_margin_right
-            - child_right
-        } else {
-            // align left / top of last relative parent
-            last_relative_node_x
-            + child_margin_left
-            + child_left.unwrap_or(0.0)
-        }
-    }
-
-    // Returns the X for the child + the distance to add for the next child
-    fn determine_child_x_along_main_axis<'a>(
-        main_axis_alignment: LayoutJustifyContent,
         layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-        arena_solved_data: &NodeDataContainerRef<'a, $height_solved_position>,
+        layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
+        layout_justify_contents: &NodeDataContainerRef<'a, LayoutJustifyContent>,
+        node_depths: &[ParentWithNodeDepth],
         solved_widths: &NodeDataContainerRef<'a, $width_layout>,
-        child_id: NodeId,
-        parent_x_position: f32,
-        parent_inner_width: f32,
-        sum_x_of_children_so_far: &f32,
-        node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
-    ) -> (f32, f32) {
+        parents_to_solve: &BTreeSet<NodeId>
+    ) {
 
-        use azul_css::LayoutJustifyContent::*;
+        /// Returns the absolute X for the child
+        fn determine_child_x_absolute<'a>(
+            child_id: NodeId,
+            arena_solved_data: &NodeDataContainerRef<'a, $height_solved_position>,
+            solved_widths: &NodeDataContainerRef<'a, $width_layout>,
+            layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
+            node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+        ) -> f32 {
 
-        let child_width_with_padding = {
-            let child_node = &solved_widths[child_id];
-            child_node.min_inner_size_px + child_node.flex_grow_px
-        };
-
-        // width: increase X according to the main axis, Y according to the cross_axis
-        let child_node = &solved_widths[child_id];
-        let child_node_parent_width = node_hierarchy[child_id].parent_id()
-        .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
-        let child_margin_left = child_node.$margin_left.and_then(|x| {
-            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
-        }).unwrap_or(0.0);
-        let child_margin_right = child_node.$margin_right.and_then(|x| {
-            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
-        }).unwrap_or(0.0);
-
-        if layout_positions[child_id] == LayoutPosition::Absolute {
-            (determine_child_x_absolute(
-                child_id,
-                arena_solved_data,
-                solved_widths,
-                layout_positions,
-                node_hierarchy,
-            ), 0.0)
-        } else {
-            // X position of the top left corner
-            // WARNING: End has to be added after all children!
-            let x_of_top_left_corner = match main_axis_alignment {
-                Start | End => {
-                    parent_x_position + *sum_x_of_children_so_far + child_margin_left
-                },
-                Center => {
-                    parent_x_position
-                    + ((parent_inner_width as f32 / 2.0)
-                    - ((
-                        *sum_x_of_children_so_far +
-                        child_margin_right +
-                        child_width_with_padding
-                    ) as f32 / 2.0))
-                },
-                SpaceBetween => {
-                    parent_x_position // TODO!
-                },
-                SpaceAround => {
-                    parent_x_position // TODO!
-                },
-                SpaceEvenly => {
-                    parent_x_position // TODO!
-                },
+            let child_width_with_padding = {
+                let child_node = &solved_widths[child_id];
+                child_node.min_inner_size_px + child_node.flex_grow_px
             };
 
-            (x_of_top_left_corner, child_margin_right + child_width_with_padding + child_margin_left)
-        }
-    }
+            let child_node = &solved_widths[child_id];
+            let child_node_parent_width = node_hierarchy[child_id].parent_id()
+            .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+            let child_margin_left = child_node.$margin_left.and_then(|x| {
+                Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+            }).unwrap_or(0.0);
+            let child_margin_right = child_node.$margin_right.and_then(|x| {
+                Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+            }).unwrap_or(0.0);
 
-    fn determine_child_x_along_cross_axis<'a>(
-        layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-        solved_widths: &NodeDataContainerRef<'a, $width_layout>,
-        child_id: NodeId,
-        arena_solved_data: &NodeDataContainerRef<'a, $height_solved_position>,
-        parent_x_position: f32,
-        node_hierarchy: &NodeDataContainerRef<'a, AzNode>
-    ) -> f32 {
+            let last_relative_node_id = child_id
+            .get_nearest_matching_parent(node_hierarchy, |n| layout_positions[n].is_positioned())
+            .unwrap_or(NodeId::new(0));
 
-        let child_node = &solved_widths[child_id];
-        let child_node_parent_width = node_hierarchy[child_id].parent_id()
-        .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+            let last_relative_node = &solved_widths[last_relative_node_id];
+            let last_relative_padding_left = last_relative_node.$get_padding_left(child_node_parent_width);
+            let last_relative_padding_right = last_relative_node.$get_padding_right(child_node_parent_width);
 
-        let child_margin_left = child_node.$margin_left.and_then(|x| {
-            Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
-        }).unwrap_or(0.0);
+            let last_relative_node_x = arena_solved_data[last_relative_node_id].0 + last_relative_padding_left;
+            let last_relative_node_inner_width = {
+                let last_relative_node = &solved_widths[last_relative_node_id];
+                last_relative_node.min_inner_size_px +
+                last_relative_node.flex_grow_px -
+                last_relative_padding_left -
+                last_relative_padding_right
+            };
 
-        if layout_positions[child_id] == LayoutPosition::Absolute {
-            determine_child_x_absolute(
-                child_id,
-                arena_solved_data,
-                solved_widths,
-                layout_positions,
-                node_hierarchy,
-            )
-        } else {
-            parent_x_position + child_margin_left
-        }
-    }
+            let child_left = child_node.$left.and_then(|s| {
+                Some(s.get_property()?.inner.to_pixels(child_node_parent_width))
+            });
+            let child_right = child_node.$right.and_then(|s| {
+                Some(s.get_property()?.inner.to_pixels(child_node_parent_width))
+            });
 
-    use azul_css::{LayoutAxis, LayoutJustifyContent::*};
-
-    for ParentWithNodeDepth { depth: _, node_id } in node_depths.iter() {
-
-        let parent_id = match node_id.into_crate_internal() {
-            Some(s) => s,
-            None => continue,
-        };
-
-        if !parents_to_solve.contains(&parent_id) {
-            continue;
-        }
-
-        let parent_node = &solved_widths[parent_id];
-        let parent_parent_width = node_hierarchy[parent_id].parent_id()
-        .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
-        let parent_padding_left = parent_node.$padding_left.and_then(|x| {
-            Some(x.get_property()?.inner.to_pixels(parent_parent_width))
-        }).unwrap_or(0.0) as f32;
-        let parent_padding_right = parent_node.$padding_right.and_then(|x| {
-            Some(x.get_property()?.inner.to_pixels(parent_parent_width))
-        }).unwrap_or(0.0) as f32;
-
-        let parent_x_position = arena.as_ref()[parent_id].0 + parent_padding_left;
-        let parent_direction = layout_directions[parent_id];
-
-        let parent_inner_width = {
-            parent_node.total() - (parent_padding_left + parent_padding_right)
-        };
-
-        if parent_direction.get_axis() == LayoutAxis::$axis {
-
-            // Along main axis: Increase X with width of current element
-            let main_axis_alignment = layout_justify_contents[parent_id];
-            let mut sum_x_of_children_so_far = 0.0;
-
-            if parent_direction.is_reverse() {
-                for child_id in parent_id.az_reverse_children(node_hierarchy) {
-                    let (x, x_to_add) = determine_child_x_along_main_axis(
-                        main_axis_alignment,
-                        layout_positions,
-                        &arena.as_ref(),
-                        solved_widths,
-                        child_id,
-                        parent_x_position,
-                        parent_inner_width,
-                        &sum_x_of_children_so_far,
-                        node_hierarchy,
-                    );
-                    arena.as_ref_mut()[child_id].0 = x;
-                    sum_x_of_children_so_far += x_to_add;
-                }
+            if let Some(child_right) = child_right {
+                // align right / bottom of last relative parent
+                last_relative_node_x
+                + last_relative_node_inner_width
+                - child_width_with_padding
+                - child_margin_right
+                - child_right
             } else {
-                for child_id in parent_id.az_children(node_hierarchy) {
-                    let (x, x_to_add) = determine_child_x_along_main_axis(
-                        main_axis_alignment,
-                        layout_positions,
-                        &arena.as_ref(),
-                        solved_widths,
-                        child_id,
-                        parent_x_position,
-                        parent_inner_width,
-                        &sum_x_of_children_so_far,
-                        node_hierarchy,
-                    );
-                    arena.as_ref_mut()[child_id].0 = x;
-                    sum_x_of_children_so_far += x_to_add;
-                }
+                // align left / top of last relative parent
+                last_relative_node_x
+                + child_margin_left
+                + child_left.unwrap_or(0.0)
             }
+        }
 
-            // If the direction is `flex-end`, we can't add the X position during the iteration,
-            // so we have to "add" the diff to the parent_inner_width at the end
-            let should_align_towards_end =
-                (parent_direction.is_reverse() && main_axis_alignment == Start) ||
-                (!parent_direction.is_reverse() && main_axis_alignment == End);
+        // Returns the X for the child + the distance to add for the next child
+        fn determine_child_x_along_main_axis<'a>(
+            main_axis_alignment: LayoutJustifyContent,
+            layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
+            arena_solved_data: &NodeDataContainerRef<'a, $height_solved_position>,
+            solved_widths: &NodeDataContainerRef<'a, $width_layout>,
+            child_id: NodeId,
+            parent_x_position: f32,
+            parent_inner_width: f32,
+            sum_x_of_children_so_far: &f32,
+            node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+        ) -> (f32, f32) {
 
-            if should_align_towards_end {
-                let diff = parent_inner_width - sum_x_of_children_so_far;
-                for child_id in parent_id
-                    .az_children(node_hierarchy)
-                    .filter(|ch| layout_positions[*ch] != LayoutPosition::Absolute)
-                {
-                    arena.as_ref_mut()[child_id].0 += diff;
-                }
-            }
+            use azul_css::LayoutJustifyContent::*;
 
-        } else {
-            // Along cross axis: Take X of parent
+            let child_width_with_padding = {
+                let child_node = &solved_widths[child_id];
+                child_node.min_inner_size_px + child_node.flex_grow_px
+            };
 
-            if parent_direction.is_reverse() {
-                for child_id in parent_id.az_reverse_children(node_hierarchy) {
-                    arena.as_ref_mut()[child_id].0 = determine_child_x_along_cross_axis(
-                        layout_positions,
-                        solved_widths,
-                        child_id,
-                        &arena.as_ref(),
-                        parent_x_position,
-                        node_hierarchy,
-                    );
-                }
+            // width: increase X according to the main axis, Y according to the cross_axis
+            let child_node = &solved_widths[child_id];
+            let child_node_parent_width = node_hierarchy[child_id].parent_id()
+            .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+            let child_margin_left = child_node.$margin_left.and_then(|x| {
+                Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+            }).unwrap_or(0.0);
+            let child_margin_right = child_node.$margin_right.and_then(|x| {
+                Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+            }).unwrap_or(0.0);
+
+            if layout_positions[child_id] == LayoutPosition::Absolute {
+                (determine_child_x_absolute(
+                    child_id,
+                    arena_solved_data,
+                    solved_widths,
+                    layout_positions,
+                    node_hierarchy,
+                ), 0.0)
             } else {
-                for child_id in parent_id.az_children(node_hierarchy) {
-                    arena.as_ref_mut()[child_id].0 = determine_child_x_along_cross_axis(
-                        layout_positions,
-                        solved_widths,
-                        child_id,
-                        &arena.as_ref(),
-                        parent_x_position,
-                        node_hierarchy,
-                    );
+                // X position of the top left corner
+                // WARNING: End has to be added after all children!
+                let x_of_top_left_corner = match main_axis_alignment {
+                    Start | End => {
+                        parent_x_position + *sum_x_of_children_so_far + child_margin_left
+                    },
+                    Center => {
+                        parent_x_position
+                        + ((parent_inner_width as f32 / 2.0)
+                        - ((
+                            *sum_x_of_children_so_far +
+                            child_margin_right +
+                            child_width_with_padding
+                        ) as f32 / 2.0))
+                    },
+                    SpaceBetween => {
+                        parent_x_position // TODO!
+                    },
+                    SpaceAround => {
+                        parent_x_position // TODO!
+                    },
+                    SpaceEvenly => {
+                        parent_x_position // TODO!
+                    },
+                };
+
+                (x_of_top_left_corner, child_margin_right + child_width_with_padding + child_margin_left)
+            }
+        }
+
+        fn determine_child_x_along_cross_axis<'a>(
+            layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
+            solved_widths: &NodeDataContainerRef<'a, $width_layout>,
+            child_id: NodeId,
+            arena_solved_data: &NodeDataContainerRef<'a, $height_solved_position>,
+            parent_x_position: f32,
+            node_hierarchy: &NodeDataContainerRef<'a, AzNode>
+        ) -> f32 {
+
+            let child_node = &solved_widths[child_id];
+            let child_node_parent_width = node_hierarchy[child_id].parent_id()
+            .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+
+            let child_margin_left = child_node.$margin_left.and_then(|x| {
+                Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+            }).unwrap_or(0.0);
+
+            if layout_positions[child_id] == LayoutPosition::Absolute {
+                determine_child_x_absolute(
+                    child_id,
+                    arena_solved_data,
+                    solved_widths,
+                    layout_positions,
+                    node_hierarchy,
+                )
+            } else {
+                parent_x_position + child_margin_left
+            }
+        }
+
+        use azul_css::{LayoutAxis, LayoutJustifyContent::*};
+
+        for ParentWithNodeDepth { depth: _, node_id } in node_depths.iter() {
+
+            let parent_id = match node_id.into_crate_internal() {
+                Some(s) => s,
+                None => continue,
+            };
+
+            if !parents_to_solve.contains(&parent_id) {
+                continue;
+            }
+
+            let parent_node = &solved_widths[parent_id];
+            let parent_parent_width = node_hierarchy[parent_id].parent_id()
+            .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+            let parent_padding_left = parent_node.$get_padding_left(parent_parent_width);
+            let parent_padding_right = parent_node.$get_padding_right(parent_parent_width);
+
+            let parent_x_position = arena.as_ref()[parent_id].0 + parent_padding_left;
+            let parent_direction = layout_directions[parent_id];
+
+            let parent_inner_width = {
+                parent_node.total() - (parent_padding_left + parent_padding_right)
+            };
+
+            if parent_direction.get_axis() == LayoutAxis::$axis {
+
+                // Along main axis: Increase X with width of current element
+                let main_axis_alignment = layout_justify_contents[parent_id];
+                let mut sum_x_of_children_so_far = 0.0;
+
+                if parent_direction.is_reverse() {
+                    for child_id in parent_id.az_reverse_children(node_hierarchy) {
+                        let (x, x_to_add) = determine_child_x_along_main_axis(
+                            main_axis_alignment,
+                            layout_positions,
+                            &arena.as_ref(),
+                            solved_widths,
+                            child_id,
+                            parent_x_position,
+                            parent_inner_width,
+                            &sum_x_of_children_so_far,
+                            node_hierarchy,
+                        );
+                        arena.as_ref_mut()[child_id].0 = x;
+                        sum_x_of_children_so_far += x_to_add;
+                    }
+                } else {
+                    for child_id in parent_id.az_children(node_hierarchy) {
+                        let (x, x_to_add) = determine_child_x_along_main_axis(
+                            main_axis_alignment,
+                            layout_positions,
+                            &arena.as_ref(),
+                            solved_widths,
+                            child_id,
+                            parent_x_position,
+                            parent_inner_width,
+                            &sum_x_of_children_so_far,
+                            node_hierarchy,
+                        );
+                        arena.as_ref_mut()[child_id].0 = x;
+                        sum_x_of_children_so_far += x_to_add;
+                    }
+                }
+
+                // If the direction is `flex-end`, we can't add the X position during the iteration,
+                // so we have to "add" the diff to the parent_inner_width at the end
+                let should_align_towards_end =
+                    (parent_direction.is_reverse() && main_axis_alignment == Start) ||
+                    (!parent_direction.is_reverse() && main_axis_alignment == End);
+
+                if should_align_towards_end {
+                    let diff = parent_inner_width - sum_x_of_children_so_far;
+                    for child_id in parent_id
+                        .az_children(node_hierarchy)
+                        .filter(|ch| layout_positions[*ch] != LayoutPosition::Absolute)
+                    {
+                        arena.as_ref_mut()[child_id].0 += diff;
+                    }
+                }
+
+            } else {
+                // Along cross axis: Take X of parent
+
+                if parent_direction.is_reverse() {
+                    for child_id in parent_id.az_reverse_children(node_hierarchy) {
+                        arena.as_ref_mut()[child_id].0 = determine_child_x_along_cross_axis(
+                            layout_positions,
+                            solved_widths,
+                            child_id,
+                            &arena.as_ref(),
+                            parent_x_position,
+                            node_hierarchy,
+                        );
+                    }
+                } else {
+                    for child_id in parent_id.az_children(node_hierarchy) {
+                        arena.as_ref_mut()[child_id].0 = determine_child_x_along_cross_axis(
+                            layout_positions,
+                            solved_widths,
+                            child_id,
+                            &arena.as_ref(),
+                            parent_x_position,
+                            node_hierarchy,
+                        );
+                    }
                 }
             }
         }
     }
-}
-
 )}
 
 fn get_x_positions<'a>(
@@ -1137,8 +1127,8 @@ fn get_x_positions<'a>(
         right,
         margin_left,
         margin_right,
-        padding_left,
-        padding_right,
+        get_padding_left,
+        get_padding_right,
         Horizontal
     );
 
@@ -1177,8 +1167,8 @@ fn get_y_positions<'a>(
         bottom,
         margin_top,
         margin_bottom,
-        padding_top,
-        padding_bottom,
+        get_padding_top,
+        get_padding_bottom,
         Vertical
     );
 

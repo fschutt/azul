@@ -278,19 +278,56 @@ pub struct WidthCalculatedRect {
 }
 
 impl WidthCalculatedRect {
+
+    pub fn get_border_left(&self, percent_resolve: f32) -> f32 {
+        self.border_left.as_ref()
+        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+        .unwrap_or(0.0)
+    }
+
+    pub fn get_border_right(&self, percent_resolve: f32) -> f32 {
+        self.border_right.as_ref()
+        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+        .unwrap_or(0.0)
+    }
+
+    pub fn get_padding_left(&self, percent_resolve: f32) -> f32 {
+        let mut self_padding_left = self.padding_left.as_ref()
+            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+            .unwrap_or(0.0);
+
+        if self.box_sizing == LayoutBoxSizing::ContentBox {
+            self_padding_left += self.get_border_left(percent_resolve);
+        }
+
+        self_padding_left
+    }
+
+    pub fn get_padding_right(&self, percent_resolve: f32) -> f32 {
+        let mut self_padding_right = self.padding_right.as_ref()
+            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+            .unwrap_or(0.0);
+
+        if self.box_sizing == LayoutBoxSizing::ContentBox {
+            self_padding_right += self.get_border_right(percent_resolve);
+        }
+
+        self_padding_right
+    }
+
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_horizontal(&self, parent_width: f32) -> f32 {
         self.min_inner_size_px +
         self.margin_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
         self.margin_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
-        self.padding_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
-        self.padding_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0)
+        self.get_padding_left(parent_width) +
+        self.get_padding_right(parent_width)
     }
 
     /// Get the sum of the horizontal padding amount (`padding.left + padding.right`)
     pub fn get_horizontal_padding(&self, parent_width: f32) -> f32 {
-        self.padding_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
-        self.padding_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0)
+        self.get_padding_left(parent_width) +
+        self.get_padding_right(parent_width)
     }
 
     /// Called after solver has run: Solved width of rectangle
@@ -329,20 +366,58 @@ pub struct HeightCalculatedRect {
 }
 
 impl HeightCalculatedRect {
+
+    pub fn get_border_top(&self, percent_resolve: f32) -> f32 {
+        self.border_top.as_ref()
+        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+        .unwrap_or(0.0)
+    }
+
+    pub fn get_border_bottom(&self, percent_resolve: f32) -> f32 {
+        self.border_bottom.as_ref()
+        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+        .unwrap_or(0.0)
+    }
+
+    pub fn get_padding_bottom(&self, percent_resolve: f32) -> f32 {
+        let mut self_padding_bottom = self.padding_bottom.as_ref()
+            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+            .unwrap_or(0.0);
+
+        if self.box_sizing == LayoutBoxSizing::ContentBox {
+            self_padding_bottom += self.get_border_bottom(percent_resolve);
+        }
+
+        self_padding_bottom
+    }
+
+    pub fn get_padding_top(&self, percent_resolve: f32) -> f32 {
+        let mut self_padding_top = self.padding_top.as_ref()
+            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+            .unwrap_or(0.0);
+
+        if self.box_sizing == LayoutBoxSizing::ContentBox {
+            self_padding_top += self.get_border_top(percent_resolve);
+        }
+
+        self_padding_top
+    }
+
+
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_vertical(&self, parent_height: f32) -> f32 {
         let parent_height = parent_height as f32;
         self.min_inner_size_px +
         self.margin_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +
         self.margin_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +
-        self.padding_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +
-        self.padding_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0)
+        self.get_padding_top(parent_height) +
+        self.get_padding_bottom(parent_height)
     }
 
     /// Get the sum of the horizontal padding amount (`padding_top + padding_bottom`)
     pub fn get_vertical_padding(&self, parent_height: f32) -> f32 {
-        self.padding_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +
-        self.padding_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0)
+        self.get_padding_top(parent_height) +
+        self.get_padding_bottom(parent_height)
     }
 
     /// Called after solver has run: Solved height of rectangle
