@@ -853,13 +853,22 @@ impl_option!(DomId, OptionDomId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd,
 
 
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct AzNodeId { pub inner: usize }
 
+impl fmt::Debug for AzNodeId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.into_crate_internal() {
+            Some(n) => write!(f, "Some({})", n),
+            None => write!(f, "None"),
+        }
+    }
+}
+
 impl fmt::Display for AzNodeId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.inner.fmt(f)
+        write!(f, "{}", self)
     }
 }
 
