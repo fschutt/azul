@@ -2844,24 +2844,28 @@ impl Default for LayoutBoxSizing {
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleLineHeight { pub inner: PercentageValue }
+
+impl_percentage_value!(StyleLineHeight);
+
 /// Represents a `tab-width` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTabWidth { pub inner: PercentageValue }
 
 impl_percentage_value!(StyleTabWidth);
-impl_percentage_value!(StyleLineHeight);
 
 /// Represents a `letter-spacing` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleLetterSpacing { pub inner: PixelValue }
+
+impl_pixel_value!(StyleLetterSpacing);
+
 /// Represents a `word-spacing` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleWordSpacing { pub inner: PixelValue }
 
-impl_pixel_value!(StyleLetterSpacing);
 impl_pixel_value!(StyleWordSpacing);
 
 /// Same as the `LayoutFlexDirection`, but without the `-reverse` properties, used in the layout solver,

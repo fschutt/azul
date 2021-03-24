@@ -83,8 +83,14 @@ impl ScrollTagId {
 
 /// Calculated hash of a DOM node, used for identifying identical DOM
 /// nodes across frames
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct DomNodeHash(pub u64);
+
+impl ::core::fmt::Debug for DomNodeHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "DomNodeHash({})", self.0)
+    }
+}
 
 /// List of core DOM node types built-into by `azul`.
 #[derive(Debug, PartialEq, Hash, Eq, PartialOrd, Ord)]

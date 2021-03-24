@@ -934,9 +934,11 @@ impl WindowInternal {
             let scroll_positions = layout_result.scrollable_nodes.overflowing_nodes.iter().filter_map(|(node_id, overflowing_node)| {
                 let scroll_location = self.scroll_states.get_scroll_position(&overflowing_node.parent_external_scroll_id)?; // TODO: unwrap_or_default()?
                 let parent_node = layout_result.styled_dom.node_hierarchy.as_container()[node_id.into_crate_internal()?].parent_id().unwrap_or(NodeId::ZERO);
+                let parent_rect = &layout_result.rects.as_ref()[parent_node];
                 let scroll_position = ScrollPosition {
                     scroll_frame_rect: overflowing_node.child_rect,
-                    parent_rect: layout_result.rects.as_ref()[parent_node].to_layouted_rectangle(),
+                    parent_rect_size: parent_rect.size,
+                    parent_rect_position: parent_rect.position.clone(),
                     scroll_location,
                 };
                 Some((*node_id, scroll_position))

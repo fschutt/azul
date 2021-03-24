@@ -124,8 +124,8 @@ impl DisplayListMsg {
     pub fn get_position(&self) -> PositionInfo {
         use self::DisplayListMsg::*;
         match self {
-            Frame(f) => f.position,
-            ScrollFrame(sf) => sf.frame.position,
+            Frame(f) => f.position.clone(),
+            ScrollFrame(sf) => sf.frame.position.clone(),
         }
     }
 

@@ -8,7 +8,8 @@ use azul_css::{
     CssPropertyValue, LayoutMarginTop, LayoutMarginRight, LayoutMarginLeft, LayoutMarginBottom,
     LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingBottom,
     LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, LayoutFlexDirection, LayoutJustifyContent,
-    StyleTransform, StyleTransformOrigin,
+    LayoutBoxSizing, LayoutBorderRightWidth, LayoutBorderLeftWidth, LayoutBorderTopWidth,
+    LayoutBorderBottomWidth, StyleTransform, StyleTransformOrigin, StyleBoxShadow,
 };
 use crate::{
     styled_dom::{StyledDom, AzNodeId, DomId},
@@ -257,12 +258,21 @@ impl WhConstraint {
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct WidthCalculatedRect {
     pub preferred_width: WhConstraint,
+
     pub margin_right: Option<CssPropertyValue<LayoutMarginRight>>,
     pub margin_left: Option<CssPropertyValue<LayoutMarginLeft>>,
+
     pub padding_right: Option<CssPropertyValue<LayoutPaddingRight>>,
     pub padding_left: Option<CssPropertyValue<LayoutPaddingLeft>>,
+
+    pub border_right: Option<CssPropertyValue<LayoutBorderRightWidth>>,
+    pub border_left: Option<CssPropertyValue<LayoutBorderLeftWidth>>,
+
+    pub box_sizing: LayoutBoxSizing,
+
     pub left: Option<CssPropertyValue<LayoutLeft>>,
     pub right: Option<CssPropertyValue<LayoutRight>>,
+
     pub flex_grow_px: f32,
     pub min_inner_size_px: f32,
 }
@@ -299,12 +309,21 @@ impl WidthCalculatedRect {
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct HeightCalculatedRect {
     pub preferred_height: WhConstraint,
+
     pub margin_top: Option<CssPropertyValue<LayoutMarginTop>>,
     pub margin_bottom: Option<CssPropertyValue<LayoutMarginBottom>>,
+
     pub padding_top: Option<CssPropertyValue<LayoutPaddingTop>>,
     pub padding_bottom: Option<CssPropertyValue<LayoutPaddingBottom>>,
+
+    pub border_top: Option<CssPropertyValue<LayoutBorderTopWidth>>,
+    pub border_bottom: Option<CssPropertyValue<LayoutBorderBottomWidth>>,
+
     pub top: Option<CssPropertyValue<LayoutTop>>,
     pub bottom: Option<CssPropertyValue<LayoutBottom>>,
+
+    pub box_sizing: LayoutBoxSizing,
+
     pub flex_grow_px: f32,
     pub min_inner_size_px: f32,
 }
@@ -369,15 +388,15 @@ pub struct LayoutResult {
     pub root_position: LayoutPoint,
     pub preferred_widths: NodeDataContainer<Option<f32>>,
     pub preferred_heights: NodeDataContainer<Option<f32>>,
-    pub width_calculated_rects: NodeDataContainer<WidthCalculatedRect>,
-    pub height_calculated_rects: NodeDataContainer<HeightCalculatedRect>,
+    pub width_calculated_rects: NodeDataContainer<WidthCalculatedRect>, // TODO: warning: large struct
+    pub height_calculated_rects: NodeDataContainer<HeightCalculatedRect>, // TODO: warning: large struct
     pub solved_pos_x: NodeDataContainer<HorizontalSolvedPosition>,
     pub solved_pos_y: NodeDataContainer<VerticalSolvedPosition>,
     pub layout_flex_grows: NodeDataContainer<f32>,
     pub layout_positions: NodeDataContainer<LayoutPosition>,
     pub layout_flex_directions: NodeDataContainer<LayoutFlexDirection>,
     pub layout_justify_contents: NodeDataContainer<LayoutJustifyContent>,
-    pub rects: NodeDataContainer<PositionedRectangle>,
+    pub rects: NodeDataContainer<PositionedRectangle>,  // TODO: warning: large struct
     pub words_cache: BTreeMap<NodeId, Words>,
     pub shaped_words_cache: BTreeMap<NodeId, ShapedWords>,
     pub positioned_words_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
@@ -701,12 +720,14 @@ pub struct PositionedRectangle {
     pub margin: ResolvedOffsets,
     /// Border widths of the rectangle
     pub border_widths: ResolvedOffsets,
+    /// Widths of the box shadow(s), necessary to calculate clip rect
+    pub box_shadow: StyleBoxShadowOffsets,
+    /// Whether the borders are included in the size or not
+    pub box_sizing: LayoutBoxSizing,
     // TODO: box_shadow_widths
     /// If this is an inline rectangle, resolve the %-based font sizes
     /// and store them here.
     pub resolved_text_layout_options: Option<(ResolvedTextLayoutOptions, InlineTextLayout)>,
-    /// Determines if the rect should be clipped or not (TODO: x / y as separate fields!)
-    pub overflow: OverflowInfo,
 }
 
 impl Default for PositionedRectangle {
@@ -717,8 +738,9 @@ impl Default for PositionedRectangle {
             padding: ResolvedOffsets::zero(),
             margin: ResolvedOffsets::zero(),
             border_widths: ResolvedOffsets::zero(),
+            box_shadow: StyleBoxShadowOffsets::default(),
+            box_sizing: LayoutBoxSizing::default(),
             resolved_text_layout_options: None,
-            overflow: OverflowInfo::default(),
         }
     }
 }
@@ -726,7 +748,7 @@ impl Default for PositionedRectangle {
 impl PositionedRectangle {
 
     #[inline]
-    pub(crate) fn get_approximate_static_bounds(&self) -> LayoutRect {
+    pub fn get_approximate_static_bounds(&self) -> LayoutRect {
         LayoutRect::new(self.get_static_offset(), self.get_content_size())
     }
 
@@ -772,18 +794,6 @@ impl PositionedRectangle {
             PositionInfo::Relative { static_x_offset, static_y_offset, .. } => {
                 LayoutPoint::new(libm::roundf(static_x_offset) as isize, libm::roundf(static_y_offset) as isize)
             },
-        }
-    }
-
-    #[inline]
-    pub const fn to_layouted_rectangle(&self) -> LayoutedRectangle {
-        LayoutedRectangle {
-            size: self.size,
-            position: self.position,
-            padding: self.padding,
-            margin: self.margin,
-            border_widths: self.border_widths,
-            overflow: self.overflow,
         }
     }
 
@@ -842,7 +852,7 @@ impl PositionedRectangle {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct OverflowInfo {
     pub overflow_x: DirectionalOverflowInfo,
     pub overflow_y: DirectionalOverflowInfo,
@@ -851,7 +861,7 @@ pub struct OverflowInfo {
 // stores how much the children overflow the parent in the given direction
 // if amount is negative, the children do not overflow the parent
 // if the amount is set to None, that means there are no children for this node, so no overflow can be calculated
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum DirectionalOverflowInfo {
     Scroll { amount: Option<isize> },
     Auto { amount: Option<isize> },
@@ -901,7 +911,7 @@ impl DirectionalOverflowInfo {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum PositionInfo {
     Static { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
     Fixed { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
@@ -930,22 +940,12 @@ impl PositionInfo {
     }
 }
 
-/// Same as `PositionedRectangle`, but without the `text_layout_options`,
-/// so that the struct implements `Copy`.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct LayoutedRectangle {
-    /// Outer bounds of the rectangle
-    pub size: LogicalSize,
-    /// How the rectangle should be positioned
-    pub position: PositionInfo,
-    /// Padding of the rectangle
-    pub padding: ResolvedOffsets,
-    /// Margin of the rectangle
-    pub margin: ResolvedOffsets,
-    /// Border widths of the rectangle
-    pub border_widths: ResolvedOffsets,
-    /// Determines if the rect should be clipped or not (TODO: x / y as separate fields!)
-    pub overflow: OverflowInfo,
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct StyleBoxShadowOffsets {
+    pub left: Option<CssPropertyValue<StyleBoxShadow>>,
+    pub right: Option<CssPropertyValue<StyleBoxShadow>>,
+    pub top: Option<CssPropertyValue<StyleBoxShadow>>,
+    pub bottom: Option<CssPropertyValue<StyleBoxShadow>>,
 }
 
 /// Computed transform of pixels in pixel space, optimized

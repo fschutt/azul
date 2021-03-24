@@ -860,7 +860,7 @@ pub struct AzNodeId { pub inner: usize }
 impl fmt::Debug for AzNodeId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.into_crate_internal() {
-            Some(n) => write!(f, "Some({})", n),
+            Some(n) => write!(f, "Some(NodeId({}))", n),
             None => write!(f, "None"),
         }
     }

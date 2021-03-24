@@ -22,6 +22,7 @@ use azul_core::{
         WidthCalculatedRect, HeightCalculatedRect,
         HorizontalSolvedPosition, VerticalSolvedPosition,
         GpuEventChanges, GpuValueCache, RelayoutChanges,
+        StyleBoxShadowOffsets,
     },
     app_resources::{
         ResourceUpdate, IdNamespace,
@@ -200,6 +201,8 @@ macro_rules! typed_arena {(
     $margin_right:ident,
     $padding_left:ident,
     $padding_right:ident,
+    $border_left:ident,
+    $border_right:ident,
     $left:ident,
     $right:ident,
 ) => (
@@ -258,12 +261,20 @@ macro_rules! typed_arena {(
             new_nodes.as_ref_mut()[parent_id] = $struct_name {
                 // TODO: get the initial width of the rect content
                 $preferred_field: parent_width,
+
                 $margin_left: parent_offsets.margin.$left.as_ref().copied(),
                 $margin_right: parent_offsets.margin.$right.as_ref().copied(),
+
                 $padding_left: parent_offsets.padding.$left.as_ref().copied(),
                 $padding_right: parent_offsets.padding.$right.as_ref().copied(),
+
+                $border_left: parent_offsets.border_widths.$left.as_ref().copied(),
+                $border_right: parent_offsets.border_widths.$right.as_ref().copied(),
+
                 $left: parent_offsets.position.$left.as_ref().copied(),
                 $right: parent_offsets.position.$right.as_ref().copied(),
+
+                box_sizing: parent_offsets.box_sizing,
                 flex_grow_px: 0.0,
                 min_inner_size_px: parent_width.min_needed_space().unwrap_or(0.0),
             };
@@ -277,12 +288,20 @@ macro_rules! typed_arena {(
                 new_nodes.as_ref_mut()[child_id] = $struct_name {
                     // TODO: get the initial width of the rect content
                     $preferred_field: child_width,
+
                     $margin_left: child_offsets.margin.$left.as_ref().copied(),
                     $margin_right: child_offsets.margin.$right.as_ref().copied(),
+
                     $padding_left: child_offsets.padding.$left.as_ref().copied(),
                     $padding_right: child_offsets.padding.$right.as_ref().copied(),
+
+                    $border_left: child_offsets.border_widths.$left.as_ref().copied(),
+                    $border_right: child_offsets.border_widths.$right.as_ref().copied(),
+
                     $left: child_offsets.position.$left.as_ref().copied(),
                     $right: child_offsets.position.$right.as_ref().copied(),
+
+                    box_sizing: child_offsets.box_sizing,
                     flex_grow_px: 0.0,
                     min_inner_size_px: child_width.min_needed_space().unwrap_or(0.0),
                 }
@@ -699,6 +718,8 @@ typed_arena!(
     margin_right,
     padding_left,
     padding_right,
+    border_left,
+    border_right,
     left,
     right,
 );
@@ -717,6 +738,8 @@ typed_arena!(
     margin_bottom,
     padding_top,
     padding_bottom,
+    border_top,
+    border_bottom,
     top,
     bottom,
 );
@@ -1263,93 +1286,6 @@ pub fn get_layout_flex_grows<'a>(styled_dom: &StyledDom) -> NodeDataContainer<f3
     }
 }
 
-fn get_overflow(
-    overflow_x: &Option<CssPropertyValue<LayoutOverflow>>,
-    overflow_y: &Option<CssPropertyValue<LayoutOverflow>>,
-    parent_rect: &LayoutRect,
-    children_sum_rect: &Option<LayoutRect>
-) -> OverflowInfo {
-
-    use azul_core::ui_solver::DirectionalOverflowInfo;
-
-    let overflow_x = overflow_x.and_then(|p| p.get_property_or_default()).unwrap_or_default();
-    let overflow_y = overflow_y.and_then(|p| p.get_property_or_default()).unwrap_or_default();
-
-    match children_sum_rect {
-        Some(children_sum_rect) => {
-
-            let overflow_x_amount = (parent_rect.size.width + parent_rect.origin.x) -
-                                    (children_sum_rect.origin.x + children_sum_rect.size.width);
-            let overflow_y_amount = (parent_rect.size.height + parent_rect.origin.y) -
-                                    (children_sum_rect.origin.y + children_sum_rect.size.height);
-
-            OverflowInfo {
-                overflow_x: match overflow_x {
-                    LayoutOverflow::Scroll => DirectionalOverflowInfo::Scroll {
-                        amount: Some(overflow_x_amount)
-                    },
-                    LayoutOverflow::Auto => DirectionalOverflowInfo::Auto {
-                        amount: Some(overflow_x_amount)
-                    },
-                    LayoutOverflow::Hidden => DirectionalOverflowInfo::Hidden {
-                        amount: Some(overflow_x_amount)
-                    },
-                    LayoutOverflow::Visible => DirectionalOverflowInfo::Visible {
-                        amount: Some(overflow_x_amount)
-                    },
-                },
-                overflow_y: match overflow_y {
-                    LayoutOverflow::Scroll => DirectionalOverflowInfo::Scroll {
-                        amount: Some(overflow_y_amount)
-                    },
-                    LayoutOverflow::Auto => DirectionalOverflowInfo::Auto {
-                        amount: Some(overflow_y_amount)
-                    },
-                    LayoutOverflow::Hidden => DirectionalOverflowInfo::Hidden {
-                        amount: Some(overflow_y_amount)
-                    },
-                    LayoutOverflow::Visible => DirectionalOverflowInfo::Visible {
-                        amount: Some(overflow_y_amount)
-                    },
-                }
-            }
-        },
-        None => {
-            OverflowInfo {
-                overflow_x: match overflow_x {
-                    LayoutOverflow::Scroll => DirectionalOverflowInfo::Scroll {
-                        amount: None
-                    },
-                    LayoutOverflow::Auto => DirectionalOverflowInfo::Auto {
-                        amount: None
-                    },
-                    LayoutOverflow::Hidden => DirectionalOverflowInfo::Hidden {
-                        amount: None
-                    },
-                    LayoutOverflow::Visible => DirectionalOverflowInfo::Visible {
-                        amount: None
-                    },
-                },
-                overflow_y: match overflow_y {
-                    LayoutOverflow::Scroll => DirectionalOverflowInfo::Scroll {
-                        amount: None
-                    },
-                    LayoutOverflow::Auto => DirectionalOverflowInfo::Auto {
-                        amount: None
-                    },
-                    LayoutOverflow::Hidden => DirectionalOverflowInfo::Hidden {
-                        amount: None
-                    },
-                    LayoutOverflow::Visible => DirectionalOverflowInfo::Visible {
-                        amount: None
-                    },
-                }
-            }
-        }
-    }
-}
-
-
 fn precalculate_all_offsets(styled_dom: &StyledDom) -> NodeDataContainer<AllOffsets> {
 
     use rayon::prelude::*;
@@ -1378,12 +1314,14 @@ fn precalculate_all_offsets(styled_dom: &StyledDom) -> NodeDataContainer<AllOffs
 }
 
 struct AllOffsets {
+    position: LayoutAbsolutePositions,
     border_widths: LayoutBorderOffsets,
     padding: LayoutPaddingOffsets,
     margin: LayoutMarginOffsets,
-    position: LayoutAbsolutePositions,
-    overflow_x: Option<CssPropertyValue<LayoutOverflow>>,
-    overflow_y: Option<CssPropertyValue<LayoutOverflow>>,
+    box_shadow: StyleBoxShadowOffsets,
+    box_sizing: LayoutBoxSizing,
+    overflow_x: LayoutOverflow,
+    overflow_y: LayoutOverflow,
 }
 
 fn precalculate_offset(
@@ -1411,14 +1349,21 @@ fn precalculate_offset(
             top: css_property_cache.get_margin_top(node_data, node_id, state),
             bottom: css_property_cache.get_margin_bottom(node_data, node_id, state),
         },
+        box_shadow: StyleBoxShadowOffsets {
+            left: css_property_cache.get_box_shadow_left(node_data, node_id, state),
+            right: css_property_cache.get_box_shadow_right(node_data, node_id, state),
+            top: css_property_cache.get_box_shadow_top(node_data, node_id, state),
+            bottom: css_property_cache.get_box_shadow_bottom(node_data, node_id, state),
+        },
         position: LayoutAbsolutePositions {
             left: css_property_cache.get_left(node_data, node_id, state),
             right: css_property_cache.get_right(node_data, node_id, state),
             top: css_property_cache.get_top(node_data, node_id, state),
             bottom: css_property_cache.get_bottom(node_data, node_id, state),
         },
-        overflow_x: css_property_cache.get_overflow_x(node_data, node_id, state),
-        overflow_y: css_property_cache.get_overflow_y(node_data, node_id, state),
+        box_sizing: css_property_cache.get_box_sizing(node_data, node_id, state).unwrap_or_default().get_property().copied().unwrap_or_default(),
+        overflow_x: css_property_cache.get_overflow_x(node_data, node_id, state).unwrap_or_default().get_property().copied().unwrap_or_default(),
+        overflow_y: css_property_cache.get_overflow_y(node_data, node_id, state).unwrap_or_default().get_property().copied().unwrap_or_default(),
     }
 }
 
@@ -1821,6 +1766,7 @@ pub fn do_the_layout_internal(
         &mut overflowing_rects,
         &styled_dom.styled_nodes.as_container(),
         &styled_dom.node_data.as_container(),
+        &styled_dom.node_hierarchy.as_container(),
         &positioned_rects.as_ref(),
         styled_dom.non_leaf_nodes.as_ref(),
         pipeline_id,
@@ -2002,7 +1948,6 @@ fn position_nodes<'a>(
             LayoutPoint::new(x_pos.round() as isize, y_pos.round() as isize),
             LayoutSize::new(width.total().round() as isize, height.total().round() as isize),
         );
-        let mut children_sum_rects = Vec::new();
 
         // push positioned item and layout children
         if parent_position != LayoutPosition::Static {
@@ -2061,8 +2006,6 @@ fn position_nodes<'a>(
             let child_size = LayoutSize::new(width.total().round() as isize, height.total().round() as isize);
             let child_rect = LayoutRect::new(LayoutPoint::new(x_pos.round() as isize, y_pos.round() as isize), child_size);
 
-            children_sum_rects.push(child_rect);
-
             let child_offsets = match offsets.get_offsets_for_node(&child_node_id) {
                 Some(s) => s,
                 None => continue,
@@ -2110,31 +2053,17 @@ fn position_nodes<'a>(
                 None
             };
 
-            let child_overflow = get_overflow(
-                &child_offsets.overflow_x,
-                &child_offsets.overflow_y,
-                &child_rect,
-                &None
-            );
-
             positioned_rects[child_node_id] = PositionedRectangle {
                 size: LogicalSize::new(width.total(), height.total()),
                 position: child_position,
                 padding: child_padding,
                 margin: child_margin,
+                box_shadow: child_offsets.box_shadow,
+                box_sizing: child_offsets.box_sizing,
                 border_widths: child_border_widths,
                 resolved_text_layout_options: child_text,
-                overflow: child_overflow,
             };
         }
-
-        let children_sum_rect = LayoutRect::union(children_sum_rects.into_iter());
-        let parent_overflow = get_overflow(
-            &parent_offsets.overflow_x,
-            &parent_offsets.overflow_y,
-            &parent_sum_rect,
-            &children_sum_rect
-        );
 
         // NOTE: Intentionally do not set text_layout_options,
         // otherwise this would overwrite the existing text layout options
@@ -2147,7 +2076,8 @@ fn position_nodes<'a>(
         parent_rect.padding = parent_padding;
         parent_rect.margin = parent_margin;
         parent_rect.border_widths = parent_border_widths;
-        parent_rect.overflow = parent_overflow;
+        parent_rect.box_shadow = parent_offsets.box_shadow;
+        parent_rect.box_sizing = parent_offsets.box_sizing;
 
         if parent_position != LayoutPosition::Static {
             positioned_node_stack.pop();
@@ -2364,6 +2294,7 @@ fn get_nodes_that_need_scroll_clip(
     scrolled_nodes: &mut ScrolledNodes,
     display_list_rects: &NodeDataContainerRef<StyledNode>,
     dom_rects: &NodeDataContainerRef<NodeData>,
+    node_hierarchy: &NodeDataContainerRef<AzNode>,
     layouted_rects: &NodeDataContainerRef<PositionedRectangle>,
     parents: &[ParentWithNodeDepth],
     pipeline_id: PipelineId,
@@ -2372,9 +2303,28 @@ fn get_nodes_that_need_scroll_clip(
     use azul_core::ui_solver::{DirectionalOverflowInfo, OverflowingScrollNode, ExternalScrollId};
     use azul_core::dom::ScrollTagId;
 
-    let mut nodes = BTreeMap::new();
+    let mut overflowing_nodes = BTreeMap::new();
     let mut tags_to_node_ids = BTreeMap::new();
 
+    // brute force: calculate all immediate children sum rects of all parents
+    let all_direct_overflows = parents
+    .par_iter()
+    .filter_map(|ParentWithNodeDepth { depth: _, node_id }| {
+        let parent_id = node_id.into_crate_internal()?;
+        let parent_rect = layouted_rects[parent_id].get_approximate_static_bounds();
+        let children_sum_rect = LayoutRect::union(
+            parent_id.az_children(node_hierarchy)
+            .map(|child_id| layouted_rects[child_id].get_approximate_static_bounds())
+        )?;
+        Some((parent_id, (parent_rect, children_sum_rect)))
+    })
+    .collect::<BTreeMap<_, _>>();
+
+    println!("all_direct_overflows: {:#?}", all_direct_overflows);
+
+    // TODO: optimize scroll rects based on overflow-x / -y setting
+
+/*
     for ParentWithNodeDepth { depth: _, node_id } in parents.iter() {
 
         let parent_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
@@ -2439,27 +2389,27 @@ fn get_nodes_that_need_scroll_clip(
             None => continue,
         };
 
-        let parent_dom_hash = dom_rects[parent_id].calculate_node_data_hash();
-
         // Create an external scroll id. This id is required to preserve its
         // scroll state accross multiple frames.
+        let parent_dom_hash = dom_rects[parent_id].calculate_node_data_hash();
         let parent_external_scroll_id  = ExternalScrollId(parent_dom_hash.0, pipeline_id);
 
         // Create a unique scroll tag for hit-testing
-        let existing_tag = display_list_rects
+        let scroll_tag_id = display_list_rects
         .get(parent_id)
-        .and_then(|node| node.tag_id.into_option().map(|t| t.into_crate_internal()));
-
-        let scroll_tag_id = match existing_tag {
-            Some(existing_tag) => ScrollTagId(existing_tag),
-            None => {
-                if let Some(existing_overflowing_scroll_node) = scrolled_nodes.overflowing_nodes.get(node_id) {
-                    existing_overflowing_scroll_node.scroll_tag_id.clone()
-                } else {
-                    ScrollTagId::new()
-                }
-            },
-        };
+        .and_then(|node| node.tag_id.into_option().map(|t| t.into_crate_internal()))
+        .map(|existing| {
+            match existing {
+                Some(existing_tag) => ScrollTagId(existing_tag),
+                None => {
+                    if let Some(existing_overflowing_scroll_node) = scrolled_nodes.overflowing_nodes.get(node_id) {
+                        existing_overflowing_scroll_node.scroll_tag_id.clone()
+                    } else {
+                        ScrollTagId::new()
+                    }
+                },
+            }
+        });
 
         tags_to_node_ids.insert(scroll_tag_id, *node_id);
         nodes.insert(*node_id, OverflowingScrollNode {
@@ -2469,8 +2419,12 @@ fn get_nodes_that_need_scroll_clip(
             scroll_tag_id,
         });
     }
+*/
 
-    *scrolled_nodes = ScrolledNodes { overflowing_nodes: nodes, tags_to_node_ids };
+    *scrolled_nodes = ScrolledNodes {
+        overflowing_nodes,
+        tags_to_node_ids
+    };
 }
 
 /// Relayout function, takes an existing LayoutResult and adjusts it
@@ -2991,15 +2945,18 @@ pub fn do_the_relayout(
     layout_result.root_size = root_bounds.size;
     layout_result.root_position = root_bounds.origin;
 
-    // TODO: optimize?
-    get_nodes_that_need_scroll_clip(
-        &mut layout_result.scrollable_nodes,
-        &layout_result.styled_dom.styled_nodes.as_container(),
-        &layout_result.styled_dom.node_data.as_container(),
-        &layout_result.rects.as_ref(),
-        &layout_result.styled_dom.non_leaf_nodes.as_ref(),
-        pipeline_id,
-    );
+    if !nodes_that_changed_size.is_empty() {
+        // TODO: optimize?
+        get_nodes_that_need_scroll_clip(
+            &mut layout_result.scrollable_nodes,
+            &layout_result.styled_dom.styled_nodes.as_container(),
+            &layout_result.styled_dom.node_data.as_container(),
+            &layout_result.styled_dom.node_hierarchy.as_container(),
+            &layout_result.rects.as_ref(),
+            &layout_result.styled_dom.non_leaf_nodes.as_ref(),
+            pipeline_id,
+        );
+    }
 
     let gpu_key_changes = layout_result.gpu_value_cache.synchronize(
         &layout_result.rects.as_ref(),

@@ -24,7 +24,7 @@ use crate::{
     styled_dom::StyledDom,
     ui_solver::{
         OverflowingScrollNode, PositionedRectangle,
-        LayoutedRectangle, LayoutResult
+        LayoutResult, PositionInfo,
     },
     styled_dom::{DomId, AzNodeId, AzNodeVec},
     id_tree::{NodeId, NodeDataContainer},
@@ -303,12 +303,14 @@ impl Drop for RefAny {
 pub type PipelineSourceId = u32;
 
 /// Information about a scroll frame, given to the user by the framework
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ScrollPosition {
     /// How big is the scroll rect (i.e. the union of all children)?
     pub scroll_frame_rect: LayoutRect,
     /// How big is the parent container (so that things like "scroll to left edge" can be implemented)?
-    pub parent_rect: LayoutedRectangle,
+    pub parent_rect_size: LogicalSize,
+    /// Position of the parent rect
+    pub parent_rect_position: PositionInfo,
     /// Where (measured from the top left corner) is the frame currently scrolled to?
     pub scroll_location: LogicalPosition,
 }
