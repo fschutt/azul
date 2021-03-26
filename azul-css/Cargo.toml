@@ -2,7 +2,7 @@
 name = "azul-css"
 version = "0.0.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
-license = "MIT"
+license = "LGPL-3.0-only WITH LGPL-3.0-linking-exception"
 description = '''
     Common datatypes used for styling applications
     using the Azul desktop GUI framework

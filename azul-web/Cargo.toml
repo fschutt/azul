@@ -2,7 +2,7 @@
 name = "azul-web"
 version = "0.0.5"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
-license = "MIT"
+license = "LGPL-3.0-only WITH LGPL-3.0-linking-exception"
 description = "Web API implementation for the Azul GUI toolkit"
 homepage = "https://azul.rs/"
 keywords = ["gui", "GUI", "user-interface", "svg", "graphics" ]

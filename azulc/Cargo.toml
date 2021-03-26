@@ -2,7 +2,7 @@
 name = "azulc"
 version = "0.0.3"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
-license = "MIT"
+license = "LGPL-3.0-only WITH LGPL-3.0-linking-exception"
 description = '''
     Azul XML-to-Rust compiler (and library)
 '''
@@ -42,8 +42,8 @@ image                   = { version = "0.23.12",         default-features = fals
 rust-fontconfig         = { version = "0.1.2",          default-features = false,       features = ["std"], optional = true }
 lyon                    = { version = "0.15.8",  default-features = false, optional = true }
 rayon                   = { version = "1.5.0",   default-features = false, optional = true }
-usvg                    = { git = "https://github.com/RazrFalcon/resvg", rev = "38fc6781bd6edffcb8c14b3145b5e5a7342f6761",  default-features = false, optional = true }
-resvg                   = { git = "https://github.com/RazrFalcon/resvg", rev = "38fc6781bd6edffcb8c14b3145b5e5a7342f6761",  default-features = false, optional = true }
+usvg                    = { version = "0.14.0",  default-features = false, optional = true }
+resvg                   = { version = "0.14.0",  default-features = false, optional = true }
 roxmltree               = { version = "0.14.0",  default-features = false, optional = true }
 owned_ttf_parser        = { version = "0.6.0",   default-features = false, optional = true }
 tiny-skia               = { version = "0.5.1",   default-features = false, optional = true, features = ["libm"] }

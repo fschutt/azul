@@ -1,8 +1,8 @@
 [package]
 name = "azul-layout"
 version = "0.0.4"
-authors = ["Emil Sjölander <emil@visly.app>", "fschutt <felix.schuett@maps4print.com>"]
-license = "MIT"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "LGPL-3.0-only WITH LGPL-3.0-linking-exception"
 description = '''
     Flexbox layout solver the Azul GUI framework
 '''

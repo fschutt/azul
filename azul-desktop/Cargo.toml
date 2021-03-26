@@ -2,7 +2,7 @@
 name = "azul-desktop"
 version = "0.0.5"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
-license = "MIT"
+license = "LGPL-3.0-only WITH LGPL-3.0-linking-exception"
 description = "Desktop rendering API for azul"
 homepage = "https://azul.rs/"
 keywords = ["gui", "user-interface", "svg", "graphics", "css" ]

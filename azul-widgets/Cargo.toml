@@ -2,7 +2,7 @@
 name = "azul-widgets"
 version = "0.0.2"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
-license = "MIT"
+license = "LGPL-3.0-only WITH LGPL-3.0-linking-exception"
 description = '''
     Builtin widgets for the Azul GUI framework (buttons, checkboxes, labels, etc.)
 '''
