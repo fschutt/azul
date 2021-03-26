@@ -14,7 +14,7 @@
 built using the WebRender rendering engine and a CSS / HTML-like document
 object model for rapid development of beautiful, native desktop applications
 
-###### [Website](https://azul.rs/) | [User guide](https://azul.rs/doc/) | [API documentation](https://azul.rs/api/) | [Video demo](https://www.youtube.com/watch?v=kWL0ehf4wwI) | [Matrix Chat](https://matrix.to/#/#azul:matrix.org)
+###### [Website](https://azul.rs/) | [User guide](https://azul.rs/guide/) | [API documentation](https://azul.rs/api/) | [Video demo](https://www.youtube.com/watch?v=kWL0ehf4wwI) | [Matrix Chat](https://matrix.to/#/#azul:matrix.org)
 
 ## About
 
@@ -269,7 +269,7 @@ python3 ./build.py
 ```
 
 - Class documentation is available at [azul.rs/api](https://azul.rs/api/)
-- Tutorials / examples / user guide is available under [azul.rs/doc](https://azul.rs/doc/).
+- Tutorials is available under [azul.rs/guide](https://azul.rs/guide/).
 
 NOTE: The class documentation can also be printed as a
 PDF if you prefer that.

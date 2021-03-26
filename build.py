@@ -1839,7 +1839,7 @@ def render_example(partial, example, replace=True):
         descr = descr.replace("#", "&pound;")
     partial = partial.replace("$$CODE$$", jsex)
     partial = partial.replace("$$ID$$", example["id"])
-    partial = partial.replace("$$IMAGE_SOURCE$$", example["screenshot"])
+    partial = partial.replace("$$IMAGE_SOURCE$$", "/images/" + example["id"] + ".png")
     partial = partial.replace("$$IMAGE_ALT$$", example["image_alt"])
     partial = partial.replace("$$MEMORY$$", example["memory"])
     partial = partial.replace("$$CPU$$", example["cpu"])
@@ -1882,7 +1882,7 @@ def generate_docs():
             "id": "table",
             "description": """
                 Azul can render infinitely large datasets (such as a table, shown here)
-                while using a comparably small amount of memory (Qt: 123Mb, Electron: 400Mb).
+                while using a comparably small amount of memory.<br/>
                 Users can specify special IFrameCallbacks that - given the size and scroll position
                 of the DOM node - only return the currently visible cells. All cells can share their
                 CSS style efficiently via pointers, so that properties do not get duplicated in memory.
@@ -1914,8 +1914,7 @@ def generate_docs():
                 Azul renders everything using GPU-accelerated rectangles by default -
                 however, it allows users to tesselate and paint custom shapes on OpenGL
                 textures and use those textures as clip masks. Clip masks can be
-                <strong>animated</strong via Timers as well as rendered / loaded on
-                non-main threads.
+                animated via Timers as well as rendered on a non-main thread.
             """,
             "screenshot": root_folder + "/examples/assets/screenshots/svg.png",
             "cpu": "0%",
@@ -1928,13 +1927,10 @@ def generate_docs():
             "description": """
                 Composing larger UIs is just a matter of proper function composition.
                 Each function returns a styled DOM tree that can be composed into
-                the larger UI.<br/>
-                Widgets can also store their widget-specific data on a DOM node itself
-                (similar to a HTML <code>dataset</code> attribute) and provide
-                default callbacks for common UI interactions by rendering the entire state.
-                Callbacks are function pointers that can be exchanged on-the-fly, so
-                that overriding the default behaviour is possible without using
-                inheritance or OOP.s
+                the larger UI. Widgets can also store their widget-specific data on a
+                DOM node itself (similar to a HTML <code>dataset</code> attribute) and
+                provide default callbacks for common UI interactions by rendering the
+                entire state.
             """,
             "screenshot": root_folder + "/examples/assets/screenshots/calculator.png",
             "cpu": "0%",
@@ -1946,9 +1942,8 @@ def generate_docs():
             "id": "xml",
             "description": """
                 For fast protoyping, Azul contains an XML description language
-                that can create a UI from XML on-the-fly. Azul can watch and
-                hot-reload files from disk - no need to restart the application
-                to develop your app UI in realtime via XML / CSS. <br/>
+                that can create a UI from XML / CSS on-the-fly. Azul can watch and
+                hot-reload files - without needing to restart the application.
                 The XML can afterwards <strong>transpiled to native Code</strong>
                 in order to create reusable widgets.
             """,
@@ -1980,8 +1975,8 @@ def generate_docs():
         if entry.path.endswith(".md") and entry.is_file():
             entry_name = entry.name[3:-3]
             html_path_name = entry_name.replace(" ", "")
-            guide_sidebar += "<li><a href=\"./guide/" + current_version + "/" + html_path_name + ".html\">" + entry_name + "</a></li>"
-            guide_sidebar_nested += "<li><a href=\"./" + html_path_name + ".html\">" + entry_name + "</a></li>"
+            guide_sidebar += "<li><a href=\"./guide/" + current_version + "/" + html_path_name + "\">" + entry_name + "</a></li>"
+            guide_sidebar_nested += "<li><a href=\"./" + html_path_name + "\">" + entry_name + "</a></li>"
             guides_rendered.append(tuple((entry_name, read_file(entry.path))))
     guide_sidebar += "</ul>"
     guide_sidebar_nested += "</ul>"
@@ -2022,11 +2017,17 @@ def generate_docs():
         main code.expand { display: block; margin-top: 20px; padding: 10px; border-radius: 5px; }
         """
         formatted_guide = formatted_guide.replace("/*$$_EXTRA_CSS$$*/", extra_css)
-        write_file(formatted_guide, root_folder + "/target/html/guide/" + current_version + "/" + html_path_name + ".html")
+        write_file(formatted_guide, root_folder + "/target/html/guide/" + current_version + "/" + html_path_name)
 
     releases_string = "<ul>"
+
     for version in all_versions:
-        releases_string += "<li><a href=\"./release/" + version + ".html\">" + version + "</a></li>"
+        create_folder(root_folder + "/target/html/release/" + version)
+        create_folder(root_folder + "/target/html/release/" + version + "/files")
+
+    for version in all_versions:
+        releases_string += "<li><a href=\"/release/" + version + "\">" + version + "</a></li>"
+
     releases_string += "</ul>"
 
     releases_combined_page = html_template.replace("$$ROOT_RELATIVE$$", ".")
@@ -2049,7 +2050,7 @@ def generate_docs():
 
     api_sidebar_string = "<ul>"
     for version in all_versions:
-        api_sidebar_string += "<li><a href=\"./api/" + version + ".html\">" + version + "</a></li>"
+        api_sidebar_string += "<li><a href=\"/api/" + version + "\">" + version + "</a></li>"
     api_sidebar_string += "</ul>"
 
     for version in all_versions:
@@ -2269,7 +2270,7 @@ def generate_docs():
 
         releases_string = "<ul>"
         for version in all_versions:
-            releases_string += "<li><a href=\"./" + version + ".html\">" + version + "</a></li>"
+            releases_string += "<li><a href=\"./" + version + "\">" + version + "</a></li>"
         releases_string += "</ul>"
 
         final_html = html_template.replace("$$ROOT_RELATIVE$$", "..")
