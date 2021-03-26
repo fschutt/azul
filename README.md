@@ -46,27 +46,6 @@ Due to its relatively large size (and to provide C / C++ interop),
 azul is built as a dynamic library in the `azul-dll` package. You can
 download pre-built binaries from [azul.rs/releases](https://azul.rs/releases).
 
-### Prerequisites / system dependencies
-
-#### Linux
-
-On Linux, you need to install the following packages:
-
-```sh
-libfreetype6-dev # needed to render fonts
-```
-
-**Arch Linux**: The package for `libfreetype6-dev` is called `freetype`.
-
-If you publish an azul-based GUI application, you need to remember to
-include these dependencies in your package description, otherwise your
-users won't be able to start the application.
-
-#### Windows / Mac
-
-You do not need to install anything, azul uses the standard system APIs to
-render / select fonts.
-
 ### Installation using pre-built-binaries
 
 1. Download the library from [azul.rs/releases](https://azul.rs/releases)
