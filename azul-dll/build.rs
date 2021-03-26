@@ -11,7 +11,7 @@ use std::io::Write;
 use std::io::Read;
 use std::io::{BufReader, BufRead};
 
-const INSTALL_DIRECTORY_VAR: &str = "AZUL_INSTALL_DIR";
+const INSTALL_DIRECTORY_VAR: &str = "AZUL_LINK_PATH";
 
 fn main() {
 

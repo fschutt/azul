@@ -9,7 +9,6 @@ keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2018"
-build = "build.rs"
 autoexamples = false
 
 [dependencies]
