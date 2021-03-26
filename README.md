@@ -14,7 +14,7 @@
 built using the WebRender rendering engine and a CSS / HTML-like document
 object model for rapid development of beautiful, native desktop applications
 
-###### [Website](https://azul.rs/) | [Tutorial / user guide](https://github.com/maps4print/azul/wiki) | [Video demo](https://www.youtube.com/watch?v=kWL0ehf4wwI) | [Discord Chat](https://discord.gg/nxUmsCG)
+###### [Website](https://azul.rs/) | [User guide](https://azul.rs/doc/) | [API documentation](https://azul.rs/api/) | [Video demo](https://www.youtube.com/watch?v=kWL0ehf4wwI) | [Matrix Chat](https://matrix.to/#/#azul:matrix.org)
 
 ## About
 
@@ -30,20 +30,21 @@ to the application data. In Azul, rendering the view is a pure function that map
 your application data to a styled DOM. "Widgets" are just functions that render
 a certain state, more complex widgets use function composition.
 
-Since recreating DOM objects is expensive (note: "expensive" = 3 milliseconds), Azul
-caches the DOM object and does NOT recreate it on every frame - only when callbacks
-request to recreate it.
+Since recreating DOM objects is expensive (note: "expensive" = 3 milliseconds),
+Azul caches the DOM object and does NOT recreate it on every frame - only
+when callbacks request to recreate it.
 
-Widget-local data that needs to be retained between frames is stored on the DOM
-nodes themselves, similar to how the HTML `dataset` property can be used to
-store data. The application and widget data is managed using a reference-counted
-boxed type (`RefAny`), which can be downcasted to a concrete type if necessary.
+The application and widget data is managed using a reference-counted
+boxed type (`RefAny`), which can be downcasted to a concrete type if
+necessary. Widget-local data that needs to be retained between frames is
+stored on the DOM nodes themselves, similar to how the HTML `dataset`
+property can be used to store widget data.
 
 ## Installation
 
-Due to its large size (and to provide C / C++ interop), azul is built as
-a dynamic library in the `azul-dll` package. You can download pre-built
-binaries from [azul.rs/releases](https://azul.rs/releases).
+Due to its relatively large size (and to provide C / C++ interop),
+azul is built as a dynamic library in the `azul-dll` package. You can
+download pre-built binaries from [azul.rs/releases](https://azul.rs/releases).
 
 ### Prerequisites / system dependencies
 
@@ -111,16 +112,13 @@ This command should produce an `azul.dll` file in the
 `/target/release` folder, in order to use this, you will
 also need to set `AZUL_LINK_PATH` to `$BUILD_DIR/target/release/`.
 
-#### Building from master
+If you are developing on the library, you may also need to
+re-generate the Rust / C API, in which case you should prefer
+to use the `build.py` script:
 
-```sh
-git clone https://github.com/maps4print/azul
-cd azul/azul-dll
-cargo build --release --all-features
 ```
-
-The library will be built in `/azul/target/release/libazul.so`. You will need to
-manually set `AZUL_LINK_PATH=/azul/target/release/libazul.so`
+python3 ./build.py
+```
 
 ## Example
 
@@ -165,7 +163,10 @@ extern "C" fn render_my_view(data: &RefAny, _: LayoutInfo) -> StyledDom {
 
 // View updates model
 extern "C" fn update_counter(data: &mut RefAny, event: CallbackInfo) -> UpdateScreen {
-    let mut data = data.downcast_mut::<DataModel>().unwrap();
+    let mut data = match data.downcast_mut::<DataModel>() {
+        Some(s) => s,
+        None => return UpdateScreen::DoNothing,
+    };
     data.counter += 1;
     UpdateScreen::RegenerateDomForCurrentWindow
 }
@@ -182,27 +183,30 @@ fn main() {
 #include "azul.h"
 #include "azul-widgets.h"
 
-using namespace azul.prelude;
-using azul.widgets.button;
-using azul.widgets.label;
+using namespace azul;
+using namespace azul.widgets.button;
+using namespace azul.widgets.label;
 
 struct DataModel {
     counter: uint32_t
 }
 
+// Model -> View
 StyledDom render_my_view(const RefAny& data, LayoutInfo info) {
+
+    auto result = StyledDom::default();
 
     const DataModel* data = data.downcast_ref();
     if !(data) {
         return result;
     }
 
-    auto label = Label::new(String::format("{}", &[data.counter])).dom();
+    auto label = Label::new(String::format("{counter}", &[data.counter])).dom();
     auto button = Button::with_label("Update counter")
        .onmouseup(update_counter, data.clone())
        .dom();
 
-    auto result = StyledDom::default()
+    result = result
         .append(label)
         .append(button);
 
@@ -225,40 +229,72 @@ int main() {
 
 ```c
 #include "azul.h"
-#include "azul-widgets.h"
 
-struct DataModel {
-    counter: uint32_t
+typedef struct {
+    uint32_t counter;
+} DataModel;
+
+void DataModel_delete(DataModel* restrict A) { }
+AZ_REFLECT(DataModel, DataModel_delete);
+
+AzStyledDom render_my_view(AzRefAny* restrict data, AzLayoutInfo info) {
+
+    AzString counter_string;
+
+    DataModelRef d = DataModelRef_create(data);
+    if (DataModel_downcastRef(data, &d)) {
+        AzFmtArgVec fmt_args = AzFmtArgVec_fromConstArray({{
+            .key = AzString_fromConstStr("counter"),
+            .value = AzFmtValue_Uint(d.ptr->counter)
+        }});
+        counter_string = AzString_format(AzString_fromConstStr("{counter}"), fmt_args);
+    } else {
+        return AzStyledDom_empty();
+    }
+    DataModelRef_delete(&d);
+
+    AzDom const html = {
+        .root = AzNodeData_new(AzNodeType_Body),
+        .children = AzDomVec_fromConstArray({AzDom_new(AzNodeType_Label(counter_string))}),
+        .total_children = 1, // len(children)
+    };
+    AzCss const css = AzCss_fromString(AzString_fromConstStr("body { font-size: 50px; }"));
+    return AzStyledDom_new(html, css);
 }
 
-StyledDom render_my_view(const RefAny* data, LayoutInfo info) {
-
-    StyledDom result = az_styled_dom_default();
-
-    DataModel* data = az_refany_downcast_ref(data); // data may be nullptr
-
-    if !(data) {
-        return result;
+UpdateScreen update_counter(RefAny& data, CallbackInfo event) {
+    DataModelRefMut d = DataModelRefMut_create(data);
+    if !(DataModel_downcastRef(data, &d)) {
+        return UpdateScreen_DoNothing;
     }
-
-    Label label = az_widget_label_new(az_string_format("{}", &[data.counter]));
-    Button button = az_widget_button_with_label("Update counter");
-    az_widget_button_set_onmouseup(update_counter, az_refany_shallow_copy(data));
-
-    az_styled_dom_append(az_widget_label_dom(label));
-    az_styled_dom_append(az_widget_button_dom(button));
-
-    return result;
+    d->ptr.counter += 1;
+    DataModelRefMut_delete(&d);
+    return UpdateScreen_RegenerateDomForCurrentWindow;
 }
 
 int main() {
-    AzApp app = az_app_new(az_refany_new(DataModel { .counter = 0 }), az_app_config_default());
-    az_app_run(app, az_window_create_options_new(render_my_view));
+    DataModel model = { .counter = 5 };
+    AzApp app = AzApp_new(DataModel_upcast(model), AzAppConfig_default());
+    AzApp_run(app, AzWindowCreateOptions_new(render_my_view));
+    return 0;
 }
 ```
 
 ## Documentation
 
+The documentation is built using the `build.py` script, which
+will generate the entire `azul.rs` website in the `/target/html`
+directory:
+
+```
+python3 ./build.py
+```
+
+- Class documentation is available at [azul.rs/api](https://azul.rs/api/)
+- Tutorials / examples / user guide is available under [azul.rs/doc](https://azul.rs/doc/).
+
+NOTE: The class documentation can also be printed as a
+PDF if you prefer that.
 
 ## License
 
