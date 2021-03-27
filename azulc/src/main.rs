@@ -105,7 +105,7 @@ fn process(action: Action, file: Option<&String>) {
         }
     };
 
-    let styled_dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::default()) {
+    let styled_dom = match str_to_dom(root_nodes.as_ref(), &mut XmlComponentMap::default()) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("error: could not render DOM:\r\n{}", e);
@@ -120,7 +120,7 @@ fn process(action: Action, file: Option<&String>) {
             exit(0);
         },
         Action::PrintHtmlCode => {
-            println!("{}", styled_dom.get_html_string());
+            println!("{}", styled_dom.get_html_string("", ""));
         },
         Action::PrintCCode => {
             println!("{}", get_c_code(&styled_dom, &mut XmlComponentMap::default()));
