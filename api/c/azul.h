@@ -9549,7 +9549,7 @@ extern DLLIMPORT AzCssPropertyCache AzCssPropertyCache_deepCopy(AzCssPropertyCac
 extern DLLIMPORT AzStyledDom AzStyledDom_new(AzDom  dom, AzCss  css);
 extern DLLIMPORT AzStyledDom AzStyledDom_fromXml(AzString  xml_string);
 extern DLLIMPORT AzStyledDom AzStyledDom_fromFile(AzString  xml_file_path);
-extern DLLIMPORT void AzStyledDom_append(AzStyledDom* restrict styleddom, AzStyledDom  dom);
+extern DLLIMPORT void AzStyledDom_appendChild(AzStyledDom* restrict styleddom, AzStyledDom  dom);
 extern DLLIMPORT void AzStyledDom_restyle(AzStyledDom* restrict styleddom, AzCss  css);
 extern DLLIMPORT size_t AzStyledDom_nodeCount(AzStyledDom* const styleddom);
 extern DLLIMPORT AzString AzStyledDom_getHtmlString(AzStyledDom* const styleddom);

@@ -5005,7 +5005,7 @@ mod dll {
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn AzStyledDom_fromXml(_:  AzString) -> AzStyledDom;
         pub(crate) fn AzStyledDom_fromFile(_:  AzString) -> AzStyledDom;
-        pub(crate) fn AzStyledDom_append(_:  &mut AzStyledDom, _:  AzStyledDom);
+        pub(crate) fn AzStyledDom_appendChild(_:  &mut AzStyledDom, _:  AzStyledDom);
         pub(crate) fn AzStyledDom_restyle(_:  &mut AzStyledDom, _:  AzCss);
         pub(crate) fn AzStyledDom_nodeCount(_:  &AzStyledDom) -> usize;
         pub(crate) fn AzStyledDom_getHtmlString(_:  &AzStyledDom) -> AzString;
@@ -7710,7 +7710,7 @@ pub mod style {
         /// Same as `from_xml`, but loads the file relative to the current directory
         pub fn from_file(xml_file_path: String) -> Self { unsafe { crate::dll::AzStyledDom_fromFile(xml_file_path) } }
         /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
-        pub fn append(&mut self, dom: StyledDom)  { unsafe { crate::dll::AzStyledDom_append(self, dom) } }
+        pub fn append_child(&mut self, dom: StyledDom)  { unsafe { crate::dll::AzStyledDom_appendChild(self, dom) } }
         /// Restyles an already styled DOM with a new CSS - overwrites old styles, but does not replace them, useful for implementing user styles that are applied on top of the existing application style
         pub fn restyle(&mut self, css: Css)  { unsafe { crate::dll::AzStyledDom_restyle(self, css) } }
         /// Returns the number of nodes in the styled DOM
