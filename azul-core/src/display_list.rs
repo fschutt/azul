@@ -457,15 +457,16 @@ impl fmt::Debug for LayoutRectContent {
         use self::LayoutRectContent::*;
         match self {
             Text { glyphs, font_instance_key, color, glyph_options, overflow } => {
+                let glyphs_str = glyphs.iter().map(|g| format!("{:?}", g)).collect::<Vec<_>>().join("\r\n");
                 write!(f,
                     "Text {{\r\n\
-                        glyphs: {:?},\r\n\
+                        glyphs: [\r\n{}\r\n],\r\n\
                         font_instance_key: {:?},\r\n\
                         color: {:?},\r\n\
                         glyph_options: {:?},\r\n\
                         overflow: {:?},\r\n\
                     }}",
-                    glyphs, font_instance_key, color, glyph_options, overflow
+                    glyphs_str, font_instance_key, color, glyph_options, overflow
                 )
             },
             Background { content, size, offset, repeat } => {

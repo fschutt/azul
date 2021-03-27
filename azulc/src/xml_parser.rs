@@ -67,7 +67,7 @@ pub const DEFAULT_ARGS: [&str;7] = [
 ///     c: &'a HashMap<X, Y>,
 /// }
 ///
-/// fn render_component_test<'a, T>(args: &TestRendererArgs<'a>) -> Dom {
+/// fn render_component_test<'a, T>(args: &TestRendererArgs<'a>) -> StyledDom {
 ///     Button::with_label(format!("Is this true? Scientists say: {:?}", args.b)).with_class(format!("test_{}", args.a))
 /// }
 /// ```
@@ -138,7 +138,7 @@ pub trait XmlComponent {
     /// When the XML is then compiled to Rust, the generated Rust code will look like this:
     ///
     /// ```rust,no_run,ignore
-    /// render_component_calendar(&CalendarRendererArgs {
+    /// calendar(&CalendarRendererArgs {
     ///     selected_date: DateTime::from("01.01.2018")
     ///     minimum_date: DateTime::from("01.01.2018")
     ///     maximum_date: DateTime::from("01.01.2018")
@@ -428,6 +428,16 @@ impl_from!{ RenderDomError, DomXmlParseError::RenderDom }
 pub enum CompileError {
     Dom(RenderDomError),
     Other(String),
+}
+
+impl fmt::Display for CompileError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::CompileError::*;
+        match self {
+            Dom(d) => write!(f, "{}", d),
+            Other(s) => write!(f, "{}", s),
+        }
+    }
 }
 
 impl From<RenderDomError> for CompileError {
@@ -812,7 +822,7 @@ pub fn str_to_rust_code(root_nodes: &[XmlNode], imports: &str, component_map: &m
     const HEADER_WARNING: &str = "//! Auto-generated UI source code";
 
     let source_code = HEADER_WARNING.to_string();
-/*
+
     if let Some(head_node) = root_nodes.iter().find(|n| normalize_casing(&n.node_type).as_str() == "head") {
         get_xml_components(head_node.children.as_ref(), component_map).map_err(|e| format!("Error parsing component: {}", e))?;
     }
@@ -821,13 +831,10 @@ pub fn str_to_rust_code(root_nodes: &[XmlNode], imports: &str, component_map: &m
     let app_source = compile_body_node_to_rust_code(&body_node, &component_map)?;
     let app_source = app_source.lines().map(|l| format!("        {}", l)).collect::<Vec<String>>().join("\r\n");
 
-    let source_code = format!("{}\r\n\r\n{}\r\n\r\n{}\r\n\r\n{}", HEADER_WARNING, imports,
+    let source_code = format!("{}\r\n\r\n{}{}\r\n\r\n{}", HEADER_WARNING, imports,
         compile_components(compile_components_to_rust_code(&component_map)?),
-        format!("impl Layout for YourType {{\r\n    fn layout(&self, _info: LayoutInfo) -> Dom<YourType> {{\r\n{}\r\n    }}\r\n}}",
-            app_source
-        ),
+        format!("const fn render_ui(&self, _info: LayoutInfo) -> StyledDom {{\r\n{}\r\n    }}", app_source),
     );
-*/
 
     Ok(source_code)
 }
@@ -860,12 +867,11 @@ pub fn compile_component(
     let component_function_body = component_function_body.lines().map(|l| format!("    {}", l)).collect::<Vec<String>>().join("\r\n");
     let should_inline = component_function_body.lines().count() == 1;
     format!(
-        "{}fn render_component_{}{}({}{}{}) -> Dom {{\r\n{}\r\n}}",
+        "{}fn {}({}{}{}) -> StyledDom {{\r\n{}\r\n}}",
         if should_inline { "#[inline]\r\n" } else { "" },
         normalize_casing(component_name),
         // pass the text content as the first
-        if component_args.accepts_text { "<T: Layout, I: Into<String>>" } else { "<T: Layout>" },
-        if component_args.accepts_text { "text: I" } else { "" },
+        if component_args.accepts_text { "text: AzString" } else { "" },
         if function_args.is_empty() || !component_args.accepts_text { "" } else { ", " },
         function_args,
         component_function_body,
@@ -1233,8 +1239,8 @@ pub fn render_component_inner(
     tabs: usize,
 ) -> Result<(), CompileError> {
 
-    let t = String::from("    ").repeat(tabs);
-    let t1 = String::from("    ").repeat(tabs + 1);
+    let t = String::from("    ").repeat(tabs - 1);
+    let t1 = String::from("    ").repeat(tabs);
 
     let component_name = normalize_casing(&component_name);
     let xml_node = renderer.get_xml_node();
@@ -1259,10 +1265,12 @@ pub fn render_component_inner(
     let mut dom_string = renderer.compile_to_rust_code(component_map, &filtered_xml_attributes, &text.into())?;
     set_stringified_attributes(&mut dom_string, &xml_node.attributes, &filtered_xml_attributes.args, tabs + 1);
 
-    for child_node in xml_node.children.as_ref() {
-        dom_string.push_str(&format!("\r\n{}.with_child(\r\n{}{}\r\n{})",
-            t, t1, compile_node_to_rust_code_inner(child_node, component_map, &filtered_xml_attributes, tabs + 1)?, t,
-        ));
+    if !xml_node.children.as_ref().is_empty() {
+        dom_string.push_str(&format!("\r\n{}.with_children(DomVec::from_const_slice(&[\r\n", t));
+        for child_node in xml_node.children.as_ref().iter() {
+            dom_string.push_str(&format!("{}{},", t1, compile_node_to_rust_code_inner(child_node, component_map, &filtered_xml_attributes, tabs + 1)?));
+        }
+        dom_string.push_str(&format!("\r\n{}]))", t));
     }
 
     map.insert(component_name, (dom_string, filtered_xml_attributes));
@@ -1285,14 +1293,18 @@ pub fn compile_components_to_rust_code(
 }
 
 pub fn compile_body_node_to_rust_code(body_node: &XmlNode, component_map: &XmlComponentMap) -> Result<String, CompileError> {
-    let t = "    ";
-    let t2 = "        ";
+    let t = "";
+    let t2 = "    ";
     let mut dom_string = String::from("Dom::body()");
-    for child_node in body_node.children.as_ref() {
-        dom_string.push_str(&format!("\r\n{}.with_child(\r\n{}{}\r\n{})",
-            t, t2, compile_node_to_rust_code_inner(child_node, component_map, &FilteredComponentArguments::default(), 2)?, t
-        ));
+
+    if !body_node.children.as_ref().is_empty() {
+        dom_string.push_str(&format!("\r\n{}.with_children(DomVec::from_const_slice(&[\r\n", t));
+        for child_node in body_node.children.as_ref().iter() {
+            dom_string.push_str(&format!("{}{},\r\n", t2, compile_node_to_rust_code_inner(child_node, component_map, &FilteredComponentArguments::default(), 1)?));
+        }
+        dom_string.push_str(&format!("{}]))", t));
     }
+
     let dom_string = dom_string.trim();
     Ok(dom_string.to_string())
 }
@@ -1348,8 +1360,8 @@ pub fn compile_node_to_rust_code_inner(
     tabs: usize,
 ) -> Result<String, CompileError> {
 
-    let t = String::from("    ").repeat(tabs);
-    let t2 = String::from("    ").repeat(tabs + 1);
+    let t = String::from("    ").repeat(tabs - 1);
+    let t2 = String::from("    ").repeat(tabs);
 
     let component_name = normalize_casing(&node.node_type);
 
@@ -1411,7 +1423,7 @@ pub fn compile_node_to_rust_code_inner(
         };
 
     // The dom string is the function name
-    let mut dom_string = format!("render_component_{}({}{})", component_name, text_as_first_arg, instantiated_function_arguments);
+    let mut dom_string = format!("{}({}{})", component_name, text_as_first_arg, instantiated_function_arguments);
     set_stringified_attributes(&mut dom_string, &node.attributes, &filtered_xml_attributes.args, tabs + 1);
 
     for child_node in node.children.as_ref() {
@@ -1542,7 +1554,7 @@ fn test_compile_dom_1() {
         </body>
     "#;
     let s1_expected = r#"
-        fn render_component_test<T>() -> Dom {
+        fn test() -> StyledDom {
             Dom::div().with_id("a").with_class("b")
         }
     "#;

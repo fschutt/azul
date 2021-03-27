@@ -801,6 +801,12 @@ impl Default for NodeData {
     }
 }
 
+impl fmt::Debug for NodeData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
 impl fmt::Display for NodeData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 
@@ -834,19 +840,6 @@ fn node_data_to_string(node_data: &NodeData) -> String {
     };
 
     format!("{}{}{}", id_string, class_string, tabindex_string)
-}
-
-impl fmt::Debug for NodeData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "NodeData {{")?;
-        write!(f, "\tnode_type: {:?}", self.node_type)?;
-        if !self.ids_and_classes.is_empty() { write!(f, "\tids_and_classes: {:?}", self.ids_and_classes)?; }
-        if !self.callbacks.is_empty() { write!(f, "\tcallbacks: {:?}", self.callbacks)?; }
-        if !self.inline_css_props.is_empty() { write!(f, "\tinline_css_props: {:?}", self.inline_css_props)?; }
-        if let OptionTabIndex::Some(t) = self.tab_index { write!(f, "\ttab_index: {:?}", t)?; }
-        write!(f, "}}")?;
-        Ok(())
-    }
 }
 
 impl NodeData {

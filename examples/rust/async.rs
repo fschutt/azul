@@ -18,7 +18,7 @@ enum ConnectionStatus {
 }
 
 struct MyDataModel {
-    connection_status: Arc<Mutex<ConnectionStatus>>,
+    connection_status: ConnectionStatus,
 }
 
 impl Layout for MyDataModel {

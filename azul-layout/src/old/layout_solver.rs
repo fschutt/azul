@@ -1762,8 +1762,6 @@ pub fn do_the_layout_internal(
         pipeline_id,
     );
 
-    println!("layout: overflowing_rects: {:#?}", overflowing_rects);
-
     let mut gpu_value_cache = GpuValueCache::empty();
     let _ = gpu_value_cache.synchronize(&positioned_rects.as_ref(), &styled_dom);
 
@@ -1839,35 +1837,6 @@ fn position_nodes<'a>(
     let css_property_cache = styled_dom.get_css_property_cache();
     let styled_nodes = styled_dom.styled_nodes.as_container();
     let node_hierarchy = &styled_dom.node_hierarchy.as_container();
-
-    for ParentWithNodeDepth { depth, node_id } in styled_dom.non_leaf_nodes.as_ref().iter() {
-
-        let parent_node_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
-        let tabs = "    ".repeat(*depth);
-        let width = solved_widths[parent_node_id];
-        let height = solved_heights[parent_node_id];
-        let x_pos = x_positions[parent_node_id].0;
-        let y_pos = y_positions[parent_node_id].0;
-
-        println!("{}parent {}: {}x{} @ ({}, {}) (intrinsic={}x{}, flex_grow={}x{})",
-                 tabs, parent_node_id, width.total(), height.total(), x_pos, y_pos,
-                 width.min_inner_size_px,height.min_inner_size_px, width.flex_grow_px, height.flex_grow_px
-        );
-
-        for child_id in parent_node_id.az_children(node_hierarchy) {
-
-            let tabs = "    ".repeat(*depth + 1);
-            let width = solved_widths[child_id];
-            let height = solved_heights[child_id];
-            let x_pos = x_positions[child_id].0;
-            let y_pos = y_positions[child_id].0;
-
-            println!("{}child {}: {}x{} @ ({}, {}) (intrinsic={}x{}, flex_grow={}x{})",
-                     tabs, child_id, width.total(), height.total(), x_pos, y_pos,
-                     width.min_inner_size_px,height.min_inner_size_px, width.flex_grow_px, height.flex_grow_px
-            );
-        }
-    }
 
     // create the final positioned rectangles
     for ParentWithNodeDepth { depth: _, node_id } in styled_dom.non_leaf_nodes.as_ref().iter() {
@@ -2313,103 +2282,6 @@ fn get_nodes_that_need_scroll_clip(
     println!("all_direct_overflows: {:#?}", all_direct_overflows);
 
     // TODO: optimize scroll rects based on overflow-x / -y setting
-
-/*
-    for ParentWithNodeDepth { depth: _, node_id } in parents.iter() {
-
-        let parent_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
-        let parent_rect = &layouted_rects[parent_id];
-        let overflow_x = &parent_rect.overflow.overflow_x;
-        let overflow_y = &parent_rect.overflow.overflow_y;
-
-        let scroll_rect = if overflow_x.is_none() || overflow_x.is_negative() {
-            // no overflow in horizontal direction
-            if overflow_y.is_none() || overflow_y.is_negative() {
-                // no overflow in both directions
-                None
-            } else {
-                // overflow in y, but not in x direction
-                match overflow_y {
-                    DirectionalOverflowInfo::Scroll { amount: Some(s) } |
-                    DirectionalOverflowInfo::Auto { amount: Some(s) } => {
-                        Some(LayoutSize::new(
-                            parent_rect.size.width.round() as isize,
-                            parent_rect.size.height.round() as isize + *s
-                        ))
-                    },
-                    _ => None
-                }
-            }
-        } else {
-            if overflow_y.is_none() || overflow_y.is_negative() {
-                // overflow in x, but not in y direction
-                match overflow_x {
-                    DirectionalOverflowInfo::Scroll { amount: Some(s) } |
-                    DirectionalOverflowInfo::Auto { amount: Some(s) } => {
-                        Some(LayoutSize::new(
-                            parent_rect.size.width.round() as isize + *s,
-                            parent_rect.size.height.round() as isize
-                        ))
-                    },
-                    _ => None
-                }
-            } else {
-                // overflow in x and y direction
-                match overflow_x {
-                    DirectionalOverflowInfo::Scroll { amount: Some(q) } |
-                    DirectionalOverflowInfo::Auto { amount: Some(q) } => {
-                        match overflow_y {
-                            DirectionalOverflowInfo::Scroll { amount: Some(s) } |
-                            DirectionalOverflowInfo::Auto { amount: Some(s) } => {
-                                Some(LayoutSize::new(
-                                    parent_rect.size.width.round() as isize + *q,
-                                    parent_rect.size.height.round() as isize + *s
-                                ))
-                            },
-                            _ => None
-                        }
-                    },
-                    _ => None
-                }
-            }
-        };
-
-        let scroll_rect = match scroll_rect {
-            Some(s) => LayoutRect::new(LayoutPoint::zero(), s),
-            None => continue,
-        };
-
-        // Create an external scroll id. This id is required to preserve its
-        // scroll state accross multiple frames.
-        let parent_dom_hash = dom_rects[parent_id].calculate_node_data_hash();
-        let parent_external_scroll_id  = ExternalScrollId(parent_dom_hash.0, pipeline_id);
-
-        // Create a unique scroll tag for hit-testing
-        let scroll_tag_id = display_list_rects
-        .get(parent_id)
-        .and_then(|node| node.tag_id.into_option().map(|t| t.into_crate_internal()))
-        .map(|existing| {
-            match existing {
-                Some(existing_tag) => ScrollTagId(existing_tag),
-                None => {
-                    if let Some(existing_overflowing_scroll_node) = scrolled_nodes.overflowing_nodes.get(node_id) {
-                        existing_overflowing_scroll_node.scroll_tag_id.clone()
-                    } else {
-                        ScrollTagId::new()
-                    }
-                },
-            }
-        });
-
-        tags_to_node_ids.insert(scroll_tag_id, *node_id);
-        nodes.insert(*node_id, OverflowingScrollNode {
-            child_rect: scroll_rect,
-            parent_external_scroll_id,
-            parent_dom_hash,
-            scroll_tag_id,
-        });
-    }
-*/
 
     *scrolled_nodes = ScrolledNodes {
         overflowing_nodes,

@@ -71,12 +71,23 @@ pub enum CssPropertySource {
 
 /// NOTE: multiple states can be active at
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq, Hash, PartialOrd, Eq, Ord)]
+#[derive(Clone, PartialEq, Hash, PartialOrd, Eq, Ord)]
 pub struct StyledNodeState {
     pub normal: bool,
     pub hover: bool,
     pub active: bool,
     pub focused: bool,
+}
+
+impl core::fmt::Debug for StyledNodeState {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        let mut v = Vec::new();
+        if self.normal { v.push("normal"); }
+        if self.hover { v.push("hover"); }
+        if self.active { v.push("active"); }
+        if self.focused { v.push("focused"); }
+        write!(f, "{:?}", v)
+    }
 }
 
 impl Default for StyledNodeState {
@@ -1282,16 +1293,17 @@ impl StyledDom {
 
         self.node_hierarchy.as_container_mut()[self_root_id].last_child += other.root.inner;
 
-        for node in other.node_hierarchy.as_mut().iter_mut() {
-            node.parent += self_len;
-            node.previous_sibling += self_len;
-            node.next_sibling += self_len;
-            node.last_child += self_len;
+        for other in other.node_hierarchy.as_mut().iter_mut() {
+            other.parent += self_len;
+            other.previous_sibling += if other.previous_sibling == 0 { 0 } else { self_len };
+            other.next_sibling += if other.next_sibling == 0 { 0 } else { self_len };
+            other.last_child += if other.last_child == 0 { 0 } else { self_len };
         }
 
         other.node_hierarchy.as_container_mut()[other_root_id].parent = NodeId::into_usize(&Some(self.root.into_crate_internal().unwrap_or(NodeId::ZERO)));
-        self.node_hierarchy.as_container_mut()[last_child_id].next_sibling = self_len + other.root.inner;
-        other.node_hierarchy.as_container_mut()[other_root_id].previous_sibling = NodeId::into_usize(&Some(last_child_id));
+        if self.node_hierarchy.as_container_mut()[last_child_id].next_sibling != 0 {
+            self.node_hierarchy.as_container_mut()[last_child_id].next_sibling = self_len + other.root.inner;
+        }
 
         self.node_hierarchy.append(&mut other.node_hierarchy);
         self.node_data.append(&mut other.node_data);

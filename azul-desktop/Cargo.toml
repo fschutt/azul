@@ -39,38 +39,27 @@ webrender = { git = "https://github.com/servo/webrender", rev = "3ac3984dddff522
 core-foundation = { version = "0.9.0",     default-features = false, features = ["mac_os_10_7_support"] }
 
 [features]
-default = ["std", "logging", "css_parser", "image_loading", "font_loading", "text_layout", "svg"]
-# Enables libstd (on by default)
-# If you do not use libstd, the only thing you can do is to draw to a
-# linux framebuffer via software rendering. Note that if you disable this,
-# multithreading, image_loading, font_loading, etc. have to be disabled, too!
+default = [
+    "std", "logging", "css_parser",
+    "font_loading", "text_layout", "svg", "xml",
+    "image_loading", "gif", "jpeg", "png", "tiff", "bmp"
+]
 std = ["azul-core/multithreading", "azul-core/std", "backtrace"]
-# Enable this feature to enable crash logging & reporting.
-# Azul will insert custom panic handlers to pop up a message and log
-# crashes to an "error.log" file, see AppConfig for more details
 logging = ["fern", "backtrace", "log"]
-# Enable / diable the CSS parser
 css_parser = ["azul-core/css_parser", "azul-css-parser"]
-# On some applications you might not want to load any images. For these purposes
-# the image crate can be disabled, to speed up compile times
-image_loading = ["azulc/image_loading"]
-# Enables loading of ICO files on the image decoder
-ico = ["azulc/ico"]
-# Enables loading of TGA files on the image decoder
-tga = ["azulc/tga"]
-# Enables loading of HDR files on the image decoder
-hdr = ["azulc/hdr"]
-# Enables parallel JPEG decoding on the image decoder
-jpeg_rayon = ["azulc/jpeg_rayon"]
-# Enables loading of DXT files on the image decoder
-dxt = ["azulc/dxt"]
-# Enables loading of WEBP files on the image decoder
-webp = ["azulc/webp"]
-# Enables loading of PNM files on the image decoder
-pnm = ["azulc/pnm"]
-# Activates the font-loading module, important to deactivate for example
 font_loading = ["azulc/font_loading"]
-# Text loading module, disable if you have a custom text layouting function
 text_layout = ["azulc/text_layout"]
-# Whether to include SVG processing (adds dependencies for lyon, usvg and xmlparser)
-svg = ["azulc/svg", "azulc/xml"]
+svg = ["azulc/svg", "xml"]
+xml = ["azulc/xml"]
+image_loading = ["azulc/image_loading", "std"]
+gif = ["image_loading", "azulc/gif"]
+jpeg = ["image_loading", "azulc/jpeg"]
+png = ["image_loading", "azulc/png"]
+tiff = ["image_loading", "azulc/tiff"]
+bmp = ["image_loading", "azulc/bmp"]
+ico = ["image_loading", "azulc/ico"]
+tga = ["image_loading", "azulc/tga"]
+hdr = ["image_loading", "azulc/hdr"]
+dxt = ["image_loading", "azulc/dxt"]
+webp = ["image_loading", "azulc/webp"]
+pnm = ["image_loading", "azulc/pnm"]

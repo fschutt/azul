@@ -986,12 +986,23 @@ impl DirectionalOverflowInfo {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Clone, PartialEq, PartialOrd)]
 pub enum PositionInfo {
     Static { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
     Fixed { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
     Absolute { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
     Relative { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+}
+
+impl ::core::fmt::Debug for PositionInfo {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        match self {
+            PositionInfo::Static { x_offset, y_offset, .. } => write!(f, "static({}, {})", x_offset, y_offset),
+            PositionInfo::Fixed { x_offset, y_offset, .. } => write!(f, "fixed({}, {})", x_offset, y_offset),
+            PositionInfo::Absolute { x_offset, y_offset, .. } => write!(f, "absolute({}, {})", x_offset, y_offset),
+            PositionInfo::Relative { x_offset, y_offset, .. } => write!(f, "relative({}, {})", x_offset, y_offset),
+        }
+    }
 }
 
 impl PositionInfo {

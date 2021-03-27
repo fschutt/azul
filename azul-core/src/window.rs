@@ -1793,11 +1793,17 @@ impl ::core::fmt::Display for UpdateFocusWarning {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct LogicalRect {
     pub origin: LogicalPosition,
     pub size: LogicalSize,
+}
+
+impl ::core::fmt::Debug for LogicalRect {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{:?} @ {:?}", self.size, self.origin)
+    }
 }
 
 impl LogicalRect {
@@ -1861,11 +1867,17 @@ impl LogicalRect {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LogicalPosition {
     pub x: f32,
     pub y: f32,
+}
+
+impl ::core::fmt::Debug for LogicalPosition {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
 }
 
 impl ops::Add for LogicalPosition {
@@ -1917,11 +1929,17 @@ impl Hash for LogicalPosition {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LogicalSize {
     pub width: f32,
     pub height: f32,
+}
+
+impl ::core::fmt::Debug for LogicalSize {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}x{}", self.width, self.height)
+    }
 }
 
 impl_option!(LogicalSize, OptionLogicalSize, [Debug, Copy, Clone, PartialEq, PartialOrd]);
@@ -1947,21 +1965,33 @@ impl Hash for LogicalSize {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct PhysicalPosition<T> {
     pub x: T,
     pub y: T,
 }
 
+impl<T: ::core::fmt::Display> ::core::fmt::Debug for PhysicalPosition<T> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}
+
 type PhysicalPositionI32 = PhysicalPosition<i32>;
 impl_option!(PhysicalPositionI32, OptionPhysicalPositionI32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
-#[derive(Debug, Ord, Hash, Eq, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Ord, Hash, Eq, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct PhysicalSize<T> {
     pub width: T,
     pub height: T,
+}
+
+impl<T: ::core::fmt::Display> ::core::fmt::Debug for PhysicalSize<T> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}x{}", self.width, self.height)
+    }
 }
 
 pub type PhysicalSizeU32 = PhysicalSize<u32>;

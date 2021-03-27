@@ -95,17 +95,25 @@ pub mod encode {
     use alloc::vec::Vec;
     use azul_core::app_resources::RawImageFormat;
 
-    use image_crate::codecs::{
-        bmp::BmpEncoder,
-        png::PngEncoder,
-        jpeg::JpegEncoder,
-        tga::TgaEncoder,
-        gif::GifEncoder,
-        dxt::DxtEncoder,
-        pnm::PnmEncoder,
-        tiff::TiffEncoder,
-        hdr::HdrEncoder,
-    };
+    #[cfg(feature = "bmp")]
+    use image_crate::codecs::bmp::BmpEncoder;
+    #[cfg(feature = "png")]
+    use image_crate::codecs::png::PngEncoder;
+    #[cfg(feature = "jpeg")]
+    use image_crate::codecs::jpeg::JpegEncoder;
+    #[cfg(feature = "gif")]
+    use image_crate::codecs::gif::GifEncoder;
+    #[cfg(feature = "tiff")]
+    use image_crate::codecs::tiff::TiffEncoder;
+    #[cfg(feature = "tga")]
+    use image_crate::codecs::tga::TgaEncoder;
+    #[cfg(feature = "dxt")]
+    use image_crate::codecs::dxt::DxtEncoder;
+    #[cfg(feature = "pnm")]
+    use image_crate::codecs::pnm::PnmEncoder;
+    #[cfg(feature = "hdr")]
+    use image_crate::codecs::hdr::HdrEncoder;
+
     use azul_css::U8Vec;
     use image_crate::error::ImageError;
     use image::error::LimitError;
@@ -150,7 +158,8 @@ pub mod encode {
 
     impl_result!(U8Vec, EncodeImageError, ResultU8VecEncodeImageError, copy = false, [Debug, Clone]);
 
-    macro_rules! encode_func {($func:ident, $encoder:ident, $get_fn:ident) => (
+    macro_rules! encode_func {($func:ident, $encoder:ident, $get_fn:ident, $feature:expr) => (
+        #[cfg(feature = $feature)]
         pub fn $func(image: &RawImage) -> ResultU8VecEncodeImageError {
             let mut result = Vec::<u8>::new();
 
@@ -176,11 +185,11 @@ pub mod encode {
         }
     )}
 
-    encode_func!(encode_bmp, BmpEncoder, get_u8_vec_ref);
-    encode_func!(encode_png, PngEncoder, get_u8_vec_ref);
-    encode_func!(encode_jpeg, JpegEncoder, get_u8_vec_ref);
-    encode_func!(encode_tga, TgaEncoder, get_u8_vec_ref);
-    encode_func!(encode_tiff, TiffEncoder, get_u8_vec_ref);
-    encode_func!(encode_gif, GifEncoder, get_u8_vec_ref);
-    encode_func!(encode_pnm, PnmEncoder, get_u8_vec_ref);
+    encode_func!(encode_bmp, BmpEncoder, get_u8_vec_ref, "bmp");
+    encode_func!(encode_png, PngEncoder, get_u8_vec_ref, "png");
+    encode_func!(encode_jpeg, JpegEncoder, get_u8_vec_ref, "jpeg");
+    encode_func!(encode_tga, TgaEncoder, get_u8_vec_ref, "tga");
+    encode_func!(encode_tiff, TiffEncoder, get_u8_vec_ref, "tiff");
+    encode_func!(encode_gif, GifEncoder, get_u8_vec_ref, "gif");
+    encode_func!(encode_pnm, PnmEncoder, get_u8_vec_ref, "pnm");
 }
