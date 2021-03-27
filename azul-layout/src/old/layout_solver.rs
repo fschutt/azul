@@ -2275,11 +2275,15 @@ fn get_nodes_that_need_scroll_clip(
             parent_id.az_children(node_hierarchy)
             .map(|child_id| layouted_rects[child_id].get_approximate_static_bounds())
         )?;
-        Some((parent_id, (parent_rect, children_sum_rect)))
+
+        // only register the directly overflowing children
+        if parent_rect.contains_rect(&children_sum_rect) {
+            None
+        } else {
+            Some((parent_id, (parent_rect, children_sum_rect)))
+        }
     })
     .collect::<BTreeMap<_, _>>();
-
-    println!("all_direct_overflows: {:#?}", all_direct_overflows);
 
     // TODO: optimize scroll rects based on overflow-x / -y setting
 

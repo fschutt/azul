@@ -33,6 +33,7 @@ enum Action {
     PrintCppCode, // unimplemented, does nothing
     PrintPythonCode, // unimplemented, does nothing
     PrintDebugLayout(LogicalSize),
+    PrintScrollClips(LogicalSize),
     PrintDisplayList(LogicalSize),
 }
 
@@ -41,8 +42,9 @@ fn print_help() {
     eprintln!("");
     eprintln!("[OPTIONS]:");
     eprintln!("    --language=[rust | c | python | cpp | html]: compile XML file to source code");
-    eprintln!("    --debug-layout WIDTHxHEIGHT: print a debug output of the layout");
-    eprintln!("    --display-list WIDTHxHEIGHT: print the display list given the window WIDTH and HEIGHT");
+    eprintln!("    --debug-layout WIDTHxHEIGHT: print a debug output of the layout solver");
+    eprintln!("    --display-list WIDTHxHEIGHT: print the display list given WIDTH and HEIGHT");
+    eprintln!("    --scroll-clips WIDTHxHEIGHT: print the overflowing scroll clips given WIDTH and HEIGHT");
     eprintln!("    --cascade: print the cascaded styled DOM");
     eprintln!("");
     eprintln!("If OPTIONS is empty, the file will be printed to Rust code");
@@ -83,6 +85,18 @@ fn main() {
                 }
             };
             Action::PrintDebugLayout(LogicalSize::new(size_parsed.0, size_parsed.1))
+        },
+        Some("--scroll-clips")          => {
+            let size = env::args().nth(2).expect("no output size specified for display list");
+            let size_parsed = match azulc_lib::parse_display_list_size(&size) {
+                Some(s) => s,
+                None => {
+                    eprintln!("error: scroll clip size \"{}\" could not be parsed", size);
+                    print_help();
+                    exit(-1);
+                }
+            };
+            Action::PrintScrollClips(LogicalSize::new(size_parsed.0, size_parsed.1))
         },
         Some("--display-list")          => {
             let size = env::args().nth(2).expect("no output size specified for display list");
@@ -191,6 +205,15 @@ fn process(action: Action, file: Option<&String>) {
             let layout = solve_layout(styled_dom, size, pipeline_id, epoch, &fake_window_state, &mut app_resources);
             let layout_debug = layout_result_print_layout(&layout);
             println!("{}", layout_debug);
+        },
+        Action::PrintScrollClips(size) => {
+            let pipeline_id = PipelineId::new();
+            let epoch = Epoch(0);
+            let mut fake_window_state = FullWindowState::default();
+            fake_window_state.size.dimensions = size;
+            let mut app_resources = AppResources::new();
+            let layout = solve_layout(styled_dom, size, pipeline_id, epoch, &fake_window_state, &mut app_resources);
+            println!("{:#?}", layout.scrollable_nodes);
         },
         Action::PrintDisplayList(size) => {
             let pipeline_id = PipelineId::new();

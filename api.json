@@ -4083,13 +4083,13 @@
                         }
                     },
                     "functions": {
-                        "append": {
+                        "append_child": {
                             "doc": "Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`",
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"dom": "StyledDom"}
                             ],
-                            "fn_body": "styleddom.append(dom);"
+                            "fn_body": "styleddom.append_child(dom);"
                         },
                         "restyle": {
                             "doc": "Restyles an already styled DOM with a new CSS - overwrites old styles, but does not replace them, useful for implementing user styles that are applied on top of the existing application style",

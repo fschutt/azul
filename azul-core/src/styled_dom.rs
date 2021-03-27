@@ -579,6 +579,8 @@ impl CssPropertyCache {
 
     pub fn append(&mut self, other: Self) {
 
+        self.node_count += other.node_count;
+
         macro_rules! append_css_property_vec {($field_name:ident) => {{
             for (node_id, property_map) in other.$field_name.into_iter() {
                 self.$field_name.insert(node_id + self.node_count, property_map);
@@ -968,11 +970,17 @@ impl AzNodeVec {
 
 
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct ParentWithNodeDepth {
     pub depth: usize,
     pub node_id: AzNodeId,
+}
+
+impl core::fmt::Debug for ParentWithNodeDepth {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{{ depth: {}, node: {:?} }}", self.depth, self.node_id.into_crate_internal())
+    }
 }
 
 impl_vec!(ParentWithNodeDepth, ParentWithNodeDepthVec, ParentWithNodeDepthVecDestructor);
@@ -1280,19 +1288,15 @@ impl StyledDom {
         }
     }
 
-    /// Appends another `StyledDom` to the `self.root` without re-styling the DOM itself
-    pub fn append(&mut self, mut other: Self) {
+    /// Appends another `StyledDom` as a child to the `self.root`
+    /// without re-styling the DOM itself
+    pub fn append_child(&mut self, mut other: Self) {
 
         // shift all the node ids in other by self.len()
         let self_len = self.node_hierarchy.as_ref().len();
         let self_tag_len = self.tag_ids_to_node_ids.as_ref().len();
 
-        let self_root_id = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
-        let last_child_id = self.node_hierarchy.as_container()[self_root_id].last_child_id().unwrap_or(NodeId::ZERO);
-        let other_root_id = other.root.into_crate_internal().unwrap_or(NodeId::ZERO);
-
-        self.node_hierarchy.as_container_mut()[self_root_id].last_child += other.root.inner;
-
+        // adjust node hierarchy
         for other in other.node_hierarchy.as_mut().iter_mut() {
             other.parent += self_len;
             other.previous_sibling += if other.previous_sibling == 0 { 0 } else { self_len };
@@ -1300,10 +1304,20 @@ impl StyledDom {
             other.last_child += if other.last_child == 0 { 0 } else { self_len };
         }
 
-        other.node_hierarchy.as_container_mut()[other_root_id].parent = NodeId::into_usize(&Some(self.root.into_crate_internal().unwrap_or(NodeId::ZERO)));
-        if self.node_hierarchy.as_container_mut()[last_child_id].next_sibling != 0 {
-            self.node_hierarchy.as_container_mut()[last_child_id].next_sibling = self_len + other.root.inner;
+        let self_root_id = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+        let other_root_id = other.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+
+        other.node_hierarchy.as_container_mut()[other_root_id].parent = NodeId::into_usize(&Some(self_root_id));
+        let current_last_child = self.node_hierarchy.as_container()[self_root_id].last_child_id();
+        other.node_hierarchy.as_container_mut()[other_root_id].previous_sibling = NodeId::into_usize(&current_last_child);
+        if let Some(current_last) = current_last_child {
+            if let Some(current_next_sibling_id) = self.node_hierarchy.as_container_mut()[current_last].next_sibling_id() {
+                self.node_hierarchy.as_container_mut()[current_last].next_sibling += other_root_id.index() + 1;
+            } else {
+                self.node_hierarchy.as_container_mut()[current_last].next_sibling = self_len + other_root_id.index() + 1;
+            }
         }
+        self.node_hierarchy.as_container_mut()[self_root_id].last_child = self_len + other_root_id.index() + 1;
 
         self.node_hierarchy.append(&mut other.node_hierarchy);
         self.node_data.append(&mut other.node_data);

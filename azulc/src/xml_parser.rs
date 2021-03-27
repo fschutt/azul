@@ -309,7 +309,7 @@ impl XmlComponent for DynamicXmlComponent {
         let mut dom = Dom::div().style(Css::empty());
 
         for child_node in self.root.children.as_ref() {
-            dom.append(render_dom_from_body_node_inner(child_node, components, arguments)?);
+            dom.append_child(render_dom_from_body_node_inner(child_node, components, arguments)?);
         }
 
         dom.restyle(component_style);
@@ -888,7 +888,7 @@ pub fn render_dom_from_body_node(
     let mut dom = Dom::body().style(Css::empty());
 
     for child_node in body_node.children.as_ref() {
-        dom.append(render_dom_from_body_node_inner(child_node, component_map, &FilteredComponentArguments::default())?);
+        dom.append_child(render_dom_from_body_node_inner(child_node, component_map, &FilteredComponentArguments::default())?);
     }
 
     dom.restyle(global_css); // apply the CSS again
@@ -929,7 +929,7 @@ pub fn render_dom_from_body_node_inner(
     set_attributes(&mut dom, &xml_node.attributes, &filtered_xml_attributes);
 
     for child_node in xml_node.children.as_ref() {
-        dom.append(render_dom_from_body_node_inner(child_node, component_map, &filtered_xml_attributes)?);
+        dom.append_child(render_dom_from_body_node_inner(child_node, component_map, &filtered_xml_attributes)?);
     }
 
     Ok(dom)
