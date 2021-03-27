@@ -1294,7 +1294,18 @@ impl StyledDom {
 
         // shift all the node ids in other by self.len()
         let self_len = self.node_hierarchy.as_ref().len();
+        let other_len = other.node_hierarchy.as_ref().len();
         let self_tag_len = self.tag_ids_to_node_ids.as_ref().len();
+        let self_root_id = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+        let other_root_id = other.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+
+        // iterate through the direct root children and adjust the cascade_info
+        let current_root_children_count = self_root_id.az_children(&self.node_hierarchy.as_container()).count();
+
+        other.cascade_info.as_mut()[other_root_id.index()].index_in_parent = current_root_children_count as u32;
+        other.cascade_info.as_mut()[other_root_id.index()].is_last_child = true;
+
+        self.cascade_info.append(&mut other.cascade_info);
 
         // adjust node hierarchy
         for other in other.node_hierarchy.as_mut().iter_mut() {
@@ -1304,14 +1315,11 @@ impl StyledDom {
             other.last_child += if other.last_child == 0 { 0 } else { self_len };
         }
 
-        let self_root_id = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
-        let other_root_id = other.root.into_crate_internal().unwrap_or(NodeId::ZERO);
-
         other.node_hierarchy.as_container_mut()[other_root_id].parent = NodeId::into_usize(&Some(self_root_id));
         let current_last_child = self.node_hierarchy.as_container()[self_root_id].last_child_id();
         other.node_hierarchy.as_container_mut()[other_root_id].previous_sibling = NodeId::into_usize(&current_last_child);
         if let Some(current_last) = current_last_child {
-            if let Some(current_next_sibling_id) = self.node_hierarchy.as_container_mut()[current_last].next_sibling_id() {
+            if self.node_hierarchy.as_container_mut()[current_last].next_sibling_id().is_some() {
                 self.node_hierarchy.as_container_mut()[current_last].next_sibling += other_root_id.index() + 1;
             } else {
                 self.node_hierarchy.as_container_mut()[current_last].next_sibling = self_len + other_root_id.index() + 1;
@@ -1331,13 +1339,17 @@ impl StyledDom {
 
         self.tag_ids_to_node_ids.append(&mut other.tag_ids_to_node_ids);
 
-        for other_non_leaf_node in other.non_leaf_nodes.iter_mut() {
-            other_non_leaf_node.node_id.inner += self_len;
-            other_non_leaf_node.depth += 1;
+        // edge case: if the other StyledDom consists of only one node
+        // then it is not a parent itself
+        if other_len != 1 {
+            for other_non_leaf_node in other.non_leaf_nodes.iter_mut() {
+                other_non_leaf_node.node_id.inner += self_len;
+                other_non_leaf_node.depth += 1;
+            }
+            self.non_leaf_nodes.append(&mut other.non_leaf_nodes);
+            self.non_leaf_nodes.sort_by(|a, b| a.depth.cmp(&b.depth));
         }
 
-        self.non_leaf_nodes.append(&mut other.non_leaf_nodes);
-        self.non_leaf_nodes.sort_by(|a, b| a.depth.cmp(&b.depth));
     }
 
     pub fn restyle(&mut self, css: Css) {

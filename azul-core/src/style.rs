@@ -20,6 +20,7 @@ pub struct CascadeInfo {
 }
 
 impl_vec!(CascadeInfo, CascadeInfoVec, CascadeInfoVecDestructor);
+impl_vec_mut!(CascadeInfo, CascadeInfoVec);
 impl_vec_debug!(CascadeInfo, CascadeInfoVec);
 impl_vec_partialord!(CascadeInfo, CascadeInfoVec);
 impl_vec_clone!(CascadeInfo, CascadeInfoVec, CascadeInfoVecDestructor);
@@ -185,7 +186,10 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     }
 }
 
-pub(crate) fn construct_html_cascade_tree(node_hierarchy: &NodeHierarchyRef, node_depths_sorted: &[(usize, NodeId)]) -> NodeDataContainer<CascadeInfo> {
+pub(crate) fn construct_html_cascade_tree(
+    node_hierarchy: &NodeHierarchyRef,
+    node_depths_sorted: &[(usize, NodeId)]
+) -> NodeDataContainer<CascadeInfo> {
 
     let mut nodes = (0..node_hierarchy.len()).map(|_| CascadeInfo {
         index_in_parent: 0,
@@ -199,7 +203,7 @@ pub(crate) fn construct_html_cascade_tree(node_hierarchy: &NodeHierarchyRef, nod
         let index_in_parent = parent_id.preceding_siblings(node_hierarchy).count();
 
         let parent_html_matcher = CascadeInfo {
-            index_in_parent: index_in_parent as u32, // necessary for nth-child
+            index_in_parent: (index_in_parent - 1) as u32,
             is_last_child: node_hierarchy[*parent_id].next_sibling.is_none(), // Necessary for :last selectors
         };
 
@@ -207,7 +211,7 @@ pub(crate) fn construct_html_cascade_tree(node_hierarchy: &NodeHierarchyRef, nod
 
         for (child_idx, child_id) in parent_id.children(node_hierarchy).enumerate() {
             let child_html_matcher = CascadeInfo {
-                index_in_parent: child_idx as u32 + 1, // necessary for nth-child
+                index_in_parent: child_idx as u32,
                 is_last_child: node_hierarchy[child_id].next_sibling.is_none(),
             };
 
@@ -275,7 +279,7 @@ pub(crate) fn selector_group_matches(
                 match p {
                     CssPathPseudoSelector::First => {
                         // Notice: index_in_parent is 1-indexed
-                        if html_node.index_in_parent != 1 { return false; }
+                        if html_node.index_in_parent != 0 { return false; }
                     },
                     CssPathPseudoSelector::Last => {
                         // Notice: index_in_parent is 1-indexed
@@ -283,13 +287,14 @@ pub(crate) fn selector_group_matches(
                     },
                     CssPathPseudoSelector::NthChild(x) => {
                         use azul_css::CssNthChildPattern;
+                        let index_in_parent = html_node.index_in_parent + 1; // nth-child starts at 1!
                         match *x {
-                            Number(value) => if html_node.index_in_parent != value { return false; },
-                            Even => if html_node.index_in_parent % 2 == 0 { return false; },
-                            Odd => if html_node.index_in_parent % 2 == 1 { return false; },
+                            Number(value) => if index_in_parent != value { return false; },
+                            Even => if index_in_parent % 2 == 0 { return false; },
+                            Odd => if index_in_parent % 2 == 1 { return false; },
                             Pattern(CssNthChildPattern { repeat, offset }) => {
-                                if html_node.index_in_parent >= offset &&
-                                   ((html_node.index_in_parent - offset) % repeat != 0) {
+                                if index_in_parent >= offset &&
+                                   ((index_in_parent - offset) % repeat != 0) {
                                     return false;
                                 }
                             },
