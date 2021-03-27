@@ -55,7 +55,8 @@ flate2 = "1.0.14"
 default = [
     "std", "logging", "css_parser",
     "image_loading", "ico", "tga", "hdr", "jpeg", "dxt", "webp", "pnm",
-    "font_loading", "text_layout", "svg", "xml"
+    "font_loading", "text_layout", "svg", "xml", "gif", "jpeg",
+    "png", "tiff", "bmp"
 ]
 std = ["azul-core/std", "azul-desktop/std", "azul-core/multithreading"]
 logging = ["azul-desktop/logging"]
