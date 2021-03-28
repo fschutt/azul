@@ -1314,6 +1314,7 @@ pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> Wr
 }
 
 pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: PipelineId) -> WrBuiltDisplayList {
+    println!("{:#?}", input);
     let root_space_and_clip = WrSpaceAndClipInfo::root_scroll(wr_translate_pipeline_id(pipeline_id));
     let mut positioned_items = Vec::new();
     let mut builder = WrDisplayListBuilder::new(wr_translate_pipeline_id(pipeline_id));
@@ -1333,7 +1334,6 @@ fn push_display_list_msg(
     use azul_core::display_list::DisplayListMsg::*;
     use azul_core::ui_solver::PositionInfo::*;
 
-    let should_push_reference_frame = !msg.has_no_children();
     let msg_position = msg.get_position();
 
     let relative_x;
@@ -1359,29 +1359,28 @@ fn push_display_list_msg(
         },
     };
 
-    let mut rect_spatial_id = parent_spatial_id;
+    // All rectangles are transformed in relation to the parent node,
+    // so we have to push the parent as a "reference frame", optionally
+    // adding an (animatable) transformation on top
+    let (transform_style, property_binding, reference_frame_kind) = match msg.get_transform_key() {
+        Some(s) => wr_translate_transform_key(s),
+        None => (
+            WrTransformStyle::Flat,
+            WrPropertyBinding::Value(WrLayoutTransform::identity()),
+            WrReferenceFrameKind::Transform {
+                is_2d_scale_translation: false,
+                should_snap: false,
+            }
+        )
+    };
 
-    if should_push_reference_frame {
-        let (transform_style, property_binding, reference_frame_kind) = match msg.get_transform_key() {
-            Some(s) => wr_translate_transform_key(s),
-            None => (
-                WrTransformStyle::Flat,
-                WrPropertyBinding::Value(WrLayoutTransform::identity()),
-                WrReferenceFrameKind::Transform {
-                    is_2d_scale_translation: true,
-                    should_snap: false,
-                }
-            )
-        };
-
-        rect_spatial_id = builder.push_reference_frame(
-            WrLayoutPoint::new(relative_x, relative_y),
-            parent_spatial_id,
-            transform_style,
-            property_binding,
-            reference_frame_kind,
-        );
-    }
+    let rect_spatial_id = builder.push_reference_frame(
+        WrLayoutPoint::new(relative_x, relative_y),
+        parent_spatial_id,
+        transform_style,
+        property_binding,
+        reference_frame_kind,
+    );
 
     if msg_position.is_positioned() {
         positioned_items.push((rect_spatial_id, parent_clip_id));
@@ -1396,9 +1395,7 @@ fn push_display_list_msg(
         positioned_items.pop();
     }
 
-    if should_push_reference_frame {
-        builder.pop_reference_frame();
-    }
+    builder.pop_reference_frame();
 }
 
 #[inline]
@@ -1426,12 +1423,11 @@ fn push_frame(
     }
 
     let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.size);
-
     // If the rect has an overflow:* property set
-    let current_rect_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
+    let rect_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
     // if let Some(image_mask) -> define_image_mask_clip()
     for child in frame.children {
-        push_display_list_msg(builder, child, rect_spatial_id, current_rect_clip_id, positioned_items);
+        push_display_list_msg(builder, child, rect_spatial_id, rect_clip_id, positioned_items);
     }
 }
 
@@ -1450,7 +1446,7 @@ fn get_frame_clip_rect(position_info: PositionInfo, rect_size: LogicalSize) -> L
 fn push_scroll_frame(
     builder: &mut WrDisplayListBuilder,
     scroll_frame: DisplayListScrollFrame,
-    parent_spatial_id: WrSpatialId,
+    rect_spatial_id: WrSpatialId,
     parent_clip_id: WrClipId,
     positioned_items: &mut Vec<(WrSpatialId, WrClipId)>
 ) {
@@ -1476,14 +1472,14 @@ fn push_scroll_frame(
             scroll_frame.frame.tag,
             scroll_frame.frame.flags,
             parent_clip_id,
-            parent_spatial_id,
+            rect_spatial_id,
         );
     }
 
     // Push hit-testing + scrolling children
 
     let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.size);
-    let hit_testing_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
+    let hit_testing_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
 
     /*
     let hit_test_info = WrCommonItemProperties {
@@ -1510,7 +1506,7 @@ fn push_scroll_frame(
     */
 
     for child in scroll_frame.frame.children {
-        push_display_list_msg(builder, child, parent_spatial_id, hit_testing_clip_id, positioned_items);
+        push_display_list_msg(builder, child, rect_spatial_id, hit_testing_clip_id, positioned_items);
     }
 }
 
@@ -1518,7 +1514,7 @@ fn define_border_radius_clip(
     builder: &mut WrDisplayListBuilder,
     layout_rect: LogicalRect,
     wr_border_radius: WrBorderRadius,
-    parent_spatial_id: WrSpatialId,
+    rect_spatial_id: WrSpatialId,
     parent_clip_id: WrClipId,
 ) -> WrClipId {
 
@@ -1531,7 +1527,7 @@ fn define_border_radius_clip(
     let wr_layout_size = wr_translate_logical_size(layout_rect.size);
     let wr_layout_rect = WrLayoutRect::new(WrLayoutPoint::zero(), wr_layout_size);
     builder.define_clip_rounded_rect( // TODO: optimize - if border radius = 0,
-        &WrSpaceAndClipInfo { spatial_id: parent_spatial_id, clip_id: parent_clip_id },
+        &WrSpaceAndClipInfo { spatial_id: rect_spatial_id, clip_id: parent_clip_id },
         WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip),
     )
 }
@@ -1546,14 +1542,14 @@ fn push_display_list_content(
     hit_info: Option<TagId>,
     flags: PrimitiveFlags,
     parent_clip_id: WrClipId,
-    parent_spatial_id: WrSpatialId,
+    rect_spatial_id: WrSpatialId,
 ) {
     use azul_core::display_list::LayoutRectContent::*;
 
     let mut normal_info = WrCommonItemProperties {
         clip_rect: wr_translate_logical_rect(clip_rect),
         clip_id: parent_clip_id,
-        spatial_id: parent_spatial_id,
+        spatial_id: rect_spatial_id,
         flags: wr_translate_primitive_flags(flags),
     };
 
@@ -1575,19 +1571,19 @@ fn push_display_list_content(
             let (border_radius_spatial_id, border_radius_clip_id) = if overflow.0 || overflow.1 {
                 (WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id))
             } else {
-                (parent_spatial_id, define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id))
+                (rect_spatial_id, define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id))
             };
             normal_info.spatial_id = border_radius_spatial_id;
             normal_info.clip_id = border_radius_clip_id;
             text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options);
         },
         Background { content, size, offset, repeat  } => {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
+            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
             normal_info.clip_id = border_radius_clip_id;
             background::push_background(builder, &normal_info, content, size, offset, repeat);
         },
         Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
+            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
             normal_info.clip_id = border_radius_clip_id;
             image::push_image(builder, &normal_info, size, offset, image_key, alpha_type, image_rendering, background_color);
         },
@@ -1600,7 +1596,7 @@ fn push_display_list_content(
     if let Some(box_shadow) = box_shadow.as_ref() {
         // push outset box shadow before the item clip is pushed
         if box_shadow.clip_mode == CssBoxShadowClipMode::Inset {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
+            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
             normal_info.clip_id = border_radius_clip_id;
             box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Inset, box_shadow, border_radius, normal_info.spatial_id, normal_info.clip_id);
         }

@@ -946,20 +946,25 @@ pub fn displaylist_handle_rect<'a>(
             ) {
 
                 let inline_text = get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout);
-                let layouted_glyphs = inline_text.get_layouted_glyphs(positioned_rect.get_logical_relative_offset());
-                let text_color = layout_result.styled_dom.get_css_property_cache().get_text_color_or_default(&html_node, &rect_idx, &styled_node.state);
-                let font_instance_key = word_positions.1;
+                let layouted_glyphs = inline_text.get_layouted_glyphs(LogicalPosition::zero());
+                if !layouted_glyphs.glyphs.is_empty() {
 
-                let overflow_horizontal_visible = layout_result.styled_dom.get_css_property_cache().is_horizontal_overflow_visible(&html_node, &rect_idx, &styled_node.state);
-                let overflow_vertical_visible = layout_result.styled_dom.get_css_property_cache().is_vertical_overflow_visible(&html_node, &rect_idx, &styled_node.state);
+                    let font_instance_key = word_positions.1;
+                    let text_color = layout_result.styled_dom.get_css_property_cache()
+                    .get_text_color_or_default(&html_node, &rect_idx, &styled_node.state);
+                    let overflow_horizontal_visible = layout_result.styled_dom.get_css_property_cache()
+                    .is_horizontal_overflow_visible(&html_node, &rect_idx, &styled_node.state);
+                    let overflow_vertical_visible = layout_result.styled_dom.get_css_property_cache()
+                    .is_vertical_overflow_visible(&html_node, &rect_idx, &styled_node.state);
 
-                frame.content.push(LayoutRectContent::Text {
-                   glyphs: layouted_glyphs.glyphs,
-                   font_instance_key,
-                   color: text_color.inner,
-                   glyph_options: None,
-                   overflow: (overflow_horizontal_visible, overflow_vertical_visible),
-                });
+                    frame.content.push(LayoutRectContent::Text {
+                       glyphs: layouted_glyphs.glyphs,
+                       font_instance_key,
+                       color: text_color.inner,
+                       glyph_options: None,
+                       overflow: (overflow_horizontal_visible, overflow_vertical_visible),
+                    });
+                }
             }
         },
         Image(image_id) => {
