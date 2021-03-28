@@ -89,58 +89,39 @@ impl InlineTextLayout {
         Self { lines: lines.into() }
     }
 
-    #[inline]
-    #[must_use = "get_bounds calls union(self.lines) and is expensive to call"]
-    pub fn get_bounds(&self) -> Option<LayoutRect> {
-        // because of sub-pixel text positioning, calculating the bound has to be done using floating point
-        LogicalRect::union(self.lines.as_ref().iter().map(|c| c.bounds)).map(|s| {
-            LayoutRect {
-                origin: LayoutPoint::new(libm::floorf(s.origin.x) as isize, libm::floorf(s.origin.y) as isize),
-                size: LayoutSize::new(libm::ceilf(s.size.width) as isize, libm::ceilf(s.size.height) as isize),
-            }
-        })
-    }
-
-    #[must_use = "function is expensive to call since it iterates + collects over self.lines"]
-    pub fn get_children_horizontal_diff_to_right_edge(&self, parent: &LayoutRect) -> Vec<f32> {
-        let parent_right_edge = (parent.origin.x + parent.size.width) as f32;
-        let parent_left_edge = parent.origin.x as f32;
-        self.lines.as_ref().iter().map(|line| {
-            let child_right_edge = line.bounds.origin.x + line.bounds.size.width;
-            let child_left_edge = line.bounds.origin.x;
-            ((child_left_edge - parent_left_edge) + (parent_right_edge - child_right_edge)) as f32
-        }).collect()
-    }
-
     /// Align the lines horizontal to *their bounding box*
-    pub fn align_children_horizontal(&mut self, horizontal_alignment: StyleTextAlignmentHorz) {
+    pub fn align_children_horizontal(
+        &mut self,
+        parent_size: &LogicalSize,
+        horizontal_alignment: StyleTextAlignmentHorz
+    ) {
         let shift_multiplier = match calculate_horizontal_shift_multiplier(horizontal_alignment) {
             None =>  return,
             Some(s) => s,
         };
-        let self_bounds = match self.get_bounds() { Some(s) => s, None => { return; }, };
-        let horz_diff = self.get_children_horizontal_diff_to_right_edge(&self_bounds);
 
-        for (line, shift) in self.lines.as_mut().iter_mut().zip(horz_diff.into_iter()) {
-            line.bounds.origin.x += shift * shift_multiplier;
+        for line in self.lines.as_mut().iter_mut() {
+            line.bounds.origin.x += shift_multiplier * (parent_size.width - line.bounds.size.width);
         }
     }
 
     /// Align the lines vertical to *their parents container*
-    pub fn align_children_vertical_in_parent_bounds(&mut self, parent_size: &LogicalSize, vertical_alignment: StyleTextAlignmentVert) {
+    pub fn align_children_vertical_in_parent_bounds(
+        &mut self,
+        parent_size: &LogicalSize,
+        vertical_alignment: StyleTextAlignmentVert
+    ) {
 
         let shift_multiplier = match calculate_vertical_shift_multiplier(vertical_alignment) {
             None =>  return,
             Some(s) => s,
         };
 
-        let self_bounds = match self.get_bounds() { Some(s) => s, None => { return; }, };
-        let child_bottom_edge = (self_bounds.origin.y + self_bounds.size.height) as f32;
-        let child_top_edge = self_bounds.origin.y as f32;
-        let shift = child_top_edge + (parent_size.height - child_bottom_edge);
+        let glyphs_vertical_bottom = self.lines.as_ref().last().map(|l| l.bounds.origin.y).unwrap_or(0.0);
+        let vertical_shift = (parent_size.height - glyphs_vertical_bottom) * shift_multiplier;
 
         for line in self.lines.as_mut().iter_mut() {
-            line.bounds.origin.y += shift * shift_multiplier;
+            line.bounds.origin.y += vertical_shift;
         }
     }
 }
@@ -838,33 +819,6 @@ impl PositionedRectangle {
     #[inline]
     fn get_content_size(&self) -> LayoutSize {
         LayoutSize::new(libm::roundf(self.size.width) as isize, libm::roundf(self.size.height) as isize)
-    }
-
-    /// Same as get_logical_relative_offset, but returns the relative offset, not the screen-space static one
-    #[inline]
-    pub(crate) fn get_logical_relative_offset(&self) -> LogicalPosition {
-        match self.position {
-            PositionInfo::Static { x_offset, y_offset, .. } |
-            PositionInfo::Fixed { x_offset, y_offset, .. } |
-            PositionInfo::Absolute { x_offset, y_offset, .. } |
-            PositionInfo::Relative { x_offset, y_offset, .. } => {
-                LogicalPosition::new(x_offset, y_offset)
-            },
-        }
-    }
-
-
-    /// Same as get_static_offset, but not rounded
-    #[inline]
-    pub(crate) fn get_logical_static_offset(&self) -> LogicalPosition {
-        match self.position {
-            PositionInfo::Static { static_x_offset, static_y_offset, .. } |
-            PositionInfo::Fixed { static_x_offset, static_y_offset, .. } |
-            PositionInfo::Absolute { static_x_offset, static_y_offset, .. } |
-            PositionInfo::Relative { static_x_offset, static_y_offset, .. } => {
-                LogicalPosition::new(static_x_offset, static_y_offset)
-            },
-        }
     }
 
     #[inline]

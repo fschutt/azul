@@ -1992,12 +1992,14 @@ fn position_nodes<'a>(
                         .get_text_layout(pipeline_id, child_node_id, &word_positions.text_layout_options);
 
                         let (horz_alignment, vert_alignment) = determine_text_alignment(
-                            css_property_cache.get_align_items(child_node_data, &child_node_id, child_styled_node_state),
-                            css_property_cache.get_justify_content(child_node_data, &child_node_id, child_styled_node_state),
+                            css_property_cache.get_align_items(child_node_data, &child_node_id, child_styled_node_state)
+                            .and_then(|p| p.get_property_or_default()).unwrap_or_default(),
+                            css_property_cache.get_justify_content(child_node_data, &child_node_id, child_styled_node_state)
+                            .and_then(|p| p.get_property_or_default()).unwrap_or_default(),
                             css_property_cache.get_text_align(child_node_data, &child_node_id, child_styled_node_state),
                         );
 
-                        inline_text_layout.align_children_horizontal(horz_alignment);
+                        inline_text_layout.align_children_horizontal(&child_size_logical, horz_alignment);
                         inline_text_layout.align_children_vertical_in_parent_bounds(&child_size_logical, vert_alignment);
 
                         Some((word_positions.text_layout_options.clone(), inline_text_layout))
@@ -2201,8 +2203,8 @@ fn create_word_positions<'a>(
 
 /// For a given rectangle, determines what text alignment should be used
 fn determine_text_alignment(
-    align_items: Option<CssPropertyValue<LayoutAlignItems>>,
-    justify_content: Option<CssPropertyValue<LayoutJustifyContent>>,
+    align_items: LayoutAlignItems,
+    justify_content: LayoutJustifyContent,
     text_align: Option<CssPropertyValue<StyleTextAlignmentHorz>>,
 )
     -> (StyleTextAlignmentHorz, StyleTextAlignmentVert)
@@ -2210,23 +2212,19 @@ fn determine_text_alignment(
     let mut horz_alignment = StyleTextAlignmentHorz::default();
     let mut vert_alignment = StyleTextAlignmentVert::default();
 
-    if let Some(align_items) = align_items.as_ref() {
-        // Vertical text alignment
-        match align_items.get_property_or_default().unwrap_or_default() {
-            LayoutAlignItems::FlexStart => vert_alignment = StyleTextAlignmentVert::Top,
-            LayoutAlignItems::FlexEnd => vert_alignment = StyleTextAlignmentVert::Bottom,
-            // technically stretch = blocktext, but we don't have that yet
-            _ => vert_alignment = StyleTextAlignmentVert::Center,
-        }
+    // Vertical text alignment
+    match align_items {
+        LayoutAlignItems::FlexStart => vert_alignment = StyleTextAlignmentVert::Top,
+        LayoutAlignItems::FlexEnd => vert_alignment = StyleTextAlignmentVert::Bottom,
+        // technically stretch = blocktext, but we don't have that yet
+        _ => vert_alignment = StyleTextAlignmentVert::Center,
     }
 
-    if let Some(justify_content) = justify_content.as_ref() {
-        // Horizontal text alignment
-        match justify_content.get_property_or_default().unwrap_or_default() {
-            LayoutJustifyContent::Start => horz_alignment = StyleTextAlignmentHorz::Left,
-            LayoutJustifyContent::End => horz_alignment = StyleTextAlignmentHorz::Right,
-            _ => horz_alignment = StyleTextAlignmentHorz::Center,
-        }
+    // Horizontal text alignment
+    match justify_content {
+        LayoutJustifyContent::Start => horz_alignment = StyleTextAlignmentHorz::Left,
+        LayoutJustifyContent::End => horz_alignment = StyleTextAlignmentHorz::Right,
+        _ => horz_alignment = StyleTextAlignmentHorz::Center,
     }
 
     if let Some(text_align) = text_align.as_ref().and_then(|ta| ta.get_property().copied()) {
