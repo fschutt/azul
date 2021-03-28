@@ -2426,10 +2426,10 @@ mod border {
         // in uneven border widths. In order to reduce this bug, we multiply the border width
         // with the HiDPI factor, then round the result (to get an even number), then divide again
         let border_widths = WrLayoutSideOffsets::new(
-            width_top.map(|v| (v.to_pixels(rect_size.height) * hidpi).round() / hidpi).unwrap_or(0.0),
-            width_right.map(|v| (v.to_pixels(rect_size.width) * hidpi).round() / hidpi).unwrap_or(0.0),
-            width_bottom.map(|v| (v.to_pixels(rect_size.height) * hidpi).round() / hidpi).unwrap_or(0.0),
-            width_left.map(|v| (v.to_pixels(rect_size.width) * hidpi).round() / hidpi).unwrap_or(0.0),
+            width_top.map(|v| (v.to_pixels(rect_size.height) * hidpi).floor() / hidpi).unwrap_or(0.0),
+            width_right.map(|v| (v.to_pixels(rect_size.width) * hidpi).floor() / hidpi).unwrap_or(0.0),
+            width_bottom.map(|v| (v.to_pixels(rect_size.height) * hidpi).floor() / hidpi).unwrap_or(0.0),
+            width_left.map(|v| (v.to_pixels(rect_size.width) * hidpi).floor() / hidpi).unwrap_or(0.0),
         );
 
         let border_details = WrBorderDetails::Normal(WrNormalBorder {
