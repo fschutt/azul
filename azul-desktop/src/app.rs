@@ -703,7 +703,9 @@ fn run_inner(app: App) -> ! {
                                     azul_layout::do_the_relayout,
                                 );
 
-                                if changes.need_regenerate_display_list() || events.contains_resize_event() {
+                                if changes.need_regenerate_display_list() ||
+                                   (events.contains_resize_event() && window.internal.resized_area_increased())
+                                {
                                     // this can be false in case that only opacity: / transform: properties changed!
                                     need_regenerate_display_list = true;
                                 }

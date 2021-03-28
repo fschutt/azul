@@ -952,6 +952,23 @@ impl WindowInternal {
         }).collect()
     }
 
+    // Compares the previous and current window size and returns
+    // true only if the rendering area increased, but not if it
+    // decreased. This is useful to prevent unnecessary redraws
+    // if the user resized the window - since the content of the
+    // window is cached by the operating system, making the window
+    // smaller should result in a no-op.
+    pub fn resized_area_increased(&self) -> bool {
+        let previous_state = match self.previous_window_state.as_ref() {
+            None => return true,
+            Some(s) => s.size.dimensions,
+        };
+        let current_state = &self.current_window_state.size.dimensions;
+
+        current_state.width > previous_state.width ||
+        current_state.height > previous_state.height
+    }
+
     pub fn get_layout_size(&self) -> LayoutSize {
         LayoutSize::new(
             libm::roundf(self.current_window_state.size.dimensions.width) as isize,
