@@ -826,7 +826,7 @@ pub fn displaylist_handle_rect<'a>(
 
     let mut frame = DisplayListFrame {
         tag: tag_id.map(|t| t.into_crate_internal()),
-        size,
+        size: positioned_rect.size_including_borders(),
         position,
         border_radius: StyleBorderRadius {
             top_left: layout_result.styled_dom.get_css_property_cache().get_border_top_left_radius(&html_node, &rect_idx, &styled_node.state),

@@ -823,6 +823,13 @@ impl Default for PositionedRectangle {
 impl PositionedRectangle {
 
     #[inline]
+    pub fn size_including_borders(&self) -> LogicalSize {
+        let size_x = self.size.width + self.border_widths.total_horizontal();
+        let size_y = self.size.height + self.border_widths.total_vertical();
+        LogicalSize::new(size_x, size_y)
+    }
+
+    #[inline]
     pub fn get_approximate_static_bounds(&self) -> LayoutRect {
         LayoutRect::new(self.get_static_offset(), self.get_content_size())
     }

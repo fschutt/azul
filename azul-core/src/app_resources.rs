@@ -2113,7 +2113,7 @@ pub fn build_add_font_resource_updates(
                 #[cfg(target_os = "linux")]
                 let platform_options = FontInstancePlatformOptions {
                     lcd_filter: FontLCDFilter::Default,
-                    hinting: FontHinting::LCD,
+                    hinting: FontHinting::Normal,
                 };
 
                 #[cfg(target_os = "macos")]
