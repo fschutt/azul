@@ -237,9 +237,7 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
             AlignItems                  => parse_layout_align_items(value)?.into(),
             AlignContent                => parse_layout_align_content(value)?.into(),
 
-            Background                  => parse_style_background_content_multiple(value)?.into(),
-            BackgroundImage             => StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Image(parse_image(value)?)]).into(),
-            BackgroundColor             => StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(parse_css_color(value)?)]).into(),
+            BackgroundContent           => parse_style_background_content_multiple(value)?.into(),
             BackgroundPosition          => parse_style_background_position_multiple(value)?.into(),
             BackgroundSize              => parse_style_background_size_multiple(value)?.into(),
             BackgroundRepeat            => parse_style_background_repeat_multiple(value)?.into(),

@@ -214,8 +214,7 @@ impl CssPropertyCache {
                     &node_data,
                     &html_tree,
                     $expected_pseudo_selector
-                    )
-                )
+                ))
                 // rule matched, now copy all the styles of this rule
                 .flat_map(|matched_rule| {
                     matched_rule.declarations
@@ -358,7 +357,7 @@ impl CssPropertyCache {
 
     pub fn get_computed_css_style_string(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> String {
         let mut s = String::new();
-        if let Some(p) = self.get_background(&node_data, node_id, node_state) { s.push_str(&format!("background: {};", p.get_css_value_fmt())); }
+        if let Some(p) = self.get_background_content(&node_data, node_id, node_state) { s.push_str(&format!("background: {};", p.get_css_value_fmt())); }
         if let Some(p) = self.get_background_position(&node_data, node_id, node_state) { s.push_str(&format!("background-position: {};", p.get_css_value_fmt())); }
         if let Some(p) = self.get_background_size(&node_data, node_id, node_state) { s.push_str(&format!("background-size: {};", p.get_css_value_fmt())); }
         if let Some(p) = self.get_background_repeat(&node_data, node_id, node_state) { s.push_str(&format!("background-repeat: {};", p.get_css_value_fmt())); }
@@ -641,8 +640,8 @@ impl CssPropertyCache {
         self.get_box_shadow_bottom(node_data, node_id, node_state).is_some()
     }
 
-    pub fn get_background(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundContentVecValue> {
-        get_property!(self, node_data, node_id, node_state, CssPropertyType::Background, as_background)
+    pub fn get_background_content(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundContentVecValue> {
+        get_property!(self, node_data, node_id, node_state, CssPropertyType::BackgroundContent, as_background_content)
     }
     pub fn get_background_position(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleBackgroundPositionVecValue> {
         get_property!(self, node_data, node_id, node_state, CssPropertyType::BackgroundPosition, as_background_position)
@@ -1450,8 +1449,11 @@ impl StyledDom {
             }
 
             // If the node has a CSS background image, it needs to be uploaded
-            if let Some(style_backgrounds) = self.get_css_property_cache().get_background(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state) {
-                v.background_image = style_backgrounds.get_property().unwrap_or(&default_backgrounds).iter().filter_map(|bg| {
+            if let Some(style_backgrounds) = self.get_css_property_cache()
+            .get_background_content(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state) {
+                v.background_image = style_backgrounds.get_property().unwrap_or(&default_backgrounds)
+                .iter()
+                .filter_map(|bg| {
                     let css_image_id = bg.get_css_image_id()?;
                     let image_id = app_resources.get_css_image_id(css_image_id.inner.as_str())?;
                     Some(*image_id)

@@ -25,7 +25,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
 ];
 
 /// Map between CSS keys and a statically typed enum
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);72] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);70] = [
 
     (CssPropertyType::Display,              "display"),
     (CssPropertyType::Float,                "float"),
@@ -76,9 +76,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);72] = [
     (CssPropertyType::MarginRight,          "margin-right"),
     (CssPropertyType::MarginBottom,         "margin-bottom"),
 
-    (CssPropertyType::Background,           "background"),
-    (CssPropertyType::BackgroundImage,      "background-image"),
-    (CssPropertyType::BackgroundColor,      "background-color"),
+    (CssPropertyType::BackgroundContent,    "background"),
     (CssPropertyType::BackgroundPosition,   "background-position"),
     (CssPropertyType::BackgroundSize,       "background-size"),
     (CssPropertyType::BackgroundRepeat,     "background-repeat"),
@@ -103,12 +101,12 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);72] = [
     (CssPropertyType::BorderLeftWidth,          "border-left-width"),
     (CssPropertyType::BorderBottomWidth,        "border-bottom-width"),
 
-    (CssPropertyType::BoxShadowTop, "box-shadow-top"),
-    (CssPropertyType::BoxShadowRight, "box-shadow-right"),
-    (CssPropertyType::BoxShadowLeft, "box-shadow-left"),
-    (CssPropertyType::BoxShadowBottom, "box-shadow-bottom"),
+    (CssPropertyType::BoxShadowTop, "-azul-box-shadow-top"),
+    (CssPropertyType::BoxShadowRight, "-azul-box-shadow-right"),
+    (CssPropertyType::BoxShadowLeft, "-azul-box-shadow-left"),
+    (CssPropertyType::BoxShadowBottom, "-azul-box-shadow-bottom"),
 
-    (CssPropertyType::ScrollbarStyle, "scrollbar-style"), // TODO: non-standard
+    (CssPropertyType::ScrollbarStyle, "-azul-scrollbar-style"),
 
     (CssPropertyType::Opacity, "opacity"),
     (CssPropertyType::Transform, "transform"),
@@ -689,18 +687,15 @@ pub fn get_css_key_map() -> CssKeyMap {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum CssPropertyType {
-
     TextColor,
     FontSize,
     FontFamily,
     TextAlign,
-
     LetterSpacing,
     LineHeight,
     WordSpacing,
     TabWidth,
     Cursor,
-
     Display,
     Float,
     BoxSizing,
@@ -710,13 +705,11 @@ pub enum CssPropertyType {
     MinHeight,
     MaxWidth,
     MaxHeight,
-
     Position,
     Top,
     Right,
     Left,
     Bottom,
-
     FlexWrap,
     FlexDirection,
     FlexGrow,
@@ -724,61 +717,46 @@ pub enum CssPropertyType {
     JustifyContent,
     AlignItems,
     AlignContent,
-
+    BackgroundContent,
+    BackgroundPosition,
+    BackgroundSize,
+    BackgroundRepeat,
     OverflowX,
     OverflowY,
-
     PaddingTop,
     PaddingLeft,
     PaddingRight,
     PaddingBottom,
-
     MarginTop,
     MarginLeft,
     MarginRight,
     MarginBottom,
-
-    Background,
-    BackgroundImage, // -> BackgroundContent::Image
-    BackgroundColor, // -> BackgroundContent::Color
-    BackgroundPosition,
-    BackgroundSize,
-    BackgroundRepeat,
-
     BorderTopLeftRadius,
     BorderTopRightRadius,
     BorderBottomLeftRadius,
     BorderBottomRightRadius,
-
     BorderTopColor,
     BorderRightColor,
     BorderLeftColor,
     BorderBottomColor,
-
     BorderTopStyle,
     BorderRightStyle,
     BorderLeftStyle,
     BorderBottomStyle,
-
     BorderTopWidth,
     BorderRightWidth,
     BorderLeftWidth,
     BorderBottomWidth,
-
     BoxShadowLeft,
     BoxShadowRight,
     BoxShadowTop,
     BoxShadowBottom,
-
     ScrollbarStyle,
-
-    // GPU properties:
     Opacity,
     Transform,
-    PerspectiveOrigin,
     TransformOrigin,
+    PerspectiveOrigin,
     BackfaceVisibility,
-    // Color? - update webrender to use GPU colors
 }
 
 impl CssPropertyType {
@@ -832,9 +810,7 @@ impl CssPropertyType {
             CssPropertyType::JustifyContent => "justify-content",
             CssPropertyType::AlignItems => "align-items",
             CssPropertyType::AlignContent => "align-content",
-            CssPropertyType::Background => "background",
-            CssPropertyType::BackgroundColor => "background",
-            CssPropertyType::BackgroundImage => "background",
+            CssPropertyType::BackgroundContent => "background",
             CssPropertyType::BackgroundPosition => "background-position",
             CssPropertyType::BackgroundSize => "background-size",
             CssPropertyType::BackgroundRepeat => "background-repeat",
@@ -904,11 +880,10 @@ impl CssPropertyType {
         match self {
             | TextColor
             | Cursor
-            | Background
+            | BackgroundContent
             | BackgroundPosition
             | BackgroundSize
             | BackgroundRepeat
-            | BackgroundImage
             | BorderTopLeftRadius
             | BorderTopRightRadius
             | BorderBottomLeftRadius
@@ -951,35 +926,29 @@ impl fmt::Display for CssPropertyType {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum CssProperty {
-
     TextColor(CssPropertyValue<StyleTextColor>),
     FontSize(CssPropertyValue<StyleFontSize>),
     FontFamily(CssPropertyValue<StyleFontFamily>),
     TextAlign(CssPropertyValue<StyleTextAlignmentHorz>),
-
     LetterSpacing(CssPropertyValue<StyleLetterSpacing>),
     LineHeight(CssPropertyValue<StyleLineHeight>),
     WordSpacing(CssPropertyValue<StyleWordSpacing>),
     TabWidth(CssPropertyValue<StyleTabWidth>),
     Cursor(CssPropertyValue<StyleCursor>),
-
     Display(CssPropertyValue<LayoutDisplay>),
     Float(CssPropertyValue<LayoutFloat>),
     BoxSizing(CssPropertyValue<LayoutBoxSizing>),
-
     Width(CssPropertyValue<LayoutWidth>),
     Height(CssPropertyValue<LayoutHeight>),
     MinWidth(CssPropertyValue<LayoutMinWidth>),
     MinHeight(CssPropertyValue<LayoutMinHeight>),
     MaxWidth(CssPropertyValue<LayoutMaxWidth>),
     MaxHeight(CssPropertyValue<LayoutMaxHeight>),
-
     Position(CssPropertyValue<LayoutPosition>),
     Top(CssPropertyValue<LayoutTop>),
     Right(CssPropertyValue<LayoutRight>),
     Left(CssPropertyValue<LayoutLeft>),
     Bottom(CssPropertyValue<LayoutBottom>),
-
     FlexWrap(CssPropertyValue<LayoutFlexWrap>),
     FlexDirection(CssPropertyValue<LayoutFlexDirection>),
     FlexGrow(CssPropertyValue<LayoutFlexGrow>),
@@ -987,52 +956,41 @@ pub enum CssProperty {
     JustifyContent(CssPropertyValue<LayoutJustifyContent>),
     AlignItems(CssPropertyValue<LayoutAlignItems>),
     AlignContent(CssPropertyValue<LayoutAlignContent>),
-
     BackgroundContent(CssPropertyValue<StyleBackgroundContentVec>),
     BackgroundPosition(CssPropertyValue<StyleBackgroundPositionVec>),
     BackgroundSize(CssPropertyValue<StyleBackgroundSizeVec>),
     BackgroundRepeat(CssPropertyValue<StyleBackgroundRepeatVec>),
-
     OverflowX(CssPropertyValue<LayoutOverflow>),
     OverflowY(CssPropertyValue<LayoutOverflow>),
-
     PaddingTop(CssPropertyValue<LayoutPaddingTop>),
     PaddingLeft(CssPropertyValue<LayoutPaddingLeft>),
     PaddingRight(CssPropertyValue<LayoutPaddingRight>),
     PaddingBottom(CssPropertyValue<LayoutPaddingBottom>),
-
     MarginTop(CssPropertyValue<LayoutMarginTop>),
     MarginLeft(CssPropertyValue<LayoutMarginLeft>),
     MarginRight(CssPropertyValue<LayoutMarginRight>),
     MarginBottom(CssPropertyValue<LayoutMarginBottom>),
-
     BorderTopLeftRadius(CssPropertyValue<StyleBorderTopLeftRadius>),
     BorderTopRightRadius(CssPropertyValue<StyleBorderTopRightRadius>),
     BorderBottomLeftRadius(CssPropertyValue<StyleBorderBottomLeftRadius>),
     BorderBottomRightRadius(CssPropertyValue<StyleBorderBottomRightRadius>),
-
     BorderTopColor(CssPropertyValue<StyleBorderTopColor>),
     BorderRightColor(CssPropertyValue<StyleBorderRightColor>),
     BorderLeftColor(CssPropertyValue<StyleBorderLeftColor>),
     BorderBottomColor(CssPropertyValue<StyleBorderBottomColor>),
-
     BorderTopStyle(CssPropertyValue<StyleBorderTopStyle>),
     BorderRightStyle(CssPropertyValue<StyleBorderRightStyle>),
     BorderLeftStyle(CssPropertyValue<StyleBorderLeftStyle>),
     BorderBottomStyle(CssPropertyValue<StyleBorderBottomStyle>),
-
     BorderTopWidth(CssPropertyValue<LayoutBorderTopWidth>),
     BorderRightWidth(CssPropertyValue<LayoutBorderRightWidth>),
     BorderLeftWidth(CssPropertyValue<LayoutBorderLeftWidth>),
     BorderBottomWidth(CssPropertyValue<LayoutBorderBottomWidth>),
-
     BoxShadowLeft(CssPropertyValue<StyleBoxShadow>),
     BoxShadowRight(CssPropertyValue<StyleBoxShadow>),
     BoxShadowTop(CssPropertyValue<StyleBoxShadow>),
     BoxShadowBottom(CssPropertyValue<StyleBoxShadow>),
-
     ScrollbarStyle(CssPropertyValue<ScrollbarStyle>),
-
     Opacity(CssPropertyValue<StyleOpacity>),
     Transform(CssPropertyValue<StyleTransformVec>),
     TransformOrigin(CssPropertyValue<StyleTransformOrigin>),
@@ -1176,9 +1134,7 @@ macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => (
         CssPropertyType::MarginLeft => CssProperty::MarginLeft(CssPropertyValue::$content_type),
         CssPropertyType::MarginRight => CssProperty::MarginRight(CssPropertyValue::$content_type),
         CssPropertyType::MarginBottom => CssProperty::MarginBottom(CssPropertyValue::$content_type),
-        CssPropertyType::Background => CssProperty::BackgroundContent(CssPropertyValue::$content_type),
-        CssPropertyType::BackgroundImage => CssProperty::BackgroundContent(CssPropertyValue::$content_type), // -> BackgroundContent::Image
-        CssPropertyType::BackgroundColor => CssProperty::BackgroundContent(CssPropertyValue::$content_type), // -> BackgroundContent::Color
+        CssPropertyType::BackgroundContent => CssProperty::BackgroundContent(CssPropertyValue::$content_type),
         CssPropertyType::BackgroundPosition => CssProperty::BackgroundPosition(CssPropertyValue::$content_type),
         CssPropertyType::BackgroundSize => CssProperty::BackgroundSize(CssPropertyValue::$content_type),
         CssPropertyType::BackgroundRepeat => CssProperty::BackgroundRepeat(CssPropertyValue::$content_type),
@@ -1246,7 +1202,7 @@ impl CssProperty {
             CssProperty::JustifyContent(_) => CssPropertyType::JustifyContent,
             CssProperty::AlignItems(_) => CssPropertyType::AlignItems,
             CssProperty::AlignContent(_) => CssPropertyType::AlignContent,
-            CssProperty::BackgroundContent(_) => CssPropertyType::BackgroundImage, // TODO: wrong!
+            CssProperty::BackgroundContent(_) => CssPropertyType::BackgroundContent,
             CssProperty::BackgroundPosition(_) => CssPropertyType::BackgroundPosition,
             CssProperty::BackgroundSize(_) => CssPropertyType::BackgroundSize,
             CssProperty::BackgroundRepeat(_) => CssPropertyType::BackgroundRepeat,
@@ -1368,7 +1324,7 @@ impl CssProperty {
 
     // functions that downcast to the concrete CSS type (style)
 
-    pub const fn as_background(&self) -> Option<&StyleBackgroundContentVecValue> { match self { CssProperty::BackgroundContent(f) => Some(f), _ => None, } }
+    pub const fn as_background_content(&self) -> Option<&StyleBackgroundContentVecValue> { match self { CssProperty::BackgroundContent(f) => Some(f), _ => None, } }
     pub const fn as_background_position(&self) -> Option<&StyleBackgroundPositionVecValue> { match self { CssProperty::BackgroundPosition(f) => Some(f), _ => None, } }
     pub const fn as_background_size(&self) -> Option<&StyleBackgroundSizeVecValue> { match self { CssProperty::BackgroundSize(f) => Some(f), _ => None, } }
     pub const fn as_background_repeat(&self) -> Option<&StyleBackgroundRepeatVecValue> { match self { CssProperty::BackgroundRepeat(f) => Some(f), _ => None, } }

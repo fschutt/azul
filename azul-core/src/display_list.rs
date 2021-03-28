@@ -878,7 +878,9 @@ pub fn displaylist_handle_rect<'a>(
     frame.box_shadow = box_shadow;
 
     // push background
-    let bg_opt = layout_result.styled_dom.get_css_property_cache().get_background(&html_node, &rect_idx, &styled_node.state);
+    let bg_opt = layout_result.styled_dom.get_css_property_cache()
+    .get_background_content(&html_node, &rect_idx, &styled_node.state);
+
     if let Some(bg) = bg_opt.as_ref().and_then(|br| br.get_property()) {
 
         use azul_css::{StyleBackgroundSizeVec, StyleBackgroundPositionVec, StyleBackgroundRepeatVec};
