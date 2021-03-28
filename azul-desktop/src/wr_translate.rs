@@ -1314,12 +1314,10 @@ pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> Wr
 }
 
 pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: PipelineId) -> WrBuiltDisplayList {
-    println!("{:#?}", input);
     let root_space_and_clip = WrSpaceAndClipInfo::root_scroll(wr_translate_pipeline_id(pipeline_id));
     let mut positioned_items = Vec::new();
     let mut builder = WrDisplayListBuilder::new(wr_translate_pipeline_id(pipeline_id));
     push_display_list_msg(&mut builder, input.root, root_space_and_clip.spatial_id, root_space_and_clip.clip_id, &mut positioned_items);
-    builder.dump_serialized_display_list();
     let (_pipeline_id, built_display_list) = builder.finalize();
     built_display_list
 }
@@ -1407,7 +1405,7 @@ fn push_frame(
     parent_clip_id: WrClipId,
     positioned_items: &mut Vec<(WrSpatialId, WrClipId)>
 ) {
-    let clip_rect = get_frame_clip_rect(frame.position, frame.size);
+    let clip_rect = LogicalRect::new(LogicalPosition::zero(), frame.size); // get_frame_clip_rect(frame.position, frame.size);
 
     for item in frame.content {
         push_display_list_content(
@@ -1432,17 +1430,6 @@ fn push_frame(
     }
 }
 
-fn get_frame_clip_rect(position_info: PositionInfo, rect_size: LogicalSize) -> LogicalRect {
-    match position_info {
-        PositionInfo::Static { x_offset, y_offset, .. } |
-        PositionInfo::Relative { x_offset, y_offset, .. } |
-        PositionInfo::Absolute { x_offset, y_offset, .. } |
-        PositionInfo::Fixed { x_offset, y_offset, .. } => {
-            LogicalRect::new(LogicalPosition::new(x_offset, y_offset), rect_size)
-        }
-    }
-}
-
 #[inline]
 fn push_scroll_frame(
     builder: &mut WrDisplayListBuilder,
@@ -1458,7 +1445,7 @@ fn push_scroll_frame(
         ComplexClipRegion as WrComplexClipRegion,
     };
 
-    let clip_rect = get_frame_clip_rect(scroll_frame.frame.position, scroll_frame.frame.size);
+    let clip_rect = LogicalRect::new(LogicalPosition::zero(), scroll_frame.frame.size);
 
     // if let Some(image_mask) = scroll_frame.frame.image_mask { push_image_mask_clip() }
 

@@ -38,15 +38,7 @@ const DOM: Dom = Dom {
 const CSS: &str = "body { font-size: 50px; } body:hover { color: red; }";
 
 extern "C" fn layout(data: &mut RefAny, _info: LayoutInfo) -> StyledDom {
-
-    let styled_dom = StyledDom::from_file("./ui.xml".into());
-    /*DOM.style(Css::from_string(CSS.into()));*/
-
-    if let OptionFile::Some(mut file) = File::create("./debug.html".into()) {
-        file.write_string(styled_dom.get_html_string().as_refstr());
-    }
-
-    styled_dom
+    StyledDom::from_file("./ui.xml".into())
 }
 
 fn main() {
