@@ -2410,11 +2410,13 @@ mod border {
            colors.left.and_then(|cl| cl.get_property_or_default()).unwrap_or_default(),
         );
 
+        // NOTE: border widths are floored in order to work
+        // properly with fractional HiDPI scaling
         let border_widths = WrLayoutSideOffsets::new(
-            width_top.map(|v| v.to_pixels(rect_size.height)).unwrap_or(0.0),
-            width_right.map(|v| v.to_pixels(rect_size.width)).unwrap_or(0.0),
-            width_bottom.map(|v| v.to_pixels(rect_size.height)).unwrap_or(0.0),
-            width_left.map(|v| v.to_pixels(rect_size.width)).unwrap_or(0.0),
+            width_top.map(|v| v.to_pixels(rect_size.height)).unwrap_or(0.0).floor(),
+            width_right.map(|v| v.to_pixels(rect_size.width)).unwrap_or(0.0).floor(),
+            width_bottom.map(|v| v.to_pixels(rect_size.height)).unwrap_or(0.0).floor(),
+            width_left.map(|v| v.to_pixels(rect_size.width)).unwrap_or(0.0).floor(),
         );
 
         let border_details = WrBorderDetails::Normal(WrNormalBorder {
