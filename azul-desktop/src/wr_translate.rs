@@ -1319,6 +1319,7 @@ pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: P
     let mut positioned_items = Vec::new();
     let mut builder = WrDisplayListBuilder::new(wr_translate_pipeline_id(pipeline_id));
     push_display_list_msg(&mut builder, input.root, root_space_and_clip.spatial_id, root_space_and_clip.clip_id, &mut positioned_items);
+    builder.dump_serialized_display_list();
     let (_pipeline_id, built_display_list) = builder.finalize();
     built_display_list
 }
@@ -1564,16 +1565,16 @@ fn push_display_list_content(
         }
     }
 
-    // Border and BoxShadow::Ouset get a root clip, since they are outside of the rect contents
+    // Border and BoxShadow::Outset get a root clip, since they
+    // are outside of the rect contents
     // All other content types get the regular clip
     match content {
         Text { glyphs, font_instance_key, color, glyph_options, overflow } => {
-            let (border_radius_spatial_id, border_radius_clip_id) = if overflow.0 || overflow.1 {
-                (WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id))
+            let border_radius_clip_id = if overflow.0 || overflow.1 {
+                WrClipId::root(builder.pipeline_id)
             } else {
-                (rect_spatial_id, define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id))
+                define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id)
             };
-            normal_info.spatial_id = border_radius_spatial_id;
             normal_info.clip_id = border_radius_clip_id;
             text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options);
         },

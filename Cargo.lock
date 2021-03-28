@@ -1649,7 +1649,7 @@ dependencies = [
 [[package]]
 name = "peek-poke"
 version = "0.2.0"
-source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
+source = "git+https://github.com/servo/webrender?rev=a21e882682b20ef1ed048b502043cd4bb484b07d#a21e882682b20ef1ed048b502043cd4bb484b07d"
 dependencies = [
  "euclid 0.22.2",
  "peek-poke-derive",
@@ -1658,7 +1658,7 @@ dependencies = [
 [[package]]
 name = "peek-poke-derive"
 version = "0.2.1"
-source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
+source = "git+https://github.com/servo/webrender?rev=a21e882682b20ef1ed048b502043cd4bb484b07d#a21e882682b20ef1ed048b502043cd4bb484b07d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2353,7 +2353,7 @@ dependencies = [
 [[package]]
 name = "webrender"
 version = "0.61.0"
-source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
+source = "git+https://github.com/servo/webrender?rev=a21e882682b20ef1ed048b502043cd4bb484b07d#a21e882682b20ef1ed048b502043cd4bb484b07d"
 dependencies = [
  "bincode",
  "bitflags",
@@ -2393,7 +2393,7 @@ dependencies = [
 [[package]]
 name = "webrender_api"
 version = "0.61.0"
-source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
+source = "git+https://github.com/servo/webrender?rev=a21e882682b20ef1ed048b502043cd4bb484b07d#a21e882682b20ef1ed048b502043cd4bb484b07d"
 dependencies = [
  "app_units",
  "bitflags",
@@ -2415,7 +2415,7 @@ dependencies = [
 [[package]]
 name = "webrender_build"
 version = "0.0.1"
-source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
+source = "git+https://github.com/servo/webrender?rev=a21e882682b20ef1ed048b502043cd4bb484b07d#a21e882682b20ef1ed048b502043cd4bb484b07d"
 dependencies = [
  "bitflags",
  "lazy_static",
@@ -2513,7 +2513,7 @@ dependencies = [
 [[package]]
 name = "wr_malloc_size_of"
 version = "0.0.1"
-source = "git+https://github.com/servo/webrender?rev=3ac3984dddff5224740abdf738141c34b6211ac5#3ac3984dddff5224740abdf738141c34b6211ac5"
+source = "git+https://github.com/servo/webrender?rev=a21e882682b20ef1ed048b502043cd4bb484b07d#a21e882682b20ef1ed048b502043cd4bb484b07d"
 dependencies = [
  "app_units",
  "euclid 0.22.2",

@@ -207,7 +207,7 @@ impl TableViewState {
             Normal(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(COLOR_E6E6E6_BACKGROUND))),
             Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
             Normal(CssProperty::box_shadow_right(SHADOW)),
-            Normal(CssProperty::transform(StyleTransformVec::from_const_slice(TEST_TRANSFORM))),
+            // Normal(CssProperty::transform(StyleTransformVec::from_const_slice(TEST_TRANSFORM))),
         ];
         static ROW_NUMBERS_CONTAINER_CLASS: &[IdOrClass] = &[
             IdOrClass::Class(AzString::from_const_str("az-table-row-numbers-container"))
@@ -256,6 +256,8 @@ impl TableViewState {
         .with_ids_and_classes(IdOrClassVec::from_const_slice(ROW_NUMBERS_WRAPPER_CLASS))
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROW_NUMBER_WRAPPER_STYLE))
         .with_children(AzDomVec::from(vec![top_left_empty_rect, row_numbers]));
+
+        return row_number_wrapper; // DEBUG
 
         static ACTIVE_SELECTION_HANDLE_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::position(LayoutPosition::Absolute)),
