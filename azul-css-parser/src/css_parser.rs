@@ -2262,6 +2262,9 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
             linear_gradient_stops.push(parse_linear_color_stop(first_brace_item)?);
         }
         linear_gradient.extend_mode = background_type.get_extend_mode();
+        while let Some(next_brace_item) = brace_iterator.next() {
+            linear_gradient_stops.push(parse_linear_color_stop(next_brace_item)?);
+        }
         linear_gradient.stops = linear_gradient_stops.into();
         Ok(StyleBackgroundContent::LinearGradient(linear_gradient))
     } else if is_radial_gradient {
@@ -2273,6 +2276,9 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
             radial_gradient_stops.push(parse_linear_color_stop(first_brace_item)?);
         }
         radial_gradient.extend_mode = background_type.get_extend_mode();
+        while let Some(next_brace_item) = brace_iterator.next() {
+            radial_gradient_stops.push(parse_linear_color_stop(next_brace_item)?);
+        }
         radial_gradient.stops = radial_gradient_stops.into();
         Ok(StyleBackgroundContent::RadialGradient(radial_gradient))
     } else /* if is_conic_gradient */ {
@@ -2285,6 +2291,9 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
             conic_gradient_stops.push(parse_radial_color_stop(first_brace_item)?);
         }
         conic_gradient.extend_mode = background_type.get_extend_mode();
+        while let Some(next_brace_item) = brace_iterator.next() {
+            conic_gradient_stops.push(parse_radial_color_stop(next_brace_item)?);
+        }
         conic_gradient.stops = conic_gradient_stops.into();
         Ok(StyleBackgroundContent::ConicGradient(conic_gradient))
     }
