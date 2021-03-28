@@ -215,7 +215,7 @@ pub struct ParsedFont {
     pub maxp_table: MaxpTable,
     pub gsub_cache: LayoutCache<GSUB>,
     pub gpos_cache: LayoutCache<GPOS>,
-    pub gdef_table: Rc<GDEFTable>,
+    pub opt_gdef_table: Option<Rc<GDEFTable>>,
     pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
     pub space_width: Option<usize>,
     pub cmap_subtable: OwnedCmapSubtable,
@@ -450,7 +450,7 @@ impl ParsedFont {
         // required for font layout: gsub_cache, gpos_cache and gdef_table
         let gsub_cache = font_data_impl.gsub_cache().ok()??;
         let gpos_cache = font_data_impl.gpos_cache().ok()??;
-        let gdef_table = font_data_impl.gdef_table().ok()??;
+        let opt_gdef_table = font_data_impl.gdef_table().ok().and_then(|o| o);
         let num_glyphs = font_data_impl.num_glyphs();
 
         let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data()).read::<CmapSubtable<'_>>().ok()?.to_owned()?;
@@ -463,7 +463,7 @@ impl ParsedFont {
             maxp_table,
             gsub_cache,
             gpos_cache,
-            gdef_table,
+            opt_gdef_table,
             cmap_subtable,
             glyph_records_decoded,
             space_width: None,
@@ -799,7 +799,7 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
     gsub_apply(
         dotted_circle_index,
         &font.gsub_cache,
-        Some(Rc::as_ref(&font.gdef_table)),
+        font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
         script,
         lang,
         &allsorts_no_std::gsub::Features::Mask(allsorts_no_std::gsub::GsubFeatureMask::default()),
@@ -810,10 +810,14 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
     // Apply glyph positioning if table is present
 
     let kerning = true;
-    let mut infos = allsorts_no_std::gpos::Info::init_from_glyphs(Some(&font.gdef_table), glyphs);
+    let mut infos = allsorts_no_std::gpos::Info::init_from_glyphs(
+        font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
+        glyphs
+    );
+
     gpos_apply(
         &font.gpos_cache,
-        Some(Rc::as_ref(&font.gdef_table)),
+        font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
         kerning,
         script,
         lang,
