@@ -1313,11 +1313,15 @@ pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> Wr
     WrExternalScrollId(scroll_id.0, wr_translate_pipeline_id(scroll_id.1))
 }
 
-pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: PipelineId) -> WrBuiltDisplayList {
+pub(crate) fn wr_translate_display_list(
+    input: CachedDisplayList,
+    pipeline_id: PipelineId,
+    current_hidpi_factor: f32,
+) -> WrBuiltDisplayList {
     let root_space_and_clip = WrSpaceAndClipInfo::root_scroll(wr_translate_pipeline_id(pipeline_id));
     let mut positioned_items = Vec::new();
     let mut builder = WrDisplayListBuilder::new(wr_translate_pipeline_id(pipeline_id));
-    push_display_list_msg(&mut builder, input.root, root_space_and_clip.spatial_id, root_space_and_clip.clip_id, &mut positioned_items);
+    push_display_list_msg(&mut builder, input.root, root_space_and_clip.spatial_id, root_space_and_clip.clip_id, &mut positioned_items, current_hidpi_factor);
     let (_pipeline_id, built_display_list) = builder.finalize();
     built_display_list
 }
@@ -1328,7 +1332,8 @@ fn push_display_list_msg(
     msg: DisplayListMsg,
     parent_spatial_id: WrSpatialId,
     parent_clip_id: WrClipId,
-    positioned_items: &mut Vec<(WrSpatialId, WrClipId)>
+    positioned_items: &mut Vec<(WrSpatialId, WrClipId)>,
+    current_hidpi_factor: f32,
 ) {
     use azul_core::display_list::DisplayListMsg::*;
     use azul_core::ui_solver::PositionInfo::*;
@@ -1386,8 +1391,8 @@ fn push_display_list_msg(
     }
 
     match msg {
-        Frame(f) => push_frame(builder, f, rect_spatial_id, parent_clip_id, positioned_items),
-        ScrollFrame(sf) => push_scroll_frame(builder, sf, rect_spatial_id, parent_clip_id, positioned_items),
+        Frame(f) => push_frame(builder, f, rect_spatial_id, parent_clip_id, positioned_items, current_hidpi_factor),
+        ScrollFrame(sf) => push_scroll_frame(builder, sf, rect_spatial_id, parent_clip_id, positioned_items, current_hidpi_factor),
     }
 
     if msg_position.is_positioned() {
@@ -1403,7 +1408,8 @@ fn push_frame(
     frame: DisplayListFrame,
     rect_spatial_id: WrSpatialId,
     parent_clip_id: WrClipId,
-    positioned_items: &mut Vec<(WrSpatialId, WrClipId)>
+    positioned_items: &mut Vec<(WrSpatialId, WrClipId)>,
+    current_hidpi_factor: f32,
 ) {
     let clip_rect = LogicalRect::new(LogicalPosition::zero(), frame.size); // get_frame_clip_rect(frame.position, frame.size);
 
@@ -1418,6 +1424,7 @@ fn push_frame(
             frame.flags,
             parent_clip_id,
             rect_spatial_id,
+            current_hidpi_factor,
         );
     }
 
@@ -1426,7 +1433,7 @@ fn push_frame(
     let rect_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
     // if let Some(image_mask) -> define_image_mask_clip()
     for child in frame.children {
-        push_display_list_msg(builder, child, rect_spatial_id, rect_clip_id, positioned_items);
+        push_display_list_msg(builder, child, rect_spatial_id, rect_clip_id, positioned_items, current_hidpi_factor);
     }
 }
 
@@ -1436,7 +1443,8 @@ fn push_scroll_frame(
     scroll_frame: DisplayListScrollFrame,
     rect_spatial_id: WrSpatialId,
     parent_clip_id: WrClipId,
-    positioned_items: &mut Vec<(WrSpatialId, WrClipId)>
+    positioned_items: &mut Vec<(WrSpatialId, WrClipId)>,
+    current_hidpi_factor: f32,
 ) {
     use azul_css::ColorU;
     use webrender::api::{
@@ -1461,6 +1469,7 @@ fn push_scroll_frame(
             scroll_frame.frame.flags,
             parent_clip_id,
             rect_spatial_id,
+            current_hidpi_factor,
         );
     }
 
@@ -1494,7 +1503,7 @@ fn push_scroll_frame(
     */
 
     for child in scroll_frame.frame.children {
-        push_display_list_msg(builder, child, rect_spatial_id, hit_testing_clip_id, positioned_items);
+        push_display_list_msg(builder, child, rect_spatial_id, hit_testing_clip_id, positioned_items, current_hidpi_factor);
     }
 }
 
@@ -1531,6 +1540,7 @@ fn push_display_list_content(
     flags: PrimitiveFlags,
     parent_clip_id: WrClipId,
     rect_spatial_id: WrSpatialId,
+    current_hidpi_factor: f32,
 ) {
     use azul_core::display_list::LayoutRectContent::*;
 
@@ -1577,7 +1587,7 @@ fn push_display_list_content(
         },
         Border { widths, colors, styles } => {
             // no clip necessary because item will always be in parent bounds
-            border::push_border(builder, &normal_info, border_radius, widths, colors, styles);
+            border::push_border(builder, &normal_info, border_radius, widths, colors, styles, current_hidpi_factor);
         },
     }
 
@@ -2342,10 +2352,11 @@ mod border {
         widths: StyleBorderWidths,
         colors: StyleBorderColors,
         styles: StyleBorderStyles,
+        current_hidpi_factor: f32,
     ) {
         let rect_size = LogicalSize::new(info.clip_rect.size.width, info.clip_rect.size.height);
 
-        if let Some((border_widths, border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles) {
+        if let Some((border_widths, border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles, current_hidpi_factor) {
             builder.push_border(&info, info.clip_rect, border_widths, border_details);
         }
     }
@@ -2359,6 +2370,7 @@ mod border {
         widths: StyleBorderWidths,
         colors: StyleBorderColors,
         styles: StyleBorderStyles,
+        hidpi: f32,
     ) -> Option<(WrLayoutSideOffsets, WrBorderDetails)> {
 
         use super::{wr_translate_color_u, wr_translate_border_radius};
@@ -2410,13 +2422,14 @@ mod border {
            colors.left.and_then(|cl| cl.get_property_or_default()).unwrap_or_default(),
         );
 
-        // NOTE: border widths are floored in order to work
-        // properly with fractional HiDPI scaling
+        // NOTE: if the HiDPI factor is not set to an even number, this will result
+        // in uneven border widths. In order to reduce this bug, we multiply the border width
+        // with the HiDPI factor, then round the result (to get an even number), then divide again
         let border_widths = WrLayoutSideOffsets::new(
-            width_top.map(|v| v.to_pixels(rect_size.height)).unwrap_or(0.0).floor(),
-            width_right.map(|v| v.to_pixels(rect_size.width)).unwrap_or(0.0).floor(),
-            width_bottom.map(|v| v.to_pixels(rect_size.height)).unwrap_or(0.0).floor(),
-            width_left.map(|v| v.to_pixels(rect_size.width)).unwrap_or(0.0).floor(),
+            width_top.map(|v| (v.to_pixels(rect_size.height) * hidpi).round() / hidpi).unwrap_or(0.0),
+            width_right.map(|v| (v.to_pixels(rect_size.width) * hidpi).round() / hidpi).unwrap_or(0.0),
+            width_bottom.map(|v| (v.to_pixels(rect_size.height) * hidpi).round() / hidpi).unwrap_or(0.0),
+            width_left.map(|v| (v.to_pixels(rect_size.width) * hidpi).round() / hidpi).unwrap_or(0.0),
         );
 
         let border_details = WrBorderDetails::Normal(WrNormalBorder {

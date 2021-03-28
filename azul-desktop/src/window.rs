@@ -656,9 +656,12 @@ impl Window {
             app_resources,
         );
 
-        let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id);
+        let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id, self.internal.current_window_state.size.hidpi_factor);
 
-        let logical_size = WrLayoutSize::new(self.internal.current_window_state.size.dimensions.width, self.internal.current_window_state.size.dimensions.height);
+        let logical_size = WrLayoutSize::new(
+            self.internal.current_window_state.size.dimensions.width,
+            self.internal.current_window_state.size.dimensions.height
+        );
         txn.update_resources(resources.into_iter().map(wr_translate_resource_update).collect());
         txn.set_display_list(
             wr_translate_epoch(self.internal.epoch),
