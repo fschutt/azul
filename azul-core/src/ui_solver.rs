@@ -545,13 +545,13 @@ impl GpuValueCache {
             let styled_node_state = &node_states[node_id].state;
             let node_data = &node_data[node_id];
             let current_transform = css_property_cache.get_transform(node_data, &node_id, styled_node_state)?.get_property().map(|t| {
-                let parent_width = positioned_rects[node_id].size.width;
+                let parent_size = positioned_rects[node_id].size;
                 let transform_origin = css_property_cache.get_transform_origin(node_data, &node_id, styled_node_state);
                 let transform_origin = transform_origin
                     .as_ref()
                     .and_then(|o| o.get_property())
                     .unwrap_or(&default_transform_origin);
-                ComputedTransform3D::from_style_transform_vec(t.as_ref(), transform_origin, parent_width)
+                ComputedTransform3D::from_style_transform_vec(t.as_ref(), transform_origin, parent_size.width, parent_size.height)
             });
             let existing_transform = self.current_transform_values.get(&node_id);
 
@@ -1043,13 +1043,21 @@ impl ComputedTransform3D {
     }
 
     // Computes the matrix of a rect from a Vec<StyleTransform>
-    pub fn from_style_transform_vec(t_vec: &[StyleTransform], transform_origin: &StyleTransformOrigin, percent_resolve: f32) -> Self {
+    pub fn from_style_transform_vec(
+        t_vec: &[StyleTransform],
+        transform_origin: &StyleTransformOrigin,
+        percent_resolve_x: f32,
+        percent_resolve_y: f32,
+    ) -> Self {
 
         // TODO: use correct SIMD optimization!
         let mut matrix = Self::IDENTITY;
 
         for t in t_vec.iter() {
-            matrix = matrix.then(&Self::from_style_transform(t, transform_origin, percent_resolve));
+            matrix = matrix.then(&Self::from_style_transform(
+                t, transform_origin,
+                percent_resolve_x, percent_resolve_y
+            ));
         }
 
         matrix
@@ -1057,36 +1065,41 @@ impl ComputedTransform3D {
 
     /// Creates a new transform from a style transform using the
     /// parent width as a way to resolve for percentages
-    pub fn from_style_transform(t: &StyleTransform, transform_origin: &StyleTransformOrigin, percent_resolve: f32) -> Self {
+    pub fn from_style_transform(
+        t: &StyleTransform,
+        transform_origin: &StyleTransformOrigin,
+        percent_resolve_x: f32,
+        percent_resolve_y: f32,
+    ) -> Self {
         use azul_css::StyleTransform::*;
         match t {
             Matrix(mat2d) => {
-                let a = mat2d.a.to_pixels(percent_resolve);
-                let b = mat2d.b.to_pixels(percent_resolve);
-                let c = mat2d.c.to_pixels(percent_resolve);
-                let d = mat2d.d.to_pixels(percent_resolve);
-                let tx = mat2d.tx.to_pixels(percent_resolve);
-                let ty = mat2d.ty.to_pixels(percent_resolve);
+                let a = mat2d.a.to_pixels(percent_resolve_x);
+                let b = mat2d.b.to_pixels(percent_resolve_x);
+                let c = mat2d.c.to_pixels(percent_resolve_x);
+                let d = mat2d.d.to_pixels(percent_resolve_x);
+                let tx = mat2d.tx.to_pixels(percent_resolve_x);
+                let ty = mat2d.ty.to_pixels(percent_resolve_x);
 
                 Self::new_2d(a, b, c, d, tx, ty)
             },
             Matrix3D(mat3d) => {
-                let m11 = mat3d.m11.to_pixels(percent_resolve);
-                let m12 = mat3d.m12.to_pixels(percent_resolve);
-                let m13 = mat3d.m13.to_pixels(percent_resolve);
-                let m14 = mat3d.m14.to_pixels(percent_resolve);
-                let m21 = mat3d.m21.to_pixels(percent_resolve);
-                let m22 = mat3d.m22.to_pixels(percent_resolve);
-                let m23 = mat3d.m23.to_pixels(percent_resolve);
-                let m24 = mat3d.m24.to_pixels(percent_resolve);
-                let m31 = mat3d.m31.to_pixels(percent_resolve);
-                let m32 = mat3d.m32.to_pixels(percent_resolve);
-                let m33 = mat3d.m33.to_pixels(percent_resolve);
-                let m34 = mat3d.m34.to_pixels(percent_resolve);
-                let m41 = mat3d.m41.to_pixels(percent_resolve);
-                let m42 = mat3d.m42.to_pixels(percent_resolve);
-                let m43 = mat3d.m43.to_pixels(percent_resolve);
-                let m44 = mat3d.m44.to_pixels(percent_resolve);
+                let m11 = mat3d.m11.to_pixels(percent_resolve_x);
+                let m12 = mat3d.m12.to_pixels(percent_resolve_x);
+                let m13 = mat3d.m13.to_pixels(percent_resolve_x);
+                let m14 = mat3d.m14.to_pixels(percent_resolve_x);
+                let m21 = mat3d.m21.to_pixels(percent_resolve_x);
+                let m22 = mat3d.m22.to_pixels(percent_resolve_x);
+                let m23 = mat3d.m23.to_pixels(percent_resolve_x);
+                let m24 = mat3d.m24.to_pixels(percent_resolve_x);
+                let m31 = mat3d.m31.to_pixels(percent_resolve_x);
+                let m32 = mat3d.m32.to_pixels(percent_resolve_x);
+                let m33 = mat3d.m33.to_pixels(percent_resolve_x);
+                let m34 = mat3d.m34.to_pixels(percent_resolve_x);
+                let m41 = mat3d.m41.to_pixels(percent_resolve_x);
+                let m42 = mat3d.m42.to_pixels(percent_resolve_x);
+                let m43 = mat3d.m43.to_pixels(percent_resolve_x);
+                let m44 = mat3d.m44.to_pixels(percent_resolve_x);
 
                 Self::new(
                     m11,
@@ -1108,20 +1121,23 @@ impl ComputedTransform3D {
                 )
             },
             Translate(trans2d) => Self::new_translation(
-                trans2d.x.to_pixels(percent_resolve),
-                trans2d.y.to_pixels(percent_resolve),
+                trans2d.x.to_pixels(percent_resolve_x),
+                trans2d.y.to_pixels(percent_resolve_y),
                 0.0
             ),
             Translate3D(trans3d) => Self::new_translation(
-                trans3d.x.to_pixels(percent_resolve),
-                trans3d.y.to_pixels(percent_resolve),
-                trans3d.z.to_pixels(percent_resolve)
+                trans3d.x.to_pixels(percent_resolve_x),
+                trans3d.y.to_pixels(percent_resolve_y),
+                trans3d.z.to_pixels(percent_resolve_x) // ???
             ),
-            TranslateX(trans_x) => Self::new_translation(trans_x.to_pixels(percent_resolve), 0.0, 0.0),
-            TranslateY(trans_y) => Self::new_translation(0.0, trans_y.to_pixels(percent_resolve), 0.0),
-            TranslateZ(trans_z) => Self::new_translation(0.0, 0.0, trans_z.to_pixels(percent_resolve)),
+            TranslateX(trans_x) => Self::new_translation(trans_x.to_pixels(percent_resolve_x), 0.0, 0.0),
+            TranslateY(trans_y) => Self::new_translation(0.0, trans_y.to_pixels(percent_resolve_y), 0.0),
+            TranslateZ(trans_z) => Self::new_translation(0.0, 0.0, trans_z.to_pixels(percent_resolve_x)), // ???
             Rotate3D(rot3d) => {
-                let rotation_origin = (transform_origin.x.to_pixels(percent_resolve), transform_origin.y.to_pixels(percent_resolve));
+                let rotation_origin = (
+                    transform_origin.x.to_pixels(percent_resolve_x),
+                    transform_origin.y.to_pixels(percent_resolve_y)
+                );
                 Self::make_rotation(
                     rotation_origin,
                     rot3d.angle.to_degrees(),
@@ -1131,7 +1147,10 @@ impl ComputedTransform3D {
                 )
             },
             RotateX(angle_x) => {
-                let rotation_origin = (transform_origin.x.to_pixels(percent_resolve), transform_origin.y.to_pixels(percent_resolve));
+                let rotation_origin = (
+                    transform_origin.x.to_pixels(percent_resolve_x),
+                    transform_origin.y.to_pixels(percent_resolve_y)
+                );
                 Self::make_rotation(
                     rotation_origin,
                     angle_x.to_degrees(),
@@ -1141,7 +1160,10 @@ impl ComputedTransform3D {
                 )
             },
             RotateY(angle_y) => {
-                let rotation_origin = (transform_origin.x.to_pixels(percent_resolve), transform_origin.y.to_pixels(percent_resolve));
+                let rotation_origin = (
+                    transform_origin.x.to_pixels(percent_resolve_x),
+                    transform_origin.y.to_pixels(percent_resolve_y)
+                );
                 Self::make_rotation(
                     rotation_origin,
                     angle_y.to_degrees(),
@@ -1151,7 +1173,10 @@ impl ComputedTransform3D {
                 )
             },
             Rotate(angle_z) | RotateZ(angle_z) => {
-                let rotation_origin = (transform_origin.x.to_pixels(percent_resolve), transform_origin.y.to_pixels(percent_resolve));
+                let rotation_origin = (
+                    transform_origin.x.to_pixels(percent_resolve_x),
+                    transform_origin.y.to_pixels(percent_resolve_y)
+                );
                 Self::make_rotation(
                     rotation_origin,
                     angle_z.to_degrees(),
@@ -1176,7 +1201,7 @@ impl ComputedTransform3D {
             Skew(skew2d) => Self::new_skew(skew2d.x.normalized(), skew2d.y.normalized()),
             SkewX(skew_x) => Self::new_skew(skew_x.normalized(), 0.0),
             SkewY(skew_y) => Self::new_skew(0.0, skew_y.normalized()),
-            Perspective(px) => Self::new_perspective(px.to_pixels(percent_resolve)),
+            Perspective(px) => Self::new_perspective(px.to_pixels(percent_resolve_x)),
         }
     }
 
@@ -1213,13 +1238,13 @@ impl ComputedTransform3D {
     /// Create a 3d rotation transform from an angle / axis.
     /// The supplied axis must be normalized.
     #[inline]
-    pub fn new_rotation(x: f32, y: f32, z: f32, theta: f32) -> Self {
+    pub fn new_rotation(x: f32, y: f32, z: f32, theta_radians: f32) -> Self {
 
         let xx = x * x;
         let yy = y * y;
         let zz = z * z;
 
-        let half_theta = theta / 2.0;
+        let half_theta = theta_radians / 2.0;
         let sc = half_theta.sin() * half_theta.cos();
         let sq = half_theta.sin() * half_theta.sin();
 
@@ -1277,19 +1302,22 @@ impl ComputedTransform3D {
         Self::new(
             self.m[0][0].mul_add(other.m[0][0], self.m[0][1].mul_add(other.m[1][0], self.m[0][2].mul_add(other.m[2][0], self.m[0][3] * other.m[3][0]))),
             self.m[0][0].mul_add(other.m[0][1], self.m[0][1].mul_add(other.m[1][1], self.m[0][2].mul_add(other.m[2][1], self.m[0][3] * other.m[3][1]))),
-            self.m[0][0].mul_add(other.m[0][2], self.m[0][1].mul_add(other.m[1][2], self.m[0][2].mul_add(other.m[3][2], self.m[0][3] * other.m[3][2]))),
+            self.m[0][0].mul_add(other.m[0][2], self.m[0][1].mul_add(other.m[1][2], self.m[0][2].mul_add(other.m[2][2], self.m[0][3] * other.m[3][2]))),
             self.m[0][0].mul_add(other.m[0][3], self.m[0][1].mul_add(other.m[1][3], self.m[0][2].mul_add(other.m[2][3], self.m[0][3] * other.m[3][3]))),
+
             self.m[1][0].mul_add(other.m[0][0], self.m[1][1].mul_add(other.m[1][0], self.m[1][2].mul_add(other.m[2][0], self.m[1][3] * other.m[3][0]))),
             self.m[1][0].mul_add(other.m[0][1], self.m[1][1].mul_add(other.m[1][1], self.m[1][2].mul_add(other.m[2][1], self.m[1][3] * other.m[3][1]))),
-            self.m[1][0].mul_add(other.m[0][2], self.m[1][1].mul_add(other.m[1][2], self.m[1][2].mul_add(other.m[3][2], self.m[1][3] * other.m[3][2]))),
+            self.m[1][0].mul_add(other.m[0][2], self.m[1][1].mul_add(other.m[1][2], self.m[1][2].mul_add(other.m[2][2], self.m[1][3] * other.m[3][2]))),
             self.m[1][0].mul_add(other.m[0][3], self.m[1][1].mul_add(other.m[1][3], self.m[1][2].mul_add(other.m[2][3], self.m[1][3] * other.m[3][3]))),
-            self.m[2][0].mul_add(other.m[0][0], self.m[2][1].mul_add(other.m[1][0], self.m[3][2].mul_add(other.m[2][0], self.m[2][3] * other.m[3][0]))),
-            self.m[2][0].mul_add(other.m[0][1], self.m[2][1].mul_add(other.m[1][1], self.m[3][2].mul_add(other.m[2][1], self.m[2][3] * other.m[3][1]))),
-            self.m[2][0].mul_add(other.m[0][2], self.m[2][1].mul_add(other.m[1][2], self.m[3][2].mul_add(other.m[3][2], self.m[2][3] * other.m[3][2]))),
-            self.m[2][0].mul_add(other.m[0][3], self.m[2][1].mul_add(other.m[1][3], self.m[3][2].mul_add(other.m[2][3], self.m[2][3] * other.m[3][3]))),
+
+            self.m[2][0].mul_add(other.m[0][0], self.m[2][1].mul_add(other.m[1][0], self.m[2][2].mul_add(other.m[2][0], self.m[2][3] * other.m[3][0]))),
+            self.m[2][0].mul_add(other.m[0][1], self.m[2][1].mul_add(other.m[1][1], self.m[2][2].mul_add(other.m[2][1], self.m[2][3] * other.m[3][1]))),
+            self.m[2][0].mul_add(other.m[0][2], self.m[2][1].mul_add(other.m[1][2], self.m[2][2].mul_add(other.m[2][2], self.m[2][3] * other.m[3][2]))),
+            self.m[2][0].mul_add(other.m[0][3], self.m[2][1].mul_add(other.m[1][3], self.m[2][2].mul_add(other.m[2][3], self.m[2][3] * other.m[3][3]))),
+
             self.m[3][0].mul_add(other.m[0][0], self.m[3][1].mul_add(other.m[1][0], self.m[3][2].mul_add(other.m[2][0], self.m[3][3] * other.m[3][0]))),
             self.m[3][0].mul_add(other.m[0][1], self.m[3][1].mul_add(other.m[1][1], self.m[3][2].mul_add(other.m[2][1], self.m[3][3] * other.m[3][1]))),
-            self.m[3][0].mul_add(other.m[0][2], self.m[3][1].mul_add(other.m[1][2], self.m[3][2].mul_add(other.m[3][2], self.m[3][3] * other.m[3][2]))),
+            self.m[3][0].mul_add(other.m[0][2], self.m[3][1].mul_add(other.m[1][2], self.m[3][2].mul_add(other.m[2][2], self.m[3][3] * other.m[3][2]))),
             self.m[3][0].mul_add(other.m[0][3], self.m[3][1].mul_add(other.m[1][3], self.m[3][2].mul_add(other.m[2][3], self.m[3][3] * other.m[3][3]))),
         )
     }
@@ -1380,14 +1408,14 @@ impl ComputedTransform3D {
         // TODO: SIMD
         self.m[0][3] * self.m[1][2] * self.m[2][1] * self.m[3][0] -
         self.m[0][2] * self.m[1][3] * self.m[2][1] * self.m[3][0] -
-        self.m[0][3] * self.m[1][1] * self.m[3][2] * self.m[3][0] +
-        self.m[0][1] * self.m[1][3] * self.m[3][2] * self.m[3][0] +
+        self.m[0][3] * self.m[1][1] * self.m[2][2] * self.m[3][0] +
+        self.m[0][1] * self.m[1][3] * self.m[2][2] * self.m[3][0] +
         self.m[0][2] * self.m[1][1] * self.m[2][3] * self.m[3][0] -
         self.m[0][1] * self.m[1][2] * self.m[2][3] * self.m[3][0] -
         self.m[0][3] * self.m[1][2] * self.m[2][0] * self.m[3][1] +
         self.m[0][2] * self.m[1][3] * self.m[2][0] * self.m[3][1] +
-        self.m[0][3] * self.m[1][0] * self.m[3][2] * self.m[3][1] -
-        self.m[0][0] * self.m[1][3] * self.m[3][2] * self.m[3][1] -
+        self.m[0][3] * self.m[1][0] * self.m[2][2] * self.m[3][1] -
+        self.m[0][0] * self.m[1][3] * self.m[2][2] * self.m[3][1] -
         self.m[0][2] * self.m[1][0] * self.m[2][3] * self.m[3][1] +
         self.m[0][0] * self.m[1][2] * self.m[2][3] * self.m[3][1] +
         self.m[0][3] * self.m[1][1] * self.m[2][0] * self.m[3][2] -
@@ -1400,8 +1428,8 @@ impl ComputedTransform3D {
         self.m[0][1] * self.m[1][2] * self.m[2][0] * self.m[3][3] +
         self.m[0][2] * self.m[1][0] * self.m[2][1] * self.m[3][3] -
         self.m[0][0] * self.m[1][2] * self.m[2][1] * self.m[3][3] -
-        self.m[0][1] * self.m[1][0] * self.m[3][2] * self.m[3][3] +
-        self.m[0][0] * self.m[1][1] * self.m[3][2] * self.m[3][3]
+        self.m[0][1] * self.m[1][0] * self.m[2][2] * self.m[3][3] +
+        self.m[0][0] * self.m[1][1] * self.m[2][2] * self.m[3][3]
     }
 
     /// Multiplies all of the transform's component by a scalar and returns the result.
@@ -1411,7 +1439,7 @@ impl ComputedTransform3D {
         Self::new(
             self.m[0][0] * x, self.m[0][1] * x, self.m[0][2] * x, self.m[0][3] * x,
             self.m[1][0] * x, self.m[1][1] * x, self.m[1][2] * x, self.m[1][3] * x,
-            self.m[2][0] * x, self.m[2][1] * x, self.m[3][2] * x, self.m[2][3] * x,
+            self.m[2][0] * x, self.m[2][1] * x, self.m[2][2] * x, self.m[2][3] * x,
             self.m[3][0] * x, self.m[3][1] * x, self.m[3][2] * x, self.m[3][3] * x
         )
     }
@@ -1468,12 +1496,11 @@ impl ComputedTransform3D {
         axis_y: f32,
         axis_z: f32,
     ) -> Self {
-
         let (origin_x, origin_y) = rotation_origin;
         let pre_transform = Self::new_translation(-origin_x, -origin_y, -0.0);
         let post_transform = Self::new_translation(origin_x, origin_y, 0.0);
         let theta = 2.0_f32 * core::f32::consts::PI - degrees.to_radians();
-        let rotate_transform = Self::IDENTITY.then(&Self::new_rotation(axis_x, axis_y, axis_z, theta));
+        let rotate_transform = Self::new_rotation(axis_x, axis_y, axis_z, theta).then(&Self::IDENTITY);
 
         pre_transform
         .then(&rotate_transform)

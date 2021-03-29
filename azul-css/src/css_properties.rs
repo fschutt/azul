@@ -3082,7 +3082,10 @@ pub struct StyleTransformOrigin {
 
 impl Default for StyleTransformOrigin {
     fn default() -> Self {
-        StyleTransformOrigin { x: PixelValue::const_px(0), y: PixelValue::const_px(0) }
+        StyleTransformOrigin {
+            x: PixelValue::const_percent(50),
+            y: PixelValue::const_percent(50),
+        }
     }
 }
 

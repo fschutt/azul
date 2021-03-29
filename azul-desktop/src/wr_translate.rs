@@ -1283,21 +1283,6 @@ fn wr_translate_image_dirty_rect(dirty_rect: ImageDirtyRect) -> WrImageDirtyRect
 }
 
 #[inline]
-pub(crate) fn wr_translate_transform_key((t, matrix): &(TransformKey, ComputedTransform3D))
--> (WrTransformStyle, WrPropertyBinding<WrLayoutTransform>, WrReferenceFrameKind)
-{
-    use webrender::api::PropertyBindingKey as WrPropertyBindingKey;
-    (
-        WrTransformStyle::Flat,
-        WrPropertyBinding::Binding(WrPropertyBindingKey::new(t.id as u64), wr_translate_transform(matrix)),
-        WrReferenceFrameKind::Transform {
-            is_2d_scale_translation: false,
-            should_snap: false,
-        }
-    )
-}
-
-#[inline]
 pub(crate) const fn wr_translate_transform(t: &ComputedTransform3D) -> WrLayoutTransform {
     WrLayoutTransform::new(
         t.m[0][0], t.m[0][1], t.m[0][2], t.m[0][3],
@@ -1366,28 +1351,40 @@ fn push_display_list_msg(
     // All rectangles are transformed in relation to the parent node,
     // so we have to push the parent as a "reference frame", optionally
     // adding an (animatable) transformation on top
-    let (transform_style, property_binding, reference_frame_kind) = match msg.get_transform_key() {
-        Some(s) => wr_translate_transform_key(s),
-        None => (
-            WrTransformStyle::Flat,
-            WrPropertyBinding::Value(WrLayoutTransform::identity()),
-            WrReferenceFrameKind::Transform {
-                is_2d_scale_translation: false,
-                should_snap: false,
-            }
-        )
+    let transform = msg.get_transform_key();
+    let should_push_stacking_context = transform.is_some();
+
+    let property_binding = match transform {
+        Some(s) => WrPropertyBinding::Binding(
+            WrPropertyBindingKey::new(s.0.id as u64), wr_translate_transform(&s.1)
+        ),
+        None => WrPropertyBinding::Value(WrLayoutTransform::identity()),
     };
 
     let rect_spatial_id = builder.push_reference_frame(
         WrLayoutPoint::new(relative_x, relative_y),
         parent_spatial_id,
-        transform_style,
+        WrTransformStyle::Flat,
         property_binding,
-        reference_frame_kind,
+        WrReferenceFrameKind::Transform {
+            is_2d_scale_translation: false,
+            should_snap: false,
+        },
     );
 
     if msg_position.is_positioned() {
         positioned_items.push((rect_spatial_id, parent_clip_id));
+    }
+
+    if should_push_stacking_context {
+        builder.push_simple_stacking_context_with_filters(
+            WrLayoutPoint::zero(),
+            rect_spatial_id,
+            WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
+            &[], // TODO: opacity!
+            &[],
+            &[]
+        );
     }
 
     match msg {
@@ -1397,6 +1394,10 @@ fn push_display_list_msg(
 
     if msg_position.is_positioned() {
         positioned_items.pop();
+    }
+
+    if should_push_stacking_context {
+        builder.pop_stacking_context();
     }
 
     builder.pop_reference_frame();
