@@ -1322,6 +1322,7 @@ fn push_display_list_msg(
 ) {
     use azul_core::display_list::DisplayListMsg::*;
     use azul_core::ui_solver::PositionInfo::*;
+    use webrender::api::PropertyBindingKey as WrPropertyBindingKey;
 
     let msg_position = msg.get_position();
 
@@ -1335,8 +1336,8 @@ fn push_display_list_msg(
             (parent_spatial_id, parent_clip_id)
         },
         Absolute { x_offset, y_offset, .. } => {
-            let (last_positioned_spatial_id, last_positioned_clip_id) = positioned_items
-            .last().copied().unwrap_or((WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id)));
+            let (last_positioned_spatial_id, last_positioned_clip_id) = positioned_items.last().copied()
+            .unwrap_or((WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id)));
             relative_x = x_offset;
             relative_y = y_offset;
             (last_positioned_spatial_id, last_positioned_clip_id)

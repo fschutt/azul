@@ -6594,6 +6594,53 @@ typedef union AzCssPathPseudoSelector AzCssPathPseudoSelector;
 #define AzCssPathPseudoSelector_Active { .Active = { .tag = AzCssPathPseudoSelectorTag_Active } }
 #define AzCssPathPseudoSelector_Focus { .Focus = { .tag = AzCssPathPseudoSelectorTag_Focus } }
 
+enum AzAnimationInterpolationFunctionTag {
+   AzAnimationInterpolationFunctionTag_Ease,
+   AzAnimationInterpolationFunctionTag_Linear,
+   AzAnimationInterpolationFunctionTag_EaseIn,
+   AzAnimationInterpolationFunctionTag_EaseOut,
+   AzAnimationInterpolationFunctionTag_EaseInOut,
+   AzAnimationInterpolationFunctionTag_CubicBezier,
+};
+typedef enum AzAnimationInterpolationFunctionTag AzAnimationInterpolationFunctionTag;
+
+struct AzAnimationInterpolationFunctionVariant_Ease { AzAnimationInterpolationFunctionTag tag; };
+typedef struct AzAnimationInterpolationFunctionVariant_Ease AzAnimationInterpolationFunctionVariant_Ease;
+struct AzAnimationInterpolationFunctionVariant_Linear { AzAnimationInterpolationFunctionTag tag; };
+typedef struct AzAnimationInterpolationFunctionVariant_Linear AzAnimationInterpolationFunctionVariant_Linear;
+struct AzAnimationInterpolationFunctionVariant_EaseIn { AzAnimationInterpolationFunctionTag tag; };
+typedef struct AzAnimationInterpolationFunctionVariant_EaseIn AzAnimationInterpolationFunctionVariant_EaseIn;
+struct AzAnimationInterpolationFunctionVariant_EaseOut { AzAnimationInterpolationFunctionTag tag; };
+typedef struct AzAnimationInterpolationFunctionVariant_EaseOut AzAnimationInterpolationFunctionVariant_EaseOut;
+struct AzAnimationInterpolationFunctionVariant_EaseInOut { AzAnimationInterpolationFunctionTag tag; };
+typedef struct AzAnimationInterpolationFunctionVariant_EaseInOut AzAnimationInterpolationFunctionVariant_EaseInOut;
+struct AzAnimationInterpolationFunctionVariant_CubicBezier { AzAnimationInterpolationFunctionTag tag; AzSvgCubicCurve payload; };
+typedef struct AzAnimationInterpolationFunctionVariant_CubicBezier AzAnimationInterpolationFunctionVariant_CubicBezier;
+union AzAnimationInterpolationFunction {
+    AzAnimationInterpolationFunctionVariant_Ease Ease;
+    AzAnimationInterpolationFunctionVariant_Linear Linear;
+    AzAnimationInterpolationFunctionVariant_EaseIn EaseIn;
+    AzAnimationInterpolationFunctionVariant_EaseOut EaseOut;
+    AzAnimationInterpolationFunctionVariant_EaseInOut EaseInOut;
+    AzAnimationInterpolationFunctionVariant_CubicBezier CubicBezier;
+};
+typedef union AzAnimationInterpolationFunction AzAnimationInterpolationFunction;
+#define AzAnimationInterpolationFunction_Ease { .Ease = { .tag = AzAnimationInterpolationFunctionTag_Ease } }
+#define AzAnimationInterpolationFunction_Linear { .Linear = { .tag = AzAnimationInterpolationFunctionTag_Linear } }
+#define AzAnimationInterpolationFunction_EaseIn { .EaseIn = { .tag = AzAnimationInterpolationFunctionTag_EaseIn } }
+#define AzAnimationInterpolationFunction_EaseOut { .EaseOut = { .tag = AzAnimationInterpolationFunctionTag_EaseOut } }
+#define AzAnimationInterpolationFunction_EaseInOut { .EaseInOut = { .tag = AzAnimationInterpolationFunctionTag_EaseInOut } }
+#define AzAnimationInterpolationFunction_CubicBezier(v) { .CubicBezier = { .tag = AzAnimationInterpolationFunctionTag_CubicBezier, .payload = v } }
+
+struct AzInterpolateContext {
+    AzAnimationInterpolationFunction animation_func;
+    float parent_rect_width;
+    float parent_rect_height;
+    float current_rect_width;
+    float current_rect_height;
+};
+typedef struct AzInterpolateContext AzInterpolateContext;
+
 struct AzLinearColorStop {
     AzOptionPercentageValue offset;
     AzColorU color;
@@ -9544,6 +9591,11 @@ extern DLLIMPORT AzCss AzCss_empty();
 extern DLLIMPORT AzCss AzCss_fromString(AzString  s);
 extern DLLIMPORT AzColorU AzColorU_fromStr(AzString  string);
 extern DLLIMPORT AzString AzColorU_toHash(AzColorU* const coloru);
+extern DLLIMPORT AzString AzCssProperty_getKeyString(AzCssProperty* const cssproperty);
+extern DLLIMPORT AzString AzCssProperty_getValueString(AzCssProperty* const cssproperty);
+extern DLLIMPORT AzString AzCssProperty_getKeyValueString(AzCssProperty* const cssproperty);
+extern DLLIMPORT AzCssPropertyType AzCssProperty_getType(AzCssProperty* const cssproperty);
+extern DLLIMPORT AzCssProperty AzCssProperty_interpolate(AzCssProperty* const cssproperty, AzCssProperty  other, float t, AzInterpolateContext  context);
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);
 extern DLLIMPORT AzCssPropertyCache AzCssPropertyCache_deepCopy(AzCssPropertyCache* const instance);
 extern DLLIMPORT AzStyledDom AzStyledDom_new(AzDom  dom, AzCss  css);

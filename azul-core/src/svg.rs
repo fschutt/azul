@@ -8,17 +8,11 @@ use crate::gl::{
 };
 use alloc::string::String;
 use azul_css::U32Vec;
+pub use azul_css::{SvgCubicCurve, SvgPoint};
 
 const DEFAULT_MITER_LIMIT: f32 = 4.0;
 const DEFAULT_LINE_WIDTH: f32 = 1.0;
 const DEFAULT_TOLERANCE: f32 = 0.1;
-
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct SvgPoint {
-    pub x: f32,
-    pub y: f32,
-}
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -39,15 +33,6 @@ pub struct SvgLine {
 pub struct SvgQuadraticCurve {
     pub start: SvgPoint,
     pub ctrl: SvgPoint,
-    pub end: SvgPoint,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct SvgCubicCurve {
-    pub start: SvgPoint,
-    pub ctrl_1: SvgPoint,
-    pub ctrl_2: SvgPoint,
     pub end: SvgPoint,
 }
 

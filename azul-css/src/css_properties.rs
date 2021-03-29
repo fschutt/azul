@@ -355,6 +355,15 @@ impl ColorU {
     pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: Self::ALPHA_OPAQUE };
     pub const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: Self::ALPHA_TRANSPARENT };
 
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self {
+            r: libm::roundf(self.r as f32 + (other.r as f32 - self.r as f32) * t) as u8,
+            g: libm::roundf(self.g as f32 + (other.g as f32 - self.g as f32) * t) as u8,
+            b: libm::roundf(self.b as f32 + (other.b as f32 - self.b as f32) * t) as u8,
+            a: libm::roundf(self.a as f32 + (other.a as f32 - self.a as f32) * t) as u8,
+        }
+    }
+
     pub const fn has_alpha(&self) -> bool {
         self.a != Self::ALPHA_OPAQUE
     }
@@ -585,6 +594,10 @@ macro_rules! impl_pixel_value {($struct:ident) => (
         pub fn pt(value: f32) -> Self {
             $struct { inner: PixelValue::pt(value) }
         }
+        #[inline]
+        pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+            $struct { inner: self.inner.interpolate(&other.inner, t) }
+        }
     }
 )}
 
@@ -600,6 +613,13 @@ macro_rules! impl_percentage_value{($struct:ident) => (
             write!(f, "{}%", self.inner.get())
         }
     }
+
+    impl $struct {
+        #[inline]
+        pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+            $struct { inner: self.inner.interpolate(&other.inner, t) }
+        }
+    }
 )}
 
 macro_rules! impl_float_value{($struct:ident) => (
@@ -607,6 +627,11 @@ macro_rules! impl_float_value{($struct:ident) => (
         #[inline]
         pub fn get(&self) -> f32 {
             self.inner.get()
+        }
+
+        #[inline]
+        pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+            Self { inner: self.inner.interpolate(&other.inner, t) }
         }
     }
 
@@ -998,7 +1023,114 @@ pub enum CssProperty {
     BackfaceVisibility(CssPropertyValue<StyleBackfaceVisibility>),
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum AnimationInterpolationFunction {
+    Ease,
+    Linear,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+    CubicBezier(SvgCubicCurve),
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SvgPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SvgCubicCurve {
+    pub start: SvgPoint,
+    pub ctrl_1: SvgPoint,
+    pub ctrl_2: SvgPoint,
+    pub end: SvgPoint,
+}
+
+impl SvgCubicCurve {
+
+    // evaluate the curve at t
+    pub fn evaluate_x(&self, t: f32) -> f32 {
+        let c_x = 3.0 * (self.ctrl_1.x - self.start.x);
+        let b_x = 3.0 * (self.ctrl_2.x - self.ctrl_1.x) - c_x;
+        let a_x = self.end.x - self.start.x - c_x - b_x;
+
+        (a_x * t * t * t) +
+        (b_x * t * t) +
+        (c_x * t) +
+        self.start.x
+    }
+
+    // evaluate the curve at t
+    pub fn evaluate_y(&self, t: f32) -> f32 {
+        let c_x = 3.0 * (self.ctrl_1.y - self.start.y);
+        let b_x = 3.0 * (self.ctrl_2.y - self.ctrl_1.y) - c_x;
+        let a_x = self.end.y - self.start.y - c_x - b_x;
+
+        (a_x * t * t * t) +
+        (b_x * t * t) +
+        (c_x * t) +
+        self.start.y
+    }
+}
+
+impl AnimationInterpolationFunction {
+    pub const fn get_curve(self) -> SvgCubicCurve {
+        match self {
+            AnimationInterpolationFunction::Ease => SvgCubicCurve {
+                start: SvgPoint { x: 0.0, y: 0.0 },
+                ctrl_1: SvgPoint { x: 0.25, y: 0.1 },
+                ctrl_2: SvgPoint { x: 0.25, y: 1.0 },
+                end: SvgPoint { x: 1.0, y: 1.0 },
+            },
+            AnimationInterpolationFunction::Linear => SvgCubicCurve {
+                start: SvgPoint { x: 0.0, y: 0.0 },
+                ctrl_1:SvgPoint { x: 0.0, y: 0.0 },
+                ctrl_2: SvgPoint { x: 1.0, y: 1.0 },
+                end: SvgPoint { x: 1.0, y: 1.0 },
+            },
+            AnimationInterpolationFunction::EaseIn => SvgCubicCurve {
+                start: SvgPoint { x: 0.0, y: 0.0 },
+                ctrl_1: SvgPoint { x: 0.42, y: 0.0 },
+                ctrl_2: SvgPoint { x: 1.0, y: 1.0 },
+                end: SvgPoint { x: 1.0, y: 1.0 },
+            },
+            AnimationInterpolationFunction::EaseOut => SvgCubicCurve {
+                start: SvgPoint { x: 0.0, y: 0.0 },
+                ctrl_1: SvgPoint { x: 0.0, y: 0.0 },
+                ctrl_2: SvgPoint { x: 0.58, y: 1.0 },
+                end: SvgPoint { x: 1.0, y: 1.0 },
+            },
+            AnimationInterpolationFunction::EaseInOut => SvgCubicCurve {
+                start: SvgPoint { x: 0.0, y: 0.0 },
+                ctrl_1: SvgPoint { x: 0.42, y: 0.0 },
+                ctrl_2: SvgPoint { x: 0.58, y: 1.0 },
+                end: SvgPoint { x: 1.0, y: 1.0 },
+            },
+            AnimationInterpolationFunction::CubicBezier(c) => c,
+        }
+    }
+
+    pub fn evaluate(self, t: f32) -> f32 {
+        self.get_curve().evaluate_y(t)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct InterpolateResolver {
+    pub interpolate_func: AnimationInterpolationFunction,
+    pub parent_rect_width: f32,
+    pub parent_rect_height: f32,
+    pub current_rect_width: f32,
+    pub current_rect_height: f32,
+}
+
 impl CssProperty {
+
     pub fn key(&self) -> &'static str {
         self.get_type().to_str()
     }
@@ -1080,6 +1212,249 @@ impl CssProperty {
 
     pub fn format_css(&self) -> String {
         format!("{}: {};", self.key(), self.value())
+    }
+
+    pub fn interpolate(
+        &self,
+        other: &Self,
+        t: f32,
+        interpolate_resolve: &InterpolateResolver
+    ) -> Self {
+        if t <= 0.0 {
+            return self.clone();
+        } else if t >= 1.0 {
+            return other.clone();
+        }
+
+        let t = t.max(0.0).min(1.0);
+
+        match (self, other) {
+            (CssProperty::TextColor(col_start), CssProperty::TextColor(col_end)) => {
+                let col_start = col_start.get_property().copied().unwrap_or_default();
+                let col_end = col_end.get_property().copied().unwrap_or_default();
+                CssProperty::text_color(col_start.interpolate(&col_end, t))
+            },
+            (CssProperty::FontSize(fs_start), CssProperty::FontSize(fs_end)) => {
+                let fs_start = fs_start.get_property().copied().unwrap_or_default();
+                let fs_end = fs_end.get_property().copied().unwrap_or_default();
+                CssProperty::font_size(fs_start.interpolate(&fs_end, t))
+            },
+            (CssProperty::LetterSpacing(ls_start), CssProperty::LetterSpacing(ls_end)) => {
+                let ls_start = ls_start.get_property().copied().unwrap_or_default();
+                let ls_end = ls_end.get_property().copied().unwrap_or_default();
+                CssProperty::letter_spacing(ls_start.interpolate(&ls_end, t))
+            },
+            (CssProperty::LineHeight(lh_start), CssProperty::LineHeight(lh_end)) => {
+                let lh_start = lh_start.get_property().copied().unwrap_or_default();
+                let lh_end = lh_end.get_property().copied().unwrap_or_default();
+                CssProperty::line_height(lh_start.interpolate(&lh_end, t))
+            },
+            (CssProperty::WordSpacing(ws_start), CssProperty::WordSpacing(ws_end)) => {
+                let ws_start = ws_start.get_property().copied().unwrap_or_default();
+                let ws_end = ws_end.get_property().copied().unwrap_or_default();
+                CssProperty::word_spacing(ws_start.interpolate(&ws_end, t))
+            },
+            (CssProperty::TabWidth(tw_start), CssProperty::TabWidth(tw_end)) => {
+                let tw_start = tw_start.get_property().copied().unwrap_or_default();
+                let tw_end = tw_end.get_property().copied().unwrap_or_default();
+                CssProperty::tab_width(tw_start.interpolate(&tw_end, t))
+            },
+            (CssProperty::Width(start), CssProperty::Width(end)) => {
+                let start = start.get_property().copied()
+                .unwrap_or(LayoutWidth::px(interpolate_resolve.current_rect_width));
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::Width(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::Height(start), CssProperty::Height(end)) => {
+                let start = start.get_property().copied()
+                .unwrap_or(LayoutHeight::px(interpolate_resolve.current_rect_height));
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::Height(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::MinWidth(start), CssProperty::MinWidth(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::MinWidth(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::MinHeight(start), CssProperty::MinHeight(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::MinHeight(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::MaxWidth(start), CssProperty::MaxWidth(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::MaxWidth(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::MaxHeight(start), CssProperty::MaxHeight(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::MaxHeight(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::Top(start), CssProperty::Top(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::Top(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::Right(start), CssProperty::Right(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::Right(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::Left(start), CssProperty::Left(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::Left(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::Bottom(start), CssProperty::Bottom(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::Bottom(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::FlexGrow(start), CssProperty::FlexGrow(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::FlexGrow(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::FlexShrink(start), CssProperty::FlexShrink(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::FlexShrink(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::PaddingTop(start), CssProperty::PaddingTop(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::PaddingTop(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::PaddingLeft(start), CssProperty::PaddingLeft(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::PaddingLeft(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::PaddingRight(start), CssProperty::PaddingRight(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::PaddingRight(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::PaddingBottom(start), CssProperty::PaddingBottom(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::PaddingBottom(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::MarginTop(start), CssProperty::MarginTop(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::MarginTop(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::MarginLeft(start), CssProperty::MarginLeft(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::MarginLeft(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::MarginRight(start), CssProperty::MarginRight(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::MarginRight(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::MarginBottom(start), CssProperty::MarginBottom(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::MarginBottom(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::BorderTopLeftRadius(start), CssProperty::BorderTopLeftRadius(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::BorderTopLeftRadius(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::BorderTopRightRadius(start), CssProperty::BorderTopRightRadius(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::BorderTopRightRadius(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::BorderBottomLeftRadius(start), CssProperty::BorderBottomLeftRadius(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::BorderBottomLeftRadius(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::BorderBottomRightRadius(start), CssProperty::BorderBottomRightRadius(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::BorderBottomRightRadius(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::BorderTopColor(start), CssProperty::BorderTopColor(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::BorderTopColor(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::BorderRightColor(start), CssProperty::BorderRightColor(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::BorderRightColor(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::BorderLeftColor(start), CssProperty::BorderLeftColor(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::BorderLeftColor(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::BorderBottomColor(start), CssProperty::BorderBottomColor(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::BorderBottomColor(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::BorderTopWidth(start), CssProperty::BorderTopWidth(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::BorderTopWidth(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::BorderRightWidth(start), CssProperty::BorderRightWidth(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::BorderRightWidth(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::BorderLeftWidth(start), CssProperty::BorderLeftWidth(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::BorderLeftWidth(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::BorderBottomWidth(start), CssProperty::BorderBottomWidth(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::BorderBottomWidth(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::Opacity(start), CssProperty::Opacity(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::Opacity(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::TransformOrigin(start), CssProperty::TransformOrigin(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::TransformOrigin(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            (CssProperty::PerspectiveOrigin(start), CssProperty::PerspectiveOrigin(end)) => {
+                let start = start.get_property().copied().unwrap_or_default();
+                let end = end.get_property().copied().unwrap_or_default();
+                CssProperty::PerspectiveOrigin(CssPropertyValue::Exact(start.interpolate(&end, t)))
+            },
+            /*
+            CssProperty::Transform(CssPropertyValue<StyleTransformVec>),
+
+            slightly special
+
+            CssProperty::BoxShadowLeft(CssPropertyValue<StyleBoxShadow>),
+            CssProperty::BoxShadowRight(CssPropertyValue<StyleBoxShadow>),
+            CssProperty::BoxShadowTop(CssPropertyValue<StyleBoxShadow>),
+            CssProperty::BoxShadowBottom(CssPropertyValue<StyleBoxShadow>),
+            */
+            (_, _) => {
+                // not animatable, fallback
+                if t > 0.5 {
+                    other.clone()
+                } else {
+                    self.clone()
+                }
+            },
+        }
     }
 }
 
@@ -1753,6 +2128,22 @@ impl PixelValue {
         }
     }
 
+    #[inline]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        if self.metric == other.metric {
+            Self {
+                metric: self.metric,
+                number: self.number.interpolate(&other.number, t),
+            }
+        } else {
+            // TODO: how to interpolate between different metrics
+            // (interpolate between % and em? - currently impossible)
+            let self_px_interp = self.to_pixels(0.0);
+            let other_px_interp = other.to_pixels(0.0);
+            Self::from_metric(SizeMetric::Px, self_px_interp + (other_px_interp - self_px_interp) * t)
+        }
+    }
+
     /// Returns the value of the SizeMetric in pixels
     #[inline]
     pub fn to_pixels(&self, percent_resolve: f32) -> f32 {
@@ -1804,6 +2195,11 @@ impl PercentageValue {
     pub fn normalized(&self) -> f32 {
         self.get() / 100.0
     }
+
+    #[inline]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self { number: self.number.interpolate(&other.number, t) }
+    }
 }
 
 /// Wrapper around an f32 value that is internally casted to an isize,
@@ -1831,20 +2227,32 @@ impl FloatValue {
 
     /// Same as `FloatValue::new()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
     pub const fn const_new(value: isize)  -> Self {
         Self { number: value * FP_PRECISION_MULTIPLIER_CONST }
     }
 
+    #[inline]
     pub fn new(value: f32) -> Self {
         Self { number: (value * FP_PRECISION_MULTIPLIER) as isize }
     }
 
+    #[inline]
     pub fn get(&self) -> f32 {
         self.number as f32 / FP_PRECISION_MULTIPLIER
+    }
+
+    #[inline]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        let self_val_f32 = self.get();
+        let other_val_f32 = other.get();
+        let interpolated = self_val_f32 + ((other_val_f32 - self_val_f32) * t);
+        Self::new(interpolated)
     }
 }
 
 impl From<f32> for FloatValue {
+    #[inline]
     fn from(val: f32) -> Self {
         Self::new(val)
     }
@@ -1958,12 +2366,18 @@ impl Default for StyleBackgroundRepeat {
 }
 
 /// Represents a `color` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleTextColor { pub inner: ColorU }
 
 derive_debug_zero!(StyleTextColor);
 derive_display_zero!(StyleTextColor);
+
+impl StyleTextColor {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self { inner: self.inner.interpolate(&other.inner, t) }
+    }
+}
 
 // -- TODO: Technically, border-radius can take two values for each corner!
 
@@ -2055,6 +2469,26 @@ pub struct StyleBorderRightColor { pub inner: ColorU }
 #[repr(C)]
 pub struct StyleBorderBottomColor { pub inner: ColorU }
 
+impl StyleBorderTopColor {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self { inner: self.inner.interpolate(&other.inner, t) }
+    }
+}
+impl StyleBorderLeftColor {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self { inner: self.inner.interpolate(&other.inner, t) }
+    }
+}
+impl StyleBorderRightColor {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self { inner: self.inner.interpolate(&other.inner, t) }
+    }
+}
+impl StyleBorderBottomColor {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self { inner: self.inner.interpolate(&other.inner, t) }
+    }
+}
 derive_debug_zero!(StyleBorderTopColor);
 derive_debug_zero!(StyleBorderLeftColor);
 derive_debug_zero!(StyleBorderRightColor);
@@ -2629,11 +3063,11 @@ impl_vec_eq!(LinearColorStop, LinearColorStopVec);
 impl_vec_hash!(LinearColorStop, LinearColorStopVec);
 
 /// Represents a `width` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LayoutWidth { pub inner: PixelValue }
 /// Represents a `min-width` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LayoutMinWidth { pub inner: PixelValue }
 /// Represents a `max-width` attribute
@@ -2641,17 +3075,20 @@ pub struct LayoutMinWidth { pub inner: PixelValue }
 #[repr(C)]
 pub struct LayoutMaxWidth { pub inner: PixelValue }
 /// Represents a `height` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LayoutHeight { pub inner: PixelValue }
 /// Represents a `min-height` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LayoutMinHeight { pub inner: PixelValue }
 /// Represents a `max-height` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LayoutMaxHeight { pub inner: PixelValue }
+
+impl Default for LayoutMaxHeight { fn default() -> Self { Self { inner: PixelValue::px(core::f32::MAX) } } }
+impl Default for LayoutMaxWidth { fn default() -> Self { Self { inner: PixelValue::px(core::f32::MAX) } } }
 
 impl_pixel_value!(LayoutWidth);
 impl_pixel_value!(LayoutHeight);
@@ -2661,19 +3098,19 @@ impl_pixel_value!(LayoutMaxWidth);
 impl_pixel_value!(LayoutMaxHeight);
 
 /// Represents a `top` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LayoutTop { pub inner: PixelValue }
 /// Represents a `left` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LayoutLeft { pub inner: PixelValue }
 /// Represents a `right` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LayoutRight { pub inner: PixelValue }
 /// Represents a `bottom` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LayoutBottom { pub inner: PixelValue }
 
@@ -2803,6 +3240,12 @@ pub struct StyleLineHeight { pub inner: PercentageValue }
 
 impl_percentage_value!(StyleLineHeight);
 
+impl Default for StyleLineHeight {
+    fn default() -> Self {
+        Self { inner: PercentageValue::const_new(100) }
+    }
+}
+
 /// Represents a `tab-width` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -2810,10 +3253,22 @@ pub struct StyleTabWidth { pub inner: PercentageValue }
 
 impl_percentage_value!(StyleTabWidth);
 
+impl Default for StyleTabWidth {
+    fn default() -> Self {
+        Self { inner: PercentageValue::const_new(100) }
+    }
+}
+
 /// Represents a `letter-spacing` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleLetterSpacing { pub inner: PixelValue }
+
+impl Default for StyleLetterSpacing {
+    fn default() -> Self {
+        Self { inner: PixelValue::const_px(0) }
+    }
+}
 
 impl_pixel_value!(StyleLetterSpacing);
 
@@ -2823,6 +3278,12 @@ impl_pixel_value!(StyleLetterSpacing);
 pub struct StyleWordSpacing { pub inner: PixelValue }
 
 impl_pixel_value!(StyleWordSpacing);
+
+impl Default for StyleWordSpacing {
+    fn default() -> Self {
+        Self { inner: PixelValue::const_px(0) }
+    }
+}
 
 /// Same as the `LayoutFlexDirection`, but without the `-reverse` properties, used in the layout solver,
 /// makes decisions based on horizontal / vertical direction easier to write.
@@ -3066,6 +3527,15 @@ pub struct StylePerspectiveOrigin {
     pub y: PixelValue,
 }
 
+impl StylePerspectiveOrigin {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self {
+            x: self.x.interpolate(&other.x, t),
+            y: self.y.interpolate(&other.y, t),
+        }
+    }
+}
+
 impl Default for StylePerspectiveOrigin {
     fn default() -> Self {
         StylePerspectiveOrigin { x: PixelValue::const_px(0), y: PixelValue::const_px(0) }
@@ -3078,6 +3548,15 @@ impl Default for StylePerspectiveOrigin {
 pub struct StyleTransformOrigin {
     pub x: PixelValue,
     pub y: PixelValue,
+}
+
+impl StyleTransformOrigin {
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self {
+            x: self.x.interpolate(&other.x, t),
+            y: self.y.interpolate(&other.y, t),
+        }
+    }
 }
 
 impl Default for StyleTransformOrigin {
@@ -3366,6 +3845,12 @@ pub struct ScrollbarStyle {
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleFontSize { pub inner: PixelValue }
+
+impl Default for StyleFontSize {
+    fn default() -> Self {
+        Self { inner: PixelValue::const_em(1) }
+    }
+}
 
 impl_pixel_value!(StyleFontSize);
 

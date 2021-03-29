@@ -649,6 +649,14 @@ pub use AzCssTT as AzCss;
 pub type AzCssPropertyTypeTT = azul_impl::css::CssPropertyType;
 pub use AzCssPropertyTypeTT as AzCssPropertyType;
 
+/// Re-export of rust-allocated (stack based) `AnimationInterpolationFunction` struct
+pub type AzAnimationInterpolationFunctionTT = azul_impl::css::AnimationInterpolationFunction;
+pub use AzAnimationInterpolationFunctionTT as AzAnimationInterpolationFunction;
+
+/// Re-export of rust-allocated (stack based) `InterpolateContext` struct
+pub type AzInterpolateContextTT = azul_impl::css::InterpolateResolver;
+pub use AzInterpolateContextTT as AzInterpolateContext;
+
 /// Re-export of rust-allocated (stack based) `ColorU` struct
 pub type AzColorUTT = azul_impl::css::ColorU;
 pub use AzColorUTT as AzColorU;
@@ -1317,6 +1325,16 @@ pub use AzStyleBackfaceVisibilityValueTT as AzStyleBackfaceVisibilityValue;
 /// Parsed CSS key-value pair
 pub type AzCssPropertyTT = azul_impl::css::CssProperty;
 pub use AzCssPropertyTT as AzCssProperty;
+/// Returns the key of the CSS property as a string, i.e. `background`
+#[no_mangle] pub extern "C" fn AzCssProperty_getKeyString(cssproperty: &AzCssProperty) -> AzString { cssproperty.key().into() }
+/// Returns the value of the CSS property as a string, i.e. `linear-gradient(red, blue)`
+#[no_mangle] pub extern "C" fn AzCssProperty_getValueString(cssproperty: &AzCssProperty) -> AzString { cssproperty.value().into() }
+/// Returns the CSS key-value pair as a string, i.e. `background: linear-gradient(red, blue)`
+#[no_mangle] pub extern "C" fn AzCssProperty_getKeyValueString(cssproperty: &AzCssProperty) -> AzString { cssproperty.format_css().into() }
+/// Returns the CSS property type enum
+#[no_mangle] pub extern "C" fn AzCssProperty_getType(cssproperty: &AzCssProperty) -> AzCssPropertyType { cssproperty.get_type() }
+/// Interpolates two CSS properties given a value `t` ranging from 0.0 to 1.0. The interpolation function can be set on the `context` (`Ease`, `Linear`, etc.).
+#[no_mangle] pub extern "C" fn AzCssProperty_interpolate(cssproperty: &AzCssProperty, other: AzCssProperty, t: f32, context: AzInterpolateContext) -> AzCssProperty { cssproperty.interpolate(&other, t, &context) }
 
 /// Re-export of rust-allocated (stack based) `Node` struct
 pub type AzNodeTT = azul_impl::styled_dom::AzNode;
@@ -6427,6 +6445,23 @@ mod test_sizes {
         Active,
         Focus,
     }
+    /// Re-export of rust-allocated (stack based) `AnimationInterpolationFunction` struct
+    #[repr(C, u8)]     pub enum AzAnimationInterpolationFunction {
+        Ease,
+        Linear,
+        EaseIn,
+        EaseOut,
+        EaseInOut,
+        CubicBezier(AzSvgCubicCurve),
+    }
+    /// Re-export of rust-allocated (stack based) `InterpolateContext` struct
+    #[repr(C)]     pub struct AzInterpolateContext {
+        pub animation_func: AzAnimationInterpolationFunction,
+        pub parent_rect_width: f32,
+        pub parent_rect_height: f32,
+        pub current_rect_width: f32,
+        pub current_rect_height: f32,
+    }
     /// Re-export of rust-allocated (stack based) `LinearColorStop` struct
     #[repr(C)]     pub struct AzLinearColorStop {
         pub offset: AzOptionPercentageValue,
@@ -8043,6 +8078,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackInfo>(), "AzGlCallbackInfo"), (Layout::new::<AzGlCallbackInfo>(), "AzGlCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::dom::EventFilter>(), "AzEventFilter"), (Layout::new::<AzEventFilter>(), "AzEventFilter"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathPseudoSelector>(), "AzCssPathPseudoSelector"), (Layout::new::<AzCssPathPseudoSelector>(), "AzCssPathPseudoSelector"));
+        assert_eq!((Layout::new::<azul_impl::css::AnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"), (Layout::new::<AzAnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"));
+        assert_eq!((Layout::new::<azul_impl::css::InterpolateResolver>(), "AzInterpolateContext"), (Layout::new::<AzInterpolateContext>(), "AzInterpolateContext"));
         assert_eq!((Layout::new::<azul_impl::css::LinearColorStop>(), "AzLinearColorStop"), (Layout::new::<AzLinearColorStop>(), "AzLinearColorStop"));
         assert_eq!((Layout::new::<azul_impl::css::RadialColorStop>(), "AzRadialColorStop"), (Layout::new::<AzRadialColorStop>(), "AzRadialColorStop"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTransform>(), "AzStyleTransform"), (Layout::new::<AzStyleTransform>(), "AzStyleTransform"));

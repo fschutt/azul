@@ -2278,6 +2278,29 @@
                         {"BackfaceVisibility": {}}
                     ]
                 },
+                "AnimationInterpolationFunction": {
+                    "external": "azul_impl::css::AnimationInterpolationFunction",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"Ease": {}},
+                        {"Linear": {}},
+                        {"EaseIn": {}},
+                        {"EaseOut": {}},
+                        {"EaseInOut": {}},
+                        {"CubicBezier": {"type":"SvgCubicCurve"}}
+                    ]
+                },
+                "InterpolateContext": {
+                    "external": "azul_impl::css::InterpolateResolver",
+                    "derive": ["Copy"],
+                    "struct_fields": [
+                        {"animation_func": {"type": "AnimationInterpolationFunction"}},
+                        {"parent_rect_width": {"type": "f32"}},
+                        {"parent_rect_height": {"type": "f32"}},
+                        {"current_rect_width": {"type": "f32"}},
+                        {"current_rect_height": {"type": "f32"}}
+                    ]
+                },
                 "ColorU": {
                     "external": "azul_impl::css::ColorU",
                     "derive": ["Copy"],
@@ -3965,7 +3988,52 @@
                         {"TransformOrigin": {"type": "StyleTransformOriginValue" }},
                         {"PerspectiveOrigin": {"type": "StylePerspectiveOriginValue" }},
                         {"BackfaceVisibility": {"type": "StyleBackfaceVisibilityValue" }}
-                    ]
+                    ],
+                    "functions": {
+                        "get_key_string": {
+                            "doc": "Returns the key of the CSS property as a string, i.e. `background`",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "String"},
+                            "fn_body": "cssproperty.key().into()"
+                        },
+                        "get_value_string": {
+                            "doc": "Returns the value of the CSS property as a string, i.e. `linear-gradient(red, blue)`",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "String"},
+                            "fn_body": "cssproperty.value().into()"
+                        },
+                        "get_key_value_string": {
+                            "doc": "Returns the CSS key-value pair as a string, i.e. `background: linear-gradient(red, blue)`",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "String"},
+                            "fn_body": "cssproperty.format_css().into()"
+                        },
+                        "get_type": {
+                            "doc": "Returns the CSS property type enum",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "CssPropertyType"},
+                            "fn_body": "cssproperty.get_type()"
+                        },
+                        "interpolate": {
+                            "doc": "Interpolates two CSS properties given a value `t` ranging from 0.0 to 1.0. The interpolation function can be set on the `context` (`Ease`, `Linear`, etc.).",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"other": "CssProperty"},
+                                {"t": "f32"},
+                                {"context": "InterpolateContext"}
+                            ],
+                            "returns": {"type": "CssProperty"},
+                            "fn_body": "cssproperty.interpolate(&other, t, &context)"
+                        }
+                    }
                 }
             }
         },

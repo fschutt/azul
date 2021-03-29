@@ -65,7 +65,7 @@ by upstreaming the library into repositories once all major
 bugs are resolved.
 
 ### Building from source (crates.io)
-s
+
 By default, you should be able to run
 
 ```sh

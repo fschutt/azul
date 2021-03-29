@@ -3733,6 +3733,23 @@ mod dll {
         Active,
         Focus,
     }
+    /// Re-export of rust-allocated (stack based) `AnimationInterpolationFunction` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzAnimationInterpolationFunction {
+        Ease,
+        Linear,
+        EaseIn,
+        EaseOut,
+        EaseInOut,
+        CubicBezier(AzSvgCubicCurve),
+    }
+    /// Re-export of rust-allocated (stack based) `InterpolateContext` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzInterpolateContext {
+        pub animation_func: AzAnimationInterpolationFunction,
+        pub parent_rect_width: f32,
+        pub parent_rect_height: f32,
+        pub current_rect_width: f32,
+        pub current_rect_height: f32,
+    }
     /// Re-export of rust-allocated (stack based) `LinearColorStop` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLinearColorStop {
         pub offset: AzOptionPercentageValue,
@@ -5000,6 +5017,11 @@ mod dll {
         pub(crate) fn AzCss_fromString(_:  AzString) -> AzCss;
         pub(crate) fn AzColorU_fromStr(_:  AzString) -> AzColorU;
         pub(crate) fn AzColorU_toHash(_:  &AzColorU) -> AzString;
+        pub(crate) fn AzCssProperty_getKeyString(_:  &AzCssProperty) -> AzString;
+        pub(crate) fn AzCssProperty_getValueString(_:  &AzCssProperty) -> AzString;
+        pub(crate) fn AzCssProperty_getKeyValueString(_:  &AzCssProperty) -> AzString;
+        pub(crate) fn AzCssProperty_getType(_:  &AzCssProperty) -> AzCssPropertyType;
+        pub(crate) fn AzCssProperty_interpolate(_:  &AzCssProperty, _:  AzCssProperty, _:  f32, _:  AzInterpolateContext) -> AzCssProperty;
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
@@ -7155,6 +7177,12 @@ pub mod css {
     /// `CssPropertyType` struct
     
 #[doc(inline)] pub use crate::dll::AzCssPropertyType as CssPropertyType;
+    /// `AnimationInterpolationFunction` struct
+    
+#[doc(inline)] pub use crate::dll::AzAnimationInterpolationFunction as AnimationInterpolationFunction;
+    /// `InterpolateContext` struct
+    
+#[doc(inline)] pub use crate::dll::AzInterpolateContext as InterpolateContext;
     /// `ColorU` struct
     
 #[doc(inline)] pub use crate::dll::AzColorU as ColorU;
@@ -7660,6 +7688,19 @@ pub mod css {
     /// Parsed CSS key-value pair
     
 #[doc(inline)] pub use crate::dll::AzCssProperty as CssProperty;
+    impl CssProperty {
+        /// Returns the key of the CSS property as a string, i.e. `background`
+        pub fn get_key_string(&self)  -> crate::str::String { unsafe { crate::dll::AzCssProperty_getKeyString(self) } }
+        /// Returns the value of the CSS property as a string, i.e. `linear-gradient(red, blue)`
+        pub fn get_value_string(&self)  -> crate::str::String { unsafe { crate::dll::AzCssProperty_getValueString(self) } }
+        /// Returns the CSS key-value pair as a string, i.e. `background: linear-gradient(red, blue)`
+        pub fn get_key_value_string(&self)  -> crate::str::String { unsafe { crate::dll::AzCssProperty_getKeyValueString(self) } }
+        /// Returns the CSS property type enum
+        pub fn get_type(&self)  -> crate::css::CssPropertyType { unsafe { crate::dll::AzCssProperty_getType(self) } }
+        /// Interpolates two CSS properties given a value `t` ranging from 0.0 to 1.0. The interpolation function can be set on the `context` (`Ease`, `Linear`, etc.).
+        pub fn interpolate(&self, other: CssProperty, t: f32, context: InterpolateContext)  -> crate::css::CssProperty { unsafe { crate::dll::AzCssProperty_interpolate(self, other, t, context) } }
+    }
+
 }
 
 pub mod style {
