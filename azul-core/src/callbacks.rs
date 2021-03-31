@@ -1548,15 +1548,12 @@ impl HidpiAdjustedBounds {
     }
 
     pub fn get_physical_size(&self) -> PhysicalSize<u32> {
+        // NOTE: hidpi factor, not system_hidpi_factor!
         self.get_logical_size().to_physical(self.hidpi_factor)
     }
 
     pub fn get_logical_size(&self) -> LogicalSize {
-        // NOTE: hidpi factor, not system_hidpi_factor!
-        LogicalSize::new(
-            self.logical_size.width * self.hidpi_factor,
-            self.logical_size.height * self.hidpi_factor
-        )
+        self.logical_size
     }
 
     pub fn get_hidpi_factor(&self) -> f32 {
