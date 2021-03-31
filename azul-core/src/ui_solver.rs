@@ -1509,6 +1509,9 @@ impl ComputedTransform3D {
         axis_y: f32,
         axis_z: f32,
     ) -> Self {
+
+        let degrees = -degrees; // CSS rotations are clockwise
+
         let (origin_x, origin_y) = rotation_origin;
         let pre_transform = Self::new_translation(-origin_x, -origin_y, -0.0);
         let post_transform = Self::new_translation(origin_x, origin_y, 0.0);
