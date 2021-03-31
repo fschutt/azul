@@ -44,7 +44,7 @@ use crate::{
         CascadeInfo, CascadeInfoVec, construct_html_cascade_tree,
         matches_html_element, rule_ends_with,
     },
-    app_resources::{AppResources, ImageId, Au, ImmediateFontId},
+    app_resources::{AppResources, ImmediateImageId, ImageId, Au, ImmediateFontId},
 };
 
 #[repr(C)]

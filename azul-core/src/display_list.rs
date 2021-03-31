@@ -610,7 +610,7 @@ impl SolvedLayout {
         use crate::{
             app_resources::{
                 AddImage, ExternalImageData, ImageBufferKind, ExternalImageType,
-                ImageData, add_resources, garbage_collect_fonts_and_images,
+                ImageData, add_resources,
             },
             callbacks::{GlCallbackInfo, HidpiAdjustedBounds},
             gl::insert_into_active_gl_textures,
@@ -745,7 +745,7 @@ impl SolvedLayout {
         }
 
         // Delete unused font and image keys (that were not used in this display list)
-        garbage_collect_fonts_and_images(app_resources, all_resource_updates, &pipeline_id);
+        app_resources.end_gc(pipeline_id, all_resource_updates);
         // Add the new GL textures to the RenderApi
         add_resources(app_resources, all_resource_updates, &pipeline_id, Vec::new(), image_resource_updates);
 
