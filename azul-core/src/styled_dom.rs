@@ -10,7 +10,7 @@ use azul_css::{
 
     StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
     StyleBackgroundSizeVecValue, StyleBackgroundRepeatVecValue,
-    StyleFontSizeValue, StyleFontFamilyValue, StyleTextColorValue,
+    StyleFontSizeValue, StyleFontFamily, StyleFontFamilyVec, StyleFontFamilyVecValue, StyleTextColorValue,
     StyleTextAlignmentHorzValue, StyleLineHeightValue, StyleLetterSpacingValue,
     StyleWordSpacingValue, StyleTabWidthValue, StyleCursorValue,
     StyleBoxShadowValue, StyleBorderTopColorValue, StyleBorderLeftColorValue,
@@ -557,6 +557,52 @@ macro_rules! get_property {
     }
 }
 
+/// Calculated hash of a font-family
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
+pub struct StyleFontFamilyHash(pub u64);
+
+impl ::core::fmt::Debug for StyleFontFamilyHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "StyleFontFamilyHash({})", self.0)
+    }
+}
+
+impl StyleFontFamilyHash {
+    pub(crate) fn new(family: &StyleFontFamily) -> Self {
+        use ahash::AHasher as HashAlgorithm;
+        use core::hash::{Hash, Hasher};
+
+        let mut hasher = HashAlgorithm::default();
+        family.hash(&mut hasher);
+
+        Self(hasher.finish())
+    }
+}
+
+/// Calculated hash of a font-family
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
+pub struct StyleFontFamiliesHash(pub u64);
+
+impl ::core::fmt::Debug for StyleFontFamiliesHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "StyleFontFamiliesHash({})", self.0)
+    }
+}
+
+impl StyleFontFamiliesHash {
+    pub(crate) fn new(families: &[StyleFontFamily]) -> Self {
+        use ahash::AHasher as HashAlgorithm;
+        use core::hash::{Hash, Hasher};
+
+        let mut hasher = HashAlgorithm::default();
+        for family in families {
+            family.hash(&mut hasher);
+        }
+
+        Self(hasher.finish())
+    }
+}
+
 impl CssPropertyCache {
 
     pub fn empty(node_count: usize) -> Self {
@@ -610,14 +656,16 @@ impl CssPropertyCache {
         self.get_text_color(node_data, node_id, node_state).and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_TEXT_COLOR)
     }
 
-    pub fn get_font_id_or_default(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> StringVec {
+    /// Returns the font ID of the
+    pub fn get_font_id_or_default(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> StyleFontFamilyVec {
+
         use crate::ui_solver::DEFAULT_FONT_ID;
-        let default_font_id = vec![AzString::from_const_str(DEFAULT_FONT_ID)].into();
+        let default_font_id = vec![StyleFontFamily::Native(AzString::from_const_str(DEFAULT_FONT_ID))].into();
         let font_family_opt = self.get_font_family(node_data, node_id, node_state);
 
         font_family_opt
         .as_ref()
-        .and_then(|family| Some(family.get_property()?.fonts.clone()))
+        .and_then(|family| Some(family.get_property()?.clone()))
         .unwrap_or(default_font_id)
     }
 
@@ -655,7 +703,7 @@ impl CssPropertyCache {
     pub fn get_font_size(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleFontSizeValue> {
         get_property!(self, node_data, node_id, node_state, CssPropertyType::FontSize, as_font_size)
     }
-    pub fn get_font_family(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleFontFamilyValue> {
+    pub fn get_font_family(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleFontFamilyVecValue> {
         get_property!(self, node_data, node_id, node_state, CssPropertyType::FontFamily, as_font_family)
     }
     pub fn get_text_color(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<StyleTextColorValue> {
@@ -1396,12 +1444,24 @@ impl StyledDom {
                 let node_id = NodeId::new(node_id);
                 match node_data.get_node_type() {
                     Label(_) => {
-                        let css_font_ids = self.get_css_property_cache().get_font_id_or_default(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state);
-                        let font_size = self.get_css_property_cache().get_font_size_or_default(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state);
-                        let font_id = match app_resources.css_ids_to_font_ids.get(&css_font_ids) {
-                            Some(s) => ImmediateFontId::Resolved(*s),
+
+                        let css_font_ids = self.get_css_property_cache()
+                        .get_font_id_or_default(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state);
+
+                        let font_size = self.get_css_property_cache()
+                        .get_font_size_or_default(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state);
+
+                        let style_font_family_hash = StyleFontFamiliesHash::new(&css_font_ids);
+
+                        let existing_font_key = app_resources.font_families_map
+                        .get(&style_font_family_hash)
+                        .and_then(|font_family| app_resources.font_id_map.get(&font_family));
+
+                        let font_id = match existing_font_key {
+                            Some(font_key) => ImmediateFontId::Resolved((style_font_family_hash, *font_key)),
                             None => ImmediateFontId::Unresolved(css_font_ids),
                         };
+
                         Some((font_id, font_size_to_au(font_size)))
                     },
                     _ => None
@@ -1418,7 +1478,7 @@ impl StyledDom {
 
     /// Scans the display list for all image keys
     #[cfg(feature = "multithreading")]
-    pub(crate) fn scan_for_image_keys(&self, app_resources: &AppResources) -> FastBTreeSet<ImageId> {
+    pub(crate) fn scan_for_image_keys(&self, app_resources: &AppResources) -> FastBTreeSet<ImmediateImageId> {
 
         use crate::dom::NodeType::*;
         use crate::app_resources::OptionImageMask;
@@ -1426,9 +1486,9 @@ impl StyledDom {
 
         #[derive(Default)]
         struct ScanImageVec {
-            node_type_image: Option<ImageId>,
-            background_image: Vec<ImageId>,
-            clip_mask: Option<ImageId>,
+            node_type_image: Option<ImmediateImageId>,
+            background_image: Vec<ImmediateImageId>,
+            clip_mask: Option<ImmediateImageId>,
         }
 
         use rayon::prelude::*;

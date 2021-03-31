@@ -16,9 +16,9 @@ impl PrintAsCssValue for StyleFontSize {
     }
 }
 
-impl PrintAsCssValue for StyleFontFamily {
+impl PrintAsCssValue for StyleFontFamilyVec {
     fn print_as_css_value(&self) -> String {
-        self.fonts.iter().map(|f| f.as_str()).collect::<Vec<_>>().join(", ")
+        self.iter().map(|f| f.as_string()).collect::<Vec<_>>().join(", ")
     }
 }
 

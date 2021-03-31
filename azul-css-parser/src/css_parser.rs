@@ -27,7 +27,7 @@ use azul_css::{
     LayoutBorderLeftWidth, LayoutBorderBottomWidth, StyleTransform, StyleTransformOrigin,
     StylePerspectiveOrigin, StyleBackfaceVisibility, StyleOpacity, StyleTransformVec,
     StyleBackgroundContentVec, StyleBackgroundPositionVec, StyleBackgroundSizeVec,
-    StyleBackgroundRepeatVec,
+    StyleBackgroundRepeatVec, StyleFontFamilyVec,
 
     LayoutDisplay, LayoutFloat, LayoutWidth, LayoutHeight, LayoutBoxSizing,
     LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, LayoutMaxHeight,
@@ -2758,7 +2758,7 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
 ///
 /// assert_eq!(parse_style_font_family(input), Ok(StyleFontFamily { fonts }));
 /// ```
-pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, CssStyleFontFamilyParseError<'a>> {
+pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamilyVec, CssStyleFontFamilyParseError<'a>> {
     use alloc::string::ToString;
 
     let multiple_fonts = input.split(',');
@@ -2769,10 +2769,10 @@ pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, Cs
         let font = font.trim_matches('\'');
         let font = font.trim_matches('\"');
         let font = font.trim();
-        fonts.push(font.to_string());
+        fonts.push(StyleFontFamily::Native(font.to_string().into()));
     }
 
-    Ok(StyleFontFamily { fonts: fonts.into() })
+    Ok(fonts.into())
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]

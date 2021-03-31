@@ -2,6 +2,7 @@ use core::{
     fmt,
     any::Any,
     sync::atomic::{AtomicUsize, AtomicU32, Ordering},
+    hash::{Hash, Hasher},
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -10,17 +11,20 @@ use alloc::string::String;
 use azul_css::{
     OptionU16, OptionU32, OptionI16, LayoutRect, StyleFontSize, LayoutSize,
     ColorU, U8Vec, U16Vec, F32Vec, U32Vec, AzString, OptionI32, StringVec,
+    FontRef, OptionFontRef, FontData, StyleFontFamilyVec, StyleFontFamily,
 };
 use crate::{
     FastHashMap, FastBTreeSet,
     ui_solver::{ResolvedTextLayoutOptions, InlineTextLayout},
     display_list::GlyphInstance,
-    styled_dom::StyledDom,
+    styled_dom::{StyledDom, StyleFontFamilyHash, StyleFontFamiliesHash},
     callbacks::{PipelineId, InlineText},
     task::ExternalSystemCallbacks,
+    gl::Texture,
     window::{LogicalPosition, LogicalSize, OptionChar, LogicalRect},
 };
 use rust_fontconfig::FcFontCache;
+pub use azul_css::FontMetrics;
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -62,218 +66,6 @@ pub enum AppLogLevel {
     Info,
     Debug,
     Trace,
-}
-
-pub type CssImageId = String;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct FontMetrics {
-
-    // head table
-
-    pub units_per_em: u16,
-    pub font_flags: u16,
-    pub x_min: i16,
-    pub y_min: i16,
-    pub x_max: i16,
-    pub y_max: i16,
-
-    // hhea table
-
-    pub ascender: i16,
-    pub descender: i16,
-    pub line_gap: i16,
-    pub advance_width_max: u16,
-    pub min_left_side_bearing: i16,
-    pub min_right_side_bearing: i16,
-    pub x_max_extent: i16,
-    pub caret_slope_rise: i16,
-    pub caret_slope_run: i16,
-    pub caret_offset: i16,
-    pub num_h_metrics: u16,
-
-    // os/2 table
-
-    pub x_avg_char_width: i16,
-    pub us_weight_class: u16,
-    pub us_width_class: u16,
-    pub fs_type: u16,
-    pub y_subscript_x_size: i16,
-    pub y_subscript_y_size: i16,
-    pub y_subscript_x_offset: i16,
-    pub y_subscript_y_offset: i16,
-    pub y_superscript_x_size: i16,
-    pub y_superscript_y_size: i16,
-    pub y_superscript_x_offset: i16,
-    pub y_superscript_y_offset: i16,
-    pub y_strikeout_size: i16,
-    pub y_strikeout_position: i16,
-    pub s_family_class: i16,
-    pub panose: [u8; 10],
-    pub ul_unicode_range1: u32,
-    pub ul_unicode_range2: u32,
-    pub ul_unicode_range3: u32,
-    pub ul_unicode_range4: u32,
-    pub ach_vend_id: u32,
-    pub fs_selection: u16,
-    pub us_first_char_index: u16,
-    pub us_last_char_index: u16,
-
-    // os/2 version 0 table
-
-    pub s_typo_ascender: OptionI16,
-    pub s_typo_descender: OptionI16,
-    pub s_typo_line_gap: OptionI16,
-    pub us_win_ascent: OptionU16,
-    pub us_win_descent: OptionU16,
-
-    // os/2 version 1 table
-
-    pub ul_code_page_range1: OptionU32,
-    pub ul_code_page_range2: OptionU32,
-
-    // os/2 version 2 table
-
-    pub sx_height: OptionI16,
-    pub s_cap_height: OptionI16,
-    pub us_default_char: OptionU16,
-    pub us_break_char: OptionU16,
-    pub us_max_context: OptionU16,
-
-    // os/2 version 3 table
-
-    pub us_lower_optical_point_size: OptionU16,
-    pub us_upper_optical_point_size: OptionU16,
-}
-
-impl Default for FontMetrics {
-    fn default() -> Self {
-        FontMetrics::zero()
-    }
-}
-
-impl FontMetrics {
-
-    /// Only for testing, zero-sized font, will always return 0 for every metric (`units_per_em = 1000`)
-    pub const fn zero() -> Self {
-        FontMetrics {
-            units_per_em: 1000,
-            font_flags: 0,
-            x_min: 0,
-            y_min: 0,
-            x_max: 0,
-            y_max: 0,
-            ascender: 0,
-            descender: 0,
-            line_gap: 0,
-            advance_width_max: 0,
-            min_left_side_bearing: 0,
-            min_right_side_bearing: 0,
-            x_max_extent: 0,
-            caret_slope_rise: 0,
-            caret_slope_run: 0,
-            caret_offset: 0,
-            num_h_metrics: 0,
-            x_avg_char_width: 0,
-            us_weight_class: 0,
-            us_width_class: 0,
-            fs_type: 0,
-            y_subscript_x_size: 0,
-            y_subscript_y_size: 0,
-            y_subscript_x_offset: 0,
-            y_subscript_y_offset: 0,
-            y_superscript_x_size: 0,
-            y_superscript_y_size: 0,
-            y_superscript_x_offset: 0,
-            y_superscript_y_offset: 0,
-            y_strikeout_size: 0,
-            y_strikeout_position: 0,
-            s_family_class: 0,
-            panose: [0;10],
-            ul_unicode_range1: 0,
-            ul_unicode_range2: 0,
-            ul_unicode_range3: 0,
-            ul_unicode_range4: 0,
-            ach_vend_id: 0,
-            fs_selection: 0,
-            us_first_char_index: 0,
-            us_last_char_index: 0,
-            s_typo_ascender: OptionI16::None,
-            s_typo_descender: OptionI16::None,
-            s_typo_line_gap: OptionI16::None,
-            us_win_ascent: OptionU16::None,
-            us_win_descent: OptionU16::None,
-            ul_code_page_range1: OptionU32::None,
-            ul_code_page_range2: OptionU32::None,
-            sx_height: OptionI16::None,
-            s_cap_height: OptionI16::None,
-            us_default_char: OptionU16::None,
-            us_break_char: OptionU16::None,
-            us_max_context: OptionU16::None,
-            us_lower_optical_point_size: OptionU16::None,
-            us_upper_optical_point_size: OptionU16::None,
-        }
-    }
-
-    /// If set, use `OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap` to calculate the height
-    ///
-    /// See [`USE_TYPO_METRICS`](https://docs.microsoft.com/en-us/typography/opentype/spec/os2#fss)
-    pub fn use_typo_metrics(&self) -> bool {
-        self.fs_selection & (1 << 7) != 0
-    }
-
-    pub fn get_ascender_unscaled(&self) -> i16 {
-        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_ascender.into() };
-        match use_typo {
-            Some(s) => s,
-            None => self.ascender
-        }
-    }
-
-    /// NOTE: descender is NEGATIVE
-    pub fn get_descender_unscaled(&self) -> i16 {
-        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_descender.into() };
-        match use_typo {
-            Some(s) => s,
-            None => self.descender
-        }
-    }
-
-    pub fn get_line_gap_unscaled(&self) -> i16 {
-        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_line_gap.into() };
-        match use_typo {
-            Some(s) => s,
-            None => self.line_gap
-        }
-    }
-
-    pub fn get_x_min(&self, target_font_size: f32) -> f32 { self.x_min as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_y_min(&self, target_font_size: f32) -> f32 { self.y_min as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_x_max(&self, target_font_size: f32) -> f32 { self.x_max as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_y_max(&self, target_font_size: f32) -> f32 { self.y_max as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_advance_width_max(&self, target_font_size: f32) -> f32 { self.advance_width_max as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_min_left_side_bearing(&self, target_font_size: f32) -> f32 { self.min_left_side_bearing as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_min_right_side_bearing(&self, target_font_size: f32) -> f32 { self.min_right_side_bearing as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_x_max_extent(&self, target_font_size: f32) -> f32 { self.x_max_extent as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_x_avg_char_width(&self, target_font_size: f32) -> f32 { self.x_avg_char_width as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_y_subscript_x_size(&self, target_font_size: f32) -> f32 { self.y_subscript_x_size as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_y_subscript_y_size(&self, target_font_size: f32) -> f32 { self.y_subscript_y_size as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_y_subscript_x_offset(&self, target_font_size: f32) -> f32 { self.y_subscript_x_offset as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_y_subscript_y_offset(&self, target_font_size: f32) -> f32 { self.y_subscript_y_offset as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_y_superscript_x_size(&self, target_font_size: f32) -> f32 { self.y_superscript_x_size as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_y_superscript_y_size(&self, target_font_size: f32) -> f32 { self.y_superscript_y_size as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_y_superscript_x_offset(&self, target_font_size: f32) -> f32 { self.y_superscript_x_offset as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_y_superscript_y_offset(&self, target_font_size: f32) -> f32 { self.y_superscript_y_offset as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_y_strikeout_size(&self, target_font_size: f32) -> f32 { self.y_strikeout_size as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_y_strikeout_position(&self, target_font_size: f32) -> f32 { self.y_strikeout_position as f32 / self.units_per_em as f32 * target_font_size }
-    pub fn get_s_typo_ascender(&self, target_font_size: f32) -> Option<f32> { self.s_typo_ascender.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
-    pub fn get_s_typo_descender(&self, target_font_size: f32) -> Option<f32> { self.s_typo_descender.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
-    pub fn get_s_typo_line_gap(&self, target_font_size: f32) -> Option<f32> { self.s_typo_line_gap.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
-    pub fn get_us_win_ascent(&self, target_font_size: f32) -> Option<f32> { self.us_win_ascent.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
-    pub fn get_us_win_descent(&self, target_font_size: f32) -> Option<f32> { self.us_win_descent.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
-    pub fn get_sx_height(&self, target_font_size: f32) -> Option<f32> { self.sx_height.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
-    pub fn get_s_cap_height(&self, target_font_size: f32) -> Option<f32> { self.s_cap_height.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
 }
 
 pub type WordIndex = usize;
@@ -410,6 +202,104 @@ impl FontInstanceKey {
     }
 }
 
+// NOTE: This type should NOT be exposed in the API!
+// The only public functions are the constructors
+#[derive(Debug)]
+pub enum DecodedImage {
+    Gl(Texture),
+    Raw(RawImage),
+    // Vulkan(...), Metal(...), DxSurface(...)
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct ImageRef {
+    /// Shared pointer to an opaque implementation of the decoded image
+    pub data: *const DecodedImage,
+    /// How many copies does this image have (if 0, the font data will be deleted on drop)
+    pub copies: *const usize,
+}
+
+impl_option!(ImageRef, OptionImageRef, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
+
+impl ImageRef {
+
+    pub fn new_rawimage(image_data: RawImage) -> Self {
+        ImageRef::new(DecodedImage::Raw(image_data))
+    }
+
+    pub fn new_gltexture(texture: Texture) -> Self {
+        ImageRef::new(DecodedImage::Gl(texture))
+    }
+
+    // pub fn new_vulkan(...) -> Self
+}
+
+unsafe impl Send for ImageRef { }
+unsafe impl Sync for ImageRef { }
+
+impl PartialEq for ImageRef {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.data as usize == rhs.data as usize
+    }
+}
+
+impl PartialOrd for ImageRef {
+    fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
+        Some((self.data as usize).cmp(&(other.data as usize)))
+    }
+}
+
+impl Ord for ImageRef {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        let self_data = self.data as usize;
+        let other_data = other.data as usize;
+        self_data.cmp(&other_data)
+    }
+}
+
+impl Eq for ImageRef { }
+
+impl Hash for ImageRef {
+    fn hash<H>(&self, state: &mut H) where H: Hasher {
+        let self_data = self.data as usize;
+        self_data.hash(state)
+    }
+}
+
+impl ImageRef {
+    pub fn new(data: DecodedImage) -> Self {
+        Self {
+            data: Box::into_raw(Box::new(data)),
+            copies: Box::into_raw(Box::new(0)),
+        }
+    }
+}
+
+impl Clone for ImageRef {
+    fn clone(&self) -> Self {
+        unsafe { *(self.copies as *mut usize) += 1; }
+        Self {
+            data: self.data, // copy the pointer
+            copies: self.copies, // copy the pointer
+        }
+    }
+}
+
+impl Drop for ImageRef {
+    fn drop(&mut self) {
+        unsafe {
+            if *self.copies == 0 {
+                let _ = Box::from_raw(self.data as *mut ImageData);
+                let _ = Box::from_raw(self.copies as *mut usize);
+            } else {
+                *(self.copies as *mut usize) -= 1;
+            }
+        }
+    }
+}
+
+
 /// Stores the resources for the application, souch as fonts, images and cached
 /// texts, also clipboard strings
 ///
@@ -417,42 +307,34 @@ impl FontInstanceKey {
 /// but should work).
 #[derive(Debug)]
 pub struct AppResources {
-    /// The CssImageId is the string used in the CSS, i.e. "my_image" -> ImageId(4)
-    pub css_ids_to_image_ids: FastHashMap<CssImageId, ImageId>,
-    /// Same as CssImageId -> ImageId, but for fonts, i.e. "Roboto" -> FontId(9)
-    pub css_ids_to_font_ids: FastHashMap<StringVec, FontId>,
-    /// Stores where the images were loaded from
-    pub image_sources: FastHashMap<ImageId, ImageSource>,
-    /// Stores where the fonts were loaded from
-    pub font_sources: FastHashMap<FontId, FontSource>,
+    /// The AzString is the string used in the CSS, i.e. url("my_image") = "my_image" -> ImageId(4)
+    ///
+    /// NOTE: This is the only map that is modifiable by the user, all other maps are library-internal only!
+    pub image_id_map: FastHashMap<AzString, ImageRef>,
+
     /// All image keys currently active in the RenderApi
-    pub currently_registered_images: FastHashMap<PipelineId, FastHashMap<ImageId, ImageInfo>>,
+    pub currently_registered_images: FastHashMap<PipelineId, FastHashMap<ImageKey, ImageRef>>,
+    pub last_frame_registered_images: FastHashMap<PipelineId, FastBTreeSet<ImageKey>>,
+    /// Map from the calculated families vec (["Arial", "Helvectia"]) to the final loaded font that could be loaded
+    /// (in this case "Arial" on Windows and "Helvetica" on Mac, because the fonts are loaded in fallback-order)
+    pub font_families_map: FastHashMap<StyleFontFamiliesHash, StyleFontFamilyHash>,
+    /// Same as AzString -> ImageId, but for fonts, i.e. "Roboto" -> FontId(9)
+    pub font_id_map: FastHashMap<StyleFontFamilyHash, FontKey>,
     /// All font keys currently active in the RenderApi
-    pub currently_registered_fonts: FastHashMap<PipelineId, FastHashMap<ImmediateFontId, LoadedFont>>,
-    /// If an image isn't displayed, it is deleted from memory, only
-    /// the `ImageSource` (i.e. the path / source where the image was loaded from) remains.
-    ///
-    /// This way the image can be re-loaded if necessary but doesn't have to reside in memory at all times.
-    pub last_frame_image_keys: FastHashMap<PipelineId, FastBTreeSet<ImageId>>,
-    /// If a font does not get used for one frame, the corresponding instance key gets
-    /// deleted. If a FontId has no FontInstanceKeys anymore, the font key gets deleted.
-    ///
-    /// The only thing remaining in memory permanently is the FontSource (which is only
-    /// the string of the file path where the font was loaded from, so no huge memory pressure).
-    pub last_frame_font_keys: FastHashMap<PipelineId, FastHashMap<ImmediateFontId, FastBTreeSet<Au>>>,
+    pub currently_registered_fonts: FastHashMap<PipelineId, FastHashMap<FontKey, (FontRef, FastHashMap<Au, FontInstanceKey>)>>,
+    pub last_frame_registered_fonts: FastHashMap<PipelineId, FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>>,
 }
 
 impl Default for AppResources {
     fn default() -> Self {
         Self {
-            css_ids_to_image_ids: FastHashMap::default(),
-            css_ids_to_font_ids: FastHashMap::<StringVec, FontId>::new(),
-            image_sources: FastHashMap::default(),
-            font_sources: FastHashMap::default(),
+            image_id_map: FastHashMap::default(),
             currently_registered_images: FastHashMap::default(),
+            last_frame_registered_images: FastHashMap::default(),
+            font_families_map: FastHashMap::default(),
+            font_id_map: FastHashMap::default(),
             currently_registered_fonts: FastHashMap::default(),
-            last_frame_image_keys: FastHashMap::default(),
-            last_frame_font_keys: FastHashMap::default(),
+            last_frame_registered_fonts: FastHashMap::default(),
         }
     }
 }
@@ -463,38 +345,35 @@ impl AppResources {
     pub fn add_pipeline(&mut self, pipeline_id: PipelineId) {
         self.currently_registered_fonts.insert(pipeline_id, FastHashMap::default());
         self.currently_registered_images.insert(pipeline_id, FastHashMap::default());
-        self.last_frame_font_keys.insert(pipeline_id, FastHashMap::default());
-        self.last_frame_image_keys.insert(pipeline_id, FastBTreeSet::default());
     }
 
     /// Delete and remove all fonts & font instance keys from a given pipeline
     pub fn delete_pipeline(&mut self, pipeline_id: &PipelineId, all_resource_updates: &mut Vec<ResourceUpdate>) {
         let mut delete_font_resources = Vec::new();
 
-        for (font_id, loaded_font) in self.currently_registered_fonts[&pipeline_id].iter() {
+        for (font_id, font_instances) in self.currently_registered_fonts[&pipeline_id].iter() {
             delete_font_resources.extend(
-                loaded_font.font_instances.iter()
-                .map(|(au, font_instance_key)| (font_id.clone(), DeleteFontMsg::Instance(*font_instance_key, *au)))
+                font_instances.1
+                .iter()
+                .map(|(au, font_instance_key)| {
+                    (font_id.clone(), DeleteFontMsg::Instance(*font_instance_key, *au))
+                })
             );
-            delete_font_resources.push((font_id.clone(), DeleteFontMsg::Font(loaded_font.font_key)));
+
+            delete_font_resources.push((font_id.clone(), DeleteFontMsg::Font(font_id.clone())));
         }
 
-        let delete_image_resources = self.currently_registered_images[&pipeline_id].iter()
-        .map(|(id, info)| (*id, DeleteImageMsg(info.key, *info)))
-        .collect();
+        let delete_image_resources = self.currently_registered_images[&pipeline_id]
+        .iter().map(|(k, _)|(*k, DeleteImageMsg(*k))).collect();
 
         delete_resources(self, all_resource_updates, pipeline_id, delete_font_resources, delete_image_resources);
 
         self.currently_registered_fonts.remove(pipeline_id);
         self.currently_registered_images.remove(pipeline_id);
-        self.last_frame_font_keys.remove(pipeline_id);
-        self.last_frame_image_keys.remove(pipeline_id);
     }
 }
 
 macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
-
-    static $counter_name: ::core::sync::atomic::AtomicUsize = ::core::sync::atomic::AtomicUsize::new(0);
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
     #[repr(C)]
@@ -505,15 +384,20 @@ macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
     impl $struct_name {
 
         pub fn unique() -> Self {
-            Self { id: $counter_name.fetch_add(1, ::core::sync::atomic::Ordering::SeqCst) }
+            Self { id: $counter_name.fetch_add(1, core::sync::atomic::Ordering::SeqCst) }
         }
     }
 }}
 
-unique_id!(TransformKey, TRANSFORM_KEY_COUNTER);
-unique_id!(ColorKey, COLOR_KEY_COUNTER);
-unique_id!(OpacityKey, OPACITY_KEY_COUNTER);
+// NOTE: the property key is unique across transform, color and opacity properties
+static PROPERTY_KEY_COUNTER: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+unique_id!(TransformKey, PROPERTY_KEY_COUNTER);
+unique_id!(ColorKey, PROPERTY_KEY_COUNTER);
+unique_id!(OpacityKey, PROPERTY_KEY_COUNTER);
+
+static IMAGE_ID_COUNTER: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 unique_id!(ImageId, IMAGE_ID_COUNTER);
+static FONT_ID_COUNTER: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 unique_id!(FontId, FONT_ID_COUNTER);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -538,54 +422,15 @@ pub struct ImageMask {
 impl_option!(ImageMask, OptionImageMask, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub enum FontSource {
-    /// The font is embedded inside the binary file
-    Embedded(EmbeddedFontSource),
-    /// The font is loaded from a file
-    File(FileFontSource),
-    /// The font is a system built-in font
-    System(SystemFontSource),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct EmbeddedFontSource {
-    pub postscript_id: AzString,
-    pub font_data: U8Vec,
-    pub load_glyph_outlines: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct FileFontSource {
-    pub postscript_id: AzString,
-    pub file_path: AzString,
-    pub load_glyph_outlines: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct SystemFontSource {
-    pub names: StringVec,
-    pub load_glyph_outlines: bool,
-}
-
-impl fmt::Display for FontSource {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::FontSource::*;
-        match self {
-            Embedded(e) => write!(f, "Embedded({})", e.postscript_id.as_str()),
-            File(p) => write!(f, "File({}, \"{}\")", p.postscript_id.as_str(), p.file_path.as_str()),
-            System(ids) => write!(f, "System(\"{:#?}\")", ids),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ImmediateFontId {
-    Resolved(FontId),
-    Unresolved(StringVec),
+    Resolved((StyleFontFamilyHash, FontKey)),
+    Unresolved(StyleFontFamilyVec),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ImmediateImageId {
+    Resolved(ImageKey),
+    Unresolved(AzString),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -993,43 +838,6 @@ impl RawImage {
 }
 
 impl_option!(RawImage, OptionRawImage, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
-
-pub struct LoadedFont {
-    pub font_key: FontKey,
-    // NOTE(fschutt): This is ugly and a hack, but currently I'm too lazy
-    // to do it properly: azul-core should not depend on any crate,
-    // but the LoadedFont should store the parsed font tables (so that parsing
-    // the font is cached and has to be done once).
-    //
-    // The proper way would be to copy + paste all data structures from allsorts
-    // and azul-text-layout, but the improper way is to store it as a Box<Any>
-    // and just upcast / downcast it
-    pub font: Box<dyn Any>, // = Box<azul_text_layout::Font>
-    pub font_instances: FastHashMap<Au, FontInstanceKey>,
-    pub font_metrics: FontMetrics,
-}
-
-// TODO: Theoretically, azul_text_layout::ParsedFont is NOT thread-safe
-// because it uses Rc internally. However, the context in which this Send + Sync
-// is necessary (to build the display list in parallel), no font-decoding
-// functions get called, therefore no data races can happen. When the font is
-// used, it needs to be downcasted to a ParsedFont - at which point this
-// impl doesn't apply anymore and the compiler will warn again that
-// ParsedFont isn't threadsafe.
-unsafe impl Send for LoadedFont { }
-unsafe impl Sync for LoadedFont { }
-
-impl fmt::Debug for LoadedFont {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "LoadedFont {{ font_key: {:?}, font_instances: {:#?} }}", self.font_key, self.font_instances)
-    }
-}
-
-impl LoadedFont {
-    pub fn delete_font_instance(&mut self, size: &Au) {
-        self.font_instances.remove(size);
-    }
-}
 
 /// Text broken up into `Tab`, `Word()`, `Return` characters
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1538,110 +1346,18 @@ impl AppResources {
         Self::default()
     }
 
-    /// Returns the IDs of all currently loaded fonts in `self.font_data`
-    pub fn get_loaded_font_ids(&self) -> Vec<FontId> {
-        self.font_sources.keys().cloned().collect()
-    }
-
-    pub fn get_loaded_image_ids(&self) -> Vec<ImageId> {
-        self.image_sources.keys().cloned().collect()
-    }
-
-    pub fn get_loaded_css_image_ids(&self) -> Vec<CssImageId> {
-        self.css_ids_to_image_ids.keys().cloned().collect()
-    }
-
-    pub fn get_loaded_css_font_ids(&self) -> Vec<StringVec> {
-        self.css_ids_to_font_ids.keys().cloned().collect()
-    }
-
     // -- ImageId cache
 
-    /// Add an image from a PNG, JPEG or other source.
-    ///
-    /// Note: For specialized image formats, you'll have to enable them as
-    /// features in the Cargo.toml file.
-    pub fn add_image_source(&mut self, image_id: ImageId, image_source: ImageSource) {
-        self.image_sources.insert(image_id, image_source);
+    pub fn add_css_image_id(&mut self, css_id: AzString, image: ImageRef) {
+        self.image_id_map.insert(css_id, image);
     }
 
-    /// Returns whether the AppResources has currently a certain image ID registered
-    pub fn has_image_source(&self, image_id: &ImageId) -> bool {
-        self.image_sources.get(image_id).is_some()
+    pub fn get_css_image_id(&self, css_id: &AzString) -> Option<&ImageRef> {
+        self.image_id_map.get(css_id)
     }
 
-    /// Given an `ImageId`, returns the decoded bytes of that image or `None`, if the `ImageId` is invalid.
-    /// Returns an error on IO failure / image decoding failure or image
-    pub fn get_image_source(&self, image_id: &ImageId) -> Option<&ImageSource> {
-        self.image_sources.get(image_id)
-    }
-
-    pub fn delete_image_source(&mut self, image_id: &ImageId) {
-        self.image_sources.remove(image_id);
-    }
-
-    pub fn add_css_image_id<S: Into<String>>(&mut self, css_id: S) -> ImageId {
-        *self.css_ids_to_image_ids.entry(css_id.into()).or_insert_with(|| ImageId::unique())
-    }
-
-    pub fn has_css_image_id(&self, css_id: &str) -> bool {
-        self.get_css_image_id(css_id).is_some()
-    }
-
-    pub fn get_css_image_id(&self, css_id: &str) -> Option<&ImageId> {
-        self.css_ids_to_image_ids.get(css_id)
-    }
-
-    pub fn delete_css_image_id(&mut self, css_id: &str) -> Option<ImageId> {
-        self.css_ids_to_image_ids.remove(css_id)
-    }
-
-    pub fn get_image_info(&self, pipeline_id: &PipelineId, image_key: &ImageId) -> Option<&ImageInfo> {
-        self.currently_registered_images.get(pipeline_id).and_then(|map| map.get(image_key))
-    }
-
-    // -- FontId cache
-
-    pub fn add_css_font_id(&mut self, css_id: StringVec) -> FontId {
-        *self.css_ids_to_font_ids.entry(css_id).or_insert_with(|| FontId::unique())
-    }
-
-    pub fn has_css_font_id(&self, css_id: &StringVec) -> bool {
-        self.get_css_font_id(css_id).is_some()
-    }
-
-    pub fn get_css_font_id(&self, css_id: &StringVec) -> Option<&FontId> {
-        self.css_ids_to_font_ids.get(css_id)
-    }
-
-    pub fn delete_css_font_id(&mut self, css_id: &StringVec) -> Option<FontId> {
-        self.css_ids_to_font_ids.remove(css_id)
-    }
-
-    pub fn add_font_source(&mut self, font_id: FontId, font_source: FontSource) {
-        self.font_sources.insert(font_id, font_source);
-    }
-
-    /// Given a `FontId`, returns the bytes for that font or `None`, if the `FontId` is invalid.
-    pub fn get_font_source(&self, font_id: &FontId) -> Option<&FontSource> {
-        self.font_sources.get(font_id)
-    }
-
-    /// Checks if a `FontId` is valid, i.e. if a font is currently ready-to-use
-    pub fn has_font_source(&self, id: &FontId) -> bool {
-        self.font_sources.get(id).is_some()
-    }
-
-    pub fn delete_font_source(&mut self, id: &FontId) {
-        self.font_sources.remove(id);
-    }
-
-    pub fn get_loaded_font(&self, pipeline_id: &PipelineId, font_id: &ImmediateFontId) -> Option<&LoadedFont> {
-        self.currently_registered_fonts.get(pipeline_id).and_then(|map| map.get(font_id))
-    }
-
-    pub fn get_loaded_font_mut(&mut self, pipeline_id: &PipelineId, font_id: &ImmediateFontId) -> Option<&mut LoadedFont> {
-        self.currently_registered_fonts.get_mut(pipeline_id).and_then(|map| map.get_mut(font_id))
+    pub fn delete_css_image_id(&mut self, css_id: &AzString) {
+        self.image_id_map.remove(css_id);
     }
 }
 
@@ -1662,13 +1378,16 @@ pub fn add_fonts_and_images(
     let font_keys = styled_dom.scan_for_font_keys(&app_resources);
     let image_keys = styled_dom.scan_for_image_keys(&app_resources);
 
-    app_resources.last_frame_font_keys.get_mut(pipeline_id).unwrap().extend(font_keys.clone().into_iter());
-    app_resources.last_frame_image_keys.get_mut(pipeline_id).unwrap().extend(image_keys.clone().into_iter());
-
     let add_font_resource_updates = build_add_font_resource_updates(app_resources, fc_cache, render_api_namespace, pipeline_id, &font_keys, load_font_fn, parse_font_fn);
     let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api_namespace, pipeline_id, &image_keys, load_image_fn);
 
-    add_resources(app_resources, all_resource_updates, pipeline_id, add_font_resource_updates, add_image_resource_updates);
+    add_resources(
+        app_resources,
+        all_resource_updates,
+        pipeline_id,
+        add_font_resource_updates,
+        add_image_resource_updates
+    );
 }
 
 /// To be called at the end of a frame (after the UI has rendered):
@@ -1984,7 +1703,7 @@ impl Au {
 // Debug, PartialEq, Eq, PartialOrd, Ord
 pub enum AddFontMsg {
     // add font: font key, font bytes + font index
-    Font(FontKey, Arc<Vec<u8>>, u32, LoadedFont),
+    Font(FontKey, StyleFontFamilyHash, FontRef),
     Instance(AddFontInstance, Au),
 }
 
@@ -2019,7 +1738,7 @@ impl DeleteFontMsg {
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct AddImageMsg(pub AddImage, pub ImageInfo);
+pub struct AddImageMsg(pub AddImage);
 
 impl AddImageMsg {
     pub fn into_resource_update(&self) -> ResourceUpdate {
@@ -2028,7 +1747,7 @@ impl AddImageMsg {
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct DeleteImageMsg(ImageKey, ImageInfo);
+pub struct DeleteImageMsg(ImageKey);
 
 impl DeleteImageMsg {
     pub fn into_resource_update(&self) -> ResourceUpdate {
@@ -2048,27 +1767,23 @@ impl_option!(LoadedImageSource, OptionLoadedImageSource, copy = false, [Debug, C
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct LoadedFontSource {
-    /// Bytes of the font file
-    pub font_bytes: U8Vec,
-    /// Index of the font in the file (if not known, set to 0) -
-    /// only relevant if the file is a font collection
-    pub font_index: u32,
-    /// Whether the outlines of this font should be parsed - can save lots of memory if disabled!
-    /// Glyph outlines are parsed in parallel
-    pub parse_glyph_outlines: bool,
+    pub data: U8Vec,
+    pub index: ImageDescriptor,
+    pub load_outlines: bool,
 }
 
 impl_option!(LoadedFontSource, OptionLoadedFontSource, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
 
 #[repr(C)]
-pub struct LoadFontFn { pub cb: extern "C" fn(&FontSource, &FcFontCache) -> OptionLoadedFontSource }
+pub struct LoadFontFn { pub cb: extern "C" fn(&StyleFontFamily, &FcFontCache) -> OptionLoadedFontSource }
 impl_callback!(LoadFontFn);
+
 #[repr(C)]
 pub struct LoadImageFn { pub cb: extern "C" fn(ImageSource) -> OptionLoadedImageSource }
 impl_callback!(LoadImageFn);
 
 // function to parse the font given the loaded font source
-pub type ParseFontFn = fn(&LoadedFontSource) -> Option<(Box<dyn Any>, FontMetrics)>; // = Option<Box<azul_text_layout::Font>>
+pub type ParseFontFn = fn(LoadedFontSource) -> Option<FontRef>; // = Option<Box<azul_text_layout::Font>>
 
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
 /// which fonts / instances are currently not in the `current_registered_fonts` and
@@ -2086,17 +1801,18 @@ pub fn build_add_font_resource_updates(
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastBTreeSet<Au>>,
     font_source_load_fn: LoadFontFn,
     parse_font_fn: ParseFontFn,
-) -> Vec<(ImmediateFontId, AddFontMsg)> {
+) -> Vec<(StyleFontFamilyHash, AddFontMsg)> {
 
     let mut resource_updates = alloc::vec::Vec::new();
+    let mut font_instances_added_this_frame = FastBTreeSet::new();
 
     for (im_font_id, font_sizes) in fonts_in_dom {
-        macro_rules! insert_font_instances {($font_id:expr, $font_key:expr, $font_index:expr, $font_size:expr) => ({
+        macro_rules! insert_font_instances {($font_family_hash:expr, $font_key:expr, $font_size:expr) => ({
 
             let font_instance_key_exists = app_resources.currently_registered_fonts[pipeline_id]
-                .get(&$font_id)
+                .get(&$font_key)
                 .and_then(|loaded_font| loaded_font.font_instances.get(&$font_size))
-                .is_some();
+                .is_some() || font_instances_added_this_frame.contains(($font_key, $font_size));
 
             if !font_instance_key_exists {
 
@@ -2128,7 +1844,8 @@ pub fn build_add_font_resource_updates(
                     .. Default::default()
                 };
 
-                resource_updates.push(($font_id, AddFontMsg::Instance(AddFontInstance {
+                font_instances_added_this_frame.insert(($font_key, $font_size));
+                resource_updates.push(($font_family_hash, AddFontMsg::Instance(AddFontInstance {
                     key: font_instance_key,
                     font_key: $font_key,
                     glyph_size: $font_size,
@@ -2139,55 +1856,89 @@ pub fn build_add_font_resource_updates(
             }
         })}
 
+        // FastHashMap<PipelineId, FastHashMap<FontId, FastBTreeSet<Au>>>,
         match app_resources.currently_registered_fonts[pipeline_id].get(im_font_id) {
-            Some(loaded_font) => {
+            Some((font_family_hash, font_id)) => {
                 for font_size in font_sizes.iter() {
-                    insert_font_instances!(im_font_id.clone(), loaded_font.font_key, loaded_font.font_index, *font_size);
+                    insert_font_instances!(*font_family_hash, font_id, *font_size);
                 }
             },
             None => {
+
+                // If the font is already loaded during the current frame,
+                // do not attempt to load it again
+                //
+                // This prevents duplicated loading for fonts in different orders, i.e.
+                // - vec!["Times New Roman", "serif"] and
+                // - vec!["sans", "Times New Roman"]
+                // ... will resolve to the same font instead of creating two fonts
+
                 use self::ImmediateFontId::*;
 
                 // If there is no font key, that means there's also no font instances
-                let font_source = match im_font_id {
-                    Resolved(font_id) => {
-                        match app_resources.font_sources.get(font_id) {
-                            Some(s) => s.clone(),
-                            None => continue,
+                let style_font_families = match im_font_id {
+                    Resolved((font_family_hash, font_id)) => {
+                        // nothing to do, font is already added
+                        for font_size in font_sizes {
+                            insert_font_instances!(font_family_hash, font_id, *font_size);
                         }
+                        continue;
                     },
-                    Unresolved(css_font_ids) => FontSource::System(SystemFontSource {
-                        names: css_font_ids.clone().into(),
-                        load_glyph_outlines: false, // TODO: ?
-                    }),
+                    Unresolved(style_font_families) => style_font_families,
                 };
 
-                let loaded_font_source = match (font_source_load_fn.cb)(&font_source, fc_cache).into_option() {
-                    Some(s) => s,
-                    None => continue,
-                };
+                let mut font_family_hash = None;
+                let font_families_hash = StyleFontFamiliesHash::new(&style_font_families);
 
-                let (parsed_font, font_metrics) = match (parse_font_fn)(&loaded_font_source) {
-                    Some(s) => s,
-                    None => continue,
-                };
+                // Find the first font that can be loaded
+                for family in style_font_families {
 
-                let LoadedFontSource { font_bytes, font_index, parse_glyph_outlines: _ } = loaded_font_source;
+                    let current_family_hash = StyleFontFamilyHash::new(&family);
 
-                if !font_sizes.is_empty() {
-                    // loaded_font
-                    let font_key = FontKey::unique(id_namespace);
-                    let loaded_font = LoadedFont {
-                        font_key,
-                        font: parsed_font,
-                        font_metrics,
-                        font_instances: FastHashMap::new(),
-                    };
-                    resource_updates.push((im_font_id.clone(), AddFontMsg::Font(font_key, Arc::new(font_bytes.into_library_owned_vec()), font_index, loaded_font)));
-
-                    for font_size in font_sizes {
-                        insert_font_instances!(im_font_id.clone(), font_key, font_index, *font_size);
+                    if let Some(font_id) = app_resources.font_id_map.get(&font_family_hash) {
+                        // font key already exists
+                        for font_size in font_sizes {
+                            insert_font_instances!(current_family_hash, font_id, *font_size);
+                        }
+                        continue;
                     }
+
+                    let font_ref = match family {
+                        // clone the font family
+                        StyleFontFamily::Ref(r) => r.clone(),
+                        other => {
+                            let font_data = match (font_source_load_fn.cb)(&family, fc_cache).into_option() {
+                                Some(s) => s,
+                                None => continue,
+                            };
+
+                            let font_ref = match (parse_font_fn)(&font_data) {
+                                Some(s) => s,
+                                None => continue,
+                            };
+
+                            font_ref
+                        }
+                    };
+
+                    // font loaded properly
+                    font_family_hash = Some((current_family_hash, font_ref));
+                    break;
+                }
+
+                let (font_family_hash, font_ref) = match font_family_hash {
+                    None => continue,
+                    Some(s) => s,
+                };
+
+                // Generate a new font key, store the mapping between hash and font key
+                let font_key = FontKey::unique(id_namespace);
+                app_resources.font_id_map.insert(&font_family_hash, font_key);
+                app_resources.font_families_map.insert(font_families_hash, font_family_hash);
+                resource_updates.push((im_font_id.clone(), AddFontMsg::Font(font_key, font_family_hash, font_ref)));
+
+                for font_size in font_sizes {
+                    insert_font_instances!(font_family_hash, font_key, *font_size);
                 }
             }
         }
@@ -2209,15 +1960,15 @@ pub fn build_add_image_resource_updates(
     app_resources: &AppResources,
     id_namespace: IdNamespace,
     pipeline_id: &PipelineId,
-    images_in_dom: &FastBTreeSet<ImageId>,
+    images_in_dom: &FastBTreeSet<ImageKey>,
     image_source_load_fn: LoadImageFn,
-) -> Vec<(ImageId, AddImageMsg)> {
+) -> Vec<(ImageKey, AddImageMsg)> {
 
     images_in_dom
     .iter()
-    .filter(|image_id| !app_resources.currently_registered_images[pipeline_id].contains_key(*image_id))
+    .filter(|image_key| !app_resources.currently_registered_images[pipeline_id].contains_key(*image_key))
     .filter_map(|image_id| {
-        let image_source = app_resources.image_sources.get(image_id).cloned()?;
+        let image_source = app_resources.image_sources.get(image_key).cloned()?;
         let LoadedImageSource { image_bytes_decoded, image_descriptor } = (image_source_load_fn.cb)(image_source).into_option()?;
         let key = ImageKey::unique(id_namespace);
         let add_image = AddImage { key, data: image_bytes_decoded, descriptor: image_descriptor, tiling: None };
@@ -2251,7 +2002,7 @@ pub fn add_resources(
             Font(_fk, _bytes, _index, parsed_font) => {
                 app_resources.currently_registered_fonts
                 .get_mut(pipeline_id).unwrap()
-                .insert(font_id, parsed_font);
+                .insert(font_key, parsed_font);
             },
             Instance(fi, size) => {
                 app_resources.currently_registered_fonts
@@ -2301,8 +2052,8 @@ pub fn delete_resources(
     app_resources: &mut AppResources,
     all_resource_updates: &mut Vec<ResourceUpdate>,
     pipeline_id: &PipelineId,
-    delete_font_resources: Vec<(ImmediateFontId, DeleteFontMsg)>,
-    delete_image_resources: Vec<(ImageId, DeleteImageMsg)>,
+    delete_font_resources: Vec<(FontKey, DeleteFontMsg)>,
+    delete_image_resources: Vec<(ImageKey, DeleteImageMsg)>,
 ) {
     all_resource_updates.extend(delete_font_resources.iter().map(|(_, f)| f.into_resource_update()));
     all_resource_updates.extend(delete_image_resources.iter().map(|(_, i)| i.into_resource_update()));

@@ -3,9 +3,16 @@
 use alloc::collections::btree_map::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
+use alloc::boxed::Box;
+use core::ffi::c_void;
 use core::fmt;
+use core::hash::{Hash, Hasher};
+use core::cmp::Ordering;
 use crate::css::CssPropertyValue;
-use crate::{AzString, StringVec};
+use crate::{
+    AzString, U8Vec, OptionU32,
+    OptionU16, OptionI16,
+};
 
 /// Currently hard-coded: Height of one em in pixels
 pub const EM_HEIGHT: f32 = 16.0;
@@ -953,7 +960,7 @@ impl fmt::Display for CssPropertyType {
 pub enum CssProperty {
     TextColor(CssPropertyValue<StyleTextColor>),
     FontSize(CssPropertyValue<StyleFontSize>),
-    FontFamily(CssPropertyValue<StyleFontFamily>),
+    FontFamily(CssPropertyValue<StyleFontFamilyVec>),
     TextAlign(CssPropertyValue<StyleTextAlignmentHorz>),
     LetterSpacing(CssPropertyValue<StyleLetterSpacing>),
     LineHeight(CssPropertyValue<StyleLineHeight>),
@@ -1634,7 +1641,7 @@ impl CssProperty {
 
     pub const fn text_color(input: StyleTextColor) -> Self { CssProperty::TextColor(CssPropertyValue::Exact(input)) }
     pub const fn font_size(input: StyleFontSize) -> Self { CssProperty::FontSize(CssPropertyValue::Exact(input)) }
-    pub const fn font_family(input: StyleFontFamily) -> Self { CssProperty::FontFamily(CssPropertyValue::Exact(input)) }
+    pub const fn font_family(input: StyleFontFamilyVec) -> Self { CssProperty::FontFamily(CssPropertyValue::Exact(input)) }
     pub const fn text_align(input: StyleTextAlignmentHorz) -> Self { CssProperty::TextAlign(CssPropertyValue::Exact(input)) }
     pub const fn letter_spacing(input: StyleLetterSpacing) -> Self { CssProperty::LetterSpacing(CssPropertyValue::Exact(input)) }
     pub const fn line_height(input: StyleLineHeight) -> Self { CssProperty::LineHeight(CssPropertyValue::Exact(input)) }
@@ -1709,7 +1716,7 @@ impl CssProperty {
     pub const fn as_background_size(&self) -> Option<&StyleBackgroundSizeVecValue> { match self { CssProperty::BackgroundSize(f) => Some(f), _ => None, } }
     pub const fn as_background_repeat(&self) -> Option<&StyleBackgroundRepeatVecValue> { match self { CssProperty::BackgroundRepeat(f) => Some(f), _ => None, } }
     pub const fn as_font_size(&self) -> Option<&StyleFontSizeValue> { match self { CssProperty::FontSize(f) => Some(f), _ => None, } }
-    pub const fn as_font_family(&self) -> Option<&StyleFontFamilyValue> { match self { CssProperty::FontFamily(f) => Some(f), _ => None, } }
+    pub const fn as_font_family(&self) -> Option<&StyleFontFamilyVecValue> { match self { CssProperty::FontFamily(f) => Some(f), _ => None, } }
     pub const fn as_text_color(&self) -> Option<&StyleTextColorValue> { match self { CssProperty::TextColor(f) => Some(f), _ => None, } }
     pub const fn as_text_align(&self) -> Option<&StyleTextAlignmentHorzValue> { match self { CssProperty::TextAlign(f) => Some(f), _ => None, } }
     pub const fn as_line_height(&self) -> Option<&StyleLineHeightValue> { match self { CssProperty::LineHeight(f) => Some(f), _ => None, } }
@@ -1790,7 +1797,7 @@ macro_rules! impl_from_css_prop {
 
 impl_from_css_prop!(StyleTextColor, CssProperty::TextColor);
 impl_from_css_prop!(StyleFontSize, CssProperty::FontSize);
-impl_from_css_prop!(StyleFontFamily, CssProperty::FontFamily);
+impl_from_css_prop!(StyleFontFamilyVec, CssProperty::FontFamily);
 impl_from_css_prop!(StyleTextAlignmentHorz, CssProperty::TextAlign);
 impl_from_css_prop!(StyleLetterSpacing, CssProperty::LetterSpacing);
 impl_from_css_prop!(StyleLineHeight, CssProperty::LineHeight);
@@ -3705,7 +3712,7 @@ pub type StyleBackgroundPositionVecValue = CssPropertyValue<StyleBackgroundPosit
 pub type StyleBackgroundSizeVecValue = CssPropertyValue<StyleBackgroundSizeVec>;
 pub type StyleBackgroundRepeatVecValue = CssPropertyValue<StyleBackgroundRepeatVec>;
 pub type StyleFontSizeValue = CssPropertyValue<StyleFontSize>;
-pub type StyleFontFamilyValue = CssPropertyValue<StyleFontFamily>;
+pub type StyleFontFamilyVecValue = CssPropertyValue<StyleFontFamilyVec>;
 pub type StyleTextColorValue = CssPropertyValue<StyleTextColor>;
 pub type StyleTextAlignmentHorzValue = CssPropertyValue<StyleTextAlignmentHorz>;
 pub type StyleLineHeightValue = CssPropertyValue<StyleLineHeight>;
@@ -3859,10 +3866,346 @@ impl Default for StyleFontSize {
 
 impl_pixel_value!(StyleFontSize);
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct FontMetrics {
+
+    // head table
+
+    pub units_per_em: u16,
+    pub font_flags: u16,
+    pub x_min: i16,
+    pub y_min: i16,
+    pub x_max: i16,
+    pub y_max: i16,
+
+    // hhea table
+
+    pub ascender: i16,
+    pub descender: i16,
+    pub line_gap: i16,
+    pub advance_width_max: u16,
+    pub min_left_side_bearing: i16,
+    pub min_right_side_bearing: i16,
+    pub x_max_extent: i16,
+    pub caret_slope_rise: i16,
+    pub caret_slope_run: i16,
+    pub caret_offset: i16,
+    pub num_h_metrics: u16,
+
+    // os/2 table
+
+    pub x_avg_char_width: i16,
+    pub us_weight_class: u16,
+    pub us_width_class: u16,
+    pub fs_type: u16,
+    pub y_subscript_x_size: i16,
+    pub y_subscript_y_size: i16,
+    pub y_subscript_x_offset: i16,
+    pub y_subscript_y_offset: i16,
+    pub y_superscript_x_size: i16,
+    pub y_superscript_y_size: i16,
+    pub y_superscript_x_offset: i16,
+    pub y_superscript_y_offset: i16,
+    pub y_strikeout_size: i16,
+    pub y_strikeout_position: i16,
+    pub s_family_class: i16,
+    pub panose: [u8; 10],
+    pub ul_unicode_range1: u32,
+    pub ul_unicode_range2: u32,
+    pub ul_unicode_range3: u32,
+    pub ul_unicode_range4: u32,
+    pub ach_vend_id: u32,
+    pub fs_selection: u16,
+    pub us_first_char_index: u16,
+    pub us_last_char_index: u16,
+
+    // os/2 version 0 table
+
+    pub s_typo_ascender: OptionI16,
+    pub s_typo_descender: OptionI16,
+    pub s_typo_line_gap: OptionI16,
+    pub us_win_ascent: OptionU16,
+    pub us_win_descent: OptionU16,
+
+    // os/2 version 1 table
+
+    pub ul_code_page_range1: OptionU32,
+    pub ul_code_page_range2: OptionU32,
+
+    // os/2 version 2 table
+
+    pub sx_height: OptionI16,
+    pub s_cap_height: OptionI16,
+    pub us_default_char: OptionU16,
+    pub us_break_char: OptionU16,
+    pub us_max_context: OptionU16,
+
+    // os/2 version 3 table
+
+    pub us_lower_optical_point_size: OptionU16,
+    pub us_upper_optical_point_size: OptionU16,
+}
+
+impl Default for FontMetrics {
+    fn default() -> Self {
+        FontMetrics::zero()
+    }
+}
+
+impl FontMetrics {
+
+    /// Only for testing, zero-sized font, will always return 0 for every metric (`units_per_em = 1000`)
+    pub const fn zero() -> Self {
+        FontMetrics {
+            units_per_em: 1000,
+            font_flags: 0,
+            x_min: 0,
+            y_min: 0,
+            x_max: 0,
+            y_max: 0,
+            ascender: 0,
+            descender: 0,
+            line_gap: 0,
+            advance_width_max: 0,
+            min_left_side_bearing: 0,
+            min_right_side_bearing: 0,
+            x_max_extent: 0,
+            caret_slope_rise: 0,
+            caret_slope_run: 0,
+            caret_offset: 0,
+            num_h_metrics: 0,
+            x_avg_char_width: 0,
+            us_weight_class: 0,
+            us_width_class: 0,
+            fs_type: 0,
+            y_subscript_x_size: 0,
+            y_subscript_y_size: 0,
+            y_subscript_x_offset: 0,
+            y_subscript_y_offset: 0,
+            y_superscript_x_size: 0,
+            y_superscript_y_size: 0,
+            y_superscript_x_offset: 0,
+            y_superscript_y_offset: 0,
+            y_strikeout_size: 0,
+            y_strikeout_position: 0,
+            s_family_class: 0,
+            panose: [0;10],
+            ul_unicode_range1: 0,
+            ul_unicode_range2: 0,
+            ul_unicode_range3: 0,
+            ul_unicode_range4: 0,
+            ach_vend_id: 0,
+            fs_selection: 0,
+            us_first_char_index: 0,
+            us_last_char_index: 0,
+            s_typo_ascender: OptionI16::None,
+            s_typo_descender: OptionI16::None,
+            s_typo_line_gap: OptionI16::None,
+            us_win_ascent: OptionU16::None,
+            us_win_descent: OptionU16::None,
+            ul_code_page_range1: OptionU32::None,
+            ul_code_page_range2: OptionU32::None,
+            sx_height: OptionI16::None,
+            s_cap_height: OptionI16::None,
+            us_default_char: OptionU16::None,
+            us_break_char: OptionU16::None,
+            us_max_context: OptionU16::None,
+            us_lower_optical_point_size: OptionU16::None,
+            us_upper_optical_point_size: OptionU16::None,
+        }
+    }
+
+    /// If set, use `OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap` to calculate the height
+    ///
+    /// See [`USE_TYPO_METRICS`](https://docs.microsoft.com/en-us/typography/opentype/spec/os2#fss)
+    pub fn use_typo_metrics(&self) -> bool {
+        self.fs_selection & (1 << 7) != 0
+    }
+
+    pub fn get_ascender_unscaled(&self) -> i16 {
+        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_ascender.into() };
+        match use_typo {
+            Some(s) => s,
+            None => self.ascender
+        }
+    }
+
+    /// NOTE: descender is NEGATIVE
+    pub fn get_descender_unscaled(&self) -> i16 {
+        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_descender.into() };
+        match use_typo {
+            Some(s) => s,
+            None => self.descender
+        }
+    }
+
+    pub fn get_line_gap_unscaled(&self) -> i16 {
+        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_line_gap.into() };
+        match use_typo {
+            Some(s) => s,
+            None => self.line_gap
+        }
+    }
+
+    pub fn get_x_min(&self, target_font_size: f32) -> f32 { self.x_min as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_min(&self, target_font_size: f32) -> f32 { self.y_min as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_x_max(&self, target_font_size: f32) -> f32 { self.x_max as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_max(&self, target_font_size: f32) -> f32 { self.y_max as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_advance_width_max(&self, target_font_size: f32) -> f32 { self.advance_width_max as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_min_left_side_bearing(&self, target_font_size: f32) -> f32 { self.min_left_side_bearing as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_min_right_side_bearing(&self, target_font_size: f32) -> f32 { self.min_right_side_bearing as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_x_max_extent(&self, target_font_size: f32) -> f32 { self.x_max_extent as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_x_avg_char_width(&self, target_font_size: f32) -> f32 { self.x_avg_char_width as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_subscript_x_size(&self, target_font_size: f32) -> f32 { self.y_subscript_x_size as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_subscript_y_size(&self, target_font_size: f32) -> f32 { self.y_subscript_y_size as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_subscript_x_offset(&self, target_font_size: f32) -> f32 { self.y_subscript_x_offset as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_subscript_y_offset(&self, target_font_size: f32) -> f32 { self.y_subscript_y_offset as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_superscript_x_size(&self, target_font_size: f32) -> f32 { self.y_superscript_x_size as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_superscript_y_size(&self, target_font_size: f32) -> f32 { self.y_superscript_y_size as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_superscript_x_offset(&self, target_font_size: f32) -> f32 { self.y_superscript_x_offset as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_superscript_y_offset(&self, target_font_size: f32) -> f32 { self.y_superscript_y_offset as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_strikeout_size(&self, target_font_size: f32) -> f32 { self.y_strikeout_size as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_y_strikeout_position(&self, target_font_size: f32) -> f32 { self.y_strikeout_position as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_s_typo_ascender(&self, target_font_size: f32) -> Option<f32> { self.s_typo_ascender.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+    pub fn get_s_typo_descender(&self, target_font_size: f32) -> Option<f32> { self.s_typo_descender.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+    pub fn get_s_typo_line_gap(&self, target_font_size: f32) -> Option<f32> { self.s_typo_line_gap.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+    pub fn get_us_win_ascent(&self, target_font_size: f32) -> Option<f32> { self.us_win_ascent.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+    pub fn get_us_win_descent(&self, target_font_size: f32) -> Option<f32> { self.us_win_descent.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+    pub fn get_sx_height(&self, target_font_size: f32) -> Option<f32> { self.sx_height.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+    pub fn get_s_cap_height(&self, target_font_size: f32) -> Option<f32> { self.s_cap_height.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct FontRef {
+    /// shared pointer to an opaque implementation of the parsed font
+    pub data: *const FontData,
+    /// How many copies does this font have (if 0, the font data will be deleted on drop)
+    pub copies: *const usize,
+}
+
+impl_option!(FontRef, OptionFontRef, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
+
+unsafe impl Send for FontRef { }
+unsafe impl Sync for FontRef { }
+
+impl PartialEq for FontRef {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.data as usize == rhs.data as usize
+    }
+}
+
+impl PartialOrd for FontRef {
+    fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
+        Some((self.data as usize).cmp(&(other.data as usize)))
+    }
+}
+
+impl Ord for FontRef {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let self_data = self.data as usize;
+        let other_data = other.data as usize;
+        self_data.cmp(&other_data)
+    }
+}
+
+impl Eq for FontRef { }
+
+impl Hash for FontRef {
+    fn hash<H>(&self, state: &mut H) where H: Hasher {
+        let self_data = self.data as usize;
+        self_data.hash(state)
+    }
+}
+
+impl FontRef {
+    pub fn new(data: FontData) -> Self {
+        Self {
+            data: Box::into_raw(Box::new(data)),
+            copies: Box::into_raw(Box::new(0)),
+        }
+    }
+}
+
+impl Clone for FontRef {
+    fn clone(&self) -> Self {
+        unsafe { *(self.copies as *mut usize) += 1; }
+        Self {
+            data: self.data, // copy the pointer
+            copies: self.copies, // copy the pointer
+        }
+    }
+}
+
+impl Drop for FontRef {
+    fn drop(&mut self) {
+        unsafe {
+            if *self.copies == 0 {
+                let _ = Box::from_raw(self.data as *mut FontData);
+                let _ = Box::from_raw(self.copies as *mut usize);
+            } else {
+                *(self.copies as *mut usize) -= 1;
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct FontData { // T = ParsedFont
+    pub postscript_id: AzString,
+    /// Bytes of the font file
+    pub bytes: U8Vec,
+    /// Index of the font in the file (if not known, set to 0) -
+    /// only relevant if the file is a font collection
+    pub font_index: u32,
+    /// Font metrics of this font
+    pub metrics: FontMetrics,
+    // Since this type has to be defined in the
+    pub parsed: *const c_void, // *const ParsedFont
+    // destructor of the ParsedFont
+    pub parsed_destructor: fn(*mut c_void),
+}
+
+unsafe impl Send for FontData { }
+unsafe impl Sync for FontData { }
+
+impl Drop for FontData {
+    fn drop(&mut self) {
+        // destroy the ParsedFont
+        (self.parsed_destructor)(self.parsed as *mut c_void)
+    }
+}
+
 /// Represents a `font-family` attribute
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct StyleFontFamily {
-    // fonts in order of precedence, i.e. "Webly Sleeky UI", "monospace", etc.
-    pub fonts: StringVec,
+pub enum StyleFontFamily {
+    /// Native font, such as "Webly Sleeky UI", "monospace", etc.
+    Native(AzString),
+    /// Font loaded from a file
+    File(AzString),
+    /// Reference-counted, already-decoded font,
+    /// so that specific DOM nodes are required to use this font
+    Ref(FontRef),
 }
+
+impl StyleFontFamily {
+    pub(crate) fn as_string(&self) -> String {
+        match &self {
+            StyleFontFamily::Native(s) => s.clone().into_library_owned_string(),
+            StyleFontFamily::File(s) => s.clone().into_library_owned_string(),
+            StyleFontFamily::Ref(s) => format!("{:0x}", s.data as usize),
+        }
+    }
+}
+
+impl_vec!(StyleFontFamily, StyleFontFamilyVec, StyleFontFamilyVecDestructor);
+impl_vec_clone!(StyleFontFamily, StyleFontFamilyVec, StyleFontFamilyVecDestructor);
+impl_vec_debug!(StyleFontFamily, StyleFontFamilyVec);
+impl_vec_eq!(StyleFontFamily, StyleFontFamilyVec);
+impl_vec_ord!(StyleFontFamily, StyleFontFamilyVec);
+impl_vec_hash!(StyleFontFamily, StyleFontFamilyVec);
+impl_vec_partialeq!(StyleFontFamily, StyleFontFamilyVec);
+impl_vec_partialord!(StyleFontFamily, StyleFontFamilyVec);
