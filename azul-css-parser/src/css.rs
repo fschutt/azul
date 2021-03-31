@@ -727,12 +727,12 @@ fn test_css_parse_1() {
             ].into(),
         },
         declarations: vec![CssDeclaration::Static(CssProperty::BackgroundContent(
-            CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
+            CssPropertyValue::Exact(vec![StyleBackgroundContent::Color(ColorU {
                 r: 255,
                 g: 0,
                 b: 0,
                 a: 255,
-            })),
+            })].into()),
         ))].into(),
     }].into();
 
@@ -782,30 +782,30 @@ mod stylesheet_parse {
     // Tests that an element with a single class always gets the CSS element applied properly
     #[test]
     fn test_apply_css_pure_class() {
-        let red = CssProperty::BackgroundContent(CssPropertyValue::Exact(
+        let red = CssProperty::BackgroundContent(CssPropertyValue::Exact(StyleBackgroundContentVec::from(vec![
             StyleBackgroundContent::Color(ColorU {
                 r: 255,
                 g: 0,
                 b: 0,
                 a: 255,
             }),
-        ));
-        let blue = CssProperty::BackgroundContent(CssPropertyValue::Exact(
+        ])));
+        let blue = CssProperty::BackgroundContent(CssPropertyValue::Exact(StyleBackgroundContentVec::from(vec![
             StyleBackgroundContent::Color(ColorU {
                 r: 0,
                 g: 0,
                 b: 255,
                 a: 255,
             }),
-        ));
-        let black = CssProperty::BackgroundContent(CssPropertyValue::Exact(
+        ])));
+        let black = CssProperty::BackgroundContent(CssPropertyValue::Exact(StyleBackgroundContentVec::from(vec![
             StyleBackgroundContent::Color(ColorU {
                 r: 0,
                 g: 0,
                 b: 0,
                 a: 255,
             }),
-        ));
+        ])));
 
         // Simple example
         {

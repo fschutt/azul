@@ -606,19 +606,22 @@ fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
 #[test]
 fn test_specificity() {
     use self::CssPathSelector::*;
+    use alloc::string::ToString;
     assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".to_string().into())].into() }), (1, 0, 0, 1));
     assert_eq!(get_specificity(&CssPath { selectors: vec![Class("hello".to_string().into())].into() }), (0, 1, 0, 1));
     assert_eq!(get_specificity(&CssPath { selectors: vec![Type(NodeTypeTag::Div)].into() }), (0, 0, 1, 1));
     assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".to_string().into()), Type(NodeTypeTag::Div)].into() }), (1, 0, 1, 2));
 }
 
-// Assert that order of the style items is correct (in order of CSS path specificity, lowest-to-highest)
+// Assert that order of the style items is correct
+// (in order of CSS path specificity, lowest-to-highest)
 #[test]
 fn test_specificity_sort() {
     use self::CssPathSelector::*;
     use crate::NodeTypeTag::*;
+    use alloc::string::ToString;
 
-    let mut input_style = Stylesheet {
+    let input_style = Stylesheet {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
             CssRuleBlock { path: CssPath { selectors: vec![Global].into() }, declarations: Vec::new().into() },
@@ -627,9 +630,7 @@ fn test_specificity_sort() {
             CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
             CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".to_string().into()), Class("specific".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
         ].into(),
-    };
-
-    input_style.sort_by_specificity();
+    }.sort_by_specificity();
 
     let expected_style = Stylesheet {
         rules: vec![

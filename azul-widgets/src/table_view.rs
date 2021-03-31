@@ -343,13 +343,7 @@ impl TableViewState {
             ];
             static ROWS_IN_COLUMN_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-rows"))];
 
-            // avoid heap allocation
-            let mut column_name_arr = [0;16];
-            let zeroed_characters = column_name_from_number(col_idx, &mut column_name_arr);
-            let slice = &column_name_arr[zeroed_characters..];
-            let s = unsafe { ::core::str::from_utf8_unchecked(slice) };
-
-            let column_names = Dom::label(s.to_string())
+            let column_names = Dom::label(column_name_from_number(col_idx))
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COLUMN_NAME_CLASS))
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMN_NAME_STYLE));
 
@@ -533,13 +527,14 @@ const MAX_LEN: usize = 15;
 /// nanoseconds for 1 iteration due to almost pure-stack allocated data.
 /// For an explanation of the algorithm with comments, see:
 /// https://github.com/fschutt/street_index/blob/78b935a1303070947c0854b6d01f540ec298c9d5/src/gridconfig.rs#L155-L209
-pub fn column_name_from_number(num: usize, result: &mut [u8; 16]) -> usize {
+pub fn column_name_from_number(num: usize) -> String {
 
     #[inline(always)]
     fn u8_to_char(input: u8) -> u8 {
         'A' as u8 + input
     }
 
+    let mut result = [0;16];
     let mut multiple_of_alphabet = num / ALPHABET_LEN;
     let mut character_count = 0;
 
@@ -552,7 +547,10 @@ pub fn column_name_from_number(num: usize, result: &mut [u8; 16]) -> usize {
 
     result[MAX_LEN] = u8_to_char((num % ALPHABET_LEN) as u8);
     let zeroed_characters = MAX_LEN.saturating_sub(character_count);
-    zeroed_characters
+
+    let slice = &result[zeroed_characters..];
+    let s = unsafe { ::core::str::from_utf8_unchecked(slice) };
+    String::from(s)
 }
 
 pub fn char_less_than_10_from_digit(num: u32) -> Option<char> {

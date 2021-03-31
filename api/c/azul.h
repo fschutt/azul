@@ -9594,7 +9594,6 @@ extern DLLIMPORT AzString AzColorU_toHash(AzColorU* const coloru);
 extern DLLIMPORT AzString AzCssProperty_getKeyString(AzCssProperty* const cssproperty);
 extern DLLIMPORT AzString AzCssProperty_getValueString(AzCssProperty* const cssproperty);
 extern DLLIMPORT AzString AzCssProperty_getKeyValueString(AzCssProperty* const cssproperty);
-extern DLLIMPORT AzCssPropertyType AzCssProperty_getType(AzCssProperty* const cssproperty);
 extern DLLIMPORT AzCssProperty AzCssProperty_interpolate(AzCssProperty* const cssproperty, AzCssProperty  other, float t, AzInterpolateContext  context);
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);
 extern DLLIMPORT AzCssPropertyCache AzCssPropertyCache_deepCopy(AzCssPropertyCache* const instance);

@@ -1044,28 +1044,3 @@ pub fn displaylist_handle_rect<'a>(
         None => DisplayListMsg::Frame(frame),
     }
 }
-
-#[test]
-fn test_overflow_parsing() {
-    use azul_css::Overflow;
-
-    let layout1 = RectLayout::default();
-
-    // The default for overflowing is overflow: auto, which clips
-    // children, so this should evaluate to true by default
-    assert_eq!(node_needs_to_clip_children(&layout1), true);
-
-    let layout2 = RectLayout {
-        overflow_x: Some(CssPropertyValue::Exact(Overflow::Visible)),
-        overflow_y: Some(CssPropertyValue::Exact(Overflow::Visible)),
-        .. Default::default()
-    };
-    assert_eq!(node_needs_to_clip_children(&layout2), false);
-
-    let layout3 = RectLayout {
-        overflow_x: Some(CssPropertyValue::Exact(Overflow::Hidden)),
-        overflow_y: Some(CssPropertyValue::Exact(Overflow::Hidden)),
-        .. Default::default()
-    };
-    assert_eq!(node_needs_to_clip_children(&layout3), true);
-}

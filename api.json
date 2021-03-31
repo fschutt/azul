@@ -4014,14 +4014,6 @@
                             "returns": {"type": "String"},
                             "fn_body": "cssproperty.format_css().into()"
                         },
-                        "get_type": {
-                            "doc": "Returns the CSS property type enum",
-                            "fn_args": [
-                                {"self": "ref"}
-                            ],
-                            "returns": {"type": "CssPropertyType"},
-                            "fn_body": "cssproperty.get_type()"
-                        },
                         "interpolate": {
                             "doc": "Interpolates two CSS properties given a value `t` ranging from 0.0 to 1.0. The interpolation function can be set on the `context` (`Ease`, `Linear`, etc.).",
                             "fn_args": [

@@ -163,7 +163,7 @@ impl From<Button> for StyledDom {
 fn test_button_ui_1() {
     let expected_html = "<div class=\"__azul-native-button\" tabindex=\"0\">\r\n    <p>\r\n        Hello\r\n    </p>\r\n</div>";
 
-    let button = Button::with_label("Hello").dom();
+    let button = Button::label("Hello").dom();
     let button_html = button.get_html_string();
 
     if expected_html != button_html.as_str() {

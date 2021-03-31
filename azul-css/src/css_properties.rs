@@ -1437,14 +1437,19 @@ impl CssProperty {
                 CssProperty::PerspectiveOrigin(CssPropertyValue::Exact(start.interpolate(&end, t)))
             },
             /*
+            animate transform:
             CssProperty::Transform(CssPropertyValue<StyleTransformVec>),
 
-            slightly special
-
+            animate box shadow:
             CssProperty::BoxShadowLeft(CssPropertyValue<StyleBoxShadow>),
             CssProperty::BoxShadowRight(CssPropertyValue<StyleBoxShadow>),
             CssProperty::BoxShadowTop(CssPropertyValue<StyleBoxShadow>),
             CssProperty::BoxShadowBottom(CssPropertyValue<StyleBoxShadow>),
+
+            animate background:
+            CssProperty::BackgroundContent(CssPropertyValue<StyleBackgroundContentVec>),
+            CssProperty::BackgroundPosition(CssPropertyValue<StyleBackgroundPositionVec>),
+            CssProperty::BackgroundSize(CssPropertyValue<StyleBackgroundSizeVec>),
             */
             (_, _) => {
                 // not animatable, fallback

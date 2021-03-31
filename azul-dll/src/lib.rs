@@ -1331,8 +1331,6 @@ pub use AzCssPropertyTT as AzCssProperty;
 #[no_mangle] pub extern "C" fn AzCssProperty_getValueString(cssproperty: &AzCssProperty) -> AzString { cssproperty.value().into() }
 /// Returns the CSS key-value pair as a string, i.e. `background: linear-gradient(red, blue)`
 #[no_mangle] pub extern "C" fn AzCssProperty_getKeyValueString(cssproperty: &AzCssProperty) -> AzString { cssproperty.format_css().into() }
-/// Returns the CSS property type enum
-#[no_mangle] pub extern "C" fn AzCssProperty_getType(cssproperty: &AzCssProperty) -> AzCssPropertyType { cssproperty.get_type() }
 /// Interpolates two CSS properties given a value `t` ranging from 0.0 to 1.0. The interpolation function can be set on the `context` (`Ease`, `Linear`, etc.).
 #[no_mangle] pub extern "C" fn AzCssProperty_interpolate(cssproperty: &AzCssProperty, other: AzCssProperty, t: f32, context: AzInterpolateContext) -> AzCssProperty { cssproperty.interpolate(&other, t, &context) }
 

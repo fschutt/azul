@@ -5020,7 +5020,6 @@ mod dll {
         pub(crate) fn AzCssProperty_getKeyString(_:  &AzCssProperty) -> AzString;
         pub(crate) fn AzCssProperty_getValueString(_:  &AzCssProperty) -> AzString;
         pub(crate) fn AzCssProperty_getKeyValueString(_:  &AzCssProperty) -> AzString;
-        pub(crate) fn AzCssProperty_getType(_:  &AzCssProperty) -> AzCssPropertyType;
         pub(crate) fn AzCssProperty_interpolate(_:  &AzCssProperty, _:  AzCssProperty, _:  f32, _:  AzInterpolateContext) -> AzCssProperty;
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
@@ -7695,8 +7694,6 @@ pub mod css {
         pub fn get_value_string(&self)  -> crate::str::String { unsafe { crate::dll::AzCssProperty_getValueString(self) } }
         /// Returns the CSS key-value pair as a string, i.e. `background: linear-gradient(red, blue)`
         pub fn get_key_value_string(&self)  -> crate::str::String { unsafe { crate::dll::AzCssProperty_getKeyValueString(self) } }
-        /// Returns the CSS property type enum
-        pub fn get_type(&self)  -> crate::css::CssPropertyType { unsafe { crate::dll::AzCssProperty_getType(self) } }
         /// Interpolates two CSS properties given a value `t` ranging from 0.0 to 1.0. The interpolation function can be set on the `context` (`Ease`, `Linear`, etc.).
         pub fn interpolate(&self, other: CssProperty, t: f32, context: InterpolateContext)  -> crate::css::CssProperty { unsafe { crate::dll::AzCssProperty_interpolate(self, other, t, context) } }
     }
