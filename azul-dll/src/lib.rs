@@ -2301,6 +2301,18 @@ pub use AzColorPickerDialogTT as AzColorPickerDialog;
 /// Opens a system-native color picker dialog
 #[no_mangle] pub extern "C" fn AzColorPickerDialog_open(title: AzString, default_color: AzOptionColorU) -> AzOptionColorU { azul_impl::dialogs::color_picker_dialog(title.as_str(), default_color.into_option().map(|s| s.into())).into() }
 
+/// Connection to the system clipboard, on some systems this connection can be cached
+pub type AzSystemClipboardTT = azul_impl::window::Clipboard;
+pub use AzSystemClipboardTT as AzSystemClipboard;
+/// Creates a new connection to the system clipboard manager
+#[no_mangle] pub extern "C" fn AzSystemClipboard_new() -> AzOptionSystemClipboard { AzSystemClipboard::new_c() }
+/// Returns the system clipboard contents or `None` if the clipboard is empty or there was an error
+#[no_mangle] pub extern "C" fn AzSystemClipboard_getStringContents(systemclipboard: &AzSystemClipboard) -> AzOptionString { systemclipboard.get_clipboard_string().ok().into() }
+/// Sets the system clipboard contents to the new string, returns true if the system clipboard was updated
+#[no_mangle] pub extern "C" fn AzSystemClipboard_setStringContents(systemclipboard: &mut AzSystemClipboard, contents: AzString) -> bool { systemclipboard.set_clipboard_string(contents).is_ok() }
+/// Destructor: Takes ownership of the `SystemClipboard` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzSystemClipboard_delete(object: &mut AzSystemClipboard) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Re-export of rust-allocated (stack based) `TimerId` struct
 pub type AzTimerIdTT = azul_impl::task::TimerId;
 pub use AzTimerIdTT as AzTimerId;
@@ -2972,6 +2984,10 @@ pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionSystemClipboard` struct
+pub type AzOptionSystemClipboardTT = azul_impl::window::OptionClipboard;
+pub use AzOptionSystemClipboardTT as AzOptionSystemClipboard;
+
 /// Re-export of rust-allocated (stack based) `OptionFileTypeList` struct
 pub type AzOptionFileTypeListTT = azul_impl::dialogs::OptionFileTypeList;
 pub use AzOptionFileTypeListTT as AzOptionFileTypeList;
@@ -4527,6 +4543,10 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `ColorPickerDialog` struct
     #[repr(C)]     pub struct AzColorPickerDialog {
         pub _reserved: *mut c_void,
+    }
+    /// Connection to the system clipboard, on some systems this connection can be cached
+    #[repr(C)]     pub struct AzSystemClipboard {
+        pub _native: *const c_void,
     }
     /// Re-export of rust-allocated (stack based) `TimerId` struct
     #[repr(C)]     pub struct AzTimerId {
@@ -6181,6 +6201,11 @@ mod test_sizes {
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `OptionSystemClipboard` struct
+    #[repr(C, u8)]     pub enum AzOptionSystemClipboard {
+        None,
+        Some(AzSystemClipboard),
+    }
     /// Re-export of rust-allocated (stack based) `OptionFile` struct
     #[repr(C, u8)]     pub enum AzOptionFile {
         None,
@@ -7782,6 +7807,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dialogs::OkCancel>(), "AzMsgBoxOkCancel"), (Layout::new::<AzMsgBoxOkCancel>(), "AzMsgBoxOkCancel"));
         assert_eq!((Layout::new::<azul_impl::dialogs::FileDialog>(), "AzFileDialog"), (Layout::new::<AzFileDialog>(), "AzFileDialog"));
         assert_eq!((Layout::new::<azul_impl::dialogs::ColorPickerDialog>(), "AzColorPickerDialog"), (Layout::new::<AzColorPickerDialog>(), "AzColorPickerDialog"));
+        assert_eq!((Layout::new::<azul_impl::window::Clipboard>(), "AzSystemClipboard"), (Layout::new::<AzSystemClipboard>(), "AzSystemClipboard"));
         assert_eq!((Layout::new::<azul_impl::task::TimerId>(), "AzTimerId"), (Layout::new::<AzTimerId>(), "AzTimerId"));
         assert_eq!((Layout::new::<azul_impl::task::TerminateTimer>(), "AzTerminateTimer"), (Layout::new::<AzTerminateTimer>(), "AzTerminateTimer"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadId>(), "AzThreadId"), (Layout::new::<AzThreadId>(), "AzThreadId"));
@@ -8031,6 +8057,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionClipboard>(), "AzOptionSystemClipboard"), (Layout::new::<AzOptionSystemClipboard>(), "AzOptionSystemClipboard"));
         assert_eq!((Layout::new::<azul_impl::file::OptionFile>(), "AzOptionFile"), (Layout::new::<AzOptionFile>(), "AzOptionFile"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionGlContextPtr>(), "AzOptionGl"), (Layout::new::<AzOptionGl>(), "AzOptionGl"));
         assert_eq!((Layout::new::<azul_impl::css::OptionPercentageValue>(), "AzOptionPercentageValue"), (Layout::new::<AzOptionPercentageValue>(), "AzOptionPercentageValue"));

@@ -7207,6 +7207,45 @@
                 }
             }
         },
+        "clipboard": {
+            "doc": "Classes to talk to the system clipboard manager",
+            "classes": {
+                "SystemClipboard": {
+                    "doc": "Connection to the system clipboard, on some systems this connection can be cached",
+                    "external": "azul_impl::window::Clipboard",
+                    "is_boxed_object": true,
+                    "clone": false,
+                    "struct_fields": [
+                        {"_native": {"type": "*const c_void", "doc": "Native clipboard handle"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "doc": "Creates a new connection to the system clipboard manager",
+                            "fn_args": [],
+                            "returns": {"type": "OptionSystemClipboard"},
+                            "fn_body": "AzSystemClipboard::new_c()"
+                        }
+                    },
+                    "functions": {
+                        "get_string_contents": {
+                            "doc": "Returns the system clipboard contents or `None` if the clipboard is empty or there was an error",
+                            "fn_args": [{"self": "ref"}],
+                            "returns": {"type": "OptionString"},
+                            "fn_body": "systemclipboard.get_clipboard_string().ok().into()"
+                        },
+                        "set_string_contents": {
+                            "doc": "Sets the system clipboard contents to the new string, returns true if the system clipboard was updated",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"contents": "String"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "systemclipboard.set_clipboard_string(contents).is_ok()"
+                        }
+                    }
+                }
+            }
+        },
         "task": {
             "doc": "Asyncronous timers / task / thread handlers for easy async loading",
             "classes": {
@@ -8938,6 +8977,13 @@
         "option": {
             "doc": "Definition of azuls internal `Option<*>` wrappers",
             "classes": {
+                "OptionSystemClipboard": {
+                    "external": "azul_impl::window::OptionClipboard",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": { "type": "SystemClipboard" }}
+                    ]
+                },
                 "OptionFileTypeList": {
                     "external": "azul_impl::dialogs::OptionFileTypeList",
                     "enum_fields": [

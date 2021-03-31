@@ -1218,22 +1218,40 @@ impl Drop for Window {
 
 /// Clipboard is an empty class with only static methods,
 /// which is why it doesn't have any #[derive] markers.
-#[allow(missing_copy_implementations)]
-pub struct Clipboard;
+#[repr(C)]
+pub struct Clipboard {
+    pub _native: Box<SystemClipboard>,
+}
+
+impl_option!(Clipboard, OptionClipboard, copy = false, clone = false, []);
 
 impl Clipboard {
 
-    /// Returns the contents of the system clipboard
-    pub fn get_clipboard_string() -> Result<String, ClipboardError> {
+    pub fn new() -> Result<Self, ClipboardError> {
         let clipboard = SystemClipboard::new()?;
-        clipboard.get_string_contents()
+        Ok(Self { _native: Box::new(clipboard) })
+    }
+
+    pub fn new_c() -> OptionClipboard {
+        match Self::new() {
+            Ok(o) => OptionClipboard::Some(o),
+            Err(_) => OptionClipboard::None,
+        }
+    }
+
+    /// Returns the contents of the system clipboard
+    pub fn get_clipboard_string(&self) -> Result<AzString, ClipboardError> {
+        self._native.get_string_contents().map(|o| o.into())
     }
 
     /// Sets the contents of the system clipboard
-    pub fn set_clipboard_string(contents: String) -> Result<(), ClipboardError> {
-        let clipboard = SystemClipboard::new()?;
-        clipboard.set_string_contents(contents)
+    pub fn set_clipboard_string(&self, contents: AzString) -> Result<(), ClipboardError> {
+        self._native.set_string_contents(contents.into_library_owned_string())
     }
+}
+
+impl Drop for Clipboard {
+    fn drop(&mut self) { }
 }
 
 fn synchronize_os_window_platform_extensions(

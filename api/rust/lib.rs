@@ -1818,6 +1818,10 @@ mod dll {
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzColorPickerDialog {
         pub _reserved: *mut c_void,
     }
+    /// Connection to the system clipboard, on some systems this connection can be cached
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSystemClipboard {
+        pub _native: *const c_void,
+    }
     /// Re-export of rust-allocated (stack based) `TimerId` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzTimerId {
         pub id: usize,
@@ -3470,6 +3474,11 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionSystemClipboard` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionSystemClipboard {
+        None,
+        Some(AzSystemClipboard),
     }
     /// Re-export of rust-allocated (stack based) `OptionFile` struct
     #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFile {
@@ -5314,6 +5323,10 @@ mod dll {
         pub(crate) fn AzFileDialog_selectFolder(_:  AzString, _:  AzOptionString) -> AzOptionString;
         pub(crate) fn AzFileDialog_saveFile(_:  AzString, _:  AzOptionString) -> AzOptionString;
         pub(crate) fn AzColorPickerDialog_open(_:  AzString, _:  AzOptionColorU) -> AzOptionColorU;
+        pub(crate) fn AzSystemClipboard_new() -> AzOptionSystemClipboard;
+        pub(crate) fn AzSystemClipboard_getStringContents(_:  &AzSystemClipboard) -> AzOptionString;
+        pub(crate) fn AzSystemClipboard_setStringContents(_:  &mut AzSystemClipboard, _:  AzString) -> bool;
+        pub(crate) fn AzSystemClipboard_delete(_:  &mut AzSystemClipboard);
         pub(crate) fn AzTimerId_unique() -> AzTimerId;
         pub(crate) fn AzTimer_new(_:  AzRefAny, _:  AzTimerCallbackType, _:  AzGetSystemTimeFn) -> AzTimer;
         pub(crate) fn AzTimer_withDelay(_:  AzTimer, _:  AzDuration) -> AzTimer;
@@ -10372,6 +10385,27 @@ pub mod dialog {
 
 }
 
+pub mod clipboard {
+    #![allow(dead_code, unused_imports)]
+    //! Classes to talk to the system clipboard manager
+    use crate::dll::*;
+    use core::ffi::c_void;
+    use crate::str::String;
+    /// Connection to the system clipboard, on some systems this connection can be cached
+    
+#[doc(inline)] pub use crate::dll::AzSystemClipboard as SystemClipboard;
+    impl SystemClipboard {
+        /// Creates a new connection to the system clipboard manager
+        pub fn new() ->  crate::option::OptionSystemClipboard { unsafe { crate::dll::AzSystemClipboard_new() } }
+        /// Returns the system clipboard contents or `None` if the clipboard is empty or there was an error
+        pub fn get_string_contents(&self)  -> crate::option::OptionString { unsafe { crate::dll::AzSystemClipboard_getStringContents(self) } }
+        /// Sets the system clipboard contents to the new string, returns true if the system clipboard was updated
+        pub fn set_string_contents(&mut self, contents: String)  -> bool { unsafe { crate::dll::AzSystemClipboard_setStringContents(self, contents) } }
+    }
+
+    impl Drop for SystemClipboard { fn drop(&mut self) { unsafe { crate::dll::AzSystemClipboard_delete(self) } } }
+}
+
 pub mod task {
     #![allow(dead_code, unused_imports)]
     //! Asyncronous timers / task / thread handlers for easy async loading
@@ -11500,6 +11534,10 @@ pub mod option {
     impl_option!(AzDuration, AzOptionDuration, [Debug, Copy, Clone]);
     impl_option!(AzInstant, AzOptionInstant, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
+    impl_option!(AzSystemClipboard, AzOptionSystemClipboard, copy = false,  clone = false, [Debug]);
+    /// `OptionSystemClipboard` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionSystemClipboard as OptionSystemClipboard;
     /// `OptionFileTypeList` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionFileTypeList as OptionFileTypeList;

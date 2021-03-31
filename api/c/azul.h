@@ -1639,6 +1639,11 @@ struct AzColorPickerDialog {
 };
 typedef struct AzColorPickerDialog AzColorPickerDialog;
 
+struct AzSystemClipboard {
+    void* _native;
+};
+typedef struct AzSystemClipboard AzSystemClipboard;
+
 struct AzTimerId {
     size_t id;
 };
@@ -5895,6 +5900,24 @@ struct AzParentWithNodeDepthVec {
 };
 typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
 
+enum AzOptionSystemClipboardTag {
+   AzOptionSystemClipboardTag_None,
+   AzOptionSystemClipboardTag_Some,
+};
+typedef enum AzOptionSystemClipboardTag AzOptionSystemClipboardTag;
+
+struct AzOptionSystemClipboardVariant_None { AzOptionSystemClipboardTag tag; };
+typedef struct AzOptionSystemClipboardVariant_None AzOptionSystemClipboardVariant_None;
+struct AzOptionSystemClipboardVariant_Some { AzOptionSystemClipboardTag tag; AzSystemClipboard payload; };
+typedef struct AzOptionSystemClipboardVariant_Some AzOptionSystemClipboardVariant_Some;
+union AzOptionSystemClipboard {
+    AzOptionSystemClipboardVariant_None None;
+    AzOptionSystemClipboardVariant_Some Some;
+};
+typedef union AzOptionSystemClipboard AzOptionSystemClipboard;
+#define AzOptionSystemClipboard_None { .None = { .tag = AzOptionSystemClipboardTag_None } }
+#define AzOptionSystemClipboard_Some(v) { .Some = { .tag = AzOptionSystemClipboardTag_Some, .payload = v } }
+
 enum AzOptionFileTag {
    AzOptionFileTag_None,
    AzOptionFileTag_Some,
@@ -9888,6 +9911,10 @@ extern DLLIMPORT AzFileDialog AzFileDialog_selectMultipleFiles(AzString  title, 
 extern DLLIMPORT AzFileDialog AzFileDialog_selectFolder(AzString  title, AzOptionString  default_path);
 extern DLLIMPORT AzFileDialog AzFileDialog_saveFile(AzString  title, AzOptionString  default_path);
 extern DLLIMPORT AzColorPickerDialog AzColorPickerDialog_open(AzString  title, AzOptionColorU  default_color);
+extern DLLIMPORT AzSystemClipboard AzSystemClipboard_new();
+extern DLLIMPORT AzOptionString AzSystemClipboard_getStringContents(AzSystemClipboard* const systemclipboard);
+extern DLLIMPORT bool  AzSystemClipboard_setStringContents(AzSystemClipboard* restrict systemclipboard, AzString  contents);
+extern DLLIMPORT void AzSystemClipboard_delete(AzSystemClipboard* restrict instance);
 extern DLLIMPORT AzTimerId AzTimerId_unique();
 extern DLLIMPORT AzTimer AzTimer_new(AzRefAny  timer_data, AzTimerCallbackType  callback, AzGetSystemTimeFn  get_system_time_fn);
 extern DLLIMPORT AzTimer AzTimer_withDelay(const AzTimer timer, AzDuration  delay);
