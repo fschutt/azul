@@ -211,6 +211,7 @@ pub struct DisplayListFrame {
     pub size: LogicalSize,
     pub position: PositionInfo,
     pub flags: PrimitiveFlags,
+    pub clip_children: Option<LogicalSize>,
     pub clip_mask: Option<DisplayListImageMask>,
     /// Border radius, set to none only if overflow: visible is set!
     pub border_radius: StyleBorderRadius,
@@ -255,6 +256,7 @@ impl DisplayListFrame {
         DisplayListFrame {
             tag: None,
             size: LogicalSize::new(dimensions.width as f32, dimensions.height as f32),
+            clip_children: None,
             position: PositionInfo::Static {
                 x_offset: root_origin.x as f32,
                 y_offset: root_origin.y as f32,
@@ -827,12 +829,17 @@ pub fn displaylist_handle_rect<'a>(
     let mut frame = DisplayListFrame {
         tag: tag_id.map(|t| t.into_crate_internal()),
         size: positioned_rect.size_including_borders(),
+        clip_children: layout_result.scrollable_nodes.clip_nodes.get(&rect_idx).copied(),
         position,
         border_radius: StyleBorderRadius {
-            top_left: layout_result.styled_dom.get_css_property_cache().get_border_top_left_radius(&html_node, &rect_idx, &styled_node.state),
-            top_right: layout_result.styled_dom.get_css_property_cache().get_border_top_right_radius(&html_node, &rect_idx, &styled_node.state),
-            bottom_left: layout_result.styled_dom.get_css_property_cache().get_border_bottom_left_radius(&html_node, &rect_idx, &styled_node.state),
-            bottom_right: layout_result.styled_dom.get_css_property_cache().get_border_bottom_right_radius(&html_node, &rect_idx, &styled_node.state),
+            top_left: layout_result.styled_dom.get_css_property_cache()
+                .get_border_top_left_radius(&html_node, &rect_idx, &styled_node.state),
+            top_right: layout_result.styled_dom.get_css_property_cache()
+                .get_border_top_right_radius(&html_node, &rect_idx, &styled_node.state),
+            bottom_left: layout_result.styled_dom.get_css_property_cache()
+                .get_border_bottom_left_radius(&html_node, &rect_idx, &styled_node.state),
+            bottom_right: layout_result.styled_dom.get_css_property_cache()
+                .get_border_bottom_right_radius(&html_node, &rect_idx, &styled_node.state),
         },
         flags: PrimitiveFlags {
             is_backface_visible: false, // TODO!

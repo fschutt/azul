@@ -1413,29 +1413,40 @@ fn push_frame(
     positioned_items: &mut Vec<(WrSpatialId, WrClipId)>,
     current_hidpi_factor: f32,
 ) {
-    let clip_rect = LogicalRect::new(LogicalPosition::zero(), frame.size); // get_frame_clip_rect(frame.position, frame.size);
+
+    let rect = LogicalRect::new(LogicalPosition::zero(), frame.size);
+    let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.size);
+    let clip_content_id = define_border_radius_clip(builder, rect, wr_border_radius, rect_spatial_id, parent_clip_id);
 
     for item in frame.content {
         push_display_list_content(
             builder,
             &frame.box_shadow,
             item,
-            clip_rect,
+            rect,
             frame.border_radius,
             frame.tag,
             frame.flags,
-            parent_clip_id,
+            clip_content_id,
             rect_spatial_id,
             current_hidpi_factor,
         );
     }
 
     let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.size);
-    // If the rect has an overflow:* property set
-    let rect_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
+
+    // If the rect has an overflow:* property set, clip the children accordingly
+    let children_clip_id = match frame.clip_children {
+        Some(size) => {
+            let clip_rect = LogicalRect::new(LogicalPosition::zero(), size);
+            define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id)
+        },
+        None => WrClipId::root(builder.pipeline_id), // no clipping
+    };
+
     // if let Some(image_mask) -> define_image_mask_clip()
     for child in frame.children {
-        push_display_list_msg(builder, child, rect_spatial_id, rect_clip_id, positioned_items, current_hidpi_factor);
+        push_display_list_msg(builder, child, rect_spatial_id, children_clip_id, positioned_items, current_hidpi_factor);
     }
 }
 
@@ -1455,9 +1466,11 @@ fn push_scroll_frame(
         ComplexClipRegion as WrComplexClipRegion,
     };
 
-    let clip_rect = LogicalRect::new(LogicalPosition::zero(), scroll_frame.frame.size);
-
     // if let Some(image_mask) = scroll_frame.frame.image_mask { push_image_mask_clip() }
+
+    let rect = LogicalRect::new(LogicalPosition::zero(), scroll_frame.frame.size);
+    let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.size);
+    let clip_content_id = define_border_radius_clip(builder, rect, wr_border_radius, rect_spatial_id, parent_clip_id);
 
     // Only children should scroll, not the frame itself!
     for item in scroll_frame.frame.content {
@@ -1465,11 +1478,11 @@ fn push_scroll_frame(
             builder,
             &scroll_frame.frame.box_shadow,
             item,
-            clip_rect,
+            rect,
             scroll_frame.frame.border_radius,
             scroll_frame.frame.tag,
             scroll_frame.frame.flags,
-            parent_clip_id,
+            clip_content_id,
             rect_spatial_id,
             current_hidpi_factor,
         );
@@ -1477,10 +1490,9 @@ fn push_scroll_frame(
 
     // Push hit-testing + scrolling children
 
-    let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.size);
+    /*
     let hit_testing_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
 
-    /*
     let hit_test_info = WrCommonItemProperties {
         clip_rect: wr_translate_logical_rect(clip_rect),
         flags: wr_translate_primitive_flags(scroll_frame.frame.flags),
@@ -1504,8 +1516,18 @@ fn push_scroll_frame(
     );
     */
 
+    // If the rect has an overflow:* property set, clip the children accordingly
+    let children_clip_id = match scroll_frame.frame.clip_children {
+        Some(size) => {
+            let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.size);
+            let clip_rect = LogicalRect::new(LogicalPosition::zero(), size);
+            define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id)
+        },
+        None => WrClipId::root(builder.pipeline_id), // no clipping
+    };
+
     for child in scroll_frame.frame.children {
-        push_display_list_msg(builder, child, rect_spatial_id, hit_testing_clip_id, positioned_items, current_hidpi_factor);
+        push_display_list_msg(builder, child, rect_spatial_id, children_clip_id, positioned_items, current_hidpi_factor);
     }
 }
 

@@ -2023,6 +2023,8 @@ fn position_nodes<'a>(
                 box_sizing: child_offsets.box_sizing,
                 border_widths: child_border_widths,
                 resolved_text_layout_options: child_text,
+                overflow_x: child_offsets.overflow_x,
+                overflow_y: child_offsets.overflow_y,
             };
         }
 
@@ -2039,6 +2041,8 @@ fn position_nodes<'a>(
         parent_rect.border_widths = parent_border_widths;
         parent_rect.box_shadow = parent_offsets.box_shadow;
         parent_rect.box_sizing = parent_offsets.box_sizing;
+        parent_rect.overflow_x = parent_offsets.overflow_x;
+        parent_rect.overflow_y = parent_offsets.overflow_y;
 
         if parent_position != LayoutPosition::Static {
             positioned_node_stack.pop();
@@ -2259,12 +2263,15 @@ fn get_nodes_that_need_scroll_clip(
 
     use azul_core::ui_solver::{DirectionalOverflowInfo, OverflowingScrollNode, ExternalScrollId};
     use azul_core::dom::ScrollTagId;
+    use azul_core::styled_dom::AzNodeId;
+    use azul_core::dom::TagId;
 
     let mut overflowing_nodes = BTreeMap::new();
     let mut tags_to_node_ids = BTreeMap::new();
+    let mut clip_nodes = BTreeMap::new();
 
     // brute force: calculate all immediate children sum rects of all parents
-    let all_direct_overflows = parents
+    let mut all_direct_overflows = parents
     .par_iter()
     .filter_map(|ParentWithNodeDepth { depth: _, node_id }| {
         let parent_id = node_id.into_crate_internal()?;
@@ -2283,10 +2290,62 @@ fn get_nodes_that_need_scroll_clip(
     })
     .collect::<BTreeMap<_, _>>();
 
-    // TODO: optimize scroll rects based on overflow-x / -y setting
+    // Go from the inside out and bubble the overflowing rectangles
+    // based on the overflow-x / overflow-y property
+    let mut len = parents.len();
+    while len != 0 {
+
+        use azul_css::LayoutOverflow::*;
+
+        len -= 1;
+
+        let parent = &parents[len];
+        let parent_id = match parent.node_id.into_crate_internal() {
+            Some(s) => s,
+            None => continue,
+        };
+
+        let (parent_rect, children_sum_rect) = match all_direct_overflows.get(&parent_id).cloned() {
+            Some(s) => s,
+            None => continue,
+        };
+
+        let positioned_rect = &layouted_rects[parent_id];
+        let overflow_x = positioned_rect.overflow_x;
+        let overflow_y = positioned_rect.overflow_y;
+
+        match (overflow_x, overflow_y) {
+            (Hidden, Hidden) => {
+                clip_nodes.insert(parent_id, positioned_rect.size);
+                all_direct_overflows.remove(&parent_id);
+            },
+            _ => {
+                // modify the rect in the all_direct_overflows,
+                // then recalculate the rectangles for all parents
+                // this is expensive, but at least correct
+            }
+        }
+    }
+
+    // Insert all rectangles that need to scroll
+    for (parent_id, (_, children_sum_rect)) in all_direct_overflows {
+        let parent_dom_hash = dom_rects[parent_id].calculate_node_data_hash();
+        let parent_external_scroll_id = ExternalScrollId(parent_dom_hash.0, pipeline_id);
+        let scroll_tag_id = match display_list_rects[parent_id].tag_id.as_ref() {
+            Some(s) => ScrollTagId(s.into_crate_internal()),
+            None => ScrollTagId(TagId::unique()),
+        };
+        overflowing_nodes.insert(AzNodeId::from_crate_internal(Some(parent_id)), OverflowingScrollNode {
+            child_rect: children_sum_rect,
+            parent_external_scroll_id,
+            parent_dom_hash,
+            scroll_tag_id,
+        });
+    }
 
     *scrolled_nodes = ScrolledNodes {
         overflowing_nodes,
+        clip_nodes,
         tags_to_node_ids
     };
 }

@@ -3,7 +3,7 @@ use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 use azul_css::{
     LayoutRect, LayoutRectVec, LayoutPoint, LayoutSize, PixelValue, StyleFontSize,
-    StyleTextColor, ColorU as StyleColorU, OptionF32,
+    StyleTextColor, ColorU as StyleColorU, OptionF32, LayoutOverflow,
     StyleTextAlignmentHorz, StyleTextAlignmentVert, LayoutPosition,
     CssPropertyValue, LayoutMarginTop, LayoutMarginRight, LayoutMarginLeft, LayoutMarginBottom,
     LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingBottom,
@@ -165,6 +165,8 @@ impl ::core::fmt::Debug for ExternalScrollId {
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct ScrolledNodes {
     pub overflowing_nodes: BTreeMap<AzNodeId, OverflowingScrollNode>,
+    /// Nodes that need to clip their direct children (i.e. nodes with overflow-x and overflow-y set to "Hidden")
+    pub clip_nodes: BTreeMap<NodeId, LogicalSize>,
     pub tags_to_node_ids: BTreeMap<ScrollTagId, AzNodeId>,
 }
 
@@ -780,6 +782,10 @@ pub struct PositionedRectangle {
     pub box_shadow: StyleBoxShadowOffsets,
     /// Whether the borders are included in the size or not
     pub box_sizing: LayoutBoxSizing,
+    /// Evaluated result of the overflow-x property
+    pub overflow_x: LayoutOverflow,
+    /// Evaluated result of the overflow-y property
+    pub overflow_y: LayoutOverflow,
     // TODO: box_shadow_widths
     /// If this is an inline rectangle, resolve the %-based font sizes
     /// and store them here.
@@ -790,7 +796,14 @@ impl Default for PositionedRectangle {
     fn default() -> Self {
         PositionedRectangle {
             size: LogicalSize::zero(),
-            position: PositionInfo::Static { x_offset: 0.0, y_offset: 0.0, static_x_offset: 0.0, static_y_offset: 0.0 },
+            overflow_x: LayoutOverflow::default(),
+            overflow_y: LayoutOverflow::default(),
+            position: PositionInfo::Static {
+                x_offset: 0.0,
+                y_offset: 0.0,
+                static_x_offset: 0.0,
+                static_y_offset: 0.0
+            },
             padding: ResolvedOffsets::zero(),
             margin: ResolvedOffsets::zero(),
             border_widths: ResolvedOffsets::zero(),

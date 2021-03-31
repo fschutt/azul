@@ -1257,7 +1257,7 @@ impl StyledDom {
                 node_has_non_default_cursor;
 
             if node_should_have_tag {
-                let tag_id = TagId::new();
+                let tag_id = TagId::unique();
                 let az_tag_id = AzTagId::from_crate_internal(tag_id);
                 Some(TagIdToNodeIdMapping {
                     tag_id: az_tag_id,

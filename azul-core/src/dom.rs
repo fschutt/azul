@@ -46,7 +46,7 @@ impl ::core::fmt::Debug for TagId {
 
 impl TagId {
     /// Creates a new, unique hit-testing tag ID
-    pub fn new() -> Self {
+    pub fn unique() -> Self {
         TagId(TAG_ID.fetch_add(1, Ordering::SeqCst) as u64)
     }
 
@@ -76,8 +76,8 @@ impl ::core::fmt::Debug for ScrollTagId {
 impl ScrollTagId {
     /// Creates a new, unique scroll tag ID. Note that this should not
     /// be used for identifying nodes, use the `DomNodeHash` instead.
-    pub fn new() -> ScrollTagId {
-        ScrollTagId(TagId::new())
+    pub fn unique() -> ScrollTagId {
+        ScrollTagId(TagId::unique())
     }
 }
 
