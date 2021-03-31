@@ -454,15 +454,14 @@ pub enum ImageSource {
     File(AzString),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct ImageMask {
-    pub image: ImageId,
-    pub rect: LogicalRect,
+    pub image: ImageRef,
     pub repeat: bool,
 }
 
-impl_option!(ImageMask, OptionImageMask, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
+impl_option!(ImageMask, OptionImageMask, [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ImmediateFontId {

@@ -96,23 +96,21 @@ impl ::core::fmt::Debug for DomNodeHash {
 #[derive(Debug, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum NodeType {
-    /// Regular div with no particular type of data attached
-    Div,
     /// Same as div, but only for the root node
     Body,
+    /// Regular div with no particular type of data attached
+    Div,
     /// Creates a line break in an inline text layout
     Br,
     /// A string of text
     Label(AzString),
-    /// An image that is rendered by WebRender. The id is acquired by the
-    /// `AppState::add_image()` function
-    Image(ImageId),
-    /// DOM that gets passed its width / height during the layout
+    /// An image of an opaque type. Images can be cached
+    /// in the AppResources or recreated on every redraw.
+    Image(ImageRef),
+    /// Callback that renders a DOM which gets passed its
+    /// width / height after the layout step, necessary to render
+    /// infinite datastructures
     IFrame(IFrameNode),
-    /// OpenGL texture. The `Svg` widget deserizalizes itself into a texture
-    /// `Eq` and `Hash` traits are implemented using the OpenGl texture ID.
-    #[cfg(feature = "opengl")]
-    GlTexture(GlTextureNode),
 }
 
 impl NodeType {
