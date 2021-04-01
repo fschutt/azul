@@ -14,7 +14,7 @@
 built using the WebRender rendering engine and a CSS / HTML-like document
 object model for rapid development of beautiful, native desktop applications
 
-###### [Website](https://azul.rs/) | [User guide](https://azul.rs/guide/) | [API documentation](https://azul.rs/api/) | [Video demo](https://www.youtube.com/watch?v=kWL0ehf4wwI) | [Matrix Chat](https://matrix.to/#/#azul:matrix.org)
+###### [Website](https://azul.rs/) | [User guide](https://azul.rs/guide) | [API documentation](https://azul.rs/api) | [Video demo](https://www.youtube.com/watch?v=kWL0ehf4wwI) | [Matrix Chat](https://matrix.to/#/#azul:matrix.org)
 
 ## About
 
