@@ -15,12 +15,14 @@ use azul_css::{
     CssProperty, LayoutPoint, OptionLayoutPoint,
     LayoutSize, CssPath, AzString, LayoutRect,
 };
+use rust_fontconfig::FcFontCache;
 use crate::{
     FastHashMap,
     app_resources::{
-        ImageCache, ImageSource, IdNamespace, Words, ShapedWords,
+        ImageCache, ImageRef, IdNamespace, Words, ShapedWords,
         WordPositions, FontInstanceKey, LayoutedGlyphs, ImageMask
     },
+    window::AzStringPair,
     styled_dom::StyledDom,
     ui_solver::{
         OverflowingScrollNode, PositionedRectangle,
@@ -480,24 +482,24 @@ impl DomNodeId {
 /// Callback function pointer (has to be a function pointer in
 /// order to be compatible with C APIs later on).
 ///
-/// IMPORTANT: The callback needs to deallocate the `RefAnyPtr` and `LayoutInfoPtr`,
+/// IMPORTANT: The callback needs to deallocate the `RefAnyPtr` and `LayoutCallbackInfoPtr`,
 /// otherwise that memory is leaked. If you use the official auto-generated
 /// bindings, this is already done for you.
 ///
-/// NOTE: The original callback was `fn(&self, LayoutInfo) -> Dom`
-/// which then evolved to `fn(&RefAny, LayoutInfo) -> Dom`.
+/// NOTE: The original callback was `fn(&self, LayoutCallbackInfo) -> Dom`
+/// which then evolved to `fn(&RefAny, LayoutCallbackInfo) -> Dom`.
 /// The indirection is necessary because of the memory management
 /// around the C API
 ///
 /// See azul-core/ui_state.rs:298 for how the memory is managed
 /// across the callback boundary.
-pub type LayoutCallbackType = extern "C" fn(&mut RefAny, LayoutInfo) -> StyledDom;
+pub type LayoutCallbackType = extern "C" fn(&mut RefAny, LayoutCallbackInfo) -> StyledDom;
 
 #[repr(C)]
 pub struct LayoutCallback { pub cb: LayoutCallbackType }
 impl_callback!(LayoutCallback);
 
-extern "C" fn default_layout_callback(_: &mut RefAny, _: LayoutInfo) -> StyledDom { StyledDom::default() }
+extern "C" fn default_layout_callback(_: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom { StyledDom::default() }
 
 impl Default for LayoutCallback {
     fn default() -> Self {
@@ -817,11 +819,11 @@ pub struct CallbackInfo {
     /// User-modifiable state of the window that the callback was called on
     modifiable_window_state: *mut WindowState,
     /// An Rc to the OpenGL context, in order to be able to render to OpenGL textures
-    gl_context: OptionGlContextPtr,
+    gl_context: *const OptionGlContextPtr,
     /// Cache to add / remove / query image RefAnys from / to CSS ids
     image_cache: *mut ImageCache,
     /// System font cache (can be regenerated / refreshed in callbacks)
-    system_fonts: *mut FcContCache,
+    system_fonts: *mut FcFontCache,
     /// Currently running timers (polling functions, run on the main thread)
     timers: *mut FastHashMap<TimerId, Timer>,
     /// Currently running threads (asynchronous functions running each on a different thread)
@@ -852,7 +854,7 @@ pub struct CallbackInfo {
     /// Mutable reference to a list of words / text items that were changed in the callback
     words_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
     /// Mutable reference to a list of images that were changed in the callback
-    images_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, ImageSource>>,
+    images_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, ImageRef>>,
     /// Mutable reference to a list of image clip masks that were changed in the callback
     image_masks_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     /// Mutable reference to a list of CSS property changes, so that the callbacks can change CSS properties
@@ -885,8 +887,9 @@ impl CallbackInfo {
     pub fn new<'a, 'b>(
        current_window_state: &'a FullWindowState,
        modifiable_window_state: &'a mut WindowState,
-       gl_context: &'a GlContextPtr,
-       resources : &'a mut AppResources,
+       gl_context: &'a OptionGlContextPtr,
+       image_cache: &'a mut ImageCache,
+       system_fonts: &'a mut FcFontCache,
        timers: &'a mut FastHashMap<TimerId, Timer>,
        threads: &'a mut FastHashMap<ThreadId, Thread>,
        new_windows: &'a mut Vec<WindowCreateOptions>,
@@ -901,7 +904,7 @@ impl CallbackInfo {
        stop_propagation: &'a mut bool,
        focus_target: &'a mut Option<FocusTarget>,
        words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
-       images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageSource>>,
+       images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageRef>>,
        image_masks_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
        css_properties_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
        current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -913,8 +916,9 @@ impl CallbackInfo {
         Self {
             current_window_state: current_window_state as *const FullWindowState,
             modifiable_window_state: modifiable_window_state as *mut WindowState,
-            gl_context: gl_context as *const GlContextPtr,
-            resources: resources as *mut AppResources,
+            gl_context: gl_context as *const OptionGlContextPtr,
+            image_cache: image_cache as *mut ImageCache,
+            system_fonts: system_fonts as *mut FcFontCache,
             timers: timers as *mut FastHashMap<TimerId, Timer>,
             threads: threads as *mut FastHashMap<ThreadId, Thread>,
             new_windows: new_windows as *mut Vec<WindowCreateOptions>,
@@ -929,7 +933,7 @@ impl CallbackInfo {
             stop_propagation: stop_propagation as *mut bool,
             focus_target: focus_target as *mut Option<FocusTarget>,
             words_changed_in_callbacks: words_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
-            images_changed_in_callbacks: images_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageSource>>,
+            images_changed_in_callbacks: images_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageRef>>,
             image_masks_changed_in_callbacks: image_masks_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
             css_properties_changed_in_callbacks: css_properties_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
             current_scroll_states: current_scroll_states as *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -937,14 +941,16 @@ impl CallbackInfo {
             hit_dom_node: hit_dom_node,
             cursor_relative_to_item: cursor_relative_to_item,
             cursor_in_viewport: cursor_in_viewport,
+            _abi_ref: core::ptr::null(),
+            _abi_mut: core::ptr::null_mut(),
         }
     }
 
     fn internal_get_current_window_state<'a>(&'a self) -> &'a FullWindowState { unsafe { &*self.current_window_state } }
     fn internal_get_modifiable_window_state<'a>(&'a mut self)-> &'a mut WindowState { unsafe { &mut *self.modifiable_window_state } }
-    #[cfg(feature = "opengl")]
-    fn internal_get_gl_context<'a>(&'a self) -> &'a GlContextPtr { unsafe { &*self.gl_context } }
-    fn internal_get_resources<'a>(&'a mut self) -> &'a mut AppResources { unsafe { &mut *self.resources } }
+    fn internal_get_gl_context<'a>(&'a self) -> &'a OptionGlContextPtr { unsafe { &*self.gl_context } }
+    fn internal_get_image_cache<'a>(&'a mut self) -> &'a mut ImageCache { unsafe { &mut *self.image_cache } }
+    fn internal_get_system_fonts<'a>(&'a mut self) -> &'a mut FcFontCache { unsafe { &mut *self.system_fonts } }
     fn internal_get_timers<'a>(&'a mut self) -> &'a mut FastHashMap<TimerId, Timer> { unsafe { &mut *self.timers } }
     fn internal_get_threads<'a>(&'a mut self) -> &'a mut FastHashMap<ThreadId, Thread> { unsafe { &mut *self.threads } }
     fn internal_get_new_windows<'a>(&'a mut self) -> &'a mut Vec<WindowCreateOptions> { unsafe { &mut *self.new_windows } }
@@ -966,7 +972,7 @@ impl CallbackInfo {
     fn internal_get_positioned_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)> { unsafe { &*self.positioned_words_cache } }
     fn internal_get_positioned_rectangles<'a>(&'a self) -> &'a NodeDataContainer<PositionedRectangle> { unsafe { &*self.positioned_rects } }
     fn internal_get_words_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>> { unsafe { &mut *self.words_changed_in_callbacks } }
-    fn internal_get_images_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageSource>> { unsafe { &mut *self.images_changed_in_callbacks } }
+    fn internal_get_images_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageRef>> { unsafe { &mut *self.images_changed_in_callbacks } }
     fn internal_get_image_masks_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>> { unsafe { &mut *self.image_masks_changed_in_callbacks } }
 
     pub fn get_hit_node(&self) -> DomNodeId { self.internal_get_hit_dom_node() }
@@ -978,7 +984,7 @@ impl CallbackInfo {
     pub fn get_current_window_handle(&self) -> RawWindowHandle { self.internal_get_current_window_handle().clone() }
 
     #[cfg(feature = "opengl")]
-    pub fn get_gl_context(&self) -> OptionGlContextPtr { Some(self.internal_get_gl_context().clone()).into() }
+    pub fn get_gl_context(&self) -> OptionGlContextPtr { self.internal_get_gl_context().clone() }
 
     pub fn get_scroll_amount(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
         self.internal_get_current_scroll_states()
@@ -1177,9 +1183,9 @@ pub struct RenderImageCallbackInfo {
     /// Bounds of the laid-out node
     bounds: HidpiAdjustedBounds,
     /// Optional OpenGL context pointer
-    #[cfg(feature = "opengl")]
     gl_context: *const OptionGlContextPtr,
-    resources: *const AppResources,
+    image_cache: *const ImageCache,
+    system_fonts: *const FcFontCache,
     node_hierarchy: *const AzNodeVec,
     words_cache: *const BTreeMap<NodeId, Words>,
     shaped_words_cache: *const BTreeMap<NodeId, ShapedWords>,
@@ -1191,13 +1197,14 @@ pub struct RenderImageCallbackInfo {
     _abi_mut: *mut c_void,
 }
 
-// same as the implementations on CallbackInfo, just slightly adjusted for the GlCallbackInfo
+// same as the implementations on CallbackInfo, just slightly adjusted for the RenderImageCallbackInfo
 impl RenderImageCallbackInfo {
 
     #[cfg(feature = "opengl")]
     pub fn new<'a>(
        gl_context: &'a OptionGlContextPtr,
-       resources: &'a AppResources,
+       image_cache: &'a ImageCache,
+       system_fonts: &'a FcFontCache,
        node_hierarchy: &'a AzNodeVec,
        words_cache: &'a BTreeMap<NodeId, Words>,
        shaped_words_cache: &'a BTreeMap<NodeId, ShapedWords>,
@@ -1209,19 +1216,22 @@ impl RenderImageCallbackInfo {
         Self {
             callback_node_id,
             gl_context: gl_context as *const OptionGlContextPtr,
-            resources: resources as *const AppResources,
+            image_cache: image_cache as *const ImageCache,
+            system_fonts: system_fonts as *const FcFontCache,
             node_hierarchy: node_hierarchy as *const AzNodeVec,
             words_cache: words_cache as *const BTreeMap<NodeId, Words>,
             shaped_words_cache: shaped_words_cache as *const BTreeMap<NodeId, ShapedWords>,
             positioned_words_cache: positioned_words_cache as *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
             positioned_rects: positioned_rects as *const NodeDataContainer<PositionedRectangle>,
             bounds,
+            _abi_ref: core::ptr::null(),
+            _abi_mut: core::ptr::null_mut(),
         }
     }
 
-    #[cfg(feature = "opengl")]
     fn internal_get_gl_context<'a>(&'a self) -> &'a OptionGlContextPtr { unsafe { &*self.gl_context } }
-    fn internal_get_resources<'a>(&'a self) -> &'a AppResources { unsafe { &*self.resources } }
+    fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache { unsafe { &*self.image_cache } }
+    fn internal_get_system_fonts<'a>(&'a self) -> &'a FcFontCache { unsafe { &*self.system_fonts } }
     fn internal_get_bounds<'a>(&'a self) -> HidpiAdjustedBounds { self.bounds }
     fn internal_get_node_hierarchy<'a>(&'a self) -> &'a AzNodeVec { unsafe { &*self.node_hierarchy } }
     fn internal_get_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, Words> { unsafe { &*self.words_cache } }
@@ -1327,7 +1337,9 @@ impl_callback!(IFrameCallback);
 #[derive(Debug)]
 #[repr(C)]
 pub struct IFrameCallbackInfo {
-    pub resources: *const AppResources,
+    pub system_fonts: *const FcFontCache,
+    pub image_cache: *const ImageCache,
+    pub window_theme: WindowTheme,
     pub bounds: HidpiAdjustedBounds,
     pub scroll_size: LogicalSize,
     pub scroll_offset: LogicalPosition,
@@ -1341,7 +1353,9 @@ pub struct IFrameCallbackInfo {
 
 impl IFrameCallbackInfo {
     pub fn new<'a>(
-       resources: &'a AppResources,
+       system_fonts: &'a FcFontCache,
+       image_cache: &'a ImageCache,
+       window_theme: WindowTheme,
        bounds: HidpiAdjustedBounds,
        scroll_size: LogicalSize,
        scroll_offset: LogicalPosition,
@@ -1349,22 +1363,26 @@ impl IFrameCallbackInfo {
        virtual_scroll_offset: LogicalPosition,
     ) -> Self {
         Self {
-            resources: resources as *const AppResources,
+            system_fonts: system_fonts as *const FcFontCache,
+            image_cache: image_cache as *const ImageCache,
+            window_theme,
             bounds,
             scroll_size,
             scroll_offset,
             virtual_scroll_size,
             virtual_scroll_offset,
+            _abi_ref: core::ptr::null(),
+            _abi_mut: core::ptr::null_mut(),
         }
     }
 
-    pub fn get_bounds(&self) -> HidpiAdjustedBounds { self.internal_get_bounds() }
+    pub fn get_bounds(&self) -> HidpiAdjustedBounds { self.bounds }
 
     // fn get_font()
     // fn get_image()
 
-    fn internal_get_resources<'a>(&'a self) -> &'a AppResources { unsafe { &*self.resources } }
-    fn internal_get_bounds<'a>(&'a self) -> HidpiAdjustedBounds { self.bounds }
+    fn internal_get_system_fonts<'a>(&'a self) -> &'a FcFontCache { unsafe { &*self.system_fonts } }
+    fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache { unsafe { &*self.image_cache } }
 }
 
 #[derive(Debug, PartialEq)]
@@ -1437,7 +1455,7 @@ pub struct TimerCallbackReturn {
 
 pub type TimerCallbackType = extern "C" fn(/* application data */ &mut RefAny, /* timer internal data */ &mut RefAny, TimerCallbackInfo) -> TimerCallbackReturn;
 
-/// Gives the `layout()` function access to the `AppResources` and the `Window`
+/// Gives the `layout()` function access to the `RendererResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
 #[derive(Debug)]
 #[repr(C)]
@@ -1473,7 +1491,7 @@ impl LayoutCallbackInfo {
             window_size: window_size,
             theme: theme,
             image_cache: image_cache as *const ImageCache,
-            gl_context as *const OptionGlContextPtr,
+            gl_context: gl_context as *const OptionGlContextPtr,
             system_fonts: fc_cache as *const FcFontCache,
             _abi_ref: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
@@ -1481,24 +1499,25 @@ impl LayoutCallbackInfo {
     }
 
     fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache { unsafe { &*self.image_cache } }
-    fn internal_get_fc_cache<'a>(&'a self) -> &'a FcFontCache { unsafe { &*self.fc_cache } }
+    fn internal_get_system_fonts<'a>(&'a self) -> &'a FcFontCache { unsafe { &*self.system_fonts } }
     fn internal_get_gl_context<'a>(&'a self) -> &'a OptionGlContextPtr { unsafe { &*self.gl_context } }
 
-    pub fn get_gl_context(&'a self) -> OptionGlContextPtr {
+    pub fn get_gl_context(&self) -> OptionGlContextPtr {
         self.internal_get_gl_context().clone()
     }
 
-    pub fn get_system_fonts(&'a self) -> Vec<StringPair> {
-        self.internal_get_fc_cache()
+    pub fn get_system_fonts(&self) -> Vec<AzStringPair> {
+        self.internal_get_system_fonts()
         .list()
-        .filter_map(|(k, v)| Some(StringPair {
+        .iter()
+        .filter_map(|(k, v)| Some(AzStringPair {
             key: k.name?.clone().into(),
             value: v.path.clone().into()
         }))
         .collect()
     }
 
-    pub fn get_image(&'a self, image_id: &AzString) -> Option<ImageRef> {
+    pub fn get_image(&self, image_id: &AzString) -> Option<ImageRef> {
         self.internal_get_image_cache()
         .get_css_image_id(image_id)
         .cloned()
@@ -1507,7 +1526,7 @@ impl LayoutCallbackInfo {
 
 /// Information about the bounds of a laid-out div rectangle.
 ///
-/// Necessary when invoking `IFrameCallbacks` and `GlCallbacks`, so
+/// Necessary when invoking `IFrameCallbacks` and `RenderImageCallbacks`, so
 /// that they can change what their content is based on their size.
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]

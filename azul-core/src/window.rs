@@ -14,7 +14,7 @@ use azul_css::{
 };
 use crate::{
     FastHashMap,
-    app_resources::{AppResources, IdNamespace, ResourceUpdate, Epoch, ImageSource, ImageMask},
+    app_resources::{ImageRef, ImageCache, RendererResources, IdNamespace, ResourceUpdate, Epoch, ImageMask},
     styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
     callbacks::{OptionCallback, PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, UpdateScreen},
@@ -782,7 +782,7 @@ impl WindowInternal {
         fc_cache: &mut LazyFcCache,
     ) -> Self {
 
-        use crate::callbacks::LayoutInfo;
+        use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
 
         let mut renderer_resources = RendererResources::default();
@@ -795,13 +795,13 @@ impl WindowInternal {
         let styled_dom = {
 
             let layout_callback = current_window_state.layout_callback.clone();
-            let layout_info = LayoutInfo::new(
+            let layout_info = LayoutCallbackInfo::new(
                 &current_window_state.size,
                 &current_window_state.theme,
                 &mut stop_sizes_width,
                 &mut stop_sizes_height,
                 &mut is_theme_dependent,
-                app_resources,
+                renderer_resources,
             );
 
             let mut styled_dom = (layout_callback.cb)(data, layout_info);
@@ -835,7 +835,7 @@ impl WindowInternal {
             gl_context,
             all_resource_updates,
             init.id_namespace,
-            app_resources,
+            renderer_resources,
             callbacks,
             &fc_cache_real,
         );
@@ -862,14 +862,14 @@ impl WindowInternal {
     pub fn regenerate_styled_dom(
         &mut self,
         data: &mut RefAny,
-        app_resources: &mut AppResources,
+        renderer_resources: &mut RendererResources,
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
         callbacks: RenderCallbacks,
         fc_cache: &mut LazyFcCache,
     ) {
 
-        use crate::callbacks::LayoutInfo;
+        use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
 
         // TODO: Use these "stop sizes" to optimize not calling layout() on redrawing!
@@ -882,13 +882,13 @@ impl WindowInternal {
         let styled_dom = {
 
             let layout_callback = self.current_window_state.layout_callback.clone();
-            let layout_info = LayoutInfo::new(
+            let layout_info = LayoutCallbackInfo::new(
                 &self.current_window_state.size,
                 &self.current_window_state.theme,
                 &mut stop_sizes_width,
                 &mut stop_sizes_height,
                 &mut is_theme_dependent,
-                app_resources,
+                renderer_resources,
             );
 
             let mut styled_dom = (layout_callback.cb)(data, layout_info);
@@ -918,7 +918,7 @@ impl WindowInternal {
             gl_context,
             all_resource_updates,
             id_namespace,
-            app_resources,
+            renderer_resources,
             callbacks,
             &fc_cache_real,
         );
@@ -1316,7 +1316,7 @@ pub struct CallCallbacksResult {
     pub words_changed: BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
     /// A callback can "exchange" and image for a new one without requiring a new display list to be
     /// rebuilt. This is important for animated images, especially video.
-    pub images_changed: BTreeMap<DomId, BTreeMap<NodeId, ImageSource>>,
+    pub images_changed: BTreeMap<DomId, BTreeMap<NodeId, ImageRef>>,
     /// Same as images, clip masks can be changed in callbacks, often the case with vector animations
     pub image_masks_changed: BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     /// If the focus target changes in the callbacks, the function will automatically

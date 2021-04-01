@@ -27,7 +27,7 @@ use crate::{
         ThreadCallback, WriteBackCallback, WriteBackCallbackType,
         CallbackInfo, FocusTarget, ScrollPosition, DomNodeId
     },
-    app_resources::{ImageCache, ImageSource, ImageMask},
+    app_resources::{ImageCache, RendererResources, ImageRef, ImageMask},
     window::{FullWindowState, LogicalPosition, RawWindowHandle, WindowState, WindowCreateOptions},
     styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
@@ -737,7 +737,7 @@ impl_callback!(ThreadSenderDestructorCallback);
 /// A `Thread` is a seperate thread that is owned by the framework.
 ///
 /// In difference to a `Thread`, you don't have to `await()` the result of a `Thread`,
-/// you can just hand the Thread to the framework (via `AppResources::add_Thread`) and
+/// you can just hand the Thread to the framework (via `RendererResources::add_Thread`) and
 /// the framework will automatically update the UI when the Thread is finished.
 /// This is useful to offload actions such as loading long files, etc. to a background thread.
 ///
@@ -885,7 +885,7 @@ pub fn run_all_timers<'a, 'b>(
     current_window_state: &FullWindowState,
     modifiable_window_state: &mut WindowState,
     gl_context: &GlContextPtr,
-    resources : &mut AppResources,
+    resources : &mut RendererResources,
     system_callbacks: &ExternalSystemCallbacks,
     timers: &mut FastHashMap<TimerId, Timer>,
     threads: &mut FastHashMap<ThreadId, Thread>,
@@ -895,7 +895,7 @@ pub fn run_all_timers<'a, 'b>(
     stop_propagation: &mut bool,
     focus_target: &mut Option<FocusTarget>,
     words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
-    images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageSource>>,
+    images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageRef>>,
     image_masks_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     css_properties_changed_in_callbacks: &mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
     current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -980,7 +980,7 @@ pub fn clean_up_finished_threads<'a, 'b>(
     current_window_state: &FullWindowState,
     modifiable_window_state: &mut WindowState,
     gl_context: &GlContextPtr,
-    resources : &mut AppResources,
+    resources : &mut RendererResources,
     system_callbacks: &ExternalSystemCallbacks,
     timers: &mut FastHashMap<TimerId, Timer>,
     threads: &mut FastHashMap<ThreadId, Thread>,
@@ -990,7 +990,7 @@ pub fn clean_up_finished_threads<'a, 'b>(
     stop_propagation: &mut bool,
     focus_target: &mut Option<FocusTarget>,
     words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
-    images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageSource>>,
+    images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageRef>>,
     image_masks_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     css_properties_changed_in_callbacks: &mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
     current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,

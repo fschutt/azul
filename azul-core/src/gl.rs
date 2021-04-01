@@ -12,7 +12,7 @@ use gleam::gl::{self, Gl, GlType, DebugMessage};
 use crate::{
     FastHashMap,
     window::{PhysicalSizeU32, RendererType},
-    app_resources::{Epoch, RawImageFormat, ExternalImageId},
+    app_resources::{ImageDescriptor, ImageDescriptorFlags, Epoch, RawImageFormat, ExternalImageId},
     callbacks::PipelineId,
     svg::TesselatedGPUSvgNode,
 };
@@ -2047,6 +2047,22 @@ pub struct Texture {
 
 impl_option!(Texture, OptionTexture, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
+impl Texture {
+    pub fn get_descriptor(&self) -> ImageDescriptor {
+        ImageDescriptor {
+            format: self.format,
+            width: self.size.width as usize,
+            height: self.size.height as usize,
+            stride: None.into(),
+            offset: 0,
+            flags: ImageDescriptorFlags {
+                is_opaque: self.flags.is_opaque,
+                // The texture gets mapped 1:1 onto the display, so there is no need for mipmaps
+                allow_mipmaps: false,
+            },
+        }
+    }
+}
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct TextureFlags {

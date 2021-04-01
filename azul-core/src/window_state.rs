@@ -44,7 +44,7 @@
 //!           let style_and_layout_changes = StyleAndLayoutChanges::new(
 //!               &nodes_to_check,
 //!               &mut layout_results,
-//!               &mut app_resources,
+//!               &mut renderer_resources,
 //!               &current_window_state.dimensions.size,
 //!               pipeline_id,
 //!               azul_layout::do_the_relayout
@@ -68,7 +68,7 @@ use alloc::collections::btree_map::BTreeMap;
 use alloc::collections::btree_set::BTreeSet;
 use crate::{
     FastHashMap,
-    app_resources::AppResources,
+    app_resources::RendererResources,
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
     callbacks:: {ScrollPosition, PipelineId, DomNodeId, HitTestItem, UpdateScreen},
     id_tree::NodeId,
@@ -269,12 +269,12 @@ impl StyleAndLayoutChanges {
     pub fn new(
         nodes: &NodesToCheck,
         layout_results: &mut [LayoutResult],
-        app_resources: &mut AppResources,
+        renderer_resources: &mut RendererResources,
         window_size: LayoutSize,
         pipeline_id: PipelineId,
         css_changes: &BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
         callbacks_new_focus: &Option<Option<DomNodeId>>,
-        relayout_cb: fn(LayoutRect, &mut LayoutResult, &mut AppResources, PipelineId, &RelayoutNodes) -> RelayoutChanges
+        relayout_cb: fn(LayoutRect, &mut LayoutResult, &mut RendererResources, PipelineId, &RelayoutNodes) -> RelayoutChanges
     ) -> StyleAndLayoutChanges {
 
         // immediately restyle the DOM to reflect the new :hover, :active and :focus nodes
@@ -382,7 +382,7 @@ impl StyleAndLayoutChanges {
                 let layout_changes = layout_changes.get(&dom_id).unwrap_or(&default_layout_changes);
                 let RelayoutChanges { resized_nodes, gpu_key_changes } = (relayout_cb)(
                     parent_rect, &mut layout_results[dom_id.inner],
-                    app_resources, pipeline_id, layout_changes
+                    renderer_resources, pipeline_id, layout_changes
                 );
                 if gpu_key_changes.is_empty() {
                     gpu_key_change_events.insert(dom_id, gpu_key_changes);
@@ -576,7 +576,7 @@ impl CallbacksOfHitTest {
         gl_context: &GlContextPtr,
         layout_results: &mut Vec<LayoutResult>,
         modifiable_scroll_states: &mut ScrollStates,
-        resources: &mut AppResources,
+        resources: &mut RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
     ) -> CallCallbacksResult {
 

@@ -42,7 +42,7 @@ use crate::{
         CascadeInfo, CascadeInfoVec, construct_html_cascade_tree,
         matches_html_element, rule_ends_with,
     },
-    app_resources::{AppResources, ImmediateImageId, ImageId, Au, ImmediateFontId},
+    app_resources::{ImageRef, RendererResources, ImageCache, ImageId, Au, ImmediateFontId},
 };
 
 #[repr(C)]
@@ -1444,7 +1444,7 @@ impl StyledDom {
         .filter_map(|(node_id, node_data)| {
             let node_id = NodeId::new(node_id);
             match node_data.get_node_type() {
-                Label(_) => {
+                Text(_) => {
 
                     let css_font_ids = self.get_css_property_cache()
                     .get_font_id_or_default(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state);
@@ -1524,7 +1524,7 @@ impl StyledDom {
                 .iter()
                 .filter_map(|bg| {
                     let css_image_id = bg.get_css_image_id()?;
-                    let image_id = app_resources.get_css_image_id(css_image_id.inner.as_str())?;
+                    let image_id = css_image_cache.get_css_image_id(css_image_id.inner.as_str())?;
                     Some(image_id.clone())
                 }).collect();
             }

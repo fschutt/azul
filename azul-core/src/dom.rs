@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 use alloc::string::String;
 use alloc::collections::btree_map::BTreeMap;
 use crate::{
+    app_resources::ImageRef,
     styled_dom::{CssPropertyCache, StyledNodeState},
     callbacks::{
         Callback,
@@ -21,7 +22,7 @@ use crate::{
     styled_dom::StyledDom,
 };
 #[cfg(feature = "opengl")]
-use crate::callbacks::{GlCallback, GlCallbackType};
+use crate::callbacks::{RenderImageCallback, RenderImageCallbackType};
 use azul_css::{Css, AzString, NodeTypeTag, CssProperty};
 
 pub use crate::id_tree::{NodeHierarchy, Node, NodeId};
@@ -105,7 +106,7 @@ pub enum NodeType {
     /// A string of text
     Text(AzString),
     /// An image of an opaque type. Images can be cached
-    /// in the AppResources or recreated on every redraw.
+    /// in the RendererResources or recreated on every redraw.
     Image(ImageRef),
     /// Callback that renders a DOM which gets passed its
     /// width / height after the layout step, necessary to render
@@ -121,15 +122,10 @@ impl NodeType {
             Body => Body,
             Br => Br,
             Text(s) => Text(s.clone_self()),
-            Image(i) => Image(*i),
+            Image(i) => Image(i.clone()), // note: shallow clone
             IFrame(i) => IFrame(IFrameNode {
                 callback: i.callback,
                 data: i.data.clone_into_library_memory(),
-            }),
-            #[cfg(feature = "opengl")]
-            GlTexture(gl) => GlTexture(GlTextureNode {
-                callback: gl.callback,
-                data: gl.data.clone_into_library_memory(),
             })
         }
     }
@@ -530,7 +526,7 @@ pub enum ApplicationEventFilter {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct GlTextureNode {
-    pub callback: GlCallback,
+    pub callback: RenderImageCallback,
     pub data: RefAny,
 }
 
@@ -900,8 +896,8 @@ impl NodeData {
 
     #[inline(always)]
     #[cfg(feature = "opengl")]
-    pub fn gl_texture(data: RefAny, callback: GlCallbackType) -> Self {
-        Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data }))
+    pub fn gl_texture(data: RefAny, callback: RenderImageCallbackType) -> Self {
+        Self::new(NodeType::GlTexture(GlTextureNode { callback: RenderImageCallback { cb: callback }, data }))
     }
 
     #[inline(always)]
@@ -1053,7 +1049,7 @@ impl Dom {
     pub const fn image(image: ImageId) -> Self { Self::new(NodeType::Image(image)) }
     #[inline(always)]
     #[cfg(feature = "opengl")]
-    pub fn gl_texture(data: RefAny, callback: GlCallbackType) -> Self { Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data })) }
+    pub fn gl_texture(data: RefAny, callback: RenderImageCallbackType) -> Self { Self::new(NodeType::GlTexture(GlTextureNode { callback: RenderImageCallback { cb: callback }, data })) }
     #[inline(always)]
     pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data })) }
 

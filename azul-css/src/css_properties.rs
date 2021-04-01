@@ -4142,7 +4142,7 @@ impl Clone for FontRef {
 impl Drop for FontRef {
     fn drop(&mut self) {
         unsafe {
-            let new_copies = unsafe { self.copies.as_ref().map(|f| f.fetch_sub(1, AtomicOrdering::SeqCst)) };
+            let new_copies = self.copies.as_ref().map(|f| f.fetch_sub(1, AtomicOrdering::SeqCst));
             if new_copies == Some(0) {
                 let _ = Box::from_raw(self.data as *mut FontData);
                 let _ = Box::from_raw(self.copies as *mut AtomicUsize);
@@ -4152,11 +4152,11 @@ impl Drop for FontRef {
 }
 
 #[derive(Debug)]
-#[repr(C)]
 pub struct FontData { // T = ParsedFont
     pub postscript_id: AzString,
-    /// Bytes of the font file
-    pub bytes: U8Vec,
+    /// Bytes of the font file, either &'static
+    /// (never changing) or a Vec<u8>.
+    pub bytes: Cow<'static, Vec<u8>>,
     /// Index of the font in the file (if not known, set to 0) -
     /// only relevant if the file is a font collection
     pub font_index: u32,

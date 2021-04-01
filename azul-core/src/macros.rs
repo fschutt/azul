@@ -116,125 +116,125 @@ macro_rules! impl_display {
 #[macro_export]
 macro_rules! impl_image_api {($struct_field:ident) => (
 
-    /// See [`AppResources::get_loaded_font_ids`]
+    /// See [`RendererResources::get_loaded_font_ids`]
     ///
-    /// [`AppResources::get_loaded_font_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_font_ids
+    /// [`RendererResources::get_loaded_font_ids`]: ../renderer_resources/struct.RendererResources.html#method.get_loaded_font_ids
     pub fn get_loaded_font_ids(&self) -> alloc::vec::Vec<FontId> {
         self.$struct_field.get_loaded_font_ids()
     }
 
-    /// See [`AppResources::get_loaded_image_ids`]
+    /// See [`RendererResources::get_loaded_image_ids`]
     ///
-    /// [`AppResources::get_loaded_image_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_image_ids
+    /// [`RendererResources::get_loaded_image_ids`]: ../renderer_resources/struct.RendererResources.html#method.get_loaded_image_ids
     pub fn get_loaded_image_ids(&self) -> alloc::vec::Vec<ImageId> {
         self.$struct_field.get_loaded_image_ids()
     }
 
-    /// See [`AppResources::get_loaded_css_image_ids`]
+    /// See [`RendererResources::get_loaded_css_image_ids`]
     ///
-    /// [`AppResources::get_loaded_css_image_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_css_image_ids
+    /// [`RendererResources::get_loaded_css_image_ids`]: ../renderer_resources/struct.RendererResources.html#method.get_loaded_css_image_ids
     pub fn get_loaded_css_image_ids(&self) -> alloc::vec::Vec<CssImageId> {
         self.$struct_field.get_loaded_css_image_ids()
     }
 
-    /// See [`AppResources::get_loaded_css_font_ids`]
+    /// See [`RendererResources::get_loaded_css_font_ids`]
     ///
-    /// [`AppResources::get_loaded_css_font_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_css_font_ids
+    /// [`RendererResources::get_loaded_css_font_ids`]: ../renderer_resources/struct.RendererResources.html#method.get_loaded_css_font_ids
     pub fn get_loaded_css_font_ids(&self) -> alloc::vec::Vec<CssImageId> {
         self.$struct_field.get_loaded_css_font_ids()
     }
 
-    /// See [`AppResources::get_loaded_text_ids`]
+    /// See [`RendererResources::get_loaded_text_ids`]
     ///
-    /// [`AppResources::get_loaded_text_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_text_ids
+    /// [`RendererResources::get_loaded_text_ids`]: ../renderer_resources/struct.RendererResources.html#method.get_loaded_text_ids
     pub fn get_loaded_text_ids(&self) -> alloc::vec::Vec<TextId> {
         self.$struct_field.get_loaded_text_ids()
     }
 
     // -- ImageId cache
 
-    /// See [`AppResources::add_image`]
+    /// See [`RendererResources::add_image`]
     ///
-    /// [`AppResources::add_image`]: ../app_resources/struct.AppResources.html#method.add_image
+    /// [`RendererResources::add_image`]: ../renderer_resources/struct.RendererResources.html#method.add_image
     pub fn add_image_source(&mut self, image_id: ImageId, image_source: ImageSource) {
         self.$struct_field.add_image_source(image_id, image_source)
     }
 
-    /// See [`AppResources::has_image`]
+    /// See [`RendererResources::has_image`]
     ///
-    /// [`AppResources::has_image`]: ../app_resources/struct.AppResources.html#method.has_image
+    /// [`RendererResources::has_image`]: ../renderer_resources/struct.RendererResources.html#method.has_image
     pub fn has_image_source(&self, image_id: ImageId) -> bool {
         self.$struct_field.has_image_source(&image_id)
     }
 
     /// Given an `ImageId`, returns the bytes for that image or `None`, if the `ImageId` is invalid.
     ///
-    /// See [`AppResources::get_image_bytes`]
+    /// See [`RendererResources::get_image_bytes`]
     ///
-    /// [`AppResources::get_image_bytes`]: ../app_resources/struct.AppResources.html#method.get_image_bytes
+    /// [`RendererResources::get_image_bytes`]: ../renderer_resources/struct.RendererResources.html#method.get_image_bytes
     pub fn get_image_info(&self, pipeline_id: PipelineId, image_id: ImageId) -> Option<ImageInfo> {
         self.$struct_field.get_image_info(&pipeline_id, &image_id).cloned()
     }
 
-    /// See [`AppResources::delete_image`]
+    /// See [`RendererResources::delete_image`]
     ///
-    /// [`AppResources::delete_image`]: ../app_resources/struct.AppResources.html#method.delete_image
+    /// [`RendererResources::delete_image`]: ../renderer_resources/struct.RendererResources.html#method.delete_image
     pub fn delete_image_source(&mut self, image_id: ImageId) {
         self.$struct_field.delete_image_source(&image_id)
     }
 
-    /// See [`AppResources::add_css_image_id`]
+    /// See [`RendererResources::add_css_image_id`]
     ///
-    /// [`AppResources::add_css_image_id`]: ../app_resources/struct.AppResources.html#method.add_css_image_id
+    /// [`RendererResources::add_css_image_id`]: ../renderer_resources/struct.RendererResources.html#method.add_css_image_id
     pub fn add_css_image_id(&mut self, css_id: AzString) -> ImageId {
         self.$struct_field.add_css_image_id(css_id)
     }
 
-    /// See [`AppResources::has_css_image_id`]
+    /// See [`RendererResources::has_css_image_id`]
     ///
-    /// [`AppResources::has_css_image_id`]: ../app_resources/struct.AppResources.html#method.has_css_image_id
+    /// [`RendererResources::has_css_image_id`]: ../renderer_resources/struct.RendererResources.html#method.has_css_image_id
     pub fn has_css_image_id(&self, css_id: AzString) -> bool {
         self.$struct_field.has_css_image_id(css_id)
     }
 
-    /// See [`AppResources::get_css_image_id`]
+    /// See [`RendererResources::get_css_image_id`]
     ///
-    /// [`AppResources::get_css_image_id`]: ../app_resources/struct.AppResources.html#method.get_css_image_id
+    /// [`RendererResources::get_css_image_id`]: ../renderer_resources/struct.RendererResources.html#method.get_css_image_id
     pub fn get_css_image_id(&self, css_id: AzString) -> Option<&ImageId> {
         self.$struct_field.get_css_image_id(css_id)
     }
 
-    /// See [`AppResources::delete_css_image_id`]
+    /// See [`RendererResources::delete_css_image_id`]
     ///
-    /// [`AppResources::delete_css_image_id`]: ../app_resources/struct.AppResources.html#method.delete_css_image_id
+    /// [`RendererResources::delete_css_image_id`]: ../renderer_resources/struct.RendererResources.html#method.delete_css_image_id
     pub fn delete_css_image_id(&mut self, css_id: &str) -> Option<ImageId> {
         self.$struct_field.delete_css_image_id(css_id)
     }
 
-    /// See [`AppResources::add_css_font_id`]
+    /// See [`RendererResources::add_css_font_id`]
     ///
-    /// [`AppResources::add_css_font_id`]: ../app_resources/struct.AppResources.html#method.add_css_font_id
+    /// [`RendererResources::add_css_font_id`]: ../renderer_resources/struct.RendererResources.html#method.add_css_font_id
     pub fn add_css_font_id<S: Into<alloc::string::String>>(&mut self, css_id: S) -> FontId {
         self.$struct_field.add_css_font_id(css_id)
     }
 
-    /// See [`AppResources::has_css_font_id`]
+    /// See [`RendererResources::has_css_font_id`]
     ///
-    /// [`AppResources::has_css_font_id`]: ../app_resources/struct.AppResources.html#method.has_css_font_id
+    /// [`RendererResources::has_css_font_id`]: ../renderer_resources/struct.RendererResources.html#method.has_css_font_id
     pub fn has_css_font_id(&self, css_id: &str) -> bool {
         self.$struct_field.has_css_font_id(css_id)
     }
 
-    /// See [`AppResources::get_css_font_id`]
+    /// See [`RendererResources::get_css_font_id`]
     ///
-    /// [`AppResources::get_css_font_id`]: ../app_resources/struct.AppResources.html#method.get_css_font_id
+    /// [`RendererResources::get_css_font_id`]: ../renderer_resources/struct.RendererResources.html#method.get_css_font_id
     pub fn get_css_font_id(&self, css_id: &str) -> Option<&FontId> {
         self.$struct_field.get_css_font_id(css_id)
     }
 
-    /// See [`AppResources::delete_css_font_id`]
+    /// See [`RendererResources::delete_css_font_id`]
     ///
-    /// [`AppResources::delete_css_font_id`]: ../app_resources/struct.AppResources.html#method.delete_css_font_id
+    /// [`RendererResources::delete_css_font_id`]: ../renderer_resources/struct.RendererResources.html#method.delete_css_font_id
     pub fn delete_css_font_id(&mut self, css_id: &str) -> Option<FontId> {
         self.$struct_field.delete_css_font_id(css_id)
     }
@@ -244,23 +244,23 @@ macro_rules! impl_image_api {($struct_field:ident) => (
 #[macro_export]
 macro_rules! impl_font_api {($struct_field:ident) => (
 
-    /// See [`AppResources::add_font`]
+    /// See [`RendererResources::add_font`]
     ///
-    /// [`AppResources::add_font`]: ../app_resources/struct.AppResources.html#method.add_font
+    /// [`RendererResources::add_font`]: ../renderer_resources/struct.RendererResources.html#method.add_font
     pub fn add_font_source(&mut self, font_id: FontId, font_source: FontSource) {
         self.$struct_field.add_font_source(font_id, font_source)
     }
 
-    /// See [`AppResources::has_font`]
+    /// See [`RendererResources::has_font`]
     ///
-    /// [`AppResources::has_font`]: ../app_resources/struct.AppResources.html#method.has_font
+    /// [`RendererResources::has_font`]: ../renderer_resources/struct.RendererResources.html#method.has_font
     pub fn has_font_source(&self, font_id: &FontId) -> bool {
         self.$struct_field.has_font_source(font_id)
     }
 
-    /// See [`AppResources::delete_font`]
+    /// See [`RendererResources::delete_font`]
     ///
-    /// [`AppResources::delete_font`]: ../app_resources/struct.AppResources.html#method.delete_font
+    /// [`RendererResources::delete_font`]: ../renderer_resources/struct.RendererResources.html#method.delete_font
     pub fn delete_font_source(&mut self, font_id: &FontId) {
         self.$struct_field.delete_font_source(font_id)
     }
@@ -276,18 +276,18 @@ macro_rules! impl_text_api {($struct_field:ident) => (
     /// Adds a string to the internal text cache, but only store it as a string,
     /// without caching the layout of the string.
     ///
-    /// See [`AppResources::add_text`].
+    /// See [`RendererResources::add_text`].
     ///
-    /// [`AppResources::add_text`]: ../app_resources/struct.AppResources.html#method.add_text
+    /// [`RendererResources::add_text`]: ../renderer_resources/struct.RendererResources.html#method.add_text
     pub fn add_text(&mut self, text: &str) -> TextId {
         self.$struct_field.add_text(text)
     }
 
     /// Removes a string from both the string cache and the layouted text cache
     ///
-    /// See [`AppResources::delete_text`].
+    /// See [`RendererResources::delete_text`].
     ///
-    /// [`AppResources::delete_text`]: ../app_resources/struct.AppResources.html#method.delete_text
+    /// [`RendererResources::delete_text`]: ../renderer_resources/struct.RendererResources.html#method.delete_text
     pub fn delete_text(&mut self, id: TextId) {
         self.$struct_field.delete_text(id)
     }
@@ -296,9 +296,9 @@ macro_rules! impl_text_api {($struct_field:ident) => (
     /// If the given TextId is used after this call, the text will not render in the UI.
     /// Use with care.
     ///
-    /// See [`AppResources::clear_all_texts`].
+    /// See [`RendererResources::clear_all_texts`].
     ///
-    /// [`AppResources::clear_all_texts`]: ../app_resources/struct.AppResources.html#method.clear_all_texts
+    /// [`RendererResources::clear_all_texts`]: ../renderer_resources/struct.RendererResources.html#method.clear_all_texts
     pub fn clear_all_texts(&mut self) {
         self.$struct_field.clear_all_texts()
     }
