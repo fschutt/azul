@@ -1730,7 +1730,8 @@ impl WindowSize {
 impl Default for WindowSize {
     fn default() -> Self {
         Self {
-            dimensions: LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT),
+            #[cfg(not(feature = "glow"))]
+            dimensions: LogicalSize::new(640.0, 480.0),
             hidpi_factor: 1.0,
             system_hidpi_factor: 1.0,
             min_dimensions: None.into(),
