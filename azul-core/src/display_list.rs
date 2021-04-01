@@ -19,7 +19,7 @@ use crate::{
     ui_solver::{ExternalScrollId, LayoutResult, PositionInfo, ComputedTransform3D},
     window::{FullWindowState, LogicalRect, LogicalPosition, LogicalSize},
     app_resources::{
-        AppResources, AddImageMsg, ImageDescriptor, ImageDescriptorFlags,
+        ImageCache, RendererResources, AddImageMsg, ImageDescriptor, ImageDescriptorFlags,
         ImageKey, FontInstanceKey, ImageInfo, ImageId, PrimitiveFlags,
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn, ParseFontFn,
         ResourceUpdate, IdNamespace, TransformKey, OpacityKey,

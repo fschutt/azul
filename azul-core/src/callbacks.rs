@@ -18,7 +18,7 @@ use azul_css::{
 use crate::{
     FastHashMap,
     app_resources::{
-        AppResources, ImageSource, IdNamespace, Words, ShapedWords,
+        ImageCache, ImageSource, IdNamespace, Words, ShapedWords,
         WordPositions, FontInstanceKey, LayoutedGlyphs, ImageMask
     },
     styled_dom::StyledDom,
@@ -817,10 +817,11 @@ pub struct CallbackInfo {
     /// User-modifiable state of the window that the callback was called on
     modifiable_window_state: *mut WindowState,
     /// An Rc to the OpenGL context, in order to be able to render to OpenGL textures
-    #[cfg(feature = "opengl")]
-    gl_context: *const GlContextPtr,
-    /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
-    resources : *mut AppResources,
+    gl_context: OptionGlContextPtr,
+    /// Cache to add / remove / query image RefAnys from / to CSS ids
+    image_cache: *mut ImageCache,
+    /// System font cache (can be regenerated / refreshed in callbacks)
+    system_fonts: *mut FcContCache,
     /// Currently running timers (polling functions, run on the main thread)
     timers: *mut FastHashMap<TimerId, Timer>,
     /// Currently running threads (asynchronous functions running each on a different thread)
@@ -840,9 +841,13 @@ pub struct CallbackInfo {
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     focus_target: *mut Option<FocusTarget>,
+    /// Cache of UI strings broken into words
     words_cache: *const BTreeMap<NodeId, Words>,
+    /// Cache of words shaped into glyphs
     shaped_words_cache: *const BTreeMap<NodeId, ShapedWords>,
+    /// Cache of word positions on the screen
     positioned_words_cache: *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+    /// Cache of rectangles in the UI
     positioned_rects: *const NodeDataContainer<PositionedRectangle>,
     /// Mutable reference to a list of words / text items that were changed in the callback
     words_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
@@ -864,6 +869,10 @@ pub struct CallbackInfo {
     cursor_relative_to_item: OptionLayoutPoint,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
     cursor_in_viewport: OptionLayoutPoint,
+    /// Extension for future ABI stability (referenced data)
+    _abi_ref: *const c_void,
+    /// Extension for future ABI stability (mutable data)
+    _abi_mut: *mut c_void,
 }
 
 impl CallbackInfo {
@@ -1104,7 +1113,7 @@ impl CallbackInfo {
         Some(crate::app_resources::get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout))
     }
 
-    pub fn exchange_image(&mut self, node_id: DomNodeId, new_image: ImageSource) {
+    pub fn exchange_image(&mut self, node_id: DomNodeId, new_image: ImageRef) {
         if let Some(nid) = node_id.node.into_crate_internal() {
             self.internal_get_images_changed_in_callbacks()
             .entry(node_id.dom)
@@ -1156,18 +1165,18 @@ pub type CallbackType = extern "C" fn(&mut RefAny, CallbackInfo) -> CallbackRetu
 // -- opengl callback
 
 /// Callbacks that returns a rendered OpenGL texture
-#[cfg(feature = "opengl")]
 #[repr(C)]
-pub struct GlCallback { pub cb: GlCallbackType }
-#[cfg(feature = "opengl")]
-impl_callback!(GlCallback);
+pub struct RenderImageCallback { pub cb: RenderImageCallbackType }
+impl_callback!(RenderImageCallback);
 
 #[derive(Debug)]
 #[repr(C)]
-pub struct GlCallbackInfo {
-    /// The ID of the DOM node that the GlCallbackInfo was attached to
+pub struct RenderImageCallbackInfo {
+    /// The ID of the DOM node that the ImageCallback was attached to
     callback_node_id: DomNodeId,
+    /// Bounds of the laid-out node
     bounds: HidpiAdjustedBounds,
+    /// Optional OpenGL context pointer
     #[cfg(feature = "opengl")]
     gl_context: *const OptionGlContextPtr,
     resources: *const AppResources,
@@ -1176,10 +1185,14 @@ pub struct GlCallbackInfo {
     shaped_words_cache: *const BTreeMap<NodeId, ShapedWords>,
     positioned_words_cache: *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     positioned_rects: *const NodeDataContainer<PositionedRectangle>,
+    /// Extension for future ABI stability (referenced data)
+    _abi_ref: *const c_void,
+    /// Extension for future ABI stability (mutable data)
+    _abi_mut: *mut c_void,
 }
 
 // same as the implementations on CallbackInfo, just slightly adjusted for the GlCallbackInfo
-impl GlCallbackInfo {
+impl RenderImageCallbackInfo {
 
     #[cfg(feature = "opengl")]
     pub fn new<'a>(
@@ -1298,14 +1311,8 @@ impl GlCallbackInfo {
     }
 }
 
-#[cfg(feature = "opengl")]
-pub type GlCallbackType = extern "C" fn(&mut RefAny, GlCallbackInfo) -> GlCallbackReturn;
-
-#[cfg(feature = "opengl")]
-#[repr(C)]
-#[derive(Debug)]
-pub struct GlCallbackReturn { pub texture: OptionTexture }
-
+/// Callback that - given the width and height of the expected image - renders an image
+pub type RenderImageCallbackType = extern "C" fn(&mut RefAny, RenderImageCallbackInfo) -> ImageRef;
 
 // -- iframe callback
 
@@ -1326,6 +1333,10 @@ pub struct IFrameCallbackInfo {
     pub scroll_offset: LogicalPosition,
     pub virtual_scroll_size: LogicalSize,
     pub virtual_scroll_offset: LogicalPosition,
+    /// Extension for future ABI stability (referenced data)
+    _abi_ref: *const c_void,
+    /// Extension for future ABI stability (mutable data)
+    _abi_mut: *mut c_void,
 }
 
 impl IFrameCallbackInfo {
@@ -1404,6 +1415,10 @@ pub struct TimerCallbackInfo {
     /// Set to true ONCE on the LAST invocation of the timer (if the timer has a timeout set)
     /// This is useful to rebuild the DOM once the timer (usually an animation) has finished.
     pub is_about_to_finish: bool,
+    /// Extension for future ABI stability (referenced data)
+    _abi_ref: *const c_void,
+    /// Extension for future ABI stability (mutable data)
+    _abi_mut: *mut c_void,
 }
 
 pub type WriteBackCallbackType = extern "C" fn(/* original data */ &mut RefAny, /*data to write back*/ RefAny, CallbackInfo) -> UpdateScreen;
@@ -1426,102 +1441,67 @@ pub type TimerCallbackType = extern "C" fn(/* application data */ &mut RefAny, /
 /// (for querying images and fonts, as well as width / height)
 #[derive(Debug)]
 #[repr(C)]
-pub struct LayoutInfo {
+pub struct LayoutCallbackInfo {
     /// Window size (so that apps can return a different UI depending on
     /// the window size - mobile / desktop view). Should be later removed
     /// in favor of "resize" handlers and @media queries.
-    window_size: *const WindowSize,
+    pub window_size: WindowSize,
     /// Registers whether the UI is dependent on the window theme
-    theme: *const WindowTheme,
-    /// Optimization for resizing: If a DOM has no Iframes and the window size
-    /// does not change the state of the UI, then resizing the window will not
-    /// result in calls to the .layout() function (since the resulting UI would
-    /// stay the same).
-    ///
-    /// Stores "stops" in logical pixels where the UI needs to be re-generated
-    /// should the width of the window change.
-    window_size_width_stops: *mut Vec<f32>,
-    /// Same as `window_size_width_stops` but for the height of the window.
-    window_size_height_stops: *mut Vec<f32>,
-    /// Registers whether the UI is theme-dependent
-    is_theme_dependent: *mut bool,
-    /// Allows the layout() function to reference app resources such as FontIDs or ImageIDs
-    resources: *const AppResources,
+    pub theme: WindowTheme,
+    /// Allows the layout() function to reference image IDs
+    image_cache: *const ImageCache,
+    /// OpenGL context so that the layout() function can render textures
+    pub gl_context: *const OptionGlContextPtr,
+    /// Reference to the system font cache
+    system_fonts: *const FcFontCache,
+    /// Extension for future ABI stability (referenced data)
+    _abi_ref: *const c_void,
+    /// Extension for future ABI stability (mutable data)
+    _abi_mut: *mut c_void,
 }
 
-impl LayoutInfo {
+impl LayoutCallbackInfo {
 
     pub fn new<'a>(
-        window_size: &'a WindowSize,
-        theme: &'a WindowTheme,
-        window_size_width_stops: &'a mut Vec<f32>,
-        window_size_height_stops: &'a mut Vec<f32>,
-        is_theme_dependent: &'a mut bool,
-        resources: &'a AppResources,
+        window_size: WindowSize,
+        theme: WindowTheme,
+        image_cache: &'a ImageCache,
+        gl_context: &'a OptionGlContextPtr,
+        fc_cache: &'a FcFontCache,
     ) -> Self {
         Self {
-            window_size: window_size as *const WindowSize,
-            theme: theme as *const WindowTheme,
-            window_size_width_stops: window_size_width_stops as *mut Vec<f32>,
-            window_size_height_stops: window_size_height_stops as *mut Vec<f32>,
-            is_theme_dependent: is_theme_dependent as *mut bool,
-            resources: resources as *const AppResources,
+            window_size: window_size,
+            theme: theme,
+            image_cache: image_cache as *const ImageCache,
+            gl_context as *const OptionGlContextPtr,
+            system_fonts: fc_cache as *const FcFontCache,
+            _abi_ref: core::ptr::null(),
+            _abi_mut: core::ptr::null_mut(),
         }
     }
 
-    fn internal_get_window_size<'a>(&'a self) -> &'a WindowSize { unsafe { &*self.window_size } }
-    fn internal_get_theme<'a>(&'a self) -> &'a WindowTheme { unsafe { &*self.theme } }
-    fn internal_get_window_size_width_stops<'a>(&'a mut self) -> &'a mut Vec<f32> { unsafe { &mut *self.window_size_width_stops } }
-    fn internal_get_window_size_height_stops<'a>(&'a mut self) -> &'a mut Vec<f32> { unsafe { &mut *self.window_size_height_stops } }
-    fn internal_get_is_theme_dependent<'a>(&'a mut self) -> &'a mut bool { unsafe { &mut *self.is_theme_dependent } }
-    fn internal_get_resources<'a>(&'a self) -> &'a AppResources { unsafe { &*self.resources } }
+    fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache { unsafe { &*self.image_cache } }
+    fn internal_get_fc_cache<'a>(&'a self) -> &'a FcFontCache { unsafe { &*self.fc_cache } }
+    fn internal_get_gl_context<'a>(&'a self) -> &'a OptionGlContextPtr { unsafe { &*self.gl_context } }
 
-    /// Returns whether the window width is larger than `width`,
-    /// but sets an internal "dirty" flag - so that the UI is re-generated when
-    /// the window is resized above or below `width`.
-    ///
-    /// For example:
-    ///
-    /// ```rust,no_run,ignore
-    /// fn layout(info: LayoutInfo<T>) -> Dom {
-    ///     if info.window_width_larger_than(720.0) {
-    ///         render_desktop_ui()
-    ///     } else {
-    ///         render_mobile_ui()
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// Here, the UI is dependent on the width of the window, so if the window
-    /// resizes above or below 720px, the `layout()` function needs to be called again.
-    /// Internally Azul stores the `720.0` and only calls the `.layout()` function
-    /// again if the window resizes above or below the value.
-    ///
-    /// NOTE: This should be later depreceated into `On::Resize` handlers and
-    /// `@media` queries.
-    pub fn window_width_larger_than(&mut self, width: f32) -> bool {
-        self.internal_get_window_size_width_stops().push(width);
-        self.internal_get_window_size().get_logical_size().width > width
+    pub fn get_gl_context(&'a self) -> OptionGlContextPtr {
+        self.internal_get_gl_context().clone()
     }
 
-    pub fn window_width_smaller_than(&mut self, width: f32) -> bool {
-        self.internal_get_window_size_width_stops().push(width);
-        self.internal_get_window_size().get_logical_size().width < width
+    pub fn get_system_fonts(&'a self) -> Vec<StringPair> {
+        self.internal_get_fc_cache()
+        .list()
+        .filter_map(|(k, v)| Some(StringPair {
+            key: k.name?.clone().into(),
+            value: v.path.clone().into()
+        }))
+        .collect()
     }
 
-    pub fn window_height_larger_than(&mut self, height: f32) -> bool {
-        self.internal_get_window_size_height_stops().push(height);
-        self.internal_get_window_size().get_logical_size().height > height
-    }
-
-    pub fn window_height_smaller_than(&mut self, height: f32) -> bool {
-        self.internal_get_window_size_height_stops().push(height);
-        self.internal_get_window_size().get_logical_size().height < height
-    }
-
-    pub fn uses_dark_theme(&mut self) -> bool {
-        *self.internal_get_is_theme_dependent() = true;
-        *self.internal_get_theme() == WindowTheme::DarkMode
+    pub fn get_image(&'a self, image_id: &AzString) -> Option<ImageRef> {
+        self.internal_get_image_cache()
+        .get_css_image_id(image_id)
+        .cloned()
     }
 }
 

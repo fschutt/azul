@@ -1,6 +1,4 @@
-use core::{
-    fmt,
-};
+use core::fmt;
 use alloc::vec::Vec;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -1430,55 +1428,63 @@ impl StyledDom {
 
     /// Scans the display list for all font IDs + their font size
     #[cfg(feature = "multithreading")]
-    pub(crate) fn scan_for_font_keys(&self, app_resources: &AppResources) -> FastHashMap<ImmediateFontId, FastBTreeSet<Au>> {
+    pub(crate) fn scan_for_font_keys(
+        &self,
+        resources: &RendererResources
+    ) -> FastHashMap<ImmediateFontId, FastBTreeSet<Au>> {
 
         use crate::dom::NodeType::*;
         use crate::app_resources::font_size_to_au;
         use rayon::prelude::*;
 
         let keys = self.node_data
-            .as_ref()
-            .par_iter()
-            .enumerate()
-            .filter_map(|(node_id, node_data)| {
-                let node_id = NodeId::new(node_id);
-                match node_data.get_node_type() {
-                    Label(_) => {
+        .as_ref()
+        .par_iter()
+        .enumerate()
+        .filter_map(|(node_id, node_data)| {
+            let node_id = NodeId::new(node_id);
+            match node_data.get_node_type() {
+                Label(_) => {
 
-                        let css_font_ids = self.get_css_property_cache()
-                        .get_font_id_or_default(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state);
+                    let css_font_ids = self.get_css_property_cache()
+                    .get_font_id_or_default(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state);
 
-                        let font_size = self.get_css_property_cache()
-                        .get_font_size_or_default(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state);
+                    let font_size = self.get_css_property_cache()
+                    .get_font_size_or_default(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state);
 
-                        let style_font_family_hash = StyleFontFamiliesHash::new(&css_font_ids);
+                    let style_font_family_hash = StyleFontFamiliesHash::new(&css_font_ids);
 
-                        let existing_font_key = app_resources.font_families_map
-                        .get(&style_font_family_hash)
-                        .and_then(|font_family| app_resources.font_id_map.get(&font_family));
+                    let existing_font_key = resources.font_families_map
+                    .get(&style_font_family_hash)
+                    .and_then(|font_family| resources.font_id_map.get(&font_family));
 
-                        let font_id = match existing_font_key {
-                            Some(font_key) => ImmediateFontId::Resolved((style_font_family_hash, *font_key)),
-                            None => ImmediateFontId::Unresolved(css_font_ids),
-                        };
+                    let font_id = match existing_font_key {
+                        Some(font_key) => ImmediateFontId::Resolved((style_font_family_hash, *font_key)),
+                        None => ImmediateFontId::Unresolved(css_font_ids),
+                    };
 
-                        Some((font_id, font_size_to_au(font_size)))
-                    },
-                    _ => None
-                }
-            })
-            .collect::<Vec<_>>();
+                    Some((font_id, font_size_to_au(font_size)))
+                },
+                _ => None
+            }
+        })
+        .collect::<Vec<_>>();
 
         let mut map = FastHashMap::default();
+
         for (font_id, au) in keys.into_iter() {
             map.entry(font_id).or_insert_with(|| FastBTreeSet::default()).insert(au);
         }
+
         map
     }
 
     /// Scans the display list for all image keys
     #[cfg(feature = "multithreading")]
-    pub(crate) fn scan_for_image_keys(&self, app_resources: &AppResources) -> FastBTreeSet<ImmediateImageId> {
+    pub(crate) fn scan_for_image_keys(
+        &self,
+        css_image_cache: &ImageCache
+    ) -> FastBTreeSet<ImageRef> {
 
         use crate::dom::NodeType::*;
         use crate::app_resources::OptionImageMask;
@@ -1486,9 +1492,9 @@ impl StyledDom {
 
         #[derive(Default)]
         struct ScanImageVec {
-            node_type_image: Option<ImmediateImageId>,
-            background_image: Vec<ImmediateImageId>,
-            clip_mask: Option<ImmediateImageId>,
+            node_type_image: Option<ImageRef>,
+            background_image: Vec<ImageRef>,
+            clip_mask: Option<ImageRef>,
         }
 
         use rayon::prelude::*;
@@ -1509,14 +1515,17 @@ impl StyledDom {
             }
 
             // If the node has a CSS background image, it needs to be uploaded
-            if let Some(style_backgrounds) = self.get_css_property_cache()
-            .get_background_content(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state) {
-                v.background_image = style_backgrounds.get_property().unwrap_or(&default_backgrounds)
+            let opt_background_image = self.get_css_property_cache()
+            .get_background_content(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state);
+
+            if let Some(style_backgrounds) = opt_background_image {
+                v.background_image = style_backgrounds
+                .get_property().unwrap_or(&default_backgrounds)
                 .iter()
                 .filter_map(|bg| {
                     let css_image_id = bg.get_css_image_id()?;
                     let image_id = app_resources.get_css_image_id(css_image_id.inner.as_str())?;
-                    Some(*image_id)
+                    Some(image_id.clone())
                 }).collect();
             }
 

@@ -337,7 +337,6 @@ pub enum NodeTypeTag {
     Br,
     P,
     Img,
-    Texture,
     IFrame,
 }
 
@@ -354,34 +353,29 @@ impl<'a> fmt::Display for NodeTypeTagParseError<'a> {
     }
 }
 
-const NODE_TYPE_PATH_MAP: [(NodeTypeTag, &'static str); 6] = [
-    (NodeTypeTag::Body, "body"),
-    (NodeTypeTag::Div, "div"),
-    (NodeTypeTag::P, "p"),
-    (NodeTypeTag::Img, "img"),
-    (NodeTypeTag::Texture, "texture"),
-    (NodeTypeTag::IFrame, "iframe"),
-];
-
 /// Parses the node type from a CSS string such as `"div"` => `NodeTypeTag::Div`
 impl NodeTypeTag {
     pub fn from_str(css_key: &str) -> Result<Self, NodeTypeTagParseError> {
-        NODE_TYPE_PATH_MAP.iter()
-        .find(|(_, k)| css_key == *k)
-        .and_then(|(v, _)| Some(*v))
-        .ok_or(NodeTypeTagParseError::Invalid(css_key))
+        match css_key {
+            "body" => Ok(NodeTypeTag::Body),
+            "div" => Ok(NodeTypeTag::Div),
+            "p" => Ok(NodeTypeTag::P),
+            "img" => Ok(NodeTypeTag::Img),
+            other => Err(NodeTypeTagParseError::Invalid(other)),
+        }
     }
 }
 
 impl fmt::Display for NodeTypeTag {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let display_string = NODE_TYPE_PATH_MAP.iter()
-            .find(|(v, _)| *self == *v)
-            .and_then(|(_, k)| Some(*k))
-            .unwrap();
-
-        write!(f, "{}", display_string)?;
-        Ok(())
+        match self {
+            NodeTypeTag::Body => write!(f, "body"),
+            NodeTypeTag::Div => write!(f, "div"),
+            NodeTypeTag::Br => write!(f, "br"),
+            NodeTypeTag::P => write!(f, "p"),
+            NodeTypeTag::Img => write!(f, "img"),
+            NodeTypeTag::IFrame => write!(f, "iframe"),
+        }
     }
 }
 

@@ -8,6 +8,7 @@ use core::ffi::c_void;
 use core::fmt;
 use core::hash::{Hash, Hasher};
 use core::cmp::Ordering;
+use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use crate::css::CssPropertyValue;
 use crate::{
     AzString, U8Vec, OptionU32,
@@ -4082,7 +4083,7 @@ pub struct FontRef {
     /// shared pointer to an opaque implementation of the parsed font
     pub data: *const FontData,
     /// How many copies does this font have (if 0, the font data will be deleted on drop)
-    pub copies: *const usize,
+    pub copies: *const AtomicUsize,
 }
 
 impl_option!(FontRef, OptionFontRef, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
@@ -4123,14 +4124,14 @@ impl FontRef {
     pub fn new(data: FontData) -> Self {
         Self {
             data: Box::into_raw(Box::new(data)),
-            copies: Box::into_raw(Box::new(0)),
+            copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
         }
     }
 }
 
 impl Clone for FontRef {
     fn clone(&self) -> Self {
-        unsafe { *(self.copies as *mut usize) += 1; }
+        unsafe { self.copies.as_ref().map(|f| f.fetch_add(1, AtomicOrdering::SeqCst)); }
         Self {
             data: self.data, // copy the pointer
             copies: self.copies, // copy the pointer
@@ -4141,11 +4142,10 @@ impl Clone for FontRef {
 impl Drop for FontRef {
     fn drop(&mut self) {
         unsafe {
-            if *self.copies == 0 {
+            let new_copies = unsafe { self.copies.as_ref().map(|f| f.fetch_sub(1, AtomicOrdering::SeqCst)) };
+            if new_copies == Some(0) {
                 let _ = Box::from_raw(self.data as *mut FontData);
-                let _ = Box::from_raw(self.copies as *mut usize);
-            } else {
-                *(self.copies as *mut usize) -= 1;
+                let _ = Box::from_raw(self.copies as *mut AtomicUsize);
             }
         }
     }

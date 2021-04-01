@@ -679,6 +679,8 @@ def sort_structs_map(api_data, structs_map):
                     variant_type = analyze_type(variant_type["type"])[1]
                     if not(is_primitive_arg(variant_type)):
                         found_c = search_for_class_by_class_name(api_data, variant_type)
+                        if found_c is None:
+                            print("sort structs map: " + class_name + " variant " + variant_type + " not found")
                         field_is_fn_ptr = class_is_typedef(get_class(api_data, found_c[0], found_c[1]))
                         if not(class_in_forward_decl and variant_type == forward_delcarations[class_name]) and not(field_is_fn_ptr):
                             should_insert_struct = False

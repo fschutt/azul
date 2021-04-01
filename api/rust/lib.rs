@@ -1115,14 +1115,9 @@ mod dll {
     pub type AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver);
     /// `AzRefAnyDestructorType` struct
     pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
-    /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzLayoutInfo {
-        pub window_size: *const c_void,
-        pub theme: *const c_void,
-        pub window_size_width_stops: *mut c_void,
-        pub window_size_height_stops: *mut c_void,
-        pub is_theme_dependent: *mut c_void,
-        pub resources: *const c_void,
+    /// Re-export of rust-allocated (stack based) `RefCount` struct
+    #[repr(C)]     pub struct AzRefCount {
+        pub(crate) ptr: *const c_void,
     }
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOn {
@@ -1253,7 +1248,6 @@ mod dll {
         Br,
         P,
         Img,
-        Texture,
         IFrame,
     }
     /// Re-export of rust-allocated (stack based) `CssNthChildPattern` struct
@@ -1645,6 +1639,11 @@ mod dll {
         pub is_opaque: bool,
         pub is_video_texture: bool,
     }
+    /// Re-export of rust-allocated (stack based) `ImageRef` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzImageRef {
+        pub data: *const c_void,
+        pub copies: *const c_void,
+    }
     /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzRawImageFormat {
         R8,
@@ -1655,10 +1654,6 @@ mod dll {
         RG8,
         RGBAI32,
         RGBA8,
-    }
-    /// Re-export of rust-allocated (stack based) `ImageId` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzImageId {
-        pub id: usize,
     }
     /// Re-export of rust-allocated (stack based) `EncodeImageError` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzEncodeImageError {
@@ -1674,10 +1669,8 @@ mod dll {
         UnsupportedImageFormat,
         Unknown,
     }
-    /// Re-export of rust-allocated (stack based) `FontId` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzFontId {
-        pub id: usize,
-    }
+    /// `AzParsedFontDestructorFnType` struct
+    pub type AzParsedFontDestructorFnType = extern "C" fn(&mut c_void);
     /// Re-export of rust-allocated (stack based) `Svg` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvg {
         pub(crate) ptr: *mut c_void,
@@ -2292,6 +2285,21 @@ mod dll {
     }
     /// `AzNodeDataVecDestructorType` struct
     pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+    /// Re-export of rust-allocated (stack based) `OptionI16` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionI16 {
+        None,
+        Some(i16),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionU16` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionU16 {
+        None,
+        Some(u16),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionU32` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionU32 {
+        None,
+        Some(u32),
+    }
     /// Re-export of rust-allocated (stack based) `OptionHwndHandle` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionHwndHandle {
         None,
@@ -2462,6 +2470,22 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzTimerCallbackReturn {
         pub should_update: AzUpdateScreen,
         pub should_terminate: AzTerminateTimer,
+    }
+    /// RefAny is a reference-counted, opaque pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRefAny {
+        pub _internal_ptr: *const c_void,
+        pub is_original_instance: bool,
+        pub sharing_info: AzRefCount,
+    }
+    /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlTextureNode {
+        pub callback: AzGlCallback,
+        pub data: AzRefAny,
+    }
+    /// Re-export of rust-allocated (stack based) `IFrameNode` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameNode {
+        pub callback: AzIFrameCallback,
+        pub data: AzRefAny,
     }
     /// Re-export of rust-allocated (stack based) `NotEventFilter` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzNotEventFilter {
@@ -3271,9 +3295,67 @@ mod dll {
     }
     /// Re-export of rust-allocated (stack based) `ImageMask` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzImageMask {
-        pub image: AzImageId,
+        pub image: AzImageRef,
         pub rect: AzLogicalRect,
         pub repeat: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `FontMetrics` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFontMetrics {
+        pub units_per_em: u16,
+        pub font_flags: u16,
+        pub x_min: i16,
+        pub y_min: i16,
+        pub x_max: i16,
+        pub y_max: i16,
+        pub ascender: i16,
+        pub descender: i16,
+        pub line_gap: i16,
+        pub advance_width_max: u16,
+        pub min_left_side_bearing: i16,
+        pub min_right_side_bearing: i16,
+        pub x_max_extent: i16,
+        pub caret_slope_rise: i16,
+        pub caret_slope_run: i16,
+        pub caret_offset: i16,
+        pub num_h_metrics: u16,
+        pub x_avg_char_width: i16,
+        pub us_weight_class: u16,
+        pub us_width_class: u16,
+        pub fs_type: u16,
+        pub y_subscript_x_size: i16,
+        pub y_subscript_y_size: i16,
+        pub y_subscript_x_offset: i16,
+        pub y_subscript_y_offset: i16,
+        pub y_superscript_x_size: i16,
+        pub y_superscript_y_size: i16,
+        pub y_superscript_x_offset: i16,
+        pub y_superscript_y_offset: i16,
+        pub y_strikeout_size: i16,
+        pub y_strikeout_position: i16,
+        pub s_family_class: i16,
+        pub panose: [u8; 10],
+        pub ul_unicode_range1: u32,
+        pub ul_unicode_range2: u32,
+        pub ul_unicode_range3: u32,
+        pub ul_unicode_range4: u32,
+        pub ach_vend_id: u32,
+        pub fs_selection: u16,
+        pub us_first_char_index: u16,
+        pub us_last_char_index: u16,
+        pub s_typo_ascender: AzOptionI16,
+        pub s_typo_descender: AzOptionI16,
+        pub s_typo_line_gap: AzOptionI16,
+        pub us_win_ascent: AzOptionU16,
+        pub us_win_descent: AzOptionU16,
+        pub ul_code_page_range1: AzOptionU32,
+        pub ul_code_page_range2: AzOptionU32,
+        pub sx_height: AzOptionI16,
+        pub s_cap_height: AzOptionI16,
+        pub us_default_char: AzOptionU16,
+        pub us_break_char: AzOptionU16,
+        pub us_max_context: AzOptionU16,
+        pub us_lower_optical_point_size: AzOptionU16,
+        pub us_upper_optical_point_size: AzOptionU16,
     }
     /// Re-export of rust-allocated (stack based) `SvgLine` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgLine {
@@ -3309,6 +3391,18 @@ mod dll {
         pub anti_alias: bool,
         pub high_quality_aa: bool,
     }
+    /// Re-export of rust-allocated (stack based) `Thread` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThread {
+        pub thread_handle: *mut c_void,
+        pub sender: *mut c_void,
+        pub receiver: *mut c_void,
+        pub writeback_data: AzRefAny,
+        pub dropcheck: *mut c_void,
+        pub check_thread_finished_fn: AzCheckThreadFinishedFn,
+        pub send_thread_msg_fn: AzLibrarySendThreadMsgFn,
+        pub receive_thread_msg_fn: AzLibraryReceiveThreadMsgFn,
+        pub thread_destructor_fn: AzThreadDestructorFn,
+    }
     /// Re-export of rust-allocated (stack based) `ThreadSender` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadSender {
         pub(crate) ptr: *mut c_void,
@@ -3320,6 +3414,11 @@ mod dll {
         pub(crate) ptr: *mut c_void,
         pub recv_fn: AzThreadRecvFn,
         pub destructor: AzThreadReceiverDestructorFn,
+    }
+    /// Re-export of rust-allocated (stack based) `ThreadWriteBackMsg` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadWriteBackMsg {
+        pub data: AzRefAny,
+        pub callback: AzWriteBackCallback,
     }
     /// Wrapper over a Rust-allocated `Vec<XmlNode>`
     #[repr(C)]     pub struct AzXmlNodeVec {
@@ -3475,6 +3574,11 @@ mod dll {
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `OptionImageRef` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionImageRef {
+        None,
+        Some(AzImageRef),
+    }
     /// Re-export of rust-allocated (stack based) `OptionSystemClipboard` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionSystemClipboard {
         None,
@@ -3519,6 +3623,11 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionLayoutRect {
         None,
         Some(AzLayoutRect),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
+    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionRefAny {
+        None,
+        Some(AzRefAny),
     }
     /// Re-export of rust-allocated (stack based) `OptionLayoutPoint` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionLayoutPoint {
@@ -3724,6 +3833,14 @@ mod dll {
         pub positioned_words_cache: *const c_void,
         pub positioned_rects: *const c_void,
     }
+    /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzLayoutInfo {
+        pub window_size: AzLogicalSize,
+        pub theme: AzWindowTheme,
+        pub image_cache: *const c_void,
+        pub gl_context: *const AzOptionGl,
+        pub system_fonts: *const c_void,
+    }
     /// Re-export of rust-allocated (stack based) `EventFilter` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzEventFilter {
         Hover(AzHoverEventFilter),
@@ -3887,6 +4004,11 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzXml {
         pub root: AzXmlNodeVec,
     }
+    /// Re-export of rust-allocated (stack based) `ThreadReceiveMsg` struct
+    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzThreadReceiveMsg {
+        WriteBack(AzThreadWriteBackMsg),
+        Update(AzUpdateScreen),
+    }
     /// Re-export of rust-allocated (stack based) `String` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzString {
         pub vec: AzU8Vec,
@@ -3951,6 +4073,11 @@ mod dll {
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionStringVec {
         None,
         Some(AzStringVec),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
+    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionThreadReceiveMsg {
+        None,
+        Some(AzThreadReceiveMsg),
     }
     /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTaskBarIcon {
@@ -4094,38 +4221,6 @@ mod dll {
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlCallbackReturn {
         pub texture: AzOptionTexture,
     }
-    /// Re-export of rust-allocated (stack based) `RefCountInner` struct
-    #[repr(C)]     pub struct AzRefCountInner {
-        pub num_copies: usize,
-        pub num_refs: usize,
-        pub num_mutable_refs: usize,
-        pub _internal_len: usize,
-        pub _internal_layout_size: usize,
-        pub _internal_layout_align: usize,
-        pub type_id: u64,
-        pub type_name: AzString,
-        pub custom_destructor: AzRefAnyDestructorType,
-    }
-    /// Re-export of rust-allocated (stack based) `RefCount` struct
-    #[repr(C)]     pub struct AzRefCount {
-        pub(crate) ptr: *const AzRefCountInner,
-    }
-    /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRefAny {
-        pub _internal_ptr: *const c_void,
-        pub is_dead: bool,
-        pub sharing_info: AzRefCount,
-    }
-    /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGlTextureNode {
-        pub callback: AzGlCallback,
-        pub data: AzRefAny,
-    }
-    /// Re-export of rust-allocated (stack based) `IFrameNode` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameNode {
-        pub callback: AzIFrameCallback,
-        pub data: AzRefAny,
-    }
     /// Re-export of rust-allocated (stack based) `CallbackData` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzCallbackData {
         pub event: AzEventFilter,
@@ -4133,14 +4228,13 @@ mod dll {
         pub data: AzRefAny,
     }
     /// List of core DOM node types built-into by `azul`
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzNodeType {
-        Div,
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzNodeType {
         Body,
+        Div,
         Br,
-        Label(AzString),
-        Image(AzImageId),
+        Text(AzString),
+        Image(AzImageRef),
         IFrame(AzIFrameNode),
-        GlTexture(AzGlTextureNode),
     }
     /// Re-export of rust-allocated (stack based) `IdOrClass` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzIdOrClass {
@@ -4269,28 +4363,19 @@ mod dll {
         pub alpha_premultiplied: bool,
         pub data_format: AzRawImageFormat,
     }
-    /// Re-export of rust-allocated (stack based) `ImageSource` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzImageSource {
-        Embedded(AzU8Vec),
-        File(AzString),
-        Raw(AzRawImage),
-    }
-    /// Re-export of rust-allocated (stack based) `EmbeddedFontSource` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzEmbeddedFontSource {
+    /// Re-export of rust-allocated (stack based) `ParsedFont` struct
+    #[repr(C)]  #[derive(Clone)]   pub struct AzParsedFont {
         pub postscript_id: AzString,
-        pub font_data: AzU8Vec,
-        pub load_glyph_outlines: bool,
+        pub bytes: AzU8Vec,
+        pub font_index: u32,
+        pub metrics: AzFontMetrics,
+        pub parsed: *const c_void,
+        pub destructor: AzParsedFontDestructorFnType,
     }
-    /// Re-export of rust-allocated (stack based) `FileFontSource` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFileFontSource {
-        pub postscript_id: AzString,
-        pub file_path: AzString,
-        pub load_glyph_outlines: bool,
-    }
-    /// Re-export of rust-allocated (stack based) `SystemFontSource` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSystemFontSource {
-        pub postscript_id: AzString,
-        pub load_glyph_outlines: bool,
+    /// Atomically (!) reference-counted parsed font data
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzFontRef {
+        pub data: *const AzParsedFont,
+        pub copies: *const c_void,
     }
     /// Re-export of rust-allocated (stack based) `SvgPath` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgPath {
@@ -4318,23 +4403,6 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFileTypeList {
         pub document_types: AzStringVec,
         pub document_descriptor: AzString,
-    }
-    /// Re-export of rust-allocated (stack based) `Thread` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThread {
-        pub thread_handle: *mut c_void,
-        pub sender: *mut c_void,
-        pub receiver: *mut c_void,
-        pub writeback_data: AzRefAny,
-        pub dropcheck: *mut c_void,
-        pub check_thread_finished_fn: AzCheckThreadFinishedFn,
-        pub send_thread_msg_fn: AzLibrarySendThreadMsgFn,
-        pub receive_thread_msg_fn: AzLibraryReceiveThreadMsgFn,
-        pub thread_destructor_fn: AzThreadDestructorFn,
-    }
-    /// Re-export of rust-allocated (stack based) `ThreadWriteBackMsg` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadWriteBackMsg {
-        pub data: AzRefAny,
-        pub callback: AzWriteBackCallback,
     }
     /// Re-export of rust-allocated (stack based) `FmtValue` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzFmtValue {
@@ -4436,15 +4504,15 @@ mod dll {
         pub cap: usize,
         pub destructor: AzStringPairVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `OptionFontRef` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFontRef {
+        None,
+        Some(AzFontRef),
+    }
     /// Re-export of rust-allocated (stack based) `OptionFileTypeList` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFileTypeList {
         None,
         Some(AzFileTypeList),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionRefAny {
-        None,
-        Some(AzRefAny),
     }
     /// Re-export of rust-allocated (stack based) `OptionRawImage` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionRawImage {
@@ -4611,12 +4679,6 @@ mod dll {
         pub index_buffer_len: usize,
         pub index_buffer_format: AzIndexBufferFormat,
     }
-    /// Re-export of rust-allocated (stack based) `FontSource` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzFontSource {
-        Embedded(AzEmbeddedFontSource),
-        File(AzFileFontSource),
-        System(AzSystemFontSource),
-    }
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgMultiPolygon {
         pub rings: AzSvgPathVec,
@@ -4639,11 +4701,6 @@ mod dll {
         pub timeout: AzOptionDuration,
         pub callback: AzTimerCallback,
     }
-    /// Re-export of rust-allocated (stack based) `ThreadReceiveMsg` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzThreadReceiveMsg {
-        WriteBack(AzThreadWriteBackMsg),
-        Update(AzUpdateScreen),
-    }
     /// Wrapper over a Rust-allocated `Vec<InlineLine>`
     #[repr(C)]     pub struct AzInlineLineVec {
         pub(crate) ptr: *const AzInlineLine,
@@ -4664,11 +4721,6 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzSvgMultiPolygonVecDestructor,
-    }
-    /// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionThreadReceiveMsg {
-        None,
-        Some(AzThreadReceiveMsg),
     }
     /// Re-export of rust-allocated (stack based) `XmlTextError` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzXmlTextError {
@@ -4981,7 +5033,7 @@ mod dll {
         pub(crate) fn AzCallbackInfo_setCssProperty(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzCssProperty);
         pub(crate) fn AzCallbackInfo_setScrollPosition(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzLogicalPosition);
         pub(crate) fn AzCallbackInfo_setStringContents(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzString);
-        pub(crate) fn AzCallbackInfo_exchangeImage(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzImageSource);
+        pub(crate) fn AzCallbackInfo_exchangeImage(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzImageRef);
         pub(crate) fn AzCallbackInfo_exchangeImageMask(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzImageMask);
         pub(crate) fn AzCallbackInfo_stopPropagation(_:  &mut AzCallbackInfo);
         pub(crate) fn AzCallbackInfo_createWindow(_:  &mut AzCallbackInfo, _:  AzWindowCreateOptions);
@@ -5014,11 +5066,9 @@ mod dll {
         pub(crate) fn AzRefAny_getTypeName(_:  &AzRefAny) -> AzString;
         pub(crate) fn AzRefAny_clone(_:  &mut AzRefAny) -> AzRefAny;
         pub(crate) fn AzRefAny_delete(_:  &mut AzRefAny);
-        pub(crate) fn AzLayoutInfo_windowWidthLargerThan(_:  &mut AzLayoutInfo, _:  f32) -> bool;
-        pub(crate) fn AzLayoutInfo_windowWidthSmallerThan(_:  &mut AzLayoutInfo, _:  f32) -> bool;
-        pub(crate) fn AzLayoutInfo_windowHeightLargerThan(_:  &mut AzLayoutInfo, _:  f32) -> bool;
-        pub(crate) fn AzLayoutInfo_windowHeightSmallerThan(_:  &mut AzLayoutInfo, _:  f32) -> bool;
-        pub(crate) fn AzLayoutInfo_usesDarkTheme(_:  &mut AzLayoutInfo) -> bool;
+        pub(crate) fn AzLayoutInfo_getGlContext(_:  &AzLayoutInfo) -> AzOptionGl;
+        pub(crate) fn AzLayoutInfo_getSystemFonts(_:  &AzLayoutInfo) -> AzStringPairVec;
+        pub(crate) fn AzLayoutInfo_getImage(_:  &AzLayoutInfo, _:  AzString) -> AzOptionImageRef;
         pub(crate) fn AzDom_nodeCount(_:  &AzDom) -> usize;
         pub(crate) fn AzDom_style(_:  AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn AzOn_intoEventFilter(_:  AzOn) -> AzEventFilter;
@@ -5268,6 +5318,11 @@ mod dll {
         pub(crate) fn AzGl_deepCopy(_:  &AzGl) -> AzGl;
         pub(crate) fn AzGLsyncPtr_delete(_:  &mut AzGLsyncPtr);
         pub(crate) fn AzTextureFlags_default() -> AzTextureFlags;
+        pub(crate) fn AzImageRef_invalid(_:  usize, _:  usize, _:  AzRawImageFormat) -> AzImageRef;
+        pub(crate) fn AzImageRef_rawImage(_:  AzRawImage) -> AzImageRef;
+        pub(crate) fn AzImageRef_glTexture(_:  AzTexture) -> AzImageRef;
+        pub(crate) fn AzImageRef_delete(_:  &mut AzImageRef);
+        pub(crate) fn AzImageRef_deepCopy(_:  &AzImageRef) -> AzImageRef;
         pub(crate) fn AzRawImage_empty() -> AzRawImage;
         pub(crate) fn AzRawImage_allocateClipMask(_:  AzLayoutSize) -> AzRawImage;
         pub(crate) fn AzRawImage_decodeImageBytesAny(_:  AzU8VecRef) -> AzResultRawImageDecodeImageError;
@@ -5279,6 +5334,9 @@ mod dll {
         pub(crate) fn AzRawImage_encodePnm(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeGif(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeTiff(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
+        pub(crate) fn AzFontRef_parse(_:  AzU8Vec, _:  u32) -> AzOptionFontRef;
+        pub(crate) fn AzFontRef_delete(_:  &mut AzFontRef);
+        pub(crate) fn AzFontRef_deepCopy(_:  &AzFontRef) -> AzFontRef;
         pub(crate) fn AzSvg_fromString(_:  AzString, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
         pub(crate) fn AzSvg_fromBytes(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
         pub(crate) fn AzSvg_getRoot(_:  &AzSvg) -> AzSvgXmlNode;
@@ -5859,7 +5917,7 @@ pub mod callbacks {
     }    use crate::window::{LogicalPosition, WindowCreateOptions, WindowState};
     use crate::css::CssProperty;
     use crate::str::String;
-    use crate::image::{ImageMask, ImageSource};
+    use crate::image::{ImageMask, ImageRef};
     use crate::task::{ThreadId, Timer, TimerId};
     /// C-ABI stable wrapper over a `LayoutCallbackType`
     
@@ -5922,7 +5980,7 @@ pub mod callbacks {
         /// If the node is a `Text` node, overwrites the `Text` content with the new string, without requiring the entire UI to be rebuilt.
         pub fn set_string_contents(&mut self, node_id: DomNodeId, string: String)  { unsafe { crate::dll::AzCallbackInfo_setStringContents(self, node_id, string) } }
         /// If the node is an `Image`, exchanges the current image with a new source
-        pub fn exchange_image(&mut self, node_id: DomNodeId, new_image: ImageSource)  { unsafe { crate::dll::AzCallbackInfo_exchangeImage(self, node_id, new_image) } }
+        pub fn exchange_image(&mut self, node_id: DomNodeId, new_image: ImageRef)  { unsafe { crate::dll::AzCallbackInfo_exchangeImage(self, node_id, new_image) } }
         /// If the node has an `ImageMask`, exchanges the current mask for the new mask
         pub fn exchange_image_mask(&mut self, node_id: DomNodeId, new_mask: ImageMask)  { unsafe { crate::dll::AzCallbackInfo_exchangeImageMask(self, node_id, new_mask) } }
         /// Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.
@@ -6065,9 +6123,6 @@ pub mod callbacks {
     /// `RefAnyDestructorType` struct
     
 #[doc(inline)] pub use crate::dll::AzRefAnyDestructorType as RefAnyDestructorType;
-    /// `RefCountInner` struct
-    
-#[doc(inline)] pub use crate::dll::AzRefCountInner as RefCountInner;
     /// `RefCount` struct
     
 #[doc(inline)] pub use crate::dll::AzRefCount as RefCount;
@@ -6088,7 +6143,7 @@ pub mod callbacks {
 
     impl Clone for RefCount { fn clone(&self) -> Self { unsafe { crate::dll::AzRefCount_deepCopy(self) } } }
     impl Drop for RefCount { fn drop(&mut self) { unsafe { crate::dll::AzRefCount_delete(self) } } }
-    /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
+    /// RefAny is a reference-counted, opaque pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
     
 #[doc(inline)] pub use crate::dll::AzRefAny as RefAny;
     impl RefAny {
@@ -6107,16 +6162,12 @@ pub mod callbacks {
     
 #[doc(inline)] pub use crate::dll::AzLayoutInfo as LayoutInfo;
     impl LayoutInfo {
-        /// Calls the `LayoutInfo::window_width_larger_than` function.
-        pub fn window_width_larger_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::AzLayoutInfo_windowWidthLargerThan(self, width) } }
-        /// Calls the `LayoutInfo::window_width_smaller_than` function.
-        pub fn window_width_smaller_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::AzLayoutInfo_windowWidthSmallerThan(self, width) } }
-        /// Calls the `LayoutInfo::window_height_larger_than` function.
-        pub fn window_height_larger_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::AzLayoutInfo_windowHeightLargerThan(self, width) } }
-        /// Calls the `LayoutInfo::window_height_smaller_than` function.
-        pub fn window_height_smaller_than(&mut self, width: f32)  -> bool { unsafe { crate::dll::AzLayoutInfo_windowHeightSmallerThan(self, width) } }
-        /// Returns whether the window uses a dark or light theme - azul will register that the UI is dependent on theming and call the layout callback again when the theme changes
-        pub fn uses_dark_theme(&mut self)  -> bool { unsafe { crate::dll::AzLayoutInfo_usesDarkTheme(self) } }
+        /// Returns a copy of the OpenGL context
+        pub fn get_gl_context(&self)  -> crate::option::OptionGl { unsafe { crate::dll::AzLayoutInfo_getGlContext(self) } }
+        /// Returns all system-native fonts with their respective file paths as values
+        pub fn get_system_fonts(&self)  -> crate::vec::StringPairVec { unsafe { crate::dll::AzLayoutInfo_getSystemFonts(self) } }
+        /// Returns an `ImageRef` referenced by a CSS ID
+        pub fn get_image(&self, id: String)  -> crate::option::OptionImageRef { unsafe { crate::dll::AzLayoutInfo_getImage(self, id) } }
     }
 
 }
@@ -10014,9 +10065,23 @@ pub mod image {
     //! Struct definitions for image loading
     use crate::dll::*;
     use core::ffi::c_void;
+    use crate::gl::{Texture, U8VecRef};
     use crate::window::LayoutSize;
-    use crate::gl::U8VecRef;
     use crate::svg::{SvgNode, SvgStyle};
+    /// `ImageRef` struct
+    
+#[doc(inline)] pub use crate::dll::AzImageRef as ImageRef;
+    impl ImageRef {
+        /// Creates an "invalid" image with a width and height that reserves an image key, but does not render anything
+        pub fn invalid(width: usize, height: usize, format: RawImageFormat) -> Self { unsafe { crate::dll::AzImageRef_invalid(width, height, format) } }
+        /// Creates an image reference from a CPU-backed buffer
+        pub fn raw_image(data: RawImage) -> Self { unsafe { crate::dll::AzImageRef_rawImage(data) } }
+        /// Creates an image reference from an OpenGL texture
+        pub fn gl_texture(texture: Texture) -> Self { unsafe { crate::dll::AzImageRef_glTexture(texture) } }
+    }
+
+    impl Clone for ImageRef { fn clone(&self) -> Self { unsafe { crate::dll::AzImageRef_deepCopy(self) } } }
+    impl Drop for ImageRef { fn drop(&mut self) { unsafe { crate::dll::AzImageRef_delete(self) } } }
     /// `RawImage` struct
     
 #[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
@@ -10051,12 +10116,6 @@ pub mod image {
     /// `RawImageFormat` struct
     
 #[doc(inline)] pub use crate::dll::AzRawImageFormat as RawImageFormat;
-    /// `ImageId` struct
-    
-#[doc(inline)] pub use crate::dll::AzImageId as ImageId;
-    /// `ImageSource` struct
-    
-#[doc(inline)] pub use crate::dll::AzImageSource as ImageSource;
     /// `EncodeImageError` struct
     
 #[doc(inline)] pub use crate::dll::AzEncodeImageError as EncodeImageError;
@@ -10073,21 +10132,26 @@ pub mod font {
     //! Font decoding / parsing module
     use crate::dll::*;
     use core::ffi::c_void;
-    /// `FontSource` struct
+    use crate::vec::U8Vec;
+    /// `ParsedFontDestructorFnType` struct
     
-#[doc(inline)] pub use crate::dll::AzFontSource as FontSource;
-    /// `FontId` struct
+#[doc(inline)] pub use crate::dll::AzParsedFontDestructorFnType as ParsedFontDestructorFnType;
+    /// `FontMetrics` struct
     
-#[doc(inline)] pub use crate::dll::AzFontId as FontId;
-    /// `EmbeddedFontSource` struct
+#[doc(inline)] pub use crate::dll::AzFontMetrics as FontMetrics;
+    /// `ParsedFont` struct
     
-#[doc(inline)] pub use crate::dll::AzEmbeddedFontSource as EmbeddedFontSource;
-    /// `FileFontSource` struct
+#[doc(inline)] pub use crate::dll::AzParsedFont as ParsedFont;
+    /// Atomically (!) reference-counted parsed font data
     
-#[doc(inline)] pub use crate::dll::AzFileFontSource as FileFontSource;
-    /// `SystemFontSource` struct
-    
-#[doc(inline)] pub use crate::dll::AzSystemFontSource as SystemFontSource;
+#[doc(inline)] pub use crate::dll::AzFontRef as FontRef;
+    impl FontRef {
+        /// Parses a new font from bytes. Returns `None` if the font could not be parsed correctly.
+        pub fn parse(bytes: U8Vec, font_index: u32) ->  crate::option::OptionFontRef { unsafe { crate::dll::AzFontRef_parse(bytes, font_index) } }
+    }
+
+    impl Clone for FontRef { fn clone(&self) -> Self { unsafe { crate::dll::AzFontRef_deepCopy(self) } } }
+    impl Drop for FontRef { fn drop(&mut self) { unsafe { crate::dll::AzFontRef_delete(self) } } }
 }
 
 pub mod svg {
@@ -11535,6 +11599,21 @@ pub mod option {
     impl_option!(AzInstant, AzOptionInstant, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
     impl_option!(AzSystemClipboard, AzOptionSystemClipboard, copy = false,  clone = false, [Debug]);
+    /// `OptionI16` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionI16 as OptionI16;
+    /// `OptionU16` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionU16 as OptionU16;
+    /// `OptionU32` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionU32 as OptionU32;
+    /// `OptionImageRef` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionImageRef as OptionImageRef;
+    /// `OptionFontRef` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionFontRef as OptionFontRef;
     /// `OptionSystemClipboard` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionSystemClipboard as OptionSystemClipboard;

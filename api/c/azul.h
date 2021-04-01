@@ -78,6 +78,8 @@ typedef void (*AzThreadCallbackType)(AzRefAny A, AzThreadSender B, AzThreadRecei
 
 typedef void (*AzRefAnyDestructorType)(void* restrict A);
 
+typedef void (*AzParsedFontDestructorFnType)(void* restrict A);
+
 struct AzThreadCallback;
 typedef struct AzThreadCallback AzThreadCallback;
 struct AzThread;
@@ -798,15 +800,10 @@ struct AzThreadCallback {
 };
 typedef struct AzThreadCallback AzThreadCallback;
 
-struct AzLayoutInfo {
-    void* window_size;
-    void* theme;
-    void* restrict window_size_width_stops;
-    void* restrict window_size_height_stops;
-    void* restrict is_theme_dependent;
-    void* resources;
+struct AzRefCount {
+    void* ptr;
 };
-typedef struct AzLayoutInfo AzLayoutInfo;
+typedef struct AzRefCount AzRefCount;
 
 enum AzOn {
    AzOn_MouseOver,
@@ -959,7 +956,6 @@ enum AzNodeTypeKey {
    AzNodeTypeKey_Br,
    AzNodeTypeKey_P,
    AzNodeTypeKey_Img,
-   AzNodeTypeKey_Texture,
    AzNodeTypeKey_IFrame,
 };
 typedef enum AzNodeTypeKey AzNodeTypeKey;
@@ -1401,6 +1397,12 @@ struct AzTextureFlags {
 };
 typedef struct AzTextureFlags AzTextureFlags;
 
+struct AzImageRef {
+    void* data;
+    void* copies;
+};
+typedef struct AzImageRef AzImageRef;
+
 enum AzRawImageFormat {
    AzRawImageFormat_R8,
    AzRawImageFormat_R16,
@@ -1412,11 +1414,6 @@ enum AzRawImageFormat {
    AzRawImageFormat_RGBA8,
 };
 typedef enum AzRawImageFormat AzRawImageFormat;
-
-struct AzImageId {
-    size_t id;
-};
-typedef struct AzImageId AzImageId;
 
 enum AzEncodeImageError {
    AzEncodeImageError_InsufficientMemory,
@@ -1433,11 +1430,6 @@ enum AzDecodeImageError {
    AzDecodeImageError_Unknown,
 };
 typedef enum AzDecodeImageError AzDecodeImageError;
-
-struct AzFontId {
-    size_t id;
-};
-typedef struct AzFontId AzFontId;
 
 struct AzSvg {
     void* restrict ptr;
@@ -2843,6 +2835,60 @@ typedef union AzNodeDataVecDestructor AzNodeDataVecDestructor;
 #define AzNodeDataVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeDataVecDestructorTag_NoDestructor } }
 #define AzNodeDataVecDestructor_External(v) { .External = { .tag = AzNodeDataVecDestructorTag_External, .payload = v } }
 
+enum AzOptionI16Tag {
+   AzOptionI16Tag_None,
+   AzOptionI16Tag_Some,
+};
+typedef enum AzOptionI16Tag AzOptionI16Tag;
+
+struct AzOptionI16Variant_None { AzOptionI16Tag tag; };
+typedef struct AzOptionI16Variant_None AzOptionI16Variant_None;
+struct AzOptionI16Variant_Some { AzOptionI16Tag tag; int16_t payload; };
+typedef struct AzOptionI16Variant_Some AzOptionI16Variant_Some;
+union AzOptionI16 {
+    AzOptionI16Variant_None None;
+    AzOptionI16Variant_Some Some;
+};
+typedef union AzOptionI16 AzOptionI16;
+#define AzOptionI16_None { .None = { .tag = AzOptionI16Tag_None } }
+#define AzOptionI16_Some(v) { .Some = { .tag = AzOptionI16Tag_Some, .payload = v } }
+
+enum AzOptionU16Tag {
+   AzOptionU16Tag_None,
+   AzOptionU16Tag_Some,
+};
+typedef enum AzOptionU16Tag AzOptionU16Tag;
+
+struct AzOptionU16Variant_None { AzOptionU16Tag tag; };
+typedef struct AzOptionU16Variant_None AzOptionU16Variant_None;
+struct AzOptionU16Variant_Some { AzOptionU16Tag tag; uint16_t payload; };
+typedef struct AzOptionU16Variant_Some AzOptionU16Variant_Some;
+union AzOptionU16 {
+    AzOptionU16Variant_None None;
+    AzOptionU16Variant_Some Some;
+};
+typedef union AzOptionU16 AzOptionU16;
+#define AzOptionU16_None { .None = { .tag = AzOptionU16Tag_None } }
+#define AzOptionU16_Some(v) { .Some = { .tag = AzOptionU16Tag_Some, .payload = v } }
+
+enum AzOptionU32Tag {
+   AzOptionU32Tag_None,
+   AzOptionU32Tag_Some,
+};
+typedef enum AzOptionU32Tag AzOptionU32Tag;
+
+struct AzOptionU32Variant_None { AzOptionU32Tag tag; };
+typedef struct AzOptionU32Variant_None AzOptionU32Variant_None;
+struct AzOptionU32Variant_Some { AzOptionU32Tag tag; uint32_t payload; };
+typedef struct AzOptionU32Variant_Some AzOptionU32Variant_Some;
+union AzOptionU32 {
+    AzOptionU32Variant_None None;
+    AzOptionU32Variant_Some Some;
+};
+typedef union AzOptionU32 AzOptionU32;
+#define AzOptionU32_None { .None = { .tag = AzOptionU32Tag_None } }
+#define AzOptionU32_Some(v) { .Some = { .tag = AzOptionU32Tag_Some, .payload = v } }
+
 enum AzOptionHwndHandleTag {
    AzOptionHwndHandleTag_None,
    AzOptionHwndHandleTag_Some,
@@ -3209,6 +3255,25 @@ struct AzTimerCallbackReturn {
     AzTerminateTimer should_terminate;
 };
 typedef struct AzTimerCallbackReturn AzTimerCallbackReturn;
+
+struct AzRefAny {
+    void* _internal_ptr;
+    bool  is_original_instance;
+    AzRefCount sharing_info;
+};
+typedef struct AzRefAny AzRefAny;
+
+struct AzGlTextureNode {
+    AzGlCallback callback;
+    AzRefAny data;
+};
+typedef struct AzGlTextureNode AzGlTextureNode;
+
+struct AzIFrameNode {
+    AzIFrameCallback callback;
+    AzRefAny data;
+};
+typedef struct AzIFrameNode AzIFrameNode;
 
 enum AzNotEventFilterTag {
    AzNotEventFilterTag_Hover,
@@ -5661,11 +5726,70 @@ struct AzRefstrVecRef {
 typedef struct AzRefstrVecRef AzRefstrVecRef;
 
 struct AzImageMask {
-    AzImageId image;
+    AzImageRef image;
     AzLogicalRect rect;
     bool  repeat;
 };
 typedef struct AzImageMask AzImageMask;
+
+struct AzFontMetrics {
+    uint16_t units_per_em;
+    uint16_t font_flags;
+    int16_t x_min;
+    int16_t y_min;
+    int16_t x_max;
+    int16_t y_max;
+    int16_t ascender;
+    int16_t descender;
+    int16_t line_gap;
+    uint16_t advance_width_max;
+    int16_t min_left_side_bearing;
+    int16_t min_right_side_bearing;
+    int16_t x_max_extent;
+    int16_t caret_slope_rise;
+    int16_t caret_slope_run;
+    int16_t caret_offset;
+    uint16_t num_h_metrics;
+    int16_t x_avg_char_width;
+    uint16_t us_weight_class;
+    uint16_t us_width_class;
+    uint16_t fs_type;
+    int16_t y_subscript_x_size;
+    int16_t y_subscript_y_size;
+    int16_t y_subscript_x_offset;
+    int16_t y_subscript_y_offset;
+    int16_t y_superscript_x_size;
+    int16_t y_superscript_y_size;
+    int16_t y_superscript_x_offset;
+    int16_t y_superscript_y_offset;
+    int16_t y_strikeout_size;
+    int16_t y_strikeout_position;
+    int16_t s_family_class;
+    uint8_t[; 10] panose;
+    uint32_t ul_unicode_range1;
+    uint32_t ul_unicode_range2;
+    uint32_t ul_unicode_range3;
+    uint32_t ul_unicode_range4;
+    uint32_t ach_vend_id;
+    uint16_t fs_selection;
+    uint16_t us_first_char_index;
+    uint16_t us_last_char_index;
+    AzOptionI16 s_typo_ascender;
+    AzOptionI16 s_typo_descender;
+    AzOptionI16 s_typo_line_gap;
+    AzOptionU16 us_win_ascent;
+    AzOptionU16 us_win_descent;
+    AzOptionU32 ul_code_page_range1;
+    AzOptionU32 ul_code_page_range2;
+    AzOptionI16 sx_height;
+    AzOptionI16 s_cap_height;
+    AzOptionU16 us_default_char;
+    AzOptionU16 us_break_char;
+    AzOptionU16 us_max_context;
+    AzOptionU16 us_lower_optical_point_size;
+    AzOptionU16 us_upper_optical_point_size;
+};
+typedef struct AzFontMetrics AzFontMetrics;
 
 struct AzSvgLine {
     AzSvgPoint start;
@@ -5706,6 +5830,19 @@ struct AzSvgFillStyle {
 };
 typedef struct AzSvgFillStyle AzSvgFillStyle;
 
+struct AzThread {
+    void* restrict thread_handle;
+    void* restrict sender;
+    void* restrict receiver;
+    AzRefAny writeback_data;
+    void* restrict dropcheck;
+    AzCheckThreadFinishedFn check_thread_finished_fn;
+    AzLibrarySendThreadMsgFn send_thread_msg_fn;
+    AzLibraryReceiveThreadMsgFn receive_thread_msg_fn;
+    AzThreadDestructorFn thread_destructor_fn;
+};
+typedef struct AzThread AzThread;
+
 struct AzThreadSender {
     void* restrict ptr;
     AzThreadSendFn send_fn;
@@ -5719,6 +5856,12 @@ struct AzThreadReceiver {
     AzThreadReceiverDestructorFn destructor;
 };
 typedef struct AzThreadReceiver AzThreadReceiver;
+
+struct AzThreadWriteBackMsg {
+    AzRefAny data;
+    AzWriteBackCallback callback;
+};
+typedef struct AzThreadWriteBackMsg AzThreadWriteBackMsg;
 
 struct AzXmlNode;
 typedef struct AzXmlNode AzXmlNode;
@@ -5900,6 +6043,24 @@ struct AzParentWithNodeDepthVec {
 };
 typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
 
+enum AzOptionImageRefTag {
+   AzOptionImageRefTag_None,
+   AzOptionImageRefTag_Some,
+};
+typedef enum AzOptionImageRefTag AzOptionImageRefTag;
+
+struct AzOptionImageRefVariant_None { AzOptionImageRefTag tag; };
+typedef struct AzOptionImageRefVariant_None AzOptionImageRefVariant_None;
+struct AzOptionImageRefVariant_Some { AzOptionImageRefTag tag; AzImageRef payload; };
+typedef struct AzOptionImageRefVariant_Some AzOptionImageRefVariant_Some;
+union AzOptionImageRef {
+    AzOptionImageRefVariant_None None;
+    AzOptionImageRefVariant_Some Some;
+};
+typedef union AzOptionImageRef AzOptionImageRef;
+#define AzOptionImageRef_None { .None = { .tag = AzOptionImageRefTag_None } }
+#define AzOptionImageRef_Some(v) { .Some = { .tag = AzOptionImageRefTag_Some, .payload = v } }
+
 enum AzOptionSystemClipboardTag {
    AzOptionSystemClipboardTag_None,
    AzOptionSystemClipboardTag_Some,
@@ -6061,6 +6222,24 @@ union AzOptionLayoutRect {
 typedef union AzOptionLayoutRect AzOptionLayoutRect;
 #define AzOptionLayoutRect_None { .None = { .tag = AzOptionLayoutRectTag_None } }
 #define AzOptionLayoutRect_Some(v) { .Some = { .tag = AzOptionLayoutRectTag_Some, .payload = v } }
+
+enum AzOptionRefAnyTag {
+   AzOptionRefAnyTag_None,
+   AzOptionRefAnyTag_Some,
+};
+typedef enum AzOptionRefAnyTag AzOptionRefAnyTag;
+
+struct AzOptionRefAnyVariant_None { AzOptionRefAnyTag tag; };
+typedef struct AzOptionRefAnyVariant_None AzOptionRefAnyVariant_None;
+struct AzOptionRefAnyVariant_Some { AzOptionRefAnyTag tag; AzRefAny payload; };
+typedef struct AzOptionRefAnyVariant_Some AzOptionRefAnyVariant_Some;
+union AzOptionRefAny {
+    AzOptionRefAnyVariant_None None;
+    AzOptionRefAnyVariant_Some Some;
+};
+typedef union AzOptionRefAny AzOptionRefAny;
+#define AzOptionRefAny_None { .None = { .tag = AzOptionRefAnyTag_None } }
+#define AzOptionRefAny_Some(v) { .Some = { .tag = AzOptionRefAnyTag_Some, .payload = v } }
 
 enum AzOptionLayoutPointTag {
    AzOptionLayoutPointTag_None,
@@ -6541,6 +6720,15 @@ struct AzGlCallbackInfo {
 };
 typedef struct AzGlCallbackInfo AzGlCallbackInfo;
 
+struct AzLayoutInfo {
+    AzLogicalSize window_size;
+    AzWindowTheme theme;
+    void* image_cache;
+    AzOptionGl* gl_context;
+    void* system_fonts;
+};
+typedef struct AzLayoutInfo AzLayoutInfo;
+
 enum AzEventFilterTag {
    AzEventFilterTag_Hover,
    AzEventFilterTag_Not,
@@ -7001,6 +7189,24 @@ struct AzXml {
 };
 typedef struct AzXml AzXml;
 
+enum AzThreadReceiveMsgTag {
+   AzThreadReceiveMsgTag_WriteBack,
+   AzThreadReceiveMsgTag_Update,
+};
+typedef enum AzThreadReceiveMsgTag AzThreadReceiveMsgTag;
+
+struct AzThreadReceiveMsgVariant_WriteBack { AzThreadReceiveMsgTag tag; AzThreadWriteBackMsg payload; };
+typedef struct AzThreadReceiveMsgVariant_WriteBack AzThreadReceiveMsgVariant_WriteBack;
+struct AzThreadReceiveMsgVariant_Update { AzThreadReceiveMsgTag tag; AzUpdateScreen payload; };
+typedef struct AzThreadReceiveMsgVariant_Update AzThreadReceiveMsgVariant_Update;
+union AzThreadReceiveMsg {
+    AzThreadReceiveMsgVariant_WriteBack WriteBack;
+    AzThreadReceiveMsgVariant_Update Update;
+};
+typedef union AzThreadReceiveMsg AzThreadReceiveMsg;
+#define AzThreadReceiveMsg_WriteBack(v) { .WriteBack = { .tag = AzThreadReceiveMsgTag_WriteBack, .payload = v } }
+#define AzThreadReceiveMsg_Update(v) { .Update = { .tag = AzThreadReceiveMsgTag_Update, .payload = v } }
+
 struct AzString {
     AzU8Vec vec;
 };
@@ -7087,6 +7293,24 @@ union AzOptionStringVec {
 typedef union AzOptionStringVec AzOptionStringVec;
 #define AzOptionStringVec_None { .None = { .tag = AzOptionStringVecTag_None } }
 #define AzOptionStringVec_Some(v) { .Some = { .tag = AzOptionStringVecTag_Some, .payload = v } }
+
+enum AzOptionThreadReceiveMsgTag {
+   AzOptionThreadReceiveMsgTag_None,
+   AzOptionThreadReceiveMsgTag_Some,
+};
+typedef enum AzOptionThreadReceiveMsgTag AzOptionThreadReceiveMsgTag;
+
+struct AzOptionThreadReceiveMsgVariant_None { AzOptionThreadReceiveMsgTag tag; };
+typedef struct AzOptionThreadReceiveMsgVariant_None AzOptionThreadReceiveMsgVariant_None;
+struct AzOptionThreadReceiveMsgVariant_Some { AzOptionThreadReceiveMsgTag tag; AzThreadReceiveMsg payload; };
+typedef struct AzOptionThreadReceiveMsgVariant_Some AzOptionThreadReceiveMsgVariant_Some;
+union AzOptionThreadReceiveMsg {
+    AzOptionThreadReceiveMsgVariant_None None;
+    AzOptionThreadReceiveMsgVariant_Some Some;
+};
+typedef union AzOptionThreadReceiveMsg AzOptionThreadReceiveMsg;
+#define AzOptionThreadReceiveMsg_None { .None = { .tag = AzOptionThreadReceiveMsgTag_None } }
+#define AzOptionThreadReceiveMsg_Some(v) { .Some = { .tag = AzOptionThreadReceiveMsgTag_Some, .payload = v } }
 
 enum AzOptionTaskBarIconTag {
    AzOptionTaskBarIconTag_None,
@@ -7340,43 +7564,6 @@ struct AzGlCallbackReturn {
 };
 typedef struct AzGlCallbackReturn AzGlCallbackReturn;
 
-struct AzRefCountInner {
-    size_t num_copies;
-    size_t num_refs;
-    size_t num_mutable_refs;
-    size_t _internal_len;
-    size_t _internal_layout_size;
-    size_t _internal_layout_align;
-    uint64_t type_id;
-    AzString type_name;
-    AzRefAnyDestructorType custom_destructor;
-};
-typedef struct AzRefCountInner AzRefCountInner;
-
-struct AzRefCount {
-    AzRefCountInner* ptr;
-};
-typedef struct AzRefCount AzRefCount;
-
-struct AzRefAny {
-    void* _internal_ptr;
-    bool  is_dead;
-    AzRefCount sharing_info;
-};
-typedef struct AzRefAny AzRefAny;
-
-struct AzGlTextureNode {
-    AzGlCallback callback;
-    AzRefAny data;
-};
-typedef struct AzGlTextureNode AzGlTextureNode;
-
-struct AzIFrameNode {
-    AzIFrameCallback callback;
-    AzRefAny data;
-};
-typedef struct AzIFrameNode AzIFrameNode;
-
 struct AzCallbackData {
     AzEventFilter event;
     AzCallback callback;
@@ -7385,47 +7572,42 @@ struct AzCallbackData {
 typedef struct AzCallbackData AzCallbackData;
 
 enum AzNodeTypeTag {
-   AzNodeTypeTag_Div,
    AzNodeTypeTag_Body,
+   AzNodeTypeTag_Div,
    AzNodeTypeTag_Br,
-   AzNodeTypeTag_Label,
+   AzNodeTypeTag_Text,
    AzNodeTypeTag_Image,
    AzNodeTypeTag_IFrame,
-   AzNodeTypeTag_GlTexture,
 };
 typedef enum AzNodeTypeTag AzNodeTypeTag;
 
-struct AzNodeTypeVariant_Div { AzNodeTypeTag tag; };
-typedef struct AzNodeTypeVariant_Div AzNodeTypeVariant_Div;
 struct AzNodeTypeVariant_Body { AzNodeTypeTag tag; };
 typedef struct AzNodeTypeVariant_Body AzNodeTypeVariant_Body;
+struct AzNodeTypeVariant_Div { AzNodeTypeTag tag; };
+typedef struct AzNodeTypeVariant_Div AzNodeTypeVariant_Div;
 struct AzNodeTypeVariant_Br { AzNodeTypeTag tag; };
 typedef struct AzNodeTypeVariant_Br AzNodeTypeVariant_Br;
-struct AzNodeTypeVariant_Label { AzNodeTypeTag tag; AzString payload; };
-typedef struct AzNodeTypeVariant_Label AzNodeTypeVariant_Label;
-struct AzNodeTypeVariant_Image { AzNodeTypeTag tag; AzImageId payload; };
+struct AzNodeTypeVariant_Text { AzNodeTypeTag tag; AzString payload; };
+typedef struct AzNodeTypeVariant_Text AzNodeTypeVariant_Text;
+struct AzNodeTypeVariant_Image { AzNodeTypeTag tag; AzImageRef payload; };
 typedef struct AzNodeTypeVariant_Image AzNodeTypeVariant_Image;
 struct AzNodeTypeVariant_IFrame { AzNodeTypeTag tag; AzIFrameNode payload; };
 typedef struct AzNodeTypeVariant_IFrame AzNodeTypeVariant_IFrame;
-struct AzNodeTypeVariant_GlTexture { AzNodeTypeTag tag; AzGlTextureNode payload; };
-typedef struct AzNodeTypeVariant_GlTexture AzNodeTypeVariant_GlTexture;
 union AzNodeType {
-    AzNodeTypeVariant_Div Div;
     AzNodeTypeVariant_Body Body;
+    AzNodeTypeVariant_Div Div;
     AzNodeTypeVariant_Br Br;
-    AzNodeTypeVariant_Label Label;
+    AzNodeTypeVariant_Text Text;
     AzNodeTypeVariant_Image Image;
     AzNodeTypeVariant_IFrame IFrame;
-    AzNodeTypeVariant_GlTexture GlTexture;
 };
 typedef union AzNodeType AzNodeType;
-#define AzNodeType_Div { .Div = { .tag = AzNodeTypeTag_Div } }
 #define AzNodeType_Body { .Body = { .tag = AzNodeTypeTag_Body } }
+#define AzNodeType_Div { .Div = { .tag = AzNodeTypeTag_Div } }
 #define AzNodeType_Br { .Br = { .tag = AzNodeTypeTag_Br } }
-#define AzNodeType_Label(v) { .Label = { .tag = AzNodeTypeTag_Label, .payload = v } }
+#define AzNodeType_Text(v) { .Text = { .tag = AzNodeTypeTag_Text, .payload = v } }
 #define AzNodeType_Image(v) { .Image = { .tag = AzNodeTypeTag_Image, .payload = v } }
 #define AzNodeType_IFrame(v) { .IFrame = { .tag = AzNodeTypeTag_IFrame, .payload = v } }
-#define AzNodeType_GlTexture(v) { .GlTexture = { .tag = AzNodeTypeTag_GlTexture, .payload = v } }
 
 enum AzIdOrClassTag {
    AzIdOrClassTag_Id,
@@ -7712,48 +7894,21 @@ struct AzRawImage {
 };
 typedef struct AzRawImage AzRawImage;
 
-enum AzImageSourceTag {
-   AzImageSourceTag_Embedded,
-   AzImageSourceTag_File,
-   AzImageSourceTag_Raw,
-};
-typedef enum AzImageSourceTag AzImageSourceTag;
-
-struct AzImageSourceVariant_Embedded { AzImageSourceTag tag; AzU8Vec payload; };
-typedef struct AzImageSourceVariant_Embedded AzImageSourceVariant_Embedded;
-struct AzImageSourceVariant_File { AzImageSourceTag tag; AzString payload; };
-typedef struct AzImageSourceVariant_File AzImageSourceVariant_File;
-struct AzImageSourceVariant_Raw { AzImageSourceTag tag; AzRawImage payload; };
-typedef struct AzImageSourceVariant_Raw AzImageSourceVariant_Raw;
-union AzImageSource {
-    AzImageSourceVariant_Embedded Embedded;
-    AzImageSourceVariant_File File;
-    AzImageSourceVariant_Raw Raw;
-};
-typedef union AzImageSource AzImageSource;
-#define AzImageSource_Embedded(v) { .Embedded = { .tag = AzImageSourceTag_Embedded, .payload = v } }
-#define AzImageSource_File(v) { .File = { .tag = AzImageSourceTag_File, .payload = v } }
-#define AzImageSource_Raw(v) { .Raw = { .tag = AzImageSourceTag_Raw, .payload = v } }
-
-struct AzEmbeddedFontSource {
+struct AzParsedFont {
     AzString postscript_id;
-    AzU8Vec font_data;
-    bool  load_glyph_outlines;
+    AzU8Vec bytes;
+    uint32_t font_index;
+    AzFontMetrics metrics;
+    void* parsed;
+    AzParsedFontDestructorFnType destructor;
 };
-typedef struct AzEmbeddedFontSource AzEmbeddedFontSource;
+typedef struct AzParsedFont AzParsedFont;
 
-struct AzFileFontSource {
-    AzString postscript_id;
-    AzString file_path;
-    bool  load_glyph_outlines;
+struct AzFontRef {
+    AzParsedFont* data;
+    void* copies;
 };
-typedef struct AzFileFontSource AzFileFontSource;
-
-struct AzSystemFontSource {
-    AzString postscript_id;
-    bool  load_glyph_outlines;
-};
-typedef struct AzSystemFontSource AzSystemFontSource;
+typedef struct AzFontRef AzFontRef;
 
 struct AzSvgPath {
     AzSvgPathElementVec items;
@@ -7797,25 +7952,6 @@ struct AzFileTypeList {
     AzString document_descriptor;
 };
 typedef struct AzFileTypeList AzFileTypeList;
-
-struct AzThread {
-    void* restrict thread_handle;
-    void* restrict sender;
-    void* restrict receiver;
-    AzRefAny writeback_data;
-    void* restrict dropcheck;
-    AzCheckThreadFinishedFn check_thread_finished_fn;
-    AzLibrarySendThreadMsgFn send_thread_msg_fn;
-    AzLibraryReceiveThreadMsgFn receive_thread_msg_fn;
-    AzThreadDestructorFn thread_destructor_fn;
-};
-typedef struct AzThread AzThread;
-
-struct AzThreadWriteBackMsg {
-    AzRefAny data;
-    AzWriteBackCallback callback;
-};
-typedef struct AzThreadWriteBackMsg AzThreadWriteBackMsg;
 
 enum AzFmtValueTag {
    AzFmtValueTag_Bool,
@@ -7994,6 +8130,24 @@ struct AzStringPairVec {
 };
 typedef struct AzStringPairVec AzStringPairVec;
 
+enum AzOptionFontRefTag {
+   AzOptionFontRefTag_None,
+   AzOptionFontRefTag_Some,
+};
+typedef enum AzOptionFontRefTag AzOptionFontRefTag;
+
+struct AzOptionFontRefVariant_None { AzOptionFontRefTag tag; };
+typedef struct AzOptionFontRefVariant_None AzOptionFontRefVariant_None;
+struct AzOptionFontRefVariant_Some { AzOptionFontRefTag tag; AzFontRef payload; };
+typedef struct AzOptionFontRefVariant_Some AzOptionFontRefVariant_Some;
+union AzOptionFontRef {
+    AzOptionFontRefVariant_None None;
+    AzOptionFontRefVariant_Some Some;
+};
+typedef union AzOptionFontRef AzOptionFontRef;
+#define AzOptionFontRef_None { .None = { .tag = AzOptionFontRefTag_None } }
+#define AzOptionFontRef_Some(v) { .Some = { .tag = AzOptionFontRefTag_Some, .payload = v } }
+
 enum AzOptionFileTypeListTag {
    AzOptionFileTypeListTag_None,
    AzOptionFileTypeListTag_Some,
@@ -8011,24 +8165,6 @@ union AzOptionFileTypeList {
 typedef union AzOptionFileTypeList AzOptionFileTypeList;
 #define AzOptionFileTypeList_None { .None = { .tag = AzOptionFileTypeListTag_None } }
 #define AzOptionFileTypeList_Some(v) { .Some = { .tag = AzOptionFileTypeListTag_Some, .payload = v } }
-
-enum AzOptionRefAnyTag {
-   AzOptionRefAnyTag_None,
-   AzOptionRefAnyTag_Some,
-};
-typedef enum AzOptionRefAnyTag AzOptionRefAnyTag;
-
-struct AzOptionRefAnyVariant_None { AzOptionRefAnyTag tag; };
-typedef struct AzOptionRefAnyVariant_None AzOptionRefAnyVariant_None;
-struct AzOptionRefAnyVariant_Some { AzOptionRefAnyTag tag; AzRefAny payload; };
-typedef struct AzOptionRefAnyVariant_Some AzOptionRefAnyVariant_Some;
-union AzOptionRefAny {
-    AzOptionRefAnyVariant_None None;
-    AzOptionRefAnyVariant_Some Some;
-};
-typedef union AzOptionRefAny AzOptionRefAny;
-#define AzOptionRefAny_None { .None = { .tag = AzOptionRefAnyTag_None } }
-#define AzOptionRefAny_Some(v) { .Some = { .tag = AzOptionRefAnyTag_Some, .payload = v } }
 
 enum AzOptionRawImageTag {
    AzOptionRawImageTag_None,
@@ -8633,29 +8769,6 @@ struct AzVertexBuffer {
 };
 typedef struct AzVertexBuffer AzVertexBuffer;
 
-enum AzFontSourceTag {
-   AzFontSourceTag_Embedded,
-   AzFontSourceTag_File,
-   AzFontSourceTag_System,
-};
-typedef enum AzFontSourceTag AzFontSourceTag;
-
-struct AzFontSourceVariant_Embedded { AzFontSourceTag tag; AzEmbeddedFontSource payload; };
-typedef struct AzFontSourceVariant_Embedded AzFontSourceVariant_Embedded;
-struct AzFontSourceVariant_File { AzFontSourceTag tag; AzFileFontSource payload; };
-typedef struct AzFontSourceVariant_File AzFontSourceVariant_File;
-struct AzFontSourceVariant_System { AzFontSourceTag tag; AzSystemFontSource payload; };
-typedef struct AzFontSourceVariant_System AzFontSourceVariant_System;
-union AzFontSource {
-    AzFontSourceVariant_Embedded Embedded;
-    AzFontSourceVariant_File File;
-    AzFontSourceVariant_System System;
-};
-typedef union AzFontSource AzFontSource;
-#define AzFontSource_Embedded(v) { .Embedded = { .tag = AzFontSourceTag_Embedded, .payload = v } }
-#define AzFontSource_File(v) { .File = { .tag = AzFontSourceTag_File, .payload = v } }
-#define AzFontSource_System(v) { .System = { .tag = AzFontSourceTag_System, .payload = v } }
-
 struct AzSvgMultiPolygon {
     AzSvgPathVec rings;
 };
@@ -8681,24 +8794,6 @@ struct AzTimer {
 };
 typedef struct AzTimer AzTimer;
 
-enum AzThreadReceiveMsgTag {
-   AzThreadReceiveMsgTag_WriteBack,
-   AzThreadReceiveMsgTag_Update,
-};
-typedef enum AzThreadReceiveMsgTag AzThreadReceiveMsgTag;
-
-struct AzThreadReceiveMsgVariant_WriteBack { AzThreadReceiveMsgTag tag; AzThreadWriteBackMsg payload; };
-typedef struct AzThreadReceiveMsgVariant_WriteBack AzThreadReceiveMsgVariant_WriteBack;
-struct AzThreadReceiveMsgVariant_Update { AzThreadReceiveMsgTag tag; AzUpdateScreen payload; };
-typedef struct AzThreadReceiveMsgVariant_Update AzThreadReceiveMsgVariant_Update;
-union AzThreadReceiveMsg {
-    AzThreadReceiveMsgVariant_WriteBack WriteBack;
-    AzThreadReceiveMsgVariant_Update Update;
-};
-typedef union AzThreadReceiveMsg AzThreadReceiveMsg;
-#define AzThreadReceiveMsg_WriteBack(v) { .WriteBack = { .tag = AzThreadReceiveMsgTag_WriteBack, .payload = v } }
-#define AzThreadReceiveMsg_Update(v) { .Update = { .tag = AzThreadReceiveMsgTag_Update, .payload = v } }
-
 struct AzInlineLineVec {
     AzInlineLine* ptr;
     size_t len;
@@ -8722,24 +8817,6 @@ struct AzSvgMultiPolygonVec {
     AzSvgMultiPolygonVecDestructor destructor;
 };
 typedef struct AzSvgMultiPolygonVec AzSvgMultiPolygonVec;
-
-enum AzOptionThreadReceiveMsgTag {
-   AzOptionThreadReceiveMsgTag_None,
-   AzOptionThreadReceiveMsgTag_Some,
-};
-typedef enum AzOptionThreadReceiveMsgTag AzOptionThreadReceiveMsgTag;
-
-struct AzOptionThreadReceiveMsgVariant_None { AzOptionThreadReceiveMsgTag tag; };
-typedef struct AzOptionThreadReceiveMsgVariant_None AzOptionThreadReceiveMsgVariant_None;
-struct AzOptionThreadReceiveMsgVariant_Some { AzOptionThreadReceiveMsgTag tag; AzThreadReceiveMsg payload; };
-typedef struct AzOptionThreadReceiveMsgVariant_Some AzOptionThreadReceiveMsgVariant_Some;
-union AzOptionThreadReceiveMsg {
-    AzOptionThreadReceiveMsgVariant_None None;
-    AzOptionThreadReceiveMsgVariant_Some Some;
-};
-typedef union AzOptionThreadReceiveMsg AzOptionThreadReceiveMsg;
-#define AzOptionThreadReceiveMsg_None { .None = { .tag = AzOptionThreadReceiveMsgTag_None } }
-#define AzOptionThreadReceiveMsg_Some(v) { .Some = { .tag = AzOptionThreadReceiveMsgTag_Some, .payload = v } }
 
 struct AzXmlTextError {
     AzXmlStreamError stream_error;
@@ -9569,7 +9646,7 @@ extern DLLIMPORT void AzCallbackInfo_setFocus(AzCallbackInfo* restrict callbacki
 extern DLLIMPORT void AzCallbackInfo_setCssProperty(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzCssProperty  new_property);
 extern DLLIMPORT void AzCallbackInfo_setScrollPosition(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzLogicalPosition  scroll_position);
 extern DLLIMPORT void AzCallbackInfo_setStringContents(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzString  string);
-extern DLLIMPORT void AzCallbackInfo_exchangeImage(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageSource  new_image);
+extern DLLIMPORT void AzCallbackInfo_exchangeImage(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageRef  new_image);
 extern DLLIMPORT void AzCallbackInfo_exchangeImageMask(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageMask  new_mask);
 extern DLLIMPORT void AzCallbackInfo_stopPropagation(AzCallbackInfo* restrict callbackinfo);
 extern DLLIMPORT void AzCallbackInfo_createWindow(AzCallbackInfo* restrict callbackinfo, AzWindowCreateOptions  new_window);
@@ -9602,11 +9679,9 @@ extern DLLIMPORT bool  AzRefAny_isType(AzRefAny* const refany, uint64_t type_id)
 extern DLLIMPORT AzString AzRefAny_getTypeName(AzRefAny* const refany);
 extern DLLIMPORT AzRefAny AzRefAny_clone(AzRefAny* restrict refany);
 extern DLLIMPORT void AzRefAny_delete(AzRefAny* restrict instance);
-extern DLLIMPORT bool  AzLayoutInfo_windowWidthLargerThan(AzLayoutInfo* restrict layoutinfo, float width);
-extern DLLIMPORT bool  AzLayoutInfo_windowWidthSmallerThan(AzLayoutInfo* restrict layoutinfo, float width);
-extern DLLIMPORT bool  AzLayoutInfo_windowHeightLargerThan(AzLayoutInfo* restrict layoutinfo, float width);
-extern DLLIMPORT bool  AzLayoutInfo_windowHeightSmallerThan(AzLayoutInfo* restrict layoutinfo, float width);
-extern DLLIMPORT bool  AzLayoutInfo_usesDarkTheme(AzLayoutInfo* restrict layoutinfo);
+extern DLLIMPORT AzOptionGl AzLayoutInfo_getGlContext(AzLayoutInfo* const layoutinfo);
+extern DLLIMPORT AzStringPairVec AzLayoutInfo_getSystemFonts(AzLayoutInfo* const layoutinfo);
+extern DLLIMPORT AzOptionImageRef AzLayoutInfo_getImage(AzLayoutInfo* const layoutinfo, AzString  id);
 extern DLLIMPORT size_t AzDom_nodeCount(AzDom* const dom);
 extern DLLIMPORT AzStyledDom AzDom_style(const AzDom dom, AzCss  css);
 extern DLLIMPORT AzEventFilter AzOn_intoEventFilter(const AzOn on);
@@ -9856,6 +9931,11 @@ extern DLLIMPORT void AzGl_delete(AzGl* restrict instance);
 extern DLLIMPORT AzGl AzGl_deepCopy(AzGl* const instance);
 extern DLLIMPORT void AzGLsyncPtr_delete(AzGLsyncPtr* restrict instance);
 extern DLLIMPORT AzTextureFlags AzTextureFlags_default();
+extern DLLIMPORT AzImageRef AzImageRef_invalid(size_t width, size_t height, AzRawImageFormat  format);
+extern DLLIMPORT AzImageRef AzImageRef_rawImage(AzRawImage  data);
+extern DLLIMPORT AzImageRef AzImageRef_glTexture(AzTexture  texture);
+extern DLLIMPORT void AzImageRef_delete(AzImageRef* restrict instance);
+extern DLLIMPORT AzImageRef AzImageRef_deepCopy(AzImageRef* const instance);
 extern DLLIMPORT AzRawImage AzRawImage_empty();
 extern DLLIMPORT AzRawImage AzRawImage_allocateClipMask(AzLayoutSize  size);
 extern DLLIMPORT AzRawImage AzRawImage_decodeImageBytesAny(AzU8VecRef  bytes);
@@ -9867,6 +9947,9 @@ extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTga(AzRawImage* 
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePnm(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeGif(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTiff(AzRawImage* const rawimage);
+extern DLLIMPORT AzFontRef AzFontRef_parse(AzU8Vec  bytes, uint32_t font_index);
+extern DLLIMPORT void AzFontRef_delete(AzFontRef* restrict instance);
+extern DLLIMPORT AzFontRef AzFontRef_deepCopy(AzFontRef* const instance);
 extern DLLIMPORT AzSvg AzSvg_fromString(AzString  svg_string, AzSvgParseOptions  parse_options);
 extern DLLIMPORT AzSvg AzSvg_fromBytes(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
 extern DLLIMPORT AzSvgXmlNode AzSvg_getRoot(AzSvg* const svg);

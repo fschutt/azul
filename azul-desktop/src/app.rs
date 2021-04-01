@@ -211,7 +211,7 @@ fn run_inner(app: App) -> ! {
 
     let mut timers = BTreeMap::new();
     let mut threads = BTreeMap::new();
-    let mut resources = AppResources::default();
+    let mut image_cache = ImageCache::default();
     let mut active_windows = BTreeMap::new();
 
     let proxy = event_loop.create_proxy();
@@ -1167,7 +1167,7 @@ fn create_window(
     events_loop: &GlutinEventLoopWindowTarget<UserEvent>,
     proxy: &GlutinEventLoopProxy<UserEvent>,
     active_windows: &mut BTreeMap<GlutinWindowId, Window>,
-    app_resources: &mut AppResources,
+    image_cache: &mut ImageCache,
     fc_cache: &mut LazyFcCache,
     timers: &mut BTreeMap<GlutinWindowId, BTreeMap<TimerId, Timer>>,
     config: &AppConfig,
@@ -1180,7 +1180,7 @@ fn create_window(
          window_create_options,
          events_loop,
          proxy,
-         app_resources,
+         image_cache,
          fc_cache,
     );
 

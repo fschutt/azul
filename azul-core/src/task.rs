@@ -27,7 +27,7 @@ use crate::{
         ThreadCallback, WriteBackCallback, WriteBackCallbackType,
         CallbackInfo, FocusTarget, ScrollPosition, DomNodeId
     },
-    app_resources::{AppResources, ImageSource, ImageMask},
+    app_resources::{ImageCache, ImageSource, ImageMask},
     window::{FullWindowState, LogicalPosition, RawWindowHandle, WindowState, WindowCreateOptions},
     styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,

@@ -103,7 +103,7 @@ pub enum NodeType {
     /// Creates a line break in an inline text layout
     Br,
     /// A string of text
-    Label(AzString),
+    Text(AzString),
     /// An image of an opaque type. Images can be cached
     /// in the AppResources or recreated on every redraw.
     Image(ImageRef),
@@ -120,7 +120,7 @@ impl NodeType {
             Div => Div,
             Body => Body,
             Br => Br,
-            Label(s) => Label(s.clone_self()),
+            Text(s) => Text(s.clone_self()),
             Image(i) => Image(*i),
             IFrame(i) => IFrame(IFrameNode {
                 callback: i.callback,
@@ -138,11 +138,9 @@ impl NodeType {
         use self::NodeType::*;
         match self {
             Div | Body | Br => None,
-            Label(s) => Some(format!("{}", s)),
+            Text(s) => Some(format!("{}", s)),
             Image(id) => Some(format!("image({:?})", id)),
             IFrame(i) => Some(format!("iframe({:?})", i)),
-            #[cfg(feature = "opengl")]
-            GlTexture(g) => Some(format!("gltexture({:?})", g)),
         }
     }
 
@@ -153,10 +151,8 @@ impl NodeType {
             Div => NodeTypeTag::Div,
             Body => NodeTypeTag::Body,
             Br => NodeTypeTag::Br,
-            Label(_) => NodeTypeTag::P,
+            Text(_) => NodeTypeTag::P,
             Image(_) => NodeTypeTag::Img,
-            #[cfg(feature = "opengl")]
-            GlTexture(_) => NodeTypeTag::Texture,
             IFrame(_) => NodeTypeTag::IFrame,
         }
     }

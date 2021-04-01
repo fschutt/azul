@@ -206,13 +206,23 @@ impl FontInstanceKey {
 // The only public functions are the constructors
 #[derive(Debug)]
 pub enum DecodedImage {
-    /// Image that has a reserved key, but no data, i.e it is not
-    NullImage { width: usize, height: usize },
+    /// Image that has a reserved key, but no data, i.e it is not yet rendered
+    /// or there was an error during rendering
+    NullImage {
+        width: usize,
+        height: usize,
+        format: RawImageFormat
+    },
     // OpenGl texture
     Gl(Texture),
     // Image backed by CPU-rendered pixels
     Raw(RawImage),
-    // Vulkan(...), Metal(...), DxSurface(...)
+    // Same as `Texture`, but rendered AFTER the layout has been done
+    Callback(GlCallback),
+    // YUVImage(...)
+    // VulkanSurface(...)
+    // MetalSurface(...),
+    // DirectXSurface(...)
 }
 
 #[derive(Debug)]
@@ -221,15 +231,19 @@ pub struct ImageRef {
     /// Shared pointer to an opaque implementation of the decoded image
     pub data: *const DecodedImage,
     /// How many copies does this image have (if 0, the font data will be deleted on drop)
-    pub copies: *const usize,
+    pub copies: *const AtomicUsize,
 }
 
 impl_option!(ImageRef, OptionImageRef, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
 
 impl ImageRef {
 
-    pub fn null(width: usize, height: usize) -> Self {
-        Self::new(DecodedImage::NullImageInfo { width, height })
+    pub fn invalid(width: usize, height: usize, format: RawImageFormat) -> Self {
+        Self::new(DecodedImage::NullImageInfo { width, height, format })
+    }
+
+    pub fn callback(gl_callback: GlCallback) -> Self {
+        Self::new(DecodedImage::Callback(gl_callback))
     }
 
     pub fn new_rawimage(image_data: RawImage) -> Self {
@@ -243,7 +257,7 @@ impl ImageRef {
     fn new(data: DecodedImage) -> Self {
         Self {
             data: Box::into_raw(Box::new(data)),
-            copies: Box::into_raw(Box::new(0)),
+            copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
         }
     }
 
@@ -284,7 +298,7 @@ impl Hash for ImageRef {
 
 impl Clone for ImageRef {
     fn clone(&self) -> Self {
-        unsafe { *(self.copies as *mut usize) += 1; }
+        unsafe { *(self.copies) }.fetch_add(1, Ordering::SeqCst);
         Self {
             data: self.data, // copy the pointer
             copies: self.copies, // copy the pointer
@@ -295,11 +309,10 @@ impl Clone for ImageRef {
 impl Drop for ImageRef {
     fn drop(&mut self) {
         unsafe {
-            if *self.copies == 0 {
+            let new_copies = *(self.copies).fetch_sub(1, Ordering::SeqCst);
+            if new_copies == 0 {
                 let _ = Box::from_raw(self.data as *mut ImageData);
-                let _ = Box::from_raw(self.copies as *mut usize);
-            } else {
-                *(self.copies as *mut usize) -= 1;
+                let _ = Box::from_raw(self.copies as *mut AtomicUsize);
             }
         }
     }
@@ -312,7 +325,7 @@ impl Drop for ImageRef {
 /// Images and fonts can be references across window contexts (not yet tested,
 /// but should work).
 #[derive(Debug)]
-pub struct AppResources {
+pub struct ImageCache {
     /// The AzString is the string used in the CSS, i.e. url("my_image") = "my_image" -> ImageId(4)
     ///
     /// NOTE: This is the only map that is modifiable by the user and that has to be manually managed
@@ -321,11 +334,32 @@ pub struct AppResources {
     pub image_id_map: FastHashMap<AzString, ImageRef>,
 }
 
-impl Default for AppResources {
+impl Default for ImageCache {
     fn default() -> Self {
         Self {
             image_id_map: FastHashMap::default(),
         }
+    }
+}
+
+impl ImageCache {
+
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    // -- ImageId cache
+
+    pub fn add_css_image_id(&mut self, css_id: AzString, image: ImageRef) {
+        self.image_id_map.insert(css_id, image);
+    }
+
+    pub fn get_css_image_id(&self, css_id: &AzString) -> Option<&ImageRef> {
+        self.image_id_map.get(css_id)
+    }
+
+    pub fn delete_css_image_id(&mut self, css_id: &AzString) {
+        self.image_id_map.remove(css_id);
     }
 }
 
@@ -338,10 +372,11 @@ impl Default for AppResources {
 #[derive(Debug)]
 pub struct RendererResources {
     /// All image keys currently active in the RenderApi
-    pub currently_registered_images: FastHashMap<ImageKey, ImageRef>,
+    pub currently_registered_images: FastHashMap<ImageRef, ImageKey>,
     /// All image keys from the last frame, used for automatically
     /// deleting images once they aren't needed anymore
     pub last_frame_registered_images: FastBTreeSet<ImageKey>,
+
     /// Map from the calculated families vec (["Arial", "Helvectia"])
     /// to the final loaded font that could be loaded
     /// (in this case "Arial" on Windows and "Helvetica" on Mac,
@@ -371,48 +406,79 @@ impl Default for RendererResources {
 
 impl RendererResources {
 
-    /// Copies the currently_registered_fonts / images to the
-    /// last_frame_registered_fonts / images so that end_gc call knows which
-    /// fonts / images were removed in this frame.
-    pub fn start_gc(&mut self, pipeline_id: PipelineId) {
-        self.last_frame_registered_fonts = self.current_registered_fonts.iter().map(|fk, (_, fi)| (fk, fi.clone()));
-        self.last_frame_registered_images = self.currently_registered_images.keys().collect();
-    }
-
     /// Updates the internal cache, adds `ResourceUpdate::Remove()` to the `all_resource_updates`
-    pub fn end_gc(&mut self, pipeline_id: PipelineId, all_resource_updates: &mut Vec<ResourceUpdate>) {
+    pub fn do_gc(&mut self, all_resource_updates: &mut Vec<ResourceUpdate>) {
 
-        let delete_font_resources = build_delete_font_resource_updates(self, pipeline_id);
-        let delete_image_resources = build_delete_image_resource_updates(self, pipeline_id);
+        // If the last frame contains fonts but the current frame doesn't, delete them
+        let mut delete_font_resources = Vec::new();
+        for (font_id, loaded_font) in self.last_frame_font_keys.iter() {
+            resource_updates.extend(
+                loaded_font.font_instances.iter()
+                .filter(|(au, _)| !(self.currently_registered_fonts.get(font_id).map(|f| f.contains(au)).unwrap_or(false)))
+                .map(|(au, font_instance_key)| (font_id.clone(), DeleteFontMsg::Instance(*font_instance_key, *au)))
+            );
+            // Delete the font and all instances if there are no more instances of the font
+            // NOTE: deletion is in reverse order - instances are deleted first, then the font is deleted
+            if !self.currently_registered_fonts.contains_key(font_id) || loaded_font.font_instances.is_empty() {
+                resource_updates.push((font_id.clone(), DeleteFontMsg::Font(loaded_font.font_key)));
+            }
+        }
+
+        // If the last frame contains an image, but the current frame does not, delete it
+        let delete_image_resources = self.last_frame_registered_images.par_iter()
+        .filter(|(id, _info)| !(self.currently_registered_images.values().any(|v| v == id)))
+        .map(|(id, info)| (*id, DeleteImageMsg(info.key, *info)))
+        .collect();
 
         all_resource_updates.extend(delete_font_resources.iter().map(|(_, f)| f.into_resource_update()));
         all_resource_updates.extend(delete_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 
-        for (removed_id, _removed_info) in delete_image_resources {
-            self.currently_registered_images
-            .get_mut(pipeline_id).unwrap()
-            .remove(&removed_id);
+        // Apply the deletions to the current registered fonts
+        for (removed_id, _removed_info) in &delete_image_resources {
+            self.currently_registered_images.remove(&removed_id);
         }
 
-        for (font_id, delete_font_msg) in delete_font_resources {
+        for (font_id, delete_font_msg) in &delete_font_resources {
             use self::DeleteFontMsg::*;
             match delete_font_msg {
-                Font(_) => {
-                    self.currently_registered_fonts
-                    .get_mut(pipeline_id).unwrap()
-                    .remove(&font_id);
-                },
-                Instance(_, size) => {
-                    self.currently_registered_fonts
-                    .get_mut(pipeline_id).unwrap()
-                    .get_mut(&font_id).unwrap()
-                    .delete_font_instance(&size);
-                },
+                Font(_) => { self.currently_registered_fonts.remove(&font_id); },
+                Instance(_, size) => {self.currently_registered_fonts[font_id].delete_font_instance(&size); },
             }
         }
 
-        self.last_frame_registered_fonts = FastHashMap::new();
-        self.last_frame_registered_images = FastHashMap::new();
+        // delete all font family hashes that do not have a font key anymore
+        let font_family_to_delete = self.font_id_map.iter()
+        .filter_map(|(font_family, font_key)| {
+            if !self.currently_registered_fonts.contains_key(font_key) { Some(font_family) } else { None }
+        })
+        .collect::<Vec<_>>();
+
+        for f in font_family_to_delete {
+            self.font_id_map.remove(f); // font key does not exist anymore
+        }
+
+        let font_families_to_delete = self.font_families_map.iter()
+        .filter_map(|(font_families, font_family)| {
+            if !self.font_id_map.contains_key(font_family) { Some(font_families) } else { None }
+        }).collect::<Vec<_>>();
+
+        for f in font_families_to_delete {
+            self.font_families_map.remove(f); // font family does not exist anymore
+        }
+
+        // Reset the GC for the next cycle
+        //
+        // NOTE: This system will retain fonts / images for one frame
+        // long than they need to - technically this could be solved
+        // via hashes
+        self.last_frame_registered_fonts = self.current_registered_fonts
+        .iter()
+        .map(|fk, (_, fi)| (fk, fi.clone()))
+        .collect();
+
+        self.last_frame_registered_images = self.currently_registered_images
+        .values()
+        .collect();
     }
 }
 
@@ -458,6 +524,7 @@ pub enum ImageSource {
 #[repr(C)]
 pub struct ImageMask {
     pub image: ImageRef,
+    pub rect: LogicalRect,
     pub repeat: bool,
 }
 
@@ -467,13 +534,6 @@ impl_option!(ImageMask, OptionImageMask, [Debug, Clone, PartialEq, PartialOrd, E
 pub enum ImmediateFontId {
     Resolved((StyleFontFamilyHash, FontKey)),
     Unresolved(StyleFontFamilyVec),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ImmediateImageId {
-    Resolved(ImageKey),
-    UnresolvedCss(AzString),
-    UnresolvedRef(ImageRef),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -1383,33 +1443,13 @@ impl ImageInfo {
     }
 }
 
-impl AppResources {
-
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    // -- ImageId cache
-
-    pub fn add_css_image_id(&mut self, css_id: AzString, image: ImageRef) {
-        self.image_id_map.insert(css_id, image);
-    }
-
-    pub fn get_css_image_id(&self, css_id: &AzString) -> Option<&ImageRef> {
-        self.image_id_map.get(css_id)
-    }
-
-    pub fn delete_css_image_id(&mut self, css_id: &AzString) {
-        self.image_id_map.remove(css_id);
-    }
-}
-
 /// Scans the `StyledDom` for new images and fonts. After this call,
 /// the `all_resource_updates` contains all the `AddFont` / `AddImage`
 /// / `AddFontInstance` messages.
 #[cfg(feature = "multithreading")]
 pub fn add_fonts_and_images(
-    app_resources: &mut AppResources,
+    image_cache: &ImageCache,
+    renderer_resources: &mut RendererResources,
     fc_cache: &FcFontCache,
     render_api_namespace: IdNamespace,
     all_resource_updates: &mut Vec<ResourceUpdate>,
@@ -1419,14 +1459,14 @@ pub fn add_fonts_and_images(
     load_image_fn: LoadImageFn,
     parse_font_fn: ParseFontFn,
 ) {
-    let font_keys = styled_dom.scan_for_font_keys(&app_resources);
-    let image_keys = styled_dom.scan_for_image_keys(&app_resources);
+    let font_keys = styled_dom.scan_for_font_keys(&renderer_resources);
+    let image_keys = styled_dom.scan_for_image_keys(&renderer_resources);
 
-    let add_font_resource_updates = build_add_font_resource_updates(app_resources, fc_cache, render_api_namespace, pipeline_id, &font_keys, load_font_fn, parse_font_fn);
-    let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api_namespace, pipeline_id, &image_keys, load_image_fn);
+    let add_font_resource_updates = build_add_font_resource_updates(renderer_resources, fc_cache, render_api_namespace, pipeline_id, &font_keys, load_font_fn, parse_font_fn);
+    let add_image_resource_updates = build_add_image_resource_updates(renderer_resources, render_api_namespace, pipeline_id, &image_keys, load_image_fn);
 
     add_resources(
-        app_resources,
+        renderer_resources,
         all_resource_updates,
         pipeline_id,
         add_font_resource_updates,
@@ -1820,7 +1860,7 @@ pub type ParseFontFn = fn(LoadedFontSource) -> Option<FontRef>; // = Option<Box<
 /// add-and-remove fonts after every IFrameCallback, which would cause a lot of
 /// I/O waiting.
 pub fn build_add_font_resource_updates(
-    app_resources: &AppResources,
+    renderer_resources: &RendererResources,
     fc_cache: &FcFontCache,
     id_namespace: IdNamespace,
     pipeline_id: &PipelineId,
@@ -1835,7 +1875,7 @@ pub fn build_add_font_resource_updates(
     for (im_font_id, font_sizes) in fonts_in_dom {
         macro_rules! insert_font_instances {($font_family_hash:expr, $font_key:expr, $font_size:expr) => ({
 
-            let font_instance_key_exists = app_resources.currently_registered_fonts[pipeline_id]
+            let font_instance_key_exists = renderer_resources.currently_registered_fonts[pipeline_id]
                 .get(&$font_key)
                 .and_then(|loaded_font| loaded_font.font_instances.get(&$font_size))
                 .is_some() || font_instances_added_this_frame.contains(($font_key, $font_size));
@@ -1882,8 +1922,7 @@ pub fn build_add_font_resource_updates(
             }
         })}
 
-        // FastHashMap<PipelineId, FastHashMap<FontId, FastBTreeSet<Au>>>,
-        match app_resources.currently_registered_fonts[pipeline_id].get(im_font_id) {
+        match renderer_resources.currently_registered_fonts[pipeline_id].get(im_font_id) {
             Some((font_family_hash, font_id)) => {
                 for font_size in font_sizes.iter() {
                     insert_font_instances!(*font_family_hash, font_id, *font_size);
@@ -1921,7 +1960,7 @@ pub fn build_add_font_resource_updates(
 
                     let current_family_hash = StyleFontFamilyHash::new(&family);
 
-                    if let Some(font_id) = app_resources.font_id_map.get(&font_family_hash) {
+                    if let Some(font_id) = renderer_resources.font_id_map.get(&font_family_hash) {
                         // font key already exists
                         for font_size in font_sizes {
                             insert_font_instances!(current_family_hash, font_id, *font_size);
@@ -1959,8 +1998,8 @@ pub fn build_add_font_resource_updates(
 
                 // Generate a new font key, store the mapping between hash and font key
                 let font_key = FontKey::unique(id_namespace);
-                app_resources.font_id_map.insert(&font_family_hash, font_key);
-                app_resources.font_families_map.insert(font_families_hash, font_family_hash);
+                renderer_resources.font_id_map.insert(&font_family_hash, font_key);
+                renderer_resources.font_families_map.insert(font_families_hash, font_family_hash);
                 resource_updates.push((im_font_id.clone(), AddFontMsg::Font(font_key, font_family_hash, font_ref)));
 
                 for font_size in font_sizes {
@@ -1983,24 +2022,17 @@ pub fn build_add_font_resource_updates(
 /// I/O waiting.
 #[allow(unused_variables)]
 pub fn build_add_image_resource_updates(
-    app_resources: &AppResources,
+    renderer_resources: &RendererResources,
     id_namespace: IdNamespace,
     pipeline_id: &PipelineId,
-    images_in_dom: &FastBTreeSet<ImmediateImageId>,
+    images_in_dom: &FastBTreeSet<RefAny>,
     image_source_load_fn: LoadImageFn,
 ) -> Vec<(ImageKey, AddImageMsg)> {
 
     images_in_dom
     .par_iter()
-    .filter_map(|image_id| {
-        let image_ref = match image_id {
-            ImmediateImageId::Resolved(ImageKey) => {
-
-            },
-            ImmediateImageId::UnresolvedCss(AzString) => ,
-            ImmediateImageId::UnresolvedRef(ImageRef) => ,
-        };
-        if app_resources.currently_registered_images[pipeline_id].contains_key(*image_key) {
+    .filter_map(|image_ref| {
+        if app_resources.currently_registered_images[pipeline_id].contains_key(*image_ref) {
             return None;
         }
         let image_source = app_resources.image_sources.get(image_key).cloned()?;
@@ -2048,38 +2080,4 @@ pub fn add_resources(
             },
         }
     }
-}
-
-fn build_delete_font_resource_updates(
-    app_resources: &AppResources,
-    pipeline_id: &PipelineId,
-) -> Vec<(ImmediateFontId, DeleteFontMsg)> {
-
-    let mut resource_updates = Vec::new();
-
-    // Delete fonts that were not used in the last frame or have zero font instances
-    for (font_id, loaded_font) in app_resources.currently_registered_fonts[pipeline_id].iter() {
-        resource_updates.extend(
-            loaded_font.font_instances.iter()
-            .filter(|(au, _)| !(app_resources.last_frame_font_keys[pipeline_id].get(font_id).map(|f| f.contains(au)).unwrap_or(false)))
-            .map(|(au, font_instance_key)| (font_id.clone(), DeleteFontMsg::Instance(*font_instance_key, *au)))
-        );
-        if !app_resources.last_frame_font_keys[&pipeline_id].contains_key(font_id) || loaded_font.font_instances.is_empty() {
-            // Delete the font and all instances if there are no more instances of the font
-            resource_updates.push((font_id.clone(), DeleteFontMsg::Font(loaded_font.font_key)));
-        }
-    }
-
-    resource_updates
-}
-
-/// At the end of the frame, all images that are registered, but weren't used in the last frame
-fn build_delete_image_resource_updates(
-    app_resources: &AppResources,
-    pipeline_id: &PipelineId,
-) -> Vec<(ImageId, DeleteImageMsg)> {
-    app_resources.currently_registered_images[&pipeline_id].iter()
-    .filter(|(id, _info)| !app_resources.last_frame_image_keys[&pipeline_id].contains(id))
-    .map(|(id, info)| (*id, DeleteImageMsg(info.key, *info)))
-    .collect()
 }

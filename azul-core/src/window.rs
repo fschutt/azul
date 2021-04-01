@@ -588,6 +588,8 @@ impl LazyFcCache {
 
 #[derive(Debug)]
 pub struct WindowInternal {
+    /// Currently loaded fonts and images present in this renderer (window)
+    pub renderer_resources: RendererResources,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: Option<RendererType>,
     /// Windows state of the window of (current frame - 1): initialized to None on startup
@@ -773,7 +775,7 @@ impl WindowInternal {
     pub fn new(
         init: WindowInternalInit,
         data: &mut RefAny,
-        app_resources: &mut AppResources,
+        image_cache: &mut ImageCache,
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
         callbacks: RenderCallbacks,
@@ -783,6 +785,7 @@ impl WindowInternal {
         use crate::callbacks::LayoutInfo;
         use crate::display_list::SolvedLayout;
 
+        let mut renderer_resources = RendererResources::default();
         let mut stop_sizes_width = Vec::new();
         let mut stop_sizes_height = Vec::new();
         let mut is_theme_dependent = false;
@@ -838,6 +841,7 @@ impl WindowInternal {
         );
 
         WindowInternal {
+            renderer_resources,
             renderer_type: gl_context.as_ref().map(|r| r.renderer_type),
             stop_sizes_width,
             stop_sizes_height,
