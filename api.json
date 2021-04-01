@@ -6217,6 +6217,7 @@
                             "fn_args": [
                                 {"data": "RawImage"}
                             ],
+                            "returns": {"type": "OptionImageRef"},
                             "fn_body": "AzImageRef::new_rawimage(data)"
                         },
                         "gl_texture": {
@@ -6461,23 +6462,12 @@
                         {"us_upper_optical_point_size": {"type": "OptionU16"}}
                     ]
                 },
-                "ParsedFont": {
-                    "external": "azul_css::FontData",
-                    "struct_fields": [
-                        {"postscript_id": {"type": "String"}},
-                        {"bytes": {"type": "U8Vec"}},
-                        {"font_index": {"type": "u32"}},
-                        {"metrics": {"type": "FontMetrics"}},
-                        {"parsed": {"type": "*const c_void"}},
-                        {"destructor": {"type": "ParsedFontDestructorFnType"}}
-                    ]
-                },
                 "FontRef": {
-                    "doc": "Atomically (!) reference-counted parsed font data",
+                    "doc": "Atomically reference-counted parsed font data",
                     "external": "azul_css::FontRef",
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"data": {"type": "*const ParsedFont"}},
+                        {"data": {"type": "*const c_void"}},
                         {"copies": {"type": "*const c_void"}}
                     ],
                     "constructors": {
@@ -6489,6 +6479,24 @@
                             ],
                             "returns": {"type": "OptionFontRef"},
                             "fn_body": "AzFontRef::parse_from_bytes(bytes, font_index).into()"
+                        }
+                    },
+                    "functions": {
+                        "get_font_metrics": {
+                            "doc": "Returns the font metrics of the parsed font",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "FontMetrics"},
+                            "fn_body": "fontref.get_font_metrics()"
+                        },
+                        "get_postscript_id": {
+                            "doc": "Returns the font metrics",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "String"},
+                            "fn_body": "fontref.get_postscript_id().into()"
                         }
                     }
                 }

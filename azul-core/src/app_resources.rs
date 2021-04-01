@@ -7,6 +7,7 @@ use core::{
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use alloc::borrow::Cow;
 use alloc::string::String;
 use azul_css::{
     OptionU16, OptionU32, OptionI16, LayoutRect, StyleFontSize, LayoutSize,
@@ -218,7 +219,7 @@ pub enum DecodedImage {
     // OpenGl texture
     Gl(Texture),
     // Image backed by CPU-rendered pixels
-    Raw(RawImage),
+    Raw((ImageDescriptor, ImageData)),
     // Same as `Texture`, but rendered AFTER the layout has been done
     Callback(RenderImageCallback),
     // YUVImage(...)
@@ -246,7 +247,7 @@ impl ImageRef {
         match self.get_data() {
             DecodedImage::NullImage { width, height, .. } => LogicalSize::new(*width as f32, *height as f32),
             DecodedImage::Gl(tex) => LogicalSize::new(tex.size.width as f32, tex.size.height as f32),
-            DecodedImage::Raw(ri) => LogicalSize::new(ri.width as f32, ri.height as f32),
+            DecodedImage::Raw((image_descriptor, _)) => LogicalSize::new(image_descriptor.width as f32, image_descriptor.height as f32),
             DecodedImage::Callback(c) => LogicalSize::new(0.0, 0.0),
         }
     }
@@ -269,8 +270,9 @@ impl ImageRef {
         Self::new(DecodedImage::Callback(gl_callback))
     }
 
-    pub fn new_rawimage(image_data: RawImage) -> Self {
-        Self::new(DecodedImage::Raw(image_data))
+    pub fn new_rawimage(image_data: RawImage) -> Option<Self> {
+        let (image_data, image_descriptor) = image_data.into_loaded_image_source()?;
+        Some(Self::new(DecodedImage::Raw((image_descriptor, image_data))))
     }
 
     pub fn new_gltexture(texture: Texture) -> Self {
@@ -454,8 +456,8 @@ impl RendererResources {
         // If the last frame contains an image, but the current frame does not, delete it
         let delete_image_resources = self.last_frame_registered_images
         .par_iter()
-        .filter(|image_key| !(self.currently_registered_images.values().any(|v| *v == *image_key.1)))
-        .map(|image_key| ((*image_key.1).clone(), DeleteImageMsg(image_key.1.clone())))
+        .filter(|image_key| !self.currently_registered_images.contains_key(image_key.0))
+        .map(|image_key| ((*image_key.0).clone(), DeleteImageMsg(image_key.1.clone())))
         .collect::<Vec<_>>();
 
         all_resource_updates.extend(delete_font_resources.iter().map(|(_, f)| f.into_resource_update()));
@@ -1737,7 +1739,7 @@ pub struct UpdateImage {
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct AddFont {
     pub key: FontKey,
-    pub font_bytes: Arc<Vec<u8>>, // TODO: = Arc<Cow<'static, [u8]>>, blocked on https://github.com/servo/webrender/pull/4234
+    pub font_bytes: Cow<'static, [u8]>,
     pub font_index: u32,
 }
 
@@ -1807,10 +1809,10 @@ impl AddFontMsg {
     pub fn into_resource_update(&self) -> ResourceUpdate {
         use self::AddFontMsg::*;
         match self {
-            Font(fk, font_family_hash, font_ref, _) => ResourceUpdate::AddFont(AddFont {
+            Font(fk, font_family_hash, font_ref) => ResourceUpdate::AddFont(AddFont {
                 key: *fk,
-                font_bytes: font_ref.get_data().clone_arc(),
-                font_index: font_ref.font_index,
+                font_bytes: font_ref.get_data().bytes.clone(),
+                font_index: font_ref.get_data().font_index,
             }),
             Instance(fi, _) => ResourceUpdate::AddFontInstance(fi.clone()),
         }
@@ -1855,7 +1857,7 @@ impl DeleteImageMsg {
 #[repr(C)]
 pub struct LoadedFontSource {
     pub data: U8Vec,
-    pub index: ImageDescriptor,
+    pub index: u32,
     pub load_outlines: bool,
 }
 
@@ -2074,8 +2076,7 @@ pub fn build_add_image_resource_updates(
                     ImageInfo { key, descriptor }
                 )))
             },
-            DecodedImage::Raw(img) => {
-                let (data, descriptor) = img.clone().into_loaded_image_source()?;
+            DecodedImage::Raw((data, descriptor)) => {
                 let key = ImageKey::unique(id_namespace);
                 Some((key, AddImageMsg(AddImage {
                     key,

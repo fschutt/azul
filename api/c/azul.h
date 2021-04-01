@@ -1431,6 +1431,12 @@ enum AzDecodeImageError {
 };
 typedef enum AzDecodeImageError AzDecodeImageError;
 
+struct AzFontRef {
+    void* data;
+    void* copies;
+};
+typedef struct AzFontRef AzFontRef;
+
 struct AzSvg {
     void* restrict ptr;
 };
@@ -6061,6 +6067,24 @@ typedef union AzOptionImageRef AzOptionImageRef;
 #define AzOptionImageRef_None { .None = { .tag = AzOptionImageRefTag_None } }
 #define AzOptionImageRef_Some(v) { .Some = { .tag = AzOptionImageRefTag_Some, .payload = v } }
 
+enum AzOptionFontRefTag {
+   AzOptionFontRefTag_None,
+   AzOptionFontRefTag_Some,
+};
+typedef enum AzOptionFontRefTag AzOptionFontRefTag;
+
+struct AzOptionFontRefVariant_None { AzOptionFontRefTag tag; };
+typedef struct AzOptionFontRefVariant_None AzOptionFontRefVariant_None;
+struct AzOptionFontRefVariant_Some { AzOptionFontRefTag tag; AzFontRef payload; };
+typedef struct AzOptionFontRefVariant_Some AzOptionFontRefVariant_Some;
+union AzOptionFontRef {
+    AzOptionFontRefVariant_None None;
+    AzOptionFontRefVariant_Some Some;
+};
+typedef union AzOptionFontRef AzOptionFontRef;
+#define AzOptionFontRef_None { .None = { .tag = AzOptionFontRefTag_None } }
+#define AzOptionFontRef_Some(v) { .Some = { .tag = AzOptionFontRefTag_Some, .payload = v } }
+
 enum AzOptionSystemClipboardTag {
    AzOptionSystemClipboardTag_None,
    AzOptionSystemClipboardTag_Some,
@@ -7894,22 +7918,6 @@ struct AzRawImage {
 };
 typedef struct AzRawImage AzRawImage;
 
-struct AzParsedFont {
-    AzString postscript_id;
-    AzU8Vec bytes;
-    uint32_t font_index;
-    AzFontMetrics metrics;
-    void* parsed;
-    AzParsedFontDestructorFnType destructor;
-};
-typedef struct AzParsedFont AzParsedFont;
-
-struct AzFontRef {
-    AzParsedFont* data;
-    void* copies;
-};
-typedef struct AzFontRef AzFontRef;
-
 struct AzSvgPath {
     AzSvgPathElementVec items;
 };
@@ -8129,24 +8137,6 @@ struct AzStringPairVec {
     AzStringPairVecDestructor destructor;
 };
 typedef struct AzStringPairVec AzStringPairVec;
-
-enum AzOptionFontRefTag {
-   AzOptionFontRefTag_None,
-   AzOptionFontRefTag_Some,
-};
-typedef enum AzOptionFontRefTag AzOptionFontRefTag;
-
-struct AzOptionFontRefVariant_None { AzOptionFontRefTag tag; };
-typedef struct AzOptionFontRefVariant_None AzOptionFontRefVariant_None;
-struct AzOptionFontRefVariant_Some { AzOptionFontRefTag tag; AzFontRef payload; };
-typedef struct AzOptionFontRefVariant_Some AzOptionFontRefVariant_Some;
-union AzOptionFontRef {
-    AzOptionFontRefVariant_None None;
-    AzOptionFontRefVariant_Some Some;
-};
-typedef union AzOptionFontRef AzOptionFontRef;
-#define AzOptionFontRef_None { .None = { .tag = AzOptionFontRefTag_None } }
-#define AzOptionFontRef_Some(v) { .Some = { .tag = AzOptionFontRefTag_Some, .payload = v } }
 
 enum AzOptionFileTypeListTag {
    AzOptionFileTypeListTag_None,
@@ -9948,6 +9938,8 @@ extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePnm(AzRawImage* 
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeGif(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTiff(AzRawImage* const rawimage);
 extern DLLIMPORT AzFontRef AzFontRef_parse(AzU8Vec  bytes, uint32_t font_index);
+extern DLLIMPORT AzFontMetrics AzFontRef_getFontMetrics(AzFontRef* const fontref);
+extern DLLIMPORT AzString AzFontRef_getPostscriptId(AzFontRef* const fontref);
 extern DLLIMPORT void AzFontRef_delete(AzFontRef* restrict instance);
 extern DLLIMPORT AzFontRef AzFontRef_deepCopy(AzFontRef* const instance);
 extern DLLIMPORT AzSvg AzSvg_fromString(AzString  svg_string, AzSvgParseOptions  parse_options);

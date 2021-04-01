@@ -1960,7 +1960,7 @@ pub use AzImageRefTT as AzImageRef;
 /// Creates an "invalid" image with a width and height that reserves an image key, but does not render anything
 #[no_mangle] pub extern "C" fn AzImageRef_invalid(width: usize, height: usize, format: AzRawImageFormat) -> AzImageRef { AzImageRef::invalid(width, height, format) }
 /// Creates an image reference from a CPU-backed buffer
-#[no_mangle] pub extern "C" fn AzImageRef_rawImage(data: AzRawImage) -> AzImageRef { AzImageRef::new_rawimage(data) }
+#[no_mangle] pub extern "C" fn AzImageRef_rawImage(data: AzRawImage) -> AzOptionImageRef { AzImageRef::new_rawimage(data) }
 /// Creates an image reference from an OpenGL texture
 #[no_mangle] pub extern "C" fn AzImageRef_glTexture(texture: AzTexture) -> AzImageRef { AzImageRef::new_gltexture(texture) }
 /// Destructor: Takes ownership of the `ImageRef` pointer and deletes it.
@@ -2019,15 +2019,15 @@ pub type AzParsedFontDestructorFnType = extern "C" fn(&mut c_void);
 pub type AzFontMetricsTT = azul_css::FontMetrics;
 pub use AzFontMetricsTT as AzFontMetrics;
 
-/// Re-export of rust-allocated (stack based) `ParsedFont` struct
-pub type AzParsedFontTT = azul_css::FontData;
-pub use AzParsedFontTT as AzParsedFont;
-
-/// Atomically (!) reference-counted parsed font data
+/// Atomically reference-counted parsed font data
 pub type AzFontRefTT = azul_css::FontRef;
 pub use AzFontRefTT as AzFontRef;
 /// Parses a new font from bytes. Returns `None` if the font could not be parsed correctly.
 #[no_mangle] pub extern "C" fn AzFontRef_parse(bytes: AzU8Vec, font_index: u32) -> AzOptionFontRef { AzFontRef::parse_from_bytes(bytes, font_index).into() }
+/// Returns the font metrics of the parsed font
+#[no_mangle] pub extern "C" fn AzFontRef_getFontMetrics(fontref: &AzFontRef) -> AzFontMetrics { fontref.get_font_metrics() }
+/// Returns the font metrics
+#[no_mangle] pub extern "C" fn AzFontRef_getPostscriptId(fontref: &AzFontRef) -> AzString { fontref.get_postscript_id().into() }
 /// Destructor: Takes ownership of the `FontRef` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzFontRef_delete(object: &mut AzFontRef) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
@@ -4414,6 +4414,11 @@ mod test_sizes {
     }
     /// `AzParsedFontDestructorFnType` struct
     pub type AzParsedFontDestructorFnType = extern "C" fn(&mut c_void);
+    /// Atomically reference-counted parsed font data
+    #[repr(C)]     pub struct AzFontRef {
+        pub data: *const c_void,
+        pub copies: *const c_void,
+    }
     /// Re-export of rust-allocated (stack based) `Svg` struct
     #[repr(C)]     pub struct AzSvg {
         pub(crate) ptr: *mut c_void,
@@ -6322,6 +6327,11 @@ mod test_sizes {
         None,
         Some(AzImageRef),
     }
+    /// Re-export of rust-allocated (stack based) `OptionFontRef` struct
+    #[repr(C, u8)]     pub enum AzOptionFontRef {
+        None,
+        Some(AzFontRef),
+    }
     /// Re-export of rust-allocated (stack based) `OptionSystemClipboard` struct
     #[repr(C, u8)]     pub enum AzOptionSystemClipboard {
         None,
@@ -7106,20 +7116,6 @@ mod test_sizes {
         pub alpha_premultiplied: bool,
         pub data_format: AzRawImageFormat,
     }
-    /// Re-export of rust-allocated (stack based) `ParsedFont` struct
-    #[repr(C)]     pub struct AzParsedFont {
-        pub postscript_id: AzString,
-        pub bytes: AzU8Vec,
-        pub font_index: u32,
-        pub metrics: AzFontMetrics,
-        pub parsed: *const c_void,
-        pub destructor: AzParsedFontDestructorFnType,
-    }
-    /// Atomically (!) reference-counted parsed font data
-    #[repr(C)]     pub struct AzFontRef {
-        pub data: *const AzParsedFont,
-        pub copies: *const c_void,
-    }
     /// Re-export of rust-allocated (stack based) `SvgPath` struct
     #[repr(C)]     pub struct AzSvgPath {
         pub items: AzSvgPathElementVec,
@@ -7246,11 +7242,6 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStringPairVecDestructor,
-    }
-    /// Re-export of rust-allocated (stack based) `OptionFontRef` struct
-    #[repr(C, u8)]     pub enum AzOptionFontRef {
-        None,
-        Some(AzFontRef),
     }
     /// Re-export of rust-allocated (stack based) `OptionFileTypeList` struct
     #[repr(C, u8)]     pub enum AzOptionFileTypeList {
@@ -7851,6 +7842,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::resources::RawImageFormat>(), "AzRawImageFormat"), (Layout::new::<AzRawImageFormat>(), "AzRawImageFormat"));
         assert_eq!((Layout::new::<azul_impl::resources::encode::EncodeImageError>(), "AzEncodeImageError"), (Layout::new::<AzEncodeImageError>(), "AzEncodeImageError"));
         assert_eq!((Layout::new::<azul_impl::resources::decode::DecodeImageError>(), "AzDecodeImageError"), (Layout::new::<AzDecodeImageError>(), "AzDecodeImageError"));
+        assert_eq!((Layout::new::<azul_css::FontRef>(), "AzFontRef"), (Layout::new::<AzFontRef>(), "AzFontRef"));
         assert_eq!((Layout::new::<azul_impl::svg::Svg>(), "AzSvg"), (Layout::new::<AzSvg>(), "AzSvg"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgXmlNode>(), "AzSvgXmlNode"), (Layout::new::<AzSvgXmlNode>(), "AzSvgXmlNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgCircle>(), "AzSvgCircle"), (Layout::new::<AzSvgCircle>(), "AzSvgCircle"));
@@ -8135,6 +8127,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
         assert_eq!((Layout::new::<azul_impl::app_resources::OptionImageRef>(), "AzOptionImageRef"), (Layout::new::<AzOptionImageRef>(), "AzOptionImageRef"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionFontRef>(), "AzOptionFontRef"), (Layout::new::<AzOptionFontRef>(), "AzOptionFontRef"));
         assert_eq!((Layout::new::<azul_impl::window::OptionClipboard>(), "AzOptionSystemClipboard"), (Layout::new::<AzOptionSystemClipboard>(), "AzOptionSystemClipboard"));
         assert_eq!((Layout::new::<azul_impl::file::OptionFile>(), "AzOptionFile"), (Layout::new::<AzOptionFile>(), "AzOptionFile"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionGlContextPtr>(), "AzOptionGl"), (Layout::new::<AzOptionGl>(), "AzOptionGl"));
@@ -8252,8 +8245,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::GetActiveAttribReturn>(), "AzGetActiveAttribReturn"), (Layout::new::<AzGetActiveAttribReturn>(), "AzGetActiveAttribReturn"));
         assert_eq!((Layout::new::<azul_impl::gl::GetActiveUniformReturn>(), "AzGetActiveUniformReturn"), (Layout::new::<AzGetActiveUniformReturn>(), "AzGetActiveUniformReturn"));
         assert_eq!((Layout::new::<azul_impl::resources::RawImage>(), "AzRawImage"), (Layout::new::<AzRawImage>(), "AzRawImage"));
-        assert_eq!((Layout::new::<azul_css::FontData>(), "AzParsedFont"), (Layout::new::<AzParsedFont>(), "AzParsedFont"));
-        assert_eq!((Layout::new::<azul_css::FontRef>(), "AzFontRef"), (Layout::new::<AzFontRef>(), "AzFontRef"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPath>(), "AzSvgPath"), (Layout::new::<AzSvgPath>(), "AzSvgPath"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgParseOptions>(), "AzSvgParseOptions"), (Layout::new::<AzSvgParseOptions>(), "AzSvgParseOptions"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStyle>(), "AzSvgStyle"), (Layout::new::<AzSvgStyle>(), "AzSvgStyle"));
@@ -8271,7 +8262,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::CallbackDataVec>(), "AzCallbackDataVec"), (Layout::new::<AzCallbackDataVec>(), "AzCallbackDataVec"));
         assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessageVec>(), "AzDebugMessageVec"), (Layout::new::<AzDebugMessageVec>(), "AzDebugMessageVec"));
         assert_eq!((Layout::new::<azul_impl::window::StringPairVec>(), "AzStringPairVec"), (Layout::new::<AzStringPairVec>(), "AzStringPairVec"));
-        assert_eq!((Layout::new::<azul_impl::css::OptionFontRef>(), "AzOptionFontRef"), (Layout::new::<AzOptionFontRef>(), "AzOptionFontRef"));
         assert_eq!((Layout::new::<azul_impl::dialogs::OptionFileTypeList>(), "AzOptionFileTypeList"), (Layout::new::<AzOptionFileTypeList>(), "AzOptionFileTypeList"));
         assert_eq!((Layout::new::<azul_impl::resources::OptionRawImage>(), "AzOptionRawImage"), (Layout::new::<AzOptionRawImage>(), "AzOptionRawImage"));
         assert_eq!((Layout::new::<azul_impl::window::OptionWaylandTheme>(), "AzOptionWaylandTheme"), (Layout::new::<AzOptionWaylandTheme>(), "AzOptionWaylandTheme"));

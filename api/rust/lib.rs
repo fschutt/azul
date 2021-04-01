@@ -1671,6 +1671,11 @@ mod dll {
     }
     /// `AzParsedFontDestructorFnType` struct
     pub type AzParsedFontDestructorFnType = extern "C" fn(&mut c_void);
+    /// Atomically reference-counted parsed font data
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzFontRef {
+        pub data: *const c_void,
+        pub copies: *const c_void,
+    }
     /// Re-export of rust-allocated (stack based) `Svg` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvg {
         pub(crate) ptr: *mut c_void,
@@ -3579,6 +3584,11 @@ mod dll {
         None,
         Some(AzImageRef),
     }
+    /// Re-export of rust-allocated (stack based) `OptionFontRef` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFontRef {
+        None,
+        Some(AzFontRef),
+    }
     /// Re-export of rust-allocated (stack based) `OptionSystemClipboard` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionSystemClipboard {
         None,
@@ -4363,20 +4373,6 @@ mod dll {
         pub alpha_premultiplied: bool,
         pub data_format: AzRawImageFormat,
     }
-    /// Re-export of rust-allocated (stack based) `ParsedFont` struct
-    #[repr(C)]  #[derive(Clone)]   pub struct AzParsedFont {
-        pub postscript_id: AzString,
-        pub bytes: AzU8Vec,
-        pub font_index: u32,
-        pub metrics: AzFontMetrics,
-        pub parsed: *const c_void,
-        pub destructor: AzParsedFontDestructorFnType,
-    }
-    /// Atomically (!) reference-counted parsed font data
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzFontRef {
-        pub data: *const AzParsedFont,
-        pub copies: *const c_void,
-    }
     /// Re-export of rust-allocated (stack based) `SvgPath` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgPath {
         pub items: AzSvgPathElementVec,
@@ -4503,11 +4499,6 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStringPairVecDestructor,
-    }
-    /// Re-export of rust-allocated (stack based) `OptionFontRef` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFontRef {
-        None,
-        Some(AzFontRef),
     }
     /// Re-export of rust-allocated (stack based) `OptionFileTypeList` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFileTypeList {
@@ -5319,7 +5310,7 @@ mod dll {
         pub(crate) fn AzGLsyncPtr_delete(_:  &mut AzGLsyncPtr);
         pub(crate) fn AzTextureFlags_default() -> AzTextureFlags;
         pub(crate) fn AzImageRef_invalid(_:  usize, _:  usize, _:  AzRawImageFormat) -> AzImageRef;
-        pub(crate) fn AzImageRef_rawImage(_:  AzRawImage) -> AzImageRef;
+        pub(crate) fn AzImageRef_rawImage(_:  AzRawImage) -> AzOptionImageRef;
         pub(crate) fn AzImageRef_glTexture(_:  AzTexture) -> AzImageRef;
         pub(crate) fn AzImageRef_delete(_:  &mut AzImageRef);
         pub(crate) fn AzImageRef_deepCopy(_:  &AzImageRef) -> AzImageRef;
@@ -5335,6 +5326,8 @@ mod dll {
         pub(crate) fn AzRawImage_encodeGif(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeTiff(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzFontRef_parse(_:  AzU8Vec, _:  u32) -> AzOptionFontRef;
+        pub(crate) fn AzFontRef_getFontMetrics(_:  &AzFontRef) -> AzFontMetrics;
+        pub(crate) fn AzFontRef_getPostscriptId(_:  &AzFontRef) -> AzString;
         pub(crate) fn AzFontRef_delete(_:  &mut AzFontRef);
         pub(crate) fn AzFontRef_deepCopy(_:  &AzFontRef) -> AzFontRef;
         pub(crate) fn AzSvg_fromString(_:  AzString, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
@@ -10075,7 +10068,7 @@ pub mod image {
         /// Creates an "invalid" image with a width and height that reserves an image key, but does not render anything
         pub fn invalid(width: usize, height: usize, format: RawImageFormat) -> Self { unsafe { crate::dll::AzImageRef_invalid(width, height, format) } }
         /// Creates an image reference from a CPU-backed buffer
-        pub fn raw_image(data: RawImage) -> Self { unsafe { crate::dll::AzImageRef_rawImage(data) } }
+        pub fn raw_image(data: RawImage) ->  crate::option::OptionImageRef { unsafe { crate::dll::AzImageRef_rawImage(data) } }
         /// Creates an image reference from an OpenGL texture
         pub fn gl_texture(texture: Texture) -> Self { unsafe { crate::dll::AzImageRef_glTexture(texture) } }
     }
@@ -10139,15 +10132,16 @@ pub mod font {
     /// `FontMetrics` struct
     
 #[doc(inline)] pub use crate::dll::AzFontMetrics as FontMetrics;
-    /// `ParsedFont` struct
-    
-#[doc(inline)] pub use crate::dll::AzParsedFont as ParsedFont;
-    /// Atomically (!) reference-counted parsed font data
+    /// Atomically reference-counted parsed font data
     
 #[doc(inline)] pub use crate::dll::AzFontRef as FontRef;
     impl FontRef {
         /// Parses a new font from bytes. Returns `None` if the font could not be parsed correctly.
         pub fn parse(bytes: U8Vec, font_index: u32) ->  crate::option::OptionFontRef { unsafe { crate::dll::AzFontRef_parse(bytes, font_index) } }
+        /// Returns the font metrics of the parsed font
+        pub fn get_font_metrics(&self)  -> crate::font::FontMetrics { unsafe { crate::dll::AzFontRef_getFontMetrics(self) } }
+        /// Returns the font metrics
+        pub fn get_postscript_id(&self)  -> crate::str::String { unsafe { crate::dll::AzFontRef_getPostscriptId(self) } }
     }
 
     impl Clone for FontRef { fn clone(&self) -> Self { unsafe { crate::dll::AzFontRef_deepCopy(self) } } }
