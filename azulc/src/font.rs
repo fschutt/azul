@@ -4,47 +4,45 @@ use azul_css::{U8Vec, AzString};
 use rust_fontconfig::FcFontCache;
 
 /// Returns the font file contents from the computer + the font index
-pub fn load_system_fonts(ids: &[AzString], fc_cache: &FcFontCache) -> Option<(U8Vec, i32)> {
+pub fn load_system_font(id: &str, fc_cache: &FcFontCache) -> Option<(U8Vec, i32)> {
     use rust_fontconfig::{FcPattern, FcFontPath, PatternMatch};
 
-    for id in ids {
-        let mut pattern = FcPattern::default();
+    let mut pattern = FcPattern::default();
 
-        match id.as_str() {
-            "monospace" => {
-                pattern.monospace = PatternMatch::True;
-                #[cfg(target_os = "linux")] {
-                    pattern.family = Some(linux_get_native_font(LinuxNativeFontType::Monospace));
-                }
-            },
-            "fantasy" => {
-                pattern.oblique = PatternMatch::True;
-            },
-            "sans-serif" => {
-                #[cfg(target_os = "mac_os")] {
-                    pattern.family = Some("Helvetica".to_string());
-                }
-                #[cfg(target_os = "linux")] {
-                    pattern.family = Some(linux_get_native_font(LinuxNativeFontType::SansSerif));
-                }
-                #[cfg(all(not(target_os = "linux"), not(target_os = "mac_os")))] {
-                    pattern.family = Some("Segoe UI".to_string());
-                }
-            },
-            "serif" => {
-                pattern.family = Some("Times New Roman".to_string());
-            },
-            other => {
-                pattern.family = Some(other.clone().into());
+    match id {
+        "monospace" => {
+            pattern.monospace = PatternMatch::True;
+            #[cfg(target_os = "linux")] {
+                pattern.family = Some(linux_get_native_font(LinuxNativeFontType::Monospace));
             }
+        },
+        "fantasy" => {
+            pattern.oblique = PatternMatch::True;
+        },
+        "sans-serif" => {
+            #[cfg(target_os = "mac_os")] {
+                pattern.family = Some("Helvetica".to_string());
+            }
+            #[cfg(target_os = "linux")] {
+                pattern.family = Some(linux_get_native_font(LinuxNativeFontType::SansSerif));
+            }
+            #[cfg(all(not(target_os = "linux"), not(target_os = "mac_os")))] {
+                pattern.family = Some("Segoe UI".to_string());
+            }
+        },
+        "serif" => {
+            pattern.family = Some("Times New Roman".to_string());
+        },
+        other => {
+            pattern.family = Some(other.clone().into());
         }
+    }
 
-        if let Some(FcFontPath { path, font_index }) = fc_cache.query(&pattern) {
-            use std::fs;
-            use std::path::Path;
-            if let Ok(bytes) = fs::read(Path::new(path)) {
-                return Some((bytes.into(), *font_index as i32));
-            }
+    if let Some(FcFontPath { path, font_index }) = fc_cache.query(&pattern) {
+        use std::fs;
+        use std::path::Path;
+        if let Ok(bytes) = fs::read(Path::new(path)) {
+            return Some((bytes.into(), *font_index as i32));
         }
     }
 

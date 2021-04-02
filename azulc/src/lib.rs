@@ -46,10 +46,6 @@ pub mod layout {
 #[cfg(all(feature = "std", feature ="font_loading"))]
 pub mod font_loading;
 
-/// Module for decoding and loading images
-#[cfg(all(feature = "std", feature ="image_loading"))]
-pub mod image_loading;
-
 /// Parse a string in the format of "600x100" -> (600, 100)
 pub fn parse_display_list_size(output_size: &str) -> Option<(f32, f32)> {
     let output_size = output_size.trim();

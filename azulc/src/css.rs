@@ -82,7 +82,6 @@ fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Br => "NodeTypeTag::Br",
         NodeTypeTag::P => "NodeTypeTag::P",
         NodeTypeTag::Img => "NodeTypeTag::Img",
-        NodeTypeTag::Texture => "NodeTypeTag::Texture",
         NodeTypeTag::IFrame => "NodeTypeTag::IFrame",
     }
 }
@@ -703,21 +702,33 @@ fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
     }
 }
 
-fn format_font_ids(stops: &[AzString], tabs: usize) -> String {
+fn format_font_ids(font_ids: &[StyleFontFamily], tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
-    stops.iter()
-        .map(|s| format!("{:?}", s))
+    font_ids.iter()
+        .map(|s| format!("{}", s.format_as_rust_code(tabs + 1)))
         .collect::<Vec<_>>()
         .join(&format!(",\r\n{}", t))
 }
 
-impl FormatAsRustCode for StyleFontFamily {
+impl FormatAsRustCode for StyleFontFamilyVec {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
-        let t1 = String::from("    ").repeat(tabs + 1);
-        format!("StyleFontFamily {{ fonts: vec![\r\n{}{}\r\n{}].into()\r\n{}}}",
-            t1, format_font_ids(self.fonts.as_ref(), tabs + 1), t1, t
+        format!("vec![\r\n{}{}\r\n{}].into()",
+            t, format_font_ids(self.as_ref(), tabs + 1), t,
         )
+    }
+}
+
+
+impl FormatAsRustCode for StyleFontFamily {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        use azul_css::StyleFontFamily::*;
+        let t = String::from("    ").repeat(tabs);
+        match self {
+            Native(id) => format!("StyleFontFamily::Native(AzString::from_const_str(\"{}\"))", id),
+            File(path) => format!("StyleFontFamily::File(AzString::from_const_str(\"{}\"))", path),
+            Ref(font_ref) => format!("StyleFontFamily::Ref({})", font_ref.get_data().postscript_id.as_str().to_uppercase()),
+        }
     }
 }
 

@@ -418,6 +418,16 @@ macro_rules! impl_vec_ord {($struct_type:ident, $struct_name:ident) => (
 #[macro_export]
 macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident, $destructor_name:ident) => (
     impl $struct_name {
+
+        // Creates a `Vec` from a `Cow<'static, [T]>` - useful to avoid allocating in the case of &'static memory
+        #[inline(always)]
+        pub fn from_copy_on_write(input: alloc::borrow::Cow<'static, [$struct_type]>) -> $struct_name {
+            match input {
+                alloc::borrow::Cow::Borrowed(static_array) => Self::from_const_slice(static_array),
+                alloc::borrow::Cow::Owned(owned_vec) => Self::from_vec(owned_vec),
+            }
+        }
+
         /// NOTE: CLONES the memory if the memory is external or &'static
         /// Moves the memory out if the memory is library-allocated
         #[inline(always)]
