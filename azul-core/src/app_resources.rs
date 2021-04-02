@@ -1,18 +1,16 @@
 use core::{
     fmt,
-    any::Any,
     sync::atomic::{AtomicUsize, AtomicU32, Ordering as AtomicOrdering},
     hash::{Hash, Hasher},
 };
 use alloc::boxed::Box;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::borrow::Cow;
 use alloc::string::String;
 use azul_css::{
-    OptionU16, OptionU32, OptionI16, LayoutRect, StyleFontSize, LayoutSize,
-    ColorU, U8Vec, U16Vec, F32Vec, U32Vec, AzString, OptionI32, StringVec,
-    FontRef, OptionFontRef, FontData, StyleFontFamilyVec, StyleFontFamily,
+    LayoutRect, StyleFontSize, LayoutSize,
+    ColorU, U8Vec, U16Vec, F32Vec, U32Vec, AzString, OptionI32,
+    FontRef, StyleFontFamilyVec, StyleFontFamily,
 };
 use crate::{
     FastHashMap, FastBTreeSet,
@@ -296,7 +294,7 @@ impl ImageRef {
             DecodedImage::NullImage { width, height, .. } => LogicalSize::new(*width as f32, *height as f32),
             DecodedImage::Gl(tex) => LogicalSize::new(tex.size.width as f32, tex.size.height as f32),
             DecodedImage::Raw((image_descriptor, _)) => LogicalSize::new(image_descriptor.width as f32, image_descriptor.height as f32),
-            DecodedImage::Callback(c) => LogicalSize::new(0.0, 0.0),
+            DecodedImage::Callback(_) => LogicalSize::new(0.0, 0.0),
         }
     }
 }
@@ -1848,8 +1846,8 @@ impl AddFontMsg {
     pub fn into_resource_update(&self) -> ResourceUpdate {
         use self::AddFontMsg::*;
         match self {
-            Font(fk, font_family_hash, font_ref) => ResourceUpdate::AddFont(AddFont {
-                key: *fk,
+            Font(font_key, _, font_ref) => ResourceUpdate::AddFont(AddFont {
+                key: *font_key,
                 font_bytes: font_ref.get_data().bytes.clone(),
                 font_index: font_ref.get_data().font_index,
             }),
@@ -2020,7 +2018,7 @@ pub fn build_add_font_resource_updates(
                         other => {
 
                             // Load and parse the font
-                            let font_data = match (font_source_load_fn.cb)(&family, fc_cache).into_option() {
+                            let font_data = match (font_source_load_fn.cb)(&other, fc_cache).into_option() {
                                 Some(s) => s,
                                 None => continue 'inner,
                             };

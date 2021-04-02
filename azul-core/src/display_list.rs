@@ -19,8 +19,8 @@ use crate::{
     ui_solver::{ExternalScrollId, LayoutResult, PositionInfo, ComputedTransform3D},
     window::{FullWindowState, LogicalRect, LogicalPosition, LogicalSize},
     app_resources::{
-        ImageCache, RendererResources, AddImageMsg, ImageDescriptor, ImageDescriptorFlags,
-        ImageKey, FontInstanceKey, ImageId, PrimitiveFlags,
+        ImageCache, RendererResources, AddImageMsg, ImageDescriptor,
+        ImageKey, FontInstanceKey, PrimitiveFlags,
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, ParseFontFn,
         ResourceUpdate, IdNamespace, TransformKey, OpacityKey,
     },
@@ -58,7 +58,6 @@ impl CachedDisplayList {
     #[cfg(feature = "multithreading")]
     pub fn new(
         epoch: Epoch,
-        pipeline_id: PipelineId,
         full_window_state: &FullWindowState,
         layout_results: &[LayoutResult],
         gl_texture_cache: &GlTextureCache,
@@ -74,7 +73,6 @@ impl CachedDisplayList {
                 &DisplayListParametersRef {
                     dom_id: DOM_ID,
                     epoch,
-                    pipeline_id,
                     full_window_state,
                     layout_results: &layout_results,
                     gl_texture_cache: &gl_texture_cache,
@@ -557,8 +555,6 @@ pub struct DisplayListParametersRef<'a> {
     pub epoch: Epoch,
     /// The CSS that should be applied to the DOM
     pub full_window_state: &'a FullWindowState,
-    /// The current pipeline of the display list
-    pub pipeline_id: PipelineId,
     /// Cached layouts (+ solved layouts for iframes)
     pub layout_results: &'a [LayoutResult],
     /// Cached rendered OpenGL textures
@@ -577,7 +573,7 @@ pub struct GlTextureCache {
 unsafe impl Send for GlTextureCache { } // necessary so the display list can be built in parallel
 
 // todo: very unclean
-pub type LayoutFn = fn(StyledDom, &ImageCache, &FcFontCache, &mut Vec<ResourceUpdate>, IdNamespace, &PipelineId, RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
+pub type LayoutFn = fn(StyledDom, &ImageCache, &FcFontCache, &mut Vec<ResourceUpdate>, IdNamespace, &PipelineId, Epoch, &RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
 #[cfg(feature = "opengl")]
 pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 
@@ -587,9 +583,9 @@ pub struct SolvedLayout {
     pub gl_texture_cache: GlTextureCache,
 }
 
+#[derive(Clone)]
 pub struct RenderCallbacks {
-    #[cfg(feature = "opengl")]
-    pub insert_into_active_gl_textures: GlStoreImageFn,
+    pub insert_into_active_gl_textures_fn: GlStoreImageFn,
     pub layout_fn: LayoutFn,
     pub load_font_fn: LoadFontFn,
     pub parse_font_fn: ParseFontFn,
@@ -598,7 +594,7 @@ pub struct RenderCallbacks {
 impl SolvedLayout {
 
     /// Does the layout, updates the image + font resources for the RenderAPI
-    #[cfg(all(feature = "opengl", feature = "multithreading"))]
+    #[cfg(feature = "multithreading")]
     pub fn new(
         styled_dom: StyledDom,
         epoch: Epoch,
@@ -610,7 +606,7 @@ impl SolvedLayout {
         image_cache: &ImageCache,
         system_fonts: &FcFontCache,
         renderer_resources: &mut RendererResources,
-        callbacks: RenderCallbacks,
+        callbacks: &RenderCallbacks,
     ) -> Self {
 
         use crate::{
@@ -619,7 +615,6 @@ impl SolvedLayout {
                 ImageData, add_resources, DecodedImage, ImageRef,
             },
             callbacks::{RenderImageCallbackInfo, HidpiAdjustedBounds},
-            gl::insert_into_active_gl_textures,
             dom::NodeType,
         };
         use gleam::gl;
@@ -631,6 +626,7 @@ impl SolvedLayout {
             all_resource_updates,
             id_namespace,
             pipeline_id,
+            epoch,
             callbacks,
             &full_window_state,
         );
@@ -721,7 +717,7 @@ impl SolvedLayout {
                     DecodedImage::Gl(texture) => {
                         let descriptor = texture.get_descriptor();
                         let key = ImageKey::unique(id_namespace);
-                        let external_image_id = (insert_into_active_gl_textures)(*pipeline_id, epoch, texture);
+                        let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(*pipeline_id, epoch, texture);
 
                         gl_texture_cache.solved_textures
                             .entry(dom_id.clone())
@@ -813,11 +809,10 @@ pub fn displaylist_handle_rect<'a>(
 ) -> DisplayListMsg {
 
     use crate::dom::NodeType::*;
-    use crate::styled_dom::{AzNodeId, AzTagId};
+    use crate::styled_dom::AzTagId;
 
     let DisplayListParametersRef {
         dom_id,
-        pipeline_id,
         layout_results,
         gl_texture_cache,
         renderer_resources,

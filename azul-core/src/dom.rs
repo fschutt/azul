@@ -14,15 +14,13 @@ use crate::{
         IFrameCallback, IFrameCallbackType,
         RefAny, OptionRefAny,
     },
-    app_resources::{ImageId, OptionImageMask},
+    app_resources::OptionImageMask,
     id_tree::{
         NodeDataContainer, NodeDataContainerRef,
         NodeDataContainerRefMut
     },
     styled_dom::StyledDom,
 };
-#[cfg(feature = "opengl")]
-use crate::callbacks::{RenderImageCallback, RenderImageCallbackType};
 use azul_css::{Css, AzString, NodeTypeTag, CssProperty};
 
 pub use crate::id_tree::{NodeHierarchy, Node, NodeId};

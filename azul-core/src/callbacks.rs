@@ -40,8 +40,7 @@ use crate::{
         TerminateTimer, ThreadSender, ThreadReceiver, GetSystemTimeCallback,
     },
 };
-#[cfg(feature = "opengl")]
-use crate::gl::{OptionTexture, GlContextPtr, OptionGlContextPtr};
+use crate::gl::OptionGlContextPtr;
 
 /// Specifies if the screen should be updated after the callback function has returned
 #[repr(C)]

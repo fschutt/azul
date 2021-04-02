@@ -4,11 +4,11 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::collections::btree_map::BTreeMap;
 use azul_css::{
-    Css, CssPath, CssProperty, CssPropertyType, AzString, StringVec,
+    Css, CssPath, CssProperty, CssPropertyType, AzString,
 
     StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
     StyleBackgroundSizeVecValue, StyleBackgroundRepeatVecValue,
-    StyleFontSizeValue, StyleFontFamily, StyleFontFamilyVec, StyleFontFamilyVecValue, StyleTextColorValue,
+    StyleFontSizeValue, StyleFontFamily, StyleFontFamilyVec, StyleFontFamilyVecValue,
     StyleTextAlignmentHorzValue, StyleLineHeightValue, StyleLetterSpacingValue,
     StyleWordSpacingValue, StyleTabWidthValue, StyleCursorValue,
     StyleBoxShadowValue, StyleBorderTopColorValue, StyleBorderLeftColorValue,
@@ -19,7 +19,7 @@ use azul_css::{
     StyleBorderBottomLeftRadiusValue, StyleBorderBottomRightRadiusValue,
     StyleOpacityValue, StyleTransformVecValue, StyleTransformOriginValue,
     StylePerspectiveOriginValue, StyleBackfaceVisibilityValue, StyleTextColor,
-    StyleFontSize,
+    StyleFontSize, StyleTextColorValue,
 
     LayoutDisplayValue, LayoutFloatValue, LayoutBoxSizingValue,
     LayoutWidthValue,  LayoutHeightValue, LayoutMinWidthValue,
@@ -42,7 +42,7 @@ use crate::{
         CascadeInfo, CascadeInfoVec, construct_html_cascade_tree,
         matches_html_element, rule_ends_with,
     },
-    app_resources::{ImageRef, RendererResources, ImageCache, ImageId, Au, ImmediateFontId},
+    app_resources::{ImageRef, RendererResources, ImageCache, Au, ImmediateFontId},
 };
 
 #[repr(C)]
@@ -588,7 +588,7 @@ impl ::core::fmt::Debug for StyleFontFamiliesHash {
 }
 
 impl StyleFontFamiliesHash {
-    pub(crate) fn new(families: &[StyleFontFamily]) -> Self {
+    pub fn new(families: &[StyleFontFamily]) -> Self {
         use ahash::AHasher as HashAlgorithm;
         use core::hash::{Hash, Hasher};
 

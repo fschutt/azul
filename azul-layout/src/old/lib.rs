@@ -12,24 +12,11 @@ extern crate core;
 extern crate azul_core;
 extern crate azul_css;
 #[cfg(feature = "text_layout")]
-pub extern crate azul_text_layout as text_layout;
+extern crate azul_text_layout as text_layout;
 
 #[cfg(test)]
 mod layout_test;
 mod layout_solver;
-
-pub use azul_core::{
-    callbacks::PipelineId,
-    id_tree::{NodeHierarchy, NodeDataContainer},
-    app_resources::AppResources,
-    ui_solver::{
-        LayoutResult, WidthCalculatedRect, HeightCalculatedRect,
-        WidthSolvedResult, HeightSolvedResult, WhConstraint
-    },
-    dom::NodeData,
-    styled_dom::StyledDom,
-};
-pub use azul_css::{LayoutSize, LayoutPoint, LayoutRect};
 
 pub use layout_solver::{
     do_the_layout,

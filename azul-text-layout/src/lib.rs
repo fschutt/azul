@@ -117,7 +117,7 @@ impl<'a> GetTextLayout for InlineText<'a> {
 }
 
 pub fn parse_font_fn(source: &LoadedFontSource) -> Option<(Box<dyn Any>, FontMetrics)> {
-    crate::text_layout::parse_font(source.font_bytes.as_ref(), source.font_index as usize, source.parse_glyph_outlines).map(|b| {
+    crate::text_layout::parse_font(source.data.as_ref(), source.index as usize, source.load_outlines).map(|b| {
         let font_metrics = b.font_metrics.clone();
         let q: Box<dyn Any> = Box::new(b);
         (q, font_metrics)

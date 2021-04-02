@@ -774,7 +774,7 @@ impl WindowInternal {
         image_cache: &ImageCache,
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
-        callbacks: RenderCallbacks,
+        callbacks: &RenderCallbacks,
         fc_cache: &mut LazyFcCache,
     ) -> Self {
 
@@ -829,7 +829,7 @@ impl WindowInternal {
             image_cache,
             &fc_cache_real,
             &mut inital_renderer_resources,
-            callbacks,
+            &callbacks,
         );
 
         *fc_cache = LazyFcCache::Resolved(fc_cache_real);
@@ -857,7 +857,7 @@ impl WindowInternal {
         image_cache: &ImageCache,
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
-        callbacks: RenderCallbacks,
+        callbacks: &RenderCallbacks,
         fc_cache: &mut LazyFcCache,
     ) {
 

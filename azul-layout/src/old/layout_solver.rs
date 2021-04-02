@@ -25,9 +25,9 @@ use azul_core::{
         StyleBoxShadowOffsets,
     },
     app_resources::{
-        ResourceUpdate, IdNamespace,
-        AppResources, FontInstanceKey,
-        ShapedWords, WordPositions, Words,
+        ResourceUpdate, IdNamespace, RendererResources,
+        FontInstanceKey, Epoch, ShapedWords,
+        WordPositions, Words, ImageCache,
     },
     callbacks::PipelineId,
     display_list::RenderCallbacks,
@@ -1432,17 +1432,20 @@ impl LayoutMarginOffsets {
 // Adds the image and font resources to the app_resources but does NOT add them to the RenderAPI
 pub fn do_the_layout(
     styled_dom: StyledDom,
-    app_resources: &mut AppResources,
+    image_cache: &ImageCache,
     fc_cache: &FcFontCache,
+    renderer_resources: &mut RendererResources,
     all_resource_updates: &mut Vec<ResourceUpdate>,
     id_namespace: IdNamespace,
     pipeline_id: PipelineId,
-    callbacks: RenderCallbacks,
+    epoch: Epoch,
+    callbacks: &RenderCallbacks,
     full_window_state: &FullWindowState,
 ) -> Vec<LayoutResult> {
 
     use azul_core::callbacks::{HidpiAdjustedBounds, IFrameCallbackInfo, IFrameCallbackReturn};
 
+    let window_theme = full_window_state.theme;
     let mut current_dom_id = 0;
     let mut doms = vec![
         (
@@ -1463,22 +1466,25 @@ pub fn do_the_layout(
             use azul_core::app_resources::add_fonts_and_images;
 
             add_fonts_and_images(
-                app_resources,
+                image_cache,
+                renderer_resources,
                 fc_cache,
                 id_namespace,
-                all_resource_updates,
+                epoch,
                 &pipeline_id,
+                all_resource_updates,
                 &styled_dom,
                 callbacks.load_font_fn,
-                callbacks.load_image_fn,
                 callbacks.parse_font_fn,
+                callbacks.insert_into_active_gl_textures_fn,
             );
 
             let mut layout_result = do_the_layout_internal(
                 dom_id,
                 parent_dom_id,
                 styled_dom,
-                app_resources,
+                image_cache,
+                renderer_resources,
                 pipeline_id,
                 rect,
             );
@@ -1506,7 +1512,9 @@ pub fn do_the_layout(
                 let iframe_return: IFrameCallbackReturn = {
 
                     let iframe_callback_info = IFrameCallbackInfo::new(
-                        &app_resources,
+                        fc_cache,
+                        image_cache,
+                        window_theme,
                         hidpi_bounds,
 
                         // TODO - see /examples/assets/images/scrollbounds.png for documentation!
@@ -1579,7 +1587,8 @@ pub fn do_the_layout_internal(
     dom_id: DomId,
     parent_dom_id: Option<DomId>,
     styled_dom: StyledDom,
-    app_resources: &mut AppResources,
+    image_cache: &ImageCache,
+    renderer_resources: &mut RendererResources,
     pipeline_id: PipelineId,
     bounds: LogicalRect
 ) -> LayoutResult {
@@ -1618,7 +1627,7 @@ pub fn do_the_layout_internal(
     // Scale the words to the correct size - TODO: Cache this in the app_resources!
     let shaped_words = {
         #[cfg(feature = "text_layout")] {
-            create_shaped_words(&pipeline_id, app_resources, &word_cache, &styled_dom)
+            create_shaped_words(renderer_resources, &word_cache, &styled_dom)
         }
         #[cfg(not(feature = "text_layout"))] {
             BTreeMap::new()
@@ -1634,7 +1643,7 @@ pub fn do_the_layout_internal(
         &mut word_positions_no_max_width,
         &all_nodes_btreeset,
         &pipeline_id,
-        app_resources,
+        renderer_resources,
         &word_cache,
         &shaped_words,
         &styled_dom,
@@ -2063,7 +2072,7 @@ fn create_word_cache<'a>(
     .map(|(node_id, node)| {
         let node_id = NodeId::new(node_id);
         let string = match node.get_node_type() {
-            NodeType::Label(string) => Some(string.as_str()),
+            NodeType::Text(string) => Some(string.as_str()),
             _ => None,
         }?;
         Some((node_id, split_text_into_words(string)))
@@ -2075,8 +2084,7 @@ fn create_word_cache<'a>(
 
 #[cfg(feature = "text_layout")]
 pub fn create_shaped_words<'a>(
-    pipeline_id: &PipelineId,
-    app_resources: &mut AppResources,
+    renderer_resources: &RendererResources,
     words: &BTreeMap<NodeId, Words>,
     styled_dom: &'a StyledDom,
 ) -> BTreeMap<NodeId, ShapedWords> {
@@ -2093,20 +2101,19 @@ pub fn create_shaped_words<'a>(
     .iter()
     .filter_map(|(node_id, words)| {
 
+        use azul_core::styled_dom::StyleFontFamiliesHash;
+
         let styled_node_state = &styled_nodes[*node_id].state;
         let node_data = &node_data[*node_id];
-        let css_font_ids = css_property_cache
-        .get_font_id_or_default(node_data, node_id, styled_node_state);
+        let css_font_families = css_property_cache.get_font_id_or_default(node_data, node_id, styled_node_state);
+        let css_font_families_hash = StyleFontFamiliesHash::new(css_font_families.as_ref());
+        let css_font_family = renderer_resources.font_families_map.get(&css_font_families_hash)?;
+        let font_key = renderer_resources.font_id_map.get(&css_font_family)?;
+        let (font_ref, _) = renderer_resources.currently_registered_fonts.get(&font_key)?;
+        let font_data = font_ref.get_data();
 
-        let font_id = match app_resources.get_css_font_id(&css_font_ids) {
-            Some(s) => ImmediateFontId::Resolved(*s),
-            None => ImmediateFontId::Unresolved(css_font_ids),
-        };
-
-        let loaded_font = app_resources.get_loaded_font_mut(pipeline_id, &font_id)?;
-
-        // downcast the loaded_font.font from Box<dyn Any> to Box<ParsedFont>
-        let parsed_font_downcasted = loaded_font.font.downcast_mut::<ParsedFont>()?;
+        // downcast the loaded_font.font from *const c_void to *const ParsedFont
+        let parsed_font_downcasted = unsafe { &*(font_data.parsed as *const ParsedFont) };
 
         let shaped_words = shape_words(words, parsed_font_downcasted);
 
@@ -2119,7 +2126,7 @@ fn create_word_positions<'a>(
     word_positions: &mut BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     word_positions_to_generate: &BTreeSet<NodeId>,
     pipeline_id: &PipelineId,
-    app_resources: &AppResources,
+    renderer_resources: &RendererResources,
     words: &BTreeMap<NodeId, Words>,
     shaped_words: &BTreeMap<NodeId, ShapedWords>,
     styled_dom: &'a StyledDom,
@@ -2140,23 +2147,25 @@ fn create_word_positions<'a>(
     .par_iter()
     .filter_map(|(node_id, words)| {
 
+        use azul_core::styled_dom::StyleFontFamiliesHash;
+
         if !word_positions_to_generate.contains(node_id) { return None; }
         let node_data = &node_data_container[*node_id];
 
-        let styled_node_state = styled_dom.get_styled_node_state(node_id);
+        let styled_node_state = &styled_dom.styled_nodes.as_container()[*node_id].state;
         let font_size = css_property_cache
             .get_font_size_or_default(node_data, node_id, &styled_node_state);
         let font_size_au = font_size_to_au(font_size);
         let font_size_px = font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32);
-        let css_font_ids = css_property_cache
-            .get_font_id_or_default(node_data, node_id, &styled_node_state);
 
-        let font_id = match app_resources.get_css_font_id(&css_font_ids) {
-            Some(s) => ImmediateFontId::Resolved(*s),
-            None => ImmediateFontId::Unresolved(css_font_ids),
-        };
-        let loaded_font = app_resources.get_loaded_font(pipeline_id, &font_id)?;
-        let font_instance_key = loaded_font.font_instances.get(&font_size_au)?;
+
+        let css_font_families = css_property_cache.get_font_id_or_default(node_data, node_id, styled_node_state);
+        let css_font_families_hash = StyleFontFamiliesHash::new(css_font_families.as_ref());
+        let css_font_family = renderer_resources.font_families_map.get(&css_font_families_hash)?;
+        let font_key = renderer_resources.font_id_map.get(&css_font_family)?;
+        let (_, font_instances) = renderer_resources.currently_registered_fonts.get(&font_key)?;
+
+        let font_instance_key = font_instances.get(&font_size_au)?;
 
         let shaped_words = shaped_words.get(&node_id)?;
 
@@ -2358,7 +2367,8 @@ fn get_nodes_that_need_scroll_clip(
 pub fn do_the_relayout(
     root_bounds: LayoutRect,
     layout_result: &mut LayoutResult,
-    app_resources: &mut AppResources,
+    image_cache: &ImageCache,
+    renderer_resources: &mut RendererResources,
     pipeline_id: PipelineId,
     nodes_to_relayout: &BTreeMap<NodeId, Vec<ChangedCssProperty>>
 ) -> RelayoutChanges {
@@ -2805,7 +2815,7 @@ pub fn do_the_relayout(
         &mut layout_result.positioned_words_cache,
         &updated_word_caches,
         &pipeline_id,
-        app_resources,
+        renderer_resources,
         &layout_result.words_cache,
         &layout_result.shaped_words_cache,
         &layout_result.styled_dom,
