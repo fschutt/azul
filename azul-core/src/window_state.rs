@@ -68,7 +68,7 @@ use alloc::collections::btree_map::BTreeMap;
 use alloc::collections::btree_set::BTreeSet;
 use crate::{
     FastHashMap,
-    app_resources::RendererResources,
+    app_resources::{RendererResources, ImageCache},
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
     callbacks:: {ScrollPosition, PipelineId, DomNodeId, HitTestItem, UpdateScreen},
     id_tree::NodeId,
@@ -78,8 +78,8 @@ use crate::{
     window::{FullHitTest, RawWindowHandle, FullWindowState, ScrollStates, CallCallbacksResult},
 };
 use azul_css::{LayoutSize, CssProperty, LayoutPoint, LayoutRect};
-#[cfg(feature = "opengl")]
-use crate::gl::GlContextPtr;
+use crate::gl::OptionGlContextPtr;
+use rust_fontconfig::FcFontCache;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Events {
@@ -573,10 +573,11 @@ impl CallbacksOfHitTest {
         full_window_state: &FullWindowState,
         raw_window_handle: &RawWindowHandle,
         scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
-        gl_context: &GlContextPtr,
+        gl_context: &OptionGlContextPtr,
         layout_results: &mut Vec<LayoutResult>,
         modifiable_scroll_states: &mut ScrollStates,
-        resources: &mut RendererResources,
+        image_cache: &mut ImageCache,
+        system_fonts: &mut FcFontCache,
         system_callbacks: &ExternalSystemCallbacks,
     ) -> CallCallbacksResult {
 
@@ -662,7 +663,8 @@ impl CallbacksOfHitTest {
                             /*current_window_state:*/ &full_window_state,
                             /*modifiable_window_state:*/ &mut ret.modified_window_state,
                             /*gl_context,*/ gl_context,
-                            /*resources,*/ resources,
+                            /*image_cache,*/ image_cache,
+                            /*system_fonts,*/ system_fonts,
                             /*timers:*/ &mut ret.timers,
                             /*threads:*/ &mut ret.threads,
                             /*new_windows:*/ &mut ret.windows_created,
@@ -735,7 +737,8 @@ impl CallbacksOfHitTest {
                         /*current_window_state:*/ &full_window_state,
                         /*modifiable_window_state:*/ &mut ret.modified_window_state,
                         /*gl_context,*/ gl_context,
-                        /*resources,*/ resources,
+                        /*image_cache,*/ image_cache,
+                        /*system_fonts,*/ system_fonts,
                         /*timers:*/ &mut ret.timers,
                         /*threads:*/ &mut ret.threads,
                         /*new_windows:*/ &mut ret.windows_created,
@@ -762,7 +765,9 @@ impl CallbacksOfHitTest {
 
                     let callback_return = {
                         // get a MUTABLE reference to the RefAny inside of the DOM
-                        if let Some(callback_data) = callback_map.get_mut(&*root_id).unwrap().iter_mut().find(|i| i.event == *event_filter) {
+                        if let Some(callback_data) = callback_map
+                        .get_mut(&*root_id).unwrap()
+                        .iter_mut().find(|i| i.event == *event_filter) {
                             // Invoke callback
                             (callback_data.callback.cb)(&mut callback_data.data, callback_info)
                         } else {
@@ -774,10 +779,13 @@ impl CallbacksOfHitTest {
 
                     match callback_return {
                         UpdateScreen::RegenerateStyledDomForCurrentWindow => {
-                            if ret.callbacks_update_screen == UpdateScreen::DoNothing { ret.callbacks_update_screen = callback_return;  }
+                            if ret.callbacks_update_screen == UpdateScreen::DoNothing {
+                                ret.callbacks_update_screen = callback_return;
+                            }
                         },
                         UpdateScreen::RegenerateStyledDomForAllWindows => {
-                            if ret.callbacks_update_screen == UpdateScreen::DoNothing || ret.callbacks_update_screen == UpdateScreen::RegenerateStyledDomForCurrentWindow  {
+                            if ret.callbacks_update_screen == UpdateScreen::DoNothing ||
+                               ret.callbacks_update_screen == UpdateScreen::RegenerateStyledDomForCurrentWindow {
                                 ret.callbacks_update_screen = callback_return;
                             }
                         },

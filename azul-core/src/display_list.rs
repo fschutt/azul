@@ -577,7 +577,7 @@ pub struct GlTextureCache {
 unsafe impl Send for GlTextureCache { } // necessary so the display list can be built in parallel
 
 // todo: very unclean
-pub type LayoutFn = fn(StyledDom, &RendererResources, &FcFontCache, &mut Vec<ResourceUpdate>, IdNamespace, &PipelineId, RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
+pub type LayoutFn = fn(StyledDom, &ImageCache, &FcFontCache, &mut Vec<ResourceUpdate>, IdNamespace, &PipelineId, RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
 #[cfg(feature = "opengl")]
 pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 
@@ -607,9 +607,10 @@ impl SolvedLayout {
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
         id_namespace: IdNamespace,
+        image_cache: &ImageCache,
+        system_fonts: &FcFontCache,
         renderer_resources: &mut RendererResources,
         callbacks: RenderCallbacks,
-        fc_cache: &FcFontCache,
     ) -> Self {
 
         use crate::{
@@ -625,8 +626,8 @@ impl SolvedLayout {
 
         let mut layout_results = (callbacks.layout_fn)(
             styled_dom,
-            renderer_resources,
-            fc_cache,
+            image_cache,
+            system_fonts,
             all_resource_updates,
             id_namespace,
             pipeline_id,
@@ -658,7 +659,8 @@ impl SolvedLayout {
                     // or an image mask).
                     let gl_callback_info = RenderImageCallbackInfo::new(
                         /*gl_context:*/ &gl_context,
-                        /*resources:*/ renderer_resources,
+                        /*image_cache:*/ image_cache,
+                        /*system_fonts:*/ system_fonts,
                         /*node_hierarchy*/ &layout_result.styled_dom.node_hierarchy,
                         /*words_cache*/ &layout_result.words_cache,
                         /*shaped_words_cache*/ &layout_result.shaped_words_cache,

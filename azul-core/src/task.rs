@@ -33,9 +33,9 @@ use crate::{
     id_tree::NodeId,
     ui_solver::LayoutResult,
 };
-#[cfg(feature = "opengl")]
-use crate::gl::GlContextPtr;
+use crate::gl::OptionGlContextPtr;
 use azul_css::{AzString, OptionLayoutPoint, CssProperty};
+use rust_fontconfig::FcFontCache;
 
 /// Should a timer terminate or not - used to remove active timers
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -562,6 +562,8 @@ impl Timer {
             frame_start,
             call_count: run_count,
             is_about_to_finish,
+            _abi_ref: core::ptr::null(),
+            _abi_mut: core::ptr::null_mut(),
         };
         let mut res = (self.callback.cb)(data, &mut self.data, timer_callback_info);
 
@@ -884,8 +886,9 @@ pub fn run_all_timers<'a, 'b>(
 
     current_window_state: &FullWindowState,
     modifiable_window_state: &mut WindowState,
-    gl_context: &GlContextPtr,
-    resources : &mut RendererResources,
+    gl_context: &OptionGlContextPtr,
+    image_cache: &'a mut ImageCache,
+    system_fonts: &'a mut FcFontCache,
     system_callbacks: &ExternalSystemCallbacks,
     timers: &mut FastHashMap<TimerId, Timer>,
     threads: &mut FastHashMap<ThreadId, Thread>,
@@ -918,7 +921,8 @@ pub fn run_all_timers<'a, 'b>(
             current_window_state,
             modifiable_window_state,
             gl_context,
-            resources,
+            image_cache,
+            system_fonts,
             timers,
             threads,
             new_windows,
@@ -979,8 +983,9 @@ pub fn clean_up_finished_threads<'a, 'b>(
 
     current_window_state: &FullWindowState,
     modifiable_window_state: &mut WindowState,
-    gl_context: &GlContextPtr,
-    resources : &mut RendererResources,
+    gl_context: &OptionGlContextPtr,
+    image_cache: &mut ImageCache,
+    system_fonts: &mut FcFontCache,
     system_callbacks: &ExternalSystemCallbacks,
     timers: &mut FastHashMap<TimerId, Timer>,
     threads: &mut FastHashMap<ThreadId, Thread>,
@@ -1021,7 +1026,8 @@ pub fn clean_up_finished_threads<'a, 'b>(
                     current_window_state,
                     modifiable_window_state,
                     gl_context,
-                    resources ,
+                    image_cache,
+                    system_fonts,
                     timers,
                     threads,
                     new_windows,

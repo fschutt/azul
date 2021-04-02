@@ -265,13 +265,15 @@ impl ImageRef {
 
     /// If *copies = 1, returns the internal image data
     pub(crate) fn into_inner(self) -> Option<DecodedImage> {
-        if self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) == Some(1) {
-            let data = Box::from_raw(self.data as *mut DecodedImage);
-            let _ = Box::from_raw(self.copies as *mut AtomicUsize);
-            core::mem::forget(self); // do not run the destructor
-            Some(*data)
-        } else {
-            None
+        unsafe {
+            if self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) == Some(1) {
+                let data = Box::from_raw(self.data as *mut DecodedImage);
+                let _ = Box::from_raw(self.copies as *mut AtomicUsize);
+                core::mem::forget(self); // do not run the destructor
+                Some(*data)
+            } else {
+                None
+            }
         }
     }
 
@@ -507,7 +509,10 @@ impl RendererResources {
             use self::DeleteFontMsg::*;
             match delete_font_msg {
                 Font(_) => { self.currently_registered_fonts.remove(&font_id); },
-                Instance(_, size) => { self.currently_registered_fonts[font_id].1.remove(&size); },
+                Instance(_, size) => {
+                    let instances = &mut self.currently_registered_fonts[font_id];
+                    instances.1.remove(&size);
+                },
             }
         }
 

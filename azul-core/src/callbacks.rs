@@ -1434,9 +1434,9 @@ pub struct TimerCallbackInfo {
     /// This is useful to rebuild the DOM once the timer (usually an animation) has finished.
     pub is_about_to_finish: bool,
     /// Extension for future ABI stability (referenced data)
-    _abi_ref: *const c_void,
+    pub(crate) _abi_ref: *const c_void,
     /// Extension for future ABI stability (mutable data)
-    _abi_mut: *mut c_void,
+    pub(crate) _abi_mut: *mut c_void,
 }
 
 pub type WriteBackCallbackType = extern "C" fn(/* original data */ &mut RefAny, /*data to write back*/ RefAny, CallbackInfo) -> UpdateScreen;
@@ -1511,7 +1511,7 @@ impl LayoutCallbackInfo {
         .list()
         .iter()
         .filter_map(|(k, v)| Some(AzStringPair {
-            key: k.name?.clone().into(),
+            key: k.name.as_ref()?.clone().into(),
             value: v.path.clone().into()
         }))
         .collect()

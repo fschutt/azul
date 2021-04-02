@@ -826,9 +826,10 @@ impl WindowInternal {
             gl_context,
             all_resource_updates,
             init.id_namespace,
+            image_cache,
+            &fc_cache_real,
             &mut inital_renderer_resources,
             callbacks,
-            &fc_cache_real,
         );
 
         *fc_cache = LazyFcCache::Resolved(fc_cache_real);
@@ -901,9 +902,10 @@ impl WindowInternal {
             gl_context,
             all_resource_updates,
             id_namespace,
+            image_cache,
+            &fc_cache_real,
             &mut self.renderer_resources,
             callbacks,
-            &fc_cache_real,
         );
 
         *fc_cache = LazyFcCache::Resolved(fc_cache_real);
