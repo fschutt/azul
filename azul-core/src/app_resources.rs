@@ -279,6 +279,17 @@ impl ImageRef {
 
     pub(crate) fn get_data<'a>(&'a self) -> &'a DecodedImage { unsafe { &*self.data } }
 
+    pub(crate) fn get_image_callback_mut<'a>(&'a mut self) -> Option<&'a mut ImageCallback> {
+        if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
+            return None; // not safe
+        }
+
+        match unsafe { &mut *(self.data as *mut DecodedImage) } {
+            DecodedImage::Callback(gl_texture_callback) => Some(gl_texture_callback),
+            _ => None,
+        }
+    }
+
     /// NOTE: returns (0, 0) for a Callback
     pub fn get_size(&self) -> LogicalSize {
         match self.get_data() {
@@ -510,8 +521,9 @@ impl RendererResources {
             match delete_font_msg {
                 Font(_) => { self.currently_registered_fonts.remove(&font_id); },
                 Instance(_, size) => {
-                    let instances = &mut self.currently_registered_fonts[font_id];
-                    instances.1.remove(&size);
+                    if let Some(instances) = self.currently_registered_fonts.get_mut(font_id) {
+                        instances.1.remove(&size);
+                    }
                 },
             }
         }
@@ -519,21 +531,21 @@ impl RendererResources {
         // delete all font family hashes that do not have a font key anymore
         let font_family_to_delete = self.font_id_map.iter()
         .filter_map(|(font_family, font_key)| {
-            if !self.currently_registered_fonts.contains_key(font_key) { Some(font_family) } else { None }
+            if !self.currently_registered_fonts.contains_key(font_key) { Some(font_family.clone()) } else { None }
         })
         .collect::<Vec<_>>();
 
         for f in font_family_to_delete {
-            self.font_id_map.remove(f); // font key does not exist anymore
+            self.font_id_map.remove(&f); // font key does not exist anymore
         }
 
         let font_families_to_delete = self.font_families_map.iter()
         .filter_map(|(font_families, font_family)| {
-            if !self.font_id_map.contains_key(font_family) { Some(font_families) } else { None }
+            if !self.font_id_map.contains_key(font_family) { Some(font_families.clone()) } else { None }
         }).collect::<Vec<_>>();
 
         for f in font_families_to_delete {
-            self.font_families_map.remove(f); // font family does not exist anymore
+            self.font_families_map.remove(&f); // font family does not exist anymore
         }
 
         // Reset the GC for the next cycle
@@ -585,7 +597,7 @@ pub struct ImageMask {
     pub repeat: bool,
 }
 
-impl_option!(ImageMask, OptionImageMask, [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
+impl_option!(ImageMask, OptionImageMask, copy = false, [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ImmediateFontId {
@@ -1906,7 +1918,7 @@ pub type ParseFontFn = fn(LoadedFontSource) -> Option<FontRef>; // = Option<Box<
 /// add-and-remove fonts after every IFrameCallback, which would cause a lot of
 /// I/O waiting.
 pub fn build_add_font_resource_updates(
-    renderer_resources: &RendererResources,
+    renderer_resources: &mut RendererResources,
     fc_cache: &FcFontCache,
     id_namespace: IdNamespace,
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastBTreeSet<Au>>,

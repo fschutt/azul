@@ -675,12 +675,11 @@ impl SolvedLayout {
                         let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
                         match &mut node_data_mut[callback_node_id].node_type {
                             NodeType::Image(img) => {
-                                match img.get_data() {
-                                    DecodedImage::Callback(gl_texture_callback) => {
-                                        Some((gl_texture_callback.callback.cb)(&mut gl_texture_callback.data, gl_callback_info))
-                                    },
-                                    _ => None,
-                                }
+                                img
+                                .get_image_callback_mut()
+                                .map(|gl_texture_callback| {
+                                    (gl_texture_callback.callback.cb)(&mut gl_texture_callback.data, gl_callback_info)
+                                })
                             },
                             _ => None,
                         }
@@ -751,7 +750,7 @@ impl SolvedLayout {
                             tiling: None
                         })))
                     },
-                    DecodedImage::NullImage { width, height, format } => None,
+                    DecodedImage::NullImage { width: _, height: _, format: _ } => None,
                     // Texture callbacks inside of texture callbacks are not rendered
                     DecodedImage::Callback(_) => None,
                 };

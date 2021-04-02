@@ -1515,7 +1515,7 @@ impl StyledDom {
 
             // If the node has an image content, it needs to be uploaded
             if let Image(id) = node_data.get_node_type(){
-                v.node_type_image = Some(*id);
+                v.node_type_image = Some(id.clone());
             }
 
             // If the node has a CSS background image, it needs to be uploaded
@@ -1540,7 +1540,7 @@ impl StyledDom {
 
             // If the node has a clip mask, it needs to be uploaded
             if let OptionImageMask::Some(clip_mask) = node_data.get_clip_mask() {
-                v.clip_mask = Some(clip_mask.image);
+                v.clip_mask = Some(clip_mask.image.clone());
             }
 
             v
@@ -1655,7 +1655,7 @@ impl StyledDom {
             use crate::app_resources::DecodedImage;
             match node_data.get_node_type() {
                 NodeType::Image(image_ref) => {
-                    if let DecodedImage::Callback(c) = image_ref.get_data() {
+                    if let DecodedImage::Callback(_) = image_ref.get_data() {
                         Some(NodeId::new(node_id))
                     } else {
                         None
