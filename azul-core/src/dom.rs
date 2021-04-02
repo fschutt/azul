@@ -522,14 +522,6 @@ pub enum ApplicationEventFilter {
     // ... TODO: more events
 }
 
-#[cfg(feature = "opengl")]
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct GlTextureNode {
-    pub callback: RenderImageCallback,
-    pub data: RefAny,
-}
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct IFrameNode {
@@ -882,22 +874,16 @@ impl NodeData {
         Self::new(NodeType::Div)
     }
 
-    /// Shorthand for `NodeData::new(NodeType::Label(value.into()))`
+    /// Shorthand for `NodeData::new(NodeType::Text(value.into()))`
     #[inline(always)]
-    pub fn label<S: Into<AzString>>(value: S) -> Self {
-        Self::new(NodeType::Label(value.into()))
+    pub fn text<S: Into<AzString>>(value: S) -> Self {
+        Self::new(NodeType::Text(value.into()))
     }
 
     /// Shorthand for `NodeData::new(NodeType::Image(image_id))`
     #[inline(always)]
-    pub fn image(image: ImageId) -> Self {
+    pub fn image(image: ImageRef) -> Self {
         Self::new(NodeType::Image(image))
-    }
-
-    #[inline(always)]
-    #[cfg(feature = "opengl")]
-    pub fn gl_texture(data: RefAny, callback: RenderImageCallbackType) -> Self {
-        Self::new(NodeType::GlTexture(GlTextureNode { callback: RenderImageCallback { cb: callback }, data }))
     }
 
     #[inline(always)]
@@ -1044,12 +1030,9 @@ impl Dom {
     #[inline(always)]
     pub const fn br() -> Self { Self::new(NodeType::Br) }
     #[inline(always)]
-    pub fn label<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Label(value.into())) }
+    pub fn label<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Text(value.into())) }
     #[inline(always)]
-    pub const fn image(image: ImageId) -> Self { Self::new(NodeType::Image(image)) }
-    #[inline(always)]
-    #[cfg(feature = "opengl")]
-    pub fn gl_texture(data: RefAny, callback: RenderImageCallbackType) -> Self { Self::new(NodeType::GlTexture(GlTextureNode { callback: RenderImageCallback { cb: callback }, data })) }
+    pub fn image(image: ImageRef) -> Self { Self::new(NodeType::Image(image)) }
     #[inline(always)]
     pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data })) }
 

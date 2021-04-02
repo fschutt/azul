@@ -10,11 +10,11 @@ use azul_css::{
     LayoutOverflow, Shape, PixelValue, AngleValue, AngleMetric, PixelValueNoPercent,
     PercentageValue, FloatValue, ColorU, LinearColorStop, LinearGradient,
     RadialColorStop, RadialGradient, ConicGradient,
-    DirectionCorner, DirectionCorners, Direction, CssImageId,
+    DirectionCorner, DirectionCorners, Direction,
     StyleBoxShadow, StyleBorderSide, BorderStyle,
     SizeMetric, BoxShadowClipMode, ExtendMode, OptionPercentageValue,
     BackgroundPositionHorizontal, BackgroundPositionVertical, ScrollbarStyle,
-    RadialGradientSize,
+    RadialGradientSize, AzString,
 
     StyleTextColor, StyleFontSize, StyleFontFamily, StyleTextAlignmentHorz,
     StyleLetterSpacing, StyleLineHeight, StyleWordSpacing, StyleTabWidth,
@@ -2298,10 +2298,10 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
     }
 }
 
-impl<'a> From<QuoteStripped<'a>> for CssImageId {
+impl<'a> From<QuoteStripped<'a>> for AzString {
     fn from(input: QuoteStripped<'a>) -> Self {
         use alloc::string::ToString;
-        CssImageId { inner: input.0.to_string().into() }
+        input.0.to_string().into()
     }
 }
 
@@ -2309,7 +2309,7 @@ impl<'a> From<QuoteStripped<'a>> for CssImageId {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct QuoteStripped<'a>(pub &'a str);
 
-pub fn parse_image<'a>(input: &'a str) -> Result<CssImageId, CssImageParseError<'a>> {
+pub fn parse_image<'a>(input: &'a str) -> Result<AzString, CssImageParseError<'a>> {
     Ok(strip_quotes(input)?.into())
 }
 

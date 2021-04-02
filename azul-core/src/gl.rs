@@ -2048,6 +2048,16 @@ pub struct Texture {
 impl_option!(Texture, OptionTexture, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl Texture {
+    // Special "clone()" function that is only available inside of this library
+    pub(crate) fn library_internal_clone(&self) -> Self {
+        Self {
+           texture_id: self.texture_id,
+           format: self.format,
+           flags: self.flags,
+           size: self.size,
+           gl_context: self.gl_context.clone(),
+        }
+    }
     pub fn get_descriptor(&self) -> ImageDescriptor {
         ImageDescriptor {
             format: self.format,

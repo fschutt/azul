@@ -598,10 +598,6 @@ pub struct WindowInternal {
     pub current_window_state: FullWindowState,
     /// A "document" in WebRender usually corresponds to one tab (i.e. in Azuls case, the whole window).
     pub document_id: DocumentId,
-    /// Stores at which points the UI has to be reloaded (if the window width increases or decreases above / below these thresholds)
-    pub stop_sizes_width: Vec<f32>,
-    /// Stores at which point the UI has to be reloaded (if the window height increases or decreases above / below these thresholds)
-    pub stop_sizes_height: Vec<f32>,
     /// One "document" (tab) can have multiple "pipelines" (important for hit-testing).
     ///
     /// A document can have multiple pipelines, for example in Firefox the tab / navigation bar,
@@ -775,7 +771,7 @@ impl WindowInternal {
     pub fn new(
         init: WindowInternalInit,
         data: &mut RefAny,
-        image_cache: &mut ImageCache,
+        image_cache: &ImageCache,
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
         callbacks: RenderCallbacks,
@@ -785,23 +781,25 @@ impl WindowInternal {
         use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
 
-        let mut renderer_resources = RendererResources::default();
-        let mut stop_sizes_width = Vec::new();
-        let mut stop_sizes_height = Vec::new();
-        let mut is_theme_dependent = false;
+        let mut inital_renderer_resources = RendererResources::default();
 
         let current_window_state: FullWindowState = init.window_create_options.state.into();
+
+        let epoch = Epoch(0);
+
+        // the fc_cache has to resolve here - fonts are loaded lazily in order
+        // to hide any startup delay
+        let fc_cache_real = fc_cache.resolve();
 
         let styled_dom = {
 
             let layout_callback = current_window_state.layout_callback.clone();
             let layout_info = LayoutCallbackInfo::new(
-                &current_window_state.size,
-                &current_window_state.theme,
-                &mut stop_sizes_width,
-                &mut stop_sizes_height,
-                &mut is_theme_dependent,
-                renderer_resources,
+                current_window_state.size,
+                current_window_state.theme,
+                image_cache,
+                gl_context,
+                &fc_cache_real,
             );
 
             let mut styled_dom = (layout_callback.cb)(data, layout_info);
@@ -820,31 +818,24 @@ impl WindowInternal {
             styled_dom
         };
 
-        let epoch = Epoch(0);
-
-        // the fc_cache has to resolve here - fonts are loaded lazily in order
-        // to hide any startup delay
-        let fc_cache_real = fc_cache.resolve();
-        *fc_cache = LazyFcCache::Resolved(fc_cache_real.clone());
-
         let SolvedLayout { layout_results, gl_texture_cache } = SolvedLayout::new(
             styled_dom,
             epoch,
-            init.pipeline_id,
+            &init.pipeline_id,
             &current_window_state,
             gl_context,
             all_resource_updates,
             init.id_namespace,
-            renderer_resources,
+            &mut inital_renderer_resources,
             callbacks,
             &fc_cache_real,
         );
 
+        *fc_cache = LazyFcCache::Resolved(fc_cache_real);
+
         WindowInternal {
-            renderer_resources,
+            renderer_resources: inital_renderer_resources,
             renderer_type: gl_context.as_ref().map(|r| r.renderer_type),
-            stop_sizes_width,
-            stop_sizes_height,
             id_namespace: init.id_namespace,
             previous_window_state: None,
             current_window_state,
@@ -862,7 +853,7 @@ impl WindowInternal {
     pub fn regenerate_styled_dom(
         &mut self,
         data: &mut RefAny,
-        renderer_resources: &mut RendererResources,
+        image_cache: &ImageCache,
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
         callbacks: RenderCallbacks,
@@ -872,23 +863,18 @@ impl WindowInternal {
         use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
 
-        // TODO: Use these "stop sizes" to optimize not calling layout() on redrawing!
-        let mut stop_sizes_width = Vec::new();
-        let mut stop_sizes_height = Vec::new();
-        let mut is_theme_dependent = false;
-
         let id_namespace = self.id_namespace;
+        let fc_cache_real = fc_cache.resolve();
 
         let styled_dom = {
 
             let layout_callback = self.current_window_state.layout_callback.clone();
             let layout_info = LayoutCallbackInfo::new(
-                &self.current_window_state.size,
-                &self.current_window_state.theme,
-                &mut stop_sizes_width,
-                &mut stop_sizes_height,
-                &mut is_theme_dependent,
-                renderer_resources,
+                self.current_window_state.size,
+                self.current_window_state.theme,
+                image_cache,
+                gl_context,
+                &fc_cache_real,
             );
 
             let mut styled_dom = (layout_callback.cb)(data, layout_info);
@@ -907,25 +893,24 @@ impl WindowInternal {
             styled_dom
         };
 
-        let fc_cache_real = fc_cache.resolve();
-        *fc_cache = LazyFcCache::Resolved(fc_cache_real.clone());
-
         let SolvedLayout { layout_results, gl_texture_cache } = SolvedLayout::new(
             styled_dom,
             self.epoch,
-            self.pipeline_id,
+            &self.pipeline_id,
             &self.current_window_state,
             gl_context,
             all_resource_updates,
             id_namespace,
-            renderer_resources,
+            &mut self.renderer_resources,
             callbacks,
             &fc_cache_real,
         );
 
+        *fc_cache = LazyFcCache::Resolved(fc_cache_real);
+
+        // Delete unused font and image keys (that were not used in this frame)
+        self.renderer_resources.do_gc(all_resource_updates);
         self.layout_results = layout_results;
-        self.stop_sizes_width = stop_sizes_width;
-        self.stop_sizes_height = stop_sizes_height;
         self.gl_texture_cache = gl_texture_cache;
         self.epoch.0 += 1;
     }

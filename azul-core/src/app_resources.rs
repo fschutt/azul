@@ -1,7 +1,7 @@
 use core::{
     fmt,
     any::Any,
-    sync::atomic::{AtomicUsize, AtomicU32, Ordering},
+    sync::atomic::{AtomicUsize, AtomicU32, Ordering as AtomicOrdering},
     hash::{Hash, Hasher},
 };
 use alloc::boxed::Box;
@@ -17,7 +17,7 @@ use azul_css::{
 use crate::{
     FastHashMap, FastBTreeSet,
     display_list::GlStoreImageFn,
-    callbacks::RenderImageCallback,
+    callbacks::{RenderImageCallback, RefAny},
     ui_solver::{ResolvedTextLayoutOptions, InlineTextLayout},
     display_list::GlyphInstance,
     styled_dom::{StyledDom, StyleFontFamilyHash, StyleFontFamiliesHash},
@@ -165,7 +165,7 @@ pub enum RawImageFormat {
     BGRA8,
 }
 
-static IMAGE_KEY: AtomicU32 = AtomicU32::new(0);
+static IMAGE_KEY: AtomicU32 = AtomicU32::new(1); // NOTE: starts at 1 (0 = DUMMY)
 static FONT_KEY: AtomicU32 = AtomicU32::new(0);
 static FONT_INSTANCE_KEY: AtomicU32 = AtomicU32::new(0);
 
@@ -176,8 +176,17 @@ pub struct ImageKey {
 }
 
 impl ImageKey {
+
+    pub const DUMMY: Self = Self {
+        namespace: IdNamespace(0),
+        key: 0,
+    };
+
     pub fn unique(render_api_namespace: IdNamespace) -> Self {
-        Self { namespace: render_api_namespace, key: IMAGE_KEY.fetch_add(1, Ordering::SeqCst) }
+        Self {
+            namespace: render_api_namespace,
+            key: IMAGE_KEY.fetch_add(1, AtomicOrdering::SeqCst)
+        }
     }
 }
 
@@ -189,7 +198,10 @@ pub struct FontKey {
 
 impl FontKey {
     pub fn unique(render_api_namespace: IdNamespace) -> Self {
-        Self { namespace: render_api_namespace, key: FONT_KEY.fetch_add(1, Ordering::SeqCst) }
+        Self {
+            namespace: render_api_namespace,
+            key: FONT_KEY.fetch_add(1, AtomicOrdering::SeqCst)
+        }
     }
 }
 
@@ -201,8 +213,18 @@ pub struct FontInstanceKey {
 
 impl FontInstanceKey {
     pub fn unique(render_api_namespace: IdNamespace) -> Self {
-        Self { namespace: render_api_namespace, key: FONT_INSTANCE_KEY.fetch_add(1, Ordering::SeqCst) }
+        Self {
+            namespace: render_api_namespace,
+            key: FONT_INSTANCE_KEY.fetch_add(1, AtomicOrdering::SeqCst)
+        }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ImageCallback {
+    pub callback: RenderImageCallback,
+    pub data: RefAny,
 }
 
 // NOTE: This type should NOT be exposed in the API!
@@ -221,7 +243,7 @@ pub enum DecodedImage {
     // Image backed by CPU-rendered pixels
     Raw((ImageDescriptor, ImageData)),
     // Same as `Texture`, but rendered AFTER the layout has been done
-    Callback(RenderImageCallback),
+    Callback(ImageCallback),
     // YUVImage(...)
     // VulkanSurface(...)
     // MetalSurface(...),
@@ -240,6 +262,19 @@ pub struct ImageRef {
 impl_option!(ImageRef, OptionImageRef, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
 
 impl ImageRef {
+
+    /// If *copies = 1, returns the internal image data
+    pub(crate) fn into_inner(self) -> Option<DecodedImage> {
+        if self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) == Some(1) {
+            let data = Box::from_raw(self.data as *mut DecodedImage);
+            let _ = Box::from_raw(self.copies as *mut AtomicUsize);
+            core::mem::forget(self); // do not run the destructor
+            Some(*data)
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn get_data<'a>(&'a self) -> &'a DecodedImage { unsafe { &*self.data } }
 
     /// NOTE: returns (0, 0) for a Callback
@@ -266,8 +301,8 @@ impl ImageRef {
         Self::new(DecodedImage::NullImage { width, height, format })
     }
 
-    pub fn callback(gl_callback: RenderImageCallback) -> Self {
-        Self::new(DecodedImage::Callback(gl_callback))
+    pub fn callback(gl_callback: RenderImageCallback, data: RefAny) -> Self {
+        Self::new(DecodedImage::Callback(ImageCallback { callback: gl_callback, data }))
     }
 
     pub fn new_rawimage(image_data: RawImage) -> Option<Self> {
@@ -323,7 +358,7 @@ impl Hash for ImageRef {
 
 impl Clone for ImageRef {
     fn clone(&self) -> Self {
-        unsafe { self.copies.as_ref().map(|m| m.fetch_add(1, Ordering::SeqCst)); }
+        unsafe { self.copies.as_ref().map(|m| m.fetch_add(1, AtomicOrdering::SeqCst)); }
         Self {
             data: self.data, // copy the pointer
             copies: self.copies, // copy the pointer
@@ -334,9 +369,9 @@ impl Clone for ImageRef {
 impl Drop for ImageRef {
     fn drop(&mut self) {
         unsafe {
-            let new_copies = self.copies.as_ref().map(|m| m.fetch_sub(1, Ordering::SeqCst));
+            let new_copies = self.copies.as_ref().map(|m| m.fetch_sub(1, AtomicOrdering::SeqCst));
             if new_copies == Some(0) {
-                let _ = Box::from_raw(self.data as *mut ImageData);
+                let _ = Box::from_raw(self.data as *mut DecodedImage);
                 let _ = Box::from_raw(self.copies as *mut AtomicUsize);
             }
         }
@@ -397,10 +432,10 @@ impl ImageCache {
 #[derive(Debug)]
 pub struct RendererResources {
     /// All image keys currently active in the RenderApi
-    pub currently_registered_images: FastHashMap<ImageRefHash, ImageKey>,
+    pub currently_registered_images: FastHashMap<ImageRefHash, (ImageKey, ImageDescriptor)>,
     /// All image keys from the last frame, used for automatically
     /// deleting images once they aren't needed anymore
-    pub last_frame_registered_images: FastHashMap<ImageRefHash, ImageKey>,
+    pub last_frame_registered_images: FastHashMap<ImageRefHash, (ImageKey, ImageDescriptor)>,
 
     /// Map from the calculated families vec (["Arial", "Helvectia"])
     /// to the final loaded font that could be loaded
@@ -457,7 +492,7 @@ impl RendererResources {
         let delete_image_resources = self.last_frame_registered_images
         .par_iter()
         .filter(|image_key| !self.currently_registered_images.contains_key(image_key.0))
-        .map(|image_key| ((*image_key.0).clone(), DeleteImageMsg(image_key.1.clone())))
+        .map(|image_key| ((*image_key.0).clone(), DeleteImageMsg(image_key.1.0.clone())))
         .collect::<Vec<_>>();
 
         all_resource_updates.extend(delete_font_resources.iter().map(|(_, f)| f.into_resource_update()));
@@ -521,20 +556,20 @@ macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
     impl $struct_name {
 
         pub fn unique() -> Self {
-            Self { id: $counter_name.fetch_add(1, core::sync::atomic::Ordering::SeqCst) }
+            Self { id: $counter_name.fetch_add(1, AtomicOrdering::SeqCst) }
         }
     }
 }}
 
 // NOTE: the property key is unique across transform, color and opacity properties
-static PROPERTY_KEY_COUNTER: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static PROPERTY_KEY_COUNTER: AtomicUsize = AtomicUsize::new(0);
 unique_id!(TransformKey, PROPERTY_KEY_COUNTER);
 unique_id!(ColorKey, PROPERTY_KEY_COUNTER);
 unique_id!(OpacityKey, PROPERTY_KEY_COUNTER);
 
-static IMAGE_ID_COUNTER: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static IMAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 unique_id!(ImageId, IMAGE_ID_COUNTER);
-static FONT_ID_COUNTER: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static FONT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 unique_id!(FontId, FONT_ID_COUNTER);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -1447,19 +1482,6 @@ pub struct LayoutedGlyphs {
     pub glyphs: Vec<GlyphInstance>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ImageInfo {
-    pub key: ImageKey,
-    pub descriptor: ImageDescriptor,
-}
-
-impl ImageInfo {
-    /// Returns the (width, height) of this image.
-    pub fn get_dimensions(&self) -> (usize, usize) {
-        (self.descriptor.width, self.descriptor.height)
-    }
-}
-
 /// Scans the `StyledDom` for new images and fonts. After this call,
 /// the `all_resource_updates` contains all the `AddFont` / `AddImage`
 /// / `AddFontInstance` messages.
@@ -1664,7 +1686,7 @@ static LAST_EXTERNAL_IMAGE_ID: AtomicUsize = AtomicUsize::new(0);
 impl ExternalImageId {
     /// Creates a new, unique ExternalImageId
     pub fn new() -> Self {
-        Self { inner: LAST_EXTERNAL_IMAGE_ID.fetch_add(1, Ordering::SeqCst) as u64 }
+        Self { inner: LAST_EXTERNAL_IMAGE_ID.fetch_add(1, AtomicOrdering::SeqCst) as u64 }
     }
 }
 
@@ -1890,13 +1912,14 @@ pub fn build_add_font_resource_updates(
     let mut resource_updates = alloc::vec::Vec::new();
     let mut font_instances_added_this_frame = FastBTreeSet::new();
 
-    for (im_font_id, font_sizes) in fonts_in_dom {
+    'outer: for (im_font_id, font_sizes) in fonts_in_dom {
+
         macro_rules! insert_font_instances {($font_family_hash:expr, $font_key:expr, $font_size:expr) => ({
 
             let font_instance_key_exists = renderer_resources.currently_registered_fonts
                 .get(&$font_key)
-                .and_then(|loaded_font| loaded_font.font_instances.get(&$font_size))
-                .is_some() || font_instances_added_this_frame.contains(($font_key, $font_size));
+                .and_then(|(_, font_instances)| font_instances.get(&$font_size))
+                .is_some() || font_instances_added_this_frame.contains(&($font_key, $font_size));
 
             if !font_instance_key_exists {
 
@@ -1940,13 +1963,15 @@ pub fn build_add_font_resource_updates(
             }
         })}
 
-        match renderer_resources.currently_registered_fonts.get(im_font_id) {
-            Some((font_family_hash, font_id)) => {
+        match im_font_id {
+            ImmediateFontId::Resolved((font_family_hash, font_id)) => {
+                // nothing to do, font is already added,
+                // just insert the missing font instances
                 for font_size in font_sizes.iter() {
-                    insert_font_instances!(*font_family_hash, font_id, *font_size);
+                    insert_font_instances!(*font_family_hash, *font_id, *font_size);
                 }
             },
-            None => {
+            ImmediateFontId::Unresolved(style_font_families) => {
 
                 // If the font is already loaded during the current frame,
                 // do not attempt to load it again
@@ -1956,48 +1981,36 @@ pub fn build_add_font_resource_updates(
                 // - vec!["sans", "Times New Roman"]
                 // ... will resolve to the same font instead of creating two fonts
 
-                use self::ImmediateFontId::*;
-
                 // If there is no font key, that means there's also no font instances
-                let style_font_families = match im_font_id {
-                    Resolved((font_family_hash, font_id)) => {
-                        // nothing to do, font is already added
-                        for font_size in font_sizes {
-                            insert_font_instances!(font_family_hash, font_id, *font_size);
-                        }
-                        continue;
-                    },
-                    Unresolved(style_font_families) => style_font_families,
-                };
-
                 let mut font_family_hash = None;
-                let font_families_hash = StyleFontFamiliesHash::new(&style_font_families);
+                let font_families_hash = StyleFontFamiliesHash::new(style_font_families.as_ref());
 
-                // Find the first font that can be loaded
-                for family in style_font_families {
+                // Find the first font that can be loaded and parsed
+                'inner: for family in style_font_families.as_ref().iter() {
 
                     let current_family_hash = StyleFontFamilyHash::new(&family);
 
-                    if let Some(font_id) = renderer_resources.font_id_map.get(&font_family_hash) {
+                    if let Some(font_id) = renderer_resources.font_id_map.get(&current_family_hash) {
                         // font key already exists
                         for font_size in font_sizes {
-                            insert_font_instances!(current_family_hash, font_id, *font_size);
+                            insert_font_instances!(current_family_hash, *font_id, *font_size);
                         }
-                        continue;
+                        continue 'outer;
                     }
 
                     let font_ref = match family {
-                        // clone the font family
-                        StyleFontFamily::Ref(r) => r.clone(),
+                        StyleFontFamily::Ref(r) => r.clone(), // Clone the FontRef
                         other => {
+
+                            // Load and parse the font
                             let font_data = match (font_source_load_fn.cb)(&family, fc_cache).into_option() {
                                 Some(s) => s,
-                                None => continue,
+                                None => continue 'inner,
                             };
 
-                            let font_ref = match (parse_font_fn)(&font_data) {
+                            let font_ref = match (parse_font_fn)(font_data) {
                                 Some(s) => s,
-                                None => continue,
+                                None => continue 'inner,
                             };
 
                             font_ref
@@ -2006,20 +2019,23 @@ pub fn build_add_font_resource_updates(
 
                     // font loaded properly
                     font_family_hash = Some((current_family_hash, font_ref));
-                    break;
+                    break 'inner;
                 }
 
                 let (font_family_hash, font_ref) = match font_family_hash {
-                    None => continue,
+                    None => continue 'outer, // No font could be loaded, try again next frame
                     Some(s) => s,
                 };
 
                 // Generate a new font key, store the mapping between hash and font key
                 let font_key = FontKey::unique(id_namespace);
-                renderer_resources.font_id_map.insert(&font_family_hash, font_key);
-                renderer_resources.font_families_map.insert(font_families_hash, font_family_hash);
-                resource_updates.push((im_font_id.clone(), AddFontMsg::Font(font_key, font_family_hash, font_ref)));
+                let add_font_msg = AddFontMsg::Font(font_key, font_family_hash, font_ref);
 
+                renderer_resources.font_id_map.insert(font_family_hash, font_key);
+                renderer_resources.font_families_map.insert(font_families_hash, font_family_hash);
+                resource_updates.push((font_family_hash, add_font_msg));
+
+                // Insert font sizes for the newly generated font key
                 for font_size in font_sizes {
                     insert_font_instances!(font_family_hash, font_key, *font_size);
                 }
@@ -2031,14 +2047,15 @@ pub fn build_add_font_resource_updates(
 }
 
 /// Given the images of the current frame, returns `AddImage`s of
-/// which image keys are currently not in the `current_registered_fonts` and
-/// need to be added. Modifies `last_frame_image_keys` to contain the added image keys
+/// which image keys are currently not in the `current_registered_images` and
+/// need to be added.
 ///
 /// Deleting images can only be done after the entire frame has finished drawing,
 /// otherwise (if removing images would happen after every DOM) we'd constantly
 /// add-and-remove images after every IFrameCallback, which would cause a lot of
 /// I/O waiting.
 #[allow(unused_variables)]
+#[cfg(feature = "multithreading")]
 pub fn build_add_image_resource_updates(
     renderer_resources: &RendererResources,
     id_namespace: IdNamespace,
@@ -2046,7 +2063,9 @@ pub fn build_add_image_resource_updates(
     pipeline_id: &PipelineId,
     images_in_dom: &FastBTreeSet<ImageRef>,
     insert_into_active_gl_textures: GlStoreImageFn,
-) -> Vec<(ImageKey, AddImageMsg)> {
+) -> Vec<(ImageRefHash, AddImageMsg)> {
+
+    use rayon::prelude::*;
 
     images_in_dom
     .par_iter()
@@ -2057,12 +2076,15 @@ pub fn build_add_image_resource_updates(
             return None;
         }
 
+        // NOTE: The image_ref.clone() is a shallow clone,
+        // does not actually clone the data
         match image_ref.get_data() {
             DecodedImage::Gl(texture) => {
                 let descriptor = texture.get_descriptor();
                 let key = ImageKey::unique(id_namespace);
-                let external_image_id = (insert_into_active_gl_textures)(pipeline_id, epoch, texture);
-                Some((key, AddImageMsg(
+                // NOTE: The texture is not really cloned here,
+                let external_image_id = (insert_into_active_gl_textures)(*pipeline_id, epoch, texture.library_internal_clone());
+                Some((image_ref_hash, AddImageMsg(
                     AddImage {
                         key,
                         data: ImageData::External(ExternalImageData {
@@ -2072,20 +2094,16 @@ pub fn build_add_image_resource_updates(
                         }),
                         descriptor,
                         tiling: None,
-                    },
-                    ImageInfo { key, descriptor }
+                    }
                 )))
             },
-            DecodedImage::Raw((data, descriptor)) => {
+            DecodedImage::Raw((descriptor, data)) => {
                 let key = ImageKey::unique(id_namespace);
-                Some((key, AddImageMsg(AddImage {
+                Some((image_ref_hash, AddImageMsg(AddImage {
                     key,
-                    data,
-                    descriptor,
+                    data: data.clone(), // deep-copy except in the &'static case
+                    descriptor: descriptor.clone(), // deep-copy, but struct is not very large
                     tiling: None
-                }, ImageInfo {
-                    key,
-                    descriptor
                 })))
             },
             DecodedImage::NullImage { width, height, format } => None,
@@ -2102,27 +2120,28 @@ pub fn add_resources(
     renderer_resources: &mut RendererResources,
     all_resource_updates: &mut Vec<ResourceUpdate>,
     add_font_resources: Vec<(StyleFontFamilyHash, AddFontMsg)>,
-    add_image_resources: Vec<(ImageKey, AddImageMsg)>,
+    add_image_resources: Vec<(ImageRefHash, AddImageMsg)>,
 ) {
     all_resource_updates.extend(add_font_resources.iter().map(|(_, f)| f.into_resource_update()));
     all_resource_updates.extend(add_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 
-    for (image_key, add_image_msg) in add_image_resources.iter() {
+    for (image_ref_hash, add_image_msg) in add_image_resources.iter() {
         renderer_resources.currently_registered_images
-        .insert(*image_key, add_image_msg.1);
+        .insert(*image_ref_hash, (add_image_msg.0.key, add_image_msg.0.descriptor));
     }
 
     for (_, add_font_msg) in add_font_resources {
         use self::AddFontMsg::*;
         match add_font_msg {
-            Font(fk, _bytes, _index, parsed_font) => {
+            Font(fk, _hash, font_ref) => {
                 renderer_resources.currently_registered_fonts
-                .insert(fk, parsed_font);
+                .entry(fk)
+                .or_insert_with(|| (font_ref, FastHashMap::default()));
             },
             Instance(fi, size) => {
-                renderer_resources.currently_registered_fonts
-                .get_mut(&fi.key).unwrap()
-                .font_instances.insert(size);
+                if let Some((_, instances)) = renderer_resources.currently_registered_fonts.get_mut(&fi.font_key) {
+                    instances.insert(size, fi.key);
+                }
             },
         }
     }

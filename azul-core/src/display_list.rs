@@ -20,7 +20,7 @@ use crate::{
     window::{FullWindowState, LogicalRect, LogicalPosition, LogicalSize},
     app_resources::{
         ImageCache, RendererResources, AddImageMsg, ImageDescriptor, ImageDescriptorFlags,
-        ImageKey, FontInstanceKey, ImageInfo, ImageId, PrimitiveFlags,
+        ImageKey, FontInstanceKey, ImageId, PrimitiveFlags,
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, ParseFontFn,
         ResourceUpdate, IdNamespace, TransformKey, OpacityKey,
     },
@@ -63,6 +63,7 @@ impl CachedDisplayList {
         layout_results: &[LayoutResult],
         gl_texture_cache: &GlTextureCache,
         renderer_resources: &RendererResources,
+        image_cache: &ImageCache,
     ) -> Self {
 
         const DOM_ID: DomId = DomId::ROOT_ID;
@@ -78,6 +79,7 @@ impl CachedDisplayList {
                     layout_results: &layout_results,
                     gl_texture_cache: &gl_texture_cache,
                     renderer_resources,
+                    image_cache,
                 }
             )
         };
@@ -511,7 +513,7 @@ pub enum RectBackground {
     LinearGradient(LinearGradient),
     RadialGradient(RadialGradient),
     ConicGradient(ConicGradient),
-    Image(ImageInfo),
+    Image((ImageKey, ImageDescriptor)),
     Color(ColorU),
 }
 
@@ -531,7 +533,9 @@ impl fmt::Debug for RectBackground {
 impl RectBackground {
     pub fn get_content_size(&self) -> Option<(f32, f32)> {
         match self {
-            RectBackground::Image(info) => { let dim = info.get_dimensions(); Some((dim.0 as f32, dim.1 as f32)) }
+            RectBackground::Image((_key, descriptor)) => {
+                Some((descriptor.width as f32, descriptor.height as f32))
+            }
             _ => None,
         }
     }
@@ -559,6 +563,8 @@ pub struct DisplayListParametersRef<'a> {
     pub layout_results: &'a [LayoutResult],
     /// Cached rendered OpenGL textures
     pub gl_texture_cache: &'a GlTextureCache,
+    /// Cached IDs for CSS backgrounds
+    pub image_cache: &'a ImageCache,
     /// Reference to the RendererResources, necessary to query info about image and font keys
     pub renderer_resources: &'a RendererResources,
 }
@@ -571,7 +577,7 @@ pub struct GlTextureCache {
 unsafe impl Send for GlTextureCache { } // necessary so the display list can be built in parallel
 
 // todo: very unclean
-pub type LayoutFn = fn(StyledDom, &mut RendererResources, &FcFontCache, &mut Vec<ResourceUpdate>, IdNamespace, PipelineId, RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
+pub type LayoutFn = fn(StyledDom, &RendererResources, &FcFontCache, &mut Vec<ResourceUpdate>, IdNamespace, &PipelineId, RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
 #[cfg(feature = "opengl")]
 pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 
@@ -596,7 +602,7 @@ impl SolvedLayout {
     pub fn new(
         styled_dom: StyledDom,
         epoch: Epoch,
-        pipeline_id: PipelineId,
+        pipeline_id: &PipelineId,
         full_window_state: &FullWindowState,
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
@@ -609,7 +615,7 @@ impl SolvedLayout {
         use crate::{
             app_resources::{
                 AddImage, ExternalImageData, ImageBufferKind, ExternalImageType,
-                ImageData, add_resources,
+                ImageData, add_resources, DecodedImage, ImageRef,
             },
             callbacks::{RenderImageCallbackInfo, HidpiAdjustedBounds},
             gl::insert_into_active_gl_textures,
@@ -628,20 +634,20 @@ impl SolvedLayout {
             &full_window_state,
         );
 
-        let mut solved_textures = BTreeMap::new();
+        let mut solved_image_callbacks = BTreeMap::new();
 
         // Now that the layout is done, render the OpenGL textures and add them to the RenderAPI
         for (dom_id, layout_result) in layout_results.iter_mut().enumerate() {
-            for gl_node_id in layout_result.styled_dom.scan_for_gltexture_callbacks() {
+            for callback_node_id in layout_result.styled_dom.scan_for_gltexture_callbacks() {
 
                 // Invoke OpenGL callback, render texture
-                let rect_size = layout_result.rects.as_ref()[gl_node_id].size;
+                let rect_size = layout_result.rects.as_ref()[callback_node_id].size;
 
-                let texture = {
+                let callback_image = {
 
                     let callback_domnode_id = DomNodeId {
                         dom: DomId { inner: dom_id },
-                        node: AzNodeId::from_crate_internal(Some(gl_node_id)),
+                        node: AzNodeId::from_crate_internal(Some(callback_node_id)),
                     };
 
                     let size = LayoutSize::new(rect_size.width.round() as isize, rect_size.height.round() as isize);
@@ -662,13 +668,17 @@ impl SolvedLayout {
                         /*hit_dom_node*/ callback_domnode_id,
                     );
 
-                    let tex: Option<Texture> = {
+                    let callback_image: Option<ImageRef> = {
                         // get a MUTABLE reference to the RefAny inside of the DOM
                         let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
-                        match &mut node_data_mut[gl_node_id].node_type {
-                            NodeType::GlTexture(gl_texture_callback) => {
-                                let gl_callback_return = (gl_texture_callback.callback.cb)(&mut gl_texture_callback.data, gl_callback_info);
-                                gl_callback_return.texture.into()
+                        match &mut node_data_mut[callback_node_id].node_type {
+                            NodeType::Image(img) => {
+                                match img.get_data() {
+                                    DecodedImage::Callback(gl_texture_callback) => {
+                                        Some((gl_texture_callback.callback.cb)(&mut gl_texture_callback.data, gl_callback_info))
+                                    },
+                                    _ => None,
+                                }
                             },
                             _ => None,
                         }
@@ -681,14 +691,14 @@ impl SolvedLayout {
                         gl.disable(gl::MULTISAMPLE);
                     }
 
-                    tex
+                    callback_image
                 };
 
-                if let Some(t) = texture {
-                    solved_textures
+                if let Some(image_ref) = callback_image {
+                    solved_image_callbacks
                         .entry(layout_result.dom_id.clone())
                         .or_insert_with(|| BTreeMap::default())
-                        .insert(gl_node_id, t);
+                        .insert(callback_node_id, image_ref);
                 }
             }
         }
@@ -698,40 +708,65 @@ impl SolvedLayout {
             solved_textures: BTreeMap::new(),
         };
 
-        for (dom_id, textures) in solved_textures {
-            for (node_id, texture) in textures {
+        for (dom_id, image_refs) in solved_image_callbacks {
+            for (node_id, image_ref) in image_refs {
 
-                // Note: The ImageDescriptor has no effect on how large the image appears on-screen
-                let descriptor = texture.get_descriptor();
-                let key = ImageKey::unique(id_namespace);
-                let external_image_id = (insert_into_active_gl_textures)(pipeline_id, epoch, texture);
+                let image_ref_hash = image_ref.get_hash();
+                let image_data = match image_ref.into_inner() {
+                    Some(s) => s,
+                    None => continue,
+                };
+                let image_result = match image_data {
+                    DecodedImage::Gl(texture) => {
+                        let descriptor = texture.get_descriptor();
+                        let key = ImageKey::unique(id_namespace);
+                        let external_image_id = (insert_into_active_gl_textures)(*pipeline_id, epoch, texture);
 
-                let add_img_msg = AddImageMsg(
-                    AddImage {
-                        key,
-                        descriptor,
-                        data: ImageData::External(ExternalImageData {
-                            id: external_image_id,
-                            channel_index: 0,
-                            image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
-                        }),
-                        tiling: None,
+                        gl_texture_cache.solved_textures
+                            .entry(dom_id.clone())
+                            .or_insert_with(|| BTreeMap::new())
+                            .insert(node_id, (key, descriptor));
+
+                        Some((image_ref_hash, AddImageMsg(
+                            AddImage {
+                                key,
+                                data: ImageData::External(ExternalImageData {
+                                    id: external_image_id,
+                                    channel_index: 0,
+                                    image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
+                                }),
+                                descriptor,
+                                tiling: None,
+                            }
+                        )))
                     },
-                    ImageInfo { key, descriptor }
-                );
+                    DecodedImage::Raw((descriptor, data)) => {
+                        let key = ImageKey::unique(id_namespace);
+                        Some((image_ref_hash, AddImageMsg(AddImage {
+                            key,
+                            data: data,
+                            descriptor: descriptor,
+                            tiling: None
+                        })))
+                    },
+                    DecodedImage::NullImage { width, height, format } => None,
+                    // Texture callbacks inside of texture callbacks are not rendered
+                    DecodedImage::Callback(_) => None,
+                };
 
-                image_resource_updates.push((ImageId::unique(), add_img_msg));
-                gl_texture_cache.solved_textures
-                    .entry(dom_id.clone())
-                    .or_insert_with(|| BTreeMap::new())
-                    .insert(node_id, (key, descriptor));
+                if let Some((image_ref_hash, add_img_msg)) = image_result {
+                    image_resource_updates.push((image_ref_hash, add_img_msg));
+                }
             }
         }
 
-        // Add the new GL textures to the RenderApi
-        add_resources(renderer_resources, all_resource_updates, &pipeline_id, Vec::new(), image_resource_updates);
-        // Delete unused font and image keys (that were not used in this display list)
-        renderer_resources.do_gc(pipeline_id, all_resource_updates);
+        // Add the new rendered images to the RenderApi
+        add_resources(
+            renderer_resources,
+            all_resource_updates,
+            Vec::new(),
+            image_resource_updates
+        );
 
         SolvedLayout {
             layout_results,
@@ -785,6 +820,7 @@ pub fn displaylist_handle_rect<'a>(
         layout_results,
         gl_texture_cache,
         renderer_resources,
+        image_cache,
         ..
     } = referenced_content;
 
@@ -803,9 +839,9 @@ pub fn displaylist_handle_rect<'a>(
 
     let clip_mask = html_node.get_clip_mask().as_option().and_then(|m| {
         let clip_mask_hash = m.image.get_hash();
-        let image_key = renderer_resources.currently_registered_images.get(&clip_mask_hash)?;
+        let (image_key, _) = renderer_resources.currently_registered_images.get(&clip_mask_hash)?;
         Some(DisplayListImageMask {
-            image: image_key,
+            image: *image_key,
             rect: m.rect,
             repeat: m.repeat,
         })
@@ -891,19 +927,25 @@ pub fn displaylist_handle_rect<'a>(
 
         for (bg_index, bg) in bg.iter().enumerate() {
 
-            use azul_css::{CssImageId, StyleBackgroundContent::*};
+            use azul_css::StyleBackgroundContent::*;
+            use azul_css::AzString;
 
-            fn get_image_info(renderer_resources: &RendererResources, pipeline_id: &PipelineId, style_image_id: &CssImageId) -> Option<RectBackground> {
-                let image_id = renderer_resources.get_css_image_id(style_image_id.inner.as_str())?;
-                let image_info = renderer_resources.get_image_info(pipeline_id, image_id)?;
-                Some(RectBackground::Image(*image_info))
+            fn get_image_background_key(
+                renderer_resources: &RendererResources,
+                image_cache: &ImageCache,
+                background_image_id: &AzString,
+            ) -> Option<(ImageKey, ImageDescriptor)> {
+                let image_ref = image_cache.get_css_image_id(background_image_id)?;
+                let image_ref_hash = image_ref.get_hash();
+                let (image_key, image_descriptor) = renderer_resources.currently_registered_images.get(&image_ref_hash)?;
+                Some((*image_key, image_descriptor.clone()))
             }
 
             let background_content = match bg {
                 LinearGradient(lg) => Some(RectBackground::LinearGradient(lg.clone())),
                 RadialGradient(rg) => Some(RectBackground::RadialGradient(rg.clone())),
                 ConicGradient(cg) => Some(RectBackground::ConicGradient(cg.clone())),
-                Image(style_image_id) => get_image_info(&renderer_resources, &pipeline_id, &style_image_id),
+                Image(i) => get_image_background_key(&renderer_resources, &image_cache, i).map(RectBackground::Image),
                 Color(c) => Some(RectBackground::Color(*c)),
             };
 
@@ -974,18 +1016,18 @@ pub fn displaylist_handle_rect<'a>(
                         offset: LogicalPosition::zero(),
                         image_rendering: ImageRendering::Auto,
                         alpha_type: AlphaType::Alpha,
-                        image_key: ImageKey::invalid(),
+                        image_key: ImageKey::DUMMY,
                         background_color: ColorU::WHITE,
                     })
                 },
                 DecodedImage::Gl(_) | DecodedImage::Raw(_) => {
-                    if let Some(image_key) = renderer_resources.currently_registered_images.get(image_hash) {
+                    if let Some((image_key, _)) = renderer_resources.currently_registered_images.get(&image_hash) {
                         frame.content.push(LayoutRectContent::Image {
                             size: image_size,
                             offset: LogicalPosition::zero(),
                             image_rendering: ImageRendering::Auto,
                             alpha_type: AlphaType::PremultipliedAlpha,
-                            image_key: image_key,
+                            image_key: *image_key,
                             background_color: ColorU::WHITE,
                         });
                     }

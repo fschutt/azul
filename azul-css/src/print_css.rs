@@ -546,7 +546,7 @@ impl PrintAsCssValue for StyleBackgroundContent {
                     format!("conic-gradient({})", cg.print_as_css_value())
                 }
             },
-            StyleBackgroundContent::Image(id) => format!("url(\"{}\")", id.inner.as_str()),
+            StyleBackgroundContent::Image(id) => format!("url(\"{}\")", id.as_str()),
             StyleBackgroundContent::Color(c) => c.to_hash(),
         }
     }

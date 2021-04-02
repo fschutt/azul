@@ -2537,7 +2537,7 @@ pub enum StyleBackgroundContent {
     LinearGradient(LinearGradient),
     RadialGradient(RadialGradient),
     ConicGradient(ConicGradient),
-    Image(CssImageId),
+    Image(AzString),
     Color(ColorU),
 }
 
@@ -2554,17 +2554,8 @@ impl Default for StyleBackgroundContent {
     fn default() -> StyleBackgroundContent { StyleBackgroundContent::Color(ColorU::TRANSPARENT) }
 }
 
-impl StyleBackgroundContent {
-    pub fn get_css_image_id(&self) -> Option<&CssImageId> {
-        match self {
-            StyleBackgroundContent::Image(i) => Some(i),
-            _ => None,
-        }
-    }
-}
-
-impl<'a> From<CssImageId> for StyleBackgroundContent {
-    fn from(id: CssImageId) -> Self {
+impl<'a> From<AzString> for StyleBackgroundContent {
+    fn from(id: AzString) -> Self {
         StyleBackgroundContent::Image(id)
     }
 }
@@ -3031,16 +3022,6 @@ impl DirectionCorner {
         }
     }
 }
-
-/// Note: In theory, we could take a reference here,
-/// but this leads to horrible lifetime issues.
-///
-/// Ownership allows the `Css` struct to be independent
-/// of the original source text. For example, when parsing a style
-/// from CSS, the original string can be deallocated afterwards.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct CssImageId { pub inner: AzString }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]

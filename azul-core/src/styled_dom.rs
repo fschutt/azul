@@ -1452,14 +1452,18 @@ impl StyledDom {
                     let font_size = self.get_css_property_cache()
                     .get_font_size_or_default(&node_data, &node_id, &self.styled_nodes.as_container()[node_id].state);
 
-                    let style_font_family_hash = StyleFontFamiliesHash::new(&css_font_ids);
+                    let style_font_families_hash = StyleFontFamiliesHash::new(css_font_ids.as_ref());
 
                     let existing_font_key = resources.font_families_map
-                    .get(&style_font_family_hash)
-                    .and_then(|font_family| resources.font_id_map.get(&font_family));
+                    .get(&style_font_families_hash)
+                    .and_then(|font_family_hash| {
+                        resources.font_id_map
+                        .get(&font_family_hash)
+                        .map(|font_key| (font_family_hash, font_key))
+                    });
 
                     let font_id = match existing_font_key {
-                        Some(font_key) => ImmediateFontId::Resolved((style_font_family_hash, *font_key)),
+                        Some((hash, key)) => ImmediateFontId::Resolved((*hash, *key)),
                         None => ImmediateFontId::Unresolved(css_font_ids),
                     };
 
@@ -1520,12 +1524,17 @@ impl StyledDom {
 
             if let Some(style_backgrounds) = opt_background_image {
                 v.background_image = style_backgrounds
-                .get_property().unwrap_or(&default_backgrounds)
+                .get_property()
+                .unwrap_or(&default_backgrounds)
                 .iter()
                 .filter_map(|bg| {
-                    let css_image_id = bg.get_css_image_id()?;
-                    let image_id = css_image_cache.get_css_image_id(css_image_id.inner.as_str())?;
-                    Some(image_id.clone())
+                    use azul_css::StyleBackgroundContent::*;
+                    let css_image_id = match bg {
+                        Image(i) => i,
+                        _ => return None,
+                    };
+                    let image_ref = css_image_cache.get_css_image_id(css_image_id)?;
+                    Some(image_ref.clone())
                 }).collect();
             }
 
@@ -1643,8 +1652,15 @@ impl StyledDom {
         .par_iter()
         .enumerate()
         .filter_map(|(node_id, node_data)| {
+            use crate::app_resources::DecodedImage;
             match node_data.get_node_type() {
-                NodeType::GlTexture(_) => Some(NodeId::new(node_id)),
+                NodeType::Image(image_ref) => {
+                    if let DecodedImage::Callback(c) = image_ref.get_data() {
+                        Some(NodeId::new(node_id))
+                    } else {
+                        None
+                    }
+                },
                 _ => None,
             }
         }).collect()
