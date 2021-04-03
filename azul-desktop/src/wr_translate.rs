@@ -1680,6 +1680,7 @@ mod background {
     use azul_core::{
         display_list::RectBackground,
         window::{LogicalSize, LogicalPosition},
+        app_resources::ImageKey,
     };
     use super::image;
 

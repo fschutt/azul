@@ -2798,7 +2798,6 @@ pub fn do_the_relayout(
     create_word_positions(
         &mut layout_result.positioned_words_cache,
         &updated_word_caches,
-        &pipeline_id,
         renderer_resources,
         &layout_result.words_cache,
         &layout_result.shaped_words_cache,

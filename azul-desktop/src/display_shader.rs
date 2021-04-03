@@ -1,5 +1,7 @@
-use azul_core::gl::{GlShader, GlShaderCreateError, GlContextPtr, Texture};
-use gleam::gl;
+use azul_core::gl::{
+    GlShader, GlShaderCreateError,
+    GlContextPtr, Texture
+};
 
 /// When called with glDrawArrays(0, 3), generates a simple triangle that
 /// spans the whole screen.

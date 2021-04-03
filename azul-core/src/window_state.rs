@@ -269,12 +269,13 @@ impl StyleAndLayoutChanges {
     pub fn new(
         nodes: &NodesToCheck,
         layout_results: &mut [LayoutResult],
+        image_cache: &ImageCache,
         renderer_resources: &mut RendererResources,
         window_size: LayoutSize,
         pipeline_id: PipelineId,
         css_changes: &BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
         callbacks_new_focus: &Option<Option<DomNodeId>>,
-        relayout_cb: fn(LayoutRect, &mut LayoutResult, &mut RendererResources, PipelineId, &RelayoutNodes) -> RelayoutChanges
+        relayout_cb: fn(LayoutRect, &mut LayoutResult, &ImageCache, &mut RendererResources, PipelineId, &RelayoutNodes) -> RelayoutChanges
     ) -> StyleAndLayoutChanges {
 
         // immediately restyle the DOM to reflect the new :hover, :active and :focus nodes
@@ -381,7 +382,7 @@ impl StyleAndLayoutChanges {
                 let default_layout_changes = BTreeMap::new();
                 let layout_changes = layout_changes.get(&dom_id).unwrap_or(&default_layout_changes);
                 let RelayoutChanges { resized_nodes, gpu_key_changes } = (relayout_cb)(
-                    parent_rect, &mut layout_results[dom_id.inner],
+                    parent_rect, &mut layout_results[dom_id.inner], image_cache,
                     renderer_resources, pipeline_id, layout_changes
                 );
                 if gpu_key_changes.is_empty() {

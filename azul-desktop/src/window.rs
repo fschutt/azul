@@ -1,6 +1,5 @@
 use std::time::Duration as StdDuration;
 use core::fmt;
-use core::ffi::c_void;
 use core::cell::RefCell;
 use alloc::{
     rc::Rc,
@@ -28,7 +27,7 @@ use webrender::{
     RendererError as WrRendererError,
 };
 use glutin::{
-    event_loop::{EventLoopProxy as GlutinEventLoopProxy, EventLoopWindowTarget, EventLoop},
+    event_loop::{EventLoopProxy as GlutinEventLoopProxy, EventLoopWindowTarget},
     window::{
         Window as GlutinWindow,
         WindowBuilder as GlutinWindowBuilder,
@@ -42,16 +41,13 @@ use glutin::{
 };
 use gleam::gl::{self, Gl};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
-use crate::{
-    compositor::Compositor,
-    display_shader::DisplayShader,
-};
+use crate::compositor::Compositor;
 use azul_core::{
     callbacks::{PipelineId, RefAny},
     task::ExternalSystemCallbacks,
     display_list::{CachedDisplayList, RenderCallbacks},
-    app_resources::{ResourceUpdate, ImageCache, LoadFontFn, IdNamespace},
-    gl::{GlContextPtr, OptionGlContextPtr, GlShaderCreateError, Texture},
+    app_resources::{ResourceUpdate, ImageCache},
+    gl::{GlContextPtr, OptionGlContextPtr, Texture},
     window::LazyFcCache,
     window_state::{Events, NodesToCheck},
 };
@@ -281,7 +277,7 @@ impl Window {
         insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
         layout_fn: azul_layout::do_the_layout,
         load_font_fn: azulc_lib::font_loading::font_source_get_bytes,
-        parse_font_fn: azul_layout::text_layout::parse_font_fn,
+        parse_font_fn: azul_text_layout::parse_font_fn,
     };
 
     /*
@@ -479,8 +475,6 @@ impl Window {
         // back to their windows and window positions.
         let pipeline_id = PipelineId::new();
 
-        app_resources.add_pipeline(pipeline_id);
-
         #[cfg(target_os = "windows")] {
             use crate::wr_translate::winit_translate::translate_winit_theme;
             use glutin::platform::windows::WindowExtWindows;
@@ -507,10 +501,10 @@ impl Window {
                 id_namespace
             },
             data,
-            app_resources,
+            image_cache,
             &OptionGlContextPtr::Some(gl_context_ptr.clone()),
             &mut initial_resource_updates,
-            Window::CALLBACKS,
+            &Window::CALLBACKS,
             fc_cache,
         );
 
@@ -622,7 +616,7 @@ impl Window {
             image_cache,
             &self.get_gl_context_ptr(),
             resource_updates,
-            Window::CALLBACKS,
+            &Window::CALLBACKS,
             fc_cache,
         );
     }
@@ -632,7 +626,7 @@ impl Window {
     pub fn rebuild_display_list(
         &mut self,
         txn: &mut WrTransaction,
-        app_resources: &AppResources,
+        image_cache: &ImageCache,
         resources: Vec<ResourceUpdate>
     ) {
 
@@ -643,16 +637,15 @@ impl Window {
             wr_translate_epoch,
             wr_translate_resource_update,
         };
-        use webrender::render_api::Transaction as WrTransaction;
 
         // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
         let cached_display_list = CachedDisplayList::new(
             self.internal.epoch,
-            self.internal.pipeline_id,
             &self.internal.current_window_state,
             &self.internal.layout_results,
             &self.internal.gl_texture_cache,
-            app_resources,
+            &self.internal.renderer_resources,
+            image_cache,
         );
 
         let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id, self.internal.current_window_state.size.hidpi_factor);
@@ -1080,6 +1073,8 @@ impl Window {
     // negative width / height, although that doesn't make sense
     pub(crate) fn render_async(&mut self, mut txn: WrTransaction, display_list_was_rebuilt: bool) {
 
+        use crate::wr_translate;
+
         /// Scroll all nodes in the ScrollStates to their correct position and insert
         /// the positions into the transaction
         ///
@@ -1096,10 +1091,6 @@ impl Window {
                 );
             }
         }
-
-
-        use azul_css::ColorF;
-        use crate::wr_translate;
 
         let physical_size = self.internal.current_window_state.size.get_physical_size();
         let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);

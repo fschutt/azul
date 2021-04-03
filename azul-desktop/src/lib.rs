@@ -19,8 +19,9 @@ extern crate strfmt;
 #[macro_use]
 extern crate azul_css;
 extern crate rust_fontconfig;
-#[macro_use(impl_from, impl_display)]
+#[macro_use(impl_from)]
 extern crate azul_core;
+extern crate azul_text_layout;
 extern crate azulc_lib;
 extern crate raw_window_handle;
 extern crate glutin;
@@ -78,9 +79,9 @@ pub mod traits {
 
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout {
-    pub use azul_layout::text_layout::text_layout::*;
-    pub use azul_layout::text_layout::text_shaping::*;
-    pub use azul_layout::text_layout::InlineText;
+    pub use azul_text_layout::text_layout::*;
+    pub use azul_text_layout::text_shaping::*;
+    pub use azul_text_layout::InlineText;
 }
 
 /// SVG parsing + rendering
@@ -101,34 +102,4 @@ pub mod errors {
     pub use clipboard2::ClipboardError;
     pub use glutin::CreationError;
     pub use azulc_lib::font_loading::FontReloadError;
-    #[derive(Debug)]
-    pub enum Error {
-        Resource(ResourceReloadError),
-        Clipboard(ClipboardError),
-        WindowCreate(CreationError),
-    }
-
-    impl_from!(ResourceReloadError, Error::Resource);
-    impl_from!(ClipboardError, Error::Clipboard);
-    impl_from!(CreationError, Error::WindowCreate);
-
-    #[derive(Debug)]
-    pub enum ResourceReloadError {
-        Image(ImageReloadError),
-        Font(FontReloadError),
-    }
-
-    impl_from!(ImageReloadError, ResourceReloadError::Image);
-    impl_from!(FontReloadError, ResourceReloadError::Font);
-
-    impl_display!(ResourceReloadError, {
-        Image(e) => format!("Failed to load image: {}", e),
-        Font(e) => format!("Failed to load font: {}", e),
-    });
-
-    impl_display!(Error, {
-        Resource(e) => format!("{}", e),
-        Clipboard(e) => format!("Clipboard error: {}", e),
-        WindowCreate(e) => format!("Window creation error: {}", e),
-    });
 }

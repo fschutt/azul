@@ -162,6 +162,7 @@ dependencies = [
  "azul-css",
  "azul-css-parser",
  "azul-layout",
+ "azul-text-layout",
  "azulc",
  "backtrace",
  "clipboard2",

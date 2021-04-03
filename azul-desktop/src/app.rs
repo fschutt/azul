@@ -1,9 +1,6 @@
-use core::ffi::c_void;
 use alloc::collections::btree_map::BTreeMap;
-use std::thread::JoinHandle;
 use glutin::{
     window::{
-        Window as GlutinWindow,
         WindowId as GlutinWindowId,
     },
     event::{
@@ -14,20 +11,17 @@ use glutin::{
         EventLoopWindowTarget as GlutinEventLoopWindowTarget,
         EventLoop as GlutinEventLoop,
     },
-    Context, NotCurrent,
 };
-use webrender::render_api::RenderApi as WrRenderApi;
 use webrender::Transaction as WrTransaction;
 use crate::{
-    display_shader::DisplayShader,
     window::{Window, UserEvent, Monitor, MonitorVec},
 };
+use azul_css::AzString;
 use azul_core::{
-    window::{WindowCreateOptions, LazyFcCache, FullWindowState},
+    window::{WindowCreateOptions, LazyFcCache},
     task::{Timer, TimerId},
-    gl::GlContextPtr,
     callbacks::{RefAny, UpdateScreen},
-    app_resources::AppConfig,
+    app_resources::{AppConfig, ImageRef, ImageCache},
 };
 use rust_fontconfig::FcFontCache;
 
@@ -147,7 +141,7 @@ impl App {
 
         Self {
             windows: Vec::new(),
-            data: initial_data.clone_into_library_memory(),
+            data: initial_data,
             config: app_config,
             event_loop,
             image_cache: ImageCache::new(),
@@ -208,7 +202,6 @@ impl App {
 fn run_inner(app: App) -> ! {
 
     use azul_core::styled_dom::DomId;
-    use azul_core::app_resources::ImageCache;
 
     let App {
         mut data,
@@ -277,7 +270,8 @@ fn run_inner(app: App) -> ! {
                     &window.internal.current_window_state,
                     &mut window_state,
                     &gl_context_ptr,
-                    &mut resources,
+                    &mut image_cache,
+                    &mut fc_cache,
                     &mut new_timers,
                     &mut new_threads,
                     &mut new_windows,
@@ -379,7 +373,8 @@ fn run_inner(app: App) -> ! {
                         &window.internal.current_window_state,
                         &mut modifiable_window_state,
                         &window.get_gl_context_ptr(),
-                        &mut resources,
+                        &mut image_cache,
+                        &mut fc_cache,
                         &config.system_callbacks,
                         &mut new_timers,
                         &mut cur_threads,
@@ -405,7 +400,8 @@ fn run_inner(app: App) -> ! {
                             let changes = StyleAndLayoutChanges::new(
                                 &NodesToCheck::empty(window.internal.current_window_state.mouse_state.mouse_down()),
                                 &mut window.internal.layout_results,
-                                &mut resources,
+                                &mut image_cache,
+                                &mut window.internal.renderer_resources,
                                 window_size,
                                 window.internal.pipeline_id,
                                 &css_properties_changed_in_timers,
@@ -419,7 +415,7 @@ fn run_inner(app: App) -> ! {
 
                             if changes_need_regenerate_dl {
                                 let resource_updates = Vec::new(); // when re-generating the display list, no resource updates necessary
-                                window.rebuild_display_list(&mut transaction, &resources, resource_updates);
+                                window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                                 windows_that_need_to_redraw.insert(*window_id);
                             }
 
@@ -431,8 +427,8 @@ fn run_inner(app: App) -> ! {
                         UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                             let mut resource_updates = Vec::new();
                             let mut transaction = WrTransaction::new();
-                            window.regenerate_styled_dom(&mut data, &mut resources, &mut resource_updates, &mut fc_cache);
-                            window.rebuild_display_list(&mut transaction, &resources, resource_updates);
+                            window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
+                            window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
                             windows_that_need_to_redraw.insert(*window_id);
                             window.internal.current_window_state.focused_node = None; // unset the focus
@@ -529,7 +525,8 @@ fn run_inner(app: App) -> ! {
                             let changes = StyleAndLayoutChanges::new(
                                 &NodesToCheck::empty(window.internal.current_window_state.mouse_state.mouse_down()),
                                 &mut window.internal.layout_results,
-                                &mut resources,
+                                &image_cache,
+                                &mut window.internal.renderer_resources,
                                 window_size,
                                 window.internal.pipeline_id,
                                 &css_properties_changed_in_threads,
@@ -542,7 +539,7 @@ fn run_inner(app: App) -> ! {
 
                                 if changes_need_regenerate_dl {
                                     let resource_updates = Vec::new(); // when re-generating the display list, no resource updates necessary
-                                    window.rebuild_display_list(&mut transaction, &resources, resource_updates);
+                                    window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                                     windows_that_need_to_redraw.insert(*window_id);
                                 }
 
@@ -554,8 +551,8 @@ fn run_inner(app: App) -> ! {
                             UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                                 let mut resource_updates = Vec::new();
                                 let mut transaction = WrTransaction::new();
-                                window.regenerate_styled_dom(&mut data, &mut resources, &mut resource_updates, &mut fc_cache);
-                                window.rebuild_display_list(&mut transaction, &resources, resource_updates);
+                                window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
+                                window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                                 window.render_async(transaction, /* display list was rebuilt */ true);
                                 windows_that_need_to_redraw.insert(*window_id);
                                 window.internal.current_window_state.focused_node = None; // unset the focus
@@ -602,8 +599,8 @@ fn run_inner(app: App) -> ! {
                         let mut resource_updates = Vec::new();
                         let mut transaction = WrTransaction::new();
 
-                        window.regenerate_styled_dom(&mut data, &mut resources, &mut resource_updates, &mut fc_cache);
-                        window.rebuild_display_list(&mut transaction, &resources, resource_updates);
+                        window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
+                        window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                         window.render_async(transaction, /* display list was rebuilt */ true);
                         windows_that_need_to_redraw.insert(*window_id);
                         window.internal.current_window_state.focused_node = None; // unset the focus
@@ -683,13 +680,13 @@ fn run_inner(app: App) -> ! {
                     window.internal.current_window_state.mouse_state.reset_scroll_to_zero();
 
                     if layout_callback_changed {
-                        window.regenerate_styled_dom(&mut data, &mut resources, &mut updated_resources, &mut fc_cache);
+                        window.regenerate_styled_dom(&mut data, &image_cache, &mut updated_resources, &mut fc_cache);
                         need_regenerate_display_list = true;
                         callback_results.update_focused_node = Some(None); // unset the focus
                     } else {
                         match callback_results.callbacks_update_screen {
                             UpdateScreen::RegenerateStyledDomForCurrentWindow => {
-                                window.regenerate_styled_dom(&mut data, &mut resources, &mut updated_resources, &mut fc_cache);
+                                window.regenerate_styled_dom(&mut data, &image_cache, &mut updated_resources, &mut fc_cache);
                                 need_regenerate_display_list = true;
                                 callback_results.update_focused_node = Some(None); // unset the focus
                             },
@@ -704,7 +701,8 @@ fn run_inner(app: App) -> ! {
                                 let changes = StyleAndLayoutChanges::new(
                                     &nodes_to_check,
                                     &mut window.internal.layout_results,
-                                    &mut resources,
+                                    &image_cache,
+                                    &mut window.internal.renderer_resources,
                                     window_size,
                                     window.internal.pipeline_id,
                                     &callback_results.css_properties_changed,
@@ -873,7 +871,7 @@ fn run_inner(app: App) -> ! {
                     None => continue,
                 };
 
-                close_window(window, &mut resources);
+                close_window(window);
             }
         }
 
@@ -1176,7 +1174,7 @@ fn create_window(
     events_loop: &GlutinEventLoopWindowTarget<UserEvent>,
     proxy: &GlutinEventLoopProxy<UserEvent>,
     active_windows: &mut BTreeMap<GlutinWindowId, Window>,
-    image_cache: &mut ImageCache,
+    image_cache: &ImageCache,
     fc_cache: &mut LazyFcCache,
     timers: &mut BTreeMap<GlutinWindowId, BTreeMap<TimerId, Timer>>,
     config: &AppConfig,
@@ -1209,10 +1207,10 @@ fn create_window(
     // push hot reload timer that triggers a UI restyle every 200ms
     if should_hot_reload_window {
 
-        use azul_core::task::{TimerId, Timer, TerminateTimer};
+        use azul_core::task::{Timer, TerminateTimer};
         use azul_core::callbacks::{
-            RefAny, TimerCallbackInfo,
-            TimerCallbackReturn, UpdateScreen
+            TimerCallbackInfo,
+            TimerCallbackReturn,
         };
         use std::time::Duration as StdDuration;
 
@@ -1223,7 +1221,7 @@ fn create_window(
             }
         }
 
-        let timer = Timer::new(data.clone_into_library_memory(), hot_reload_timer, config.system_callbacks.get_system_time_fn)
+        let timer = Timer::new(data.clone(), hot_reload_timer, config.system_callbacks.get_system_time_fn)
         .with_interval(StdDuration::from_millis(200).into());
 
         timers
@@ -1266,7 +1264,7 @@ pub mod extra {
             Ok(o) => styled_dom_from_str(&o, &format!("{} ", path)),
             Err(e) => {
                 Dom::new(NodeType::Body).with_children(vec![
-                    Dom::new(NodeType::Label(format!("Failed to load file \"{}\": {}", path, e).into()))
+                    Dom::new(NodeType::Text(format!("Failed to load file \"{}\": {}", path, e).into()))
                 ].into()).style(Css::empty())
             }
         }
@@ -1279,7 +1277,7 @@ pub mod extra {
             Ok(o) => o,
             Err(e) => {
                 return Dom::new(NodeType::Body).with_children(vec![
-                    Dom::new(NodeType::Label(format!("{}XML parser error: {:?}:\r\n{}", err_extra, e, s).into()))
+                    Dom::new(NodeType::Text(format!("{}XML parser error: {:?}:\r\n{}", err_extra, e, s).into()))
                 ].into()).style(Css::empty());
             }
         };
@@ -1288,7 +1286,7 @@ pub mod extra {
             Ok(o) => o,
             Err(e) => {
                 Dom::new(NodeType::Body).with_children(vec![
-                    Dom::new(NodeType::Label(format!("{}XML to DOM error: {:?}:\r\n{}", err_extra, e, s).into()))
+                    Dom::new(NodeType::Text(format!("{}XML to DOM error: {:?}:\r\n{}", err_extra, e, s).into()))
                 ].into()).style(Css::empty())
             }
         }

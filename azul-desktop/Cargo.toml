@@ -22,6 +22,7 @@ azulc                   = { path = "../azulc", version = "0.0.3",  default-featu
 azul-css                = { path = "../azul-css", version = "0.0.1",  default-features = false }
 azul-core               = { path = "../azul-core", version = "0.0.2",  default-features = false, features = ["opengl"] }
 azul-layout             = { path = "../azul-layout", version = "0.0.4",  default-features = false, features = ["text_layout"] }
+azul-text-layout        = { path = "../azul-text-layout", version = "0.0.5", default-features = false }
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",  default-features = false, optional = true }
 log                     = { version = "0.4.8",  default-features = false, optional = true }
 fern                    = { version = "0.5.7",  default-features = false, optional = true }
