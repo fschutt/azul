@@ -78,9 +78,9 @@ pub mod traits {
 
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout {
-    pub use azulc_lib::layout::text_layout::text_layout::*;
-    pub use azulc_lib::layout::text_layout::text_shaping::*;
-    pub use azulc_lib::layout::text_layout::InlineText;
+    pub use azul_layout::text_layout::text_layout::*;
+    pub use azul_layout::text_layout::text_shaping::*;
+    pub use azul_layout::text_layout::InlineText;
 }
 
 /// SVG parsing + rendering
@@ -95,51 +95,11 @@ pub mod xml {
     pub use azulc_lib::xml_parser::*;
 }
 
-/// Quick exports of common types
-pub mod prelude {
-    pub use azul_css::*;
-    pub use azul_core::{
-        ui_solver::{TextLayoutOptions, ResolvedTextLayoutOptions},
-        window::{
-            WindowCreateOptions, RendererType,
-            LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize,
-            WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
-            VirtualKeyCode, ScanCode,
-        },
-        display_list::GlyphInstance,
-        app_resources::{
-            AppResources, RawImageFormat, ImageId, FontId,
-            FontSource, ImageSource, AppConfig,
-        },
-        styled_dom::StyledDom,
-        callbacks::*,
-        gl::{
-            GLuint, Texture, VertexLayout, VertexAttribute, VertexAttributeType,
-            VertexLayoutDescription, VertexBuffer, GlApiVersion, IndexBufferFormat,
-            Uniform, UniformType, GlShader, VertexShaderCompileError,
-            FragmentShaderCompileError, GlShaderLinkError, GlShaderCreateError,
-        },
-        dom::{
-            Dom, DomNodeHash, NodeType, NodeData, On, TabIndex,
-            EventFilter, HoverEventFilter, FocusEventFilter, NotEventFilter, WindowEventFilter,
-        },
-        task::{TimerId, Timer, TerminateTimer, ThreadId, Thread, ThreadSender, ThreadReceiver, ThreadSendMsg, ThreadReceiveMsg, ThreadWriteBackMsg},
-        traits::*,
-    };
-    pub use crate::app::App;
-    pub use crate::window::{Window, Monitor};
-    #[cfg(any(feature = "css_parser", feature = "native_style"))]
-    pub use crate::css;
-    #[cfg(feature = "logging")]
-    pub use log::LevelFilter;
-}
-
 /// Re-exports of errors
 pub mod errors {
     // TODO: re-export the sub-types of ClipboardError!
     pub use clipboard2::ClipboardError;
     pub use glutin::CreationError;
-    pub use azulc_lib::image_loading::ImageReloadError;
     pub use azulc_lib::font_loading::FontReloadError;
     #[derive(Debug)]
     pub enum Error {

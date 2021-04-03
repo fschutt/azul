@@ -3,7 +3,7 @@
 use core::{
     fmt,
     ffi::c_void,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
 };
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -57,9 +57,9 @@ pub enum UpdateScreen {
 #[derive(Debug)]
 #[repr(C)]
 pub struct RefCountInner {
-    pub num_copies: usize,
-    pub num_refs: usize,
-    pub num_mutable_refs: usize,
+    pub num_copies: AtomicUsize,
+    pub num_refs: AtomicUsize,
+    pub num_mutable_refs: AtomicUsize,
     pub _internal_len: usize,
     pub _internal_layout_size: usize,
     pub _internal_layout_align: usize,
@@ -96,37 +96,35 @@ impl Drop for RefCount {
 
 impl RefCount {
 
-    fn new(ref_count: RefCountInner) -> Self {
-        RefCount { ptr: Box::into_raw(Box::new(ref_count)) }
-    }
+    fn new(ref_count: RefCountInner) -> Self { RefCount { ptr: Box::into_raw(Box::new(ref_count)) } }
     fn downcast(&self) -> &RefCountInner { unsafe { &*self.ptr } }
-    fn downcast_mut(&mut self) -> &mut RefCountInner { unsafe { &mut *(self.ptr as *mut RefCountInner) } }
 
     /// Runtime check to check whether this `RefAny` can be borrowed
     pub fn can_be_shared(&self) -> bool {
-        self.downcast().num_mutable_refs == 0
+        self.downcast().num_mutable_refs.load(AtomicOrdering::SeqCst) == 0
     }
 
     /// Runtime check to check whether this `RefAny` can be borrowed mutably
     pub fn can_be_shared_mut(&self) -> bool {
         let info = self.downcast();
-        info.num_mutable_refs == 0 && info.num_refs == 0
+        info.num_mutable_refs.load(AtomicOrdering::SeqCst) == 0 &&
+        info.num_refs.load(AtomicOrdering::SeqCst) == 0
     }
 
-    pub fn increase_ref(&mut self) {
-        self.downcast_mut().num_refs += 1;
+    pub fn increase_ref(&self) {
+        self.downcast().num_refs.fetch_add(1, AtomicOrdering::SeqCst);
     }
 
-    pub fn decrease_ref(&mut self) {
-        self.downcast_mut().num_refs -= 1;
+    pub fn decrease_ref(&self) {
+        self.downcast().num_refs.fetch_sub(1, AtomicOrdering::SeqCst);
     }
 
-    pub fn increase_refmut(&mut self) {
-        self.downcast_mut().num_mutable_refs += 1;
+    pub fn increase_refmut(&self) {
+        self.downcast().num_mutable_refs.fetch_add(1, AtomicOrdering::SeqCst);
     }
 
-    pub fn decrease_refmut(&mut self) {
-        self.downcast_mut().num_mutable_refs -= 1;
+    pub fn decrease_refmut(&self) {
+        self.downcast().num_mutable_refs.fetch_sub(1, AtomicOrdering::SeqCst);
     }
 }
 
@@ -136,8 +134,6 @@ pub struct RefAny {
     /// void* to a boxed struct or enum of type "T". RefCount stores the RTTI
     /// for this opaque type (can be downcasted by the user)
     pub _internal_ptr: *const c_void,
-    // Special field: in order to avoid cloning the RefAny
-    pub is_dead: bool,
     /// All the metadata information is set on the refcount, so that the metadata
     /// has to only be created once per object, not once per copy
     pub sharing_info: RefCount,
@@ -198,7 +194,7 @@ impl RefAny {
         use core::ptr;
 
         // cast the struct as bytes
-        let struct_as_bytes = unsafe { ::core::slice::from_raw_parts(ptr as *const u8, len) };
+        let struct_as_bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len) };
 
         // allocate + copy the struct to the heap
         let layout = Layout::for_value(&*struct_as_bytes);
@@ -206,56 +202,51 @@ impl RefAny {
         unsafe { ptr::copy_nonoverlapping(struct_as_bytes.as_ptr(), heap_struct_as_bytes, struct_as_bytes.len()) };
 
         let ref_count_inner = RefCountInner {
-            num_copies: 1,
-            num_refs: 0,
-            num_mutable_refs: 0,
+            num_copies: AtomicUsize::new(1),
+            num_refs: AtomicUsize::new(0),
+            num_mutable_refs: AtomicUsize::new(0),
             _internal_len: len,
             _internal_layout_size: layout.size(),
             _internal_layout_align: layout.align(),
             type_id,
             type_name,
-            custom_destructor: unsafe { core::mem::transmute(custom_destructor) }, // fn(&mut c_void) and fn(*mut c_void) are the same
+            // fn(&mut c_void) and fn(*mut c_void) are the same, so transmute is safe
+            custom_destructor: unsafe { core::mem::transmute(custom_destructor) },
         };
 
         Self {
             _internal_ptr: heap_struct_as_bytes as *const c_void,
-            is_dead: true, // NOTE: default set to true - the RefAny is not alive until "copy_into_library_memory" has been called!
             sharing_info: RefCount::new(ref_count_inner),
         }
-    }
-
-    /// In order to be able to use a &mut RefAny, we have to make
-    /// sure that the &mut is not pointing into &'static memory
-    /// (writing to static memory is UB)
-    ///
-    /// Therefore the solution is to perform a shallow clone,
-    /// which will just set the "is_dead" to false, which means that
-    /// the RefAny has been cloned at least once by the library
-    pub fn clone_into_library_memory(&mut self) -> Self {
-        self.sharing_info.downcast_mut().num_copies += 1; // bump refcount
-        Self {
-            _internal_ptr: self._internal_ptr,
-            is_dead: false, // <- sets the "liveness" of the pointer to false
-            sharing_info: self.sharing_info.clone(),
-        }
-    }
-
-    /// Checks whether the typeids match
-    pub fn is_type(&self, type_id: u64) -> bool {
-        self.sharing_info.downcast().type_id == type_id
     }
 
     // Returns the typeid of `T` as a u64 (necessary because
     // `core::any::TypeId` is not C-ABI compatible)
     #[inline]
-    pub fn get_type_id_static<T: 'static>() -> u64 {
+    fn get_type_id_static<T: 'static>() -> u64 {
+
         use core::any::TypeId;
         use core::mem;
 
         // fast method to serialize the type id into a u64
         let t_id = TypeId::of::<T>();
-        let struct_as_bytes = unsafe { ::core::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
-        struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
+        let struct_as_bytes = unsafe {
+            core::slice::from_raw_parts(
+                (&t_id as *const TypeId) as *const u8,
+                mem::size_of::<TypeId>()
+            )
+        };
+
+        struct_as_bytes
+        .into_iter()
+        .enumerate()
+        .map(|(s_pos, s)| ((*s as u64) << s_pos))
+        .sum()
+    }
+
+    /// Checks whether the typeids match
+    pub fn is_type(&self, type_id: u64) -> bool {
+        self.sharing_info.downcast().type_id == type_id
     }
 
     // Returns the internal type ID
@@ -269,30 +260,39 @@ impl RefAny {
     }
 }
 
+impl Clone for RefAny {
+    fn clone(&self) -> Self {
+        self.sharing_info.downcast().num_copies.fetch_add(1, AtomicOrdering::SeqCst);
+        Self {
+            _internal_ptr: self._internal_ptr,
+            sharing_info: RefCount {
+                ptr: self.sharing_info.ptr,
+            },
+        }
+    }
+}
+
 impl Drop for RefAny {
     fn drop(&mut self) {
-        self.sharing_info.downcast_mut().num_copies -= 1;
+        let current_copies = self.sharing_info.downcast().num_copies.fetch_sub(1, AtomicOrdering::SeqCst);
 
-        // Important: if the RefAny is dead, do not run the destructor
-        // nor try to access the _internal_ptr!
-        if self.is_dead {
-            let _ = self.clone_into_library_memory();
-        } else if self.sharing_info.downcast().num_copies == 0 {
+        if current_copies != 1 {
+            return;
+        }
 
-            let sharing_info = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
-            let sharing_info = *sharing_info; // sharing_info itself deallocates here
+        let sharing_info = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
+        let sharing_info = *sharing_info; // sharing_info itself deallocates here
 
-            (sharing_info.custom_destructor)(self._internal_ptr as *mut c_void);
+        (sharing_info.custom_destructor)(self._internal_ptr as *mut c_void);
 
-            unsafe {
-                alloc::alloc::dealloc(
-                    self._internal_ptr as *mut u8,
-                    Layout::from_size_align_unchecked(
-                        sharing_info._internal_layout_size,
-                        sharing_info._internal_layout_align
-                    ),
-                );
-            }
+        unsafe {
+            alloc::alloc::dealloc(
+                self._internal_ptr as *mut u8,
+                Layout::from_size_align_unchecked(
+                    sharing_info._internal_layout_size,
+                    sharing_info._internal_layout_align
+                ),
+            );
         }
     }
 }
@@ -356,7 +356,7 @@ impl PipelineId {
     pub const DUMMY: PipelineId = PipelineId(0, 0);
 
     pub fn new() -> Self {
-        PipelineId(LAST_PIPELINE_ID.fetch_add(1, Ordering::SeqCst) as u32, 0)
+        PipelineId(LAST_PIPELINE_ID.fetch_add(1, AtomicOrdering::SeqCst) as u32, 0)
     }
 }
 
@@ -1055,7 +1055,7 @@ impl CallbackInfo {
         } else {
             self.internal_get_dataset_map()
             .get_mut(&node_id.node.into_crate_internal()?)
-            .map(|refany| unsafe { &mut **refany }.clone_into_library_memory())
+            .map(|refany| unsafe { &**refany }.clone())
         }
     }
 
@@ -1118,24 +1118,6 @@ impl CallbackInfo {
         Some(crate::app_resources::get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout))
     }
 
-    pub fn exchange_image(&mut self, node_id: DomNodeId, new_image: ImageRef) {
-        if let Some(nid) = node_id.node.into_crate_internal() {
-            self.internal_get_images_changed_in_callbacks()
-            .entry(node_id.dom)
-            .or_insert_with(|| BTreeMap::new())
-            .insert(nid, new_image);
-        }
-    }
-
-    pub fn exchange_image_mask(&mut self, node_id: DomNodeId, new_image_mask: ImageMask) {
-        if let Some(nid) = node_id.node.into_crate_internal() {
-            self.internal_get_image_masks_changed_in_callbacks()
-            .entry(node_id.dom)
-            .or_insert_with(|| BTreeMap::new())
-            .insert(nid, new_image_mask);
-        }
-    }
-
     pub fn stop_propagation(&mut self) {
         *self.internal_get_stop_propagation() = true;
     }
@@ -1157,10 +1139,54 @@ impl CallbackInfo {
         self.internal_get_timers().insert(id, timer);
     }
 
-    // pub fn add_font_source()
-    // pub fn remove_font_source()
-    // pub fn add_image_source()
-    // pub fn remove_image_source()
+    /// Adds an image to the internal image cache
+    pub fn add_image(&mut self, css_id: AzString, image: ImageRef) {
+        self.internal_get_image_cache().add_css_image_id(css_id, image);
+    }
+
+    pub fn has_image(&mut self, css_id: &AzString) -> bool {
+        self.internal_get_image_cache().get_css_image_id(css_id).is_some()
+    }
+
+    /// Deletes an image from the internal image cache
+    pub fn delete_image(&mut self, css_id: &AzString) {
+        self.internal_get_image_cache().delete_css_image_id(css_id);
+    }
+
+    pub fn update_image(&mut self, node_id: DomNodeId, new_image: ImageRef) {
+        if let Some(nid) = node_id.node.into_crate_internal() {
+            self.internal_get_images_changed_in_callbacks()
+            .entry(node_id.dom)
+            .or_insert_with(|| BTreeMap::new())
+            .insert(nid, new_image);
+        }
+    }
+
+    pub fn update_image_mask(&mut self, node_id: DomNodeId, new_image_mask: ImageMask) {
+        if let Some(nid) = node_id.node.into_crate_internal() {
+            self.internal_get_image_masks_changed_in_callbacks()
+            .entry(node_id.dom)
+            .or_insert_with(|| BTreeMap::new())
+            .insert(nid, new_image_mask);
+        }
+    }
+
+    /*
+    /// Returns a reference to the image content of the node ID or None if there is no background
+    pub fn get_image_content() -> Option<&ImageRef> {
+
+    }
+
+    /// Returns a reference to the backgroud image of the node or None if there
+    pub fn get_background_image() -> Option<&ImageRef> {
+
+    }
+
+    /// Returns a reference to the clip mask image or None if there was no clip mask
+    pub fn get_clip_mask_image() -> Option<&ImageRef> {
+
+    }
+    */
 }
 
 

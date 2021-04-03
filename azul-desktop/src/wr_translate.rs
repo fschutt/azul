@@ -1678,7 +1678,6 @@ mod background {
         RadialGradient, LinearGradient, ConicGradient, ColorU, LayoutSize, LayoutPoint,
     };
     use azul_core::{
-        app_resources::ImageInfo,
         display_list::RectBackground,
         window::{LogicalSize, LogicalPosition},
     };
@@ -1706,7 +1705,7 @@ mod background {
             LinearGradient(g)    => push_linear_gradient_background(builder, &info, g, background_position, background_size, content_size),
             RadialGradient(rg)   => push_radial_gradient_background(builder, &info, rg, background_position, background_size, content_size),
             ConicGradient(cg)    => push_conic_gradient_background(builder, &info, cg, background_position, background_size, content_size),
-            Image(image_info)    => push_image_background(builder, &info, image_info, background_position, background_size, background_repeat, content_size),
+            Image((key, _))    => push_image_background(builder, &info, key, background_position, background_size, background_repeat, content_size),
             Color(col)           => push_color_background(builder, &info, col, background_position, background_size, background_repeat, content_size),
         }
     }
@@ -1864,7 +1863,7 @@ mod background {
     fn push_image_background(
         builder: &mut WrDisplayListBuilder,
         info: &WrCommonItemProperties,
-        image_info: ImageInfo,
+        image_key: ImageKey,
         background_position: Option<StyleBackgroundPosition>,
         background_size: Option<StyleBackgroundSize>,
         background_repeat: Option<StyleBackgroundRepeat>,
@@ -1883,7 +1882,7 @@ mod background {
         let image_rendering = ImageRendering::Auto;
         let background_color = ColorU { r: 0, g: 0, b: 0, a: 255 };
 
-        image::push_image(builder, &background_repeat_info, background_size, background_position, image_info.key, alpha_type, image_rendering, background_color);
+        image::push_image(builder, &background_repeat_info, background_size, background_position, image_key, alpha_type, image_rendering, background_color);
     }
 
     fn push_color_background(

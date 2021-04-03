@@ -18,10 +18,10 @@ use azul_core::{
     },
     ui_solver::{
         DEFAULT_FONT_SIZE_PX, ScrolledNodes, ResolvedOffsets,
-        LayoutResult, PositionedRectangle, OverflowInfo, WhConstraint,
+        LayoutResult, PositionedRectangle, WhConstraint,
         WidthCalculatedRect, HeightCalculatedRect,
         HorizontalSolvedPosition, VerticalSolvedPosition,
-        GpuEventChanges, GpuValueCache, RelayoutChanges,
+        GpuValueCache, RelayoutChanges,
         StyleBoxShadowOffsets,
     },
     app_resources::{
@@ -327,8 +327,6 @@ macro_rules! typed_arena {(
         //
         // Set the preferred_width of the parent nodes
         for ParentWithNodeDepth { depth, node_id } in node_depths.iter().rev() {
-
-            use self::WhConstraint::*;
 
             let parent_id = match node_id.into_crate_internal() {
                 Some(s) => s,
@@ -1483,7 +1481,6 @@ pub fn do_the_layout(
                 dom_id,
                 parent_dom_id,
                 styled_dom,
-                image_cache,
                 renderer_resources,
                 pipeline_id,
                 rect,
@@ -1587,7 +1584,6 @@ pub fn do_the_layout_internal(
     dom_id: DomId,
     parent_dom_id: Option<DomId>,
     styled_dom: StyledDom,
-    image_cache: &ImageCache,
     renderer_resources: &mut RendererResources,
     pipeline_id: PipelineId,
     bounds: LogicalRect
@@ -1642,7 +1638,6 @@ pub fn do_the_layout_internal(
     create_word_positions(
         &mut word_positions_no_max_width,
         &all_nodes_btreeset,
-        &pipeline_id,
         renderer_resources,
         &word_cache,
         &shaped_words,
@@ -1852,14 +1847,12 @@ fn position_nodes<'a>(
 
         let parent_node_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
         if !nodes_that_updated_positions.contains(&parent_node_id) { continue; };
-        let parent_node_data = &styled_dom.node_data.as_container()[parent_node_id];
 
         let parent_position = position_info[parent_node_id];
         let width = solved_widths[parent_node_id];
         let height = solved_heights[parent_node_id];
         let x_pos = x_positions[parent_node_id].0;
         let y_pos = y_positions[parent_node_id].0;
-        let parent_styled_node_state = &styled_nodes[parent_node_id].state;
 
         let parent_parent_node_id = node_hierarchy[parent_node_id].parent_id().unwrap_or(NodeId::new(0));
         let parent_x_pos = x_positions[parent_parent_node_id].0;
@@ -1910,12 +1903,6 @@ fn position_nodes<'a>(
         let parent_padding = parent_offsets.padding.resolve(parent_parent_width.total(), parent_parent_height.total());
         let parent_margin = parent_offsets.margin.resolve(parent_parent_width.total(), parent_parent_height.total());
         let parent_border_widths = parent_offsets.border_widths.resolve(parent_parent_width.total(), parent_parent_height.total());
-        let parent_parent_size = LogicalSize::new(parent_parent_width.total(), parent_parent_height.total());
-
-        let parent_sum_rect = LayoutRect::new(
-            LayoutPoint::new(x_pos.round() as isize, y_pos.round() as isize),
-            LayoutSize::new(width.total().round() as isize, height.total().round() as isize),
-        );
 
         // push positioned item and layout children
         if parent_position != LayoutPosition::Static {
@@ -1969,10 +1956,8 @@ fn position_nodes<'a>(
                 },
             };
 
-            let parent_size = LogicalSize::new(parent_width.total(), parent_height.total());
             let child_size_logical = LogicalSize::new(width.total(), height.total());
             let child_size = LayoutSize::new(width.total().round() as isize, height.total().round() as isize);
-            let child_rect = LayoutRect::new(LayoutPoint::new(x_pos.round() as isize, y_pos.round() as isize), child_size);
 
             let child_offsets = match offsets.get_offsets_for_node(&child_node_id) {
                 Some(s) => s,
@@ -2125,7 +2110,6 @@ pub fn create_shaped_words<'a>(
 fn create_word_positions<'a>(
     word_positions: &mut BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     word_positions_to_generate: &BTreeSet<NodeId>,
-    pipeline_id: &PipelineId,
     renderer_resources: &RendererResources,
     words: &BTreeMap<NodeId, Words>,
     shaped_words: &BTreeMap<NodeId, ShapedWords>,

@@ -123,7 +123,7 @@ impl NodeType {
             Image(i) => Image(i.clone()), // note: shallow clone
             IFrame(i) => IFrame(IFrameNode {
                 callback: i.callback,
-                data: i.data.clone_into_library_memory(),
+                data: i.data.clone(),
             })
         }
     }
@@ -541,7 +541,7 @@ impl CallbackData {
         Self {
             event: self.event,
             callback: self.callback.clone(),
-            data: self.data.clone_into_library_memory(),
+            data: self.data.clone(),
         }
     }
 }
@@ -652,7 +652,7 @@ impl NodeData {
             node_type: self.node_type.into_library_owned_nodetype(),
             dataset: match &mut self.dataset {
                 OptionRefAny::None => OptionRefAny::None,
-                OptionRefAny::Some(s) => OptionRefAny::Some(s.clone_into_library_memory()),
+                OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
             },
             ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
             inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static

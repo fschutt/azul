@@ -80,7 +80,7 @@ extern crate azul_css;
 extern crate azul_core;
 extern crate unicode_normalization;
 extern crate allsorts_no_std;
-#[macro_use(tiny_vec)]
+#[macro_use]
 extern crate tinyvec;
 
 use core::any::Any;

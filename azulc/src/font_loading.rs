@@ -6,8 +6,8 @@ use std::{
     path::PathBuf,
     io::Error as IoError,
 };
-use azul_core::app_resources::{LoadedFontSource, OptionLoadedFontSource};
-pub use rust_fontconfig::FcFontCache;
+use azul_core::app_resources::LoadedFontSource;
+use rust_fontconfig::FcFontCache;
 use azul_css::{
     U8Vec, FontRef, StyleFontFamily,
     AzString, StringVec
@@ -43,34 +43,13 @@ impl_display!(FontReloadError, {
     FontLoadingNotActive(id) => format!("Could not load system font: \"{:?}\": crate was not compiled with --features=\"font_loading\"", id)
 });
 
-pub extern "C" fn font_source_get_bytes(font_family: &StyleFontFamily, fc_cache: &FcFontCache) -> OptionLoadedFontSource {
-
-    let result = font_source_get_bytes_inner(font_family, fc_cache);
-
-    let (font_bytes, font_index) = match result {
-        Ok(s) => s,
-        Err(_) => {
-            // TODO: logging!
-            return OptionLoadedFontSource::None;
-        },
-    };
-
-    let font_source = LoadedFontSource {
-        data: font_bytes,
-        index: font_index.max(0) as u32,
-        load_outlines: false, // only fonts added via FontRef can load glyph outlines!
-    };
-
-    Some(font_source).into()
-}
-
 /// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).
 /// Also returns the index into the font (in case the font is a font collection).
-pub fn font_source_get_bytes_inner(font_family: &StyleFontFamily, fc_cache: &FcFontCache) -> Result<(U8Vec, i32), FontReloadError> {
+pub fn font_source_get_bytes(font_family: &StyleFontFamily, fc_cache: &FcFontCache) -> Option<LoadedFontSource> {
 
     use azul_css::StyleFontFamily::*;
 
-    match font_family {
+    let (font_bytes, font_index) = match font_family {
         Native(id) => {
             #[cfg(feature = "font_loading")] {
                 crate::font::load_system_font(id.as_str(), fc_cache)
@@ -90,5 +69,12 @@ pub fn font_source_get_bytes_inner(font_family: &StyleFontFamily, fc_cache: &FcF
             // NOTE: this path should never execute
             Ok((U8Vec::from_copy_on_write(r.get_data().bytes.clone()), DEFAULT_FONT_INDEX))
         }
-    }
+    }.ok()?;
+
+    Some(LoadedFontSource {
+        data: font_bytes,
+        index: font_index.max(0) as u32,
+        // only fonts added via FontRef can load glyph outlines!
+        load_outlines: false,
+    })
 }

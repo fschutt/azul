@@ -831,8 +831,6 @@ pub fn displaylist_handle_rect<'a>(
         .map(|scrolled| AzTagId::from_crate_internal(scrolled.scroll_tag_id.0))
     });
 
-    let (size, position) = positioned_rect.get_background_bounds();
-
     let clip_mask = html_node.get_clip_mask().as_option().and_then(|m| {
         let clip_mask_hash = m.image.get_hash();
         let (image_key, _) = renderer_resources.currently_registered_images.get(&clip_mask_hash)?;
@@ -847,7 +845,7 @@ pub fn displaylist_handle_rect<'a>(
         tag: tag_id.map(|t| t.into_crate_internal()),
         size: positioned_rect.size_including_borders(),
         clip_children: layout_result.scrollable_nodes.clip_nodes.get(&rect_idx).copied(),
-        position,
+        position: positioned_rect.position.clone(),
         border_radius: StyleBorderRadius {
             top_left: layout_result.styled_dom.get_css_property_cache()
                 .get_border_top_left_radius(&html_node, &rect_idx, &styled_node.state),

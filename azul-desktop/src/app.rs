@@ -27,7 +27,7 @@ use azul_core::{
     task::{Timer, TimerId},
     gl::GlContextPtr,
     callbacks::{RefAny, UpdateScreen},
-    app_resources::{AppConfig, AppResources},
+    app_resources::AppConfig,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -41,6 +41,8 @@ pub struct App {
     /// The window create options (only set at startup), get moved into the `.run_inner()` method
     /// No window is actually shown until the `.run_inner()` method is called.
     pub windows: Vec<WindowCreateOptions>,
+    /// Initial cache of images that are loaded before the first frame is rendered
+    pub image_cache: ImageCache,
     /// Glutin / winit event loop
     pub event_loop: GlutinEventLoop<UserEvent>,
     /// Font configuration cache - already start building the font cache
@@ -148,8 +150,14 @@ impl App {
             data: initial_data.clone_into_library_memory(),
             config: app_config,
             event_loop,
+            image_cache: ImageCache::new(),
             fc_cache,
         }
+    }
+
+    /// Registers an image with a CSS Id so that it can be used in the `background-content` property
+    pub fn add_image(&mut self, css_id: AzString, image: ImageRef) {
+        self.image_cache.add_css_image_id(css_id, image);
     }
 
     /// Returns a list of monitors available on the system
@@ -200,18 +208,19 @@ impl App {
 fn run_inner(app: App) -> ! {
 
     use azul_core::styled_dom::DomId;
+    use azul_core::app_resources::ImageCache;
 
     let App {
         mut data,
         event_loop,
         config,
         windows,
+        image_cache,
         mut fc_cache,
     } = app;
 
     let mut timers = BTreeMap::new();
     let mut threads = BTreeMap::new();
-    let mut image_cache = ImageCache::default();
     let mut active_windows = BTreeMap::new();
 
     let proxy = event_loop.create_proxy();
@@ -226,7 +235,7 @@ fn run_inner(app: App) -> ! {
             &event_loop,
             &proxy,
             &mut active_windows,
-            &mut resources,
+            &image_cache,
             &mut fc_cache,
             &mut timers,
             &config,
@@ -1226,18 +1235,22 @@ fn create_window(
     Some(glutin_window_id)
 }
 
-fn close_window(mut window: Window, app_resources: &mut AppResources) {
+fn close_window(mut window: Window) {
     use azul_core::gl::gl_textures_remove_active_pipeline;
     use crate::wr_translate::wr_translate_document_id;
     use crate::wr_translate::wr_translate_resource_update;
 
-    gl_textures_remove_active_pipeline(&window.internal.pipeline_id);
-    let mut resources_to_delete = Vec::new();
-    app_resources.delete_pipeline(&window.internal.pipeline_id, &mut resources_to_delete);
+    // Delete all font / image resources
+    let resources_to_delete = window.internal.renderer_resources.do_final_gc();
     let mut txn = WrTransaction::new();
     txn.skip_scene_builder();
     txn.update_resources(resources_to_delete.into_iter().map(wr_translate_resource_update).collect());
     window.render_api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
+
+    // Delete all OpenGL texture handles (after the renderer doesn't reference them anymore)
+    gl_textures_remove_active_pipeline(&window.internal.pipeline_id);
+
+    // Delete texture caches
     window.render_api.delete_document(wr_translate_document_id(window.internal.document_id));
 }
 

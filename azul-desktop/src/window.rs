@@ -50,7 +50,7 @@ use azul_core::{
     callbacks::{PipelineId, RefAny},
     task::ExternalSystemCallbacks,
     display_list::{CachedDisplayList, RenderCallbacks},
-    app_resources::{ResourceUpdate, AppResources, LoadFontFn, IdNamespace, LoadImageFn},
+    app_resources::{ResourceUpdate, ImageCache, LoadFontFn, IdNamespace},
     gl::{GlContextPtr, OptionGlContextPtr, GlShaderCreateError, Texture},
     window::LazyFcCache,
     window_state::{Events, NodesToCheck},
@@ -278,10 +278,9 @@ pub struct Window {
 impl Window {
 
     const CALLBACKS: RenderCallbacks = RenderCallbacks {
-        insert_into_active_gl_textures: azul_core::gl::insert_into_active_gl_textures,
+        insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
         layout_fn: azul_layout::do_the_layout,
-        load_font_fn: LoadFontFn { cb: azulc_lib::font_loading::font_source_get_bytes },
-        load_image_fn: LoadImageFn { cb: azulc_lib::image_loading::image_source_get_bytes },
+        load_font_fn: azulc_lib::font_loading::font_source_get_bytes,
         parse_font_fn: azul_layout::text_layout::parse_font_fn,
     };
 
@@ -319,14 +318,14 @@ impl Window {
         self.hardware_gl.clone()
     }
 
-    pub(crate) fn get_gl_context_ptr(&self) -> GlContextPtr {
+    pub(crate) fn get_gl_context_ptr(&self) -> OptionGlContextPtr {
         /*
         match self.software_gl.as_ref() {
             Some(sw) => GlContextPtr::new(RendererType::Software, sw.clone()),
             None => GlContextPtr::new(RendererType::Hardware, self.hardware_gl.clone()),
         }
         */
-        GlContextPtr::new(RendererType::Hardware, self.hardware_gl.clone())
+        Some(GlContextPtr::new(RendererType::Hardware, self.hardware_gl.clone())).into()
     }
 
     /// Creates a new window
@@ -335,7 +334,7 @@ impl Window {
         mut options: WindowCreateOptions,
         events_loop: &EventLoopWindowTarget<UserEvent>,
         proxy: &GlutinEventLoopProxy<UserEvent>,
-        app_resources: &mut AppResources,
+        image_cache: &ImageCache,
         fc_cache: &mut LazyFcCache,
     ) -> Result<Self, WindowCreateError> {
 
@@ -614,14 +613,14 @@ impl Window {
     pub fn regenerate_styled_dom(
         &mut self,
         data: &mut RefAny,
-        app_resources: &mut AppResources,
+        image_cache: &ImageCache,
         resource_updates: &mut Vec<ResourceUpdate>,
         fc_cache: &mut LazyFcCache,
     ) {
         self.internal.regenerate_styled_dom(
             data,
-            app_resources,
-            &OptionGlContextPtr::Some(self.get_gl_context_ptr()),
+            image_cache,
+            &self.get_gl_context_ptr(),
             resource_updates,
             Window::CALLBACKS,
             fc_cache,

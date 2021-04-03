@@ -350,7 +350,6 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
     use azul_core::ui_solver::InlineTextLine;
 
     let font_size_px = word_positions.text_layout_options.font_size_px;
-    let space_advance_px = scaled_words.get_space_advance_px(font_size_px);
     let line_height_px = scaled_words.get_line_height(font_size_px);
 
     let mut last_word_index = 0;

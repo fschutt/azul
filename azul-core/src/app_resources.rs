@@ -218,7 +218,7 @@ impl FontInstanceKey {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ImageCallback {
     pub callback: RenderImageCallback,
@@ -257,6 +257,9 @@ pub struct ImageRef {
     pub copies: *const AtomicUsize,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
+pub struct ImageRefHash(pub usize);
+
 impl_option!(ImageRef, OptionImageRef, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
 
 impl ImageRef {
@@ -288,6 +291,51 @@ impl ImageRef {
         }
     }
 
+    /// In difference to the default shallow copy, creates a new image ref
+    pub fn deep_copy(&self) -> Self {
+
+        let new_data = match self.get_data() {
+            DecodedImage::NullImage { width, height, format } => DecodedImage::NullImage { width: *width, height: *height, format: *format },
+            // NOTE: textures cannot be deep-copied yet (since the OpenGL calls for that are missing from the trait),
+            // so calling clone() on a GL texture will result in an empty image
+            DecodedImage::Gl(tex) => DecodedImage::NullImage { width: tex.size.width as usize, height: tex.size.height as usize, format: tex.format },
+            // WARNING: the data may still be a Cow::Borrowed<'static [u8]> - the data may still not be actually cloned
+            // The data only gets cloned on a write operation
+            DecodedImage::Raw((descriptor, data)) => DecodedImage::Raw((descriptor.clone(), data.clone())),
+            DecodedImage::Callback(cb) => DecodedImage::Callback(cb.clone()),
+        };
+
+        Self::new(new_data)
+    }
+
+    pub fn is_null_image(&self) -> bool {
+        match self.get_data() {
+            DecodedImage::NullImage { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_gl_texture(&self) -> bool {
+        match self.get_data() {
+            DecodedImage::Gl(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_raw_image(&self) -> bool {
+        match self.get_data() {
+            DecodedImage::Raw((_, _)) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_callback(&self) -> bool {
+        match self.get_data() {
+            DecodedImage::Callback(_) => true,
+            _ => false,
+        }
+    }
+
     /// NOTE: returns (0, 0) for a Callback
     pub fn get_size(&self) -> LogicalSize {
         match self.get_data() {
@@ -297,12 +345,6 @@ impl ImageRef {
             DecodedImage::Callback(_) => LogicalSize::new(0.0, 0.0),
         }
     }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
-pub struct ImageRefHash(pub usize);
-
-impl ImageRef {
 
     pub fn get_hash(&self) -> ImageRefHash {
         ImageRefHash(self.data as usize)
@@ -557,6 +599,16 @@ impl RendererResources {
         .collect();
 
         self.last_frame_registered_images = self.currently_registered_images.clone();
+    }
+
+    /// On the final frame / destruction of the window, we have to clean up all
+    /// remaining resources in the UI
+    pub fn do_final_gc(mut self) -> Vec<ResourceUpdate> {
+        self.currently_registered_images = FastHashMap::default();
+        self.currently_registered_fonts = FastHashMap::default();
+        let mut final_gc_updates = Vec::new();
+        self.do_gc(&mut final_gc_updates);
+        final_gc_updates
     }
 }
 
@@ -1898,11 +1950,8 @@ pub struct LoadedFontSource {
     pub load_outlines: bool,
 }
 
-impl_option!(LoadedFontSource, OptionLoadedFontSource, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
-
-#[repr(C)]
-pub struct LoadFontFn { pub cb: extern "C" fn(&StyleFontFamily, &FcFontCache) -> OptionLoadedFontSource }
-impl_callback!(LoadFontFn);
+// function to load the font source from a file
+pub type LoadFontFn = fn(&StyleFontFamily, &FcFontCache) -> Option<LoadedFontSource>;
 
 // function to parse the font given the loaded font source
 pub type ParseFontFn = fn(LoadedFontSource) -> Option<FontRef>; // = Option<Box<azul_text_layout::Font>>
@@ -2018,7 +2067,7 @@ pub fn build_add_font_resource_updates(
                         other => {
 
                             // Load and parse the font
-                            let font_data = match (font_source_load_fn.cb)(&other, fc_cache).into_option() {
+                            let font_data = match (font_source_load_fn)(&other, fc_cache) {
                                 Some(s) => s,
                                 None => continue 'inner,
                             };
