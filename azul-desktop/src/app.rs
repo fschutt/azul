@@ -14,11 +14,11 @@ use glutin::{
 };
 use webrender::Transaction as WrTransaction;
 use crate::{
-    window::{Window, UserEvent, Monitor, MonitorVec},
+    window::{Window, LazyFcCache, UserEvent, Monitor, MonitorVec},
 };
 use azul_css::AzString;
 use azul_core::{
-    window::{WindowCreateOptions, LazyFcCache},
+    window::WindowCreateOptions,
     task::{Timer, TimerId},
     callbacks::{RefAny, UpdateScreen},
     app_resources::{AppConfig, ImageRef, ImageCache},
@@ -208,7 +208,7 @@ fn run_inner(app: App) -> ! {
         event_loop,
         config,
         windows,
-        image_cache,
+        mut image_cache,
         mut fc_cache,
     } = app;
 
@@ -265,36 +265,43 @@ fn run_inner(app: App) -> ! {
                 let gl_context_ptr = window.get_gl_context_ptr();
                 let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
                 let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
-
-                let callback_info = CallbackInfo::new(
-                    &window.internal.current_window_state,
-                    &mut window_state,
-                    &gl_context_ptr,
-                    &mut image_cache,
-                    &mut fc_cache,
-                    &mut new_timers,
-                    &mut new_threads,
-                    &mut new_windows,
-                    &window_handle,
-                    &layout_result.styled_dom.node_hierarchy,
-                    &config.system_callbacks,
-                    &layout_result.words_cache,
-                    &layout_result.shaped_words_cache,
-                    &layout_result.positioned_words_cache,
-                    &layout_result.rects,
-                    &mut datasets.1,
-                    &mut stop_propagation,
-                    &mut focus_target,
-                    &mut words_changed,
-                    &mut images_changed,
-                    &mut image_masks_changed,
-                    &mut css_properties_changed,
-                    &scroll_states,
-                    &mut nodes_scrolled_in_callback,
-                    DomNodeId::ROOT,
-                    None.into(),
-                    None.into(),
-                );
+                let current_window_state = &window.internal.current_window_state;
+                let words_cache = &layout_result.words_cache;
+                let shaped_words_cache = &layout_result.shaped_words_cache;
+                let positioned_words_cache = &layout_result.positioned_words_cache;
+                let rects = &layout_result.rects;
+                let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
+                let callback_info = fc_cache.apply_closure(|fc_cache| {
+                    CallbackInfo::new(
+                        current_window_state,
+                        &mut window_state,
+                        &gl_context_ptr,
+                        &mut image_cache,
+                        fc_cache,
+                        &mut new_timers,
+                        &mut new_threads,
+                        &mut new_windows,
+                        &window_handle,
+                        node_hierarchy,
+                        &config.system_callbacks,
+                        words_cache,
+                        shaped_words_cache,
+                        positioned_words_cache,
+                        rects,
+                        &mut datasets.1,
+                        &mut stop_propagation,
+                        &mut focus_target,
+                        &mut words_changed,
+                        &mut images_changed,
+                        &mut image_masks_changed,
+                        &mut css_properties_changed,
+                        &scroll_states,
+                        &mut nodes_scrolled_in_callback,
+                        DomNodeId::ROOT,
+                        None.into(),
+                        None.into(),
+                    )
+                });
 
                 let _ = (init_callback.cb)(&mut data, callback_info);
 
@@ -365,31 +372,33 @@ fn run_inner(app: App) -> ! {
                     let current_scroll_states = window.internal.get_current_scroll_states();
 
                     let raw_window_handle = window.get_raw_window_handle();
-                    let update_screen_timers = run_all_timers(
-                        &mut data,
-                        &mut timer_map,
-                        frame_start.clone(),
+                    let update_screen_timers = fc_cache.apply_closure(|fc_cache| {
+                        run_all_timers(
+                            &mut data,
+                            &mut timer_map,
+                            frame_start.clone(),
 
-                        &window.internal.current_window_state,
-                        &mut modifiable_window_state,
-                        &window.get_gl_context_ptr(),
-                        &mut image_cache,
-                        &mut fc_cache,
-                        &config.system_callbacks,
-                        &mut new_timers,
-                        &mut cur_threads,
-                        &mut windows_created,
-                        &raw_window_handle,
-                        &mut window.internal.layout_results,
-                        &mut false, // stop_propagation - can't be set in timer
-                        &mut new_focus_node,
-                        &mut words_changed_in_timers,
-                        &mut images_changed_in_timers,
-                        &mut image_masks_changed_in_timers,
-                        &mut css_properties_changed_in_timers,
-                        &current_scroll_states,
-                        &mut nodes_scrolled_in_timers,
-                    );
+                            &window.internal.current_window_state,
+                            &mut modifiable_window_state,
+                            &window.get_gl_context_ptr(),
+                            &mut image_cache,
+                            fc_cache,
+                            &config.system_callbacks,
+                            &mut new_timers,
+                            &mut cur_threads,
+                            &mut windows_created,
+                            &raw_window_handle,
+                            &mut window.internal.layout_results,
+                            &mut false, // stop_propagation - can't be set in timer
+                            &mut new_focus_node,
+                            &mut words_changed_in_timers,
+                            &mut images_changed_in_timers,
+                            &mut image_masks_changed_in_timers,
+                            &mut css_properties_changed_in_timers,
+                            &current_scroll_states,
+                            &mut nodes_scrolled_in_timers,
+                        )
+                    });
 
                     match update_screen_timers {
                         UpdateScreen::DoNothing => {
@@ -491,29 +500,31 @@ fn run_inner(app: App) -> ! {
 
                     let current_scroll_states = window.internal.get_current_scroll_states();
                     let raw_window_handle = window.get_raw_window_handle();
-                    let update_screen_threads = clean_up_finished_threads(
-                        &mut thread_map,
+                    let update_screen_threads = fc_cache.apply_closure(|fc_cache| {
+                        clean_up_finished_threads(
+                            &mut thread_map,
 
-                        &window.internal.current_window_state,
-                        &mut modifiable_window_state,
-                        &window.get_gl_context_ptr(),
-                        &mut image_cache,
-                        &mut fc_cache,
-                        &config.system_callbacks,
-                        &mut cur_timers,
-                        &mut new_threads,
-                        &mut windows_created,
-                        &raw_window_handle,
-                        &mut window.internal.layout_results,
-                        &mut false, // stop_propagation - can't be set in timer
-                        &mut new_focus_node,
-                        &mut words_changed_in_threads,
-                        &mut images_changed_in_threads,
-                        &mut image_masks_changed_in_threads,
-                        &mut css_properties_changed_in_threads,
-                        &current_scroll_states,
-                        &mut nodes_scrolled_in_threads,
-                    );
+                            &window.internal.current_window_state,
+                            &mut modifiable_window_state,
+                            &window.get_gl_context_ptr(),
+                            &mut image_cache,
+                            fc_cache,
+                            &config.system_callbacks,
+                            &mut cur_timers,
+                            &mut new_threads,
+                            &mut windows_created,
+                            &raw_window_handle,
+                            &mut window.internal.layout_results,
+                            &mut false, // stop_propagation - can't be set in timer
+                            &mut new_focus_node,
+                            &mut words_changed_in_threads,
+                            &mut images_changed_in_threads,
+                            &mut image_masks_changed_in_threads,
+                            &mut css_properties_changed_in_threads,
+                            &current_scroll_states,
+                            &mut nodes_scrolled_in_threads,
+                        )
+                    });
 
                     match update_screen_threads {
                         UpdateScreen::DoNothing => {
@@ -672,14 +683,16 @@ fn run_inner(app: App) -> ! {
 
                     let scroll_event = window.internal.current_window_state.get_scroll_amount();
                     let nodes_to_check = NodesToCheck::new(&hit_test, &events);
-                    let mut callback_results = window.call_callbacks(
-                        &nodes_to_check,
-                        &events,
-                        &window.get_gl_context_ptr(),
-                        &mut image_cache,
-                        &mut fc_cache,
-                        &config.system_callbacks
-                    );
+                    let mut callback_results = fc_cache.apply_closure(|fc_cache| {
+                        window.call_callbacks(
+                            &nodes_to_check,
+                            &events,
+                            &window.get_gl_context_ptr(),
+                            &mut image_cache,
+                            fc_cache,
+                            &config.system_callbacks
+                        )
+                    });
 
                     let cur_should_callback_render = callback_results.should_scroll_render;
                     if cur_should_callback_render { should_callback_render = true; }
@@ -828,37 +841,45 @@ fn run_inner(app: App) -> ! {
                     let gl_context_ptr = window.get_gl_context_ptr();
 
                     let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
+                    let current_window_state = &window.internal.current_window_state;
                     let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+                    let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
+                    let words_cache = &layout_result.words_cache;
+                    let shaped_words_cache = &layout_result.shaped_words_cache;
+                    let positioned_words_cache = &layout_result.positioned_words_cache;
+                    let rects = &layout_result.rects;
 
-                    let callback_info = CallbackInfo::new(
-                        &window.internal.current_window_state,
-                        &mut window_state,
-                        &gl_context_ptr,
-                        &mut image_cache,
-                        &mut fc_cache,
-                        &mut new_timers,
-                        &mut new_threads,
-                        &mut new_windows,
-                        &window_handle,
-                        &layout_result.styled_dom.node_hierarchy,
-                        &config.system_callbacks,
-                        &layout_result.words_cache,
-                        &layout_result.shaped_words_cache,
-                        &layout_result.positioned_words_cache,
-                        &layout_result.rects,
-                        &mut datasets.1,
-                        &mut stop_propagation,
-                        &mut focus_target,
-                        &mut words_changed,
-                        &mut images_changed,
-                        &mut image_masks_changed,
-                        &mut css_properties_changed,
-                        &scroll_states,
-                        &mut nodes_scrolled_in_callback,
-                        DomNodeId::ROOT,
-                        None.into(),
-                        None.into(),
-                    );
+                    let callback_info = fc_cache.apply_closure(|fc_cache| {
+                        CallbackInfo::new(
+                            current_window_state,
+                            &mut window_state,
+                            &gl_context_ptr,
+                            &mut image_cache,
+                            fc_cache,
+                            &mut new_timers,
+                            &mut new_threads,
+                            &mut new_windows,
+                            &window_handle,
+                            node_hierarchy,
+                            &config.system_callbacks,
+                            words_cache,
+                            shaped_words_cache,
+                            positioned_words_cache,
+                            rects,
+                            &mut datasets.1,
+                            &mut stop_propagation,
+                            &mut focus_target,
+                            &mut words_changed,
+                            &mut images_changed,
+                            &mut image_masks_changed,
+                            &mut css_properties_changed,
+                            &scroll_states,
+                            &mut nodes_scrolled_in_callback,
+                            DomNodeId::ROOT,
+                            None.into(),
+                            None.into(),
+                        )
+                    });
 
                     let result = (close_callback.cb)(&mut data, callback_info);
 
@@ -875,13 +896,7 @@ fn run_inner(app: App) -> ! {
             }
 
             if window_should_close {
-
-                let window = match active_windows.remove(&window_id) {
-                    Some(w) => w,
-                    None => continue,
-                };
-
-                close_window(window);
+                active_windows.remove(&window_id);
             }
         }
 
@@ -932,37 +947,45 @@ fn run_inner(app: App) -> ! {
 
                     let gl_context_ptr = window.get_gl_context_ptr();
                     let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
+                    let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
+                    let current_window_state = &window.internal.current_window_state;
                     let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+                    let words_cache = &layout_result.words_cache;
+                    let shaped_words_cache = &layout_result.shaped_words_cache;
+                    let positioned_words_cache = &layout_result.positioned_words_cache;
+                    let rects = &layout_result.rects;
 
-                    let callback_info = CallbackInfo::new(
-                        &window.internal.current_window_state,
-                        &mut window_state,
-                        &gl_context_ptr,
-                        &mut image_cache,
-                        &mut fc_cache,
-                        &mut new_timers,
-                        &mut new_threads,
-                        &mut new_windows,
-                        &window_handle,
-                        &layout_result.styled_dom.node_hierarchy,
-                        &config.system_callbacks,
-                        &layout_result.words_cache,
-                        &layout_result.shaped_words_cache,
-                        &layout_result.positioned_words_cache,
-                        &layout_result.rects,
-                        &mut datasets.1,
-                        &mut stop_propagation,
-                        &mut focus_target,
-                        &mut words_changed,
-                        &mut images_changed,
-                        &mut image_masks_changed,
-                        &mut css_properties_changed,
-                        &scroll_states,
-                        &mut nodes_scrolled_in_callback,
-                        DomNodeId::ROOT,
-                        None.into(),
-                        None.into(),
-                    );
+                    let callback_info = fc_cache.apply_closure(|fc_cache| {
+                        CallbackInfo::new(
+                            current_window_state,
+                            &mut window_state,
+                            &gl_context_ptr,
+                            &mut image_cache,
+                            fc_cache,
+                            &mut new_timers,
+                            &mut new_threads,
+                            &mut new_windows,
+                            &window_handle,
+                            node_hierarchy,
+                            &config.system_callbacks,
+                            words_cache,
+                            shaped_words_cache,
+                            positioned_words_cache,
+                            rects,
+                            &mut datasets.1,
+                            &mut stop_propagation,
+                            &mut focus_target,
+                            &mut words_changed,
+                            &mut images_changed,
+                            &mut image_masks_changed,
+                            &mut css_properties_changed,
+                            &scroll_states,
+                            &mut nodes_scrolled_in_callback,
+                            DomNodeId::ROOT,
+                            None.into(),
+                            None.into(),
+                        )
+                    });
 
                     let _ = (init_callback.cb)(&mut data, callback_info);
 
@@ -1242,25 +1265,6 @@ fn create_window(
     }
 
     Some(glutin_window_id)
-}
-
-fn close_window(mut window: Window) {
-    use azul_core::gl::gl_textures_remove_active_pipeline;
-    use crate::wr_translate::wr_translate_document_id;
-    use crate::wr_translate::wr_translate_resource_update;
-
-    // Delete all font / image resources
-    let resources_to_delete = window.internal.renderer_resources.do_final_gc();
-    let mut txn = WrTransaction::new();
-    txn.skip_scene_builder();
-    txn.update_resources(resources_to_delete.into_iter().map(wr_translate_resource_update).collect());
-    window.render_api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
-
-    // Delete all OpenGL texture handles (after the renderer doesn't reference them anymore)
-    gl_textures_remove_active_pipeline(&window.internal.pipeline_id);
-
-    // Delete texture caches
-    window.render_api.delete_document(wr_translate_document_id(window.internal.document_id));
 }
 
 pub mod extra {

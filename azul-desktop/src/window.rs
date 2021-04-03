@@ -1,4 +1,5 @@
 use std::time::Duration as StdDuration;
+use std::thread::JoinHandle;
 use core::fmt;
 use core::cell::RefCell;
 use alloc::{
@@ -48,7 +49,6 @@ use azul_core::{
     display_list::{CachedDisplayList, RenderCallbacks},
     app_resources::{ResourceUpdate, ImageCache},
     gl::{GlContextPtr, OptionGlContextPtr, Texture},
-    window::LazyFcCache,
     window_state::{Events, NodesToCheck},
 };
 use azul_css::{LayoutPoint, AzString, OptionAzString, LayoutSize};
@@ -59,6 +59,36 @@ use rust_fontconfig::FcFontCache;
 // TODO: Right now it's not very ergonomic to cache shaders between
 // renderers - notify webrender about this.
 const WR_SHADER_CACHE: Option<&Rc<RefCell<WrShaders>>> = None;
+
+#[derive(Debug)]
+pub enum LazyFcCache {
+    Resolved(FcFontCache),
+    InProgress(Option<JoinHandle<FcFontCache>>)
+}
+
+impl LazyFcCache {
+    pub fn apply_closure<T, F: FnOnce(&mut FcFontCache) -> T>(&mut self, closure: F) -> T{
+        let mut replace = None;
+
+        let result = match self {
+            LazyFcCache::Resolved(c) => { closure(c) },
+            LazyFcCache::InProgress(j) => {
+                let mut font_cache = j.take().and_then(|j| Some(j.join().ok()))
+                .unwrap_or_default()
+                .unwrap_or_default();
+                let r = closure(&mut font_cache);
+                replace = Some(font_cache);
+                r
+            }
+        };
+
+        if let Some(replace) = replace {
+            *self = LazyFcCache::Resolved(replace);
+        }
+
+        result
+    }
+}
 
 /// returns a unique identifier for the monitor, used for hashing
 pub(crate) fn monitor_handle_get_id(handle: &WinitMonitorHandle) -> usize {
@@ -494,20 +524,22 @@ impl Window {
         };
         */
 
-        let internal = WindowInternal::new(
-            WindowInternalInit {
-                window_create_options: options,
-                document_id,
-                pipeline_id,
-                id_namespace
-            },
-            data,
-            image_cache,
-            &OptionGlContextPtr::Some(gl_context_ptr.clone()),
-            &mut initial_resource_updates,
-            &Window::CALLBACKS,
-            fc_cache,
-        );
+        let internal = fc_cache.apply_closure(|fc_cache| {
+            WindowInternal::new(
+                WindowInternalInit {
+                    window_create_options: options,
+                    document_id,
+                    pipeline_id,
+                    id_namespace
+                },
+                data,
+                image_cache,
+                &OptionGlContextPtr::Some(gl_context_ptr.clone()),
+                &mut initial_resource_updates,
+                &Window::CALLBACKS,
+                fc_cache,
+            )
+        });
 
         let mut window = Window {
             display: window_context,
@@ -612,14 +644,16 @@ impl Window {
         resource_updates: &mut Vec<ResourceUpdate>,
         fc_cache: &mut LazyFcCache,
     ) {
-        self.internal.regenerate_styled_dom(
-            data,
-            image_cache,
-            &self.get_gl_context_ptr(),
-            resource_updates,
-            &Window::CALLBACKS,
-            fc_cache,
-        );
+        fc_cache.apply_closure(|fc_cache| {
+            self.internal.regenerate_styled_dom(
+                data,
+                image_cache,
+                &self.get_gl_context_ptr(),
+                resource_updates,
+                &Window::CALLBACKS,
+                fc_cache,
+            );
+        });
     }
 
     /// Only re-build the display list and send it to webrender
@@ -1193,15 +1227,48 @@ impl Window {
 impl Drop for Window {
     fn drop(&mut self) {
 
+        use crate::wr_translate::wr_translate_document_id;
+        use crate::wr_translate::wr_translate_resource_update;
+        use azul_core::window::WindowInternal;
+        use azul_core::gl::gl_textures_remove_active_pipeline;
+        use azul_core::FastHashMap;
+
         self.display.make_current();
+
+        let gl_context = self.get_gl_context();
+
+        let WindowInternal {
+            renderer_resources,
+            document_id,
+            pipeline_id,
+            ..
+        } = &mut self.internal;
+
+        // On the final frame / destruction of the window, we have to
+        // clean up all remaining resources / texture caches in the UI
+
+        // Delete all font / image resources and clear the renderer resources
+        renderer_resources.currently_registered_images = FastHashMap::default();
+        renderer_resources.currently_registered_fonts = FastHashMap::default();
+        let mut final_gc_updates = Vec::new();
+        renderer_resources.do_gc(&mut final_gc_updates);
+        let mut txn = WrTransaction::new();
+        txn.skip_scene_builder();
+        txn.update_resources(final_gc_updates.into_iter().map(wr_translate_resource_update).collect());
+        self.render_api.send_transaction(wr_translate_document_id(*document_id), txn);
+
+        // Delete all OpenGL texture handles (after the renderer doesn't reference them anymore)
 
         // Important: destroy all OpenGL textures before the shared
         // OpenGL context is destroyed.
-        azul_core::gl::gl_textures_remove_active_pipeline(&self.internal.pipeline_id);
+        azul_core::gl::gl_textures_remove_active_pipeline(&pipeline_id);
 
-        self.get_gl_context().disable(gl::FRAMEBUFFER_SRGB);
-        self.get_gl_context().disable(gl::MULTISAMPLE);
-        self.get_gl_context().disable(gl::POLYGON_SMOOTH);
+        gl_context.disable(gl::FRAMEBUFFER_SRGB);
+        gl_context.disable(gl::MULTISAMPLE);
+        gl_context.disable(gl::POLYGON_SMOOTH);
+
+        // Delete texture caches
+        self.render_api.delete_document(wr_translate_document_id(*document_id));
 
         if let Some(renderer) = self.renderer.take() {
             renderer.deinit();

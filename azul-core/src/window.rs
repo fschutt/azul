@@ -24,9 +24,6 @@ use crate::{
     task::{TimerId, ThreadId, Timer, Thread},
 };
 use rust_fontconfig::FcFontCache;
-#[cfg(feature = "std")]
-use std::thread::JoinHandle;
-#[cfg(feature = "opengl")]
 use crate::gl::OptionGlContextPtr;
 
 pub const DEFAULT_TITLE: &str = "Azul App";
@@ -568,25 +565,6 @@ pub fn update_full_window_state(
 }
 
 #[derive(Debug)]
-pub enum LazyFcCache {
-    Resolved(FcFontCache),
-    InProgress(Option<JoinHandle<FcFontCache>>)
-}
-
-impl LazyFcCache {
-    pub fn resolve(&mut self) -> FcFontCache {
-        match self {
-            LazyFcCache::Resolved(c) => { c.clone() },
-            LazyFcCache::InProgress(j) => {
-                j.take().and_then(|j| Some(j.join().ok()))
-                .unwrap_or_default()
-                .unwrap_or_default()
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct WindowInternal {
     /// Currently loaded fonts and images present in this renderer (window)
     pub renderer_resources: RendererResources,
@@ -775,7 +753,7 @@ impl WindowInternal {
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
         callbacks: &RenderCallbacks,
-        fc_cache: &mut LazyFcCache,
+        fc_cache_real: &mut FcFontCache,
     ) -> Self {
 
         use crate::callbacks::LayoutCallbackInfo;
@@ -786,10 +764,6 @@ impl WindowInternal {
         let current_window_state: FullWindowState = init.window_create_options.state.into();
 
         let epoch = Epoch(0);
-
-        // the fc_cache has to resolve here - fonts are loaded lazily in order
-        // to hide any startup delay
-        let fc_cache_real = fc_cache.resolve();
 
         let styled_dom = {
 
@@ -832,8 +806,6 @@ impl WindowInternal {
             &callbacks,
         );
 
-        *fc_cache = LazyFcCache::Resolved(fc_cache_real);
-
         WindowInternal {
             renderer_resources: inital_renderer_resources,
             renderer_type: gl_context.as_ref().map(|r| r.renderer_type),
@@ -858,14 +830,13 @@ impl WindowInternal {
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
         callbacks: &RenderCallbacks,
-        fc_cache: &mut LazyFcCache,
+        fc_cache_real: &mut FcFontCache,
     ) {
 
         use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
 
         let id_namespace = self.id_namespace;
-        let fc_cache_real = fc_cache.resolve();
 
         let styled_dom = {
 
@@ -907,8 +878,6 @@ impl WindowInternal {
             &mut self.renderer_resources,
             callbacks,
         );
-
-        *fc_cache = LazyFcCache::Resolved(fc_cache_real);
 
         // Delete unused font and image keys (that were not used in this frame)
         self.renderer_resources.do_gc(all_resource_updates);

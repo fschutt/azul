@@ -599,16 +599,6 @@ impl RendererResources {
 
         self.last_frame_registered_images = self.currently_registered_images.clone();
     }
-
-    /// On the final frame / destruction of the window, we have to clean up all
-    /// remaining resources in the UI
-    pub fn do_final_gc(mut self) -> Vec<ResourceUpdate> {
-        self.currently_registered_images = FastHashMap::default();
-        self.currently_registered_fonts = FastHashMap::default();
-        let mut final_gc_updates = Vec::new();
-        self.do_gc(&mut final_gc_updates);
-        final_gc_updates
-    }
 }
 
 macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
