@@ -67,7 +67,7 @@ pub fn font_source_get_bytes(font_family: &StyleFontFamily, fc_cache: &FcFontCac
         },
         Ref(r) => {
             // NOTE: this path should never execute
-            Ok((U8Vec::from_copy_on_write(r.get_data().bytes.clone()), DEFAULT_FONT_INDEX))
+            Ok((r.get_data().bytes.clone(), DEFAULT_FONT_INDEX))
         }
     }.ok()?;
 

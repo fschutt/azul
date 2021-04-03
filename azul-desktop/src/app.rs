@@ -403,7 +403,7 @@ fn run_inner(app: App) -> ! {
                                 &mut image_cache,
                                 &mut window.internal.renderer_resources,
                                 window_size,
-                                window.internal.pipeline_id,
+                                &window.internal.pipeline_id,
                                 &css_properties_changed_in_timers,
                                 &new_focus_node,
                                 azul_layout::do_the_relayout,
@@ -497,7 +497,8 @@ fn run_inner(app: App) -> ! {
                         &window.internal.current_window_state,
                         &mut modifiable_window_state,
                         &window.get_gl_context_ptr(),
-                        &mut resources,
+                        &mut image_cache,
+                        &mut fc_cache,
                         &config.system_callbacks,
                         &mut cur_timers,
                         &mut new_threads,
@@ -528,7 +529,7 @@ fn run_inner(app: App) -> ! {
                                 &image_cache,
                                 &mut window.internal.renderer_resources,
                                 window_size,
-                                window.internal.pipeline_id,
+                                &window.internal.pipeline_id,
                                 &css_properties_changed_in_threads,
                                 &new_focus_node,
                                 azul_layout::do_the_relayout,
@@ -671,7 +672,14 @@ fn run_inner(app: App) -> ! {
 
                     let scroll_event = window.internal.current_window_state.get_scroll_amount();
                     let nodes_to_check = NodesToCheck::new(&hit_test, &events);
-                    let mut callback_results = window.call_callbacks(&nodes_to_check, &events, &window.get_gl_context_ptr(), &mut resources, &config.system_callbacks);
+                    let mut callback_results = window.call_callbacks(
+                        &nodes_to_check,
+                        &events,
+                        &window.get_gl_context_ptr(),
+                        &mut image_cache,
+                        &mut fc_cache,
+                        &config.system_callbacks
+                    );
 
                     let cur_should_callback_render = callback_results.should_scroll_render;
                     if cur_should_callback_render { should_callback_render = true; }
@@ -704,7 +712,7 @@ fn run_inner(app: App) -> ! {
                                     &image_cache,
                                     &mut window.internal.renderer_resources,
                                     window_size,
-                                    window.internal.pipeline_id,
+                                    &window.internal.pipeline_id,
                                     &callback_results.css_properties_changed,
                                     &callback_results.update_focused_node,
                                     azul_layout::do_the_relayout,
@@ -751,13 +759,14 @@ fn run_inner(app: App) -> ! {
                     if !window_state_changed_in_callbacks {
                         break;
                     } else {
-                        continue;
+                        continue;    use std::sync::Arc;
+
                     }
                 }
 
                 if need_regenerate_display_list {
                     let mut transaction = WrTransaction::new();
-                    window.rebuild_display_list(&mut transaction, &resources, updated_resources);
+                    window.rebuild_display_list(&mut transaction, &image_cache, updated_resources);
                     window.render_async(transaction, need_regenerate_display_list);
                     windows_that_need_to_redraw.insert(window_id);
                 } else if should_scroll_render || should_callback_render {
@@ -825,7 +834,8 @@ fn run_inner(app: App) -> ! {
                         &window.internal.current_window_state,
                         &mut window_state,
                         &gl_context_ptr,
-                        &mut resources,
+                        &mut image_cache,
+                        &mut fc_cache,
                         &mut new_timers,
                         &mut new_threads,
                         &mut new_windows,
@@ -886,7 +896,7 @@ fn run_inner(app: App) -> ! {
                 &event_loop_target,
                 &proxy,
                 &mut active_windows,
-                &mut resources,
+                &image_cache,
                 &mut fc_cache,
                 &mut timers,
                 &config,
@@ -928,7 +938,8 @@ fn run_inner(app: App) -> ! {
                         &window.internal.current_window_state,
                         &mut window_state,
                         &gl_context_ptr,
-                        &mut resources,
+                        &mut image_cache,
+                        &mut fc_cache,
                         &mut new_timers,
                         &mut new_threads,
                         &mut new_windows,

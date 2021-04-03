@@ -107,8 +107,10 @@ use azul_css::{
     ExtendMode as CssExtendMode,
     BorderStyle as CssBorderStyle,
     LayoutSideOffsets as CssLayoutSideOffsets,
+    U8Vec,
 };
 use webrender::Renderer;
+use alloc::sync::Arc;
 
 pub(crate) mod winit_translate {
 
@@ -1193,7 +1195,11 @@ pub(crate) fn wr_translate_resource_update(resource_update: ResourceUpdate) -> W
 
 #[inline(always)]
 fn wr_translate_add_font(add_font: AddFont) -> WrAddFont {
-    WrAddFont::Raw(wr_translate_font_key(add_font.key), add_font.font_bytes, add_font.font_index)
+    WrAddFont::Raw(
+        wr_translate_font_key(add_font.key),
+        u8vec_into_wr_type(add_font.font_bytes),
+        add_font.font_index
+    )
 }
 
 #[inline(always)]
@@ -1208,11 +1214,15 @@ fn wr_translate_add_image(add_image: AddImage) -> WrAddImage {
 
 #[inline(always)]
 fn wr_translate_image_data(image_data: ImageData) -> WrImageData {
-    use std::sync::Arc;
     match image_data {
-        ImageData::Raw(data) => WrImageData::Raw(Arc::new(data.into_library_owned_vec())),
+        ImageData::Raw(data) => WrImageData::Raw(u8vec_into_wr_type(data)),
         ImageData::External(external) => WrImageData::External(wr_translate_external_image_data(external)),
     }
+}
+
+// TODO: Use -> Cow<'static, [u8]> once webrender PR is merged!
+fn u8vec_into_wr_type(data: U8Vec) -> Arc<Vec<u8>> {
+    Arc::new(data.into_library_owned_vec())
 }
 
 #[inline(always)]

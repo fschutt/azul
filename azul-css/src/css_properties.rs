@@ -3,7 +3,6 @@
 use alloc::collections::btree_map::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use core::ffi::c_void;
 use core::fmt;
@@ -12,7 +11,7 @@ use core::cmp::Ordering;
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use crate::css::CssPropertyValue;
 use crate::{
-    AzString, OptionU32,
+    AzString, OptionU32, U8Vec,
     OptionU16, OptionI16,
 };
 
@@ -4140,14 +4139,11 @@ impl Drop for FontRef {
 
 #[derive(Debug)]
 pub struct FontData { // T = ParsedFont
-    pub postscript_id: AzString,
     /// Bytes of the font file, either &'static (never changing bytes) or a Vec<u8>.
-    pub bytes: Cow<'static, [u8]>,
+    pub bytes: U8Vec,
     /// Index of the font in the file (if not known, set to 0) -
     /// only relevant if the file is a font collection
     pub font_index: u32,
-    /// Font metrics of this font
-    pub metrics: FontMetrics,
     // Since this type has to be defined in the
     pub parsed: *const c_void, // *const ParsedFont
     // destructor of the ParsedFont

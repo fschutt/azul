@@ -272,10 +272,10 @@ impl StyleAndLayoutChanges {
         image_cache: &ImageCache,
         renderer_resources: &mut RendererResources,
         window_size: LayoutSize,
-        pipeline_id: PipelineId,
+        pipeline_id: &PipelineId,
         css_changes: &BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
         callbacks_new_focus: &Option<Option<DomNodeId>>,
-        relayout_cb: fn(LayoutRect, &mut LayoutResult, &ImageCache, &mut RendererResources, PipelineId, &RelayoutNodes) -> RelayoutChanges
+        relayout_cb: fn(LayoutRect, &mut LayoutResult, &ImageCache, &mut RendererResources, &PipelineId, &RelayoutNodes) -> RelayoutChanges
     ) -> StyleAndLayoutChanges {
 
         // immediately restyle the DOM to reflect the new :hover, :active and :focus nodes

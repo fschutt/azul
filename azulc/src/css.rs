@@ -727,7 +727,7 @@ impl FormatAsRustCode for StyleFontFamily {
         match self {
             Native(id) => format!("StyleFontFamily::Native(AzString::from_const_str(\"{}\"))", id),
             File(path) => format!("StyleFontFamily::File(AzString::from_const_str(\"{}\"))", path),
-            Ref(font_ref) => format!("StyleFontFamily::Ref({})", font_ref.get_data().postscript_id.as_str().to_uppercase()),
+            Ref(font_ref) => format!("StyleFontFamily::Ref({:0x})", font_ref.data as usize),
         }
     }
 }

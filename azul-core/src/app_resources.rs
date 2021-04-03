@@ -5,7 +5,6 @@ use core::{
 };
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use alloc::borrow::Cow;
 use alloc::string::String;
 use azul_css::{
     LayoutRect, StyleFontSize, LayoutSize,
@@ -299,8 +298,8 @@ impl ImageRef {
             // NOTE: textures cannot be deep-copied yet (since the OpenGL calls for that are missing from the trait),
             // so calling clone() on a GL texture will result in an empty image
             DecodedImage::Gl(tex) => DecodedImage::NullImage { width: tex.size.width as usize, height: tex.size.height as usize, format: tex.format },
-            // WARNING: the data may still be a Cow::Borrowed<'static [u8]> - the data may still not be actually cloned
-            // The data only gets cloned on a write operation
+            // WARNING: the data may still be a U8Vec<'static> - the data may still not be
+            // actually cloned. The data only gets cloned on a write operation
             DecodedImage::Raw((descriptor, data)) => DecodedImage::Raw((descriptor.clone(), data.clone())),
             DecodedImage::Callback(cb) => DecodedImage::Callback(cb.clone()),
         };
@@ -765,7 +764,7 @@ impl RawImage {
             width,
             height,
             pixels,
-            data_format,
+            mut data_format,
             premultiplied_alpha,
         } = self;
 
@@ -778,26 +777,17 @@ impl RawImage {
 
         let expected_len = width * height;
 
-        let bytes = match data_format {
+        let bytes: U8Vec = match data_format {
             RawImageFormat::R8 => {
+                // just return the vec
                 let pixels = pixels.get_u8_vec()?;
 
                 if pixels.len() != expected_len {
                     return None;
                 }
 
-                let mut px = vec![0; expected_len * FOUR_BPP];
-
-                // TODO: check that this function is SIMD optimized
-                for (pixel_index, grey) in pixels.as_ref().iter().enumerate() {
-                    let grey = *grey;
-                    px[pixel_index * FOUR_BPP] = grey;
-                    px[(pixel_index * FOUR_BPP) + 1] = grey;
-                    px[(pixel_index * FOUR_BPP) + 2] = grey;
-                    px[(pixel_index * FOUR_BPP) + 3] = 0xff;
-                }
-
-                px
+                data_format = RawImageFormat::R8;
+                pixels
             },
             RawImageFormat::RG8 => {
                 let pixels = pixels.get_u8_vec()?;
@@ -808,6 +798,7 @@ impl RawImage {
 
                 let mut px = vec![0; expected_len * FOUR_BPP];
 
+                // TODO: premultiply alpha!
                 // TODO: check that this function is SIMD optimized
                 for (pixel_index, greyalpha) in pixels.as_ref().chunks_exact(TWO_CHANNELS).enumerate() {
 
@@ -822,7 +813,8 @@ impl RawImage {
                     px[(pixel_index * FOUR_BPP) + 3] = alpha;
                 }
 
-                px
+                data_format = RawImageFormat::BGRA8;
+                px.into()
             },
             RawImageFormat::RGB8 => {
                 let pixels = pixels.get_u8_vec()?;
@@ -846,7 +838,8 @@ impl RawImage {
                     px[(pixel_index * FOUR_BPP) + 3] = 0xff;
                 }
 
-                px
+                data_format = RawImageFormat::BGRA8;
+                px.into()
             },
             RawImageFormat::RGBA8 => {
                 let mut pixels: Vec<u8> = pixels.get_u8_vec()?.into_library_owned_vec();
@@ -880,7 +873,8 @@ impl RawImage {
                     }
                 }
 
-                pixels
+                data_format = RawImageFormat::BGRA8;
+                pixels.into()
             },
             RawImageFormat::R16 => {
                 let pixels = pixels.get_u16_vec()?;
@@ -900,7 +894,8 @@ impl RawImage {
                     px[(pixel_index * FOUR_BPP) + 3] = 0xff;
                 }
 
-                px
+                data_format = RawImageFormat::BGRA8;
+                px.into()
             },
             RawImageFormat::RG16 => {
                 let pixels = pixels.get_u16_vec()?;
@@ -925,7 +920,8 @@ impl RawImage {
                     px[(pixel_index * FOUR_BPP) + 3] = alpha_u8;
                 }
 
-                px
+                data_format = RawImageFormat::BGRA8;
+                px.into()
             },
             RawImageFormat::RGB16 => {
                 let pixels = pixels.get_u16_vec()?;
@@ -949,7 +945,8 @@ impl RawImage {
                     px[(pixel_index * FOUR_BPP) + 3] = 0xff;
                 }
 
-                px
+                data_format = RawImageFormat::BGRA8;
+                px.into()
             },
             RawImageFormat::RGBA16 => {
                 let pixels = pixels.get_u16_vec()?;
@@ -994,7 +991,8 @@ impl RawImage {
                     }
                 }
 
-                px
+                data_format = RawImageFormat::BGRA8;
+                px.into()
             },
             RawImageFormat::BGR8 => {
                 let pixels = pixels.get_u8_vec()?;
@@ -1018,33 +1016,40 @@ impl RawImage {
                     px[(pixel_index * FOUR_BPP) + 3] = 0xff;
                 }
 
-                px
+                data_format = RawImageFormat::BGRA8;
+                px.into()
             },
             RawImageFormat::BGRA8 => {
-                let mut pixels: Vec<u8> = pixels.get_u8_vec()?.into_library_owned_vec();
-
-                if pixels.len() != expected_len * FOUR_BPP {
-                    return None;
-                }
-
                 if premultiplied_alpha {
-                    for bgra in pixels.chunks_exact(FOUR_CHANNELS) {
-                        if bgra[3] != 255 { is_opaque = false; break; }
-                    }
+                    // DO NOT CLONE THE IMAGE HERE!
+                    let pixels = pixels.get_u8_vec()?;
+
+                    is_opaque = pixels
+                    .as_ref()
+                    .chunks_exact(FOUR_CHANNELS)
+                    .all(|bgra| bgra[3] == 255);
+
+                    pixels
                 } else {
+                    let mut pixels: Vec<u8> = pixels.get_u8_vec()?.into_library_owned_vec();
+
+                    if pixels.len() != expected_len * FOUR_BPP {
+                        return None;
+                    }
+
                     for bgra in pixels.chunks_exact_mut(FOUR_CHANNELS) {
                         if bgra[3] != 255 { is_opaque = false; }
                         premultiply_alpha(bgra);
                     }
+                    data_format = RawImageFormat::BGRA8;
+                    pixels.into()
                 }
-
-                pixels
             },
         };
 
-        let image_data = ImageData::Raw(bytes.into());
+        let image_data = ImageData::Raw(bytes);
         let image_descriptor = ImageDescriptor {
-            format: RawImageFormat::BGRA8,
+            format: data_format,
             width,
             height,
             offset: 0,
@@ -1828,7 +1833,7 @@ pub struct UpdateImage {
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct AddFont {
     pub key: FontKey,
-    pub font_bytes: Cow<'static, [u8]>,
+    pub font_bytes: U8Vec,
     pub font_index: u32,
 }
 

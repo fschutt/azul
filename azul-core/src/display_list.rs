@@ -573,7 +573,7 @@ pub struct GlTextureCache {
 unsafe impl Send for GlTextureCache { } // necessary so the display list can be built in parallel
 
 // todo: very unclean
-pub type LayoutFn = fn(StyledDom, &ImageCache, &FcFontCache, &mut Vec<ResourceUpdate>, IdNamespace, &PipelineId, Epoch, &RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
+pub type LayoutFn = fn(StyledDom, &ImageCache, &FcFontCache, &mut RendererResources, &mut Vec<ResourceUpdate>, IdNamespace, &PipelineId, Epoch, &RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
 #[cfg(feature = "opengl")]
 pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 
@@ -623,6 +623,7 @@ impl SolvedLayout {
             styled_dom,
             image_cache,
             system_fonts,
+            renderer_resources,
             all_resource_updates,
             id_namespace,
             pipeline_id,

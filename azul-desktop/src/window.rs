@@ -54,6 +54,7 @@ use azul_core::{
 use azul_css::{LayoutPoint, AzString, OptionAzString, LayoutSize};
 use glutin::monitor::MonitorHandle as WinitMonitorHandle;
 pub use azul_core::window::*;
+use rust_fontconfig::FcFontCache;
 
 // TODO: Right now it's not very ergonomic to cache shaders between
 // renderers - notify webrender about this.
@@ -519,7 +520,7 @@ impl Window {
 
         let mut txn = WrTransaction::new();
 
-        window.rebuild_display_list(&mut txn, &app_resources, initial_resource_updates);
+        window.rebuild_display_list(&mut txn, image_cache, initial_resource_updates);
         window.render_async(txn, /* display list was rebuilt */ true);
 
         Ok(window)
@@ -928,14 +929,21 @@ impl Window {
     }
 
     /// Calls the callbacks and restyles / re-layouts the self.layout_results if necessary
-    pub fn call_callbacks(&mut self, nodes_to_check: &NodesToCheck, events: &Events, gl_context: &GlContextPtr, app_resources: &mut AppResources, external_callbacks: &ExternalSystemCallbacks) -> CallCallbacksResult {
+    pub fn call_callbacks(
+        &mut self,
+        nodes_to_check: &NodesToCheck,
+        events: &Events,
+        gl_context: &OptionGlContextPtr,
+        image_cache: &mut ImageCache,
+        system_fonts: &mut FcFontCache,
+        external_callbacks: &ExternalSystemCallbacks
+    ) -> CallCallbacksResult {
         use azul_core::window_state::CallbacksOfHitTest;
 
         let mut callbacks = CallbacksOfHitTest::new(&nodes_to_check, &events, &self.internal.layout_results);
         let raw_window_handle = self.get_raw_window_handle();
         let current_scroll_states = self.internal.get_current_scroll_states();
 
-        // likely won't work because callbacks and &mut layout_results are borrowed
         callbacks.call(
             &self.internal.current_window_state,
             &raw_window_handle,
@@ -943,7 +951,8 @@ impl Window {
             gl_context,
             &mut self.internal.layout_results,
             &mut self.internal.scroll_states,
-            app_resources,
+            image_cache,
+            system_fonts,
             external_callbacks,
         )
     }

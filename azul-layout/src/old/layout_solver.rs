@@ -1435,7 +1435,7 @@ pub fn do_the_layout(
     renderer_resources: &mut RendererResources,
     all_resource_updates: &mut Vec<ResourceUpdate>,
     id_namespace: IdNamespace,
-    pipeline_id: PipelineId,
+    pipeline_id: &PipelineId,
     epoch: Epoch,
     callbacks: &RenderCallbacks,
     full_window_state: &FullWindowState,
@@ -1469,7 +1469,7 @@ pub fn do_the_layout(
                 fc_cache,
                 id_namespace,
                 epoch,
-                &pipeline_id,
+                pipeline_id,
                 all_resource_updates,
                 &styled_dom,
                 callbacks.load_font_fn,
@@ -1585,7 +1585,7 @@ pub fn do_the_layout_internal(
     parent_dom_id: Option<DomId>,
     styled_dom: StyledDom,
     renderer_resources: &mut RendererResources,
-    pipeline_id: PipelineId,
+    pipeline_id: &PipelineId,
     bounds: LogicalRect
 ) -> LayoutResult {
 
@@ -1832,7 +1832,7 @@ fn position_nodes<'a>(
     word_cache: &BTreeMap<NodeId, Words>,
     shaped_words: &BTreeMap<NodeId, ShapedWords>,
     word_positions: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-    pipeline_id: PipelineId,
+    pipeline_id: &PipelineId,
 ) {
 
     use azul_core::ui_solver::PositionInfo;
@@ -2251,7 +2251,7 @@ fn get_nodes_that_need_scroll_clip(
     node_hierarchy: &NodeDataContainerRef<AzNode>,
     layouted_rects: &NodeDataContainerRef<PositionedRectangle>,
     parents: &[ParentWithNodeDepth],
-    pipeline_id: PipelineId,
+    pipeline_id: &PipelineId,
 ) {
 
     use azul_core::ui_solver::{DirectionalOverflowInfo, OverflowingScrollNode, ExternalScrollId};
@@ -2323,7 +2323,7 @@ fn get_nodes_that_need_scroll_clip(
     // Insert all rectangles that need to scroll
     for (parent_id, (_, children_sum_rect)) in all_direct_overflows {
         let parent_dom_hash = dom_rects[parent_id].calculate_node_data_hash();
-        let parent_external_scroll_id = ExternalScrollId(parent_dom_hash.0, pipeline_id);
+        let parent_external_scroll_id = ExternalScrollId(parent_dom_hash.0, *pipeline_id);
         let scroll_tag_id = match display_list_rects[parent_id].tag_id.as_ref() {
             Some(s) => ScrollTagId(s.into_crate_internal()),
             None => ScrollTagId(TagId::unique()),
@@ -2353,7 +2353,7 @@ pub fn do_the_relayout(
     layout_result: &mut LayoutResult,
     image_cache: &ImageCache,
     renderer_resources: &mut RendererResources,
-    pipeline_id: PipelineId,
+    pipeline_id: &PipelineId,
     nodes_to_relayout: &BTreeMap<NodeId, Vec<ChangedCssProperty>>
 ) -> RelayoutChanges {
 
