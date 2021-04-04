@@ -88,7 +88,7 @@ impl Label {
 
         const CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-label"))];
 
-        let dom = Dom::label(self.string)
+        let dom = Dom::text(self.string)
         .with_ids_and_classes(IdOrClassVec::from(CLASSES));
 
         StyledDom::new(dom, self.style)

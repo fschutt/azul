@@ -533,7 +533,7 @@ pub mod prelude {
         dom::Dom,
         style::StyledDom,
         window::WindowCreateOptions,
-        callbacks::{RefAny, LayoutInfo},
+        callbacks::{RefAny, LayoutCallbackInfo, CallbackInfo},
     };
 }
 
@@ -587,14 +587,6 @@ mod dll {
     impl PartialEq for AzInstantPtrCloneFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzThreadSendFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
 
-    impl PartialEq for AzRefCount {
-        fn eq(&self, rhs: &Self) -> bool {
-            let ptr = unsafe { &*self.ptr };
-            let rhs = unsafe { &*rhs.ptr };
-            ptr.eq(rhs)
-        }
-    }
-
     impl PartialOrd for AzCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzLayoutCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzRenderImageCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
@@ -613,14 +605,6 @@ mod dll {
     impl PartialOrd for AzInstantPtrDestructorFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzInstantPtrCloneFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzThreadSendFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-
-    impl PartialOrd for AzRefCount {
-        fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> {
-            let ptr = unsafe { &*self.ptr };
-            let rhs = unsafe { &*rhs.ptr };
-            ptr.partial_cmp(rhs)
-        }
-    }
 
     #[cfg(not(feature = "link_static"))]    mod dynamic_link {
     use core::ffi::c_void;
@@ -1083,7 +1067,7 @@ mod dll {
     /// `AzRefAnyDestructorType` struct
     pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
     /// Re-export of rust-allocated (stack based) `RefCount` struct
-    #[repr(C)]     pub struct AzRefCount {
+    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRefCount {
         pub(crate) ptr: *const c_void,
     }
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
@@ -1865,6 +1849,14 @@ mod dll {
     #[repr(C)]  #[derive(Clone)]   pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+    /// Re-export of rust-allocated (stack based) `StyleFontFamilyVecDestructor` struct
+    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzStyleFontFamilyVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleFontFamilyVecDestructorType),
+    }
+    /// `AzStyleFontFamilyVecDestructorType` struct
+    pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
     /// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
     #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzTesselatedSvgNodeVecDestructor {
         DefaultRust,
@@ -3555,7 +3547,7 @@ mod dll {
         Some(AzFontRef),
     }
     /// Re-export of rust-allocated (stack based) `OptionSystemClipboard` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionSystemClipboard {
+    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionSystemClipboard {
         None,
         Some(AzSystemClipboard),
     }
@@ -4280,7 +4272,7 @@ mod dll {
     }
     /// Re-export of rust-allocated (stack based) `StyleFontFamily` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleFontFamily {
-        Native(AzString),
+        System(AzString),
         File(AzString),
         Ref(AzFontRef),
     }
@@ -4291,14 +4283,6 @@ mod dll {
         Inherit,
         Initial,
         Exact(AzScrollbarStyle),
-    }
-    /// Re-export of rust-allocated (stack based) `StyleFontFamilyValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleFontFamilyValue {
-        Auto,
-        None,
-        Inherit,
-        Initial,
-        Exact(AzStyleFontFamily),
     }
     /// Re-export of rust-allocated (stack based) `StyleTransformVecValue` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleTransformVecValue {
@@ -4392,6 +4376,13 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFmtArg {
         pub key: AzString,
         pub value: AzFmtValue,
+    }
+    /// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
+    #[repr(C)]     pub struct AzStyleFontFamilyVec {
+        pub(crate) ptr: *const AzStyleFontFamily,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzStyleFontFamilyVecDestructor,
     }
     /// Wrapper over a Rust-allocated `Vec<FmtArg>`
     #[repr(C)]     pub struct AzFmtArgVec {
@@ -4543,11 +4534,19 @@ mod dll {
         Initial,
         Exact(AzStyleBackgroundContentVec),
     }
+    /// Re-export of rust-allocated (stack based) `StyleFontFamilyVecValue` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleFontFamilyVecValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleFontFamilyVec),
+    }
     /// Parsed CSS key-value pair
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzCssProperty {
         TextColor(AzStyleTextColorValue),
         FontSize(AzStyleFontSizeValue),
-        FontFamily(AzStyleFontFamilyValue),
+        FontFamily(AzStyleFontFamilyVecValue),
         TextAlign(AzStyleTextAlignmentHorzValue),
         LetterSpacing(AzStyleLetterSpacingValue),
         LineHeight(AzStyleLineHeightValue),
@@ -5376,6 +5375,7 @@ mod dll {
         pub(crate) fn AzString_asRefstr(_:  &AzString) -> AzRefstr;
         pub(crate) fn AzTesselatedSvgNodeVec_asRefVec(_:  &AzTesselatedSvgNodeVec) -> AzTesselatedSvgNodeVecRef;
         pub(crate) fn AzTesselatedSvgNodeVec_delete(_:  &mut AzTesselatedSvgNodeVec);
+        pub(crate) fn AzStyleFontFamilyVec_delete(_:  &mut AzStyleFontFamilyVec);
         pub(crate) fn AzXmlNodeVec_delete(_:  &mut AzXmlNodeVec);
         pub(crate) fn AzFmtArgVec_delete(_:  &mut AzFmtArgVec);
         pub(crate) fn AzInlineLineVec_delete(_:  &mut AzInlineLineVec);
@@ -5843,7 +5843,7 @@ pub mod callbacks {
             let s = unsafe { crate::dll::AzRefAny_newC(
                 (&value as *const T) as *const c_void,
                 ::core::mem::size_of::<T>(),
-                Self::get_type_id::<T>(),
+                Self::type_id::<T>(),
                 st,
                 default_custom_destructor::<T>,
             ) };
@@ -5854,7 +5854,7 @@ pub mod callbacks {
         /// Downcasts the type-erased pointer to a type `&U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_ref<'a, U: 'static>(&'a mut self) -> Option<Ref<'a, U>> {
-            let is_same_type = self.is_type(Self::get_type_id::<U>());
+            let is_same_type = self.get_type_id() == Self::type_id::<U>();
             if !is_same_type { return None; }
 
             let can_be_shared = self.sharing_info.can_be_shared();
@@ -5870,7 +5870,7 @@ pub mod callbacks {
         /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<RefMut<'a, U>> {
-            let is_same_type = self.is_type(Self::get_type_id::<U>());
+            let is_same_type = self.get_type_id() == Self::type_id::<U>();
             if !is_same_type { return None; }
 
             let can_be_shared_mut = self.sharing_info.can_be_shared_mut();
@@ -5886,7 +5886,7 @@ pub mod callbacks {
 
         // Returns the typeid of `T` as a u64 (necessary because `core::any::TypeId` is not C-ABI compatible)
         #[inline]
-        pub fn get_type_id<T: 'static>() -> u64 {
+        pub fn type_id<T: 'static>() -> u64 {
             use core::any::TypeId;
             use core::mem;
 
@@ -6162,11 +6162,8 @@ pub mod dom {
     use crate::option::OptionRefAny;
     use crate::callbacks::IFrameCallback;
     use crate::callbacks::IFrameCallbackType;
-    use crate::callbacks::GlCallback;
-    use crate::callbacks::GlCallbackType;
     use crate::callbacks::RefAny;
-    use crate::image::ImageId;
-    use crate::font::FontId;
+    use crate::image::ImageRef;
     use crate::vec::DomVec;
     use crate::vec::IdOrClassVec;
     use crate::vec::CallbackDataVec;
@@ -6193,17 +6190,11 @@ pub mod dom {
         #[inline(always)]
         pub const fn br() -> Self { Self::new(NodeType::Br) }
         #[inline(always)]
-        pub fn label<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Label(value.into())) }
+        pub fn text<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Text(value.into())) }
         #[inline(always)]
-        pub const fn image(image: ImageId) -> Self { Self::new(NodeType::Image(image)) }
-        #[inline(always)]
-        #[cfg(feature = "opengl")]
-        pub fn gl_texture(data: RefAny, callback: GlCallbackType) -> Self { Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data })) }
+        pub fn image(image: ImageRef) -> Self { Self::new(NodeType::Image(image)) }
         #[inline(always)]
         pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data })) }
-        /// Shorthand for `Dom::default()`.
-        #[inline(always)]
-        pub const fn const_default() -> Self { Self::div() }
 
         #[inline(always)]
         pub fn with_dataset(mut self, data: RefAny) -> Self { self.set_dataset(data); self }
@@ -6276,28 +6267,16 @@ pub mod dom {
             Self::new(NodeType::Br)
         }
 
-        /// Shorthand for `NodeData::default()`.
+        /// Shorthand for `NodeData::new(NodeType::Text(value.into()))`
         #[inline(always)]
-        pub const fn const_default() -> Self {
-            Self::div()
-        }
-
-        /// Shorthand for `NodeData::new(NodeType::Label(value.into()))`
-        #[inline(always)]
-        pub fn label<S: Into<AzString>>(value: S) -> Self {
-            Self::new(NodeType::Label(value.into()))
+        pub fn text<S: Into<AzString>>(value: S) -> Self {
+            Self::new(NodeType::Text(value.into()))
         }
 
         /// Shorthand for `NodeData::new(NodeType::Image(image_id))`
         #[inline(always)]
-        pub fn image(image: ImageId) -> Self {
+        pub fn image(image: ImageRef) -> Self {
             Self::new(NodeType::Image(image))
-        }
-
-        #[inline(always)]
-        #[cfg(feature = "opengl")]
-        pub fn gl_texture(data: RefAny, callback: GlCallbackType) -> Self {
-            Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data }))
         }
 
         #[inline(always)]
@@ -6357,13 +6336,13 @@ pub mod dom {
 
     impl Default for Dom {
         fn default() -> Self {
-            Dom::const_default()
+            Dom::div()
         }
     }
 
     impl Default for NodeData {
         fn default() -> Self {
-            NodeData::const_default()
+            NodeData::new(NodeType::Div)
         }
     }
 
@@ -6490,13 +6469,20 @@ pub mod css {
     //! `Css` parsing module
     use crate::dll::*;
     use core::ffi::c_void;
-    use crate::vec::{StyleBackgroundPositionVec, StyleBackgroundContentVec, StyleBackgroundSizeVec, StyleBackgroundRepeatVec, StyleTransformVec};
+    use crate::vec::{
+        StyleBackgroundPositionVec,
+        StyleBackgroundContentVec,
+        StyleBackgroundSizeVec,
+        StyleBackgroundRepeatVec,
+        StyleTransformVec,
+        StyleFontFamilyVec,
+    };
 
     macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => ({
         match $prop_type {
             CssPropertyType::TextColor => CssProperty::TextColor(StyleTextColorValue::$content_type),
             CssPropertyType::FontSize => CssProperty::FontSize(StyleFontSizeValue::$content_type),
-            CssPropertyType::FontFamily => CssProperty::FontFamily(StyleFontFamilyValue::$content_type),
+            CssPropertyType::FontFamily => CssProperty::FontFamily(StyleFontFamilyVecValue::$content_type),
             CssPropertyType::TextAlign => CssProperty::TextAlign(StyleTextAlignmentHorzValue::$content_type),
             CssPropertyType::LetterSpacing => CssProperty::LetterSpacing(StyleLetterSpacingValue::$content_type),
             CssPropertyType::LineHeight => CssProperty::LineHeight(StyleLineHeightValue::$content_type),
@@ -6656,7 +6642,7 @@ pub mod css {
 
         pub const fn text_color(input: StyleTextColor) -> Self { CssProperty::TextColor(StyleTextColorValue::Exact(input)) }
         pub const fn font_size(input: StyleFontSize) -> Self { CssProperty::FontSize(StyleFontSizeValue::Exact(input)) }
-        pub const fn font_family(input: StyleFontFamily) -> Self { CssProperty::FontFamily(StyleFontFamilyValue::Exact(input)) }
+        pub const fn font_family(input: StyleFontFamilyVec) -> Self { CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(input)) }
         pub const fn text_align(input: StyleTextAlignmentHorz) -> Self { CssProperty::TextAlign(StyleTextAlignmentHorzValue::Exact(input)) }
         pub const fn letter_spacing(input: StyleLetterSpacing) -> Self { CssProperty::LetterSpacing(StyleLetterSpacingValue::Exact(input)) }
         pub const fn line_height(input: StyleLineHeight) -> Self { CssProperty::LineHeight(StyleLineHeightValue::Exact(input)) }
@@ -6729,7 +6715,7 @@ pub mod css {
         pub const fn as_background_size(&self) -> Option<&StyleBackgroundSizeVecValue> { match self { CssProperty::BackgroundSize(f) => Some(f), _ => None, } }
         pub const fn as_background_repeat(&self) -> Option<&StyleBackgroundRepeatVecValue> { match self { CssProperty::BackgroundRepeat(f) => Some(f), _ => None, } }
         pub const fn as_font_size(&self) -> Option<&StyleFontSizeValue> { match self { CssProperty::FontSize(f) => Some(f), _ => None, } }
-        pub const fn as_font_family(&self) -> Option<&StyleFontFamilyValue> { match self { CssProperty::FontFamily(f) => Some(f), _ => None, } }
+        pub const fn as_font_family(&self) -> Option<&StyleFontFamilyVecValue> { match self { CssProperty::FontFamily(f) => Some(f), _ => None, } }
         pub const fn as_text_color(&self) -> Option<&StyleTextColorValue> { match self { CssProperty::TextColor(f) => Some(f), _ => None, } }
         pub const fn as_text_align(&self) -> Option<&StyleTextAlignmentHorzValue> { match self { CssProperty::TextAlign(f) => Some(f), _ => None, } }
         pub const fn as_line_height(&self) -> Option<&StyleLineHeightValue> { match self { CssProperty::LineHeight(f) => Some(f), _ => None, } }
@@ -7683,9 +7669,9 @@ pub mod css {
     /// `StyleCursorValue` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleCursorValue as StyleCursorValue;
-    /// `StyleFontFamilyValue` struct
+    /// `StyleFontFamilyVecValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleFontFamilyValue as StyleFontFamilyValue;
+#[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecValue as StyleFontFamilyVecValue;
     /// `StyleFontSizeValue` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleFontSizeValue as StyleFontSizeValue;
@@ -10961,6 +10947,8 @@ pub mod vec {
     impl_vec_clone!(AzVideoMode, AzVideoModeVec, AzVideoModeVecDestructor);
     impl_vec!(AzMonitor, AzMonitorVec, AzMonitorVecDestructor, az_monitor_vec_destructor, AzMonitorVec_delete);
     impl_vec_clone!(AzMonitor, AzMonitorVec, AzMonitorVecDestructor);
+    impl_vec!(AzStyleFontFamily, AzStyleFontFamilyVec, AzStyleFontFamilyVecDestructor, az_style_font_family_vec_destructor, AzStyleFontFamilyVec_delete);
+    impl_vec_clone!(AzStyleFontFamily, AzStyleFontFamilyVec, AzStyleFontFamilyVecDestructor);
 
     impl From<vec::Vec<string::String>> for crate::vec::StringVec {
         fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {
@@ -10976,6 +10964,9 @@ pub mod vec {
         pub fn as_ref_vec(&self)  -> crate::svg::TesselatedSvgNodeVecRef { unsafe { crate::dll::AzTesselatedSvgNodeVec_asRefVec(self) } }
     }
 
+    /// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
+    
+#[doc(inline)] pub use crate::dll::AzStyleFontFamilyVec as StyleFontFamilyVec;
     /// Wrapper over a Rust-allocated `Vec<XmlNode>`
     
 #[doc(inline)] pub use crate::dll::AzXmlNodeVec as XmlNodeVec;
@@ -11125,6 +11116,12 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `NodeDataVec`
     
 #[doc(inline)] pub use crate::dll::AzNodeDataVec as NodeDataVec;
+    /// `StyleFontFamilyVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecDestructor as StyleFontFamilyVecDestructor;
+    /// `StyleFontFamilyVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecDestructorType as StyleFontFamilyVecDestructorType;
     /// `TesselatedSvgNodeVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzTesselatedSvgNodeVecDestructor as TesselatedSvgNodeVecDestructor;

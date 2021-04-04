@@ -16,7 +16,7 @@ pub mod prelude {
         dom::Dom,
         style::StyledDom,
         window::WindowCreateOptions,
-        callbacks::{RefAny, LayoutInfo},
+        callbacks::{RefAny, LayoutCallbackInfo, CallbackInfo},
     };
 }
 

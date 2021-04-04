@@ -795,7 +795,7 @@ def generate_structs(api_data, structs_map, autoderive):
             if not(class_can_be_cloned) or (treat_external_as_ptr and class_can_be_cloned):
                 opt_derive_clone = ""
 
-            if class_has_custom_destructor or not(autoderive) or struct_name == "AzRefCount" or struct_name == "AzU8VecRef":
+            if class_has_custom_destructor or not(autoderive) or struct_name == "AzU8VecRef":
                 opt_derive_copy = ""
                 opt_derive_debug = ""
                 opt_derive_clone = ""

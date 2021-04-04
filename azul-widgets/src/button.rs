@@ -1,7 +1,7 @@
 use azul::{
     dom::TabIndex,
     style::StyledDom,
-    image::ImageId,
+    image::ImageRef,
     css::Css,
     str::String as AzString,
 };
@@ -14,7 +14,7 @@ pub struct Button {
 
 #[derive(Debug, Clone)]
 pub enum ButtonContent {
-    Image(ImageId),
+    Image(ImageRef),
     // Buttons should only contain short amounts of text
     Text(AzString),
 }
@@ -28,7 +28,7 @@ impl Button {
         }
     }
 
-    pub fn image(image: ImageId) -> Self {
+    pub fn image(image: ImageRef) -> Self {
         Self {
             content: ButtonContent::Image(image),
             style: Self::native_css(),
@@ -138,7 +138,7 @@ impl Button {
         use azul::dom::{Dom, IdOrClass, IdOrClass::Class};
 
         let content = match self.content {
-            Text(s) => Dom::label(s),
+            Text(s) => Dom::text(s),
             Image(i) => Dom::image(i),
         };
 

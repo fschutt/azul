@@ -145,9 +145,9 @@ impl TableViewState {
         use azul::css::*;
         use azul::str::String as AzString;
         use azul::vec::DomVec as AzDomVec;
-        use azul::vec::StringVec as AzStringVec;
         use azul::vec::StyleBackgroundContentVec;
         use azul::vec::NodeDataInlineCssPropertyVec;
+        use azul::vec::StyleFontFamilyVec;
         use azul::vec::StyleTransformVec;
         use azul::vec::IdOrClassVec;
         use azul::dom::IdOrClass;
@@ -155,8 +155,8 @@ impl TableViewState {
         use azul::dom::NodeDataInlineCssProperty::Normal;
 
         const FONT_STRING: AzString = AzString::from_const_str("sans-serif");
-        const FONT_VEC: &[AzString] = &[FONT_STRING];
-        const SANS_SERIF_FONT_FAMILY: StyleFontFamily = StyleFontFamily { fonts: AzStringVec::from_const_slice(FONT_VEC) };
+        const FONT_VEC: &[StyleFontFamily] = &[StyleFontFamily::System(FONT_STRING)];
+        const SANS_SERIF_FONT_FAMILY: StyleFontFamilyVec = StyleFontFamilyVec::from_const_slice(FONT_VEC);
 
         const COLOR_407C40: ColorU = ColorU { r: 64, g: 124, b: 64, a: 255 }; // green
         const COLOR_2D2D2D: ColorU = ColorU { r: 45, g: 45, b: 45, a: 255 };
@@ -233,7 +233,7 @@ impl TableViewState {
             ];
 
             // NOTE: to_string() heap allocation is unavoidable
-            NodeData::label((row_idx + 1).to_string())
+            NodeData::text((row_idx + 1).to_string())
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ROW_NUMBERS_CLASS))
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROW_NUMBERS_STYLE))
         })
@@ -343,7 +343,7 @@ impl TableViewState {
             ];
             static ROWS_IN_COLUMN_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-rows"))];
 
-            let column_names = Dom::label(column_name_from_number(col_idx))
+            let column_names = Dom::text(column_name_from_number(col_idx))
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COLUMN_NAME_CLASS))
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMN_NAME_STYLE));
 
@@ -351,8 +351,8 @@ impl TableViewState {
             let rows_in_this_column = (rows.start..rows.end).map(|row_idx| {
 
                     let node_type = match self.get_cell_content(&TableCellIndex { row: row_idx, column: col_idx }) {
-                        Some(string) => NodeType::Label(string.clone().into()),
-                        None => NodeType::Label(DEFAULT_TABLE_CELL_STRING),
+                        Some(string) => NodeType::Text(string.clone().into()),
+                        None => NodeType::Text(DEFAULT_TABLE_CELL_STRING),
                     };
 
                     static CELL_STYLE: &[NodeDataInlineCssProperty] = &[
@@ -466,7 +466,7 @@ impl TableView {
 
         let table_view_state = state.downcast_ref::<TableViewState>().unwrap();
 
-        let logical_size = info.get_bounds().get_logical_size();
+        let logical_size = info.bounds.get_logical_size();
         let padding_rows = 0;
         let padding_columns = 0;
         let row_start = 0; // bounds.top / table_view_state.row_height

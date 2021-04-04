@@ -1249,9 +1249,9 @@ pub use AzLayoutBorderTopWidthValueTT as AzLayoutBorderTopWidthValue;
 pub type AzStyleCursorValueTT = azul_impl::css::CssPropertyValue::<AzStyleCursor>;
 pub use AzStyleCursorValueTT as AzStyleCursorValue;
 
-/// Re-export of rust-allocated (stack based) `StyleFontFamilyValue` struct
-pub type AzStyleFontFamilyValueTT = azul_impl::css::CssPropertyValue::<AzStyleFontFamily>;
-pub use AzStyleFontFamilyValueTT as AzStyleFontFamilyValue;
+/// Re-export of rust-allocated (stack based) `StyleFontFamilyVecValue` struct
+pub type AzStyleFontFamilyVecValueTT = azul_impl::css::CssPropertyValue::<AzStyleFontFamilyVec>;
+pub use AzStyleFontFamilyVecValueTT as AzStyleFontFamilyVecValue;
 
 /// Re-export of rust-allocated (stack based) `StyleFontSizeValue` struct
 pub type AzStyleFontSizeValueTT = azul_impl::css::CssPropertyValue::<AzStyleFontSize>;
@@ -2447,6 +2447,12 @@ pub use AzTesselatedSvgNodeVecTT as AzTesselatedSvgNodeVec;
 /// Destructor: Takes ownership of the `TesselatedSvgNodeVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzTesselatedSvgNodeVec_delete(object: &mut AzTesselatedSvgNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
+pub type AzStyleFontFamilyVecTT = azul_impl::css::StyleFontFamilyVec;
+pub use AzStyleFontFamilyVecTT as AzStyleFontFamilyVec;
+/// Destructor: Takes ownership of the `StyleFontFamilyVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStyleFontFamilyVec_delete(object: &mut AzStyleFontFamilyVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Wrapper over a Rust-allocated `Vec<XmlNode>`
 pub type AzXmlNodeVecTT = azul_impl::xml::XmlNodeVec;
 pub use AzXmlNodeVecTT as AzXmlNodeVec;
@@ -2737,6 +2743,11 @@ pub use AzNodeDataVecTT as AzNodeDataVec;
 /// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzNodeDataVec_delete(object: &mut AzNodeDataVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `StyleFontFamilyVecDestructor` struct
+pub type AzStyleFontFamilyVecDestructorTT = azul_impl::css::StyleFontFamilyVecDestructor;
+pub use AzStyleFontFamilyVecDestructorTT as AzStyleFontFamilyVecDestructor;
+
+pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
 /// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
 pub type AzTesselatedSvgNodeVecDestructorTT = azul_impl::svg::TesselatedSvgNodeVecDestructor;
 pub use AzTesselatedSvgNodeVecDestructorTT as AzTesselatedSvgNodeVecDestructor;
@@ -4624,6 +4635,14 @@ mod test_sizes {
     #[repr(C)]     pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+    /// Re-export of rust-allocated (stack based) `StyleFontFamilyVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzStyleFontFamilyVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleFontFamilyVecDestructorType),
+    }
+    /// `AzStyleFontFamilyVecDestructorType` struct
+    pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
     /// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
     #[repr(C, u8)]     pub enum AzTesselatedSvgNodeVecDestructor {
         DefaultRust,
@@ -7039,7 +7058,7 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `StyleFontFamily` struct
     #[repr(C, u8)]     pub enum AzStyleFontFamily {
-        Native(AzString),
+        System(AzString),
         File(AzString),
         Ref(AzFontRef),
     }
@@ -7050,14 +7069,6 @@ mod test_sizes {
         Inherit,
         Initial,
         Exact(AzScrollbarStyle),
-    }
-    /// Re-export of rust-allocated (stack based) `StyleFontFamilyValue` struct
-    #[repr(C, u8)]     pub enum AzStyleFontFamilyValue {
-        Auto,
-        None,
-        Inherit,
-        Initial,
-        Exact(AzStyleFontFamily),
     }
     /// Re-export of rust-allocated (stack based) `StyleTransformVecValue` struct
     #[repr(C, u8)]     pub enum AzStyleTransformVecValue {
@@ -7151,6 +7162,13 @@ mod test_sizes {
     #[repr(C)]     pub struct AzFmtArg {
         pub key: AzString,
         pub value: AzFmtValue,
+    }
+    /// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
+    #[repr(C)]     pub struct AzStyleFontFamilyVec {
+        pub(crate) ptr: *const AzStyleFontFamily,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzStyleFontFamilyVecDestructor,
     }
     /// Wrapper over a Rust-allocated `Vec<FmtArg>`
     #[repr(C)]     pub struct AzFmtArgVec {
@@ -7302,11 +7320,19 @@ mod test_sizes {
         Initial,
         Exact(AzStyleBackgroundContentVec),
     }
+    /// Re-export of rust-allocated (stack based) `StyleFontFamilyVecValue` struct
+    #[repr(C, u8)]     pub enum AzStyleFontFamilyVecValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleFontFamilyVec),
+    }
     /// Parsed CSS key-value pair
     #[repr(C, u8)]     pub enum AzCssProperty {
         TextColor(AzStyleTextColorValue),
         FontSize(AzStyleFontSizeValue),
-        FontFamily(AzStyleFontFamilyValue),
+        FontFamily(AzStyleFontFamilyVecValue),
         TextAlign(AzStyleTextAlignmentHorzValue),
         LetterSpacing(AzStyleLetterSpacingValue),
         LineHeight(AzStyleLineHeightValue),
@@ -7873,6 +7899,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadDestructorCallback>(), "AzThreadDestructorFn"), (Layout::new::<AzThreadDestructorFn>(), "AzThreadDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"), (Layout::new::<AzStyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::TesselatedSvgNodeVecDestructor>(), "AzTesselatedSvgNodeVecDestructor"), (Layout::new::<AzTesselatedSvgNodeVecDestructor>(), "AzTesselatedSvgNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"), (Layout::new::<AzXmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::str::FmtArgVecDestructor>(), "AzFmtArgVecDestructor"), (Layout::new::<AzFmtArgVecDestructor>(), "AzFmtArgVecDestructor"));
@@ -8227,7 +8254,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::ScrollbarStyle>(), "AzScrollbarStyle"), (Layout::new::<AzScrollbarStyle>(), "AzScrollbarStyle"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamily>(), "AzStyleFontFamily"), (Layout::new::<AzStyleFontFamily>(), "AzStyleFontFamily"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzScrollbarStyle>>(), "AzScrollbarStyleValue"), (Layout::new::<AzScrollbarStyleValue>(), "AzScrollbarStyleValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleFontFamily>>(), "AzStyleFontFamilyValue"), (Layout::new::<AzStyleFontFamilyValue>(), "AzStyleFontFamilyValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTransformVec>>(), "AzStyleTransformVecValue"), (Layout::new::<AzStyleTransformVecValue>(), "AzStyleTransformVecValue"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttribute>(), "AzVertexAttribute"), (Layout::new::<AzVertexAttribute>(), "AzVertexAttribute"));
         assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessage>(), "AzDebugMessage"), (Layout::new::<AzDebugMessage>(), "AzDebugMessage"));
@@ -8240,6 +8266,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dialogs::FileTypeList>(), "AzFileTypeList"), (Layout::new::<AzFileTypeList>(), "AzFileTypeList"));
         assert_eq!((Layout::new::<azul_impl::str::FmtValue>(), "AzFmtValue"), (Layout::new::<AzFmtValue>(), "AzFmtValue"));
         assert_eq!((Layout::new::<azul_impl::str::FmtArg>(), "AzFmtArg"), (Layout::new::<AzFmtArg>(), "AzFmtArg"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVec>(), "AzStyleFontFamilyVec"), (Layout::new::<AzStyleFontFamilyVec>(), "AzStyleFontFamilyVec"));
         assert_eq!((Layout::new::<azul_impl::str::FmtArgVec>(), "AzFmtArgVec"), (Layout::new::<AzFmtArgVec>(), "AzFmtArgVec"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineWordVec>(), "AzInlineWordVec"), (Layout::new::<AzInlineWordVec>(), "AzInlineWordVec"));
         assert_eq!((Layout::new::<azul_impl::window::MonitorVec>(), "AzMonitorVec"), (Layout::new::<AzMonitorVec>(), "AzMonitorVec"));
@@ -8261,6 +8288,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineLine>(), "AzInlineLine"), (Layout::new::<AzInlineLine>(), "AzInlineLine"));
         assert_eq!((Layout::new::<azul_impl::css::CssPath>(), "AzCssPath"), (Layout::new::<AzCssPath>(), "AzCssPath"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBackgroundContentVec>>(), "AzStyleBackgroundContentVecValue"), (Layout::new::<AzStyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleFontFamilyVec>>(), "AzStyleFontFamilyVecValue"), (Layout::new::<AzStyleFontFamilyVecValue>(), "AzStyleFontFamilyVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssProperty>(), "AzCssProperty"), (Layout::new::<AzCssProperty>(), "AzCssProperty"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::CssPropertySource>(), "AzCssPropertySource"), (Layout::new::<AzCssPropertySource>(), "AzCssPropertySource"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexLayout>(), "AzVertexLayout"), (Layout::new::<AzVertexLayout>(), "AzVertexLayout"));

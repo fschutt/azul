@@ -71,7 +71,7 @@
             let s = unsafe { crate::dll::AzRefAny_newC(
                 (&value as *const T) as *const c_void,
                 ::core::mem::size_of::<T>(),
-                Self::get_type_id::<T>(),
+                Self::type_id::<T>(),
                 st,
                 default_custom_destructor::<T>,
             ) };
@@ -82,7 +82,7 @@
         /// Downcasts the type-erased pointer to a type `&U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_ref<'a, U: 'static>(&'a mut self) -> Option<Ref<'a, U>> {
-            let is_same_type = self.is_type(Self::get_type_id::<U>());
+            let is_same_type = self.get_type_id() == Self::type_id::<U>();
             if !is_same_type { return None; }
 
             let can_be_shared = self.sharing_info.can_be_shared();
@@ -98,7 +98,7 @@
         /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<RefMut<'a, U>> {
-            let is_same_type = self.is_type(Self::get_type_id::<U>());
+            let is_same_type = self.get_type_id() == Self::type_id::<U>();
             if !is_same_type { return None; }
 
             let can_be_shared_mut = self.sharing_info.can_be_shared_mut();
@@ -114,7 +114,7 @@
 
         // Returns the typeid of `T` as a u64 (necessary because `core::any::TypeId` is not C-ABI compatible)
         #[inline]
-        pub fn get_type_id<T: 'static>() -> u64 {
+        pub fn type_id<T: 'static>() -> u64 {
             use core::any::TypeId;
             use core::mem;
 

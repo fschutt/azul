@@ -114,6 +114,10 @@ typedef void (*AzThreadReceiverDestructorFnType)(AzThreadReceiver* restrict A);
 
 typedef void (*AzThreadSenderDestructorFnType)(AzThreadSender* restrict A);
 
+struct AzStyleFontFamilyVec;
+typedef struct AzStyleFontFamilyVec AzStyleFontFamilyVec;
+typedef void (*AzStyleFontFamilyVecDestructorType)(AzStyleFontFamilyVec* restrict A);
+
 struct AzTesselatedSvgNodeVec;
 typedef struct AzTesselatedSvgNodeVec AzTesselatedSvgNodeVec;
 typedef void (*AzTesselatedSvgNodeVecDestructorType)(AzTesselatedSvgNodeVec* restrict A);
@@ -1713,6 +1717,29 @@ struct AzThreadSenderDestructorFn {
     AzThreadSenderDestructorFnType cb;
 };
 typedef struct AzThreadSenderDestructorFn AzThreadSenderDestructorFn;
+
+enum AzStyleFontFamilyVecDestructorTag {
+   AzStyleFontFamilyVecDestructorTag_DefaultRust,
+   AzStyleFontFamilyVecDestructorTag_NoDestructor,
+   AzStyleFontFamilyVecDestructorTag_External,
+};
+typedef enum AzStyleFontFamilyVecDestructorTag AzStyleFontFamilyVecDestructorTag;
+
+struct AzStyleFontFamilyVecDestructorVariant_DefaultRust { AzStyleFontFamilyVecDestructorTag tag; };
+typedef struct AzStyleFontFamilyVecDestructorVariant_DefaultRust AzStyleFontFamilyVecDestructorVariant_DefaultRust;
+struct AzStyleFontFamilyVecDestructorVariant_NoDestructor { AzStyleFontFamilyVecDestructorTag tag; };
+typedef struct AzStyleFontFamilyVecDestructorVariant_NoDestructor AzStyleFontFamilyVecDestructorVariant_NoDestructor;
+struct AzStyleFontFamilyVecDestructorVariant_External { AzStyleFontFamilyVecDestructorTag tag; AzStyleFontFamilyVecDestructorType payload; };
+typedef struct AzStyleFontFamilyVecDestructorVariant_External AzStyleFontFamilyVecDestructorVariant_External;
+union AzStyleFontFamilyVecDestructor {
+    AzStyleFontFamilyVecDestructorVariant_DefaultRust DefaultRust;
+    AzStyleFontFamilyVecDestructorVariant_NoDestructor NoDestructor;
+    AzStyleFontFamilyVecDestructorVariant_External External;
+};
+typedef union AzStyleFontFamilyVecDestructor AzStyleFontFamilyVecDestructor;
+#define AzStyleFontFamilyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleFontFamilyVecDestructorTag_DefaultRust } }
+#define AzStyleFontFamilyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleFontFamilyVecDestructorTag_NoDestructor } }
+#define AzStyleFontFamilyVecDestructor_External(v) { .External = { .tag = AzStyleFontFamilyVecDestructorTag_External, .payload = v } }
 
 enum AzTesselatedSvgNodeVecDestructorTag {
    AzTesselatedSvgNodeVecDestructorTag_DefaultRust,
@@ -7774,25 +7801,25 @@ struct AzScrollbarStyle {
 typedef struct AzScrollbarStyle AzScrollbarStyle;
 
 enum AzStyleFontFamilyTag {
-   AzStyleFontFamilyTag_Native,
+   AzStyleFontFamilyTag_System,
    AzStyleFontFamilyTag_File,
    AzStyleFontFamilyTag_Ref,
 };
 typedef enum AzStyleFontFamilyTag AzStyleFontFamilyTag;
 
-struct AzStyleFontFamilyVariant_Native { AzStyleFontFamilyTag tag; AzString payload; };
-typedef struct AzStyleFontFamilyVariant_Native AzStyleFontFamilyVariant_Native;
+struct AzStyleFontFamilyVariant_System { AzStyleFontFamilyTag tag; AzString payload; };
+typedef struct AzStyleFontFamilyVariant_System AzStyleFontFamilyVariant_System;
 struct AzStyleFontFamilyVariant_File { AzStyleFontFamilyTag tag; AzString payload; };
 typedef struct AzStyleFontFamilyVariant_File AzStyleFontFamilyVariant_File;
 struct AzStyleFontFamilyVariant_Ref { AzStyleFontFamilyTag tag; AzFontRef payload; };
 typedef struct AzStyleFontFamilyVariant_Ref AzStyleFontFamilyVariant_Ref;
 union AzStyleFontFamily {
-    AzStyleFontFamilyVariant_Native Native;
+    AzStyleFontFamilyVariant_System System;
     AzStyleFontFamilyVariant_File File;
     AzStyleFontFamilyVariant_Ref Ref;
 };
 typedef union AzStyleFontFamily AzStyleFontFamily;
-#define AzStyleFontFamily_Native(v) { .Native = { .tag = AzStyleFontFamilyTag_Native, .payload = v } }
+#define AzStyleFontFamily_System(v) { .System = { .tag = AzStyleFontFamilyTag_System, .payload = v } }
 #define AzStyleFontFamily_File(v) { .File = { .tag = AzStyleFontFamilyTag_File, .payload = v } }
 #define AzStyleFontFamily_Ref(v) { .Ref = { .tag = AzStyleFontFamilyTag_Ref, .payload = v } }
 
@@ -7828,39 +7855,6 @@ typedef union AzScrollbarStyleValue AzScrollbarStyleValue;
 #define AzScrollbarStyleValue_Inherit { .Inherit = { .tag = AzScrollbarStyleValueTag_Inherit } }
 #define AzScrollbarStyleValue_Initial { .Initial = { .tag = AzScrollbarStyleValueTag_Initial } }
 #define AzScrollbarStyleValue_Exact(v) { .Exact = { .tag = AzScrollbarStyleValueTag_Exact, .payload = v } }
-
-enum AzStyleFontFamilyValueTag {
-   AzStyleFontFamilyValueTag_Auto,
-   AzStyleFontFamilyValueTag_None,
-   AzStyleFontFamilyValueTag_Inherit,
-   AzStyleFontFamilyValueTag_Initial,
-   AzStyleFontFamilyValueTag_Exact,
-};
-typedef enum AzStyleFontFamilyValueTag AzStyleFontFamilyValueTag;
-
-struct AzStyleFontFamilyValueVariant_Auto { AzStyleFontFamilyValueTag tag; };
-typedef struct AzStyleFontFamilyValueVariant_Auto AzStyleFontFamilyValueVariant_Auto;
-struct AzStyleFontFamilyValueVariant_None { AzStyleFontFamilyValueTag tag; };
-typedef struct AzStyleFontFamilyValueVariant_None AzStyleFontFamilyValueVariant_None;
-struct AzStyleFontFamilyValueVariant_Inherit { AzStyleFontFamilyValueTag tag; };
-typedef struct AzStyleFontFamilyValueVariant_Inherit AzStyleFontFamilyValueVariant_Inherit;
-struct AzStyleFontFamilyValueVariant_Initial { AzStyleFontFamilyValueTag tag; };
-typedef struct AzStyleFontFamilyValueVariant_Initial AzStyleFontFamilyValueVariant_Initial;
-struct AzStyleFontFamilyValueVariant_Exact { AzStyleFontFamilyValueTag tag; AzStyleFontFamily payload; };
-typedef struct AzStyleFontFamilyValueVariant_Exact AzStyleFontFamilyValueVariant_Exact;
-union AzStyleFontFamilyValue {
-    AzStyleFontFamilyValueVariant_Auto Auto;
-    AzStyleFontFamilyValueVariant_None None;
-    AzStyleFontFamilyValueVariant_Inherit Inherit;
-    AzStyleFontFamilyValueVariant_Initial Initial;
-    AzStyleFontFamilyValueVariant_Exact Exact;
-};
-typedef union AzStyleFontFamilyValue AzStyleFontFamilyValue;
-#define AzStyleFontFamilyValue_Auto { .Auto = { .tag = AzStyleFontFamilyValueTag_Auto } }
-#define AzStyleFontFamilyValue_None { .None = { .tag = AzStyleFontFamilyValueTag_None } }
-#define AzStyleFontFamilyValue_Inherit { .Inherit = { .tag = AzStyleFontFamilyValueTag_Inherit } }
-#define AzStyleFontFamilyValue_Initial { .Initial = { .tag = AzStyleFontFamilyValueTag_Initial } }
-#define AzStyleFontFamilyValue_Exact(v) { .Exact = { .tag = AzStyleFontFamilyValueTag_Exact, .payload = v } }
 
 enum AzStyleTransformVecValueTag {
    AzStyleTransformVecValueTag_Auto,
@@ -8066,6 +8060,14 @@ struct AzFmtArg {
     AzFmtValue value;
 };
 typedef struct AzFmtArg AzFmtArg;
+
+struct AzStyleFontFamilyVec {
+    AzStyleFontFamily* ptr;
+    size_t len;
+    size_t cap;
+    AzStyleFontFamilyVecDestructor destructor;
+};
+typedef struct AzStyleFontFamilyVec AzStyleFontFamilyVec;
 
 struct AzFmtArgVec {
     AzFmtArg* ptr;
@@ -8378,6 +8380,39 @@ typedef union AzStyleBackgroundContentVecValue AzStyleBackgroundContentVecValue;
 #define AzStyleBackgroundContentVecValue_Initial { .Initial = { .tag = AzStyleBackgroundContentVecValueTag_Initial } }
 #define AzStyleBackgroundContentVecValue_Exact(v) { .Exact = { .tag = AzStyleBackgroundContentVecValueTag_Exact, .payload = v } }
 
+enum AzStyleFontFamilyVecValueTag {
+   AzStyleFontFamilyVecValueTag_Auto,
+   AzStyleFontFamilyVecValueTag_None,
+   AzStyleFontFamilyVecValueTag_Inherit,
+   AzStyleFontFamilyVecValueTag_Initial,
+   AzStyleFontFamilyVecValueTag_Exact,
+};
+typedef enum AzStyleFontFamilyVecValueTag AzStyleFontFamilyVecValueTag;
+
+struct AzStyleFontFamilyVecValueVariant_Auto { AzStyleFontFamilyVecValueTag tag; };
+typedef struct AzStyleFontFamilyVecValueVariant_Auto AzStyleFontFamilyVecValueVariant_Auto;
+struct AzStyleFontFamilyVecValueVariant_None { AzStyleFontFamilyVecValueTag tag; };
+typedef struct AzStyleFontFamilyVecValueVariant_None AzStyleFontFamilyVecValueVariant_None;
+struct AzStyleFontFamilyVecValueVariant_Inherit { AzStyleFontFamilyVecValueTag tag; };
+typedef struct AzStyleFontFamilyVecValueVariant_Inherit AzStyleFontFamilyVecValueVariant_Inherit;
+struct AzStyleFontFamilyVecValueVariant_Initial { AzStyleFontFamilyVecValueTag tag; };
+typedef struct AzStyleFontFamilyVecValueVariant_Initial AzStyleFontFamilyVecValueVariant_Initial;
+struct AzStyleFontFamilyVecValueVariant_Exact { AzStyleFontFamilyVecValueTag tag; AzStyleFontFamilyVec payload; };
+typedef struct AzStyleFontFamilyVecValueVariant_Exact AzStyleFontFamilyVecValueVariant_Exact;
+union AzStyleFontFamilyVecValue {
+    AzStyleFontFamilyVecValueVariant_Auto Auto;
+    AzStyleFontFamilyVecValueVariant_None None;
+    AzStyleFontFamilyVecValueVariant_Inherit Inherit;
+    AzStyleFontFamilyVecValueVariant_Initial Initial;
+    AzStyleFontFamilyVecValueVariant_Exact Exact;
+};
+typedef union AzStyleFontFamilyVecValue AzStyleFontFamilyVecValue;
+#define AzStyleFontFamilyVecValue_Auto { .Auto = { .tag = AzStyleFontFamilyVecValueTag_Auto } }
+#define AzStyleFontFamilyVecValue_None { .None = { .tag = AzStyleFontFamilyVecValueTag_None } }
+#define AzStyleFontFamilyVecValue_Inherit { .Inherit = { .tag = AzStyleFontFamilyVecValueTag_Inherit } }
+#define AzStyleFontFamilyVecValue_Initial { .Initial = { .tag = AzStyleFontFamilyVecValueTag_Initial } }
+#define AzStyleFontFamilyVecValue_Exact(v) { .Exact = { .tag = AzStyleFontFamilyVecValueTag_Exact, .payload = v } }
+
 enum AzCssPropertyTag {
    AzCssPropertyTag_TextColor,
    AzCssPropertyTag_FontSize,
@@ -8456,7 +8491,7 @@ struct AzCssPropertyVariant_TextColor { AzCssPropertyTag tag; AzStyleTextColorVa
 typedef struct AzCssPropertyVariant_TextColor AzCssPropertyVariant_TextColor;
 struct AzCssPropertyVariant_FontSize { AzCssPropertyTag tag; AzStyleFontSizeValue payload; };
 typedef struct AzCssPropertyVariant_FontSize AzCssPropertyVariant_FontSize;
-struct AzCssPropertyVariant_FontFamily { AzCssPropertyTag tag; AzStyleFontFamilyValue payload; };
+struct AzCssPropertyVariant_FontFamily { AzCssPropertyTag tag; AzStyleFontFamilyVecValue payload; };
 typedef struct AzCssPropertyVariant_FontFamily AzCssPropertyVariant_FontFamily;
 struct AzCssPropertyVariant_TextAlign { AzCssPropertyTag tag; AzStyleTextAlignmentHorzValue payload; };
 typedef struct AzCssPropertyVariant_TextAlign AzCssPropertyVariant_TextAlign;
@@ -9433,6 +9468,10 @@ AzTesselatedSvgNode AzTesselatedSvgNodeVecArray[] = {};
 #define AzTesselatedSvgNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzTesselatedSvgNode), .cap = sizeof(v) / sizeof(AzTesselatedSvgNode), .destructor = { .NoDestructor = { .tag = AzTesselatedSvgNodeVecDestructorTag_NoDestructor, }, }, }
 #define AzTesselatedSvgNodeVec_empty { .ptr = &AzTesselatedSvgNodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzTesselatedSvgNodeVecDestructorTag_NoDestructor, }, }, }
 
+AzStyleFontFamily AzStyleFontFamilyVecArray[] = {};
+#define AzStyleFontFamilyVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStyleFontFamily), .cap = sizeof(v) / sizeof(AzStyleFontFamily), .destructor = { .NoDestructor = { .tag = AzStyleFontFamilyVecDestructorTag_NoDestructor, }, }, }
+#define AzStyleFontFamilyVec_empty { .ptr = &AzStyleFontFamilyVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStyleFontFamilyVecDestructorTag_NoDestructor, }, }, }
+
 AzXmlNode AzXmlNodeVecArray[] = {};
 #define AzXmlNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzXmlNode), .cap = sizeof(v) / sizeof(AzXmlNode), .destructor = { .NoDestructor = { .tag = AzXmlNodeVecDestructorTag_NoDestructor, }, }, }
 #define AzXmlNodeVec_empty { .ptr = &AzXmlNodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzXmlNodeVecDestructorTag_NoDestructor, }, }, }
@@ -10035,6 +10074,7 @@ extern DLLIMPORT AzString AzString_trim(AzString* const string);
 extern DLLIMPORT AzRefstr AzString_asRefstr(AzString* const string);
 extern DLLIMPORT AzTesselatedSvgNodeVecRef AzTesselatedSvgNodeVec_asRefVec(AzTesselatedSvgNodeVec* const tesselatedsvgnodevec);
 extern DLLIMPORT void AzTesselatedSvgNodeVec_delete(AzTesselatedSvgNodeVec* restrict instance);
+extern DLLIMPORT void AzStyleFontFamilyVec_delete(AzStyleFontFamilyVec* restrict instance);
 extern DLLIMPORT void AzXmlNodeVec_delete(AzXmlNodeVec* restrict instance);
 extern DLLIMPORT void AzFmtArgVec_delete(AzFmtArgVec* restrict instance);
 extern DLLIMPORT void AzInlineLineVec_delete(AzInlineLineVec* restrict instance);

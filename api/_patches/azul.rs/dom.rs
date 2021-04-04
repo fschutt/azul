@@ -3,11 +3,8 @@
     use crate::option::OptionRefAny;
     use crate::callbacks::IFrameCallback;
     use crate::callbacks::IFrameCallbackType;
-    use crate::callbacks::GlCallback;
-    use crate::callbacks::GlCallbackType;
     use crate::callbacks::RefAny;
-    use crate::image::ImageId;
-    use crate::font::FontId;
+    use crate::image::ImageRef;
     use crate::vec::DomVec;
     use crate::vec::IdOrClassVec;
     use crate::vec::CallbackDataVec;
@@ -34,17 +31,11 @@
         #[inline(always)]
         pub const fn br() -> Self { Self::new(NodeType::Br) }
         #[inline(always)]
-        pub fn label<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Label(value.into())) }
+        pub fn text<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Text(value.into())) }
         #[inline(always)]
-        pub const fn image(image: ImageId) -> Self { Self::new(NodeType::Image(image)) }
-        #[inline(always)]
-        #[cfg(feature = "opengl")]
-        pub fn gl_texture(data: RefAny, callback: GlCallbackType) -> Self { Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data })) }
+        pub fn image(image: ImageRef) -> Self { Self::new(NodeType::Image(image)) }
         #[inline(always)]
         pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data })) }
-        /// Shorthand for `Dom::default()`.
-        #[inline(always)]
-        pub const fn const_default() -> Self { Self::div() }
 
         #[inline(always)]
         pub fn with_dataset(mut self, data: RefAny) -> Self { self.set_dataset(data); self }
@@ -117,28 +108,16 @@
             Self::new(NodeType::Br)
         }
 
-        /// Shorthand for `NodeData::default()`.
+        /// Shorthand for `NodeData::new(NodeType::Text(value.into()))`
         #[inline(always)]
-        pub const fn const_default() -> Self {
-            Self::div()
-        }
-
-        /// Shorthand for `NodeData::new(NodeType::Label(value.into()))`
-        #[inline(always)]
-        pub fn label<S: Into<AzString>>(value: S) -> Self {
-            Self::new(NodeType::Label(value.into()))
+        pub fn text<S: Into<AzString>>(value: S) -> Self {
+            Self::new(NodeType::Text(value.into()))
         }
 
         /// Shorthand for `NodeData::new(NodeType::Image(image_id))`
         #[inline(always)]
-        pub fn image(image: ImageId) -> Self {
+        pub fn image(image: ImageRef) -> Self {
             Self::new(NodeType::Image(image))
-        }
-
-        #[inline(always)]
-        #[cfg(feature = "opengl")]
-        pub fn gl_texture(data: RefAny, callback: GlCallbackType) -> Self {
-            Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data }))
         }
 
         #[inline(always)]
@@ -198,13 +177,13 @@
 
     impl Default for Dom {
         fn default() -> Self {
-            Dom::const_default()
+            Dom::div()
         }
     }
 
     impl Default for NodeData {
         fn default() -> Self {
-            NodeData::const_default()
+            NodeData::new(NodeType::Div)
         }
     }
 

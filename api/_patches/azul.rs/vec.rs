@@ -300,6 +300,8 @@
     impl_vec_clone!(AzVideoMode, AzVideoModeVec, AzVideoModeVecDestructor);
     impl_vec!(AzMonitor, AzMonitorVec, AzMonitorVecDestructor, az_monitor_vec_destructor, AzMonitorVec_delete);
     impl_vec_clone!(AzMonitor, AzMonitorVec, AzMonitorVecDestructor);
+    impl_vec!(AzStyleFontFamily, AzStyleFontFamilyVec, AzStyleFontFamilyVecDestructor, az_style_font_family_vec_destructor, AzStyleFontFamilyVec_delete);
+    impl_vec_clone!(AzStyleFontFamily, AzStyleFontFamilyVec, AzStyleFontFamilyVecDestructor);
 
     impl From<vec::Vec<string::String>> for crate::vec::StringVec {
         fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {

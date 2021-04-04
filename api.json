@@ -2977,9 +2977,9 @@
                 "StyleFontFamily": {
                     "external": "azul_impl::css::StyleFontFamily",
                     "enum_fields": [
-                        {"Native": {"type": "String"}},
-                        {"File": {"type": "String"}},
-                        {"Ref": {"type": "FontRef"}}
+                        {"System": {"type": "String", "doc": "Postscript identifier for a system-native font (for example \"Arial\"). Also supports HTML-native values such as `sans-serif`, `serif`, `monospace`, `fantasy` and `oblique`."}},
+                        {"File": {"type": "String", "doc": "Path to a font loaded from a file"}},
+                        {"Ref": {"type": "FontRef", "doc": "Reference-counted font bytes - usually used on nodes that have to must be rendered with a specific font"}}
                     ]
                 },
                 "StyleFontSize": {
@@ -3755,14 +3755,14 @@
                         { "Exact": { "type": "StyleCursor" }}
                     ]
                 },
-                "StyleFontFamilyValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleFontFamily>",
+                "StyleFontFamilyVecValue": {
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleFontFamilyVec>",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
                         { "Inherit": { }} ,
                         { "Initial": { }} ,
-                        { "Exact": { "type": "StyleFontFamily" }}
+                        { "Exact": { "type": "StyleFontFamilyVec" }}
                     ]
                 },
                 "StyleFontSizeValue": {
@@ -3902,7 +3902,7 @@
                     "enum_fields": [
                         {"TextColor": {"type": "StyleTextColorValue" }},
                         {"FontSize": {"type": "StyleFontSizeValue" }},
-                        {"FontFamily": {"type": "StyleFontFamilyValue" }},
+                        {"FontFamily": {"type": "StyleFontFamilyVecValue" }},
                         {"TextAlign": {"type": "StyleTextAlignmentHorzValue" }},
                         {"LetterSpacing": {"type": "StyleLetterSpacingValue" }},
                         {"LineHeight": {"type": "StyleLineHeightValue" }},
@@ -7765,6 +7765,17 @@
                         }
                     }
                 },
+                "StyleFontFamilyVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<StyleFontFamily>`",
+                    "custom_destructor": true,
+                    "external": "azul_impl::css::StyleFontFamilyVec",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const StyleFontFamily" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "StyleFontFamilyVecDestructor" } }
+                    ]
+                },
                 "XmlNodeVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<XmlNode>`",
                     "custom_destructor": true,
@@ -8303,6 +8314,22 @@
                         { "cap": { "type": "usize" } },
                         { "destructor": { "type": "NodeDataVecDestructor" } }
                     ]
+                },
+                "StyleFontFamilyVecDestructor": {
+                    "external": "azul_impl::css::StyleFontFamilyVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "StyleFontFamilyVecDestructorType"}}
+                    ]
+                },
+                "StyleFontFamilyVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "StyleFontFamilyVec", "ref": "refmut"}
+                        ]
+                    }
                 },
                 "TesselatedSvgNodeVecDestructor": {
                     "external": "azul_impl::svg::TesselatedSvgNodeVecDestructor",
@@ -9130,6 +9157,7 @@
                 },
                 "OptionSystemClipboard": {
                     "external": "azul_impl::window::OptionClipboard",
+                    "clone": false,
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "SystemClipboard" }}
