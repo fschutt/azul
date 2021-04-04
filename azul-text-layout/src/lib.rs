@@ -100,6 +100,8 @@ use azul_core::{
     id_tree::NodeId,
 };
 
+use crate::text_layout::FontMetrics;
+
 #[derive(Debug, Clone)]
 pub struct InlineText<'a> {
     pub words: &'a Words,
@@ -135,4 +137,9 @@ pub fn parse_font_fn(source: LoadedFontSource) -> Option<FontRef> {
             parsed_destructor: parsed_font_destructor,
         })
     })
+}
+
+pub fn get_font_metrics_fontref(font_ref: &FontRef) -> FontMetrics {
+    let parsed_font = unsafe { &*(font_ref.get_data().parsed as *const ParsedFont) };
+    parsed_font.font_metrics.clone()
 }

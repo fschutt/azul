@@ -38,11 +38,11 @@
 
 struct AzRefAny;
 typedef struct AzRefAny AzRefAny;
-struct AzLayoutInfo;
-typedef struct AzLayoutInfo AzLayoutInfo;
+struct AzLayoutCallbackInfo;
+typedef struct AzLayoutCallbackInfo AzLayoutCallbackInfo;
 struct AzStyledDom;
 typedef struct AzStyledDom AzStyledDom;
-typedef AzStyledDom (*AzLayoutCallbackType)(AzRefAny* restrict A, AzLayoutInfo B);
+typedef AzStyledDom (*AzLayoutCallbackType)(AzRefAny* restrict A, AzLayoutCallbackInfo B);
 
 struct AzCallbackInfo;
 typedef struct AzCallbackInfo AzCallbackInfo;
@@ -56,11 +56,11 @@ struct AzIFrameCallbackReturn;
 typedef struct AzIFrameCallbackReturn AzIFrameCallbackReturn;
 typedef AzIFrameCallbackReturn (*AzIFrameCallbackType)(AzRefAny* restrict A, AzIFrameCallbackInfo B);
 
-struct AzGlCallbackInfo;
-typedef struct AzGlCallbackInfo AzGlCallbackInfo;
-struct AzGlCallbackReturn;
-typedef struct AzGlCallbackReturn AzGlCallbackReturn;
-typedef AzGlCallbackReturn (*AzGlCallbackType)(AzRefAny* restrict A, AzGlCallbackInfo B);
+struct AzRenderImageCallbackInfo;
+typedef struct AzRenderImageCallbackInfo AzRenderImageCallbackInfo;
+struct AzImageRef;
+typedef struct AzImageRef AzImageRef;
+typedef AzImageRef (*AzRenderImageCallbackType)(AzRefAny* restrict A, AzRenderImageCallbackInfo B);
 
 struct AzTimerCallbackInfo;
 typedef struct AzTimerCallbackInfo AzTimerCallbackInfo;
@@ -94,21 +94,21 @@ typedef bool (*AzCheckThreadFinishedFnType)(void* const A);
 
 enum AzThreadSendMsg;
 typedef enum AzThreadSendMsg AzThreadSendMsg;
-typedef bool (*AzLibrarySendThreadMsgFnType)(void* restrict A, AzThreadSendMsg B);
+typedef bool (*AzLibrarySendThreadMsgFnType)(void* const A, AzThreadSendMsg B);
 
 union AzOptionThreadReceiveMsg;
 typedef union AzOptionThreadReceiveMsg AzOptionThreadReceiveMsg;
-typedef AzOptionThreadReceiveMsg (*AzLibraryReceiveThreadMsgFnType)(void* restrict A);
+typedef AzOptionThreadReceiveMsg (*AzLibraryReceiveThreadMsgFnType)(void* const A);
 
 union AzOptionThreadSendMsg;
 typedef union AzOptionThreadSendMsg AzOptionThreadSendMsg;
-typedef AzOptionThreadSendMsg (*AzThreadRecvFnType)(void* restrict A);
+typedef AzOptionThreadSendMsg (*AzThreadRecvFnType)(void* const A);
 
 union AzThreadReceiveMsg;
 typedef union AzThreadReceiveMsg AzThreadReceiveMsg;
-typedef bool (*AzThreadSendFnType)(void* restrict A, AzThreadReceiveMsg B);
+typedef bool (*AzThreadSendFnType)(void* const A, AzThreadReceiveMsg B);
 
-typedef void (*AzThreadDestructorFnType)(void* restrict A, void* restrict B, void* restrict C, void* restrict D);
+typedef void (*AzThreadDestructorFnType)(AzThread* restrict A);
 
 typedef void (*AzThreadReceiverDestructorFnType)(AzThreadReceiver* restrict A);
 
@@ -312,9 +312,9 @@ typedef void (*AzNodeDataVecDestructorType)(AzNodeDataVec* restrict A);
 
 struct AzInstantPtr;
 typedef struct AzInstantPtr AzInstantPtr;
-typedef AzInstantPtr (*AzInstantPtrCloneFnType)(void* const A);
+typedef AzInstantPtr (*AzInstantPtrCloneFnType)(AzInstantPtr* const A);
 
-typedef void (*AzInstantPtrDestructorFnType)(void* restrict A);
+typedef void (*AzInstantPtrDestructorFnType)(AzInstantPtr* restrict A);
 
 
 struct AzApp {
@@ -780,10 +780,10 @@ struct AzIFrameCallback {
 };
 typedef struct AzIFrameCallback AzIFrameCallback;
 
-struct AzGlCallback {
-    AzGlCallbackType cb;
+struct AzRenderImageCallback {
+    AzRenderImageCallbackType cb;
 };
-typedef struct AzGlCallback AzGlCallback;
+typedef struct AzRenderImageCallback AzRenderImageCallback;
 
 struct AzTimerCallback {
     AzTimerCallbackType cb;
@@ -3247,12 +3247,16 @@ struct AzInlineTextHit {
 typedef struct AzInlineTextHit AzInlineTextHit;
 
 struct AzIFrameCallbackInfo {
-    void* resources;
+    void* system_fonts;
+    void* image_cache;
+    AzWindowTheme window_theme;
     AzHidpiAdjustedBounds bounds;
     AzLogicalSize scroll_size;
     AzLogicalPosition scroll_offset;
     AzLogicalSize virtual_scroll_size;
     AzLogicalPosition virtual_scroll_offset;
+    void* _reserved_ref;
+    void* restrict _reserved_mut;
 };
 typedef struct AzIFrameCallbackInfo AzIFrameCallbackInfo;
 
@@ -3264,16 +3268,9 @@ typedef struct AzTimerCallbackReturn AzTimerCallbackReturn;
 
 struct AzRefAny {
     void* _internal_ptr;
-    bool  is_original_instance;
     AzRefCount sharing_info;
 };
 typedef struct AzRefAny AzRefAny;
-
-struct AzGlTextureNode {
-    AzGlCallback callback;
-    AzRefAny data;
-};
-typedef struct AzGlTextureNode AzGlTextureNode;
 
 struct AzIFrameNode {
     AzIFrameCallback callback;
@@ -5837,11 +5834,11 @@ struct AzSvgFillStyle {
 typedef struct AzSvgFillStyle AzSvgFillStyle;
 
 struct AzThread {
-    void* restrict thread_handle;
-    void* restrict sender;
-    void* restrict receiver;
+    void* thread_handle;
+    void* sender;
+    void* receiver;
+    void* dropcheck;
     AzRefAny writeback_data;
-    void* restrict dropcheck;
     AzCheckThreadFinishedFn check_thread_finished_fn;
     AzLibrarySendThreadMsgFn send_thread_msg_fn;
     AzLibraryReceiveThreadMsgFn receive_thread_msg_fn;
@@ -5850,14 +5847,14 @@ struct AzThread {
 typedef struct AzThread AzThread;
 
 struct AzThreadSender {
-    void* restrict ptr;
+    void* ptr;
     AzThreadSendFn send_fn;
     AzThreadSenderDestructorFn destructor;
 };
 typedef struct AzThreadSender AzThreadSender;
 
 struct AzThreadReceiver {
-    void* restrict ptr;
+    void* ptr;
     AzThreadRecvFn recv_fn;
     AzThreadReceiverDestructorFn destructor;
 };
@@ -6731,27 +6728,32 @@ struct AzInlineTextContents {
 };
 typedef struct AzInlineTextContents AzInlineTextContents;
 
-struct AzGlCallbackInfo {
+struct AzRenderImageCallbackInfo {
     AzDomNodeId callback_node_id;
     AzHidpiAdjustedBounds bounds;
     AzOptionGl* gl_context;
-    void* resources;
+    void* image_cache;
+    void* system_fonts;
     AzNodeVec* node_hierarchy;
     void* words_cache;
     void* shaped_words_cache;
     void* positioned_words_cache;
     void* positioned_rects;
+    void* _reserved_ref;
+    void* restrict _reserved_mut;
 };
-typedef struct AzGlCallbackInfo AzGlCallbackInfo;
+typedef struct AzRenderImageCallbackInfo AzRenderImageCallbackInfo;
 
-struct AzLayoutInfo {
-    AzLogicalSize window_size;
+struct AzLayoutCallbackInfo {
+    AzWindowSize window_size;
     AzWindowTheme theme;
     void* image_cache;
     AzOptionGl* gl_context;
     void* system_fonts;
+    void* _reserved_ref;
+    void* restrict _reserved_mut;
 };
-typedef struct AzLayoutInfo AzLayoutInfo;
+typedef struct AzLayoutCallbackInfo AzLayoutCallbackInfo;
 
 enum AzEventFilterTag {
    AzEventFilterTag_Hover,
@@ -7150,6 +7152,13 @@ typedef union AzRawImageData AzRawImageData;
 #define AzRawImageData_U8(v) { .U8 = { .tag = AzRawImageDataTag_U8, .payload = v } }
 #define AzRawImageData_U16(v) { .U16 = { .tag = AzRawImageDataTag_U16, .payload = v } }
 #define AzRawImageData_F32(v) { .F32 = { .tag = AzRawImageDataTag_F32, .payload = v } }
+
+struct AzFontSource {
+    AzU8Vec data;
+    uint32_t font_index;
+    bool  parse_glyph_outlines;
+};
+typedef struct AzFontSource AzFontSource;
 
 enum AzSvgPathElementTag {
    AzSvgPathElementTag_Line,
@@ -7583,11 +7592,6 @@ typedef union AzInlineWord AzInlineWord;
 #define AzInlineWord_Space { .Space = { .tag = AzInlineWordTag_Space } }
 #define AzInlineWord_Word(v) { .Word = { .tag = AzInlineWordTag_Word, .payload = v } }
 
-struct AzGlCallbackReturn {
-    AzOptionTexture texture;
-};
-typedef struct AzGlCallbackReturn AzGlCallbackReturn;
-
 struct AzCallbackData {
     AzEventFilter event;
     AzCallback callback;
@@ -7718,11 +7722,6 @@ struct AzConicGradient {
 };
 typedef struct AzConicGradient AzConicGradient;
 
-struct AzCssImageId {
-    AzString inner;
-};
-typedef struct AzCssImageId AzCssImageId;
-
 enum AzStyleBackgroundContentTag {
    AzStyleBackgroundContentTag_LinearGradient,
    AzStyleBackgroundContentTag_RadialGradient,
@@ -7738,7 +7737,7 @@ struct AzStyleBackgroundContentVariant_RadialGradient { AzStyleBackgroundContent
 typedef struct AzStyleBackgroundContentVariant_RadialGradient AzStyleBackgroundContentVariant_RadialGradient;
 struct AzStyleBackgroundContentVariant_ConicGradient { AzStyleBackgroundContentTag tag; AzConicGradient payload; };
 typedef struct AzStyleBackgroundContentVariant_ConicGradient AzStyleBackgroundContentVariant_ConicGradient;
-struct AzStyleBackgroundContentVariant_Image { AzStyleBackgroundContentTag tag; AzCssImageId payload; };
+struct AzStyleBackgroundContentVariant_Image { AzStyleBackgroundContentTag tag; AzString payload; };
 typedef struct AzStyleBackgroundContentVariant_Image AzStyleBackgroundContentVariant_Image;
 struct AzStyleBackgroundContentVariant_Color { AzStyleBackgroundContentTag tag; AzColorU payload; };
 typedef struct AzStyleBackgroundContentVariant_Color AzStyleBackgroundContentVariant_Color;
@@ -7774,10 +7773,28 @@ struct AzScrollbarStyle {
 };
 typedef struct AzScrollbarStyle AzScrollbarStyle;
 
-struct AzStyleFontFamily {
-    AzStringVec fonts;
+enum AzStyleFontFamilyTag {
+   AzStyleFontFamilyTag_Native,
+   AzStyleFontFamilyTag_File,
+   AzStyleFontFamilyTag_Ref,
 };
-typedef struct AzStyleFontFamily AzStyleFontFamily;
+typedef enum AzStyleFontFamilyTag AzStyleFontFamilyTag;
+
+struct AzStyleFontFamilyVariant_Native { AzStyleFontFamilyTag tag; AzString payload; };
+typedef struct AzStyleFontFamilyVariant_Native AzStyleFontFamilyVariant_Native;
+struct AzStyleFontFamilyVariant_File { AzStyleFontFamilyTag tag; AzString payload; };
+typedef struct AzStyleFontFamilyVariant_File AzStyleFontFamilyVariant_File;
+struct AzStyleFontFamilyVariant_Ref { AzStyleFontFamilyTag tag; AzFontRef payload; };
+typedef struct AzStyleFontFamilyVariant_Ref AzStyleFontFamilyVariant_Ref;
+union AzStyleFontFamily {
+    AzStyleFontFamilyVariant_Native Native;
+    AzStyleFontFamilyVariant_File File;
+    AzStyleFontFamilyVariant_Ref Ref;
+};
+typedef union AzStyleFontFamily AzStyleFontFamily;
+#define AzStyleFontFamily_Native(v) { .Native = { .tag = AzStyleFontFamilyTag_Native, .payload = v } }
+#define AzStyleFontFamily_File(v) { .File = { .tag = AzStyleFontFamilyTag_File, .payload = v } }
+#define AzStyleFontFamily_Ref(v) { .Ref = { .tag = AzStyleFontFamilyTag_Ref, .payload = v } }
 
 enum AzScrollbarStyleValueTag {
    AzScrollbarStyleValueTag_Auto,
@@ -8846,7 +8863,8 @@ struct AzCallbackInfo {
     void* current_window_state;
     AzWindowState* restrict modifiable_window_state;
     AzOptionGl* gl_context;
-    void* restrict resources;
+    void* restrict image_cache;
+    void* restrict system_fonts;
     void* restrict timers;
     void* restrict threads;
     void* restrict new_windows;
@@ -8869,6 +8887,8 @@ struct AzCallbackInfo {
     AzDomNodeId hit_dom_node;
     AzOptionLayoutPoint cursor_relative_to_item;
     AzOptionLayoutPoint cursor_in_viewport;
+    void* _reserved_ref;
+    void* restrict _reserved_mut;
 };
 typedef struct AzCallbackInfo AzCallbackInfo;
 
@@ -8892,6 +8912,8 @@ struct AzTimerCallbackInfo {
     AzInstant frame_start;
     size_t call_count;
     bool  is_about_to_finish;
+    void* _reserved_ref;
+    void* restrict _reserved_mut;
 };
 typedef struct AzTimerCallbackInfo AzTimerCallbackInfo;
 
@@ -9607,6 +9629,7 @@ AzNodeData AzNodeDataVecArray[] = {};
 /* FUNCTIONS from azul.dll / libazul.so */
 extern DLLIMPORT AzApp AzApp_new(AzRefAny  data, AzAppConfig  config);
 extern DLLIMPORT void AzApp_addWindow(AzApp* restrict app, AzWindowCreateOptions  window);
+extern DLLIMPORT void AzApp_addImage(AzApp* restrict app, AzString  id, AzImageRef  image);
 extern DLLIMPORT AzMonitorVec AzApp_getMonitors(AzApp* const app);
 extern DLLIMPORT void AzApp_run(const AzApp app, AzWindowCreateOptions  window);
 extern DLLIMPORT void AzApp_delete(AzApp* restrict instance);
@@ -9636,8 +9659,12 @@ extern DLLIMPORT void AzCallbackInfo_setFocus(AzCallbackInfo* restrict callbacki
 extern DLLIMPORT void AzCallbackInfo_setCssProperty(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzCssProperty  new_property);
 extern DLLIMPORT void AzCallbackInfo_setScrollPosition(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzLogicalPosition  scroll_position);
 extern DLLIMPORT void AzCallbackInfo_setStringContents(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzString  string);
-extern DLLIMPORT void AzCallbackInfo_exchangeImage(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageRef  new_image);
-extern DLLIMPORT void AzCallbackInfo_exchangeImageMask(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageMask  new_mask);
+extern DLLIMPORT void AzCallbackInfo_addImage(AzCallbackInfo* restrict callbackinfo, AzString  id, AzImageRef  image);
+extern DLLIMPORT bool  AzCallbackInfo_hasImage(AzCallbackInfo* const callbackinfo, AzString  id);
+extern DLLIMPORT AzOptionImageRef AzCallbackInfo_getImage(AzCallbackInfo* const callbackinfo, AzString  id);
+extern DLLIMPORT void AzCallbackInfo_updateImage(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageRef  new_image);
+extern DLLIMPORT void AzCallbackInfo_deleteImage(AzCallbackInfo* restrict callbackinfo, AzString  id);
+extern DLLIMPORT void AzCallbackInfo_updateImageMask(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageMask  new_mask);
 extern DLLIMPORT void AzCallbackInfo_stopPropagation(AzCallbackInfo* restrict callbackinfo);
 extern DLLIMPORT void AzCallbackInfo_createWindow(AzCallbackInfo* restrict callbackinfo, AzWindowCreateOptions  new_window);
 extern DLLIMPORT void AzCallbackInfo_startThread(AzCallbackInfo* restrict callbackinfo, AzThreadId  id, AzRefAny  thread_initialize_data, AzRefAny  writeback_data, AzThreadCallback  callback);
@@ -9646,16 +9673,15 @@ extern DLLIMPORT AzLogicalSize AzHidpiAdjustedBounds_getLogicalSize(AzHidpiAdjus
 extern DLLIMPORT AzPhysicalSizeU32 AzHidpiAdjustedBounds_getPhysicalSize(AzHidpiAdjustedBounds* const hidpiadjustedbounds);
 extern DLLIMPORT float AzHidpiAdjustedBounds_getHidpiFactor(AzHidpiAdjustedBounds* const hidpiadjustedbounds);
 extern DLLIMPORT AzInlineTextHitVec AzInlineText_hitTest(AzInlineText* const inlinetext, AzLogicalPosition  position);
-extern DLLIMPORT AzHidpiAdjustedBounds AzIFrameCallbackInfo_getBounds(AzIFrameCallbackInfo* const iframecallbackinfo);
-extern DLLIMPORT AzOptionGl AzGlCallbackInfo_getGlContext(AzGlCallbackInfo* const glcallbackinfo);
-extern DLLIMPORT AzHidpiAdjustedBounds AzGlCallbackInfo_getBounds(AzGlCallbackInfo* const glcallbackinfo);
-extern DLLIMPORT AzDomNodeId AzGlCallbackInfo_getCallbackNodeId(AzGlCallbackInfo* const glcallbackinfo);
-extern DLLIMPORT AzOptionInlineText AzGlCallbackInfo_getInlineText(AzGlCallbackInfo* const glcallbackinfo, AzDomNodeId  node_id);
-extern DLLIMPORT AzOptionDomNodeId AzGlCallbackInfo_getParent(AzGlCallbackInfo* restrict glcallbackinfo, AzDomNodeId  node_id);
-extern DLLIMPORT AzOptionDomNodeId AzGlCallbackInfo_getPreviousSibling(AzGlCallbackInfo* restrict glcallbackinfo, AzDomNodeId  node_id);
-extern DLLIMPORT AzOptionDomNodeId AzGlCallbackInfo_getNextSibling(AzGlCallbackInfo* restrict glcallbackinfo, AzDomNodeId  node_id);
-extern DLLIMPORT AzOptionDomNodeId AzGlCallbackInfo_getFirstChild(AzGlCallbackInfo* restrict glcallbackinfo, AzDomNodeId  node_id);
-extern DLLIMPORT AzOptionDomNodeId AzGlCallbackInfo_getLastChild(AzGlCallbackInfo* restrict glcallbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionGl AzRenderImageCallbackInfo_getGlContext(AzRenderImageCallbackInfo* const renderimagecallbackinfo);
+extern DLLIMPORT AzHidpiAdjustedBounds AzRenderImageCallbackInfo_getBounds(AzRenderImageCallbackInfo* const renderimagecallbackinfo);
+extern DLLIMPORT AzDomNodeId AzRenderImageCallbackInfo_getCallbackNodeId(AzRenderImageCallbackInfo* const renderimagecallbackinfo);
+extern DLLIMPORT AzOptionInlineText AzRenderImageCallbackInfo_getInlineText(AzRenderImageCallbackInfo* const renderimagecallbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzRenderImageCallbackInfo_getParent(AzRenderImageCallbackInfo* restrict renderimagecallbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzRenderImageCallbackInfo_getPreviousSibling(AzRenderImageCallbackInfo* restrict renderimagecallbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzRenderImageCallbackInfo_getNextSibling(AzRenderImageCallbackInfo* restrict renderimagecallbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzRenderImageCallbackInfo_getFirstChild(AzRenderImageCallbackInfo* restrict renderimagecallbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzRenderImageCallbackInfo_getLastChild(AzRenderImageCallbackInfo* restrict renderimagecallbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT bool  AzRefCount_canBeShared(AzRefCount* const refcount);
 extern DLLIMPORT bool  AzRefCount_canBeSharedMut(AzRefCount* const refcount);
 extern DLLIMPORT void AzRefCount_increaseRef(AzRefCount* restrict refcount);
@@ -9665,13 +9691,13 @@ extern DLLIMPORT void AzRefCount_decreaseRefmut(AzRefCount* restrict refcount);
 extern DLLIMPORT void AzRefCount_delete(AzRefCount* restrict instance);
 extern DLLIMPORT AzRefCount AzRefCount_deepCopy(AzRefCount* const instance);
 extern DLLIMPORT AzRefAny AzRefAny_newC(void* ptr, size_t len, uint64_t type_id, AzString  type_name, AzRefAnyDestructorType  destructor);
-extern DLLIMPORT bool  AzRefAny_isType(AzRefAny* const refany, uint64_t type_id);
+extern DLLIMPORT uint64_t AzRefAny_getTypeId(AzRefAny* const refany);
 extern DLLIMPORT AzString AzRefAny_getTypeName(AzRefAny* const refany);
-extern DLLIMPORT AzRefAny AzRefAny_clone(AzRefAny* restrict refany);
 extern DLLIMPORT void AzRefAny_delete(AzRefAny* restrict instance);
-extern DLLIMPORT AzOptionGl AzLayoutInfo_getGlContext(AzLayoutInfo* const layoutinfo);
-extern DLLIMPORT AzStringPairVec AzLayoutInfo_getSystemFonts(AzLayoutInfo* const layoutinfo);
-extern DLLIMPORT AzOptionImageRef AzLayoutInfo_getImage(AzLayoutInfo* const layoutinfo, AzString  id);
+extern DLLIMPORT AzRefAny AzRefAny_deepCopy(AzRefAny* const instance);
+extern DLLIMPORT AzOptionGl AzLayoutCallbackInfo_getGlContext(AzLayoutCallbackInfo* const layoutcallbackinfo);
+extern DLLIMPORT AzStringPairVec AzLayoutCallbackInfo_getSystemFonts(AzLayoutCallbackInfo* const layoutcallbackinfo);
+extern DLLIMPORT AzOptionImageRef AzLayoutCallbackInfo_getImage(AzLayoutCallbackInfo* const layoutcallbackinfo, AzString  id);
 extern DLLIMPORT size_t AzDom_nodeCount(AzDom* const dom);
 extern DLLIMPORT AzStyledDom AzDom_style(const AzDom dom, AzCss  css);
 extern DLLIMPORT AzEventFilter AzOn_intoEventFilter(const AzOn on);
@@ -9924,6 +9950,12 @@ extern DLLIMPORT AzTextureFlags AzTextureFlags_default();
 extern DLLIMPORT AzImageRef AzImageRef_invalid(size_t width, size_t height, AzRawImageFormat  format);
 extern DLLIMPORT AzImageRef AzImageRef_rawImage(AzRawImage  data);
 extern DLLIMPORT AzImageRef AzImageRef_glTexture(AzTexture  texture);
+extern DLLIMPORT AzImageRef AzImageRef_callback(AzRenderImageCallback  callback, AzRefAny  data);
+extern DLLIMPORT AzImageRef AzImageRef_cloneBytes(AzImageRef* const imageref);
+extern DLLIMPORT bool  AzImageRef_isInvalid(AzImageRef* const imageref);
+extern DLLIMPORT bool  AzImageRef_isGlTexture(AzImageRef* const imageref);
+extern DLLIMPORT bool  AzImageRef_isRawImage(AzImageRef* const imageref);
+extern DLLIMPORT bool  AzImageRef_isCallback(AzImageRef* const imageref);
 extern DLLIMPORT void AzImageRef_delete(AzImageRef* restrict instance);
 extern DLLIMPORT AzImageRef AzImageRef_deepCopy(AzImageRef* const instance);
 extern DLLIMPORT AzRawImage AzRawImage_empty();
@@ -9937,9 +9969,8 @@ extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTga(AzRawImage* 
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePnm(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeGif(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTiff(AzRawImage* const rawimage);
-extern DLLIMPORT AzFontRef AzFontRef_parse(AzU8Vec  bytes, uint32_t font_index);
+extern DLLIMPORT AzFontRef AzFontRef_parse(AzFontSource  source);
 extern DLLIMPORT AzFontMetrics AzFontRef_getFontMetrics(AzFontRef* const fontref);
-extern DLLIMPORT AzString AzFontRef_getPostscriptId(AzFontRef* const fontref);
 extern DLLIMPORT void AzFontRef_delete(AzFontRef* restrict instance);
 extern DLLIMPORT AzFontRef AzFontRef_deepCopy(AzFontRef* const instance);
 extern DLLIMPORT AzSvg AzSvg_fromString(AzString  svg_string, AzSvgParseOptions  parse_options);

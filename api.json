@@ -18,7 +18,7 @@
                                 {"data": "RefAny", "doc": "The initialized data model of the application, will be passed to the `LayoutCallback` of the active windows"},
                                 {"config": "AppConfig", "doc": "Additional configuration on how the global application should behave"}
                             ],
-                            "fn_body": "azul_impl::app::AzAppPtr::new(App::new(data, config))"
+                            "fn_body": "azul_impl::app::AzAppPtr::new(azul_impl::app::App::new(data, config))"
                         }
                     },
                     "functions": {
@@ -29,6 +29,15 @@
                                 {"window": "WindowCreateOptions", "doc": "New window, note that this will **not** be spawned as the root window"}
                             ],
                             "fn_body":"app.add_window(window)"
+                        },
+                        "add_image": {
+                            "doc": "Adds a new image identified by an ID to the image cache",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"id": "String"},
+                                {"image": "ImageRef"}
+                            ],
+                            "fn_body": "app.add_image(id, image)"
                         },
                         "get_monitors": {
                             "doc": "Returns a list of monitors - useful for setting the monitor that a window should spawn on.",
@@ -115,7 +124,7 @@
                             "fn_args":[
                                 {"layout_callback": "LayoutCallbackType", "doc": "The callback to call when the UI of the window should be rendered"}
                             ],
-                            "fn_body":"WindowCreateOptions::new(layout_callback)"
+                            "fn_body":"AzWindowCreateOptions::new(layout_callback)"
                         }
                     }
                 },
@@ -904,12 +913,12 @@
                             "fn_args":[
                                 {"layout_callback": "LayoutCallbackType"}
                             ],
-                            "fn_body": "WindowState::new(layout_callback)"
+                            "fn_body": "AzWindowState::new(layout_callback)"
                         },
                         "default": {
                             "doc": "Creates a default WindowState with an empty layout callback - useful only if you use the Rust `WindowState { .. WindowState::default() }` intialization syntax.",
                             "fn_args": [],
-                            "fn_body": "WindowState::default()"
+                            "fn_body": "AzWindowState::default()"
                         }
                     }
                 }
@@ -931,7 +940,7 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut", "doc": "Application state of the `App`"},
-                            {"type": "LayoutInfo", "ref": "value", "doc": "Useful information to contitionally return the structure of the DOM based on the width / height of the window" }
+                            {"type": "LayoutCallbackInfo", "ref": "value", "doc": "Useful information to contitionally return the structure of the DOM based on the width / height of the window" }
                         ],
                         "returns": {"type": "StyledDom", "doc": "The styled DOM rendered from the application state"}
                     }
@@ -961,7 +970,8 @@
                         {"current_window_state": {"type": "*const c_void"}},
                         {"modifiable_window_state": {"type": "*mut WindowState"}},
                         {"gl_context": {"type": "*const OptionGl"}},
-                        {"resources": {"type": "*mut c_void"}},
+                        {"image_cache": {"type": "*mut c_void"}},
+                        {"system_fonts": {"type": "*mut c_void"}},
                         {"timers": {"type": "*mut c_void"}},
                         {"threads": {"type": "*mut c_void"}},
                         {"new_windows": {"type": "*mut c_void"}},
@@ -983,7 +993,9 @@
                         {"nodes_scrolled_in_callback": {"type": "*mut c_void"}},
                         {"hit_dom_node": {"type": "DomNodeId"}},
                         {"cursor_relative_to_item": {"type": "OptionLayoutPoint"}},
-                        {"cursor_in_viewport": {"type": "OptionLayoutPoint"}}
+                        {"cursor_in_viewport": {"type": "OptionLayoutPoint"}},
+                        {"_reserved_ref": {"type": "*const c_void"}},
+                        {"_reserved_mut": {"type": "*mut c_void"}}
                     ],
                     "functions": {
                         "get_hit_node": {
@@ -1174,23 +1186,58 @@
                             ],
                             "fn_body": "callbackinfo.set_string_contents(node_id, string)"
                         },
-                        "exchange_image": {
+                        "add_image": {
+                            "doc": "Adds a new image identified by an ID to the image cache",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"id": "String"},
+                                {"image": "ImageRef"}
+                            ],
+                            "fn_body": "callbackinfo.add_image(id, image)"
+                        },
+                        "has_image": {
+                            "doc": "Returns whether an image with a given CSS ID already exists",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"id": "String"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "callbackinfo.has_image(&id)"
+                        },
+                        "get_image": {
+                            "doc": "Returns the image with a given CSS ID",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"id": "String"}
+                            ],
+                            "returns": {"type": "OptionImageRef"},
+                            "fn_body": "callbackinfo.get_image(&id).into()"
+                        },
+                        "update_image": {
                             "doc": "If the node is an `Image`, exchanges the current image with a new source",
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"node_id": "DomNodeId"},
                                 {"new_image": "ImageRef"}
                             ],
-                            "fn_body": "callbackinfo.exchange_image(node_id, new_image)"
+                            "fn_body": "callbackinfo.update_image(node_id, new_image)"
                         },
-                        "exchange_image_mask": {
+                        "delete_image": {
+                            "doc": "Deletes an image identified by a CSS ID from the image cache",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"id": "String"}
+                            ],
+                            "fn_body": "callbackinfo.delete_image(&id)"
+                        },
+                        "update_image_mask": {
                             "doc": "If the node has an `ImageMask`, exchanges the current mask for the new mask",
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"node_id": "DomNodeId"},
                                 {"new_mask": "ImageMask"}
                             ],
-                            "fn_body": "callbackinfo.exchange_image_mask(node_id, new_mask)"
+                            "fn_body": "callbackinfo.update_image_mask(node_id, new_mask)"
                         },
                         "stop_propagation": {
                             "doc": "Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.",
@@ -1405,7 +1452,7 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut", "doc": "An `IFrameCallback` can have some data passed along from the parent DOM - usually this would be struct containing the widget state"},
-                            {"type": "IFrameCallbackInfo", "ref": "value", "doc": "Similar to `LayoutInfo`, but carries an additional `bounds` field which has information about the size / current scroll position of the IFrame."}
+                            {"type": "IFrameCallbackInfo", "ref": "value", "doc": "Similar to `LayoutCallbackInfo`, but carries an additional `bounds` field which has information about the size / current scroll position of the IFrame."}
                         ],
                         "returns": {"type": "IFrameCallbackReturn", "doc": "Contains the returned `StyledDom` as well as information about the initial scroll position of the new DOM plus scrollbar / overflow information"}
                     }
@@ -1414,23 +1461,17 @@
                     "external": "azul_impl::callbacks::IFrameCallbackInfo",
                     "clone": false,
                     "struct_fields": [
-                        {"resources": {"type": "*const c_void"}},
-                        {"bounds": {"type": "HidpiAdjustedBounds"}},
+                        {"system_fonts": {"type": "*const c_void", "doc": "Pointer to system fonts"}},
+                        {"image_cache": {"type": "*const c_void", "doc": "Pointer to the image cache"}},
+                        {"window_theme": {"type": "WindowTheme", "doc": "Window theme, so that the IFrame can conditionally style itself"}},
+                        {"bounds": {"type": "HidpiAdjustedBounds", "doc": "Bounds of the IFrame with HiDPI factor"}},
                         {"scroll_size": {"type": "LogicalSize", "doc": "How far the user has scrolled in the virtual scroll frame - useful to set the ``"}},
                         {"scroll_offset": {"type": "LogicalPosition", "doc": "How far the user has scrolled in the virtual scroll frame - useful to set the ``"}},
                         {"virtual_scroll_size": {"type": "LogicalSize", "doc": "How far the user has scrolled in the virtual scroll frame - useful to set the ``"}},
-                        {"virtual_scroll_offset": {"type": "LogicalPosition", "doc": "How far the user has scrolled in the virtual scroll frame - useful to set the ``"}}
-                    ],
-                    "functions": {
-                        "get_bounds": {
-                            "doc": "Returns a copy of the internal `HidpiAdjustedBounds`",
-                            "fn_args": [
-                                {"self": "ref"}
-                            ],
-                            "returns": {"type": "HidpiAdjustedBounds"},
-                            "fn_body": "iframecallbackinfo.get_bounds()"
-                        }
-                    }
+                        {"virtual_scroll_offset": {"type": "LogicalPosition", "doc": "How far the user has scrolled in the virtual scroll frame - useful to set the ``"}},
+                        {"_reserved_ref": {"type": "*const c_void"}},
+                        {"_reserved_mut": {"type": "*mut c_void"}}
+                    ]
                 },
                 "IFrameCallbackReturn": {
                     "external": "azul_impl::callbacks::IFrameCallbackReturn",
@@ -1444,35 +1485,38 @@
                         {"virtual_scroll_offset": {"type": "LogicalPosition", "doc": "Same as `virtual_scroll_offset`, but only affects the position of the scrollbar thumb"}}
                     ]
                 },
-                "GlCallback": {
-                    "external": "azul_impl::callbacks::GlCallback",
+                "RenderImageCallback": {
+                    "external": "azul_impl::callbacks::RenderImageCallback",
                     "derive": ["Copy"],
                     "struct_fields": [
-                        {"cb": {"type": "GlCallbackType"}}
+                        {"cb": {"type": "RenderImageCallbackType"}}
                     ]
                 },
-                "GlCallbackType": {
+                "RenderImageCallbackType": {
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
-                            {"type": "GlCallbackInfo", "ref": "value"}
+                            {"type": "RenderImageCallbackInfo", "ref": "value"}
                         ],
-                        "returns": {"type": "GlCallbackReturn"}
+                        "returns": {"type": "ImageRef"}
                     }
                 },
-                "GlCallbackInfo": {
-                    "external": "azul_impl::callbacks::GlCallbackInfo",
+                "RenderImageCallbackInfo": {
+                    "external": "azul_impl::callbacks::RenderImageCallbackInfo",
                     "clone": false,
                     "struct_fields": [
                         {"callback_node_id": {"type": "DomNodeId"}},
                         {"bounds": {"type": "HidpiAdjustedBounds"}},
                         {"gl_context": {"type": "*const OptionGl"}},
-                        {"resources": {"type": "*const c_void"}},
+                        {"image_cache": {"type": "*const c_void"}},
+                        {"system_fonts": {"type": "*const c_void"}},
                         {"node_hierarchy": {"type": "*const NodeVec"}},
                         {"words_cache": {"type": "*const c_void"}},
                         {"shaped_words_cache": {"type": "*const c_void"}},
                         {"positioned_words_cache": {"type": "*const c_void"}},
-                        {"positioned_rects": {"type": "*const c_void"}}
+                        {"positioned_rects": {"type": "*const c_void"}},
+                        {"_reserved_ref": {"type": "*const c_void"}},
+                        {"_reserved_mut": {"type": "*mut c_void"}}
                     ],
                     "functions": {
                         "get_gl_context": {
@@ -1481,7 +1525,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "OptionGl"},
-                            "fn_body": "glcallbackinfo.get_gl_context().into()"
+                            "fn_body": "renderimagecallbackinfo.get_gl_context().into()"
                         },
                         "get_bounds": {
                             "doc": "Returns a copy of the internal `HidpiAdjustedBounds`",
@@ -1489,7 +1533,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "HidpiAdjustedBounds"},
-                            "fn_body": "glcallbackinfo.get_bounds()"
+                            "fn_body": "renderimagecallbackinfo.get_bounds()"
                         },
                         "get_callback_node_id": {
                             "doc": "Returns the `DomNodeId` that this callback was called on",
@@ -1497,7 +1541,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "DomNodeId"},
-                            "fn_body": "glcallbackinfo.get_callback_node_id()"
+                            "fn_body": "renderimagecallbackinfo.get_callback_node_id()"
                         },
                         "get_inline_text": {
                             "doc": "If the node is a `Text` node, returns the layouted inline glyphs",
@@ -1506,7 +1550,7 @@
                                 {"node_id": "DomNodeId"}
                             ],
                             "returns": {"type": "OptionInlineText"},
-                            "fn_body": "glcallbackinfo.get_inline_text(node_id).into()"
+                            "fn_body": "renderimagecallbackinfo.get_inline_text(node_id).into()"
                         },
                         "get_parent": {
                             "doc": "Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
@@ -1515,7 +1559,7 @@
                                 {"node_id": "DomNodeId"}
                             ],
                             "returns": {"type": "OptionDomNodeId"},
-                            "fn_body": "glcallbackinfo.get_parent(node_id).into()"
+                            "fn_body": "renderimagecallbackinfo.get_parent(node_id).into()"
                         },
                         "get_previous_sibling": {
                             "doc": "Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
@@ -1524,7 +1568,7 @@
                                 {"node_id": "DomNodeId"}
                             ],
                             "returns": {"type": "OptionDomNodeId"},
-                            "fn_body": "glcallbackinfo.get_previous_sibling(node_id).into()"
+                            "fn_body": "renderimagecallbackinfo.get_previous_sibling(node_id).into()"
                         },
                         "get_next_sibling": {
                             "doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
@@ -1533,7 +1577,7 @@
                                 {"node_id": "DomNodeId"}
                             ],
                             "returns": {"type": "OptionDomNodeId"},
-                            "fn_body": "glcallbackinfo.get_next_sibling(node_id).into()"
+                            "fn_body": "renderimagecallbackinfo.get_next_sibling(node_id).into()"
                         },
                         "get_first_child": {
                             "doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
@@ -1542,7 +1586,7 @@
                                 {"node_id": "DomNodeId"}
                             ],
                             "returns": {"type": "OptionDomNodeId"},
-                            "fn_body": "glcallbackinfo.get_first_child(node_id).into()"
+                            "fn_body": "renderimagecallbackinfo.get_first_child(node_id).into()"
                         },
                         "get_last_child": {
                             "doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
@@ -1551,18 +1595,10 @@
                                 {"node_id": "DomNodeId"}
                             ],
                             "returns": {"type": "OptionDomNodeId"},
-                            "fn_body": "glcallbackinfo.get_last_child(node_id).into()"
+                            "fn_body": "renderimagecallbackinfo.get_last_child(node_id).into()"
                         }
                     }
                 },
-                "GlCallbackReturn": {
-                    "external": "azul_impl::callbacks::GlCallbackReturn",
-                    "clone": false,
-                    "struct_fields": [
-                        {"texture": { "type": "OptionTexture" }}
-                    ]
-                },
-
                 "TimerCallback": {
                     "external": "azul_impl::callbacks::TimerCallback",
                     "derive": ["Copy"],
@@ -1587,7 +1623,9 @@
                         {"callback_info": {"type": "CallbackInfo"}},
                         {"frame_start": {"type": "Instant"}},
                         {"call_count": {"type": "usize"}},
-                        {"is_about_to_finish": {"type": "bool"}}
+                        {"is_about_to_finish": {"type": "bool"}},
+                        {"_reserved_ref": {"type": "*const c_void"}},
+                        {"_reserved_mut": {"type": "*mut c_void"}}
                     ]
                 },
                 "TimerCallbackReturn": {
@@ -1686,10 +1724,8 @@
                     "external": "azul_impl::callbacks::RefAny",
                     "doc": "RefAny is a reference-counted, opaque pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)",
                     "is_boxed_object": true,
-                    "clone": false,
                     "struct_fields": [
                         {"_internal_ptr":  {"type": "*const c_void", "doc": "Pointer to the type-erased struct"}},
-                        {"is_original_instance":  {"type": "bool", "doc": "Whether this copy is the \"original\" copy of the struct, necessary for proper reference counting" }},
                         {"sharing_info":  {"type": "RefCount", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}}
                     ],
                     "constructors": {
@@ -1701,17 +1737,16 @@
                                 {"type_name": "String"},
                                 {"destructor": "RefAnyDestructorType"}
                             ],
-                            "fn_body": "RefAny::new_c(ptr, len, type_id, type_name, destructor)"
+                            "fn_body": "AzRefAny::new_c(ptr, len, type_id, type_name, destructor)"
                         }
                     },
                     "functions": {
-                        "is_type": {
+                        "get_type_id": {
                             "fn_args": [
-                                {"self": "ref"},
-                                {"type_id": "u64"}
+                                {"self": "ref"}
                             ],
-                            "returns": {"type": "bool"},
-                            "fn_body": "refany.is_type(type_id)"
+                            "returns": {"type": "u64"},
+                            "fn_body": "refany.get_type_id()"
                         },
                         "get_type_name": {
                             "fn_args": [
@@ -1719,25 +1754,20 @@
                             ],
                             "returns": {"type": "String"},
                             "fn_body": "refany.get_type_name()"
-                        },
-                        "clone": {
-                            "fn_args": [
-                                {"self": "refmut"}
-                            ],
-                            "returns": {"type": "RefAny"},
-                            "fn_body": "refany.clone_into_library_memory()"
                         }
                     }
                 },
-                "LayoutInfo": {
-                    "external": "azul_impl::callbacks::LayoutInfo",
+                "LayoutCallbackInfo": {
+                    "external": "azul_impl::callbacks::LayoutCallbackInfo",
                     "clone": false,
                     "struct_fields": [
-                        {"window_size": {"type": "LogicalSize"}},
+                        {"window_size": {"type": "WindowSize"}},
                         {"theme": {"type": "WindowTheme"}},
                         {"image_cache": {"type": "*const c_void"}},
                         {"gl_context": {"type": "*const OptionGl"}},
-                        {"system_fonts": {"type": "*const c_void"}}
+                        {"system_fonts": {"type": "*const c_void"}},
+                        {"_reserved_ref": {"type": "*const c_void"}},
+                        {"_reserved_mut": {"type": "*mut c_void"}}
                     ],
                     "functions": {
                         "get_gl_context": {
@@ -1746,7 +1776,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "OptionGl"},
-                            "fn_body": "layoutinfo.get_gl_context()"
+                            "fn_body": "layoutcallbackinfo.get_gl_context()"
                         },
                         "get_system_fonts": {
                             "doc": "Returns all system-native fonts with their respective file paths as values",
@@ -1754,7 +1784,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "StringPairVec"},
-                            "fn_body": "layoutinfo.get_system_fonts().into()"
+                            "fn_body": "layoutcallbackinfo.get_system_fonts().into()"
                         },
                         "get_image": {
                             "doc": "Returns an `ImageRef` referenced by a CSS ID",
@@ -1763,7 +1793,7 @@
                                 {"id": "String"}
                             ],
                             "returns": {"type": "OptionImageRef"},
-                            "fn_body": "layoutinfo.get_image(&id).into()"
+                            "fn_body": "layoutcallbackinfo.get_image(&id).into()"
                         }
                     }
                 }
@@ -1800,17 +1830,8 @@
                         }
                     }
                 },
-                "GlTextureNode": {
-                    "external": "azul_impl::dom::GlTextureNode",
-                    "clone": false,
-                    "struct_fields": [
-                        {"callback": {"type": "GlCallback"}},
-                        {"data": {"type": "RefAny"}}
-                    ]
-                },
                 "IFrameNode": {
                     "external": "azul_impl::dom::IFrameNode",
-                    "clone": false,
                     "struct_fields": [
                         {"callback": {"type": "IFrameCallback"}},
                         {"data": {"type": "RefAny"}}
@@ -1818,7 +1839,6 @@
                 },
                 "CallbackData": {
                     "external": "azul_impl::dom::CallbackData",
-                    "clone": false,
                     "struct_fields": [
                         {"event": {"type": "EventFilter"}},
                         {"callback": {"type": "Callback"}},
@@ -2148,7 +2168,7 @@
                             "fn_args": [
                                 {"s": "String"}
                             ],
-                            "fn_body":"css::from_str(s.as_str()).unwrap_or_default()"
+                            "fn_body":"azul_impl::css::from_str(s.as_str()).unwrap_or_default()"
                         }
                     }
                 },
@@ -2281,7 +2301,7 @@
                             "fn_args":[
                                 {"string": "String"}
                             ],
-                            "fn_body": "azul_impl::css::css_parser::parse_css_color(string.as_str()).ok().unwrap_or(ColorU::BLACK)"
+                            "fn_body": "azul_impl::css::css_parser::parse_css_color(string.as_str()).ok().unwrap_or(AzColorU::BLACK)"
                         }
                     },
                     "functions": {
@@ -2713,19 +2733,13 @@
                         {"stops": {"type": "RadialColorStopVec"}}
                     ]
                 },
-                "CssImageId": {
-                    "external": "azul_impl::css::CssImageId",
-                    "struct_fields": [
-                        {"inner": {"type": "String"}}
-                    ]
-                },
                 "StyleBackgroundContent": {
                     "external": "azul_impl::css::StyleBackgroundContent",
                     "enum_fields": [
                         {"LinearGradient": {"type": "LinearGradient"}},
                         {"RadialGradient": {"type": "RadialGradient"}},
                         {"ConicGradient": {"type": "ConicGradient"}},
-                        {"Image": {"type": "CssImageId"}},
+                        {"Image": {"type": "String"}},
                         {"Color": {"type": "ColorU"}}
                     ]
                 },
@@ -2962,8 +2976,10 @@
                 },
                 "StyleFontFamily": {
                     "external": "azul_impl::css::StyleFontFamily",
-                    "struct_fields": [
-                        {"fonts": {"type": "StringVec"}}
+                    "enum_fields": [
+                        {"Native": {"type": "String"}},
+                        {"File": {"type": "String"}},
+                        {"Ref": {"type": "FontRef"}}
                     ]
                 },
                 "StyleFontSize": {
@@ -3162,7 +3178,7 @@
                     ]
                 },
                 "StyleBoxShadowValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBoxShadow>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBoxShadow>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3173,7 +3189,7 @@
                     ]
                 },
                 "LayoutAlignContentValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutAlignContent>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutAlignContent>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3184,7 +3200,7 @@
                     ]
                 },
                 "LayoutAlignItemsValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutAlignItems>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutAlignItems>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3195,7 +3211,7 @@
                     ]
                 },
                 "LayoutBottomValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutBottom>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutBottom>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3206,7 +3222,7 @@
                     ]
                 },
                 "LayoutBoxSizingValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutBoxSizing>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutBoxSizing>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3217,7 +3233,7 @@
                     ]
                 },
                 "LayoutFlexDirectionValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutFlexDirection>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutFlexDirection>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3228,7 +3244,7 @@
                     ]
                 },
                 "LayoutDisplayValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutDisplay>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutDisplay>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3239,7 +3255,7 @@
                     ]
                 },
                 "LayoutFlexGrowValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutFlexGrow>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutFlexGrow>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3250,7 +3266,7 @@
                     ]
                 },
                 "LayoutFlexShrinkValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutFlexShrink>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutFlexShrink>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3261,7 +3277,7 @@
                     ]
                 },
                 "LayoutFloatValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutFloat>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutFloat>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3272,7 +3288,7 @@
                     ]
                 },
                 "LayoutHeightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutHeight>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutHeight>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3283,7 +3299,7 @@
                     ]
                 },
                 "LayoutJustifyContentValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutJustifyContent>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutJustifyContent>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3294,7 +3310,7 @@
                     ]
                 },
                 "LayoutLeftValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutLeft>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutLeft>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3305,7 +3321,7 @@
                     ]
                 },
                 "LayoutMarginBottomValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutMarginBottom>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMarginBottom>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3316,7 +3332,7 @@
                     ]
                 },
                 "LayoutMarginLeftValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutMarginLeft>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMarginLeft>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3327,7 +3343,7 @@
                     ]
                 },
                 "LayoutMarginRightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutMarginRight>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMarginRight>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3338,7 +3354,7 @@
                     ]
                 },
                 "LayoutMarginTopValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutMarginTop>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMarginTop>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3349,7 +3365,7 @@
                     ]
                 },
                 "LayoutMaxHeightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutMaxHeight>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMaxHeight>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3360,7 +3376,7 @@
                     ]
                 },
                 "LayoutMaxWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutMaxWidth>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMaxWidth>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3371,7 +3387,7 @@
                     ]
                 },
                 "LayoutMinHeightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutMinHeight>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMinHeight>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3382,7 +3398,7 @@
                     ]
                 },
                 "LayoutMinWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutMinWidth>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMinWidth>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3393,7 +3409,7 @@
                     ]
                 },
                 "LayoutPaddingBottomValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutPaddingBottom>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutPaddingBottom>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3404,7 +3420,7 @@
                     ]
                 },
                 "LayoutPaddingLeftValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutPaddingLeft>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutPaddingLeft>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3415,7 +3431,7 @@
                     ]
                 },
                 "LayoutPaddingRightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutPaddingRight>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutPaddingRight>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3426,7 +3442,7 @@
                     ]
                 },
                 "LayoutPaddingTopValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutPaddingTop>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutPaddingTop>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3437,7 +3453,7 @@
                     ]
                 },
                 "LayoutPositionValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutPosition>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutPosition>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3448,7 +3464,7 @@
                     ]
                 },
                 "LayoutRightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutRight>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutRight>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3459,7 +3475,7 @@
                     ]
                 },
                 "LayoutTopValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutTop>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutTop>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3470,7 +3486,7 @@
                     ]
                 },
                 "LayoutWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutWidth>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutWidth>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3481,7 +3497,7 @@
                     ]
                 },
                 "LayoutFlexWrapValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutFlexWrap>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutFlexWrap>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3492,7 +3508,7 @@
                     ]
                 },
                 "LayoutOverflowValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutOverflow>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutOverflow>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3503,7 +3519,7 @@
                     ]
                 },
                 "ScrollbarStyleValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<ScrollbarStyle>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzScrollbarStyle>",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3513,7 +3529,7 @@
                     ]
                 },
                 "StyleBackgroundContentVecValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBackgroundContentVec>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBackgroundContentVec>",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3523,7 +3539,7 @@
                     ]
                 },
                 "StyleBackgroundPositionVecValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBackgroundPositionVec>",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3533,7 +3549,7 @@
                     ]
                 },
                 "StyleBackgroundRepeatVecValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBackgroundRepeatVec>",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3543,7 +3559,7 @@
                     ]
                 },
                 "StyleBackgroundSizeVecValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBackgroundSizeVec>",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3553,7 +3569,7 @@
                     ]
                 },
                 "StyleBorderBottomColorValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderBottomColor>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3564,7 +3580,7 @@
                     ]
                 },
                 "StyleBorderBottomLeftRadiusValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderBottomLeftRadius>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3575,7 +3591,7 @@
                     ]
                 },
                 "StyleBorderBottomRightRadiusValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderBottomRightRadius>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3586,7 +3602,7 @@
                     ]
                 },
                 "StyleBorderBottomStyleValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderBottomStyle>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3597,7 +3613,7 @@
                     ]
                 },
                 "LayoutBorderBottomWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutBorderBottomWidth>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutBorderBottomWidth>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3608,7 +3624,7 @@
                     ]
                 },
                 "StyleBorderLeftColorValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderLeftColor>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3619,7 +3635,7 @@
                     ]
                 },
                 "StyleBorderLeftStyleValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderLeftStyle>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3630,7 +3646,7 @@
                     ]
                 },
                 "LayoutBorderLeftWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutBorderLeftWidth>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutBorderLeftWidth>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3641,7 +3657,7 @@
                     ]
                 },
                 "StyleBorderRightColorValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBorderRightColor>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderRightColor>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3652,7 +3668,7 @@
                     ]
                 },
                 "StyleBorderRightStyleValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderRightStyle>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3663,7 +3679,7 @@
                     ]
                 },
                 "LayoutBorderRightWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutBorderRightWidth>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutBorderRightWidth>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3674,7 +3690,7 @@
                     ]
                 },
                 "StyleBorderTopColorValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopColor>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderTopColor>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3685,7 +3701,7 @@
                     ]
                 },
                 "StyleBorderTopLeftRadiusValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderTopLeftRadius>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3696,7 +3712,7 @@
                     ]
                 },
                 "StyleBorderTopRightRadiusValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderTopRightRadius>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3707,7 +3723,7 @@
                     ]
                 },
                 "StyleBorderTopStyleValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderTopStyle>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3718,7 +3734,7 @@
                     ]
                 },
                 "LayoutBorderTopWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<LayoutBorderTopWidth>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutBorderTopWidth>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3729,7 +3745,7 @@
                     ]
                 },
                 "StyleCursorValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleCursor>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleCursor>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3740,7 +3756,7 @@
                     ]
                 },
                 "StyleFontFamilyValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleFontFamily>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleFontFamily>",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3750,7 +3766,7 @@
                     ]
                 },
                 "StyleFontSizeValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleFontSize>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleFontSize>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3761,7 +3777,7 @@
                     ]
                 },
                 "StyleLetterSpacingValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleLetterSpacing>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleLetterSpacing>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3772,7 +3788,7 @@
                     ]
                 },
                 "StyleLineHeightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleLineHeight>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleLineHeight>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3783,7 +3799,7 @@
                     ]
                 },
                 "StyleTabWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleTabWidth>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleTabWidth>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3794,7 +3810,7 @@
                     ]
                 },
                 "StyleTextAlignmentHorzValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleTextAlignmentHorz>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3805,7 +3821,7 @@
                     ]
                 },
                 "StyleTextColorValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleTextColor>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleTextColor>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3816,7 +3832,7 @@
                     ]
                 },
                 "StyleWordSpacingValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleWordSpacing>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleWordSpacing>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3827,7 +3843,7 @@
                     ]
                 },
                 "StyleOpacityValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleOpacity>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleOpacity>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3838,7 +3854,7 @@
                     ]
                 },
                 "StyleTransformVecValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleTransformVec>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleTransformVec>",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3848,7 +3864,7 @@
                     ]
                 },
                 "StyleTransformOriginValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleTransformOrigin>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleTransformOrigin>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3859,7 +3875,7 @@
                     ]
                 },
                 "StylePerspectiveOriginValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StylePerspectiveOrigin>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStylePerspectiveOrigin>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3870,7 +3886,7 @@
                     ]
                 },
                 "StyleBackfaceVisibilityValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<StyleBackfaceVisibility>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBackfaceVisibility>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -6186,7 +6202,7 @@
                     "constructors": {
                         "default": {
                             "doc": "Default texture flags (not opaque, not a video texture)",
-                            "fn_body": "TextureFlags::default()"
+                            "fn_body": "AzTextureFlags::default()"
                         }
                     }
                 }
@@ -6218,7 +6234,7 @@
                                 {"data": "RawImage"}
                             ],
                             "returns": {"type": "OptionImageRef"},
-                            "fn_body": "AzImageRef::new_rawimage(data)"
+                            "fn_body": "AzImageRef::new_rawimage(data).into()"
                         },
                         "gl_texture": {
                             "doc": "Creates an image reference from an OpenGL texture",
@@ -6226,6 +6242,56 @@
                                 {"texture": "Texture"}
                             ],
                             "fn_body": "AzImageRef::new_gltexture(texture)"
+                        },
+                        "callback":{
+                            "doc": "Creates an image reference from a callback that is going to be rendered with the given nodes computed size",
+                            "fn_args": [
+                                {"callback": "RenderImageCallback"},
+                                {"data": "RefAny"}
+                            ],
+                            "fn_body": "AzImageRef::callback(callback, data)"
+                        }
+                    },
+                    "functions": {
+                        "clone_bytes": {
+                            "doc": "Creates a new copy of the image bytes instead of shallow-copying the reference",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "ImageRef"},
+                            "fn_body": "imageref.deep_copy()"
+                        },
+                        "is_invalid": {
+                            "doc": "Returns whether the image is a null (invalid) image",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "imageref.is_null_image()"
+                        },
+                        "is_gl_texture": {
+                            "doc": "Returns whether the image is a GL texture",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "imageref.is_gl_texture()"
+                        },
+                        "is_raw_image": {
+                            "doc": "Returns whether the image is a raw (CPU-decoded) image",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "imageref.is_raw_image()"
+                        },
+                        "is_callback": {
+                            "doc": "Returns whether the image is a `RenderImageCallback`",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "imageref.is_callback()"
                         }
                     }
                 },
@@ -6403,7 +6469,7 @@
                     }
                 },
                 "FontMetrics": {
-                    "external": "azul_css::FontMetrics",
+                    "external": "azul_impl::css::FontMetrics",
                     "struct_fields": [
                         {"units_per_em": {"type": "u16"}},
                         {"font_flags": {"type": "u16"}},
@@ -6462,9 +6528,18 @@
                         {"us_upper_optical_point_size": {"type": "OptionU16"}}
                     ]
                 },
+                "FontSource": {
+                    "doc": "Source data of a font file (bytes)",
+                    "external": "azul_impl::resources::LoadedFontSource",
+                    "struct_fields": [
+                        {"data": {"type": "U8Vec"}},
+                        {"font_index": {"type": "u32"}},
+                        {"parse_glyph_outlines": {"type": "bool"}}
+                    ]
+                },
                 "FontRef": {
                     "doc": "Atomically reference-counted parsed font data",
-                    "external": "azul_css::FontRef",
+                    "external": "azul_impl::css::FontRef",
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"data": {"type": "*const c_void"}},
@@ -6474,11 +6549,10 @@
                         "parse": {
                             "doc": "Parses a new font from bytes. Returns `None` if the font could not be parsed correctly.",
                             "fn_args": [
-                                {"bytes": "U8Vec"},
-                                {"font_index": "u32"}
+                                {"source": "FontSource"}
                             ],
                             "returns": {"type": "OptionFontRef"},
-                            "fn_body": "AzFontRef::parse_from_bytes(bytes, font_index).into()"
+                            "fn_body": "azul_impl::text_layout::parse_font_fn(source).into()"
                         }
                     },
                     "functions": {
@@ -6488,15 +6562,7 @@
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "FontMetrics"},
-                            "fn_body": "fontref.get_font_metrics()"
-                        },
-                        "get_postscript_id": {
-                            "doc": "Returns the font metrics",
-                            "fn_args": [
-                                {"self": "ref"}
-                            ],
-                            "returns": {"type": "String"},
-                            "fn_body": "fontref.get_postscript_id().into()"
+                            "fn_body": "azul_impl::text_layout::get_font_metrics_fontref(fontref)"
                         }
                     }
                 }
@@ -7310,7 +7376,7 @@
                     "constructors": {
                         "unique": {
                             "fn_args": [],
-                            "fn_body": "TimerId::unique()"
+                            "fn_body": "AzTimerId::unique()"
                         }
                     }
                 },
@@ -7334,7 +7400,7 @@
                                 {"callback": "TimerCallbackType"},
                                 {"get_system_time_fn": "GetSystemTimeFn"}
                             ],
-                            "fn_body": "Timer::new(timer_data, callback, get_system_time_fn)"
+                            "fn_body": "AzTimer::new(timer_data, callback, get_system_time_fn)"
                         }
                     },
                     "functions": {
@@ -7384,11 +7450,11 @@
                     "external": "azul_impl::task::Thread",
                     "clone": false,
                     "struct_fields": [
-                        {"thread_handle": {"type": "*mut c_void" }},
-                        {"sender": {"type": "*mut c_void" }},
-                        {"receiver": {"type": "*mut c_void" }},
+                        {"thread_handle": {"type": "*const c_void" }},
+                        {"sender": {"type": "*const c_void" }},
+                        {"receiver": {"type": "*const c_void" }},
+                        {"dropcheck": {"type": "*const c_void" }},
                         {"writeback_data": {"type": "RefAny" }},
-                        {"dropcheck": {"type": "*mut c_void" }},
                         {"check_thread_finished_fn": {"type": "CheckThreadFinishedFn" }},
                         {"send_thread_msg_fn": {"type": "LibrarySendThreadMsgFn" }},
                         {"receive_thread_msg_fn": {"type": "LibraryReceiveThreadMsgFn" }},
@@ -7400,7 +7466,7 @@
                     "clone": false,
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*mut c_void"}},
+                        {"ptr": {"type": "*const c_void"}},
                         {"send_fn": {"type": "ThreadSendFn"}},
                         {"destructor": {"type": "ThreadSenderDestructorFn"}}
                     ],
@@ -7420,7 +7486,7 @@
                     "clone": false,
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*mut c_void"}},
+                        {"ptr": {"type": "*const c_void"}},
                         {"recv_fn": {"type": "ThreadRecvFn"}},
                         {"destructor": {"type": "ThreadReceiverDestructorFn"}}
                     ],
@@ -7488,6 +7554,7 @@
                     ]
                 },
                 "CheckThreadFinishedFnType": {
+                    "doc": "Callback that checks whether the thread has finished - the input argument is the `dropcheck` field on the Thread.",
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "c_void", "ref": "ref"}
@@ -7505,7 +7572,7 @@
                 "LibrarySendThreadMsgFnType": {
                     "callback_typedef": {
                         "fn_args": [
-                            {"type": "c_void", "ref": "refmut"},
+                            {"type": "c_void", "ref": "ref"},
                             {"type": "ThreadSendMsg", "ref": "value"}
                         ],
                         "returns": {"type": "bool"}
@@ -7521,7 +7588,7 @@
                 "LibraryReceiveThreadMsgFnType": {
                     "callback_typedef": {
                         "fn_args": [
-                            {"type": "c_void", "ref": "refmut"}
+                            {"type": "c_void", "ref": "ref"}
                         ],
                         "returns": {"type": "OptionThreadReceiveMsg"}
                     }
@@ -7536,7 +7603,7 @@
                 "ThreadRecvFnType": {
                     "callback_typedef": {
                         "fn_args": [
-                            {"type": "c_void", "ref": "refmut"}
+                            {"type": "c_void", "ref": "ref"}
                         ],
                         "returns": {"type": "OptionThreadSendMsg"}
                     }
@@ -7551,7 +7618,7 @@
                 "ThreadSendFnType": {
                     "callback_typedef": {
                         "fn_args": [
-                            {"type": "c_void", "ref": "refmut"},
+                            {"type": "c_void", "ref": "ref"},
                             {"type": "ThreadReceiveMsg", "ref": "value"}
                         ],
                         "returns": {"type": "bool"}
@@ -7567,10 +7634,7 @@
                 "ThreadDestructorFnType": {
                     "callback_typedef": {
                         "fn_args": [
-                            {"type": "c_void", "ref": "refmut"},
-                            {"type": "c_void", "ref": "refmut"},
-                            {"type": "c_void", "ref": "refmut"},
-                            {"type": "c_void", "ref": "refmut"}
+                            {"type": "Thread", "ref": "refmut"}
                         ]
                     }
                 },
@@ -9051,7 +9115,7 @@
                     ]
                 },
                 "OptionImageRef": {
-                    "external": "azul_impl::app_resources::OptionImageRef",
+                    "external": "azul_impl::resources::OptionImageRef",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "ImageRef" }}
@@ -9649,7 +9713,7 @@
                 "InstantPtrCloneFnType": {
                     "callback_typedef": {
                         "fn_args": [
-                            {"type": "c_void", "ref": "ref"}
+                            {"type": "InstantPtr", "ref": "ref"}
                         ],
                         "returns": {"type": "InstantPtr"}
                     }
@@ -9664,7 +9728,7 @@
                 "InstantPtrDestructorFnType": {
                     "callback_typedef": {
                         "fn_args": [
-                            {"type": "c_void", "ref": "refmut"}
+                            {"type": "InstantPtr", "ref": "refmut"}
                         ]
                     }
                 },

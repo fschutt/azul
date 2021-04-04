@@ -11,7 +11,7 @@
 
     impl ::std::fmt::Debug for AzCallback                   { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzLayoutCallback             { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    impl ::std::fmt::Debug for AzGlCallback                 { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::std::fmt::Debug for AzRenderImageCallback        { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzIFrameCallback             { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzTimerCallback              { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzWriteBackCallback          { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
@@ -27,24 +27,6 @@
     impl ::std::fmt::Debug for AzInstantPtrDestructorFn     { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzInstantPtrCloneFn          { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzThreadSendFn               { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-
-    impl ::std::fmt::Debug for AzRefCount {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            let ptr = unsafe { &*self.ptr };
-            write!(f, "RefAnyRefCount {{\r\n")?;
-            write!(f, "    num_copies: {}\r\n", ptr.num_copies)?;
-            write!(f, "    num_refs: {}\r\n", ptr.num_refs)?;
-            write!(f, "    num_mutable_refs: {}\r\n", ptr.num_mutable_refs)?;
-            write!(f, "    _internal_len: {}\r\n", ptr._internal_len)?;
-            write!(f, "    _internal_layout_size: {}\r\n", ptr._internal_layout_size)?;
-            write!(f, "    _internal_layout_align: {}\r\n", ptr._internal_layout_align)?;
-            write!(f, "    type_name: \"{}\"\r\n", ptr.type_name.as_str())?;
-            write!(f, "    type_id: {}\r\n", ptr.type_id)?;
-            write!(f, "    custom_destructor: 0x{:x}\r\n", ptr.custom_destructor as usize)?;
-            write!(f, "}}\r\n")?;
-            Ok(())
-        }
-    }
 
     impl ::std::fmt::Debug for AzDomVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzDomVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     impl ::std::fmt::Debug for AzIdOrClassVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzIdOrClassVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}

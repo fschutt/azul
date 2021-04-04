@@ -76,7 +76,7 @@ impl App {
     ///
     /// This does not open any windows, but it starts the event loop
     /// to the display server
-    pub fn new(mut initial_data: RefAny, app_config: AppConfig) -> Self {
+    pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
 
         use std::thread;
 

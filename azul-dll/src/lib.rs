@@ -11,22 +11,15 @@ extern crate azul_web as azul_impl;
 extern crate azul_desktop as azul_impl;
 
 use core::ffi::c_void;
-use azul_impl::{
-    css::{self, *},
-    callbacks::RefAny,
-    window::{WindowCreateOptions, WindowState},
-    resources::{RawImage, AppConfig, FontId, ImageId},
-    app::App,
-    task::{Timer, TimerId},
-    gl::TextureFlags,
-};
 /// Main application class
 pub type AzAppTT = azul_impl::app::AzAppPtr;
 pub use AzAppTT as AzApp;
 /// Creates a new App instance from the given `AppConfig`
-#[no_mangle] pub extern "C" fn AzApp_new(data: AzRefAny, config: AzAppConfig) -> AzApp { azul_impl::app::AzAppPtr::new(App::new(data, config)) }
+#[no_mangle] pub extern "C" fn AzApp_new(data: AzRefAny, config: AzAppConfig) -> AzApp { azul_impl::app::AzAppPtr::new(azul_impl::app::App::new(data, config)) }
 /// Spawn a new window on the screen when the app is run.
 #[no_mangle] pub extern "C" fn AzApp_addWindow(app: &mut AzApp, window: AzWindowCreateOptions) { app.add_window(window) }
+/// Adds a new image identified by an ID to the image cache
+#[no_mangle] pub extern "C" fn AzApp_addImage(app: &mut AzApp, id: AzString, image: AzImageRef) { app.add_image(id, image) }
 /// Returns a list of monitors - useful for setting the monitor that a window should spawn on.
 #[no_mangle] pub extern "C" fn AzApp_getMonitors(app: &AzApp) -> AzMonitorVec { app.get_monitors() }
 /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
@@ -56,7 +49,7 @@ pub use AzSystemCallbacksTT as AzSystemCallbacks;
 pub type AzWindowCreateOptionsTT = azul_impl::window::WindowCreateOptions;
 pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
 /// Creates a new window configuration with a custom layout callback
-#[no_mangle] pub extern "C" fn AzWindowCreateOptions_new(layout_callback: AzLayoutCallbackType) -> AzWindowCreateOptions { WindowCreateOptions::new(layout_callback) }
+#[no_mangle] pub extern "C" fn AzWindowCreateOptions_new(layout_callback: AzLayoutCallbackType) -> AzWindowCreateOptions { AzWindowCreateOptions::new(layout_callback) }
 
 /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
 pub type AzRendererOptionsTT = azul_impl::window::RendererOptions;
@@ -266,15 +259,15 @@ pub use AzVideoModeTT as AzVideoMode;
 pub type AzWindowStateTT = azul_impl::window::WindowState;
 pub use AzWindowStateTT as AzWindowState;
 /// Creates a new WindowState with default settings and a custom layout callback
-#[no_mangle] pub extern "C" fn AzWindowState_new(layout_callback: AzLayoutCallbackType) -> AzWindowState { WindowState::new(layout_callback) }
+#[no_mangle] pub extern "C" fn AzWindowState_new(layout_callback: AzLayoutCallbackType) -> AzWindowState { AzWindowState::new(layout_callback) }
 /// Creates a default WindowState with an empty layout callback - useful only if you use the Rust `WindowState { .. WindowState::default() }` intialization syntax.
-#[no_mangle] pub extern "C" fn AzWindowState_default() -> AzWindowState { WindowState::default() }
+#[no_mangle] pub extern "C" fn AzWindowState_default() -> AzWindowState { AzWindowState::default() }
 
 /// C-ABI stable wrapper over a `LayoutCallbackType`
 pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
 pub use AzLayoutCallbackTT as AzLayoutCallback;
 
-pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutInfo) -> AzStyledDom;
+pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutCallbackInfo) -> AzStyledDom;
 /// C-ABI stable wrapper over a `CallbackType`
 pub type AzCallbackTT = azul_impl::callbacks::Callback;
 pub use AzCallbackTT as AzCallback;
@@ -327,10 +320,18 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 #[no_mangle] pub extern "C" fn AzCallbackInfo_setScrollPosition(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, scroll_position: AzLogicalPosition) { callbackinfo.set_scroll_amount(node_id, scroll_position) }
 /// If the node is a `Text` node, overwrites the `Text` content with the new string, without requiring the entire UI to be rebuilt.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_setStringContents(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, string: AzString) { callbackinfo.set_string_contents(node_id, string) }
+/// Adds a new image identified by an ID to the image cache
+#[no_mangle] pub extern "C" fn AzCallbackInfo_addImage(callbackinfo: &mut AzCallbackInfo, id: AzString, image: AzImageRef) { callbackinfo.add_image(id, image) }
+/// Returns whether an image with a given CSS ID already exists
+#[no_mangle] pub extern "C" fn AzCallbackInfo_hasImage(callbackinfo: &AzCallbackInfo, id: AzString) -> bool { callbackinfo.has_image(&id) }
+/// Returns the image with a given CSS ID
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getImage(callbackinfo: &AzCallbackInfo, id: AzString) -> AzOptionImageRef { callbackinfo.get_image(&id).into() }
 /// If the node is an `Image`, exchanges the current image with a new source
-#[no_mangle] pub extern "C" fn AzCallbackInfo_exchangeImage(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_image: AzImageRef) { callbackinfo.exchange_image(node_id, new_image) }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_updateImage(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_image: AzImageRef) { callbackinfo.update_image(node_id, new_image) }
+/// Deletes an image identified by a CSS ID from the image cache
+#[no_mangle] pub extern "C" fn AzCallbackInfo_deleteImage(callbackinfo: &mut AzCallbackInfo, id: AzString) { callbackinfo.delete_image(&id) }
 /// If the node has an `ImageMask`, exchanges the current mask for the new mask
-#[no_mangle] pub extern "C" fn AzCallbackInfo_exchangeImageMask(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_mask: AzImageMask) { callbackinfo.exchange_image_mask(node_id, new_mask) }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_updateImageMask(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_mask: AzImageMask) { callbackinfo.update_image_mask(node_id, new_mask) }
 /// Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_stopPropagation(callbackinfo: &mut AzCallbackInfo) { callbackinfo.stop_propagation(); }
 /// Spawns a new window with the given `WindowCreateOptions`.
@@ -408,43 +409,37 @@ pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, AzIFrameCallbackInf
 /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
 pub type AzIFrameCallbackInfoTT = azul_impl::callbacks::IFrameCallbackInfo;
 pub use AzIFrameCallbackInfoTT as AzIFrameCallbackInfo;
-/// Returns a copy of the internal `HidpiAdjustedBounds`
-#[no_mangle] pub extern "C" fn AzIFrameCallbackInfo_getBounds(iframecallbackinfo: &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds { iframecallbackinfo.get_bounds() }
 
 /// <img src="../images/scrollbounds.png"/>
 pub type AzIFrameCallbackReturnTT = azul_impl::callbacks::IFrameCallbackReturn;
 pub use AzIFrameCallbackReturnTT as AzIFrameCallbackReturn;
 
-/// Re-export of rust-allocated (stack based) `GlCallback` struct
-pub type AzGlCallbackTT = azul_impl::callbacks::GlCallback;
-pub use AzGlCallbackTT as AzGlCallback;
+/// Re-export of rust-allocated (stack based) `RenderImageCallback` struct
+pub type AzRenderImageCallbackTT = azul_impl::callbacks::RenderImageCallback;
+pub use AzRenderImageCallbackTT as AzRenderImageCallback;
 
-pub type AzGlCallbackType = extern "C" fn(&mut AzRefAny, AzGlCallbackInfo) -> AzGlCallbackReturn;
-/// Re-export of rust-allocated (stack based) `GlCallbackInfo` struct
-pub type AzGlCallbackInfoTT = azul_impl::callbacks::GlCallbackInfo;
-pub use AzGlCallbackInfoTT as AzGlCallbackInfo;
+pub type AzRenderImageCallbackType = extern "C" fn(&mut AzRefAny, AzRenderImageCallbackInfo) -> AzImageRef;
+/// Re-export of rust-allocated (stack based) `RenderImageCallbackInfo` struct
+pub type AzRenderImageCallbackInfoTT = azul_impl::callbacks::RenderImageCallbackInfo;
+pub use AzRenderImageCallbackInfoTT as AzRenderImageCallbackInfo;
 /// Returns a copy of the internal `Gl`
-#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getGlContext(glcallbackinfo: &AzGlCallbackInfo) -> AzOptionGl { glcallbackinfo.get_gl_context().into() }
+#[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getGlContext(renderimagecallbackinfo: &AzRenderImageCallbackInfo) -> AzOptionGl { renderimagecallbackinfo.get_gl_context().into() }
 /// Returns a copy of the internal `HidpiAdjustedBounds`
-#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getBounds(glcallbackinfo: &AzGlCallbackInfo) -> AzHidpiAdjustedBounds { glcallbackinfo.get_bounds() }
+#[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getBounds(renderimagecallbackinfo: &AzRenderImageCallbackInfo) -> AzHidpiAdjustedBounds { renderimagecallbackinfo.get_bounds() }
 /// Returns the `DomNodeId` that this callback was called on
-#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getCallbackNodeId(glcallbackinfo: &AzGlCallbackInfo) -> AzDomNodeId { glcallbackinfo.get_callback_node_id() }
+#[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getCallbackNodeId(renderimagecallbackinfo: &AzRenderImageCallbackInfo) -> AzDomNodeId { renderimagecallbackinfo.get_callback_node_id() }
 /// If the node is a `Text` node, returns the layouted inline glyphs
-#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getInlineText(glcallbackinfo: &AzGlCallbackInfo, node_id: AzDomNodeId) -> AzOptionInlineText { glcallbackinfo.get_inline_text(node_id).into() }
+#[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getInlineText(renderimagecallbackinfo: &AzRenderImageCallbackInfo, node_id: AzDomNodeId) -> AzOptionInlineText { renderimagecallbackinfo.get_inline_text(node_id).into() }
 /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getParent(glcallbackinfo: &mut AzGlCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { glcallbackinfo.get_parent(node_id).into() }
+#[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getParent(renderimagecallbackinfo: &mut AzRenderImageCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { renderimagecallbackinfo.get_parent(node_id).into() }
 /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getPreviousSibling(glcallbackinfo: &mut AzGlCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { glcallbackinfo.get_previous_sibling(node_id).into() }
+#[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getPreviousSibling(renderimagecallbackinfo: &mut AzRenderImageCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { renderimagecallbackinfo.get_previous_sibling(node_id).into() }
 /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getNextSibling(glcallbackinfo: &mut AzGlCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { glcallbackinfo.get_next_sibling(node_id).into() }
+#[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getNextSibling(renderimagecallbackinfo: &mut AzRenderImageCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { renderimagecallbackinfo.get_next_sibling(node_id).into() }
 /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getFirstChild(glcallbackinfo: &mut AzGlCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { glcallbackinfo.get_first_child(node_id).into() }
+#[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getFirstChild(renderimagecallbackinfo: &mut AzRenderImageCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { renderimagecallbackinfo.get_first_child(node_id).into() }
 /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-#[no_mangle] pub extern "C" fn AzGlCallbackInfo_getLastChild(glcallbackinfo: &mut AzGlCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { glcallbackinfo.get_last_child(node_id).into() }
-
-/// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
-pub type AzGlCallbackReturnTT = azul_impl::callbacks::GlCallbackReturn;
-pub use AzGlCallbackReturnTT as AzGlCallbackReturn;
+#[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getLastChild(renderimagecallbackinfo: &mut AzRenderImageCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { renderimagecallbackinfo.get_last_child(node_id).into() }
 
 /// Re-export of rust-allocated (stack based) `TimerCallback` struct
 pub type AzTimerCallbackTT = azul_impl::callbacks::TimerCallback;
@@ -495,25 +490,25 @@ pub type AzRefAnyTT = azul_impl::callbacks::RefAny;
 pub use AzRefAnyTT as AzRefAny;
 /// Creates a new `RefAny` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `RefAny::new_c()` constructor.
-#[no_mangle] pub extern "C" fn AzRefAny_newC(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, destructor: AzRefAnyDestructorType) -> AzRefAny { RefAny::new_c(ptr, len, type_id, type_name, destructor) }
-/// Equivalent to the Rust `RefAny::is_type()` function.
-#[no_mangle] pub extern "C" fn AzRefAny_isType(refany: &AzRefAny, type_id: u64) -> bool { refany.is_type(type_id) }
+#[no_mangle] pub extern "C" fn AzRefAny_newC(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, destructor: AzRefAnyDestructorType) -> AzRefAny { AzRefAny::new_c(ptr, len, type_id, type_name, destructor) }
+/// Equivalent to the Rust `RefAny::get_type_id()` function.
+#[no_mangle] pub extern "C" fn AzRefAny_getTypeId(refany: &AzRefAny) -> u64 { refany.get_type_id() }
 /// Equivalent to the Rust `RefAny::get_type_name()` function.
 #[no_mangle] pub extern "C" fn AzRefAny_getTypeName(refany: &AzRefAny) -> AzString { refany.get_type_name() }
-/// Equivalent to the Rust `RefAny::clone()` function.
-#[no_mangle] pub extern "C" fn AzRefAny_clone(refany: &mut AzRefAny) -> AzRefAny { refany.clone_into_library_memory() }
 /// Destructor: Takes ownership of the `RefAny` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzRefAny_delete(object: &mut AzRefAny) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn AzRefAny_deepCopy(object: &AzRefAny) -> AzRefAny { object.clone() }
 
-/// Re-export of rust-allocated (stack based) `LayoutInfo` struct
-pub type AzLayoutInfoTT = azul_impl::callbacks::LayoutInfo;
-pub use AzLayoutInfoTT as AzLayoutInfo;
+/// Re-export of rust-allocated (stack based) `LayoutCallbackInfo` struct
+pub type AzLayoutCallbackInfoTT = azul_impl::callbacks::LayoutCallbackInfo;
+pub use AzLayoutCallbackInfoTT as AzLayoutCallbackInfo;
 /// Returns a copy of the OpenGL context
-#[no_mangle] pub extern "C" fn AzLayoutInfo_getGlContext(layoutinfo: &AzLayoutInfo) -> AzOptionGl { layoutinfo.get_gl_context() }
+#[no_mangle] pub extern "C" fn AzLayoutCallbackInfo_getGlContext(layoutcallbackinfo: &AzLayoutCallbackInfo) -> AzOptionGl { layoutcallbackinfo.get_gl_context() }
 /// Returns all system-native fonts with their respective file paths as values
-#[no_mangle] pub extern "C" fn AzLayoutInfo_getSystemFonts(layoutinfo: &AzLayoutInfo) -> AzStringPairVec { layoutinfo.get_system_fonts().into() }
+#[no_mangle] pub extern "C" fn AzLayoutCallbackInfo_getSystemFonts(layoutcallbackinfo: &AzLayoutCallbackInfo) -> AzStringPairVec { layoutcallbackinfo.get_system_fonts().into() }
 /// Returns an `ImageRef` referenced by a CSS ID
-#[no_mangle] pub extern "C" fn AzLayoutInfo_getImage(layoutinfo: &AzLayoutInfo, id: AzString) -> AzOptionImageRef { layoutinfo.get_image(&id).into() }
+#[no_mangle] pub extern "C" fn AzLayoutCallbackInfo_getImage(layoutcallbackinfo: &AzLayoutCallbackInfo, id: AzString) -> AzOptionImageRef { layoutcallbackinfo.get_image(&id).into() }
 
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
@@ -522,10 +517,6 @@ pub use AzDomTT as AzDom;
 #[no_mangle] pub extern "C" fn AzDom_nodeCount(dom: &AzDom) -> usize { dom.node_count() }
 /// Same as `StyledDom::new(dom, css)`
 #[no_mangle] pub extern "C" fn AzDom_style(dom: AzDom, css: AzCss) -> AzStyledDom { dom.style(css) }
-
-/// Re-export of rust-allocated (stack based) `GlTextureNode` struct
-pub type AzGlTextureNodeTT = azul_impl::dom::GlTextureNode;
-pub use AzGlTextureNodeTT as AzGlTextureNode;
 
 /// Re-export of rust-allocated (stack based) `IFrameNode` struct
 pub type AzIFrameNodeTT = azul_impl::dom::IFrameNode;
@@ -635,7 +626,7 @@ pub use AzCssTT as AzCss;
 /// Returns an empty CSS style
 #[no_mangle] pub extern "C" fn AzCss_empty() -> AzCss { AzCss::empty() }
 /// Returns a CSS style parsed from a `String`
-#[no_mangle] pub extern "C" fn AzCss_fromString(s: AzString) -> AzCss { css::from_str(s.as_str()).unwrap_or_default() }
+#[no_mangle] pub extern "C" fn AzCss_fromString(s: AzString) -> AzCss { azul_impl::css::from_str(s.as_str()).unwrap_or_default() }
 
 /// Re-export of rust-allocated (stack based) `CssPropertyType` struct
 pub type AzCssPropertyTypeTT = azul_impl::css::CssPropertyType;
@@ -654,7 +645,7 @@ pub type AzColorUTT = azul_impl::css::ColorU;
 pub use AzColorUTT as AzColorU;
 /// Creates a new `ColorU` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `ColorU::from_str()` constructor.
-#[no_mangle] pub extern "C" fn AzColorU_fromStr(string: AzString) -> AzColorU { azul_impl::css::css_parser::parse_css_color(string.as_str()).ok().unwrap_or(ColorU::BLACK) }
+#[no_mangle] pub extern "C" fn AzColorU_fromStr(string: AzString) -> AzColorU { azul_impl::css::css_parser::parse_css_color(string.as_str()).ok().unwrap_or(AzColorU::BLACK) }
 /// Equivalent to the Rust `ColorU::to_hash()` function.
 #[no_mangle] pub extern "C" fn AzColorU_toHash(coloru: &AzColorU) -> AzString { coloru.to_hash().into() }
 
@@ -858,10 +849,6 @@ pub use AzRadialGradientTT as AzRadialGradient;
 pub type AzConicGradientTT = azul_impl::css::ConicGradient;
 pub use AzConicGradientTT as AzConicGradient;
 
-/// Re-export of rust-allocated (stack based) `CssImageId` struct
-pub type AzCssImageIdTT = azul_impl::css::CssImageId;
-pub use AzCssImageIdTT as AzCssImageId;
-
 /// Re-export of rust-allocated (stack based) `StyleBackgroundContent` struct
 pub type AzStyleBackgroundContentTT = azul_impl::css::StyleBackgroundContent;
 pub use AzStyleBackgroundContentTT as AzStyleBackgroundContent;
@@ -1051,267 +1038,267 @@ pub type AzStyleWordSpacingTT = azul_impl::css::StyleWordSpacing;
 pub use AzStyleWordSpacingTT as AzStyleWordSpacing;
 
 /// Re-export of rust-allocated (stack based) `StyleBoxShadowValue` struct
-pub type AzStyleBoxShadowValueTT = azul_impl::css::CssPropertyValue::<StyleBoxShadow>;
+pub type AzStyleBoxShadowValueTT = azul_impl::css::CssPropertyValue::<AzStyleBoxShadow>;
 pub use AzStyleBoxShadowValueTT as AzStyleBoxShadowValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutAlignContentValue` struct
-pub type AzLayoutAlignContentValueTT = azul_impl::css::CssPropertyValue::<LayoutAlignContent>;
+pub type AzLayoutAlignContentValueTT = azul_impl::css::CssPropertyValue::<AzLayoutAlignContent>;
 pub use AzLayoutAlignContentValueTT as AzLayoutAlignContentValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutAlignItemsValue` struct
-pub type AzLayoutAlignItemsValueTT = azul_impl::css::CssPropertyValue::<LayoutAlignItems>;
+pub type AzLayoutAlignItemsValueTT = azul_impl::css::CssPropertyValue::<AzLayoutAlignItems>;
 pub use AzLayoutAlignItemsValueTT as AzLayoutAlignItemsValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutBottomValue` struct
-pub type AzLayoutBottomValueTT = azul_impl::css::CssPropertyValue::<LayoutBottom>;
+pub type AzLayoutBottomValueTT = azul_impl::css::CssPropertyValue::<AzLayoutBottom>;
 pub use AzLayoutBottomValueTT as AzLayoutBottomValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutBoxSizingValue` struct
-pub type AzLayoutBoxSizingValueTT = azul_impl::css::CssPropertyValue::<LayoutBoxSizing>;
+pub type AzLayoutBoxSizingValueTT = azul_impl::css::CssPropertyValue::<AzLayoutBoxSizing>;
 pub use AzLayoutBoxSizingValueTT as AzLayoutBoxSizingValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutFlexDirectionValue` struct
-pub type AzLayoutFlexDirectionValueTT = azul_impl::css::CssPropertyValue::<LayoutFlexDirection>;
+pub type AzLayoutFlexDirectionValueTT = azul_impl::css::CssPropertyValue::<AzLayoutFlexDirection>;
 pub use AzLayoutFlexDirectionValueTT as AzLayoutFlexDirectionValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutDisplayValue` struct
-pub type AzLayoutDisplayValueTT = azul_impl::css::CssPropertyValue::<LayoutDisplay>;
+pub type AzLayoutDisplayValueTT = azul_impl::css::CssPropertyValue::<AzLayoutDisplay>;
 pub use AzLayoutDisplayValueTT as AzLayoutDisplayValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutFlexGrowValue` struct
-pub type AzLayoutFlexGrowValueTT = azul_impl::css::CssPropertyValue::<LayoutFlexGrow>;
+pub type AzLayoutFlexGrowValueTT = azul_impl::css::CssPropertyValue::<AzLayoutFlexGrow>;
 pub use AzLayoutFlexGrowValueTT as AzLayoutFlexGrowValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutFlexShrinkValue` struct
-pub type AzLayoutFlexShrinkValueTT = azul_impl::css::CssPropertyValue::<LayoutFlexShrink>;
+pub type AzLayoutFlexShrinkValueTT = azul_impl::css::CssPropertyValue::<AzLayoutFlexShrink>;
 pub use AzLayoutFlexShrinkValueTT as AzLayoutFlexShrinkValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutFloatValue` struct
-pub type AzLayoutFloatValueTT = azul_impl::css::CssPropertyValue::<LayoutFloat>;
+pub type AzLayoutFloatValueTT = azul_impl::css::CssPropertyValue::<AzLayoutFloat>;
 pub use AzLayoutFloatValueTT as AzLayoutFloatValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutHeightValue` struct
-pub type AzLayoutHeightValueTT = azul_impl::css::CssPropertyValue::<LayoutHeight>;
+pub type AzLayoutHeightValueTT = azul_impl::css::CssPropertyValue::<AzLayoutHeight>;
 pub use AzLayoutHeightValueTT as AzLayoutHeightValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutJustifyContentValue` struct
-pub type AzLayoutJustifyContentValueTT = azul_impl::css::CssPropertyValue::<LayoutJustifyContent>;
+pub type AzLayoutJustifyContentValueTT = azul_impl::css::CssPropertyValue::<AzLayoutJustifyContent>;
 pub use AzLayoutJustifyContentValueTT as AzLayoutJustifyContentValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutLeftValue` struct
-pub type AzLayoutLeftValueTT = azul_impl::css::CssPropertyValue::<LayoutLeft>;
+pub type AzLayoutLeftValueTT = azul_impl::css::CssPropertyValue::<AzLayoutLeft>;
 pub use AzLayoutLeftValueTT as AzLayoutLeftValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginBottomValue` struct
-pub type AzLayoutMarginBottomValueTT = azul_impl::css::CssPropertyValue::<LayoutMarginBottom>;
+pub type AzLayoutMarginBottomValueTT = azul_impl::css::CssPropertyValue::<AzLayoutMarginBottom>;
 pub use AzLayoutMarginBottomValueTT as AzLayoutMarginBottomValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginLeftValue` struct
-pub type AzLayoutMarginLeftValueTT = azul_impl::css::CssPropertyValue::<LayoutMarginLeft>;
+pub type AzLayoutMarginLeftValueTT = azul_impl::css::CssPropertyValue::<AzLayoutMarginLeft>;
 pub use AzLayoutMarginLeftValueTT as AzLayoutMarginLeftValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginRightValue` struct
-pub type AzLayoutMarginRightValueTT = azul_impl::css::CssPropertyValue::<LayoutMarginRight>;
+pub type AzLayoutMarginRightValueTT = azul_impl::css::CssPropertyValue::<AzLayoutMarginRight>;
 pub use AzLayoutMarginRightValueTT as AzLayoutMarginRightValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginTopValue` struct
-pub type AzLayoutMarginTopValueTT = azul_impl::css::CssPropertyValue::<LayoutMarginTop>;
+pub type AzLayoutMarginTopValueTT = azul_impl::css::CssPropertyValue::<AzLayoutMarginTop>;
 pub use AzLayoutMarginTopValueTT as AzLayoutMarginTopValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutMaxHeightValue` struct
-pub type AzLayoutMaxHeightValueTT = azul_impl::css::CssPropertyValue::<LayoutMaxHeight>;
+pub type AzLayoutMaxHeightValueTT = azul_impl::css::CssPropertyValue::<AzLayoutMaxHeight>;
 pub use AzLayoutMaxHeightValueTT as AzLayoutMaxHeightValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutMaxWidthValue` struct
-pub type AzLayoutMaxWidthValueTT = azul_impl::css::CssPropertyValue::<LayoutMaxWidth>;
+pub type AzLayoutMaxWidthValueTT = azul_impl::css::CssPropertyValue::<AzLayoutMaxWidth>;
 pub use AzLayoutMaxWidthValueTT as AzLayoutMaxWidthValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutMinHeightValue` struct
-pub type AzLayoutMinHeightValueTT = azul_impl::css::CssPropertyValue::<LayoutMinHeight>;
+pub type AzLayoutMinHeightValueTT = azul_impl::css::CssPropertyValue::<AzLayoutMinHeight>;
 pub use AzLayoutMinHeightValueTT as AzLayoutMinHeightValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutMinWidthValue` struct
-pub type AzLayoutMinWidthValueTT = azul_impl::css::CssPropertyValue::<LayoutMinWidth>;
+pub type AzLayoutMinWidthValueTT = azul_impl::css::CssPropertyValue::<AzLayoutMinWidth>;
 pub use AzLayoutMinWidthValueTT as AzLayoutMinWidthValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingBottomValue` struct
-pub type AzLayoutPaddingBottomValueTT = azul_impl::css::CssPropertyValue::<LayoutPaddingBottom>;
+pub type AzLayoutPaddingBottomValueTT = azul_impl::css::CssPropertyValue::<AzLayoutPaddingBottom>;
 pub use AzLayoutPaddingBottomValueTT as AzLayoutPaddingBottomValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingLeftValue` struct
-pub type AzLayoutPaddingLeftValueTT = azul_impl::css::CssPropertyValue::<LayoutPaddingLeft>;
+pub type AzLayoutPaddingLeftValueTT = azul_impl::css::CssPropertyValue::<AzLayoutPaddingLeft>;
 pub use AzLayoutPaddingLeftValueTT as AzLayoutPaddingLeftValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingRightValue` struct
-pub type AzLayoutPaddingRightValueTT = azul_impl::css::CssPropertyValue::<LayoutPaddingRight>;
+pub type AzLayoutPaddingRightValueTT = azul_impl::css::CssPropertyValue::<AzLayoutPaddingRight>;
 pub use AzLayoutPaddingRightValueTT as AzLayoutPaddingRightValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingTopValue` struct
-pub type AzLayoutPaddingTopValueTT = azul_impl::css::CssPropertyValue::<LayoutPaddingTop>;
+pub type AzLayoutPaddingTopValueTT = azul_impl::css::CssPropertyValue::<AzLayoutPaddingTop>;
 pub use AzLayoutPaddingTopValueTT as AzLayoutPaddingTopValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutPositionValue` struct
-pub type AzLayoutPositionValueTT = azul_impl::css::CssPropertyValue::<LayoutPosition>;
+pub type AzLayoutPositionValueTT = azul_impl::css::CssPropertyValue::<AzLayoutPosition>;
 pub use AzLayoutPositionValueTT as AzLayoutPositionValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutRightValue` struct
-pub type AzLayoutRightValueTT = azul_impl::css::CssPropertyValue::<LayoutRight>;
+pub type AzLayoutRightValueTT = azul_impl::css::CssPropertyValue::<AzLayoutRight>;
 pub use AzLayoutRightValueTT as AzLayoutRightValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutTopValue` struct
-pub type AzLayoutTopValueTT = azul_impl::css::CssPropertyValue::<LayoutTop>;
+pub type AzLayoutTopValueTT = azul_impl::css::CssPropertyValue::<AzLayoutTop>;
 pub use AzLayoutTopValueTT as AzLayoutTopValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutWidthValue` struct
-pub type AzLayoutWidthValueTT = azul_impl::css::CssPropertyValue::<LayoutWidth>;
+pub type AzLayoutWidthValueTT = azul_impl::css::CssPropertyValue::<AzLayoutWidth>;
 pub use AzLayoutWidthValueTT as AzLayoutWidthValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutFlexWrapValue` struct
-pub type AzLayoutFlexWrapValueTT = azul_impl::css::CssPropertyValue::<LayoutFlexWrap>;
+pub type AzLayoutFlexWrapValueTT = azul_impl::css::CssPropertyValue::<AzLayoutFlexWrap>;
 pub use AzLayoutFlexWrapValueTT as AzLayoutFlexWrapValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutOverflowValue` struct
-pub type AzLayoutOverflowValueTT = azul_impl::css::CssPropertyValue::<LayoutOverflow>;
+pub type AzLayoutOverflowValueTT = azul_impl::css::CssPropertyValue::<AzLayoutOverflow>;
 pub use AzLayoutOverflowValueTT as AzLayoutOverflowValue;
 
 /// Re-export of rust-allocated (stack based) `ScrollbarStyleValue` struct
-pub type AzScrollbarStyleValueTT = azul_impl::css::CssPropertyValue::<ScrollbarStyle>;
+pub type AzScrollbarStyleValueTT = azul_impl::css::CssPropertyValue::<AzScrollbarStyle>;
 pub use AzScrollbarStyleValueTT as AzScrollbarStyleValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecValue` struct
-pub type AzStyleBackgroundContentVecValueTT = azul_impl::css::CssPropertyValue::<StyleBackgroundContentVec>;
+pub type AzStyleBackgroundContentVecValueTT = azul_impl::css::CssPropertyValue::<AzStyleBackgroundContentVec>;
 pub use AzStyleBackgroundContentVecValueTT as AzStyleBackgroundContentVecValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecValue` struct
-pub type AzStyleBackgroundPositionVecValueTT = azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>;
+pub type AzStyleBackgroundPositionVecValueTT = azul_impl::css::CssPropertyValue::<AzStyleBackgroundPositionVec>;
 pub use AzStyleBackgroundPositionVecValueTT as AzStyleBackgroundPositionVecValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecValue` struct
-pub type AzStyleBackgroundRepeatVecValueTT = azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>;
+pub type AzStyleBackgroundRepeatVecValueTT = azul_impl::css::CssPropertyValue::<AzStyleBackgroundRepeatVec>;
 pub use AzStyleBackgroundRepeatVecValueTT as AzStyleBackgroundRepeatVecValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecValue` struct
-pub type AzStyleBackgroundSizeVecValueTT = azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>;
+pub type AzStyleBackgroundSizeVecValueTT = azul_impl::css::CssPropertyValue::<AzStyleBackgroundSizeVec>;
 pub use AzStyleBackgroundSizeVecValueTT as AzStyleBackgroundSizeVecValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomColorValue` struct
-pub type AzStyleBorderBottomColorValueTT = azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>;
+pub type AzStyleBorderBottomColorValueTT = azul_impl::css::CssPropertyValue::<AzStyleBorderBottomColor>;
 pub use AzStyleBorderBottomColorValueTT as AzStyleBorderBottomColorValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomLeftRadiusValue` struct
-pub type AzStyleBorderBottomLeftRadiusValueTT = azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>;
+pub type AzStyleBorderBottomLeftRadiusValueTT = azul_impl::css::CssPropertyValue::<AzStyleBorderBottomLeftRadius>;
 pub use AzStyleBorderBottomLeftRadiusValueTT as AzStyleBorderBottomLeftRadiusValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomRightRadiusValue` struct
-pub type AzStyleBorderBottomRightRadiusValueTT = azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>;
+pub type AzStyleBorderBottomRightRadiusValueTT = azul_impl::css::CssPropertyValue::<AzStyleBorderBottomRightRadius>;
 pub use AzStyleBorderBottomRightRadiusValueTT as AzStyleBorderBottomRightRadiusValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomStyleValue` struct
-pub type AzStyleBorderBottomStyleValueTT = azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>;
+pub type AzStyleBorderBottomStyleValueTT = azul_impl::css::CssPropertyValue::<AzStyleBorderBottomStyle>;
 pub use AzStyleBorderBottomStyleValueTT as AzStyleBorderBottomStyleValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutBorderBottomWidthValue` struct
-pub type AzLayoutBorderBottomWidthValueTT = azul_impl::css::CssPropertyValue::<LayoutBorderBottomWidth>;
+pub type AzLayoutBorderBottomWidthValueTT = azul_impl::css::CssPropertyValue::<AzLayoutBorderBottomWidth>;
 pub use AzLayoutBorderBottomWidthValueTT as AzLayoutBorderBottomWidthValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBorderLeftColorValue` struct
-pub type AzStyleBorderLeftColorValueTT = azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>;
+pub type AzStyleBorderLeftColorValueTT = azul_impl::css::CssPropertyValue::<AzStyleBorderLeftColor>;
 pub use AzStyleBorderLeftColorValueTT as AzStyleBorderLeftColorValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBorderLeftStyleValue` struct
-pub type AzStyleBorderLeftStyleValueTT = azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>;
+pub type AzStyleBorderLeftStyleValueTT = azul_impl::css::CssPropertyValue::<AzStyleBorderLeftStyle>;
 pub use AzStyleBorderLeftStyleValueTT as AzStyleBorderLeftStyleValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutBorderLeftWidthValue` struct
-pub type AzLayoutBorderLeftWidthValueTT = azul_impl::css::CssPropertyValue::<LayoutBorderLeftWidth>;
+pub type AzLayoutBorderLeftWidthValueTT = azul_impl::css::CssPropertyValue::<AzLayoutBorderLeftWidth>;
 pub use AzLayoutBorderLeftWidthValueTT as AzLayoutBorderLeftWidthValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBorderRightColorValue` struct
-pub type AzStyleBorderRightColorValueTT = azul_impl::css::CssPropertyValue::<StyleBorderRightColor>;
+pub type AzStyleBorderRightColorValueTT = azul_impl::css::CssPropertyValue::<AzStyleBorderRightColor>;
 pub use AzStyleBorderRightColorValueTT as AzStyleBorderRightColorValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBorderRightStyleValue` struct
-pub type AzStyleBorderRightStyleValueTT = azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>;
+pub type AzStyleBorderRightStyleValueTT = azul_impl::css::CssPropertyValue::<AzStyleBorderRightStyle>;
 pub use AzStyleBorderRightStyleValueTT as AzStyleBorderRightStyleValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutBorderRightWidthValue` struct
-pub type AzLayoutBorderRightWidthValueTT = azul_impl::css::CssPropertyValue::<LayoutBorderRightWidth>;
+pub type AzLayoutBorderRightWidthValueTT = azul_impl::css::CssPropertyValue::<AzLayoutBorderRightWidth>;
 pub use AzLayoutBorderRightWidthValueTT as AzLayoutBorderRightWidthValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopColorValue` struct
-pub type AzStyleBorderTopColorValueTT = azul_impl::css::CssPropertyValue::<StyleBorderTopColor>;
+pub type AzStyleBorderTopColorValueTT = azul_impl::css::CssPropertyValue::<AzStyleBorderTopColor>;
 pub use AzStyleBorderTopColorValueTT as AzStyleBorderTopColorValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopLeftRadiusValue` struct
-pub type AzStyleBorderTopLeftRadiusValueTT = azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>;
+pub type AzStyleBorderTopLeftRadiusValueTT = azul_impl::css::CssPropertyValue::<AzStyleBorderTopLeftRadius>;
 pub use AzStyleBorderTopLeftRadiusValueTT as AzStyleBorderTopLeftRadiusValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopRightRadiusValue` struct
-pub type AzStyleBorderTopRightRadiusValueTT = azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>;
+pub type AzStyleBorderTopRightRadiusValueTT = azul_impl::css::CssPropertyValue::<AzStyleBorderTopRightRadius>;
 pub use AzStyleBorderTopRightRadiusValueTT as AzStyleBorderTopRightRadiusValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopStyleValue` struct
-pub type AzStyleBorderTopStyleValueTT = azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>;
+pub type AzStyleBorderTopStyleValueTT = azul_impl::css::CssPropertyValue::<AzStyleBorderTopStyle>;
 pub use AzStyleBorderTopStyleValueTT as AzStyleBorderTopStyleValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutBorderTopWidthValue` struct
-pub type AzLayoutBorderTopWidthValueTT = azul_impl::css::CssPropertyValue::<LayoutBorderTopWidth>;
+pub type AzLayoutBorderTopWidthValueTT = azul_impl::css::CssPropertyValue::<AzLayoutBorderTopWidth>;
 pub use AzLayoutBorderTopWidthValueTT as AzLayoutBorderTopWidthValue;
 
 /// Re-export of rust-allocated (stack based) `StyleCursorValue` struct
-pub type AzStyleCursorValueTT = azul_impl::css::CssPropertyValue::<StyleCursor>;
+pub type AzStyleCursorValueTT = azul_impl::css::CssPropertyValue::<AzStyleCursor>;
 pub use AzStyleCursorValueTT as AzStyleCursorValue;
 
 /// Re-export of rust-allocated (stack based) `StyleFontFamilyValue` struct
-pub type AzStyleFontFamilyValueTT = azul_impl::css::CssPropertyValue::<StyleFontFamily>;
+pub type AzStyleFontFamilyValueTT = azul_impl::css::CssPropertyValue::<AzStyleFontFamily>;
 pub use AzStyleFontFamilyValueTT as AzStyleFontFamilyValue;
 
 /// Re-export of rust-allocated (stack based) `StyleFontSizeValue` struct
-pub type AzStyleFontSizeValueTT = azul_impl::css::CssPropertyValue::<StyleFontSize>;
+pub type AzStyleFontSizeValueTT = azul_impl::css::CssPropertyValue::<AzStyleFontSize>;
 pub use AzStyleFontSizeValueTT as AzStyleFontSizeValue;
 
 /// Re-export of rust-allocated (stack based) `StyleLetterSpacingValue` struct
-pub type AzStyleLetterSpacingValueTT = azul_impl::css::CssPropertyValue::<StyleLetterSpacing>;
+pub type AzStyleLetterSpacingValueTT = azul_impl::css::CssPropertyValue::<AzStyleLetterSpacing>;
 pub use AzStyleLetterSpacingValueTT as AzStyleLetterSpacingValue;
 
 /// Re-export of rust-allocated (stack based) `StyleLineHeightValue` struct
-pub type AzStyleLineHeightValueTT = azul_impl::css::CssPropertyValue::<StyleLineHeight>;
+pub type AzStyleLineHeightValueTT = azul_impl::css::CssPropertyValue::<AzStyleLineHeight>;
 pub use AzStyleLineHeightValueTT as AzStyleLineHeightValue;
 
 /// Re-export of rust-allocated (stack based) `StyleTabWidthValue` struct
-pub type AzStyleTabWidthValueTT = azul_impl::css::CssPropertyValue::<StyleTabWidth>;
+pub type AzStyleTabWidthValueTT = azul_impl::css::CssPropertyValue::<AzStyleTabWidth>;
 pub use AzStyleTabWidthValueTT as AzStyleTabWidthValue;
 
 /// Re-export of rust-allocated (stack based) `StyleTextAlignmentHorzValue` struct
-pub type AzStyleTextAlignmentHorzValueTT = azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>;
+pub type AzStyleTextAlignmentHorzValueTT = azul_impl::css::CssPropertyValue::<AzStyleTextAlignmentHorz>;
 pub use AzStyleTextAlignmentHorzValueTT as AzStyleTextAlignmentHorzValue;
 
 /// Re-export of rust-allocated (stack based) `StyleTextColorValue` struct
-pub type AzStyleTextColorValueTT = azul_impl::css::CssPropertyValue::<StyleTextColor>;
+pub type AzStyleTextColorValueTT = azul_impl::css::CssPropertyValue::<AzStyleTextColor>;
 pub use AzStyleTextColorValueTT as AzStyleTextColorValue;
 
 /// Re-export of rust-allocated (stack based) `StyleWordSpacingValue` struct
-pub type AzStyleWordSpacingValueTT = azul_impl::css::CssPropertyValue::<StyleWordSpacing>;
+pub type AzStyleWordSpacingValueTT = azul_impl::css::CssPropertyValue::<AzStyleWordSpacing>;
 pub use AzStyleWordSpacingValueTT as AzStyleWordSpacingValue;
 
 /// Re-export of rust-allocated (stack based) `StyleOpacityValue` struct
-pub type AzStyleOpacityValueTT = azul_impl::css::CssPropertyValue::<StyleOpacity>;
+pub type AzStyleOpacityValueTT = azul_impl::css::CssPropertyValue::<AzStyleOpacity>;
 pub use AzStyleOpacityValueTT as AzStyleOpacityValue;
 
 /// Re-export of rust-allocated (stack based) `StyleTransformVecValue` struct
-pub type AzStyleTransformVecValueTT = azul_impl::css::CssPropertyValue::<StyleTransformVec>;
+pub type AzStyleTransformVecValueTT = azul_impl::css::CssPropertyValue::<AzStyleTransformVec>;
 pub use AzStyleTransformVecValueTT as AzStyleTransformVecValue;
 
 /// Re-export of rust-allocated (stack based) `StyleTransformOriginValue` struct
-pub type AzStyleTransformOriginValueTT = azul_impl::css::CssPropertyValue::<StyleTransformOrigin>;
+pub type AzStyleTransformOriginValueTT = azul_impl::css::CssPropertyValue::<AzStyleTransformOrigin>;
 pub use AzStyleTransformOriginValueTT as AzStyleTransformOriginValue;
 
 /// Re-export of rust-allocated (stack based) `StylePerspectiveOriginValue` struct
-pub type AzStylePerspectiveOriginValueTT = azul_impl::css::CssPropertyValue::<StylePerspectiveOrigin>;
+pub type AzStylePerspectiveOriginValueTT = azul_impl::css::CssPropertyValue::<AzStylePerspectiveOrigin>;
 pub use AzStylePerspectiveOriginValueTT as AzStylePerspectiveOriginValue;
 
 /// Re-export of rust-allocated (stack based) `StyleBackfaceVisibilityValue` struct
-pub type AzStyleBackfaceVisibilityValueTT = azul_impl::css::CssPropertyValue::<StyleBackfaceVisibility>;
+pub type AzStyleBackfaceVisibilityValueTT = azul_impl::css::CssPropertyValue::<AzStyleBackfaceVisibility>;
 pub use AzStyleBackfaceVisibilityValueTT as AzStyleBackfaceVisibilityValue;
 
 /// Parsed CSS key-value pair
@@ -1952,7 +1939,7 @@ pub use AzGetActiveUniformReturnTT as AzGetActiveUniformReturn;
 pub type AzTextureFlagsTT = azul_impl::gl::TextureFlags;
 pub use AzTextureFlagsTT as AzTextureFlags;
 /// Default texture flags (not opaque, not a video texture)
-#[no_mangle] pub extern "C" fn AzTextureFlags_default() -> AzTextureFlags { TextureFlags::default() }
+#[no_mangle] pub extern "C" fn AzTextureFlags_default() -> AzTextureFlags { AzTextureFlags::default() }
 
 /// Re-export of rust-allocated (stack based) `ImageRef` struct
 pub type AzImageRefTT = azul_impl::resources::ImageRef;
@@ -1960,9 +1947,21 @@ pub use AzImageRefTT as AzImageRef;
 /// Creates an "invalid" image with a width and height that reserves an image key, but does not render anything
 #[no_mangle] pub extern "C" fn AzImageRef_invalid(width: usize, height: usize, format: AzRawImageFormat) -> AzImageRef { AzImageRef::invalid(width, height, format) }
 /// Creates an image reference from a CPU-backed buffer
-#[no_mangle] pub extern "C" fn AzImageRef_rawImage(data: AzRawImage) -> AzOptionImageRef { AzImageRef::new_rawimage(data) }
+#[no_mangle] pub extern "C" fn AzImageRef_rawImage(data: AzRawImage) -> AzOptionImageRef { AzImageRef::new_rawimage(data).into() }
 /// Creates an image reference from an OpenGL texture
 #[no_mangle] pub extern "C" fn AzImageRef_glTexture(texture: AzTexture) -> AzImageRef { AzImageRef::new_gltexture(texture) }
+/// Creates an image reference from a callback that is going to be rendered with the given nodes computed size
+#[no_mangle] pub extern "C" fn AzImageRef_callback(callback: AzRenderImageCallback, data: AzRefAny) -> AzImageRef { AzImageRef::callback(callback, data) }
+/// Creates a new copy of the image bytes instead of shallow-copying the reference
+#[no_mangle] pub extern "C" fn AzImageRef_cloneBytes(imageref: &AzImageRef) -> AzImageRef { imageref.deep_copy() }
+/// Returns whether the image is a null (invalid) image
+#[no_mangle] pub extern "C" fn AzImageRef_isInvalid(imageref: &AzImageRef) -> bool { imageref.is_null_image() }
+/// Returns whether the image is a GL texture
+#[no_mangle] pub extern "C" fn AzImageRef_isGlTexture(imageref: &AzImageRef) -> bool { imageref.is_gl_texture() }
+/// Returns whether the image is a raw (CPU-decoded) image
+#[no_mangle] pub extern "C" fn AzImageRef_isRawImage(imageref: &AzImageRef) -> bool { imageref.is_raw_image() }
+/// Returns whether the image is a `RenderImageCallback`
+#[no_mangle] pub extern "C" fn AzImageRef_isCallback(imageref: &AzImageRef) -> bool { imageref.is_callback() }
 /// Destructor: Takes ownership of the `ImageRef` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzImageRef_delete(object: &mut AzImageRef) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
@@ -2016,18 +2015,20 @@ pub use AzRawImageDataTT as AzRawImageData;
 
 pub type AzParsedFontDestructorFnType = extern "C" fn(&mut c_void);
 /// Re-export of rust-allocated (stack based) `FontMetrics` struct
-pub type AzFontMetricsTT = azul_css::FontMetrics;
+pub type AzFontMetricsTT = azul_impl::css::FontMetrics;
 pub use AzFontMetricsTT as AzFontMetrics;
 
+/// Source data of a font file (bytes)
+pub type AzFontSourceTT = azul_impl::resources::LoadedFontSource;
+pub use AzFontSourceTT as AzFontSource;
+
 /// Atomically reference-counted parsed font data
-pub type AzFontRefTT = azul_css::FontRef;
+pub type AzFontRefTT = azul_impl::css::FontRef;
 pub use AzFontRefTT as AzFontRef;
 /// Parses a new font from bytes. Returns `None` if the font could not be parsed correctly.
-#[no_mangle] pub extern "C" fn AzFontRef_parse(bytes: AzU8Vec, font_index: u32) -> AzOptionFontRef { AzFontRef::parse_from_bytes(bytes, font_index).into() }
+#[no_mangle] pub extern "C" fn AzFontRef_parse(source: AzFontSource) -> AzOptionFontRef { azul_impl::text_layout::parse_font_fn(source).into() }
 /// Returns the font metrics of the parsed font
-#[no_mangle] pub extern "C" fn AzFontRef_getFontMetrics(fontref: &AzFontRef) -> AzFontMetrics { fontref.get_font_metrics() }
-/// Returns the font metrics
-#[no_mangle] pub extern "C" fn AzFontRef_getPostscriptId(fontref: &AzFontRef) -> AzString { fontref.get_postscript_id().into() }
+#[no_mangle] pub extern "C" fn AzFontRef_getFontMetrics(fontref: &AzFontRef) -> AzFontMetrics { azul_impl::text_layout::get_font_metrics_fontref(fontref) }
 /// Destructor: Takes ownership of the `FontRef` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzFontRef_delete(object: &mut AzFontRef) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
@@ -2315,14 +2316,14 @@ pub type AzTimerIdTT = azul_impl::task::TimerId;
 pub use AzTimerIdTT as AzTimerId;
 /// Creates a new `TimerId` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `TimerId::unique()` constructor.
-#[no_mangle] pub extern "C" fn AzTimerId_unique() -> AzTimerId { TimerId::unique() }
+#[no_mangle] pub extern "C" fn AzTimerId_unique() -> AzTimerId { AzTimerId::unique() }
 
 /// Re-export of rust-allocated (stack based) `Timer` struct
 pub type AzTimerTT = azul_impl::task::Timer;
 pub use AzTimerTT as AzTimer;
 /// Creates a new `Timer` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `Timer::new()` constructor.
-#[no_mangle] pub extern "C" fn AzTimer_new(timer_data: AzRefAny, callback: AzTimerCallbackType, get_system_time_fn: AzGetSystemTimeFn) -> AzTimer { Timer::new(timer_data, callback, get_system_time_fn) }
+#[no_mangle] pub extern "C" fn AzTimer_new(timer_data: AzRefAny, callback: AzTimerCallbackType, get_system_time_fn: AzGetSystemTimeFn) -> AzTimer { AzTimer::new(timer_data, callback, get_system_time_fn) }
 /// Equivalent to the Rust `Timer::with_delay()` function.
 #[no_mangle] pub extern "C" fn AzTimer_withDelay(timer: AzTimer, delay: AzDuration) -> AzTimer { timer.with_delay(delay) }
 /// Equivalent to the Rust `Timer::with_interval()` function.
@@ -2385,27 +2386,27 @@ pub type AzCheckThreadFinishedFnType = extern "C" fn(&c_void) -> bool;
 pub type AzCheckThreadFinishedFnTT = azul_impl::task::CheckThreadFinishedCallback;
 pub use AzCheckThreadFinishedFnTT as AzCheckThreadFinishedFn;
 
-pub type AzLibrarySendThreadMsgFnType = extern "C" fn(&mut c_void, AzThreadSendMsg) -> bool;
+pub type AzLibrarySendThreadMsgFnType = extern "C" fn(&c_void, AzThreadSendMsg) -> bool;
 /// Function to send a message to the thread
 pub type AzLibrarySendThreadMsgFnTT = azul_impl::task::LibrarySendThreadMsgCallback;
 pub use AzLibrarySendThreadMsgFnTT as AzLibrarySendThreadMsgFn;
 
-pub type AzLibraryReceiveThreadMsgFnType = extern "C" fn(&mut c_void) -> AzOptionThreadReceiveMsg;
+pub type AzLibraryReceiveThreadMsgFnType = extern "C" fn(&c_void) -> AzOptionThreadReceiveMsg;
 /// Function to receive a message from the thread
 pub type AzLibraryReceiveThreadMsgFnTT = azul_impl::task::LibraryReceiveThreadMsgCallback;
 pub use AzLibraryReceiveThreadMsgFnTT as AzLibraryReceiveThreadMsgFn;
 
-pub type AzThreadRecvFnType = extern "C" fn(&mut c_void) -> AzOptionThreadSendMsg;
+pub type AzThreadRecvFnType = extern "C" fn(&c_void) -> AzOptionThreadSendMsg;
 /// Function that the running `Thread` can call to receive messages from the main UI thread
 pub type AzThreadRecvFnTT = azul_impl::task::ThreadRecvCallback;
 pub use AzThreadRecvFnTT as AzThreadRecvFn;
 
-pub type AzThreadSendFnType = extern "C" fn(&mut c_void, AzThreadReceiveMsg) -> bool;
+pub type AzThreadSendFnType = extern "C" fn(&c_void, AzThreadReceiveMsg) -> bool;
 /// Function that the running `Thread` can call to receive messages from the main UI thread
 pub type AzThreadSendFnTT = azul_impl::task::ThreadSendCallback;
 pub use AzThreadSendFnTT as AzThreadSendFn;
 
-pub type AzThreadDestructorFnType = extern "C" fn(&mut c_void, &mut c_void, &mut c_void, &mut c_void);
+pub type AzThreadDestructorFnType = extern "C" fn(&mut AzThread);
 /// Destructor of the `Thread`
 pub type AzThreadDestructorFnTT = azul_impl::task::ThreadDestructorCallback;
 pub use AzThreadDestructorFnTT as AzThreadDestructorFn;
@@ -2994,7 +2995,7 @@ pub type AzOptionU32TT = azul_impl::css::OptionU32;
 pub use AzOptionU32TT as AzOptionU32;
 
 /// Re-export of rust-allocated (stack based) `OptionImageRef` struct
-pub type AzOptionImageRefTT = azul_impl::app_resources::OptionImageRef;
+pub type AzOptionImageRefTT = azul_impl::resources::OptionImageRef;
 pub use AzOptionImageRefTT as AzOptionImageRef;
 
 /// Re-export of rust-allocated (stack based) `OptionFontRef` struct
@@ -3285,12 +3286,12 @@ pub use AzInstantPtrTT as AzInstantPtr;
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzInstantPtr_deepCopy(object: &AzInstantPtr) -> AzInstantPtr { object.clone() }
 
-pub type AzInstantPtrCloneFnType = extern "C" fn(&c_void) -> AzInstantPtr;
+pub type AzInstantPtrCloneFnType = extern "C" fn(&AzInstantPtr) -> AzInstantPtr;
 /// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
 pub type AzInstantPtrCloneFnTT = azul_impl::task::InstantPtrCloneCallback;
 pub use AzInstantPtrCloneFnTT as AzInstantPtrCloneFn;
 
-pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut c_void);
+pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut AzInstantPtr);
 /// Re-export of rust-allocated (stack based) `InstantPtrDestructorFn` struct
 pub type AzInstantPtrDestructorFnTT = azul_impl::task::InstantPtrDestructorCallback;
 pub use AzInstantPtrDestructorFnTT as AzInstantPtrDestructorFn;
@@ -3328,7 +3329,7 @@ mod test_sizes {
 
     impl ::std::fmt::Debug for AzCallback                   { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzLayoutCallback             { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    impl ::std::fmt::Debug for AzGlCallback                 { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::std::fmt::Debug for AzRenderImageCallback        { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzIFrameCallback             { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzTimerCallback              { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzWriteBackCallback          { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
@@ -3344,24 +3345,6 @@ mod test_sizes {
     impl ::std::fmt::Debug for AzInstantPtrDestructorFn     { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzInstantPtrCloneFn          { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzThreadSendFn               { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-
-    impl ::std::fmt::Debug for AzRefCount {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            let ptr = unsafe { &*self.ptr };
-            write!(f, "RefAnyRefCount {{\r\n")?;
-            write!(f, "    num_copies: {}\r\n", ptr.num_copies)?;
-            write!(f, "    num_refs: {}\r\n", ptr.num_refs)?;
-            write!(f, "    num_mutable_refs: {}\r\n", ptr.num_mutable_refs)?;
-            write!(f, "    _internal_len: {}\r\n", ptr._internal_len)?;
-            write!(f, "    _internal_layout_size: {}\r\n", ptr._internal_layout_size)?;
-            write!(f, "    _internal_layout_align: {}\r\n", ptr._internal_layout_align)?;
-            write!(f, "    type_name: \"{}\"\r\n", ptr.type_name.as_str())?;
-            write!(f, "    type_id: {}\r\n", ptr.type_id)?;
-            write!(f, "    custom_destructor: 0x{:x}\r\n", ptr.custom_destructor as usize)?;
-            write!(f, "}}\r\n")?;
-            Ok(())
-        }
-    }
 
     impl ::std::fmt::Debug for AzDomVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzDomVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     impl ::std::fmt::Debug for AzIdOrClassVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzIdOrClassVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
@@ -3805,7 +3788,7 @@ mod test_sizes {
         pub cb: AzLayoutCallbackType,
     }
     /// `AzLayoutCallbackType` struct
-    pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutInfo) -> AzStyledDom;
+    pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutCallbackInfo) -> AzStyledDom;
     /// C-ABI stable wrapper over a `CallbackType`
     #[repr(C)]     pub struct AzCallback {
         pub cb: AzCallbackType,
@@ -3832,12 +3815,12 @@ mod test_sizes {
     }
     /// `AzIFrameCallbackType` struct
     pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
-    /// Re-export of rust-allocated (stack based) `GlCallback` struct
-    #[repr(C)]     pub struct AzGlCallback {
-        pub cb: AzGlCallbackType,
+    /// Re-export of rust-allocated (stack based) `RenderImageCallback` struct
+    #[repr(C)]     pub struct AzRenderImageCallback {
+        pub cb: AzRenderImageCallbackType,
     }
-    /// `AzGlCallbackType` struct
-    pub type AzGlCallbackType = extern "C" fn(&mut AzRefAny, AzGlCallbackInfo) -> AzGlCallbackReturn;
+    /// `AzRenderImageCallbackType` struct
+    pub type AzRenderImageCallbackType = extern "C" fn(&mut AzRefAny, AzRenderImageCallbackInfo) -> AzImageRef;
     /// Re-export of rust-allocated (stack based) `TimerCallback` struct
     #[repr(C)]     pub struct AzTimerCallback {
         pub cb: AzTimerCallbackType,
@@ -4600,31 +4583,31 @@ mod test_sizes {
         pub cb: AzCheckThreadFinishedFnType,
     }
     /// `AzLibrarySendThreadMsgFnType` struct
-    pub type AzLibrarySendThreadMsgFnType = extern "C" fn(&mut c_void, AzThreadSendMsg) -> bool;
+    pub type AzLibrarySendThreadMsgFnType = extern "C" fn(&c_void, AzThreadSendMsg) -> bool;
     /// Function to send a message to the thread
     #[repr(C)]     pub struct AzLibrarySendThreadMsgFn {
         pub cb: AzLibrarySendThreadMsgFnType,
     }
     /// `AzLibraryReceiveThreadMsgFnType` struct
-    pub type AzLibraryReceiveThreadMsgFnType = extern "C" fn(&mut c_void) -> AzOptionThreadReceiveMsg;
+    pub type AzLibraryReceiveThreadMsgFnType = extern "C" fn(&c_void) -> AzOptionThreadReceiveMsg;
     /// Function to receive a message from the thread
     #[repr(C)]     pub struct AzLibraryReceiveThreadMsgFn {
         pub cb: AzLibraryReceiveThreadMsgFnType,
     }
     /// `AzThreadRecvFnType` struct
-    pub type AzThreadRecvFnType = extern "C" fn(&mut c_void) -> AzOptionThreadSendMsg;
+    pub type AzThreadRecvFnType = extern "C" fn(&c_void) -> AzOptionThreadSendMsg;
     /// Function that the running `Thread` can call to receive messages from the main UI thread
     #[repr(C)]     pub struct AzThreadRecvFn {
         pub cb: AzThreadRecvFnType,
     }
     /// `AzThreadSendFnType` struct
-    pub type AzThreadSendFnType = extern "C" fn(&mut c_void, AzThreadReceiveMsg) -> bool;
+    pub type AzThreadSendFnType = extern "C" fn(&c_void, AzThreadReceiveMsg) -> bool;
     /// Function that the running `Thread` can call to receive messages from the main UI thread
     #[repr(C)]     pub struct AzThreadSendFn {
         pub cb: AzThreadSendFnType,
     }
     /// `AzThreadDestructorFnType` struct
-    pub type AzThreadDestructorFnType = extern "C" fn(&mut c_void, &mut c_void, &mut c_void, &mut c_void);
+    pub type AzThreadDestructorFnType = extern "C" fn(&mut AzThread);
     /// Destructor of the `Thread`
     #[repr(C)]     pub struct AzThreadDestructorFn {
         pub cb: AzThreadDestructorFnType,
@@ -5084,13 +5067,13 @@ mod test_sizes {
         pub col: u32,
     }
     /// `AzInstantPtrCloneFnType` struct
-    pub type AzInstantPtrCloneFnType = extern "C" fn(&c_void) -> AzInstantPtr;
+    pub type AzInstantPtrCloneFnType = extern "C" fn(&AzInstantPtr) -> AzInstantPtr;
     /// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
     #[repr(C)]     pub struct AzInstantPtrCloneFn {
         pub cb: AzInstantPtrCloneFnType,
     }
     /// `AzInstantPtrDestructorFnType` struct
-    pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut c_void);
+    pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut AzInstantPtr);
     /// Re-export of rust-allocated (stack based) `InstantPtrDestructorFn` struct
     #[repr(C)]     pub struct AzInstantPtrDestructorFn {
         pub cb: AzInstantPtrDestructorFnType,
@@ -5207,12 +5190,16 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
     #[repr(C)]     pub struct AzIFrameCallbackInfo {
-        pub resources: *const c_void,
+        pub system_fonts: *const c_void,
+        pub image_cache: *const c_void,
+        pub window_theme: AzWindowTheme,
         pub bounds: AzHidpiAdjustedBounds,
         pub scroll_size: AzLogicalSize,
         pub scroll_offset: AzLogicalPosition,
         pub virtual_scroll_size: AzLogicalSize,
         pub virtual_scroll_offset: AzLogicalPosition,
+        pub _reserved_ref: *const c_void,
+        pub _reserved_mut: *mut c_void,
     }
     /// Re-export of rust-allocated (stack based) `TimerCallbackReturn` struct
     #[repr(C)]     pub struct AzTimerCallbackReturn {
@@ -5222,13 +5209,7 @@ mod test_sizes {
     /// RefAny is a reference-counted, opaque pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
     #[repr(C)]     pub struct AzRefAny {
         pub _internal_ptr: *const c_void,
-        pub is_original_instance: bool,
         pub sharing_info: AzRefCount,
-    }
-    /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
-    #[repr(C)]     pub struct AzGlTextureNode {
-        pub callback: AzGlCallback,
-        pub data: AzRefAny,
     }
     /// Re-export of rust-allocated (stack based) `IFrameNode` struct
     #[repr(C)]     pub struct AzIFrameNode {
@@ -6141,11 +6122,11 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `Thread` struct
     #[repr(C)]     pub struct AzThread {
-        pub thread_handle: *mut c_void,
-        pub sender: *mut c_void,
-        pub receiver: *mut c_void,
+        pub thread_handle: *const c_void,
+        pub sender: *const c_void,
+        pub receiver: *const c_void,
+        pub dropcheck: *const c_void,
         pub writeback_data: AzRefAny,
-        pub dropcheck: *mut c_void,
         pub check_thread_finished_fn: AzCheckThreadFinishedFn,
         pub send_thread_msg_fn: AzLibrarySendThreadMsgFn,
         pub receive_thread_msg_fn: AzLibraryReceiveThreadMsgFn,
@@ -6153,13 +6134,13 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `ThreadSender` struct
     #[repr(C)]     pub struct AzThreadSender {
-        pub(crate) ptr: *mut c_void,
+        pub(crate) ptr: *const c_void,
         pub send_fn: AzThreadSendFn,
         pub destructor: AzThreadSenderDestructorFn,
     }
     /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
     #[repr(C)]     pub struct AzThreadReceiver {
-        pub(crate) ptr: *mut c_void,
+        pub(crate) ptr: *const c_void,
         pub recv_fn: AzThreadRecvFn,
         pub destructor: AzThreadReceiverDestructorFn,
     }
@@ -6574,25 +6555,30 @@ mod test_sizes {
         pub glyphs: AzInlineGlyphVec,
         pub bounds: AzLogicalRect,
     }
-    /// Re-export of rust-allocated (stack based) `GlCallbackInfo` struct
-    #[repr(C)]     pub struct AzGlCallbackInfo {
+    /// Re-export of rust-allocated (stack based) `RenderImageCallbackInfo` struct
+    #[repr(C)]     pub struct AzRenderImageCallbackInfo {
         pub callback_node_id: AzDomNodeId,
         pub bounds: AzHidpiAdjustedBounds,
         pub gl_context: *const AzOptionGl,
-        pub resources: *const c_void,
+        pub image_cache: *const c_void,
+        pub system_fonts: *const c_void,
         pub node_hierarchy: *const AzNodeVec,
         pub words_cache: *const c_void,
         pub shaped_words_cache: *const c_void,
         pub positioned_words_cache: *const c_void,
         pub positioned_rects: *const c_void,
+        pub _reserved_ref: *const c_void,
+        pub _reserved_mut: *mut c_void,
     }
-    /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
-    #[repr(C)]     pub struct AzLayoutInfo {
-        pub window_size: AzLogicalSize,
+    /// Re-export of rust-allocated (stack based) `LayoutCallbackInfo` struct
+    #[repr(C)]     pub struct AzLayoutCallbackInfo {
+        pub window_size: AzWindowSize,
         pub theme: AzWindowTheme,
         pub image_cache: *const c_void,
         pub gl_context: *const AzOptionGl,
         pub system_fonts: *const c_void,
+        pub _reserved_ref: *const c_void,
+        pub _reserved_mut: *mut c_void,
     }
     /// Re-export of rust-allocated (stack based) `EventFilter` struct
     #[repr(C, u8)]     pub enum AzEventFilter {
@@ -6716,6 +6702,12 @@ mod test_sizes {
         U8(AzU8Vec),
         U16(AzU16Vec),
         F32(AzF32Vec),
+    }
+    /// Source data of a font file (bytes)
+    #[repr(C)]     pub struct AzFontSource {
+        pub data: AzU8Vec,
+        pub font_index: u32,
+        pub parse_glyph_outlines: bool,
     }
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
     #[repr(C, u8)]     pub enum AzSvgPathElement {
@@ -6970,10 +6962,6 @@ mod test_sizes {
         Space,
         Word(AzInlineTextContents),
     }
-    /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
-    #[repr(C)]     pub struct AzGlCallbackReturn {
-        pub texture: AzOptionTexture,
-    }
     /// Re-export of rust-allocated (stack based) `CallbackData` struct
     #[repr(C)]     pub struct AzCallbackData {
         pub event: AzEventFilter,
@@ -7025,16 +7013,12 @@ mod test_sizes {
         pub angle: AzAngleValue,
         pub stops: AzRadialColorStopVec,
     }
-    /// Re-export of rust-allocated (stack based) `CssImageId` struct
-    #[repr(C)]     pub struct AzCssImageId {
-        pub inner: AzString,
-    }
     /// Re-export of rust-allocated (stack based) `StyleBackgroundContent` struct
     #[repr(C, u8)]     pub enum AzStyleBackgroundContent {
         LinearGradient(AzLinearGradient),
         RadialGradient(AzRadialGradient),
         ConicGradient(AzConicGradient),
-        Image(AzCssImageId),
+        Image(AzString),
         Color(AzColorU),
     }
     /// Re-export of rust-allocated (stack based) `ScrollbarInfo` struct
@@ -7054,8 +7038,10 @@ mod test_sizes {
         pub vertical: AzScrollbarInfo,
     }
     /// Re-export of rust-allocated (stack based) `StyleFontFamily` struct
-    #[repr(C)]     pub struct AzStyleFontFamily {
-        pub fonts: AzStringVec,
+    #[repr(C, u8)]     pub enum AzStyleFontFamily {
+        Native(AzString),
+        File(AzString),
+        Ref(AzFontRef),
     }
     /// Re-export of rust-allocated (stack based) `ScrollbarStyleValue` struct
     #[repr(C, u8)]     pub enum AzScrollbarStyleValue {
@@ -7492,7 +7478,8 @@ mod test_sizes {
         pub current_window_state: *const c_void,
         pub modifiable_window_state: *mut AzWindowState,
         pub gl_context: *const AzOptionGl,
-        pub resources: *mut c_void,
+        pub image_cache: *mut c_void,
+        pub system_fonts: *mut c_void,
         pub timers: *mut c_void,
         pub threads: *mut c_void,
         pub new_windows: *mut c_void,
@@ -7515,6 +7502,8 @@ mod test_sizes {
         pub hit_dom_node: AzDomNodeId,
         pub cursor_relative_to_item: AzOptionLayoutPoint,
         pub cursor_in_viewport: AzOptionLayoutPoint,
+        pub _reserved_ref: *const c_void,
+        pub _reserved_mut: *mut c_void,
     }
     /// Re-export of rust-allocated (stack based) `InlineText` struct
     #[repr(C)]     pub struct AzInlineText {
@@ -7535,6 +7524,8 @@ mod test_sizes {
         pub frame_start: AzInstant,
         pub call_count: usize,
         pub is_about_to_finish: bool,
+        pub _reserved_ref: *const c_void,
+        pub _reserved_mut: *mut c_void,
     }
     /// Re-export of rust-allocated (stack based) `NodeDataInlineCssProperty` struct
     #[repr(C, u8)]     pub enum AzNodeDataInlineCssProperty {
@@ -7777,7 +7768,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeId>(), "AzNodeId"), (Layout::new::<AzNodeId>(), "AzNodeId"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::DomId>(), "AzDomId"), (Layout::new::<AzDomId>(), "AzDomId"));
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallback>(), "AzIFrameCallback"), (Layout::new::<AzIFrameCallback>(), "AzIFrameCallback"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::GlCallback>(), "AzGlCallback"), (Layout::new::<AzGlCallback>(), "AzGlCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::RenderImageCallback>(), "AzRenderImageCallback"), (Layout::new::<AzRenderImageCallback>(), "AzRenderImageCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallback>(), "AzTimerCallback"), (Layout::new::<AzTimerCallback>(), "AzTimerCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::WriteBackCallback>(), "AzWriteBackCallback"), (Layout::new::<AzWriteBackCallback>(), "AzWriteBackCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::ThreadCallback>(), "AzThreadCallback"), (Layout::new::<AzThreadCallback>(), "AzThreadCallback"));
@@ -7842,7 +7833,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::resources::RawImageFormat>(), "AzRawImageFormat"), (Layout::new::<AzRawImageFormat>(), "AzRawImageFormat"));
         assert_eq!((Layout::new::<azul_impl::resources::encode::EncodeImageError>(), "AzEncodeImageError"), (Layout::new::<AzEncodeImageError>(), "AzEncodeImageError"));
         assert_eq!((Layout::new::<azul_impl::resources::decode::DecodeImageError>(), "AzDecodeImageError"), (Layout::new::<AzDecodeImageError>(), "AzDecodeImageError"));
-        assert_eq!((Layout::new::<azul_css::FontRef>(), "AzFontRef"), (Layout::new::<AzFontRef>(), "AzFontRef"));
+        assert_eq!((Layout::new::<azul_impl::css::FontRef>(), "AzFontRef"), (Layout::new::<AzFontRef>(), "AzFontRef"));
         assert_eq!((Layout::new::<azul_impl::svg::Svg>(), "AzSvg"), (Layout::new::<AzSvg>(), "AzSvg"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgXmlNode>(), "AzSvgXmlNode"), (Layout::new::<AzSvgXmlNode>(), "AzSvgXmlNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgCircle>(), "AzSvgCircle"), (Layout::new::<AzSvgCircle>(), "AzSvgCircle"));
@@ -7963,7 +7954,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackInfo>(), "AzIFrameCallbackInfo"), (Layout::new::<AzIFrameCallbackInfo>(), "AzIFrameCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackReturn>(), "AzTimerCallbackReturn"), (Layout::new::<AzTimerCallbackReturn>(), "AzTimerCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefAny>(), "AzRefAny"), (Layout::new::<AzRefAny>(), "AzRefAny"));
-        assert_eq!((Layout::new::<azul_impl::dom::GlTextureNode>(), "AzGlTextureNode"), (Layout::new::<AzGlTextureNode>(), "AzGlTextureNode"));
         assert_eq!((Layout::new::<azul_impl::dom::IFrameNode>(), "AzIFrameNode"), (Layout::new::<AzIFrameNode>(), "AzIFrameNode"));
         assert_eq!((Layout::new::<azul_impl::dom::NotEventFilter>(), "AzNotEventFilter"), (Layout::new::<AzNotEventFilter>(), "AzNotEventFilter"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildSelector>(), "AzCssNthChildSelector"), (Layout::new::<AzCssNthChildSelector>(), "AzCssNthChildSelector"));
@@ -8031,70 +8021,70 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformSkew2D>(), "AzStyleTransformSkew2D"), (Layout::new::<AzStyleTransformSkew2D>(), "AzStyleTransformSkew2D"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTextColor>(), "AzStyleTextColor"), (Layout::new::<AzStyleTextColor>(), "AzStyleTextColor"));
         assert_eq!((Layout::new::<azul_impl::css::StyleWordSpacing>(), "AzStyleWordSpacing"), (Layout::new::<AzStyleWordSpacing>(), "AzStyleWordSpacing"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBoxShadow>>(), "AzStyleBoxShadowValue"), (Layout::new::<AzStyleBoxShadowValue>(), "AzStyleBoxShadowValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutAlignContent>>(), "AzLayoutAlignContentValue"), (Layout::new::<AzLayoutAlignContentValue>(), "AzLayoutAlignContentValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutAlignItems>>(), "AzLayoutAlignItemsValue"), (Layout::new::<AzLayoutAlignItemsValue>(), "AzLayoutAlignItemsValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBottom>>(), "AzLayoutBottomValue"), (Layout::new::<AzLayoutBottomValue>(), "AzLayoutBottomValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBoxSizing>>(), "AzLayoutBoxSizingValue"), (Layout::new::<AzLayoutBoxSizingValue>(), "AzLayoutBoxSizingValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexDirection>>(), "AzLayoutFlexDirectionValue"), (Layout::new::<AzLayoutFlexDirectionValue>(), "AzLayoutFlexDirectionValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutDisplay>>(), "AzLayoutDisplayValue"), (Layout::new::<AzLayoutDisplayValue>(), "AzLayoutDisplayValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexGrow>>(), "AzLayoutFlexGrowValue"), (Layout::new::<AzLayoutFlexGrowValue>(), "AzLayoutFlexGrowValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexShrink>>(), "AzLayoutFlexShrinkValue"), (Layout::new::<AzLayoutFlexShrinkValue>(), "AzLayoutFlexShrinkValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFloat>>(), "AzLayoutFloatValue"), (Layout::new::<AzLayoutFloatValue>(), "AzLayoutFloatValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutHeight>>(), "AzLayoutHeightValue"), (Layout::new::<AzLayoutHeightValue>(), "AzLayoutHeightValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutJustifyContent>>(), "AzLayoutJustifyContentValue"), (Layout::new::<AzLayoutJustifyContentValue>(), "AzLayoutJustifyContentValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutLeft>>(), "AzLayoutLeftValue"), (Layout::new::<AzLayoutLeftValue>(), "AzLayoutLeftValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMarginBottom>>(), "AzLayoutMarginBottomValue"), (Layout::new::<AzLayoutMarginBottomValue>(), "AzLayoutMarginBottomValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMarginLeft>>(), "AzLayoutMarginLeftValue"), (Layout::new::<AzLayoutMarginLeftValue>(), "AzLayoutMarginLeftValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMarginRight>>(), "AzLayoutMarginRightValue"), (Layout::new::<AzLayoutMarginRightValue>(), "AzLayoutMarginRightValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMarginTop>>(), "AzLayoutMarginTopValue"), (Layout::new::<AzLayoutMarginTopValue>(), "AzLayoutMarginTopValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMaxHeight>>(), "AzLayoutMaxHeightValue"), (Layout::new::<AzLayoutMaxHeightValue>(), "AzLayoutMaxHeightValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMaxWidth>>(), "AzLayoutMaxWidthValue"), (Layout::new::<AzLayoutMaxWidthValue>(), "AzLayoutMaxWidthValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMinHeight>>(), "AzLayoutMinHeightValue"), (Layout::new::<AzLayoutMinHeightValue>(), "AzLayoutMinHeightValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutMinWidth>>(), "AzLayoutMinWidthValue"), (Layout::new::<AzLayoutMinWidthValue>(), "AzLayoutMinWidthValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPaddingBottom>>(), "AzLayoutPaddingBottomValue"), (Layout::new::<AzLayoutPaddingBottomValue>(), "AzLayoutPaddingBottomValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPaddingLeft>>(), "AzLayoutPaddingLeftValue"), (Layout::new::<AzLayoutPaddingLeftValue>(), "AzLayoutPaddingLeftValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPaddingRight>>(), "AzLayoutPaddingRightValue"), (Layout::new::<AzLayoutPaddingRightValue>(), "AzLayoutPaddingRightValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPaddingTop>>(), "AzLayoutPaddingTopValue"), (Layout::new::<AzLayoutPaddingTopValue>(), "AzLayoutPaddingTopValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutPosition>>(), "AzLayoutPositionValue"), (Layout::new::<AzLayoutPositionValue>(), "AzLayoutPositionValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutRight>>(), "AzLayoutRightValue"), (Layout::new::<AzLayoutRightValue>(), "AzLayoutRightValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutTop>>(), "AzLayoutTopValue"), (Layout::new::<AzLayoutTopValue>(), "AzLayoutTopValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutWidth>>(), "AzLayoutWidthValue"), (Layout::new::<AzLayoutWidthValue>(), "AzLayoutWidthValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutFlexWrap>>(), "AzLayoutFlexWrapValue"), (Layout::new::<AzLayoutFlexWrapValue>(), "AzLayoutFlexWrapValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutOverflow>>(), "AzLayoutOverflowValue"), (Layout::new::<AzLayoutOverflowValue>(), "AzLayoutOverflowValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>>(), "AzStyleBorderBottomColorValue"), (Layout::new::<AzStyleBorderBottomColorValue>(), "AzStyleBorderBottomColorValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>>(), "AzStyleBorderBottomLeftRadiusValue"), (Layout::new::<AzStyleBorderBottomLeftRadiusValue>(), "AzStyleBorderBottomLeftRadiusValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>>(), "AzStyleBorderBottomRightRadiusValue"), (Layout::new::<AzStyleBorderBottomRightRadiusValue>(), "AzStyleBorderBottomRightRadiusValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>>(), "AzStyleBorderBottomStyleValue"), (Layout::new::<AzStyleBorderBottomStyleValue>(), "AzStyleBorderBottomStyleValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBorderBottomWidth>>(), "AzLayoutBorderBottomWidthValue"), (Layout::new::<AzLayoutBorderBottomWidthValue>(), "AzLayoutBorderBottomWidthValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>>(), "AzStyleBorderLeftColorValue"), (Layout::new::<AzStyleBorderLeftColorValue>(), "AzStyleBorderLeftColorValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>>(), "AzStyleBorderLeftStyleValue"), (Layout::new::<AzStyleBorderLeftStyleValue>(), "AzStyleBorderLeftStyleValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBorderLeftWidth>>(), "AzLayoutBorderLeftWidthValue"), (Layout::new::<AzLayoutBorderLeftWidthValue>(), "AzLayoutBorderLeftWidthValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderRightColor>>(), "AzStyleBorderRightColorValue"), (Layout::new::<AzStyleBorderRightColorValue>(), "AzStyleBorderRightColorValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>>(), "AzStyleBorderRightStyleValue"), (Layout::new::<AzStyleBorderRightStyleValue>(), "AzStyleBorderRightStyleValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBorderRightWidth>>(), "AzLayoutBorderRightWidthValue"), (Layout::new::<AzLayoutBorderRightWidthValue>(), "AzLayoutBorderRightWidthValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderTopColor>>(), "AzStyleBorderTopColorValue"), (Layout::new::<AzStyleBorderTopColorValue>(), "AzStyleBorderTopColorValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>>(), "AzStyleBorderTopLeftRadiusValue"), (Layout::new::<AzStyleBorderTopLeftRadiusValue>(), "AzStyleBorderTopLeftRadiusValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>>(), "AzStyleBorderTopRightRadiusValue"), (Layout::new::<AzStyleBorderTopRightRadiusValue>(), "AzStyleBorderTopRightRadiusValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>>(), "AzStyleBorderTopStyleValue"), (Layout::new::<AzStyleBorderTopStyleValue>(), "AzStyleBorderTopStyleValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<LayoutBorderTopWidth>>(), "AzLayoutBorderTopWidthValue"), (Layout::new::<AzLayoutBorderTopWidthValue>(), "AzLayoutBorderTopWidthValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleCursor>>(), "AzStyleCursorValue"), (Layout::new::<AzStyleCursorValue>(), "AzStyleCursorValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleFontSize>>(), "AzStyleFontSizeValue"), (Layout::new::<AzStyleFontSizeValue>(), "AzStyleFontSizeValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleLetterSpacing>>(), "AzStyleLetterSpacingValue"), (Layout::new::<AzStyleLetterSpacingValue>(), "AzStyleLetterSpacingValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleLineHeight>>(), "AzStyleLineHeightValue"), (Layout::new::<AzStyleLineHeightValue>(), "AzStyleLineHeightValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTabWidth>>(), "AzStyleTabWidthValue"), (Layout::new::<AzStyleTabWidthValue>(), "AzStyleTabWidthValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>>(), "AzStyleTextAlignmentHorzValue"), (Layout::new::<AzStyleTextAlignmentHorzValue>(), "AzStyleTextAlignmentHorzValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTextColor>>(), "AzStyleTextColorValue"), (Layout::new::<AzStyleTextColorValue>(), "AzStyleTextColorValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleWordSpacing>>(), "AzStyleWordSpacingValue"), (Layout::new::<AzStyleWordSpacingValue>(), "AzStyleWordSpacingValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleOpacity>>(), "AzStyleOpacityValue"), (Layout::new::<AzStyleOpacityValue>(), "AzStyleOpacityValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTransformOrigin>>(), "AzStyleTransformOriginValue"), (Layout::new::<AzStyleTransformOriginValue>(), "AzStyleTransformOriginValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StylePerspectiveOrigin>>(), "AzStylePerspectiveOriginValue"), (Layout::new::<AzStylePerspectiveOriginValue>(), "AzStylePerspectiveOriginValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackfaceVisibility>>(), "AzStyleBackfaceVisibilityValue"), (Layout::new::<AzStyleBackfaceVisibilityValue>(), "AzStyleBackfaceVisibilityValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBoxShadow>>(), "AzStyleBoxShadowValue"), (Layout::new::<AzStyleBoxShadowValue>(), "AzStyleBoxShadowValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutAlignContent>>(), "AzLayoutAlignContentValue"), (Layout::new::<AzLayoutAlignContentValue>(), "AzLayoutAlignContentValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutAlignItems>>(), "AzLayoutAlignItemsValue"), (Layout::new::<AzLayoutAlignItemsValue>(), "AzLayoutAlignItemsValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutBottom>>(), "AzLayoutBottomValue"), (Layout::new::<AzLayoutBottomValue>(), "AzLayoutBottomValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutBoxSizing>>(), "AzLayoutBoxSizingValue"), (Layout::new::<AzLayoutBoxSizingValue>(), "AzLayoutBoxSizingValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutFlexDirection>>(), "AzLayoutFlexDirectionValue"), (Layout::new::<AzLayoutFlexDirectionValue>(), "AzLayoutFlexDirectionValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutDisplay>>(), "AzLayoutDisplayValue"), (Layout::new::<AzLayoutDisplayValue>(), "AzLayoutDisplayValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutFlexGrow>>(), "AzLayoutFlexGrowValue"), (Layout::new::<AzLayoutFlexGrowValue>(), "AzLayoutFlexGrowValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutFlexShrink>>(), "AzLayoutFlexShrinkValue"), (Layout::new::<AzLayoutFlexShrinkValue>(), "AzLayoutFlexShrinkValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutFloat>>(), "AzLayoutFloatValue"), (Layout::new::<AzLayoutFloatValue>(), "AzLayoutFloatValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutHeight>>(), "AzLayoutHeightValue"), (Layout::new::<AzLayoutHeightValue>(), "AzLayoutHeightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutJustifyContent>>(), "AzLayoutJustifyContentValue"), (Layout::new::<AzLayoutJustifyContentValue>(), "AzLayoutJustifyContentValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutLeft>>(), "AzLayoutLeftValue"), (Layout::new::<AzLayoutLeftValue>(), "AzLayoutLeftValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutMarginBottom>>(), "AzLayoutMarginBottomValue"), (Layout::new::<AzLayoutMarginBottomValue>(), "AzLayoutMarginBottomValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutMarginLeft>>(), "AzLayoutMarginLeftValue"), (Layout::new::<AzLayoutMarginLeftValue>(), "AzLayoutMarginLeftValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutMarginRight>>(), "AzLayoutMarginRightValue"), (Layout::new::<AzLayoutMarginRightValue>(), "AzLayoutMarginRightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutMarginTop>>(), "AzLayoutMarginTopValue"), (Layout::new::<AzLayoutMarginTopValue>(), "AzLayoutMarginTopValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutMaxHeight>>(), "AzLayoutMaxHeightValue"), (Layout::new::<AzLayoutMaxHeightValue>(), "AzLayoutMaxHeightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutMaxWidth>>(), "AzLayoutMaxWidthValue"), (Layout::new::<AzLayoutMaxWidthValue>(), "AzLayoutMaxWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutMinHeight>>(), "AzLayoutMinHeightValue"), (Layout::new::<AzLayoutMinHeightValue>(), "AzLayoutMinHeightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutMinWidth>>(), "AzLayoutMinWidthValue"), (Layout::new::<AzLayoutMinWidthValue>(), "AzLayoutMinWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutPaddingBottom>>(), "AzLayoutPaddingBottomValue"), (Layout::new::<AzLayoutPaddingBottomValue>(), "AzLayoutPaddingBottomValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutPaddingLeft>>(), "AzLayoutPaddingLeftValue"), (Layout::new::<AzLayoutPaddingLeftValue>(), "AzLayoutPaddingLeftValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutPaddingRight>>(), "AzLayoutPaddingRightValue"), (Layout::new::<AzLayoutPaddingRightValue>(), "AzLayoutPaddingRightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutPaddingTop>>(), "AzLayoutPaddingTopValue"), (Layout::new::<AzLayoutPaddingTopValue>(), "AzLayoutPaddingTopValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutPosition>>(), "AzLayoutPositionValue"), (Layout::new::<AzLayoutPositionValue>(), "AzLayoutPositionValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutRight>>(), "AzLayoutRightValue"), (Layout::new::<AzLayoutRightValue>(), "AzLayoutRightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutTop>>(), "AzLayoutTopValue"), (Layout::new::<AzLayoutTopValue>(), "AzLayoutTopValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutWidth>>(), "AzLayoutWidthValue"), (Layout::new::<AzLayoutWidthValue>(), "AzLayoutWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutFlexWrap>>(), "AzLayoutFlexWrapValue"), (Layout::new::<AzLayoutFlexWrapValue>(), "AzLayoutFlexWrapValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutOverflow>>(), "AzLayoutOverflowValue"), (Layout::new::<AzLayoutOverflowValue>(), "AzLayoutOverflowValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBorderBottomColor>>(), "AzStyleBorderBottomColorValue"), (Layout::new::<AzStyleBorderBottomColorValue>(), "AzStyleBorderBottomColorValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBorderBottomLeftRadius>>(), "AzStyleBorderBottomLeftRadiusValue"), (Layout::new::<AzStyleBorderBottomLeftRadiusValue>(), "AzStyleBorderBottomLeftRadiusValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBorderBottomRightRadius>>(), "AzStyleBorderBottomRightRadiusValue"), (Layout::new::<AzStyleBorderBottomRightRadiusValue>(), "AzStyleBorderBottomRightRadiusValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBorderBottomStyle>>(), "AzStyleBorderBottomStyleValue"), (Layout::new::<AzStyleBorderBottomStyleValue>(), "AzStyleBorderBottomStyleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutBorderBottomWidth>>(), "AzLayoutBorderBottomWidthValue"), (Layout::new::<AzLayoutBorderBottomWidthValue>(), "AzLayoutBorderBottomWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBorderLeftColor>>(), "AzStyleBorderLeftColorValue"), (Layout::new::<AzStyleBorderLeftColorValue>(), "AzStyleBorderLeftColorValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBorderLeftStyle>>(), "AzStyleBorderLeftStyleValue"), (Layout::new::<AzStyleBorderLeftStyleValue>(), "AzStyleBorderLeftStyleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutBorderLeftWidth>>(), "AzLayoutBorderLeftWidthValue"), (Layout::new::<AzLayoutBorderLeftWidthValue>(), "AzLayoutBorderLeftWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBorderRightColor>>(), "AzStyleBorderRightColorValue"), (Layout::new::<AzStyleBorderRightColorValue>(), "AzStyleBorderRightColorValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBorderRightStyle>>(), "AzStyleBorderRightStyleValue"), (Layout::new::<AzStyleBorderRightStyleValue>(), "AzStyleBorderRightStyleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutBorderRightWidth>>(), "AzLayoutBorderRightWidthValue"), (Layout::new::<AzLayoutBorderRightWidthValue>(), "AzLayoutBorderRightWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBorderTopColor>>(), "AzStyleBorderTopColorValue"), (Layout::new::<AzStyleBorderTopColorValue>(), "AzStyleBorderTopColorValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBorderTopLeftRadius>>(), "AzStyleBorderTopLeftRadiusValue"), (Layout::new::<AzStyleBorderTopLeftRadiusValue>(), "AzStyleBorderTopLeftRadiusValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBorderTopRightRadius>>(), "AzStyleBorderTopRightRadiusValue"), (Layout::new::<AzStyleBorderTopRightRadiusValue>(), "AzStyleBorderTopRightRadiusValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBorderTopStyle>>(), "AzStyleBorderTopStyleValue"), (Layout::new::<AzStyleBorderTopStyleValue>(), "AzStyleBorderTopStyleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzLayoutBorderTopWidth>>(), "AzLayoutBorderTopWidthValue"), (Layout::new::<AzLayoutBorderTopWidthValue>(), "AzLayoutBorderTopWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleCursor>>(), "AzStyleCursorValue"), (Layout::new::<AzStyleCursorValue>(), "AzStyleCursorValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleFontSize>>(), "AzStyleFontSizeValue"), (Layout::new::<AzStyleFontSizeValue>(), "AzStyleFontSizeValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleLetterSpacing>>(), "AzStyleLetterSpacingValue"), (Layout::new::<AzStyleLetterSpacingValue>(), "AzStyleLetterSpacingValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleLineHeight>>(), "AzStyleLineHeightValue"), (Layout::new::<AzStyleLineHeightValue>(), "AzStyleLineHeightValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTabWidth>>(), "AzStyleTabWidthValue"), (Layout::new::<AzStyleTabWidthValue>(), "AzStyleTabWidthValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTextAlignmentHorz>>(), "AzStyleTextAlignmentHorzValue"), (Layout::new::<AzStyleTextAlignmentHorzValue>(), "AzStyleTextAlignmentHorzValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTextColor>>(), "AzStyleTextColorValue"), (Layout::new::<AzStyleTextColorValue>(), "AzStyleTextColorValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleWordSpacing>>(), "AzStyleWordSpacingValue"), (Layout::new::<AzStyleWordSpacingValue>(), "AzStyleWordSpacingValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleOpacity>>(), "AzStyleOpacityValue"), (Layout::new::<AzStyleOpacityValue>(), "AzStyleOpacityValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTransformOrigin>>(), "AzStyleTransformOriginValue"), (Layout::new::<AzStyleTransformOriginValue>(), "AzStyleTransformOriginValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStylePerspectiveOrigin>>(), "AzStylePerspectiveOriginValue"), (Layout::new::<AzStylePerspectiveOriginValue>(), "AzStylePerspectiveOriginValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBackfaceVisibility>>(), "AzStyleBackfaceVisibilityValue"), (Layout::new::<AzStyleBackfaceVisibilityValue>(), "AzStyleBackfaceVisibilityValue"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepth>(), "AzParentWithNodeDepth"), (Layout::new::<AzParentWithNodeDepth>(), "AzParentWithNodeDepth"));
         assert_eq!((Layout::new::<azul_impl::gl::GlContextPtr>(), "AzGl"), (Layout::new::<AzGl>(), "AzGl"));
         assert_eq!((Layout::new::<azul_impl::gl::RefstrVecRef>(), "AzRefstrVecRef"), (Layout::new::<AzRefstrVecRef>(), "AzRefstrVecRef"));
         assert_eq!((Layout::new::<azul_impl::resources::ImageMask>(), "AzImageMask"), (Layout::new::<AzImageMask>(), "AzImageMask"));
-        assert_eq!((Layout::new::<azul_css::FontMetrics>(), "AzFontMetrics"), (Layout::new::<AzFontMetrics>(), "AzFontMetrics"));
+        assert_eq!((Layout::new::<azul_impl::css::FontMetrics>(), "AzFontMetrics"), (Layout::new::<AzFontMetrics>(), "AzFontMetrics"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgLine>(), "AzSvgLine"), (Layout::new::<AzSvgLine>(), "AzSvgLine"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgQuadraticCurve>(), "AzSvgQuadraticCurve"), (Layout::new::<AzSvgQuadraticCurve>(), "AzSvgQuadraticCurve"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgCubicCurve>(), "AzSvgCubicCurve"), (Layout::new::<AzSvgCubicCurve>(), "AzSvgCubicCurve"));
@@ -8126,7 +8116,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
-        assert_eq!((Layout::new::<azul_impl::app_resources::OptionImageRef>(), "AzOptionImageRef"), (Layout::new::<AzOptionImageRef>(), "AzOptionImageRef"));
+        assert_eq!((Layout::new::<azul_impl::resources::OptionImageRef>(), "AzOptionImageRef"), (Layout::new::<AzOptionImageRef>(), "AzOptionImageRef"));
         assert_eq!((Layout::new::<azul_impl::css::OptionFontRef>(), "AzOptionFontRef"), (Layout::new::<AzOptionFontRef>(), "AzOptionFontRef"));
         assert_eq!((Layout::new::<azul_impl::window::OptionClipboard>(), "AzOptionSystemClipboard"), (Layout::new::<AzOptionSystemClipboard>(), "AzOptionSystemClipboard"));
         assert_eq!((Layout::new::<azul_impl::file::OptionFile>(), "AzOptionFile"), (Layout::new::<AzOptionFile>(), "AzOptionFile"));
@@ -8172,8 +8162,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::KeyboardState>(), "AzKeyboardState"), (Layout::new::<AzKeyboardState>(), "AzKeyboardState"));
         assert_eq!((Layout::new::<azul_impl::window::MouseState>(), "AzMouseState"), (Layout::new::<AzMouseState>(), "AzMouseState"));
         assert_eq!((Layout::new::<azul_core::callbacks::InlineTextContents>(), "AzInlineTextContents"), (Layout::new::<AzInlineTextContents>(), "AzInlineTextContents"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackInfo>(), "AzGlCallbackInfo"), (Layout::new::<AzGlCallbackInfo>(), "AzGlCallbackInfo"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutInfo>(), "AzLayoutInfo"), (Layout::new::<AzLayoutInfo>(), "AzLayoutInfo"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::RenderImageCallbackInfo>(), "AzRenderImageCallbackInfo"), (Layout::new::<AzRenderImageCallbackInfo>(), "AzRenderImageCallbackInfo"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallbackInfo>(), "AzLayoutCallbackInfo"), (Layout::new::<AzLayoutCallbackInfo>(), "AzLayoutCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::dom::EventFilter>(), "AzEventFilter"), (Layout::new::<AzEventFilter>(), "AzEventFilter"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathPseudoSelector>(), "AzCssPathPseudoSelector"), (Layout::new::<AzCssPathPseudoSelector>(), "AzCssPathPseudoSelector"));
         assert_eq!((Layout::new::<azul_impl::css::AnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"), (Layout::new::<AzAnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"));
@@ -8181,14 +8171,15 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::LinearColorStop>(), "AzLinearColorStop"), (Layout::new::<AzLinearColorStop>(), "AzLinearColorStop"));
         assert_eq!((Layout::new::<azul_impl::css::RadialColorStop>(), "AzRadialColorStop"), (Layout::new::<AzRadialColorStop>(), "AzRadialColorStop"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTransform>(), "AzStyleTransform"), (Layout::new::<AzStyleTransform>(), "AzStyleTransform"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundPositionVec>>(), "AzStyleBackgroundPositionVecValue"), (Layout::new::<AzStyleBackgroundPositionVecValue>(), "AzStyleBackgroundPositionVecValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundRepeatVec>>(), "AzStyleBackgroundRepeatVecValue"), (Layout::new::<AzStyleBackgroundRepeatVecValue>(), "AzStyleBackgroundRepeatVecValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundSizeVec>>(), "AzStyleBackgroundSizeVecValue"), (Layout::new::<AzStyleBackgroundSizeVecValue>(), "AzStyleBackgroundSizeVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBackgroundPositionVec>>(), "AzStyleBackgroundPositionVecValue"), (Layout::new::<AzStyleBackgroundPositionVecValue>(), "AzStyleBackgroundPositionVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBackgroundRepeatVec>>(), "AzStyleBackgroundRepeatVecValue"), (Layout::new::<AzStyleBackgroundRepeatVecValue>(), "AzStyleBackgroundRepeatVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBackgroundSizeVec>>(), "AzStyleBackgroundSizeVecValue"), (Layout::new::<AzStyleBackgroundSizeVecValue>(), "AzStyleBackgroundSizeVecValue"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNode>(), "AzStyledNode"), (Layout::new::<AzStyledNode>(), "AzStyledNode"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"), (Layout::new::<AzTagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"));
         assert_eq!((Layout::new::<azul_impl::gl::Texture>(), "AzTexture"), (Layout::new::<AzTexture>(), "AzTexture"));
         assert_eq!((Layout::new::<azul_impl::gl::GetProgramBinaryReturn>(), "AzGetProgramBinaryReturn"), (Layout::new::<AzGetProgramBinaryReturn>(), "AzGetProgramBinaryReturn"));
         assert_eq!((Layout::new::<azul_impl::resources::RawImageData>(), "AzRawImageData"), (Layout::new::<AzRawImageData>(), "AzRawImageData"));
+        assert_eq!((Layout::new::<azul_impl::resources::LoadedFontSource>(), "AzFontSource"), (Layout::new::<AzFontSource>(), "AzFontSource"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElement>(), "AzSvgPathElement"), (Layout::new::<AzSvgPathElement>(), "AzSvgPathElement"));
         assert_eq!((Layout::new::<azul_impl::svg::TesselatedSvgNode>(), "AzTesselatedSvgNode"), (Layout::new::<AzTesselatedSvgNode>(), "AzTesselatedSvgNode"));
         assert_eq!((Layout::new::<azul_impl::svg::TesselatedSvgNodeVecRef>(), "AzTesselatedSvgNodeVecRef"), (Layout::new::<AzTesselatedSvgNodeVecRef>(), "AzTesselatedSvgNodeVecRef"));
@@ -8224,7 +8215,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::AzStringPair>(), "AzStringPair"), (Layout::new::<AzStringPair>(), "AzStringPair"));
         assert_eq!((Layout::new::<azul_impl::window::Monitor>(), "AzMonitor"), (Layout::new::<AzMonitor>(), "AzMonitor"));
         assert_eq!((Layout::new::<azul_core::callbacks::InlineWord>(), "AzInlineWord"), (Layout::new::<AzInlineWord>(), "AzInlineWord"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::GlCallbackReturn>(), "AzGlCallbackReturn"), (Layout::new::<AzGlCallbackReturn>(), "AzGlCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::dom::CallbackData>(), "AzCallbackData"), (Layout::new::<AzCallbackData>(), "AzCallbackData"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeType>(), "AzNodeType"), (Layout::new::<AzNodeType>(), "AzNodeType"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClass>(), "AzIdOrClass"), (Layout::new::<AzIdOrClass>(), "AzIdOrClass"));
@@ -8232,14 +8222,13 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::LinearGradient>(), "AzLinearGradient"), (Layout::new::<AzLinearGradient>(), "AzLinearGradient"));
         assert_eq!((Layout::new::<azul_impl::css::RadialGradient>(), "AzRadialGradient"), (Layout::new::<AzRadialGradient>(), "AzRadialGradient"));
         assert_eq!((Layout::new::<azul_impl::css::ConicGradient>(), "AzConicGradient"), (Layout::new::<AzConicGradient>(), "AzConicGradient"));
-        assert_eq!((Layout::new::<azul_impl::css::CssImageId>(), "AzCssImageId"), (Layout::new::<AzCssImageId>(), "AzCssImageId"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContent>(), "AzStyleBackgroundContent"), (Layout::new::<AzStyleBackgroundContent>(), "AzStyleBackgroundContent"));
         assert_eq!((Layout::new::<azul_impl::css::ScrollbarInfo>(), "AzScrollbarInfo"), (Layout::new::<AzScrollbarInfo>(), "AzScrollbarInfo"));
         assert_eq!((Layout::new::<azul_impl::css::ScrollbarStyle>(), "AzScrollbarStyle"), (Layout::new::<AzScrollbarStyle>(), "AzScrollbarStyle"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamily>(), "AzStyleFontFamily"), (Layout::new::<AzStyleFontFamily>(), "AzStyleFontFamily"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<ScrollbarStyle>>(), "AzScrollbarStyleValue"), (Layout::new::<AzScrollbarStyleValue>(), "AzScrollbarStyleValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleFontFamily>>(), "AzStyleFontFamilyValue"), (Layout::new::<AzStyleFontFamilyValue>(), "AzStyleFontFamilyValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleTransformVec>>(), "AzStyleTransformVecValue"), (Layout::new::<AzStyleTransformVecValue>(), "AzStyleTransformVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzScrollbarStyle>>(), "AzScrollbarStyleValue"), (Layout::new::<AzScrollbarStyleValue>(), "AzScrollbarStyleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleFontFamily>>(), "AzStyleFontFamilyValue"), (Layout::new::<AzStyleFontFamilyValue>(), "AzStyleFontFamilyValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTransformVec>>(), "AzStyleTransformVecValue"), (Layout::new::<AzStyleTransformVecValue>(), "AzStyleTransformVecValue"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttribute>(), "AzVertexAttribute"), (Layout::new::<AzVertexAttribute>(), "AzVertexAttribute"));
         assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessage>(), "AzDebugMessage"), (Layout::new::<AzDebugMessage>(), "AzDebugMessage"));
         assert_eq!((Layout::new::<azul_impl::gl::GetActiveAttribReturn>(), "AzGetActiveAttribReturn"), (Layout::new::<AzGetActiveAttribReturn>(), "AzGetActiveAttribReturn"));
@@ -8271,7 +8260,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::LinuxWindowOptions>(), "AzLinuxWindowOptions"), (Layout::new::<AzLinuxWindowOptions>(), "AzLinuxWindowOptions"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineLine>(), "AzInlineLine"), (Layout::new::<AzInlineLine>(), "AzInlineLine"));
         assert_eq!((Layout::new::<azul_impl::css::CssPath>(), "AzCssPath"), (Layout::new::<AzCssPath>(), "AzCssPath"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<StyleBackgroundContentVec>>(), "AzStyleBackgroundContentVecValue"), (Layout::new::<AzStyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBackgroundContentVec>>(), "AzStyleBackgroundContentVecValue"), (Layout::new::<AzStyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssProperty>(), "AzCssProperty"), (Layout::new::<AzCssProperty>(), "AzCssProperty"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::CssPropertySource>(), "AzCssPropertySource"), (Layout::new::<AzCssPropertySource>(), "AzCssPropertySource"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexLayout>(), "AzVertexLayout"), (Layout::new::<AzVertexLayout>(), "AzVertexLayout"));

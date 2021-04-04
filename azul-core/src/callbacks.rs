@@ -139,7 +139,7 @@ pub struct RefAny {
     pub sharing_info: RefCount,
 }
 
-impl_option!(RefAny, OptionRefAny, copy = false, clone = false, [Debug, Hash, PartialEq, PartialOrd, Ord, Eq]);
+impl_option!(RefAny, OptionRefAny, copy = false, [Debug, Hash, PartialEq, PartialOrd, Ord, Eq]);
 
 // the refcount of RefAny is atomic, therefore `RefAny` is not `Sync`, but it is `Send`
 unsafe impl Send for RefAny { }
@@ -949,6 +949,7 @@ impl CallbackInfo {
     fn internal_get_modifiable_window_state<'a>(&'a mut self)-> &'a mut WindowState { unsafe { &mut *self.modifiable_window_state } }
     fn internal_get_gl_context<'a>(&'a self) -> &'a OptionGlContextPtr { unsafe { &*self.gl_context } }
     fn internal_get_image_cache<'a>(&'a mut self) -> &'a mut ImageCache { unsafe { &mut *self.image_cache } }
+    fn internal_get_image_cache_ref<'a>(&'a self) -> &'a ImageCache { unsafe { &*self.image_cache } }
     fn internal_get_system_fonts<'a>(&'a mut self) -> &'a mut FcFontCache { unsafe { &mut *self.system_fonts } }
     fn internal_get_timers<'a>(&'a mut self) -> &'a mut FastHashMap<TimerId, Timer> { unsafe { &mut *self.timers } }
     fn internal_get_threads<'a>(&'a mut self) -> &'a mut FastHashMap<ThreadId, Thread> { unsafe { &mut *self.threads } }
@@ -1139,13 +1140,21 @@ impl CallbackInfo {
         self.internal_get_timers().insert(id, timer);
     }
 
+    // stop_timer(id)
+    // stop_thread(id)
+    // thread_send_message(thread_id, msg)
+
     /// Adds an image to the internal image cache
     pub fn add_image(&mut self, css_id: AzString, image: ImageRef) {
         self.internal_get_image_cache().add_css_image_id(css_id, image);
     }
 
-    pub fn has_image(&mut self, css_id: &AzString) -> bool {
-        self.internal_get_image_cache().get_css_image_id(css_id).is_some()
+    pub fn has_image(&self, css_id: &AzString) -> bool {
+        self.internal_get_image_cache_ref().get_css_image_id(css_id).is_some()
+    }
+
+    pub fn get_image(&self, css_id: &AzString) -> Option<ImageRef> {
+        self.internal_get_image_cache_ref().get_css_image_id(css_id).cloned()
     }
 
     /// Deletes an image from the internal image cache
