@@ -327,7 +327,6 @@ fn run_inner(app: App) -> ! {
 
         let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
 
-        let mut windows_that_need_to_redraw = BTreeSet::new();
         let mut windows_created = Vec::<WindowCreateOptions>::new();
 
         match event {
@@ -425,12 +424,10 @@ fn run_inner(app: App) -> ! {
                             if changes_need_regenerate_dl {
                                 let resource_updates = Vec::new(); // when re-generating the display list, no resource updates necessary
                                 window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
-                                windows_that_need_to_redraw.insert(*window_id);
                             }
 
                             if changes_need_regenerate_dl || changes.need_redraw() {
                                 window.render_async(transaction, changes_need_regenerate_dl);
-                                windows_that_need_to_redraw.insert(*window_id);
                             }
                         },
                         UpdateScreen::RegenerateStyledDomForCurrentWindow => {
@@ -439,7 +436,6 @@ fn run_inner(app: App) -> ! {
                             window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
                             window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
-                            windows_that_need_to_redraw.insert(*window_id);
                             window.internal.current_window_state.focused_node = None; // unset the focus
                         },
                         UpdateScreen::RegenerateStyledDomForAllWindows => {
@@ -529,8 +525,12 @@ fn run_inner(app: App) -> ! {
                     match update_screen_threads {
                         UpdateScreen::DoNothing => {
                             let new_focus_node = new_focus_node.and_then(|ft| {
-                                ft.resolve(&window.internal.layout_results, window.internal.current_window_state.focused_node).ok()
+                                ft.resolve(
+                                    &window.internal.layout_results,
+                                    window.internal.current_window_state.focused_node
+                                ).ok()
                             });
+
                             let window_size = window.internal.get_layout_size();
 
                             // re-layouts and re-styles the window.internal.layout_results
@@ -546,29 +546,26 @@ fn run_inner(app: App) -> ! {
                                 azul_layout::do_the_relayout,
                             );
 
-                                let changes_need_regenerate_dl = changes.need_regenerate_display_list();
-                                let mut transaction = WrTransaction::new();
+                            let changes_need_regenerate_dl = changes.need_regenerate_display_list();
+                            let mut transaction = WrTransaction::new();
 
-                                if changes_need_regenerate_dl {
-                                    let resource_updates = Vec::new(); // when re-generating the display list, no resource updates necessary
-                                    window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
-                                    windows_that_need_to_redraw.insert(*window_id);
-                                }
-
-                                if changes_need_regenerate_dl || changes.need_redraw() {
-                                    window.render_async(transaction, changes_need_regenerate_dl);
-                                    windows_that_need_to_redraw.insert(*window_id);
-                                }
-                            },
-                            UpdateScreen::RegenerateStyledDomForCurrentWindow => {
-                                let mut resource_updates = Vec::new();
-                                let mut transaction = WrTransaction::new();
-                                window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
+                            if changes_need_regenerate_dl {
+                                let resource_updates = Vec::new(); // when re-generating the display list, no resource updates necessary
                                 window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
-                                window.render_async(transaction, /* display list was rebuilt */ true);
-                                windows_that_need_to_redraw.insert(*window_id);
-                                window.internal.current_window_state.focused_node = None; // unset the focus
-                            },
+                            }
+
+                            if changes_need_regenerate_dl || changes.need_redraw() {
+                                window.render_async(transaction, changes_need_regenerate_dl);
+                            }
+                        },
+                        UpdateScreen::RegenerateStyledDomForCurrentWindow => {
+                            let mut resource_updates = Vec::new();
+                            let mut transaction = WrTransaction::new();
+                            window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
+                            window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
+                            window.render_async(transaction, /* display list was rebuilt */ true);
+                            window.internal.current_window_state.focused_node = None; // unset the focus
+                        },
                         UpdateScreen::RegenerateStyledDomForAllWindows => {
                             if update_screen_timers_tasks == UpdateScreen::DoNothing ||
                                update_screen_timers_tasks == UpdateScreen::RegenerateStyledDomForCurrentWindow {
@@ -614,7 +611,6 @@ fn run_inner(app: App) -> ! {
                         window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
                         window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                         window.render_async(transaction, /* display list was rebuilt */ true);
-                        windows_that_need_to_redraw.insert(*window_id);
                         window.internal.current_window_state.focused_node = None; // unset the focus
                     }
                 }
@@ -781,11 +777,9 @@ fn run_inner(app: App) -> ! {
                     let mut transaction = WrTransaction::new();
                     window.rebuild_display_list(&mut transaction, &image_cache, updated_resources);
                     window.render_async(transaction, need_regenerate_display_list);
-                    windows_that_need_to_redraw.insert(window_id);
                 } else if should_scroll_render || should_callback_render {
                     let transaction = WrTransaction::new();
                     window.render_async(transaction, need_regenerate_display_list);
-                    windows_that_need_to_redraw.insert(window_id);
                 }
             },
             Event::UserEvent(UserEvent { window_id, composite_needed: _ }) => {
@@ -1012,33 +1006,63 @@ fn run_inner(app: App) -> ! {
 
                 // determine minimum refresh rate from monitor
                 let minimum_refresh_rate = active_windows.values()
-                .filter_map(|w| crate::window::monitor_get_max_supported_framerate(&w.internal.current_window_state.monitor))
+                .filter_map(|w| {
+                    crate::window::monitor_get_max_supported_framerate(
+                        &w.internal.current_window_state.monitor
+                    )
+                })
                 .min()
                 .map(|d| Duration::System(d.into()));
 
-                // in case the callback is handled slower than 16ms, this would panic
-                let current_time_instant = (config.system_callbacks.get_system_time_fn.cb)().add_optional_duration(Some(&(StdDuration::from_millis(1).into())));
-
                 if threads.is_empty() {
+
                     // timers running
                     if timers.values().any(|timer_map| timer_map.values().any(|t| t.interval.as_ref().is_none())) {
                         ControlFlow::Poll
                     } else {
+
                         // timers are not empty, select the minimum time that the next timer needs to run
                         // ex. if one timer is set to run every 2 seconds, then we only need
                         // to poll in 2 seconds, not every 16ms
-                        let min_timer_time = timers.values().filter_map(|t| {
-                            t.values().map(|t| t.instant_of_next_run().duration_since(&frame_start)).min()
+                        let min_timer_time = timers
+                        .values()
+                        .filter_map(|t| {
+                            t.values()
+                            .map(|t| {
+                                frame_start
+                                .clone()
+                                .max(t.instant_of_next_run())
+                                .duration_since(&frame_start)
+                            }).min()
                         }).min();
 
-                        ControlFlow::WaitUntil(current_time_instant.max(
-                            frame_start.add_optional_duration(min_timer_time.as_ref())
-                            .min(frame_start.add_optional_duration(minimum_refresh_rate.as_ref()))
-                        ).into_std_instant())
+                        let instant_of_nearest_timer = frame_start.clone()
+                        .add_optional_duration(min_timer_time.as_ref());
+
+                        let instant_of_next_frame_sync = frame_start.clone()
+                        .add_optional_duration(minimum_refresh_rate.as_ref());
+
+                        // in case the callback is handled slower than 16ms, this would panic
+                        let current_time_instant = (config.system_callbacks.get_system_time_fn.cb)();
+
+                        ControlFlow::WaitUntil(
+                            current_time_instant
+                            .max(instant_of_next_frame_sync)
+                            .max(instant_of_nearest_timer)
+                            .into_std_instant()
+                        )
                     }
                 } else {
-                    // threads running
-                    ControlFlow::WaitUntil(current_time_instant.max(frame_start.add_optional_duration(minimum_refresh_rate.as_ref())).into_std_instant())
+
+                    // in case the callback is handled slower than 16ms, this would panic
+                    let current_time_instant = (config.system_callbacks.get_system_time_fn.cb)();
+
+                    ControlFlow::WaitUntil(
+                        // if current_time_instant < frame_start + minimum_refresh_rate { WaitUntil(now) }
+                        current_time_instant
+                        .max(frame_start.add_optional_duration(minimum_refresh_rate.as_ref()))
+                        .into_std_instant()
+                    )
                 }
             }
         } else {

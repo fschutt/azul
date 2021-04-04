@@ -310,6 +310,21 @@ pub enum Duration {
     Tick(SystemTickDiff),
 }
 
+impl core::fmt::Display for Duration {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            #[cfg(feature = "std")]
+            Duration::System(s) => {
+                let s: StdDuration = s.clone().into();
+                write!(f, "{:?}", s)
+            },
+            #[cfg(not(feature = "std"))]
+            Duration::System(s) => write!(f, "({}s, {}ns)", s.secs, s.nanos),
+            Duration::Tick(tick) => write!(f, "{} ticks", tick.tick_diff),
+        }
+    }
+}
+
 #[cfg(feature = "std")]
 impl From<StdDuration> for Duration {
     fn from(s: StdDuration) -> Self {
