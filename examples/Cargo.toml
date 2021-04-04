@@ -15,8 +15,8 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [[bin]]
-name = "public"
-path = "rust/public.rs"
+name = "xml"
+path = "rust/xml.rs"
 
 [[bin]]
 name = "table"
