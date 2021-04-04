@@ -550,27 +550,14 @@ impl RendererResources {
         all_resource_updates.extend(delete_font_resources.iter().map(|(_, f)| f.into_resource_update()));
         all_resource_updates.extend(delete_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 
-        // Apply the deletions to the current registered fonts
-        for (removed_id, _removed_info) in &delete_image_resources {
-            self.currently_registered_images.remove(&removed_id);
-        }
-
-        for (font_id, delete_font_msg) in &delete_font_resources {
-            use self::DeleteFontMsg::*;
-            match delete_font_msg {
-                Font(_) => { self.currently_registered_fonts.remove(&font_id); },
-                Instance(_, size) => {
-                    if let Some(instances) = self.currently_registered_fonts.get_mut(font_id) {
-                        instances.1.remove(&size);
-                    }
-                },
-            }
-        }
-
-        // delete all font family hashes that do not have a font key anymore
+        // Delete all font family hashes that do not have a font key anymore
         let font_family_to_delete = self.font_id_map.iter()
         .filter_map(|(font_family, font_key)| {
-            if !self.currently_registered_fonts.contains_key(font_key) { Some(font_family.clone()) } else { None }
+            if !self.currently_registered_fonts.contains_key(font_key) {
+                Some(font_family.clone())
+            } else {
+                None
+            }
         })
         .collect::<Vec<_>>();
 
@@ -580,7 +567,11 @@ impl RendererResources {
 
         let font_families_to_delete = self.font_families_map.iter()
         .filter_map(|(font_families, font_family)| {
-            if !self.font_id_map.contains_key(font_family) { Some(font_families.clone()) } else { None }
+            if !self.font_id_map.contains_key(font_family) {
+                Some(font_families.clone())
+            } else {
+                None
+            }
         }).collect::<Vec<_>>();
 
         for f in font_families_to_delete {
@@ -1883,6 +1874,7 @@ impl Au {
 }
 
 // Debug, PartialEq, Eq, PartialOrd, Ord
+#[derive(Debug)]
 pub enum AddFontMsg {
     // add font: font key, font bytes + font index
     Font(FontKey, StyleFontFamilyHash, FontRef),

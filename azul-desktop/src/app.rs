@@ -325,6 +325,15 @@ fn run_inner(app: App) -> ! {
         use azul_core::window_state::{Events, NodesToCheck};
         use azul_core::window::{FullHitTest, CursorTypeHitTest};
 
+        // Immediately return on DeviceEvent before doing anything else
+        match &event {
+            Event::DeviceEvent { .. } => {
+                *control_flow = ControlFlow::Wait;
+                return;
+            },
+            _ => { },
+        }
+
         let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
 
         let mut windows_created = Vec::<WindowCreateOptions>::new();
@@ -796,10 +805,12 @@ fn run_inner(app: App) -> ! {
         }
 
         // close windows
-        let windows_to_remove = active_windows.iter()
-        .filter(|(id, window)| window.internal.current_window_state.flags.is_about_to_close)
-        .map(|(id, window)| id.clone())
-        .collect::<Vec<_>>();
+        let mut windows_to_remove = Vec::new();
+        for (id, window) in active_windows.iter() {
+            if window.internal.current_window_state.flags.is_about_to_close {
+                windows_to_remove.push(id.clone());
+            }
+        }
 
         for window_id in windows_to_remove {
 
