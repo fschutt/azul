@@ -38,7 +38,7 @@ use azul_core::{
 };
 use rust_fontconfig::FcFontCache;
 
-const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
+const DEFAULT_FLEX_GROW_FACTOR: f32 = 0.0;
 
 #[derive(Debug)]
 struct WhConfig {
@@ -130,6 +130,7 @@ macro_rules! determine_preferred {
         let max_width = config.$width.max.as_ref().map(|x| x.inner.to_pixels(parent_width).max(0.0));
 
         if let Some(width) = width {
+            // ignore preferred_width if the width is set manually
             WhConstraint::EqualTo(
                 width
                 .min(max_width.unwrap_or(f32::MAX))
@@ -153,8 +154,13 @@ macro_rules! determine_preferred {
                         WhConstraint::EqualTo(min_width.max(preferred_width.unwrap_or(0.0)))
                     }
                 } else {
-                    // no width, min_width or max_width
-                    WhConstraint::Unconstrained
+                    // no width, min_width or max_width: try preferred width
+                    if let Some(preferred_width) = preferred_width {
+                        let preferred_max = preferred_width.max(0.0);
+                        WhConstraint::Between(preferred_max, core::f32::MAX)
+                    } else {
+                        WhConstraint::Unconstrained
+                    }
                 }
             }
         }
