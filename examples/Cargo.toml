@@ -22,6 +22,10 @@ path = "rust/xml.rs"
 name = "table"
 path = "rust/table.rs"
 
+[[bin]]
+name = "async"
+path = "rust/async.rs"
+
 [dependencies]
 azul = { version = "0.0.1", path = "../api/rust" }
 azul-widgets = { version = "0.0.2", path = "../azul-widgets" }
