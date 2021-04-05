@@ -335,7 +335,7 @@ macro_rules! typed_arena {(
 
             let parent_parent_width = match node_hierarchy[parent_id].parent_id() {
                 None => root_size_width,
-                Some(s) => node_data[parent_id].$preferred_field
+                Some(s) => node_data[s].$preferred_field
                     .max_available_space()
                     .unwrap_or(root_size_width) // TODO: wrong
             };
@@ -349,7 +349,7 @@ macro_rules! typed_arena {(
             .az_children(node_hierarchy)
             .filter(|child_id| layout_positions[*child_id] != LayoutPosition::Absolute)
             .map(|child_id| (child_id, node_data[child_id].$get_flex_basis(parent_width)))
-            .for_each(|(child_id, flex_basis)| {
+            .for_each(|(_, flex_basis)| {
                 if flex_axis == LayoutAxis::$main_axis {
                     children_flex_basis += flex_basis;
                 } else {
@@ -488,8 +488,8 @@ macro_rules! typed_arena {(
             let mut variable_width_childs = children
                 .par_iter()
                 .enumerate()
-                .filter(|(index_in_parent, id)| !width_calculated_arena[**id].$preferred_field.is_fixed_constraint())
-                .filter(|(index_in_parent, id)| layout_positions[**id] != LayoutPosition::Absolute)
+                .filter(|(_, id)| !width_calculated_arena[**id].$preferred_field.is_fixed_constraint())
+                .filter(|(_, id)| layout_positions[**id] != LayoutPosition::Absolute)
                 .filter(|(_, id)| layout_flex_grows[**id] > 0.0)
                 .map(|(index_in_parent, id)| (*id, index_in_parent))
                 .collect::<BTreeMap<NodeId, usize>>();
@@ -656,7 +656,7 @@ macro_rules! typed_arena {(
             parents_grouped_by_depth.entry(depth).or_insert_with(|| Vec::new()).push(parent_id);
         }
 
-        for (depth, parent_ids) in parents_grouped_by_depth {
+        for (_, parent_ids) in parents_grouped_by_depth {
 
             let flex_grows_in_this_depth = parent_ids
             .par_iter()
@@ -1580,14 +1580,18 @@ pub fn do_the_layout(
 
 /// At this point in time, all font keys, image keys, etc. have to be already
 /// been submitted to the RenderApi and the AppResources!
+#[cfg(feature = "text_layout")]
 pub fn do_the_layout_internal(
     dom_id: DomId,
     parent_dom_id: Option<DomId>,
-    styled_dom: StyledDom,
+    mut styled_dom: StyledDom,
     renderer_resources: &mut RendererResources,
     pipeline_id: &PipelineId,
     bounds: LogicalRect
 ) -> LayoutResult {
+
+    use azul_core::dom::NodeType;
+    use azul_core::app_resources::DecodedImage;
 
     let rect_size = bounds.size;
     let rect_offset = bounds.origin;
@@ -1611,30 +1615,13 @@ pub fn do_the_layout_internal(
     let layout_width_heights = precalculate_wh_config(&styled_dom);
 
     // Break all strings into words and / or resolve the TextIds
-    let word_cache = {
-        #[cfg(feature = "text_layout")] {
-            create_word_cache(&styled_dom.node_data.as_container())
-        }
-        #[cfg(not(feature = "text_layout"))] {
-            BTreeMap::new()
-        }
-    };
-
+    let word_cache = create_word_cache(&styled_dom.node_data.as_container());
     // Scale the words to the correct size - TODO: Cache this in the app_resources!
-    let shaped_words = {
-        #[cfg(feature = "text_layout")] {
-            create_shaped_words(renderer_resources, &word_cache, &styled_dom)
-        }
-        #[cfg(not(feature = "text_layout"))] {
-            BTreeMap::new()
-        }
-    };
-
+    let shaped_words = create_shaped_words(renderer_resources, &word_cache, &styled_dom);
 
     // Layout all words as if there was no max-width constraint
     // (to get the texts "content width").
     let mut word_positions_no_max_width = BTreeMap::new();
-    #[cfg(feature = "text_layout")]
     create_word_positions(
         &mut word_positions_no_max_width,
         &all_nodes_btreeset,
@@ -1645,11 +1632,23 @@ pub fn do_the_layout_internal(
         None,
     );
 
-    // Calculate the optional "intrinsic content widths" - i.e. the width
-    // of a text
-    let content_widths_pre = NodeDataContainer {
-        internal: vec![None; styled_dom.node_data.len()]
-    };
+    // Calculate the optional "intrinsic content widths" - i.e.
+    // the width of a text or image, if no constraint would apply
+    let mut content_widths_pre = styled_dom.node_data.as_container_mut()
+    .transform_multithread(|node_data, node_id| {
+        match node_data.get_node_type() {
+            NodeType::Image(i) => match i.get_data() {
+                DecodedImage::NullImage { width, .. } => Some(*width as f32),
+                DecodedImage::Gl(tex) => Some(tex.size.width as f32),
+                DecodedImage::Raw((desc, _)) => Some(desc.width as f32),
+                _ => None,
+            },
+            _ => None,
+        }
+    });
+    for (node_id, word_positions) in word_positions_no_max_width.iter() {
+        content_widths_pre.as_ref_mut()[*node_id] = Some(word_positions.0.content_size.width);
+    }
 
     let mut width_calculated_arena = width_calculated_rect_arena_from_rect_layout_arena(
         &layout_width_heights.as_ref(),
@@ -1671,12 +1670,52 @@ pub fn do_the_layout_internal(
         &all_parents_btreeset,
     );
 
-    // TODO: layout the words again, this time with the proper width constraints!
+    // If the flex grow / max-width step has caused the text block
+    // to shrink in width, it needs to recalculate its height
+    let word_blocks_to_recalculate = word_positions_no_max_width.iter()
+    .filter_map(|(node_id, word_positions)| {
+        if width_calculated_arena.as_ref()[*node_id].total() < word_positions.0.content_size.width {
+            Some(*node_id)
+        } else {
+            None
+        }
+    })
+    .collect::<BTreeSet<_>>();
 
-    // TODO: Get the content height of the (text / image) content
-    let content_heights_pre = NodeDataContainer {
-        internal: vec![None; styled_dom.node_data.len()]
-    };
+    // Recalculate the height of the content blocks for the word blocks that need it
+    create_word_positions(
+        &mut word_positions_no_max_width,
+        &word_blocks_to_recalculate,
+        renderer_resources,
+        &word_cache,
+        &shaped_words,
+        &styled_dom,
+        Some(&width_calculated_arena.as_ref()),
+    );
+    let word_positions_with_max_width = word_positions_no_max_width;
+
+    // Calculate the content height of the (text / image) content based on its width
+    let mut content_heights_pre = styled_dom.node_data.as_container_mut()
+    .transform_multithread(|node_data, node_id| {
+
+        let (raw_width, raw_height) = match node_data.get_node_type() {
+            NodeType::Image(i) => match i.get_data() {
+                DecodedImage::NullImage { width, height, .. } => Some((*width as f32, *height as f32)),
+                DecodedImage::Gl(tex) => Some((tex.size.width as f32, tex.size.height as f32)),
+                DecodedImage::Raw((desc, _)) => Some((desc.width as f32, desc.height as f32)),
+                _ => None,
+            },
+            _ => None,
+        }?;
+
+        let current_width = width_calculated_arena.as_ref()[node_id].total();
+
+        // preserve aspect ratio
+        Some(raw_height / raw_width * current_width)
+    });
+    for (node_id, word_positions) in word_positions_with_max_width.iter() {
+        content_heights_pre.as_ref_mut()[*node_id] = Some(word_positions.0.content_size.height);
+    }
 
     // TODO: The content height is not the final height!
     let mut height_calculated_arena = height_calculated_rect_arena_from_rect_layout_arena(
@@ -1750,7 +1789,7 @@ pub fn do_the_layout_internal(
             &layout_position_info.as_ref(),
             &word_cache,
             &shaped_words,
-            &word_positions_no_max_width,
+            &word_positions_with_max_width,
             pipeline_id
         );
     }
@@ -1788,7 +1827,7 @@ pub fn do_the_layout_internal(
         rects: positioned_rects,
         words_cache: word_cache,
         shaped_words_cache: shaped_words,
-        positioned_words_cache: word_positions_no_max_width,
+        positioned_words_cache: word_positions_with_max_width,
         scrollable_nodes: overflowing_rects,
         iframe_mapping: BTreeMap::new(),
         gpu_value_cache,
@@ -2218,23 +2257,20 @@ fn determine_text_alignment(
 )
     -> (StyleTextAlignmentHorz, StyleTextAlignmentVert)
 {
-    let mut horz_alignment = StyleTextAlignmentHorz::default();
-    let mut vert_alignment = StyleTextAlignmentVert::default();
-
     // Vertical text alignment
-    match align_items {
-        LayoutAlignItems::FlexStart => vert_alignment = StyleTextAlignmentVert::Top,
-        LayoutAlignItems::FlexEnd => vert_alignment = StyleTextAlignmentVert::Bottom,
+    let vert_alignment = match align_items {
+        LayoutAlignItems::FlexStart => StyleTextAlignmentVert::Top,
+        LayoutAlignItems::FlexEnd => StyleTextAlignmentVert::Bottom,
         // technically stretch = blocktext, but we don't have that yet
-        _ => vert_alignment = StyleTextAlignmentVert::Center,
-    }
+        _ => StyleTextAlignmentVert::Center,
+    };
 
     // Horizontal text alignment
-    match justify_content {
-        LayoutJustifyContent::Start => horz_alignment = StyleTextAlignmentHorz::Left,
-        LayoutJustifyContent::End => horz_alignment = StyleTextAlignmentHorz::Right,
-        _ => horz_alignment = StyleTextAlignmentHorz::Center,
-    }
+    let mut horz_alignment = match justify_content {
+        LayoutJustifyContent::Start => StyleTextAlignmentHorz::Left,
+        LayoutJustifyContent::End => StyleTextAlignmentHorz::Right,
+        _ => StyleTextAlignmentHorz::Center,
+    };
 
     if let Some(text_align) = text_align.as_ref().and_then(|ta| ta.get_property().copied()) {
         // Horizontal text alignment with higher priority

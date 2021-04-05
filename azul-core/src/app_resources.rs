@@ -277,7 +277,7 @@ impl ImageRef {
         }
     }
 
-    pub(crate) fn get_data<'a>(&'a self) -> &'a DecodedImage { unsafe { &*self.data } }
+    pub fn get_data<'a>(&'a self) -> &'a DecodedImage { unsafe { &*self.data } }
 
     pub(crate) fn get_image_callback_mut<'a>(&'a mut self) -> Option<&'a mut ImageCallback> {
         if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
