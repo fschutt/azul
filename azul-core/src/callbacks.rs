@@ -587,7 +587,7 @@ impl InlineText {
     /// NOTE: The lines in the text are relative to the TOP left corner (of the text, i.e.
     /// relative to the text_origin), but the word position is relative to the BOTTOM left
     /// corner (of the line bounds)
-    pub fn get_layouted_glyphs(&self, text_origin: LogicalPosition) -> LayoutedGlyphs {
+    pub fn get_layouted_glyphs(&self) -> LayoutedGlyphs {
 
         use crate::display_list::GlyphInstance;
 
@@ -597,36 +597,33 @@ impl InlineText {
         // descender_px is NEGATIVE
         let baseline_descender_px = LogicalPosition::new(0.0, self.baseline_descender_px);
 
-        // word origin is relative to the bottom left corner instead of the (expected) top left corner
-        // need to subtract the font size to correct this
-        let word_origin_correct_coordinate_space = LogicalPosition::new(0.0, -self.font_size_px);
-
         LayoutedGlyphs {
             glyphs: self.lines
             .iter()
             .flat_map(move |line| {
 
-                let line_origin = line.bounds.origin;  // top left corner of line rect
+                let mut line_origin = line.bounds.origin;  // bottom left corner of line rect
+                // line_origin.y -= line.bounds.size.height; // now line_origin = top left corner of line rect
 
                 line.words
                 .iter()
                 .flat_map(move |word| {
 
-                    let (glyphs, word_origin) = match word {
+                    let (glyphs, mut word_origin) = match word {
                         InlineWord::Tab | InlineWord::Return | InlineWord::Space => (default_ref, LogicalPosition::zero()),
                         InlineWord::Word(text_contents) => (&text_contents.glyphs, text_contents.bounds.origin),
                     };
+
+                    word_origin.y = 0.0;
 
                     glyphs.iter()
                     .map(move |glyph| {
                         GlyphInstance {
                             index: glyph.glyph_index,
                             point: {
-                                text_origin +
                                 line_origin +
                                 baseline_descender_px +
                                 word_origin +
-                                word_origin_correct_coordinate_space +
                                 glyph.bounds.origin
                             },
                             size: glyph.bounds.size,

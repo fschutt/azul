@@ -116,7 +116,7 @@ impl<'a> GetTextLayout for InlineText<'a> {
             text_layout_options,
         );
         // TODO: Cache the layouted text block on the &mut self
-        text_layout::word_positions_to_inline_text_layout(&layouted_text_block, &self.shaped_words)
+        text_layout::word_positions_to_inline_text_layout(&layouted_text_block)
     }
 }
 

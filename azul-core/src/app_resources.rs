@@ -15,7 +15,7 @@ use crate::{
     FastHashMap, FastBTreeSet,
     display_list::GlStoreImageFn,
     callbacks::{RenderImageCallback, RefAny},
-    ui_solver::{ResolvedTextLayoutOptions, InlineTextLayout},
+    ui_solver::{InlineTextLine, ResolvedTextLayoutOptions, InlineTextLayout},
     display_list::GlyphInstance,
     styled_dom::{StyledDom, StyleFontFamilyHash, StyleFontFamiliesHash},
     callbacks::{PipelineId, InlineText},
@@ -1517,7 +1517,7 @@ pub struct WordPositions {
     pub word_positions: Vec<WordPosition>,
     /// Index of the word at which the line breaks + length of line
     /// (useful for text selection + horizontal centering)
-    pub line_breaks: Vec<(WordIndex, LineLength)>,
+    pub line_breaks: Vec<InlineTextLine>,
     /// Horizontal width of the last line (in pixels), necessary for inline layout later on,
     /// so that the next text run can contine where the last text run left off.
     ///

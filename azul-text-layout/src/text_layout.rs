@@ -183,6 +183,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
     use self::LineCaretIntersection::*;
     use core::f32;
     use azul_core::app_resources::WordPosition;
+    use azul_core::ui_solver::InlineTextLine;
 
     let font_size_px = text_layout_options.font_size_px;
     let space_advance_px = shaped_words.get_space_advance_px(text_layout_options.font_size_px);
@@ -197,6 +198,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
     let mut line_caret_y = font_size_px + line_height_px;
     let mut shaped_word_idx = 0;
     let mut last_shaped_word_word_idx = 0;
+    let mut last_line_start_idx = 0;
 
     let last_word_idx = words.items.len().saturating_sub(1);
 
@@ -242,7 +244,16 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
                     },
                     LineBreak { new_x, new_y } => {
                         // push the line break first
-                        line_breaks.push((word_idx, line_caret_x));
+                        line_breaks.push(InlineTextLine {
+                            word_start: last_line_start_idx,
+                            word_end: word_idx,
+                            bounds: LogicalRect::new(
+                                LogicalPosition::new(0.0, line_caret_y),
+                                LogicalSize::new(line_caret_x, font_size_px + line_height_px)
+                            ),
+                        });
+                        last_line_start_idx = word_idx + 1;
+
                         word_positions.push(WordPosition {
                             shaped_word_index: Some(shaped_word_idx),
                             position: LogicalPosition::new(new_x, new_y),
@@ -258,7 +269,16 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
             },
             Return => {
                 if word_idx != last_word_idx {
-                    line_breaks.push((word_idx, line_caret_x));
+                    line_breaks.push(InlineTextLine {
+                        word_start: last_line_start_idx,
+                        word_end: word_idx.saturating_sub(1).max(last_line_start_idx),
+                        bounds: LogicalRect::new(
+                            LogicalPosition::new(0.0, line_caret_y),
+                            LogicalSize::new(line_caret_x, font_size_px + line_height_px),
+                        ),
+                    });
+                    // don't include the return char in the next line again
+                    last_line_start_idx = word_idx + 1;
                 }
                 word_positions.push(WordPosition {
                     shaped_word_index: None,
@@ -298,7 +318,15 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
                     LineBreak { new_x, new_y } => {
                         // push the line break before increasing
                         if word_idx != last_word_idx {
-                            line_breaks.push((word_idx, line_caret_x));
+                            line_breaks.push(InlineTextLine {
+                                word_start: last_line_start_idx,
+                                word_end: word_idx,
+                                bounds: LogicalRect::new(
+                                    LogicalPosition::new(0.0, line_caret_y),
+                                    LogicalSize::new(line_caret_x, font_size_px + line_height_px)
+                                ),
+                            });
+                            last_line_start_idx = word_idx + 1;
                         }
                         word_positions.push(WordPosition {
                             shaped_word_index: None,
@@ -315,10 +343,17 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
         }
     }
 
-    line_breaks.push((last_shaped_word_word_idx, line_caret_x));
+    line_breaks.push(InlineTextLine {
+        word_start: last_line_start_idx,
+        word_end: last_shaped_word_word_idx,
+        bounds: LogicalRect::new(
+            LogicalPosition::new(0.0, line_caret_y),
+            LogicalSize::new(line_caret_x, font_size_px + line_height_px)
+        ),
+    });
 
     let longest_line_width = line_breaks.iter()
-    .map(|(_word_idx, line_length)| *line_length)
+    .map(|line| line.bounds.size.width)
     .fold(0.0_f32, f32::max);
 
     let content_size_y = line_breaks.len() as f32 * (font_size_px + line_height_px);
@@ -337,52 +372,11 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
 }
 
 /// Returns the (left-aligned!) bounding boxes of the indidividual text lines
-pub fn word_positions_to_inline_text_layout(
-    word_positions: &WordPositions,
-    scaled_words: &ShapedWords
-) -> InlineTextLayout {
-
-    use azul_core::ui_solver::InlineTextLine;
-
-    let font_size_px = word_positions.text_layout_options.font_size_px;
-    let line_height_px = scaled_words.get_line_height(font_size_px);
-
-    let mut last_word_index = 0;
-
+pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions) -> InlineTextLayout {
     InlineTextLayout {
-        lines: word_positions.line_breaks
-            .iter()
-            .enumerate()
-            .map(|(line_number, (word_idx, line_length))| {
-                let start_word_idx = last_word_index;
-                let line = InlineTextLine {
-                    bounds: LogicalRect {
-                        origin: LogicalPosition {
-                            x: 0.0,
-                            y: get_line_y_position(line_number, font_size_px, line_height_px) - line_height_px
-                        },
-                        size: LogicalSize {
-                            width: *line_length,
-                            height: font_size_px + line_height_px
-                        },
-                    },
-                    word_start: start_word_idx,
-                    word_end: *word_idx,
-                };
-                last_word_index = *word_idx;
-                line
-        }).collect(),
+        lines: word_positions.line_breaks.clone().into(),
         content_size: word_positions.content_size,
     }
-}
-
-/// For a given line number (**NOTE: 0-indexed!**), calculates the Y
-/// position of the bottom left corner
-///
-/// NOTE: line_height_px has to be GREATER than font_size_px
-pub fn get_line_y_position(line_number: usize, font_size_px: f32, line_height_px: f32) -> f32 {
-    // assert!(line_height_px >= font_size_px);
-    (line_number + 1) as f32 * (font_size_px + line_height_px)
 }
 
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
@@ -492,22 +486,6 @@ fn test_split_words() {
     };
 
     assert_words(&words_single_str_expected, &words_single_str);
-}
-
-#[test]
-fn test_get_line_y_position() {
-
-    assert_eq!(get_line_y_position(0, 20.0, 0.0), 20.0);
-    assert_eq!(get_line_y_position(1, 20.0, 0.0), 40.0);
-    assert_eq!(get_line_y_position(2, 20.0, 0.0), 60.0);
-
-    // lines:
-    // 0 - height 20, padding 5 = 20.0 (padding is for the next line)
-    // 1 - height 20, padding 5 = 45.0 ( = 20 + 20 + 5)
-    // 2 - height 20, padding 5 = 70.0 ( = 20 + 20 + 5 + 20 + 5)
-    assert_eq!(get_line_y_position(0, 20.0, 5.0), 20.0);
-    assert_eq!(get_line_y_position(1, 20.0, 5.0), 45.0);
-    assert_eq!(get_line_y_position(2, 20.0, 5.0), 70.0);
 }
 
 // Scenario 1:
