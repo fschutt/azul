@@ -602,8 +602,8 @@ impl InlineText {
             .iter()
             .flat_map(move |line| {
 
-                let mut line_origin = line.bounds.origin;  // bottom left corner of line rect
-                // line_origin.y -= line.bounds.size.height; // now line_origin = top left corner of line rect
+                // bottom left corner of line rect
+                let line_origin = line.bounds.origin;
 
                 line.words
                 .iter()
@@ -667,7 +667,10 @@ impl InlineText {
             let glyph_at_line_start = global_glyph_hit;
             let text_content_at_line_start = global_text_content_hit;
 
-            line.bounds.hit_test(&hit_relative_to_inline_text)
+            let mut line_bounds = line.bounds.clone();
+            line_bounds.origin.y -= line.bounds.size.height;
+
+            line_bounds.hit_test(&hit_relative_to_inline_text)
             .map(|hit_relative_to_line| {
 
                 line.words
@@ -681,7 +684,10 @@ impl InlineText {
                     .get_text_content()
                     .and_then(|text_content| {
 
-                        text_content.bounds
+                        let mut text_content_bounds = text_content.bounds.clone();
+                        text_content_bounds.origin.y = 0.0;
+
+                        text_content_bounds
                         .hit_test(&hit_relative_to_line)
                         .map(|hit_relative_to_text_content| {
 

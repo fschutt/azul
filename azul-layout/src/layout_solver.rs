@@ -2117,6 +2117,7 @@ fn create_word_positions<'a>(
     solved_widths: Option<&'a NodeDataContainerRef<'a, WidthCalculatedRect>>,
 ) {
 
+    use rayon::prelude::*;
     use azul_text_layout::text_layout::position_words;
     use azul_core::app_resources::{ImmediateFontId, font_size_to_au};
     use azul_core::ui_solver::{
@@ -2128,7 +2129,7 @@ fn create_word_positions<'a>(
 
     let collected =
     words
-    .iter()
+    .par_iter()
     .filter_map(|(node_id, words)| {
 
         use azul_core::styled_dom::StyleFontFamiliesHash;
@@ -2153,9 +2154,22 @@ fn create_word_positions<'a>(
 
         let shaped_words = shaped_words.get(&node_id)?;
 
-        let text_can_overflow =  css_property_cache
+        let overflow_x = css_property_cache
         .get_overflow_x(node_data, node_id, &styled_node_state)
-        .unwrap_or_default().get_property_or_default().unwrap_or_default() != LayoutOverflow::Auto;
+        .unwrap_or_default().get_property_or_default().unwrap_or_default();
+
+        let text_can_overflow_parent = match overflow_x {
+            LayoutOverflow::Auto => false,
+            LayoutOverflow::Scroll => false,
+            LayoutOverflow::Hidden => true,
+            LayoutOverflow::Visible => true,
+        };
+
+        let max_text_width = if text_can_overflow_parent {
+            solved_widths.map(|sw| sw[*node_id].total() as f32)
+        } else {
+            None
+        };
 
         let letter_spacing = css_property_cache
         .get_letter_spacing(node_data, node_id, &styled_node_state)
@@ -2174,11 +2188,7 @@ fn create_word_positions<'a>(
         .and_then(|tw| Some(tw.get_property()?.inner.get()));
 
         let text_layout_options = ResolvedTextLayoutOptions {
-            max_horizontal_width: solved_widths.and_then(|sw| if text_can_overflow {
-                Some(sw[*node_id].total() as f32)
-            } else {
-                None
-            }).into(),
+            max_horizontal_width: max_text_width.into(),
             leading: None.into(), // TODO
             holes: Vec::new().into(), // TODO
             font_size_px,
@@ -2193,7 +2203,9 @@ fn create_word_positions<'a>(
         Some((*node_id, (w, *font_instance_key)))
     }).collect::<Vec<_>>();
 
-    collected.into_iter().for_each(|(node_id, word_position)| {
+    collected
+    .into_iter()
+    .for_each(|(node_id, word_position)| {
         word_positions.insert(node_id, word_position);
     });
 }
