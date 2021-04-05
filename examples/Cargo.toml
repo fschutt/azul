@@ -26,6 +26,14 @@ path = "rust/table.rs"
 name = "async"
 path = "rust/async.rs"
 
+[[bin]]
+name = "hello-world"
+path = "rust/hello-world.rs"
+
+[[bin]]
+name = "opengl"
+path = "rust/opengl.rs"
+
 [dependencies]
 azul = { version = "0.0.1", path = "../api/rust" }
 azul-widgets = { version = "0.0.2", path = "../azul-widgets" }
