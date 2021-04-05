@@ -2204,7 +2204,7 @@ fn create_word_positions<'a>(
             LayoutOverflow::Visible => true,
         };
 
-        let max_text_width = if text_can_overflow_parent {
+        let max_text_width = if !text_can_overflow_parent {
             solved_widths.map(|sw| sw[*node_id].total() as f32)
         } else {
             None

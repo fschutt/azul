@@ -246,13 +246,13 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
                         // push the line break first
                         line_breaks.push(InlineTextLine {
                             word_start: last_line_start_idx,
-                            word_end: word_idx,
+                            word_end: word_idx.saturating_sub(1).max(last_line_start_idx),
                             bounds: LogicalRect::new(
                                 LogicalPosition::new(0.0, line_caret_y),
                                 LogicalSize::new(line_caret_x, font_size_px + line_height_px)
                             ),
                         });
-                        last_line_start_idx = word_idx + 1;
+                        last_line_start_idx = word_idx;
 
                         word_positions.push(WordPosition {
                             shaped_word_index: Some(shaped_word_idx),
@@ -320,13 +320,13 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
                         if word_idx != last_word_idx {
                             line_breaks.push(InlineTextLine {
                                 word_start: last_line_start_idx,
-                                word_end: word_idx,
+                                word_end: word_idx.saturating_sub(1).max(last_line_start_idx),
                                 bounds: LogicalRect::new(
                                     LogicalPosition::new(0.0, line_caret_y),
                                     LogicalSize::new(line_caret_x, font_size_px + line_height_px)
                                 ),
                             });
-                            last_line_start_idx = word_idx + 1;
+                            last_line_start_idx = word_idx;
                         }
                         word_positions.push(WordPosition {
                             shaped_word_index: None,
@@ -400,14 +400,27 @@ impl LineCaretIntersection {
     ) -> Self {
 
         match max_width {
-            None => {
-                LineCaretIntersection::NoLineBreak { new_x: current_x + word_width, new_y: current_y }
+            None => LineCaretIntersection::NoLineBreak {
+                new_x: current_x + word_width,
+                new_y: current_y
             },
             Some(max) => {
-                if (current_x + word_width) > max {
-                    LineCaretIntersection::LineBreak { new_x: 0.0, new_y: current_y + line_height }
+                // window smaller than minimum word content: don't break line
+                if current_x == 0.0 && max < word_width {
+                    LineCaretIntersection::NoLineBreak {
+                        new_x: current_x + word_width,
+                        new_y: current_y
+                    }
+                } else if (current_x + word_width) > max {
+                    LineCaretIntersection::LineBreak {
+                        new_x: 0.0,
+                        new_y: current_y + line_height
+                    }
                 } else {
-                    LineCaretIntersection::NoLineBreak { new_x: current_x + word_width, new_y: current_y }
+                    LineCaretIntersection::NoLineBreak {
+                        new_x: current_x + word_width,
+                        new_y: current_y
+                    }
                 }
             }
         }
