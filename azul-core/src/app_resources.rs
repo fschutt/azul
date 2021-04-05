@@ -1313,11 +1313,12 @@ pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_po
         InlineWord, InlineLine,
         InlineTextContents, InlineGlyph
     };
+    use rayon::prelude::*;
 
     // check the range so that in the worst case there isn't a random crash here
     fn get_range_checked_inclusive_end(input: &[Word], word_start: usize, word_end: usize) -> Option<&[Word]> {
-        if word_start <= (input.len() - 1) &&
-           word_end <= (input.len() - 1) &&
+        if word_start < input.len() &&
+           word_end < input.len() &&
            word_start <= word_end {
             Some(&input[word_start..=word_end])
         } else {
@@ -1330,11 +1331,9 @@ pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_po
     let letter_spacing_px = word_positions.text_layout_options.letter_spacing.as_ref().copied().unwrap_or(0.0);
     let units_per_em = shaped_words.font_metrics_units_per_em;
 
-    let mut word_index = 0;
-
     let inline_lines = inline_text_layout.lines
     .as_ref()
-    .iter()
+    .par_iter()
     .filter_map(|line| {
 
         let word_items = words.items.as_ref();
@@ -1342,13 +1341,16 @@ pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_po
         let word_end = line.word_end.max(line.word_start);
 
         let words = get_range_checked_inclusive_end(word_items, word_start, word_end)?
-        .iter()
-        .filter_map(|word| {
+        .par_iter()
+        .enumerate()
+        .filter_map(|(word_idx, word)| {
+            let word_idx = word_start + word_idx;
             match word.word_type {
                 WordType::Word => {
 
-                    let shaped_word = shaped_words.items.get(word_index)?;
-                    let word_position = word_positions.word_positions.get(word_index)?;
+                    let word_position = word_positions.word_positions.get(word_idx)?;
+                    let shaped_word_index = word_position.shaped_word_index?;
+                    let shaped_word = shaped_words.items.get(shaped_word_index)?;
 
                     // most words are less than 16 chars, avg length of an english word is 4.7 chars
                     let mut all_glyphs_in_this_word = Vec::<InlineGlyph>::with_capacity(16);
@@ -1399,10 +1401,11 @@ pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_po
 
                     let inline_word = InlineWord::Word(InlineTextContents {
                         glyphs: all_glyphs_in_this_word.into(),
-                        bounds: LogicalRect::new(*word_position, LogicalSize::new(shaped_word.get_word_width(units_per_em, font_size_px), font_size_px)),
+                        bounds: LogicalRect::new(
+                            word_position.position,
+                            word_position.size
+                        ),
                     });
-
-                    word_index += 1;
 
                     Some(inline_word)
                 },
@@ -1422,7 +1425,7 @@ pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_po
         lines: inline_lines.into(), // relative to 0, 0
         content_size: word_positions.content_size,
         font_size_px,
-        last_word_index: word_index,
+        last_word_index: word_positions.number_of_shaped_words,
         baseline_descender_px: *descender_px,
     }
 }
@@ -1511,7 +1514,7 @@ pub struct WordPositions {
     /// used to layout these glyphs
     pub text_layout_options: ResolvedTextLayoutOptions,
     /// Stores the positions of words.
-    pub word_positions: Vec<LogicalPosition>,
+    pub word_positions: Vec<WordPosition>,
     /// Index of the word at which the line breaks + length of line
     /// (useful for text selection + horizontal centering)
     pub line_breaks: Vec<(WordIndex, LineLength)>,
@@ -1522,7 +1525,7 @@ pub struct WordPositions {
     /// next text block, to make it seem like two text runs push into each other.
     pub trailing: f32,
     /// How many words are in the text?
-    pub number_of_words: usize,
+    pub number_of_shaped_words: usize,
     /// How many lines (NOTE: virtual lines, meaning line breaks in the layouted text) are there?
     pub number_of_lines: usize,
     /// Horizontal and vertical boundaries of the layouted words.
@@ -1530,6 +1533,13 @@ pub struct WordPositions {
     /// Note that the vertical extent can be larger than the last words' position,
     /// because of trailing negative glyph advances.
     pub content_size: LogicalSize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WordPosition {
+    pub shaped_word_index: Option<usize>,
+    pub position: LogicalPosition,
+    pub size: LogicalSize,
 }
 
 /// Returns the layouted glyph instances

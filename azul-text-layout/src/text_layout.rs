@@ -15,7 +15,6 @@ pub use azul_core::{
     },
     window::{LogicalRect, LogicalSize, LogicalPosition},
 };
-use azul_css::LayoutRect;
 use alloc::vec::Vec;
 use alloc::string::String;
 
@@ -181,159 +180,156 @@ pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
 pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_options: &ResolvedTextLayoutOptions) -> WordPositions {
 
     use self::WordType::*;
+    use self::LineCaretIntersection::*;
     use core::f32;
+    use azul_core::app_resources::WordPosition;
 
     let font_size_px = text_layout_options.font_size_px;
     let space_advance_px = shaped_words.get_space_advance_px(text_layout_options.font_size_px);
     let word_spacing_px = space_advance_px * text_layout_options.word_spacing.as_ref().copied().unwrap_or(DEFAULT_WORD_SPACING);
     let line_height_px = space_advance_px * text_layout_options.line_height.as_ref().copied().unwrap_or(DEFAULT_LINE_HEIGHT);
     let tab_width_px = space_advance_px * text_layout_options.tab_width.as_ref().copied().unwrap_or(DEFAULT_TAB_WIDTH);
+    let spacing_multiplier = text_layout_options.letter_spacing.as_ref().copied().unwrap_or(0.0);
 
     let mut line_breaks = Vec::new();
     let mut word_positions = Vec::new();
+    let mut line_caret_x = text_layout_options.leading.as_ref().copied().unwrap_or(0.0);
+    let mut line_caret_y = font_size_px + line_height_px;
+    let mut shaped_word_idx = 0;
+    let mut last_shaped_word_word_idx = 0;
 
-    let mut line_number = 0;
-    let mut line_caret_x = 0.0;
-    let mut current_word_idx = 0;
-
-    macro_rules! advance_caret {($line_caret_x:expr) => ({
-        let caret_intersection = caret_intersects_with_holes(
-            $line_caret_x,
-            line_number,
-            font_size_px,
-            line_height_px,
-            text_layout_options.holes.as_ref(),
-            text_layout_options.max_horizontal_width.as_ref().copied(),
-        );
-
-        if let LineCaretIntersection::PushCaretOntoNextLine(_, _) = caret_intersection {
-            line_breaks.push((current_word_idx, line_caret_x));
-        }
-
-        // Correct and advance the line caret position
-        advance_caret(
-            &mut $line_caret_x,
-            &mut line_number,
-            caret_intersection,
-        );
-    })}
-
-    advance_caret!(line_caret_x);
-
-    if let Some(leading) = text_layout_options.leading.as_ref() {
-        line_caret_x += leading;
-        advance_caret!(line_caret_x);
-    }
-
-    // NOTE: word_idx increases only on words, not on other symbols!
-    let mut word_idx = 0;
-
-    macro_rules! handle_word {() => ({
-
-        let shaped_word = match shaped_words.items.get(word_idx) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        let reserved_letter_spacing_px = text_layout_options.letter_spacing.as_ref().map(|spacing_multiplier| {
-            spacing_multiplier * shaped_word.number_of_glyphs().saturating_sub(1) as f32
-        }).unwrap_or(0.0);
-
-        // Calculate where the caret would be for the next word
-        let word_advance_x = shaped_word.get_word_width(shaped_words.font_metrics_units_per_em, text_layout_options.font_size_px) + reserved_letter_spacing_px;
-
-        let mut new_caret_x = line_caret_x + word_advance_x;
-
-        // NOTE: Slightly modified "advance_caret!(new_caret_x);" - due to line breaking behaviour
-
-        let caret_intersection = caret_intersects_with_holes(
-            new_caret_x,
-            line_number,
-            font_size_px,
-            line_height_px,
-            text_layout_options.holes.as_ref(),
-            text_layout_options.max_horizontal_width.as_ref().copied(),
-        );
-
-        let mut is_line_break = false;
-        if let LineCaretIntersection::PushCaretOntoNextLine(_, _) = caret_intersection {
-            line_breaks.push((current_word_idx, line_caret_x));
-            is_line_break = true;
-        }
-
-        if !is_line_break {
-            let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
-            word_positions.push(LogicalPosition::new(line_caret_x, line_caret_y));
-        }
-
-        // Correct and advance the line caret position
-        advance_caret(
-            &mut new_caret_x,
-            &mut line_number,
-            caret_intersection,
-        );
-
-        line_caret_x = new_caret_x;
-
-        // If there was a line break, the position needs to be determined after the line break happened
-        if is_line_break {
-            let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
-            word_positions.push(LogicalPosition::new(line_caret_x, line_caret_y));
-            // important! - if the word is pushed onto the next line, the caret has to be
-            // advanced by that words width!
-            line_caret_x += word_advance_x;
-        }
-
-        // NOTE: Word index is increased before pushing, since word indices are 1-indexed
-        // (so that paragraphs can be selected via "(0..word_index)").
-        word_idx += 1;
-        current_word_idx = word_idx;
-    })}
+    let last_word_idx = words.items.len().saturating_sub(1);
 
     // The last word is a bit special: Any text must have at least one line break!
-    for word in words.items.iter().take(words.items.len().saturating_sub(1)) {
+    for (word_idx, word) in words.items.iter().enumerate() {
         match word.word_type {
             Word => {
-                handle_word!();
+
+                // shaped words only contains the actual shaped words, not spaces / tabs / return chars
+                let shaped_word = match shaped_words.items.get(shaped_word_idx) {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                let letter_spacing_px = spacing_multiplier * shaped_word
+                .number_of_glyphs().saturating_sub(1) as f32;
+
+                // Calculate where the caret would be for the next word
+                let shaped_word_width = shaped_word.get_word_width(
+                    shaped_words.font_metrics_units_per_em,
+                    text_layout_options.font_size_px
+                ) + letter_spacing_px;
+
+                // Determine if a line break is necessary
+                let caret_intersection = LineCaretIntersection::new(
+                    line_caret_x,
+                    shaped_word_width,
+                    line_caret_y,
+                    font_size_px + line_height_px,
+                    text_layout_options.max_horizontal_width.as_ref().copied(),
+                );
+
+                // Correct and advance the line caret position
+                match caret_intersection {
+                    NoLineBreak { new_x, new_y } => {
+                        word_positions.push(WordPosition {
+                            shaped_word_index: Some(shaped_word_idx),
+                            position: LogicalPosition::new(line_caret_x, line_caret_y),
+                            size: LogicalSize::new(shaped_word_width, font_size_px + line_height_px),
+                        });
+                        line_caret_x = new_x;
+                        line_caret_y = new_y;
+                    },
+                    LineBreak { new_x, new_y } => {
+                        // push the line break first
+                        line_breaks.push((word_idx, line_caret_x));
+                        word_positions.push(WordPosition {
+                            shaped_word_index: Some(shaped_word_idx),
+                            position: LogicalPosition::new(new_x, new_y),
+                            size: LogicalSize::new(shaped_word_width, font_size_px + line_height_px),
+                        });
+                        line_caret_x = new_x + shaped_word_width; // add word width for the next word
+                        line_caret_y = new_y;
+                    },
+                }
+
+                shaped_word_idx += 1;
+                last_shaped_word_word_idx = word_idx;
             },
             Return => {
-                line_breaks.push((current_word_idx, line_caret_x));
-                line_number += 1;
-                let mut new_caret_x = 0.0;
-                advance_caret!(new_caret_x);
-                line_caret_x = new_caret_x;
+                if word_idx != last_word_idx {
+                    line_breaks.push((word_idx, line_caret_x));
+                }
+                word_positions.push(WordPosition {
+                    shaped_word_index: None,
+                    position: LogicalPosition::new(line_caret_x, line_caret_y),
+                    size: LogicalSize::new(0.0, font_size_px + line_height_px),
+                });
+                if word_idx != last_word_idx {
+                    line_caret_x = 0.0;
+                    line_caret_y = line_caret_y + font_size_px + line_height_px;
+                }
             },
-            Space => {
-                let mut new_caret_x = line_caret_x + word_spacing_px;
-                advance_caret!(new_caret_x);
-                line_caret_x = new_caret_x;
-            },
-            Tab => {
-                let mut new_caret_x = line_caret_x + word_spacing_px + tab_width_px;
-                advance_caret!(new_caret_x);
-                line_caret_x = new_caret_x;
-            },
+            Space | Tab => {
+                let x_advance = match word.word_type {
+                    Space => word_spacing_px,
+                    Tab => tab_width_px,
+                    _ => word_spacing_px, // unreachable
+                };
+
+                let caret_intersection = LineCaretIntersection::new(
+                    line_caret_x,
+                    x_advance, // advance by space / tab width
+                    line_caret_y,
+                    font_size_px + line_height_px,
+                    text_layout_options.max_horizontal_width.as_ref().copied(),
+                );
+
+                match caret_intersection {
+                    NoLineBreak { new_x, new_y } => {
+                        word_positions.push(WordPosition {
+                            shaped_word_index: None,
+                            position: LogicalPosition::new(line_caret_x, line_caret_y),
+                            size: LogicalSize::new(x_advance, font_size_px + line_height_px),
+                        });
+                        line_caret_x = new_x;
+                        line_caret_y = new_y;
+                    },
+                    LineBreak { new_x, new_y } => {
+                        // push the line break before increasing
+                        if word_idx != last_word_idx {
+                            line_breaks.push((word_idx, line_caret_x));
+                        }
+                        word_positions.push(WordPosition {
+                            shaped_word_index: None,
+                            position: LogicalPosition::new(line_caret_x, line_caret_y),
+                            size: LogicalSize::new(x_advance, font_size_px + line_height_px),
+                        });
+                        if word_idx != last_word_idx {
+                            line_caret_x = new_x; // don't add the space width here when pushing onto new line
+                            line_caret_y = new_y;
+                        }
+                    },
+                }
+            }
         }
     }
 
-    // Handle the last word, but ignore any last Return, Space or Tab characters
-    for word in &words.items.as_ref()[words.items.len().saturating_sub(1)..] {
-        if word.word_type == Word {
-            handle_word!();
-        }
-        line_breaks.push((current_word_idx, line_caret_x));
-    }
+    line_breaks.push((last_shaped_word_word_idx, line_caret_x));
 
-    let longest_line_width = line_breaks.iter().map(|(_word_idx, line_length)| *line_length).fold(0.0_f32, f32::max);
-    let content_size_y = get_line_y_position(line_number, font_size_px, line_height_px);
+    let longest_line_width = line_breaks.iter()
+    .map(|(_word_idx, line_length)| *line_length)
+    .fold(0.0_f32, f32::max);
+
+    let content_size_y = line_breaks.len() as f32 * (font_size_px + line_height_px);
     let content_size_x = text_layout_options.max_horizontal_width.as_ref().copied().unwrap_or(longest_line_width);
     let content_size = LogicalSize::new(content_size_x, content_size_y);
 
     WordPositions {
         text_layout_options: text_layout_options.clone(),
         trailing: line_caret_x,
-        number_of_words: current_word_idx + 1,
-        number_of_lines: line_number + 1,
+        number_of_shaped_words: shaped_word_idx,
+        number_of_lines: line_breaks.len(),
         content_size,
         word_positions,
         line_breaks,
@@ -341,7 +337,10 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
 }
 
 /// Returns the (left-aligned!) bounding boxes of the indidividual text lines
-pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scaled_words: &ShapedWords) -> InlineTextLayout {
+pub fn word_positions_to_inline_text_layout(
+    word_positions: &WordPositions,
+    scaled_words: &ShapedWords
+) -> InlineTextLayout {
 
     use azul_core::ui_solver::InlineTextLine;
 
@@ -350,7 +349,7 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
 
     let mut last_word_index = 0;
 
-    let inline_text = InlineTextLayout {
+    InlineTextLayout {
         lines: word_positions.line_breaks
             .iter()
             .enumerate()
@@ -374,11 +373,7 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
                 line
         }).collect(),
         content_size: word_positions.content_size,
-    };
-
-    println!("inline text layout: {:#?}", inline_text);
-
-    inline_text
+    }
 }
 
 /// For a given line number (**NOTE: 0-indexed!**), calculates the Y
@@ -391,109 +386,37 @@ pub fn get_line_y_position(line_number: usize, font_size_px: f32, line_height_px
 }
 
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
-pub enum LineCaretIntersection {
-    /// OK: Caret does not interset any elements
-    NoIntersection,
+enum LineCaretIntersection {
     /// In order to not intersect with any holes, the caret needs to
     /// be advanced to the position x, but can stay on the same line.
-    AdvanceCaretTo(f32),
+    NoLineBreak { new_x: f32, new_y: f32 },
     /// Caret needs to advance X number of lines and be positioned
     /// with a leading of x
-    PushCaretOntoNextLine(usize, f32),
+    LineBreak { new_x: f32, new_y: f32 },
 }
 
-/// Check if the caret intersects with any holes and if yes, if the cursor should move to a new line.
-///
-/// # Inputs
-///
-/// - `line_caret_x`: The current horizontal caret position
-/// - `line_number`: The current line number
-/// - `holes`: Whether the text should respect any rectangular regions
-///    where the text can't flow (preparation for inline / float layout).
-/// - `max_width`: Does the text have a restriction on how wide it can be (in pixels)
-pub fn caret_intersects_with_holes(
-    line_caret_x: f32,
-    line_number: usize,
-    font_size_px: f32,
-    line_height_px: f32,
-    holes: &[LayoutRect],
-    max_width: Option<f32>,
-) -> LineCaretIntersection {
+impl LineCaretIntersection {
+    #[inline]
+    fn new(
+        current_x: f32,
+        word_width: f32,
+        current_y: f32,
+        line_height: f32,
+        max_width: Option<f32>,
+    ) -> Self {
 
-    let mut new_line_caret_x = None;
-    let mut line_advance = 0;
-
-    // If the caret is outside of the max_width, move it to the start of a new line
-    if let Some(max_width) = max_width {
-        if line_caret_x > max_width {
-            new_line_caret_x = Some(0.0);
-            line_advance += 1;
-        }
-    }
-
-    for hole in holes {
-
-        let mut should_move_caret = false;
-        let mut current_line_advance = 0;
-        let mut new_line_number = line_number + current_line_advance;
-        let mut current_caret = LogicalPosition::new(
-            new_line_caret_x.unwrap_or(line_caret_x),
-            get_line_y_position(new_line_number, font_size_px, line_height_px)
-        );
-
-        // NOTE: holes need to be sorted by Y origin (from smallest to largest Y),
-        // and be sorted from left to right
-        while hole.contains_f32(current_caret.x, current_caret.y) {
-            should_move_caret = true;
-            if let Some(max_width) = max_width {
-                if hole.max_x() as f32 >= max_width {
-                    // Need to break the line here
-                    current_line_advance += 1;
-                    new_line_number = line_number + current_line_advance;
-                    current_caret = LogicalPosition::new(
-                        new_line_caret_x.unwrap_or(line_caret_x),
-                        get_line_y_position(new_line_number, font_size_px, line_height_px)
-                    );
+        match max_width {
+            None => {
+                LineCaretIntersection::NoLineBreak { new_x: current_x + word_width, new_y: current_y }
+            },
+            Some(max) => {
+                if (current_x + word_width) > max {
+                    LineCaretIntersection::LineBreak { new_x: 0.0, new_y: current_y + line_height }
                 } else {
-                    new_line_number = line_number + current_line_advance;
-                    current_caret = LogicalPosition::new(
-                        hole.max_x() as f32,
-                        get_line_y_position(new_line_number, font_size_px, line_height_px)
-                    );
+                    LineCaretIntersection::NoLineBreak { new_x: current_x + word_width, new_y: current_y }
                 }
-            } else {
-                // No max width, so no need to break the line, move the caret to the right side of the hole
-                new_line_number = line_number + current_line_advance;
-                current_caret = LogicalPosition::new(
-                    hole.max_x() as f32,
-                    get_line_y_position(new_line_number, font_size_px, line_height_px)
-                );
             }
         }
-
-        if should_move_caret {
-            new_line_caret_x = Some(current_caret.x);
-            line_advance += current_line_advance;
-        }
-    }
-
-    if let Some(new_line_caret_x) = new_line_caret_x {
-        if line_advance == 0 {
-            LineCaretIntersection::AdvanceCaretTo(new_line_caret_x)
-        } else {
-            LineCaretIntersection::PushCaretOntoNextLine(line_advance, new_line_caret_x)
-        }
-    } else {
-        LineCaretIntersection::NoIntersection
-    }
-}
-
-pub fn advance_caret(caret: &mut f32, line_number: &mut usize, intersection: LineCaretIntersection) {
-    use self::LineCaretIntersection::*;
-    match intersection {
-        NoIntersection => { },
-        AdvanceCaretTo(x) => { *caret = x; },
-        PushCaretOntoNextLine(num_lines, x) => { *line_number += num_lines; *caret = x; },
     }
 }
 
