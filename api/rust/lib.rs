@@ -4748,7 +4748,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `InlineText` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInlineText {
         pub lines: AzInlineLineVec,
-        pub bounds: AzLogicalRect,
+        pub content_size: AzLogicalSize,
         pub font_size_px: f32,
         pub last_word_index: usize,
         pub baseline_descender_px: f32,

@@ -2128,7 +2128,7 @@ fn create_word_positions<'a>(
 
     let collected =
     words
-    .par_iter()
+    .iter()
     .filter_map(|(node_id, words)| {
 
         use azul_core::styled_dom::StyleFontFamiliesHash;

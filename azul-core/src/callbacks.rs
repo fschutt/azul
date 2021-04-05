@@ -560,9 +560,14 @@ impl_vec_partialord!(InlineTextHit, InlineTextHitVec);
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct InlineText {
-    pub lines: InlineLineVec, // relative to 0, 0
-    pub bounds: LogicalRect,
+    /// List of lines, relative to (0.0, 0.0) representing the top left corner of the line
+    pub lines: InlineLineVec,
+    /// Size of the text content, may be larger than the
+    /// position of lines due to descending glyphs
+    pub content_size: LogicalSize,
+    /// Size of the font used to layout this line
     pub font_size_px: f32,
+    /// Index of the last word
     pub last_word_index: usize,
     /// NOTE: descender is NEGATIVE (pixels from baseline to font size)
     pub baseline_descender_px: f32,
@@ -640,7 +645,9 @@ impl InlineText {
     /// Usually the result will contain a single `InlineTextHit`
     pub fn hit_test(&self, position: LogicalPosition) -> Vec<InlineTextHit> {
 
-        let hit_relative_to_inline_text = match self.bounds.hit_test(&position) {
+        let bounds = LogicalRect::new(LogicalPosition::zero(), self.content_size);
+
+        let hit_relative_to_inline_text = match bounds.hit_test(&position) {
             Some(s) => s,
             None => return Vec::new(),
         };

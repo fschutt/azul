@@ -207,7 +207,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
         );
 
         if let LineCaretIntersection::PushCaretOntoNextLine(_, _) = caret_intersection {
-             line_breaks.push((current_word_idx, line_caret_x));
+            line_breaks.push((current_word_idx, line_caret_x));
         }
 
         // Correct and advance the line caret position
@@ -324,10 +324,6 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
         line_breaks.push((current_word_idx, line_caret_x));
     }
 
-    let trailing = line_caret_x;
-    let number_of_lines = line_number + 1;
-    let number_of_words = current_word_idx + 1;
-
     let longest_line_width = line_breaks.iter().map(|(_word_idx, line_length)| *line_length).fold(0.0_f32, f32::max);
     let content_size_y = get_line_y_position(line_number, font_size_px, line_height_px);
     let content_size_x = text_layout_options.max_horizontal_width.as_ref().copied().unwrap_or(longest_line_width);
@@ -335,9 +331,9 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
 
     WordPositions {
         text_layout_options: text_layout_options.clone(),
-        trailing,
-        number_of_words,
-        number_of_lines,
+        trailing: line_caret_x,
+        number_of_words: current_word_idx + 1,
+        number_of_lines: line_number + 1,
         content_size,
         word_positions,
         line_breaks,
@@ -354,7 +350,7 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
 
     let mut last_word_index = 0;
 
-    InlineTextLayout {
+    let inline_text = InlineTextLayout {
         lines: word_positions.line_breaks
             .iter()
             .enumerate()
@@ -362,8 +358,14 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
                 let start_word_idx = last_word_index;
                 let line = InlineTextLine {
                     bounds: LogicalRect {
-                        origin: LogicalPosition { x: 0.0, y: get_line_y_position(line_number, font_size_px, line_height_px) - line_height_px },
-                        size: LogicalSize { width: *line_length, height: font_size_px + line_height_px },
+                        origin: LogicalPosition {
+                            x: 0.0,
+                            y: get_line_y_position(line_number, font_size_px, line_height_px) - line_height_px
+                        },
+                        size: LogicalSize {
+                            width: *line_length,
+                            height: font_size_px + line_height_px
+                        },
                     },
                     word_start: start_word_idx,
                     word_end: *word_idx,
@@ -371,7 +373,12 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
                 last_word_index = *word_idx;
                 line
         }).collect(),
-    }
+        content_size: word_positions.content_size,
+    };
+
+    println!("inline text layout: {:#?}", inline_text);
+
+    inline_text
 }
 
 /// For a given line number (**NOTE: 0-indexed!**), calculates the Y
@@ -380,7 +387,7 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
 /// NOTE: line_height_px has to be GREATER than font_size_px
 pub fn get_line_y_position(line_number: usize, font_size_px: f32, line_height_px: f32) -> f32 {
     // assert!(line_height_px >= font_size_px);
-    (line_number as f32 * (font_size_px + line_height_px)) + font_size_px
+    (line_number + 1) as f32 * (font_size_px + line_height_px)
 }
 
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]

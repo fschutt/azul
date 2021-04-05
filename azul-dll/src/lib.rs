@@ -7534,7 +7534,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `InlineText` struct
     #[repr(C)]     pub struct AzInlineText {
         pub lines: AzInlineLineVec,
-        pub bounds: AzLogicalRect,
+        pub content_size: AzLogicalSize,
         pub font_size_px: f32,
         pub last_word_index: usize,
         pub baseline_descender_px: f32,

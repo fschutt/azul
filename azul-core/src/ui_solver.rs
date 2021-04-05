@@ -33,6 +33,7 @@ pub const DEFAULT_TAB_WIDTH: f32 = 4.0;
 #[repr(C)]
 pub struct InlineTextLayout {
     pub lines: InlineTextLineVec,
+    pub content_size: LogicalSize,
 }
 
 impl_vec!(InlineTextLayout, InlineTextLayoutVec, InlineTextLayoutVecDestructor);
@@ -82,11 +83,6 @@ impl InlineTextLayout {
             None => 0.0,
             Some(s) => (s.bounds.origin.x + s.bounds.size.width) as f32,
         }
-    }
-
-    #[inline]
-    pub fn new(lines: Vec<InlineTextLine>) -> Self {
-        Self { lines: lines.into() }
     }
 
     /// Align the lines horizontal to *their bounding box*

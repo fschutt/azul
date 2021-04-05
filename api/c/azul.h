@@ -8929,7 +8929,7 @@ typedef struct AzCallbackInfo AzCallbackInfo;
 
 struct AzInlineText {
     AzInlineLineVec lines;
-    AzLogicalRect bounds;
+    AzLogicalSize content_size;
     float font_size_px;
     size_t last_word_index;
     float baseline_descender_px;

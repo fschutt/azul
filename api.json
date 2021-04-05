@@ -1349,7 +1349,7 @@
                     "external": "azul_impl::callbacks::InlineText",
                     "struct_fields": [
                         {"lines": {"type": "InlineLineVec", "doc": "List of lines in this text, relative to the text origin"}},
-                        {"bounds": {"type": "LogicalRect", "doc": "Bounding rect of the union of all lines in this text (size of the text content in logical pixels)"}},
+                        {"content_size": {"type": "LogicalSize", "doc": "Content size of all text lines"}},
                         {"font_size_px": {"type": "f32", "doc": "Font size in pixels used for layouting this text" }},
                         {"last_word_index": {"type": "usize", "doc": "Index of the last `Word` in this text (- note that a `Word` can also be a `Space`, `Return` or `Tab`)."}},
                         {"baseline_descender_px": {"type": "f32", "doc": "**NEGATIVE** descender of the text baseline (distance from baseline of the text to the bottom of the line)"}}

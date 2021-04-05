@@ -1309,14 +1309,17 @@ pub struct GlyphInfo {
 #[cfg(feature = "multithreading")]
 pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_positions: &WordPositions, inline_text_layout: &InlineTextLayout) -> InlineText {
 
-    use crate::callbacks::{InlineWord, InlineLine, InlineTextContents, InlineGlyph};
-    use core::ops::Range;
+    use crate::callbacks::{
+        InlineWord, InlineLine,
+        InlineTextContents, InlineGlyph
+    };
 
     // check the range so that in the worst case there isn't a random crash here
-    fn get_range_checked<T>(input: &[T], range: Range<usize>) -> Option<&[T]> {
-        let input_range = 0..=input.len();
-        if input_range.contains(&range.start) && input_range.contains(&range.end) {
-            Some(&input[range])
+    fn get_range_checked_inclusive_end(input: &[Word], word_start: usize, word_end: usize) -> Option<&[Word]> {
+        if word_start <= (input.len() - 1) &&
+           word_end <= (input.len() - 1) &&
+           word_start <= word_end {
+            Some(&input[word_start..=word_end])
         } else {
             None
         }
@@ -1336,9 +1339,9 @@ pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_po
 
         let word_items = words.items.as_ref();
         let word_start = line.word_start.min(line.word_end);
-        let word_end = line.word_start.max(line.word_end);
+        let word_end = line.word_end.max(line.word_start);
 
-        let words = get_range_checked(word_items, word_start..word_end)?
+        let words = get_range_checked_inclusive_end(word_items, word_start, word_end)?
         .iter()
         .filter_map(|word| {
             match word.word_type {
@@ -1417,7 +1420,7 @@ pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_po
 
     InlineText {
         lines: inline_lines.into(), // relative to 0, 0
-        bounds: LogicalRect::new(LogicalPosition::zero(), word_positions.content_size),
+        content_size: word_positions.content_size,
         font_size_px,
         last_word_index: word_index,
         baseline_descender_px: *descender_px,
