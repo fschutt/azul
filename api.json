@@ -4114,7 +4114,7 @@
                             "fn_args": [
                                 {"xml_string": "String"}
                             ],
-                            "fn_body": "azul_impl::app::extra::styled_dom_from_str(xml_string.as_str(), \"\")"
+                            "fn_body": "azul_impl::app::extra::styled_dom_from_str(xml_string.as_str())"
                         },
                         "from_file": {
                             "doc": "Same as `from_xml`, but loads the file relative to the current directory",

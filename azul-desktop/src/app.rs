@@ -1310,35 +1310,12 @@ pub mod extra {
 
     // extra functions that can't be implemented in azul_core
     pub fn styled_dom_from_file(path: &str) -> StyledDom {
-        match std::fs::read_to_string(path) {
-            Ok(o) => styled_dom_from_str(&o, &format!("{} ", path)),
-            Err(e) => {
-                Dom::new(NodeType::Body).with_children(vec![
-                    Dom::new(NodeType::Text(format!("Failed to load file \"{}\": {}", path, e).into()))
-                ].into()).style(Css::empty())
-            }
-        }
+        use azulc_lib::xml_parser::XmlComponentMap;
+        azulc_lib::xml_parser::DomXml::from_file(path, &mut XmlComponentMap::default()).parsed_dom
     }
 
-    pub fn styled_dom_from_str(s: &str, err_extra: &str) -> StyledDom {
+    pub fn styled_dom_from_str(s: &str) -> StyledDom {
         use azulc_lib::xml_parser::XmlComponentMap;
-
-        let root_nodes = match azulc_lib::xml_parser::parse_xml_string(s) {
-            Ok(o) => o,
-            Err(e) => {
-                return Dom::new(NodeType::Body).with_children(vec![
-                    Dom::new(NodeType::Text(format!("{}XML parser error: {:?}:\r\n{}", err_extra, e, s).into()))
-                ].into()).style(Css::empty());
-            }
-        };
-
-        match azulc_lib::xml_parser::str_to_dom(root_nodes.as_ref(), &mut XmlComponentMap::default()) {
-            Ok(o) => o,
-            Err(e) => {
-                Dom::new(NodeType::Body).with_children(vec![
-                    Dom::new(NodeType::Text(format!("{}XML to DOM error: {:?}:\r\n{}", err_extra, e, s).into()))
-                ].into()).style(Css::empty())
-            }
-        }
+        azulc_lib::xml_parser::DomXml::from_str(s, &mut XmlComponentMap::default()).parsed_dom
     }
 }

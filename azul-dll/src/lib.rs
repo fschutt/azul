@@ -1359,7 +1359,7 @@ pub use AzStyledDomTT as AzStyledDom;
 /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
 #[no_mangle] pub extern "C" fn AzStyledDom_new(dom: AzDom, css: AzCss) -> AzStyledDom { AzStyledDom::new(dom, css) }
 /// Returns a DOM loaded from an XML file
-#[no_mangle] pub extern "C" fn AzStyledDom_fromXml(xml_string: AzString) -> AzStyledDom { azul_impl::app::extra::styled_dom_from_str(xml_string.as_str(), "") }
+#[no_mangle] pub extern "C" fn AzStyledDom_fromXml(xml_string: AzString) -> AzStyledDom { azul_impl::app::extra::styled_dom_from_str(xml_string.as_str()) }
 /// Same as `from_xml`, but loads the file relative to the current directory
 #[no_mangle] pub extern "C" fn AzStyledDom_fromFile(xml_file_path: AzString) -> AzStyledDom { azul_impl::app::extra::styled_dom_from_file(xml_file_path.as_str()) }
 /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`

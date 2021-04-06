@@ -171,6 +171,27 @@ pub struct DomXml {
 
 impl DomXml {
 
+    pub fn from_str(xml: &str, component_map: &mut XmlComponentMap) -> Self {
+        let error_css = Css::empty();
+        // azul_css_parser::new_from_str("* { font-family: monospace; }").unwrap_or_default();
+
+        let parsed = match parse_xml_string(&xml) {
+            Ok(parsed) => parsed,
+            Err(e) => return Self {
+                parsed_dom: Dom::text(format!("{}", e)).style(error_css),
+            },
+        };
+
+        let parsed_dom = match str_to_dom(parsed.as_ref(), component_map) {
+            Ok(o) => o,
+            Err(e) => return Self {
+                parsed_dom: Dom::text(format!("{}", e)).style(error_css),
+            },
+        };
+
+        Self { parsed_dom }
+    }
+
     /// Loads, parses and builds a DOM from an XML file
     ///
     /// **Warning**: The file is reloaded from disk on every function call - do not
@@ -181,7 +202,7 @@ impl DomXml {
 
         use std::fs;
 
-        let error_css = azul_css_parser::new_from_str("* { font-family: monospace; }").unwrap_or_default();
+        let error_css = Css::empty();
 
         let xml = match fs::read_to_string(file_path.as_ref()) {
             Ok(xml) => xml,
@@ -191,23 +212,7 @@ impl DomXml {
             },
         };
 
-        let parsed = match parse_xml_string(&xml) {
-            Ok(parsed) => parsed,
-            Err(e) => return Self {
-                parsed_dom: Dom::text(format!("Error parsing: \"{}\": {}", file_path.as_ref().to_string_lossy(), e))
-                .style(error_css),
-            },
-        };
-
-        let parsed_dom = match str_to_dom(parsed.as_ref(), component_map) {
-            Ok(o) => o,
-            Err(e) => return Self {
-                parsed_dom: Dom::text(format!("Error rendering DOM: \"{}\": {}", file_path.as_ref().to_string_lossy(), e))
-                .style(error_css),
-            },
-        };
-
-        Self { parsed_dom }
+        Self::from_str(&xml, component_map)
     }
 
     /// Convenience function, only available in tests, useful for quickly writing UI tests.
