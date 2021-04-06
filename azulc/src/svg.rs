@@ -715,7 +715,6 @@ pub fn render_node_clipmask_cpu(
 
     match style {
         SvgStyle::Fill(fs) => {
-            use azul_core::svg::SvgFillRule;
             pixmap.fill_path(
                 &path,
                 &paint,

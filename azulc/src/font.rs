@@ -279,7 +279,6 @@ fn linux_get_fc_match_font(font_name: &'static str) -> Option<String> {
 // DejaVuSans.ttf: "DejaVu Sans" "Book"
 // DejaVuSansMono.ttf: "DejaVu Sans Mono" "Book"
 fn parse_fc_match_font(input: &str) -> Option<&str> {
-    use std::char;
 
     let input = input.trim();
     let mut split_iterator = input.split(":");

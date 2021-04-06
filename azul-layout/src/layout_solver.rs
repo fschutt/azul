@@ -332,7 +332,7 @@ macro_rules! typed_arena {(
         // (depth 5 needs to be filled out first)
         //
         // Set the preferred_width of the parent nodes
-        for ParentWithNodeDepth { depth, node_id } in node_depths.iter().rev() {
+        for ParentWithNodeDepth { depth: _, node_id } in node_depths.iter().rev() {
 
             let parent_id = match node_id.into_crate_internal() {
                 Some(s) => s,
@@ -838,7 +838,6 @@ macro_rules! get_position {(
         /// Returns the absolute X for the child
         fn determine_child_x_absolute<'a>(
             child_id: NodeId,
-            arena_solved_data: &NodeDataContainerRef<'a, $height_solved_position>,
             solved_widths: &NodeDataContainerRef<'a, $width_layout>,
             layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
             node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
@@ -892,7 +891,6 @@ macro_rules! get_position {(
         fn determine_child_x_along_main_axis<'a>(
             main_axis_alignment: LayoutJustifyContent,
             layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-            arena_solved_data: &NodeDataContainerRef<'a, $height_solved_position>,
             solved_widths: &NodeDataContainerRef<'a, $width_layout>,
             child_id: NodeId,
             parent_x_position: f32,
@@ -922,7 +920,6 @@ macro_rules! get_position {(
             if layout_positions[child_id] == LayoutPosition::Absolute {
                 (determine_child_x_absolute(
                     child_id,
-                    arena_solved_data,
                     solved_widths,
                     layout_positions,
                     node_hierarchy,
@@ -962,7 +959,6 @@ macro_rules! get_position {(
             layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
             solved_widths: &NodeDataContainerRef<'a, $width_layout>,
             child_id: NodeId,
-            arena_solved_data: &NodeDataContainerRef<'a, $height_solved_position>,
             parent_x_position: f32,
             node_hierarchy: &NodeDataContainerRef<'a, AzNode>
         ) -> f32 {
@@ -978,7 +974,6 @@ macro_rules! get_position {(
             if layout_positions[child_id] == LayoutPosition::Absolute {
                 determine_child_x_absolute(
                     child_id,
-                    arena_solved_data,
                     solved_widths,
                     layout_positions,
                     node_hierarchy,
@@ -1025,7 +1020,6 @@ macro_rules! get_position {(
                         let (x, x_to_add) = determine_child_x_along_main_axis(
                             main_axis_alignment,
                             layout_positions,
-                            &arena.as_ref(),
                             solved_widths,
                             child_id,
                             parent_x_position,
@@ -1041,7 +1035,6 @@ macro_rules! get_position {(
                         let (x, x_to_add) = determine_child_x_along_main_axis(
                             main_axis_alignment,
                             layout_positions,
-                            &arena.as_ref(),
                             solved_widths,
                             child_id,
                             parent_x_position,
@@ -1079,7 +1072,6 @@ macro_rules! get_position {(
                             layout_positions,
                             solved_widths,
                             child_id,
-                            &arena.as_ref(),
                             parent_x_position,
                             node_hierarchy,
                         );
@@ -1090,7 +1082,6 @@ macro_rules! get_position {(
                             layout_positions,
                             solved_widths,
                             child_id,
-                            &arena.as_ref(),
                             parent_x_position,
                             node_hierarchy,
                         );
@@ -1358,17 +1349,6 @@ struct LayoutAbsolutePositions {
     bottom: Option<CssPropertyValue<LayoutBottom>>,
 }
 
-impl LayoutAbsolutePositions {
-    fn resolve(&self, parent_scale_x: f32, parent_scale_y: f32) -> ResolvedOffsets {
-        ResolvedOffsets {
-            left: self.left.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
-            top: self.top.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
-            bottom: self.bottom.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_y))).unwrap_or_default(),
-            right: self.right.and_then(|p| Some(p.get_property()?.inner.to_pixels(parent_scale_x))).unwrap_or_default(),
-        }
-    }
-}
-
 struct LayoutBorderOffsets {
     left: Option<CssPropertyValue<LayoutBorderLeftWidth>>,
     right: Option<CssPropertyValue<LayoutBorderRightWidth>>,
@@ -1586,7 +1566,6 @@ pub fn do_the_layout_internal(
     bounds: LogicalRect
 ) -> LayoutResult {
 
-    use azul_core::dom::NodeType;
     use azul_core::app_resources::DecodedImage;
 
     let rect_size = bounds.size;
@@ -1631,7 +1610,7 @@ pub fn do_the_layout_internal(
     // Calculate the optional "intrinsic content widths" - i.e.
     // the width of a text or image, if no constraint would apply
     let mut content_widths_pre = styled_dom.node_data.as_container_mut()
-    .transform_multithread(|node_data, node_id| {
+    .transform_multithread(|node_data, _| {
         match node_data.get_node_type() {
             NodeType::Image(i) => match i.get_data() {
                 DecodedImage::NullImage { width, .. } => Some(*width as f32),
@@ -1992,8 +1971,6 @@ fn position_nodes<'a>(
             };
 
             let child_size_logical = LogicalSize::new(width.total(), height.total());
-            let child_size = LayoutSize::new(width.total().round() as isize, height.total().round() as isize);
-
             let child_offsets = match offsets.get_offsets_for_node(&child_node_id) {
                 Some(s) => s,
                 None => continue,
@@ -2109,7 +2086,6 @@ pub fn create_shaped_words<'a>(
     styled_dom: &'a StyledDom,
 ) -> BTreeMap<NodeId, ShapedWords> {
 
-    use azul_core::app_resources::ImmediateFontId;
     use azul_text_layout::text_layout::shape_words;
     use azul_text_layout::text_shaping::ParsedFont;
 
@@ -2154,9 +2130,10 @@ fn create_word_positions<'a>(
 
     use rayon::prelude::*;
     use azul_text_layout::text_layout::position_words;
-    use azul_core::app_resources::{ImmediateFontId, font_size_to_au};
+    use azul_core::app_resources::font_size_to_au;
     use azul_core::ui_solver::{
-        ResolvedTextLayoutOptions, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING
+        ResolvedTextLayoutOptions,
+        DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING
     };
 
     let css_property_cache = styled_dom.get_css_property_cache();
@@ -2298,7 +2275,7 @@ fn get_nodes_that_need_scroll_clip(
     pipeline_id: &PipelineId,
 ) {
 
-    use azul_core::ui_solver::{DirectionalOverflowInfo, OverflowingScrollNode, ExternalScrollId};
+    use azul_core::ui_solver::{OverflowingScrollNode, ExternalScrollId};
     use azul_core::dom::ScrollTagId;
     use azul_core::styled_dom::AzNodeId;
     use azul_core::dom::TagId;
@@ -2395,7 +2372,7 @@ fn get_nodes_that_need_scroll_clip(
 pub fn do_the_relayout(
     root_bounds: LayoutRect,
     layout_result: &mut LayoutResult,
-    image_cache: &ImageCache,
+    _image_cache: &ImageCache,
     renderer_resources: &mut RendererResources,
     pipeline_id: &PipelineId,
     nodes_to_relayout: &BTreeMap<NodeId, Vec<ChangedCssProperty>>

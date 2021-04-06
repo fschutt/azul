@@ -1028,7 +1028,7 @@ impl Dom {
     #[inline(always)]
     pub const fn br() -> Self { Self::new(NodeType::Br) }
     #[inline(always)]
-    pub fn label<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Text(value.into())) }
+    pub fn text<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Text(value.into())) }
     #[inline(always)]
     pub fn image(image: ImageRef) -> Self { Self::new(NodeType::Image(image)) }
     #[inline(always)]

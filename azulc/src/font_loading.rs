@@ -2,10 +2,7 @@
 #![cfg(feature = "font_loading")]
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use std::{
-    path::PathBuf,
-    io::Error as IoError,
-};
+use std::io::Error as IoError;
 use azul_core::app_resources::LoadedFontSource;
 use rust_fontconfig::FcFontCache;
 use azul_css::{

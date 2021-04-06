@@ -155,12 +155,12 @@ pub trait XmlComponent {
     /// data format.
     fn get_available_arguments(&self) -> ComponentArguments;
     /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
-    fn render_dom(&self, components: &XmlComponentMap, arguments: &FilteredComponentArguments, content: &XmlTextContent) -> Result<StyledDom, RenderDomError>;
+    fn render_dom<'a>(&'a self, components: &'a XmlComponentMap, arguments: &FilteredComponentArguments, content: &XmlTextContent) -> Result<StyledDom, RenderDomError<'a>>;
     /// Used to compile the XML component to Rust code - input
     fn compile_to_rust_code(&self, components: &XmlComponentMap, attributes: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError>;
     /// Returns the XML node for this component (necessary to compile the component into a function
     /// during the Rust compilation stage)
-    fn get_xml_node(&self) -> XmlNode;
+    fn get_xml_node<'a>(&'a self) -> &'a XmlNode;
 }
 
 /// Wrapper for the XML parser - necessary to easily create a Dom from
@@ -170,24 +170,6 @@ pub struct DomXml {
 }
 
 impl DomXml {
-
-    /// Parses and loads a DOM from an XML string
-    ///
-    /// Note: Needs at least one `<app></app>` node in order to not fail
-    #[inline]
-    pub fn new(xml: &str, component_map: &mut XmlComponentMap) -> Result<Self, DomXmlParseError> {
-        let parsed_dom = parse_xml_string(xml)?;
-        let dom = str_to_dom(parsed_dom.as_ref(), component_map)?;
-        Ok(Self {
-            parsed_dom: dom,
-        })
-    }
-
-    /// Creates a mock `<app></app>` wrapper, so that the `Self::new()` function doesn't fail
-    pub fn mock(xml: &str) -> Self {
-        let actual_xml = format!("<app>{}</app>", xml);
-        Self::new(&actual_xml, &mut XmlComponentMap::default()).unwrap()
-    }
 
     /// Loads, parses and builds a DOM from an XML file
     ///
@@ -199,19 +181,33 @@ impl DomXml {
 
         use std::fs;
 
-        let xml = match fs::read_to_string(file_path) {
+        let error_css = azul_css_parser::new_from_str("* { font-family: monospace; }").unwrap_or_default();
+
+        let xml = match fs::read_to_string(file_path.as_ref()) {
             Ok(xml) => xml,
             Err(e) => return Self {
-                parsed_dom: Dom::label(format!("{:?}", e)).style(Css::empty()),
+                parsed_dom: Dom::text(format!("Error reading: \"{}\": {}", file_path.as_ref().to_string_lossy(), e))
+                .style(error_css),
             },
         };
 
-        match Self::new(&xml, component_map) {
-            Ok(o) => o,
-            Err(e) =>  Self {
-                parsed_dom: Dom::label(format!("{:?}", e)).style(Css::empty()),
+        let parsed = match parse_xml_string(&xml) {
+            Ok(parsed) => parsed,
+            Err(e) => return Self {
+                parsed_dom: Dom::text(format!("Error parsing: \"{}\": {}", file_path.as_ref().to_string_lossy(), e))
+                .style(error_css),
             },
-        }
+        };
+
+        let parsed_dom = match str_to_dom(parsed.as_ref(), component_map) {
+            Ok(o) => o,
+            Err(e) => return Self {
+                parsed_dom: Dom::text(format!("Error rendering DOM: \"{}\": {}", file_path.as_ref().to_string_lossy(), e))
+                .style(error_css),
+            },
+        };
+
+        Self { parsed_dom }
     }
 
     /// Convenience function, only available in tests, useful for quickly writing UI tests.
@@ -260,7 +256,7 @@ pub struct DynamicXmlComponent {
 impl DynamicXmlComponent {
 
     /// Parses a `component` from an XML node
-    pub fn new(root: XmlNode) -> Result<Self, ComponentParseError> {
+    pub fn new<'a>(root: &'a XmlNode) -> Result<Self, ComponentParseError<'a>> {
 
         let node_type = normalize_casing(&root.node_type);
 
@@ -282,7 +278,7 @@ impl DynamicXmlComponent {
                 args,
                 accepts_text,
             },
-            root,
+            root: root.clone(),
         })
     }
 }
@@ -293,18 +289,28 @@ impl XmlComponent for DynamicXmlComponent {
         self.arguments.clone()
     }
 
-    fn get_xml_node(&self) -> XmlNode {
-        self.root.clone()
+    fn get_xml_node<'a>(&'a self) -> &'a XmlNode {
+        &self.root
     }
 
-    fn render_dom(
-        &self,
-        components: &XmlComponentMap,
+    fn render_dom<'a>(
+        &'a self,
+        components: &'a XmlComponentMap,
         arguments: &FilteredComponentArguments,
         content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
+    ) -> Result<StyledDom, RenderDomError<'a>> {
 
-        let component_style = parse_style(self.root.children.as_ref()).unwrap_or(Css::empty());
+        let component_css = match find_node_by_type(self.root.children.as_ref(), "style") {
+            Some(style_node) => {
+                if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
+                    let parsed_css = azul_css_parser::new_from_str(&text)?;
+                    Some(parsed_css)
+                } else {
+                    None
+                }
+            },
+            None => None,
+        };
 
         let mut dom = Dom::div().style(Css::empty());
 
@@ -312,7 +318,9 @@ impl XmlComponent for DynamicXmlComponent {
             dom.append_child(render_dom_from_body_node_inner(child_node, components, arguments)?);
         }
 
-        dom.restyle(component_style);
+        if let Some(css) = component_css {
+            dom.restyle(css);
+        }
 
         Ok(dom)
     }
@@ -341,6 +349,12 @@ pub struct XmlNode {
     pub text: XmlTextContent,
 }
 
+impl XmlNode {
+    pub fn new<I: Into<XmlTagName>>(node_type: I) -> Self {
+        XmlNode { node_type: node_type.into(), .. Default::default() }
+    }
+}
+
 impl_vec!(XmlNode, XmlNodeVec, XmlNodeVecDestructor);
 impl_vec_mut!(XmlNode, XmlNodeVec);
 impl_vec_debug!(XmlNode, XmlNodeVec);
@@ -350,31 +364,6 @@ impl_vec_partialord!(XmlNode, XmlNodeVec);
 impl_vec_ord!(XmlNode, XmlNodeVec);
 impl_vec_hash!(XmlNode, XmlNodeVec);
 impl_vec_clone!(XmlNode, XmlNodeVec, XmlNodeVecDestructor);
-
-impl XmlNode {
-
-    pub fn new(node_type: &str) -> Self {
-        Self {
-            node_type: node_type.to_string().into(),
-            .. Default::default()
-        }
-    }
-
-    pub fn with_attributes(mut self, attrs: StringPairVec) -> Self {
-        self.attributes = attrs;
-        self
-    }
-
-    pub fn with_children(mut self, children: Vec<XmlNode>) -> Self {
-        self.children = children.into();
-        self
-    }
-
-    pub fn with_text(mut self, text: AzString) -> Self {
-        self.text = Some(text).into();
-        self
-    }
-}
 
 /// Holds all XML components - builtin components
 pub struct XmlComponentMap {
@@ -386,113 +375,182 @@ pub struct XmlComponentMap {
 impl Default for XmlComponentMap {
     fn default() -> Self {
         let mut map = Self { components: BTreeMap::new() };
-        map.register_component("body", Box::new(BodyRenderer { }), true);
-        map.register_component("div", Box::new(DivRenderer { }), true);
-        map.register_component("p", Box::new(TextRenderer { }), true);
+        map.register_component("body", Box::new(BodyRenderer::new()), true);
+        map.register_component("div", Box::new(DivRenderer::new()), true);
+        map.register_component("p", Box::new(TextRenderer::new()), true);
         map
     }
 }
 
 impl XmlComponentMap {
-    pub fn register_component<S: AsRef<str>>(&mut self, id: S, component: Box<dyn XmlComponent>, inherit_variables: bool) {
-        self.components.insert(normalize_casing(id.as_ref()), (component, inherit_variables));
+    pub fn register_component(
+        &mut self,
+        id: &str,
+        component: Box<dyn XmlComponent>,
+        inherit_variables: bool
+    ) {
+        self.components.insert(
+            normalize_casing(id),
+            (component, inherit_variables)
+        );
     }
 }
 
-#[derive(Debug)]
-pub enum DomXmlParseError {
-    /// No `<app></app>` root component present
-    NoRootComponent,
-    /// The DOM can only have one root component, not multiple.
-    MultipleRootComponents,
-    /// **Note**: Sadly, the error type can only be a string because xmlparser
+#[derive(Debug, Clone, PartialEq)]
+pub enum DomXmlParseError<'a> {
+    /// No `<html></html>` node component present
+    NoHtmlNode,
+    /// Multiple `<html>` nodes
+    MultipleHtmlRootNodes,
+    /// No ´<body></body>´ node in the root HTML
+    NoBodyInHtml,
+    /// The DOM can only have one <body> node, not multiple.
+    MultipleBodyNodes,
+    /// Note: Sadly, the error type can only be a string because xmlparser
     /// returns all errors as strings. There is an open PR to fix
     /// this deficiency, but since the XML parsing is only needed for
     /// hot-reloading and compiling, it doesn't matter that much.
-    ParseError(XmlError),
+    Xml(XmlError),
     /// Invalid hierarchy close tags, i.e `<app></p></app>`
     MalformedHierarchy(AzString, AzString),
     /// A component raised an error while rendering the DOM - holds the component name + error string
-    RenderDom(RenderDomError),
+    RenderDom(RenderDomError<'a>),
     /// Something went wrong while parsing an XML component
-    Component(ComponentParseError),
+    Component(ComponentParseError<'a>),
+    /// Error parsing global CSS in head node
+    Css(CssParseError<'a>),
 }
 
-impl_from!{ XmlError, DomXmlParseError::ParseError }
-impl_from!{ ComponentParseError, DomXmlParseError::Component }
-impl_from!{ RenderDomError, DomXmlParseError::RenderDom }
+impl<'a> From<XmlError> for DomXmlParseError<'a> {
+    fn from(e: XmlError) -> Self {
+        Self::Xml(e)
+    }
+}
+
+impl<'a> From<ComponentParseError<'a>> for DomXmlParseError<'a> {
+    fn from(e: ComponentParseError<'a>) -> Self {
+        Self::Component(e)
+    }
+}
+
+impl<'a> From<RenderDomError<'a>> for DomXmlParseError<'a> {
+    fn from(e: RenderDomError<'a>) -> Self {
+        Self::RenderDom(e)
+    }
+}
+
+impl<'a> From<CssParseError<'a>> for DomXmlParseError<'a> {
+    fn from(e: CssParseError<'a>) -> Self {
+        Self::Css(e)
+    }
+}
 
 /// Error that can happen from the translation from XML code to Rust code -
 /// stringified, since it is only used for printing and is not exposed in the public API
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum CompileError {
-    Dom(RenderDomError),
-    Other(String),
+#[derive(Debug, Clone, PartialEq)]
+pub enum CompileError<'a> {
+    Dom(RenderDomError<'a>),
+    Xml(DomXmlParseError<'a>),
 }
 
-impl fmt::Display for CompileError {
+impl<'a> From<ComponentError> for CompileError<'a> {
+    fn from(e: ComponentError) -> Self {
+        CompileError::Dom(RenderDomError::Component(e))
+    }
+}
+
+impl<'a> fmt::Display for CompileError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::CompileError::*;
         match self {
             Dom(d) => write!(f, "{}", d),
-            Other(s) => write!(f, "{}", s),
+            Xml(s) => write!(f, "{}", s),
         }
     }
 }
 
-impl From<RenderDomError> for CompileError {
-    fn from(e: RenderDomError) -> Self {
+impl<'a> From<RenderDomError<'a>> for CompileError<'a> {
+    fn from(e: RenderDomError<'a>) -> Self {
         CompileError::Dom(e)
     }
 }
 
-impl From<String> for CompileError {
-    fn from(e: String) -> Self {
-        CompileError::Other(e)
+impl<'a> From<DomXmlParseError<'a>> for CompileError<'a> {
+    fn from(e: DomXmlParseError<'a>) -> Self {
+        CompileError::Xml(e)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum RenderDomError {
-    /// While instantiating a component, a function argument was encountered that the component won't use or react to.
+pub enum ComponentError {
+    /// While instantiating a component, a function argument
+    /// was encountered that the component won't use or react to.
     UselessFunctionArgument(AzString, AzString, Vec<String>),
-    /// A certain node type can't be rendered, because the renderer isn't available
+    /// A certain node type can't be rendered, because the
+    /// renderer for this node is not available isn't available
+    ///
+    /// UnknownComponent(component_name)
     UnknownComponent(AzString),
 }
 
-#[derive(Debug)]
-pub enum ComponentParseError {
+#[derive(Debug, Clone, PartialEq)]
+pub enum RenderDomError<'a> {
+    Component(ComponentError),
+    /// Error parsing the CSS on the component style
+    CssError(CssParseError<'a>),
+}
+
+impl<'a> From<ComponentError> for RenderDomError<'a> {
+    fn from(e: ComponentError) -> Self {
+        Self::Component(e)
+    }
+}
+
+impl<'a> From<CssParseError<'a>> for RenderDomError<'a> {
+    fn from(e: CssParseError<'a>) -> Self {
+        Self::CssError(e)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComponentParseError<'a> {
     /// Given XmlNode is not a `<component />` node.
     NotAComponent,
     /// A `<component>` node does not have a `name` attribute.
     UnnamedComponent,
     /// Argument at position `usize` is either empty or has no name
     MissingName(usize),
-    /// Argument at position `usize` with the name `String` doesn't have a `: type`
+    /// Argument at position `usize` with the name
+    /// `String` doesn't have a `: type`
     MissingType(usize, AzString),
-    /// Component name may not contain a whitespace (probably missing a `:` between the name and the type)
+    /// Component name may not contain a whitespace
+    /// (probably missing a `:` between the name and the type)
     WhiteSpaceInComponentName(usize, AzString),
-    /// Component type may not contain a whitespace (probably missing a `,` between the type and the next name)
+    /// Component type may not contain a whitespace
+    /// (probably missing a `,` between the type and the next name)
     WhiteSpaceInComponentType(usize, AzString, AzString),
     /// Error parsing the <style> tag / CSS
-    CssError(AzString),
+    CssError(CssParseError<'a>),
 }
 
-impl fmt::Display for DomXmlParseError {
+impl<'a> fmt::Display for DomXmlParseError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::DomXmlParseError::*;
         match self {
-            NoRootComponent => write!(f, "No <app></app> component present - empty DOM"),
-            MultipleRootComponents => write!(f, "Multiple <app/> components present, only one root node is allowed"),
-            ParseError(e) => write!(f, "XML parsing error: {:?}", e),
+            NoHtmlNode => write!(f, "No <html> node found as the root of the file - empty file?"),
+            MultipleHtmlRootNodes => write!(f, "Multiple <html> nodes found as the root of the file - only one root node allowed"),
+            NoBodyInHtml => write!(f, "No <body> node found as a direct child of an <html> node - malformed DOM hierarchy?"),
+            MultipleBodyNodes => write!(f, "Multiple <body> nodes present, only one <body> node is allowed"),
+            Xml(e) => write!(f, "Error parsing XML: {}", e),
             MalformedHierarchy(got, expected) => write!(f, "Invalid </{}> tag: expected </{}>", got.as_str(), expected.as_str()),
-            RenderDom(e) => write!(f, "Error while rendering DOM: \"{}\"", e),
-            Component(c) => write!(f, "Error while parsing XML component: \"{}\"", c),
+            RenderDom(e) => write!(f, "Error rendering DOM: {}", e),
+            Component(c) => write!(f, "Error parsing component in <head> node: {}", c),
+            Css(c) => write!(f, "Error parsing CSS in <head> node: {}", c),
         }
     }
 }
 
-impl fmt::Display for ComponentParseError {
+impl<'a> fmt::Display for ComponentParseError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::ComponentParseError::*;
         match self {
@@ -514,28 +572,29 @@ impl fmt::Display for ComponentParseError {
     }
 }
 
-impl fmt::Display for RenderDomError {
+impl fmt::Display for ComponentError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::RenderDomError::*;
+        use self::ComponentError::*;
         match self {
             UselessFunctionArgument(k, v, available_args) => {
-                write!(f, "Useless component argument \"{}\": \"{}\" - available args are: {:#?}", k, v, available_args)
+                write!(f, "Useless component argument \"{}\": \"{}\" - available args are: {:#?}",
+                    k, v, available_args
+                )
             },
             UnknownComponent(name) => write!(f, "Unknown component: \"{}\"", name),
         }
     }
 }
 
-/*
-#[cfg(all(feature = "image_loading", feature = "font_loading"))]
-use azul_core::{
-    window::LogicalSize,
-    display_list::CachedDisplayList
-};
-
-#[cfg(all(feature = "image_loading", feature = "font_loading"))]
-
-*/
+impl<'a> fmt::Display for RenderDomError<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::RenderDomError::*;
+        match self {
+            Component(c) => write!(f, "{}", c),
+            CssError(e) => write!(f, "Error parsing CSS in component: {}", e),
+        }
+    }
+}
 
 /// Parses the XML string into an XML tree, returns
 /// the root `<app></app>` node, with the children attached to it.
@@ -643,7 +702,7 @@ fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a m
 }
 
 /// Compiles a XML `args="a: String, b: bool"` into a `["a" => "String", "b" => "bool"]` map
-pub fn parse_component_arguments(input: &str) -> Result<ComponentArgumentsMap, ComponentParseError> {
+pub fn parse_component_arguments<'a>(input: &'a str) -> Result<ComponentArgumentsMap, ComponentParseError<'a>> {
 
     use self::ComponentParseError::*;
 
@@ -685,7 +744,7 @@ pub fn parse_component_arguments(input: &str) -> Result<ComponentArgumentsMap, C
 
 /// Filters the XML attributes of a component given XmlAttributeMap
 pub fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_args: &ComponentArguments)
--> Result<FilteredComponentArguments, RenderDomError> {
+-> Result<FilteredComponentArguments, ComponentError> {
 
     use azul_core::window::AzStringPair;
 
@@ -704,7 +763,7 @@ pub fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, vali
         } else {
             // key was not expected for this component
             let keys = valid_args.args.keys().cloned().collect();
-            return Err(RenderDomError::UselessFunctionArgument(
+            return Err(ComponentError::UselessFunctionArgument(
                     xml_attribute_name.clone(),
                     xml_attribute_value.clone(),
                     keys
@@ -744,49 +803,42 @@ pub fn normalize_casing(input: &str) -> String {
     words.join("_")
 }
 
+
 /// Find the one and only `<body>` node, return error if
 /// there is no app node or there are multiple app nodes
-pub fn get_body_node(root_nodes: &[XmlNode]) -> Result<XmlNode, DomXmlParseError> {
+pub fn get_html_node<'a>(root_nodes: &'a [XmlNode]) -> Result<&'a XmlNode, DomXmlParseError> {
+
+    let mut html_node_iterator = root_nodes.iter().filter(|node| {
+        let node_type_normalized = normalize_casing(&node.node_type);
+        &node_type_normalized == "html"
+    });
+
+    let html_node = html_node_iterator.next().ok_or(DomXmlParseError::NoHtmlNode)?;
+    if html_node_iterator.next().is_some() {
+        Err(DomXmlParseError::MultipleHtmlRootNodes)
+    } else {
+        Ok(html_node)
+    }
+}
+
+/// Find the one and only `<body>` node, return error if
+/// there is no app node or there are multiple app nodes
+pub fn get_body_node<'a>(root_nodes: &'a [XmlNode]) -> Result<&'a XmlNode, DomXmlParseError> {
 
     let mut body_node_iterator = root_nodes.iter().filter(|node| {
         let node_type_normalized = normalize_casing(&node.node_type);
         &node_type_normalized == "body"
-    }).cloned();
+    });
 
-    let body_node = body_node_iterator.next().ok_or(DomXmlParseError::NoRootComponent)?;
+    let body_node = body_node_iterator.next().ok_or(DomXmlParseError::NoBodyInHtml)?;
     if body_node_iterator.next().is_some() {
-        Err(DomXmlParseError::MultipleRootComponents)
+        Err(DomXmlParseError::MultipleBodyNodes)
     } else {
         Ok(body_node)
     }
 }
 
 static DEFAULT_STR: &str = "";
-
-/// Find the <style> node and parse the contents of it as a CSS files
-pub fn parse_style<'a>(root_nodes: &'a [XmlNode]) -> Result<Css, CssParseError<'a>> {
-    match find_node_by_type(root_nodes, "style") {
-        Some(s) => {
-            let text = s.text.as_ref().map(|s| s.as_str()).unwrap_or(DEFAULT_STR);
-            azul_css_parser::new_from_str(&text)
-        },
-        None => Ok(Css::empty())
-    }
-}
-
-/// Filter all `<component />` nodes and insert them into the `components` node
-pub fn get_xml_components(root_nodes: &[XmlNode], components: &mut XmlComponentMap) -> Result<(), ComponentParseError> {
-
-    for node in root_nodes {
-        match DynamicXmlComponent::new(node.clone()) {
-            Ok(node) => { components.register_component(node.name.clone(), Box::new(node), false); },
-            Err(ComponentParseError::NotAComponent) => { }, // not a <component /> node, ignore
-            Err(e) => return Err(e), // Error during parsing the XML component, bail
-        }
-    }
-
-    Ok(())
-}
 
 /// Searches in the the `root_nodes` for a `node_type`, convenience function in order to
 /// for example find the first <blah /> node in all these nodes.
@@ -799,40 +851,79 @@ pub fn find_attribute<'a>(node: &'a XmlNode, attribute: &str) -> Option<&'a AzSt
 }
 
 /// Parses an XML string and returns a `StyledDom` with the components instantiated in the `<app></app>`
-pub fn str_to_dom(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap) -> Result<StyledDom, DomXmlParseError> {
-    let mut global_style = Css::empty();
-    if let Some(head_node) = find_node_by_type(root_nodes, "head") {
-        get_xml_components(head_node.children.as_ref(), component_map)?;
-        global_style = match parse_style(head_node.children.as_ref()) {
-            Ok(o) => o,
-            Err(e) => {
-                eprintln!("error parsing global CSS: {:?}", e);
-                Css::empty()
+pub fn str_to_dom<'a>(
+    root_nodes: &'a [XmlNode],
+    component_map: &'a mut XmlComponentMap
+) -> Result<StyledDom, DomXmlParseError<'a>> {
+
+    let html_node = get_html_node(root_nodes)?;
+    let body_node = get_body_node(html_node.children.as_ref())?;
+
+    let mut global_style = None;
+
+    if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
+
+        // parse all dynamic XML components from the head node
+        for node in head_node.children.as_ref() {
+            match DynamicXmlComponent::new(node) {
+                Ok(node) => {
+                    let node_name = node.name.clone();
+                    component_map.register_component(node_name.as_str(), Box::new(node), false);
+                },
+                Err(ComponentParseError::NotAComponent) => { }, // not a <component /> node, ignore
+                Err(e) => return Err(e.into()), // Error during parsing the XML component, bail
             }
-        };
+        }
+
+        // parse the <style></style> tag contents, if present
+        if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
+            if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
+                let parsed_css = azul_css_parser::new_from_str(&text)?;
+                global_style = Some(parsed_css);
+            }
+        }
     }
-    let body_node = get_body_node(&root_nodes)?;
-    render_dom_from_body_node(&body_node, global_style, component_map).map_err(|e| e.into())
+
+    render_dom_from_body_node(
+        &body_node,
+        global_style,
+        component_map,
+    ).map_err(|e| e.into())
 }
 
 /// Parses an XML string and returns a `String`, which contains the Rust source code
 /// (i.e. it compiles the XML to valid Rust)
-pub fn str_to_rust_code(root_nodes: &[XmlNode], imports: &str, component_map: &mut XmlComponentMap) -> Result<String, CompileError> {
+pub fn str_to_rust_code<'a>(
+    root_nodes: &'a [XmlNode],
+    imports: &str,
+    component_map: &'a mut XmlComponentMap
+) -> Result<String, CompileError<'a>> {
 
     const HEADER_WARNING: &str = "//! Auto-generated UI source code";
 
     let source_code = HEADER_WARNING.to_string();
 
-    if let Some(head_node) = root_nodes.iter().find(|n| normalize_casing(&n.node_type).as_str() == "head") {
-        get_xml_components(head_node.children.as_ref(), component_map).map_err(|e| format!("Error parsing component: {}", e))?;
+    let html_node = get_html_node(&root_nodes)?;
+    let body_node = get_body_node(html_node.children.as_ref())?;
+
+    if let Some(head_node) = html_node.children.as_ref().iter().find(|n| normalize_casing(&n.node_type).as_str() == "head") {
+        for node in head_node.children.as_ref() {
+            match DynamicXmlComponent::new(node) {
+                Ok(node) => {
+                    let node_name = node.name.clone();
+                    component_map.register_component(node_name.as_str(), Box::new(node), false);
+                },
+                Err(ComponentParseError::NotAComponent) => { }, // not a <component /> node, ignore
+                Err(e) => return Err(CompileError::Xml(e.into())), // Error during parsing the XML component, bail
+            }
+        }
     }
 
-    let body_node = get_body_node(&root_nodes).map_err(|e| format!("Could not find <body /> node: {}", e))?;
-    let app_source = compile_body_node_to_rust_code(&body_node, &component_map)?;
+    let app_source = compile_body_node_to_rust_code(&body_node, component_map)?;
     let app_source = app_source.lines().map(|l| format!("        {}", l)).collect::<Vec<String>>().join("\r\n");
 
     let source_code = format!("{}\r\n\r\n{}{}\r\n\r\n{}", HEADER_WARNING, imports,
-        compile_components(compile_components_to_rust_code(&component_map)?),
+        compile_components(compile_components_to_rust_code(component_map)?),
         format!("const fn render_ui(&self, _info: LayoutInfo) -> StyledDom {{\r\n{}\r\n    }}", app_source),
     );
 
@@ -878,11 +969,11 @@ pub fn compile_component(
     )
 }
 
-pub fn render_dom_from_body_node(
-    body_node: &XmlNode,
-    global_css: Css,
-    component_map: &XmlComponentMap
-) -> Result<StyledDom, RenderDomError> {
+pub fn render_dom_from_body_node<'a>(
+    body_node: &'a XmlNode,
+    global_css: Option<Css>,
+    component_map: &'a XmlComponentMap
+) -> Result<StyledDom, RenderDomError<'a>> {
 
     // Don't actually render the <body></body> node itself
     let mut dom = Dom::body().style(Css::empty());
@@ -891,22 +982,24 @@ pub fn render_dom_from_body_node(
         dom.append_child(render_dom_from_body_node_inner(child_node, component_map, &FilteredComponentArguments::default())?);
     }
 
-    dom.restyle(global_css); // apply the CSS again
+    if let Some(global_css) = global_css {
+        dom.restyle(global_css); // apply the CSS again
+    }
 
     Ok(dom)
 }
 
 /// Takes a single (expanded) app node and renders the DOM or returns an error
-pub fn render_dom_from_body_node_inner(
-    xml_node: &XmlNode,
-    component_map: &XmlComponentMap,
+pub fn render_dom_from_body_node_inner<'a>(
+    xml_node: &'a XmlNode,
+    component_map: &'a XmlComponentMap,
     parent_xml_attributes: &FilteredComponentArguments,
-) -> Result<StyledDom, RenderDomError> {
+) -> Result<StyledDom, RenderDomError<'a>> {
 
     let component_name = normalize_casing(&xml_node.node_type);
 
     let (renderer, inherit_variables) = component_map.components.get(&component_name)
-        .ok_or(RenderDomError::UnknownComponent(component_name.clone().into()))?;
+        .ok_or(ComponentError::UnknownComponent(component_name.clone().into()))?;
 
     // Arguments of the current node
     let available_function_args = renderer.get_available_arguments();
@@ -1230,14 +1323,14 @@ pub fn parse_bool(input: &str) -> Option<bool> {
     }
 }
 
-pub fn render_component_inner(
+pub fn render_component_inner<'a>(
     map: &mut BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>,
     component_name: String,
-    (renderer, inherit_variables): &(Box<dyn XmlComponent>, bool),
-    component_map: &XmlComponentMap,
+    (renderer, inherit_variables): &'a (Box<dyn XmlComponent>, bool),
+    component_map: &'a XmlComponentMap,
     parent_xml_attributes: &FilteredComponentArguments,
     tabs: usize,
-) -> Result<(), CompileError> {
+) -> Result<(), CompileError<'a>> {
 
     let t = String::from("    ").repeat(tabs - 1);
     let t1 = String::from("    ").repeat(tabs);
@@ -1292,7 +1385,10 @@ pub fn compile_components_to_rust_code(
     Ok(map)
 }
 
-pub fn compile_body_node_to_rust_code(body_node: &XmlNode, component_map: &XmlComponentMap) -> Result<String, CompileError> {
+pub fn compile_body_node_to_rust_code<'a>(
+    body_node: &'a XmlNode,
+    component_map: &'a XmlComponentMap
+) -> Result<String, CompileError<'a>> {
     let t = "";
     let t2 = "    ";
     let mut dom_string = String::from("Dom::body()");
@@ -1353,12 +1449,12 @@ fn format_args_for_rust_code(input: &str) -> String {
     compile_and_format_dynamic_items(&dynamic_str_items)
 }
 
-pub fn compile_node_to_rust_code_inner(
-    node: &XmlNode,
-    component_map: &XmlComponentMap,
+pub fn compile_node_to_rust_code_inner<'a>(
+    node: &'a XmlNode,
+    component_map: &'a XmlComponentMap,
     parent_xml_attributes: &FilteredComponentArguments,
     tabs: usize,
-) -> Result<String, CompileError> {
+) -> Result<String, CompileError<'a>> {
 
     let t = String::from("    ").repeat(tabs - 1);
     let t2 = String::from("    ").repeat(tabs);
@@ -1366,7 +1462,7 @@ pub fn compile_node_to_rust_code_inner(
     let component_name = normalize_casing(&node.node_type);
 
     let (renderer, inherit_variables) = component_map.components.get(&component_name)
-        .ok_or(RenderDomError::UnknownComponent(component_name.clone().into()))?;
+        .ok_or(ComponentError::UnknownComponent(component_name.clone().into()))?;
 
     // Arguments of the current node
     let available_function_args = renderer.get_available_arguments();
@@ -1440,8 +1536,16 @@ pub fn compile_node_to_rust_code_inner(
 // --- Renderers for various built-in types
 
 /// Render for a `div` component
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DivRenderer { }
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DivRenderer {
+    node: XmlNode,
+}
+
+impl DivRenderer {
+    pub fn new() -> Self {
+        Self { node: XmlNode::new("div") }
+    }
+}
 
 impl XmlComponent for DivRenderer {
 
@@ -1457,14 +1561,20 @@ impl XmlComponent for DivRenderer {
         Ok("Dom::div()".into())
     }
 
-    fn get_xml_node(&self) -> XmlNode {
-        XmlNode::new("div")
-    }
+    fn get_xml_node<'a>(&'a self) -> &'a XmlNode { &self.node }
 }
 
 /// Render for a `body` component
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BodyRenderer { }
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BodyRenderer {
+    node: XmlNode,
+}
+
+impl BodyRenderer {
+    pub fn new() -> Self {
+        Self { node: XmlNode::new("body") }
+    }
+}
 
 impl XmlComponent for BodyRenderer {
 
@@ -1480,14 +1590,20 @@ impl XmlComponent for BodyRenderer {
         Ok("Dom::body()".into())
     }
 
-    fn get_xml_node(&self) -> XmlNode {
-        XmlNode::new("body")
-    }
+    fn get_xml_node<'a>(&'a self) -> &'a XmlNode { &self.node }
 }
 
 /// Render for a `p` component
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TextRenderer { }
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TextRenderer {
+    node: XmlNode,
+}
+
+impl TextRenderer {
+    pub fn new() -> Self {
+        Self { node: XmlNode::new("p") }
+    }
+}
 
 impl XmlComponent for TextRenderer {
 
@@ -1500,16 +1616,14 @@ impl XmlComponent for TextRenderer {
 
     fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
         let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
-        Ok(Dom::label(content).style(Css::empty()))
+        Ok(Dom::text(content).style(Css::empty()))
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, args: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
         Ok(String::from("Dom::label(text)"))
     }
 
-    fn get_xml_node(&self) -> XmlNode {
-        XmlNode::new("p")
-    }
+    fn get_xml_node<'a>(&'a self) -> &'a XmlNode { &self.node }
 }
 
 // -- Tests

@@ -1,5 +1,6 @@
 use azul_css::{U8Vec, AzString, OptionAzString};
 use crate::xml_parser::{XmlNode, XmlNodeVec};
+use core::fmt;
 
 #[allow(non_camel_case_types)]
 pub enum c_void { }
@@ -115,9 +116,39 @@ pub enum XmlStreamError {
     InvalidCharacterData,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Clone)]
+impl fmt::Display for XmlStreamError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::XmlStreamError::*;
+        match self {
+            UnexpectedEndOfStream => write!(f, "Unexpected end of stream"),
+            InvalidName => write!(f, "Invalid name"),
+            NonXmlChar(nx) => write!(f, "Non-XML character: {:?} at {}", core::char::from_u32(nx.ch), nx.pos),
+            InvalidChar(ic) => write!(f, "Invalid character: expected: {}, got: {} at {}", ic.expected as char, ic.got as char, ic.pos),
+            InvalidCharMultiple(imc) => write!(f, "Multiple invalid characters: expected: {}, got: {:?} at {}", imc.expected, imc.got.as_ref(), imc.pos),
+            InvalidQuote(iq) => write!(f, "Invalid quote: got {} at {}", iq.got as char, iq.pos),
+            InvalidSpace(is) => write!(f, "Invalid space: got {} at {}", is.got as char, is.pos),
+            InvalidString(ise) => write!(f, "Invalid string: got \"{}\" at {}", ise.got.as_str(), ise.pos),
+            InvalidReference => write!(f, "Invalid reference"),
+            InvalidExternalID => write!(f, "Invalid external ID"),
+            InvalidCommentData => write!(f, "Invalid comment data"),
+            InvalidCommentEnd => write!(f, "Invalid comment end"),
+            InvalidCharacterData => write!(f, "Invalid character data"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone, Ord, Hash, Eq)]
 #[repr(C)]
-pub struct XmlTextPos { pub row: u32, pub col: u32 }
+pub struct XmlTextPos {
+    pub row: u32,
+    pub col: u32,
+}
+
+impl fmt::Display for XmlTextPos {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "line {}:{}", self.row, self.col)
+    }
+}
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C)]
@@ -139,6 +170,24 @@ pub enum XmlParseError {
     InvalidCdata(XmlTextError),
     InvalidCharData(XmlTextError),
     UnknownToken(XmlTextPos),
+}
+
+impl fmt::Display for XmlParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::XmlParseError::*;
+        match self {
+            InvalidDeclaration(e) => write!(f, "Invalid declaraction: {} at {}", e.stream_error, e.pos),
+            InvalidComment(e) => write!(f, "Invalid comment: {} at {}", e.stream_error, e.pos),
+            InvalidPI(e) => write!(f, "Invalid processing instruction: {} at {}", e.stream_error, e.pos),
+            InvalidDoctype(e) => write!(f, "Invalid doctype: {} at {}", e.stream_error, e.pos),
+            InvalidEntity(e) => write!(f, "Invalid entity: {} at {}", e.stream_error, e.pos),
+            InvalidElement(e) => write!(f, "Invalid element: {} at {}", e.stream_error, e.pos),
+            InvalidAttribute(e) => write!(f, "Invalid attribute: {} at {}", e.stream_error, e.pos),
+            InvalidCdata(e) => write!(f, "Invalid CDATA: {} at {}", e.stream_error, e.pos),
+            InvalidCharData(e) => write!(f, "Invalid char data: {} at {}", e.stream_error, e.pos),
+            UnknownToken(e) => write!(f, "Unknown token at {}", e),
+        }
+    }
 }
 
 impl_result!(Xml, XmlError, ResultXmlXmlError, copy = false, [Debug, PartialEq, PartialOrd, Clone]);
@@ -209,6 +258,31 @@ pub enum XmlError {
     ParserError(XmlParseError),
 }
 
+impl fmt::Display for XmlError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::XmlError::*;
+        match self {
+            InvalidXmlPrefixUri(pos) => write!(f, "Invalid XML Prefix URI at line {}:{}", pos.row, pos.col),
+            UnexpectedXmlUri(pos) => write!(f, "Unexpected XML URI at at line {}:{}", pos.row, pos.col),
+            UnexpectedXmlnsUri(pos) => write!(f, "Unexpected XML namespace URI at line {}:{}", pos.row, pos.col),
+            InvalidElementNamePrefix(pos) => write!(f, "Invalid element name prefix at line {}:{}", pos.row, pos.col),
+            DuplicatedNamespace(ns) => write!(f, "Duplicated namespace: \"{}\" at {}", ns.ns.as_str(), ns.pos),
+            UnknownNamespace(uns) => write!(f, "Unknown namespace: \"{}\" at {}", uns.ns.as_str(), uns.pos),
+            UnexpectedCloseTag(ct) => write!(f, "Unexpected close tag: expected \"{}\", got \"{}\" at {}", ct.expected.as_str(), ct.actual.as_str(), ct.pos),
+            UnexpectedEntityCloseTag(pos) => write!(f, "Unexpected entity close tag at line {}:{}", pos.row, pos.col),
+            UnknownEntityReference(uer) => write!(f, "Unexpected entity reference: \"{}\" at {}", uer.entity, uer.pos),
+            MalformedEntityReference(pos) => write!(f, "Malformed entity reference at line {}:{}", pos.row, pos.col),
+            EntityReferenceLoop(pos) => write!(f, "Entity reference loop (recursive entity reference) at line {}:{}", pos.row, pos.col),
+            InvalidAttributeValue(pos) => write!(f, "Invalid attribute value at line {}:{}", pos.row, pos.col),
+            DuplicatedAttribute(ae) => write!(f, "Duplicated attribute \"{}\" at line {}:{}", ae.attribute.as_str(), ae.pos.row, ae.pos.col),
+            NoRootNode => write!(f, "No root node found"),
+            SizeLimit => write!(f, "XML file too large (size limit reached)"),
+            DtdDetected => write!(f, "Document type descriptor detected"),
+            MalformedHierarchy(expected, got) => write!(f, "Malformed hierarchy: expected <{}/> closing tag, got <{}/>", expected.as_str(), got.as_str()),
+            ParserError(p) => write!(f, "{}", p),
+        }
+    }
+}
 impl From<xmlparser::StreamError> for XmlStreamError {
     fn from(e: xmlparser::StreamError) -> XmlStreamError {
         match e {
