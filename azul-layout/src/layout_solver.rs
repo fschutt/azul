@@ -852,48 +852,38 @@ macro_rules! get_position {(
             let child_node = &solved_widths[child_id];
             let child_node_parent_width = node_hierarchy[child_id].parent_id()
             .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
-            let child_margin_left = child_node.$margin_left.and_then(|x| {
-                Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
-            }).unwrap_or(0.0);
-            let child_margin_right = child_node.$margin_right.and_then(|x| {
-                Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
-            }).unwrap_or(0.0);
 
-            let last_relative_node_id = child_id
-            .get_nearest_matching_parent(node_hierarchy, |n| layout_positions[n].is_positioned())
-            .unwrap_or(NodeId::new(0));
-
-            let last_relative_node = &solved_widths[last_relative_node_id];
-            let last_relative_padding_left = last_relative_node.$get_padding_left(child_node_parent_width);
-            let last_relative_padding_right = last_relative_node.$get_padding_right(child_node_parent_width);
-
-            let last_relative_node_x = arena_solved_data[last_relative_node_id].0 + last_relative_padding_left;
-            let last_relative_node_inner_width = {
-                let last_relative_node = &solved_widths[last_relative_node_id];
-                last_relative_node.min_inner_size_px +
-                last_relative_node.flex_grow_px -
-                last_relative_padding_left -
-                last_relative_padding_right
-            };
-
-            let child_left = child_node.$left.and_then(|s| {
-                Some(s.get_property()?.inner.to_pixels(child_node_parent_width))
-            });
             let child_right = child_node.$right.and_then(|s| {
                 Some(s.get_property()?.inner.to_pixels(child_node_parent_width))
             });
 
             if let Some(child_right) = child_right {
                 // align right / bottom of last relative parent
-                last_relative_node_x
-                + last_relative_node_inner_width
+                let child_margin_right = child_node.$margin_right.and_then(|x| {
+                    Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+                }).unwrap_or(0.0);
+
+                let last_relative_node_id = child_id
+                .get_nearest_matching_parent(node_hierarchy, |n| layout_positions[n].is_positioned())
+                .unwrap_or(NodeId::new(0));
+
+                let last_relative_node_outer_width = &solved_widths[last_relative_node_id].total();
+
+                last_relative_node_outer_width
                 - child_width_with_padding
                 - child_margin_right
                 - child_right
             } else {
                 // align left / top of last relative parent
-                last_relative_node_x
-                + child_margin_left
+                let child_left = child_node.$left.and_then(|s| {
+                    Some(s.get_property()?.inner.to_pixels(child_node_parent_width))
+                });
+
+                let child_margin_left = child_node.$margin_left.and_then(|x| {
+                    Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+                }).unwrap_or(0.0);
+
+                child_margin_left
                 + child_left.unwrap_or(0.0)
             }
         }
