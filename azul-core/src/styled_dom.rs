@@ -37,12 +37,19 @@ use azul_css::{
 use crate::{
     FastBTreeSet, FastHashMap,
     id_tree::{NodeDataContainer, NodeDataContainerRef, Node, NodeId, NodeDataContainerRefMut},
-    dom::{Dom, NodeData, NodeDataVec, CompactDom, TagId, OptionTabIndex, NodeDataInlineCssProperty},
+    dom::{
+        Dom, TabIndex, NodeData, NodeDataVec,
+        CompactDom, TagId, OptionTabIndex,
+        NodeDataInlineCssProperty
+    },
     style::{
         CascadeInfo, CascadeInfoVec, construct_html_cascade_tree,
         matches_html_element, rule_ends_with,
     },
-    app_resources::{ImageRef, RendererResources, ImageCache, Au, ImmediateFontId},
+    app_resources::{
+        ImageRef, RendererResources,
+        ImageCache, Au, ImmediateFontId
+    },
 };
 
 #[repr(C)]
@@ -183,7 +190,9 @@ pub struct CssPropertyCache {
 }
 
 impl CssPropertyCache {
+
     /// Restyles the CSS property cache with a new CSS file
+    #[must_use]
     pub fn restyle(
         &mut self,
         css: Css,
@@ -191,9 +200,11 @@ impl CssPropertyCache {
         node_hierarchy: &AzNodeVec,
         non_leaf_nodes: &ParentWithNodeDepthVec,
         html_tree: &NodeDataContainerRef<CascadeInfo>
-    ) {
+    ) -> Vec<TagIdToNodeIdMapping> {
+
         use azul_css::CssDeclaration;
         use azul_css::CssPathPseudoSelector::*;
+        use rayon::prelude::*;
 
         let css_is_empty = css.is_empty();
 
@@ -351,6 +362,108 @@ impl CssPropertyCache {
             inherit_props!(self.cascaded_active_props, self.cascaded_active_props);
             inherit_props!(self.cascaded_focus_props, self.cascaded_focus_props);
         }
+
+        // When restyling, the tag / node ID mappings may change, regenerate them
+        // See if the node should have a hit-testing tag ID
+        let default_node_state = StyledNodeState::default();
+
+        // In order to hit-test `:hover` and `:active` selectors,
+        // we need to insert "tag IDs" for all rectangles
+        // that have a non-normal path ending, for example if we have
+        // `#thing:hover`, then all nodes selected by `#thing`
+        // need to get a TagId, otherwise, they can't be hit-tested.
+
+        // NOTE: restyling a DOM may change the :hover nodes, which is
+        // why the tag IDs have to be re-generated on every .restyle() call!
+        node_data.internal
+        .par_iter()
+        .enumerate()
+        .filter_map(|(node_id, node_data)| {
+
+            let node_id = NodeId::new(node_id);
+
+            let should_auto_insert_tabindex = node_data.get_callbacks()
+            .iter().any(|cb| cb.event.is_focus_callback());
+
+            let tab_index =  match node_data.get_tab_index().into_option() {
+                Some(s) => Some(s),
+                None => if should_auto_insert_tabindex { Some(TabIndex::Auto) } else { None }
+            };
+
+            let mut node_should_have_tag = false;
+
+            // workaround for "goto end" - early break if
+            // one of the conditions is true
+            loop {
+                if tab_index.is_some() {
+                    node_should_have_tag = true;
+                    break;
+                }
+
+                // check for :hover
+                let node_has_hover_props = node_data.inline_css_props.as_ref().iter()
+                .any(|p| match p { NodeDataInlineCssProperty::Hover(_) => true, _ => false }) ||
+                self.css_hover_props.get(&node_id).is_some() ||
+                self.cascaded_hover_props.get(&node_id).is_some();
+
+                if node_has_hover_props {
+                    node_should_have_tag = true;
+                    break;
+                }
+
+                // check for :active
+                let node_has_active_props = node_data.inline_css_props.as_ref().iter()
+                .any(|p| match p { NodeDataInlineCssProperty::Active(_) => true, _ => false }) ||
+                self.css_active_props.get(&node_id).is_some() ||
+                self.cascaded_active_props.get(&node_id).is_some();
+
+                if node_has_active_props {
+                    node_should_have_tag = true;
+                    break;
+                }
+
+                // check for :focus
+                let node_has_focus_props = node_data.inline_css_props.as_ref().iter()
+                .any(|p| match p { NodeDataInlineCssProperty::Focus(_) => true, _ => false }) ||
+                self.css_focus_props.get(&node_id).is_some() ||
+                self.cascaded_focus_props.get(&node_id).is_some();
+
+                if node_has_focus_props {
+                    node_should_have_tag = true;
+                    break;
+                }
+
+                // check whether any Hover(), Active() or Focus() callbacks are present
+                let node_only_window_callbacks = node_data.get_callbacks().is_empty() ||
+                node_data.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
+
+                if !node_only_window_callbacks {
+                    node_should_have_tag = true;
+                    break;
+                }
+
+                // check for non-default cursor: property - needed for hit-testing cursor
+                let node_has_non_default_cursor = self.get_cursor(&node_data, &node_id, &default_node_state).is_some();
+
+                if node_has_non_default_cursor {
+                    node_should_have_tag = true;
+                    break;
+                }
+
+                break;
+            }
+
+            if !node_should_have_tag {
+                None
+            } else {
+                Some(TagIdToNodeIdMapping {
+                    tag_id: AzTagId::from_crate_internal(TagId::unique()),
+                    node_id: AzNodeId::from_crate_internal(Some(node_id)),
+                    tab_index: tab_index.into(),
+                })
+            }
+        })
+        .collect()
     }
 
     pub fn get_computed_css_style_string(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> String {
@@ -1227,13 +1340,22 @@ impl StyledDom {
     #[cfg(feature = "multithreading")]
     pub fn new(dom: Dom, css: Css) -> Self {
 
-        use crate::dom::TabIndex;
         use rayon::prelude::*;
 
         let compact_dom: CompactDom = dom.into();
         let non_leaf_nodes = compact_dom.node_hierarchy.as_ref().get_parents_sorted_by_depth();
-        let node_hierarchy: AzNodeVec = compact_dom.node_hierarchy.internal.clone().iter().map(|i| (*i).into()).collect::<Vec<AzNode>>().into();
-        let mut styled_nodes = vec![StyledNode { tag_id: OptionTagId::None, state: StyledNodeState::new() }; compact_dom.len()];
+        let node_hierarchy: AzNodeVec = compact_dom.node_hierarchy
+            .as_ref().internal
+            .par_iter().map(|i| (*i).into())
+            .collect::<Vec<AzNode>>()
+            .into();
+
+        let mut styled_nodes = vec![
+            StyledNode {
+                tag_id: OptionTagId::None,
+                state: StyledNodeState::new()
+            }; compact_dom.len()
+        ];
 
         // fill out the css property cache: compute the inline properties first so that
         // we can early-return in case the css is empty
@@ -1250,7 +1372,7 @@ impl StyledDom {
         let non_leaf_nodes: ParentWithNodeDepthVec = non_leaf_nodes.into();
 
         // apply all the styles from the CSS
-        css_property_cache.restyle(
+        let tag_ids = css_property_cache.restyle(
             css,
             &compact_dom.node_data.as_ref(),
             &node_hierarchy,
@@ -1258,68 +1380,16 @@ impl StyledDom {
             &html_tree.as_ref()
         );
 
-        // In order to hit-test `:hover` and `:active` selectors, need to insert tags for all rectangles
-        // that have a non-:hover path, for example if we have `#thing:hover`, then all nodes selected by `#thing`
-        // need to get a TagId, otherwise, they can't be hit-tested.
-
-        // See if the node should have a hit-testing tag ID
-        let default_node_state = StyledNodeState::default();
-        let tag_ids = compact_dom.node_data
-            .as_ref()
-            .internal
-            .par_iter()
-            .enumerate()
-            .filter_map(|(node_id, node_data)| {
-
-            let node_id = NodeId::new(node_id);
-
-            let should_auto_insert_tabindex = node_data.get_callbacks().iter().any(|cb| cb.event.is_focus_callback());
-            let tab_index = match node_data.get_tab_index().into_option() {
-                Some(s) => Some(s),
-                None => if should_auto_insert_tabindex { Some(TabIndex::Auto) } else { None }
-            };
-
-            let node_has_focus_props = node_data.inline_css_props.as_ref().iter()
-            .any(|p| match p { NodeDataInlineCssProperty::Focus(_) => true, _ => false }) ||
-            css_property_cache.css_focus_props.get(&node_id).is_some();
-
-            let node_has_hover_props = node_data.inline_css_props.as_ref().iter()
-            .any(|p| match p { NodeDataInlineCssProperty::Hover(_) => true, _ => false }) ||
-            css_property_cache.css_hover_props.get(&node_id).is_some();
-
-            let node_has_active_props = node_data.inline_css_props.as_ref().iter()
-            .any(|p| match p { NodeDataInlineCssProperty::Active(_) => true, _ => false }) ||
-            css_property_cache.css_active_props.get(&node_id).is_some();
-
-            let node_has_not_only_window_callbacks = !node_data.get_callbacks().is_empty() && !node_data.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
-            let node_has_non_default_cursor = css_property_cache.get_cursor(&node_data, &node_id, &default_node_state).is_some();
-
-            let node_should_have_tag =
-                tab_index.is_some() ||
-                node_has_hover_props ||
-                node_has_focus_props ||
-                node_has_active_props ||
-                node_has_not_only_window_callbacks ||
-                node_has_non_default_cursor;
-
-            if node_should_have_tag {
-                let tag_id = TagId::unique();
-                let az_tag_id = AzTagId::from_crate_internal(tag_id);
-                Some(TagIdToNodeIdMapping {
-                    tag_id: az_tag_id,
-                    node_id: AzNodeId::from_crate_internal(Some(node_id)),
-                    tab_index: tab_index.into(),
-                })
-            } else {
-                None
-            }
-        }).collect::<Vec<_>>();
-
-        for tag_id_node_id_mapping in tag_ids.iter() {
-            if let Some(nid) = tag_id_node_id_mapping.node_id.into_crate_internal() {
-                styled_nodes[nid.index()].tag_id = OptionTagId::Some(tag_id_node_id_mapping.tag_id);
-            }
-        }
+        tag_ids
+        .iter()
+        .filter_map(|tag_id_node_id_mapping|
+            tag_id_node_id_mapping.node_id
+            .into_crate_internal()
+            .map(|node_id| (node_id, tag_id_node_id_mapping.tag_id))
+        )
+        .for_each(|(nid, tag_id)| {
+            styled_nodes[nid.index()].tag_id = OptionTagId::Some(tag_id);
+        });
 
         StyledDom {
             root: AzNodeId::from_crate_internal(Some(compact_dom.root)),
@@ -1398,7 +1468,10 @@ impl StyledDom {
     }
 
     pub fn restyle(&mut self, css: Css) {
-        self.css_property_cache.downcast_mut()
+
+        use rayon::prelude::*;
+
+        let new_tag_ids = self.css_property_cache.downcast_mut()
         .restyle(
             css,
             &self.node_data.as_container(),
@@ -1406,6 +1479,26 @@ impl StyledDom {
             &self.non_leaf_nodes,
             &self.cascade_info.as_container()
         );
+
+        // Restyling may change the tag IDs
+        let mut styled_nodes_mut = self.styled_nodes.as_container_mut();
+
+        styled_nodes_mut.internal
+        .par_iter_mut()
+        .for_each(|styled_node| { styled_node.tag_id = None.into(); });
+
+        new_tag_ids
+        .iter()
+        .filter_map(|tag_id_node_id_mapping| {
+            tag_id_node_id_mapping.node_id
+            .into_crate_internal()
+            .map(|node_id| (node_id, tag_id_node_id_mapping.tag_id))
+        })
+        .for_each(|(nid, tag_id)| {
+            styled_nodes_mut[nid].tag_id = Some(tag_id).into();
+        });
+
+        self.tag_ids_to_node_ids = new_tag_ids.into();
     }
 
     pub fn node_count(&self) -> usize {

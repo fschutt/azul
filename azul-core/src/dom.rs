@@ -1081,14 +1081,14 @@ impl fmt::Debug for Dom {
 
         fn print_dom(d: &Dom, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "Dom {{\r\n")?;
-            write!(f, "\troot: {:#?}", d.root)?;
-            write!(f, "\testimated_total_children: {:#?}", d.estimated_total_children)?;
-            write!(f, "\tchildren: [")?;
+            write!(f, "\troot: {:#?}\r\n", d.root)?;
+            write!(f, "\testimated_total_children: {:#?}\r\n", d.estimated_total_children)?;
+            write!(f, "\tchildren: [\r\n")?;
             for c in d.children.iter() {
                 print_dom(c, f)?;
             }
-            write!(f, "\t]")?;
-            write!(f, "}}")?;
+            write!(f, "\t]\r\n")?;
+            write!(f, "}}\r\n")?;
             Ok(())
         }
 
