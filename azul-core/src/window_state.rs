@@ -179,6 +179,25 @@ pub struct NodesToCheck {
 
 impl NodesToCheck {
 
+    // Usually we need to perform a hit-test when the DOM is re-generated,
+    // this function simulates that behaviour
+    pub fn simulated_mouse_move(hit_test: &FullHitTest, mouse_down: bool) -> Self {
+
+        let new_hit_node_ids = hit_test.hovered_nodes
+        .iter().map(|(k, v)| (k.clone(), v.regular_hit_test_nodes.clone()))
+        .collect::<BTreeMap<_, _>>();
+
+        Self {
+            new_hit_node_ids: new_hit_node_ids.clone(),
+            old_hit_node_ids: BTreeMap::new(),
+            onmouseenter_nodes: new_hit_node_ids,
+            onmouseleave_nodes: BTreeMap::new(),
+            old_focus_node: None,
+            new_focus_node: None,
+            current_window_state_mouse_is_down: mouse_down,
+        }
+    }
+
     /// Determine which nodes are even relevant for callbacks or restyling
     pub fn new(hit_test: &FullHitTest, events: &Events) -> Self {
         // TODO: If the current mouse is down, but the event wasn't a click, that means it was a drag
@@ -263,6 +282,9 @@ pub struct StyleAndLayoutChanges {
     pub nodes_that_changed_size: BTreeMap<DomId, Vec<NodeId>>,
 }
 
+// azul_layout::do_the_relayout satifies this
+pub type RelayoutFn = fn(LayoutRect, &mut LayoutResult, &ImageCache, &mut RendererResources, &PipelineId, &RelayoutNodes) -> RelayoutChanges;
+
 impl StyleAndLayoutChanges {
     /// Determines and immediately applies the changes to the layout results
     #[cfg(feature = "multithreading")]
@@ -275,7 +297,7 @@ impl StyleAndLayoutChanges {
         pipeline_id: &PipelineId,
         css_changes: &BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
         callbacks_new_focus: &Option<Option<DomNodeId>>,
-        relayout_cb: fn(LayoutRect, &mut LayoutResult, &ImageCache, &mut RendererResources, &PipelineId, &RelayoutNodes) -> RelayoutChanges
+        relayout_cb: RelayoutFn,
     ) -> StyleAndLayoutChanges {
 
         // immediately restyle the DOM to reflect the new :hover, :active and :focus nodes

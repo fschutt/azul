@@ -538,6 +538,7 @@ impl Window {
                 &mut initial_resource_updates,
                 &Window::CALLBACKS,
                 fc_cache,
+                azul_layout::do_the_relayout,
             )
         });
 
@@ -652,6 +653,7 @@ impl Window {
                 resource_updates,
                 &Window::CALLBACKS,
                 fc_cache,
+                azul_layout::do_the_relayout,
             );
         });
     }

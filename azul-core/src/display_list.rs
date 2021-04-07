@@ -580,7 +580,6 @@ pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 #[derive(Debug, Default)]
 pub struct SolvedLayout {
     pub layout_results: Vec<LayoutResult>,
-    pub gl_texture_cache: GlTextureCache,
 }
 
 #[derive(Clone)]
@@ -591,22 +590,28 @@ pub struct RenderCallbacks {
     pub parse_font_fn: ParseFontFn,
 }
 
-impl SolvedLayout {
+impl GlTextureCache {
 
-    /// Does the layout, updates the image + font resources for the RenderAPI
-    #[cfg(feature = "multithreading")]
+    pub fn empty() -> Self {
+        Self {
+            solved_textures: BTreeMap::new(),
+        }
+    }
+
+    /// Invokes all ImageCallbacks with the sizes given by the LayoutResult
+    /// and adds them to the renderer resources.
     pub fn new(
-        styled_dom: StyledDom,
-        epoch: Epoch,
-        pipeline_id: &PipelineId,
-        full_window_state: &FullWindowState,
+        layout_results: &mut [LayoutResult],
         gl_context: &OptionGlContextPtr,
-        all_resource_updates: &mut Vec<ResourceUpdate>,
         id_namespace: IdNamespace,
+        pipeline_id: &PipelineId,
+        epoch: Epoch,
+        hidpi_factor: f32,
         image_cache: &ImageCache,
         system_fonts: &FcFontCache,
-        renderer_resources: &mut RendererResources,
         callbacks: &RenderCallbacks,
+        all_resource_updates: &mut Vec<ResourceUpdate>,
+        renderer_resources: &mut RendererResources,
     ) -> Self {
 
         use crate::{
@@ -618,19 +623,6 @@ impl SolvedLayout {
             dom::NodeType,
         };
         use gleam::gl;
-
-        let mut layout_results = (callbacks.layout_fn)(
-            styled_dom,
-            image_cache,
-            system_fonts,
-            renderer_resources,
-            all_resource_updates,
-            id_namespace,
-            pipeline_id,
-            epoch,
-            callbacks,
-            &full_window_state,
-        );
 
         let mut solved_image_callbacks = BTreeMap::new();
 
@@ -648,7 +640,10 @@ impl SolvedLayout {
                         node: AzNodeId::from_crate_internal(Some(callback_node_id)),
                     };
 
-                    let size = LayoutSize::new(rect_size.width.round() as isize, rect_size.height.round() as isize);
+                    let size = LayoutSize::new(
+                        rect_size.width.round() as isize,
+                        rect_size.height.round() as isize
+                    );
 
                     // NOTE: all of these extra arguments are necessary so that the callback
                     // has access to information about the text layout, which is used to render
@@ -663,7 +658,7 @@ impl SolvedLayout {
                         /*shaped_words_cache*/ &layout_result.shaped_words_cache,
                         /*positioned_words_cache*/ &layout_result.positioned_words_cache,
                         /*positioned_rects*/ &layout_result.rects,
-                        /*bounds:*/ HidpiAdjustedBounds::from_bounds(size, full_window_state.size.hidpi_factor),
+                        /*bounds:*/ HidpiAdjustedBounds::from_bounds(size, hidpi_factor),
                         /*hit_dom_node*/ callback_domnode_id,
                     );
 
@@ -702,9 +697,7 @@ impl SolvedLayout {
         }
 
         let mut image_resource_updates = Vec::new();
-        let mut gl_texture_cache = GlTextureCache {
-            solved_textures: BTreeMap::new(),
-        };
+        let mut gl_texture_cache = Self::empty();
 
         for (dom_id, image_refs) in solved_image_callbacks {
             for (node_id, image_ref) in image_refs {
@@ -766,9 +759,39 @@ impl SolvedLayout {
             image_resource_updates
         );
 
-        SolvedLayout {
-            layout_results,
-            gl_texture_cache,
+        gl_texture_cache
+    }
+}
+
+impl SolvedLayout {
+
+    /// Does the layout, updates the image + font resources for the RenderAPI
+    #[cfg(feature = "multithreading")]
+    pub fn new(
+        styled_dom: StyledDom,
+        epoch: Epoch,
+        pipeline_id: &PipelineId,
+        full_window_state: &FullWindowState,
+        all_resource_updates: &mut Vec<ResourceUpdate>,
+        id_namespace: IdNamespace,
+        image_cache: &ImageCache,
+        system_fonts: &FcFontCache,
+        callbacks: &RenderCallbacks,
+        renderer_resources: &mut RendererResources,
+    ) -> Self {
+        Self {
+            layout_results: (callbacks.layout_fn)(
+                styled_dom,
+                image_cache,
+                system_fonts,
+                renderer_resources,
+                all_resource_updates,
+                id_namespace,
+                pipeline_id,
+                epoch,
+                callbacks,
+                &full_window_state,
+            )
         }
     }
 }

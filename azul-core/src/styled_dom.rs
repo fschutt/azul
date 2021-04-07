@@ -1670,25 +1670,29 @@ impl StyledDom {
 
     #[cfg(feature = "multithreading")]
     #[must_use]
-    pub fn restyle_nodes_hover(&mut self, nodes: &[NodeId], new_hover_state: bool) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+    pub fn restyle_nodes_hover(&mut self, nodes: &[NodeId], new_hover_state: bool)
+    -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
         restyle_nodes!(self, hover, new_hover_state, css_hover_props, nodes, Hover)
     }
 
     #[cfg(feature = "multithreading")]
     #[must_use]
-    pub fn restyle_nodes_active(&mut self, nodes: &[NodeId], new_active_state: bool) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+    pub fn restyle_nodes_active(&mut self, nodes: &[NodeId], new_active_state: bool)
+    -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
         restyle_nodes!(self, active, new_active_state, css_active_props, nodes, Active)
     }
 
     #[cfg(feature = "multithreading")]
     #[must_use]
-    pub fn restyle_nodes_focus(&mut self, nodes: &[NodeId], new_focus_state: bool) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+    pub fn restyle_nodes_focus(&mut self, nodes: &[NodeId], new_focus_state: bool)
+    -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
         restyle_nodes!(self, focused, new_focus_state, css_focus_props, nodes, Focus)
     }
 
     #[cfg(feature = "multithreading")]
     #[must_use]
-    pub fn restyle_inline_normal_props(&mut self, node_id: &NodeId, new_properties: &[CssProperty]) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+    pub fn restyle_inline_normal_props(&mut self, node_id: &NodeId, new_properties: &[CssProperty])
+    -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
 
         let default_map = BTreeMap::new();
 

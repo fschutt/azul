@@ -678,7 +678,12 @@ fn run_inner(app: App) -> ! {
                     let is_first_frame = window.internal.previous_window_state.is_none();
                     let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(&window.internal.previous_window_state);
                     let hit_test = if !events.needs_hit_test() { FullHitTest::empty() } else {
-                        let ht = FullHitTest::new(&window.internal.layout_results, &window.internal.current_window_state.mouse_state.cursor_position, &window.internal.scroll_states);
+                        let ht = FullHitTest::new(
+                            &window.internal.layout_results,
+                            &window.internal.current_window_state.mouse_state.cursor_position,
+                            &window.internal.scroll_states,
+                            window.internal.current_window_state.size.hidpi_factor,
+                        );
                         window.internal.current_window_state.hovered_nodes = ht.hovered_nodes.clone();
                         ht
                     };
@@ -764,7 +769,12 @@ fn run_inner(app: App) -> ! {
                     // see if the callbacks modified the WindowState - if yes, re-determine the events
                     let current_window_save_state = window.internal.current_window_state.clone();
                     if !callbacks_changed_cursor {
-                        let ht = FullHitTest::new(&window.internal.layout_results, &window.internal.current_window_state.mouse_state.cursor_position, &window.internal.scroll_states);
+                        let ht = FullHitTest::new(
+                            &window.internal.layout_results,
+                            &window.internal.current_window_state.mouse_state.cursor_position,
+                            &window.internal.scroll_states,
+                            window.internal.current_window_state.size.hidpi_factor,
+                        );
                         let cht = CursorTypeHitTest::new(&ht, &window.internal.layout_results);
                         callback_results.modified_window_state.mouse_state.mouse_cursor_type = Some(cht.cursor_icon).into();
                     }

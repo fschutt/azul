@@ -14,6 +14,7 @@ use azul_css::{
 };
 use crate::{
     FastHashMap,
+    window_state::RelayoutFn,
     app_resources::{ImageRef, ImageCache, RendererResources, IdNamespace, ResourceUpdate, Epoch, ImageMask},
     styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
@@ -613,11 +614,19 @@ impl FullHitTest {
     /// Does the hit-test for all hovered nodes
     ///
     /// NOTE: This is much faster than calling webrender
-    pub fn new(layout_results: &[LayoutResult], cursor_position: &CursorPosition, scroll_states: &ScrollStates) -> Self {
+    pub fn new(
+        layout_results: &[LayoutResult],
+        cursor_position: &CursorPosition,
+        scroll_states: &ScrollStates,
+        hidpi_factor: f32,
+    ) -> Self {
 
         let cursor_location = match cursor_position {
             CursorPosition::OutOfWindow | CursorPosition::Uninitialized => return FullHitTest::default(),
-            CursorPosition::InWindow(pos) => LayoutPoint::new(libm::roundf(pos.x) as isize, libm::roundf(pos.y) as isize),
+            CursorPosition::InWindow(pos) => LayoutPoint::new(
+                libm::roundf(pos.x / hidpi_factor) as isize,
+                libm::roundf(pos.y / hidpi_factor) as isize
+            ),
         };
 
         let mut map = BTreeMap::new();
@@ -755,14 +764,16 @@ impl WindowInternal {
         all_resource_updates: &mut Vec<ResourceUpdate>,
         callbacks: &RenderCallbacks,
         fc_cache_real: &mut FcFontCache,
+        relayout_fn: RelayoutFn,
     ) -> Self {
 
         use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
+        use crate::window_state::{NodesToCheck, StyleAndLayoutChanges};
 
         let mut inital_renderer_resources = RendererResources::default();
 
-        let current_window_state: FullWindowState = init.window_create_options.state.into();
+        let mut current_window_state: FullWindowState = init.window_create_options.state.into();
 
         let epoch = Epoch(0);
 
@@ -777,34 +788,58 @@ impl WindowInternal {
                 &fc_cache_real,
             );
 
-            let mut styled_dom = (layout_callback.cb)(data, layout_info);
-
-            let hovered_nodes = current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.regular_hit_test_nodes.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
-            let active_nodes = if !current_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
-
-            if !hovered_nodes.is_empty() { styled_dom.restyle_nodes_hover_noreturn(&hovered_nodes, true); }
-            if !active_nodes.is_empty() { styled_dom.restyle_nodes_active_noreturn(&active_nodes, true); }
-            if let Some(focus) = current_window_state.focused_node.as_ref() {
-                if focus.dom == DomId::ROOT_ID {
-                    styled_dom.restyle_nodes_focus_noreturn(&[focus.node.into_crate_internal().unwrap()], true);
-                }
-            }
-
-            styled_dom
+            (layout_callback.cb)(data, layout_info)
         };
 
-        let SolvedLayout { layout_results, gl_texture_cache } = SolvedLayout::new(
+        let SolvedLayout { mut layout_results } = SolvedLayout::new(
             styled_dom,
             epoch,
             &init.pipeline_id,
             &current_window_state,
-            gl_context,
             all_resource_updates,
             init.id_namespace,
             image_cache,
             &fc_cache_real,
-            &mut inital_renderer_resources,
             &callbacks,
+            &mut inital_renderer_resources,
+        );
+
+        let scroll_states = ScrollStates::default();
+
+        // apply the changes for the first frame
+        let ht = FullHitTest::new(
+            &layout_results,
+            &current_window_state.mouse_state.cursor_position,
+            &scroll_states,
+            current_window_state.size.hidpi_factor,
+        );
+        current_window_state.hovered_nodes = ht.hovered_nodes.clone();
+
+        let nodes_to_check = NodesToCheck::simulated_mouse_move(&ht, current_window_state.mouse_state.mouse_down());
+        let _ = StyleAndLayoutChanges::new(
+            &nodes_to_check,
+            &mut layout_results,
+            &image_cache,
+            &mut inital_renderer_resources,
+            current_window_state.size.get_layout_size(),
+            &init.pipeline_id,
+            &BTreeMap::new(),
+            &None,
+            relayout_fn,
+        );
+
+        let gl_texture_cache = GlTextureCache::new(
+            &mut layout_results,
+            gl_context,
+            init.id_namespace,
+            &init.pipeline_id,
+            epoch,
+            current_window_state.size.hidpi_factor,
+            image_cache,
+            &fc_cache_real,
+            callbacks,
+            all_resource_updates,
+            &mut inital_renderer_resources,
         );
 
         WindowInternal {
@@ -818,7 +853,7 @@ impl WindowInternal {
             epoch, // = 0
             layout_results,
             gl_texture_cache,
-            scroll_states: ScrollStates::default()
+            scroll_states,
         }
     }
 
@@ -832,10 +867,11 @@ impl WindowInternal {
         all_resource_updates: &mut Vec<ResourceUpdate>,
         callbacks: &RenderCallbacks,
         fc_cache_real: &mut FcFontCache,
+        relayout_fn: RelayoutFn,
     ) {
-
         use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
+        use crate::window_state::{NodesToCheck, StyleAndLayoutChanges};
 
         let id_namespace = self.id_namespace;
 
@@ -850,34 +886,59 @@ impl WindowInternal {
                 &fc_cache_real,
             );
 
-            let mut styled_dom = (layout_callback.cb)(data, layout_info);
-
-            let hovered_nodes = self.current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.regular_hit_test_nodes.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
-            let active_nodes = if !self.current_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
-
-            if !hovered_nodes.is_empty() { styled_dom.restyle_nodes_hover_noreturn(&hovered_nodes, true); }
-            if !active_nodes.is_empty() { styled_dom.restyle_nodes_active_noreturn(&active_nodes, true); }
-            if let Some(focus) = self.current_window_state.focused_node {
-                if focus.dom == DomId::ROOT_ID {
-                    let _ = styled_dom.restyle_nodes_focus_noreturn(&[focus.node.into_crate_internal().unwrap()], true);
-                }
-            }
-
-            styled_dom
+            (layout_callback.cb)(data, layout_info)
         };
 
-        let SolvedLayout { layout_results, gl_texture_cache } = SolvedLayout::new(
+        let SolvedLayout {
+            mut layout_results,
+        } = SolvedLayout::new(
             styled_dom,
             self.epoch,
             &self.pipeline_id,
             &self.current_window_state,
-            gl_context,
             all_resource_updates,
             id_namespace,
             image_cache,
             &fc_cache_real,
-            &mut self.renderer_resources,
             callbacks,
+            &mut self.renderer_resources,
+        );
+
+        // apply the changes for the first frame
+        let ht = FullHitTest::new(
+            &layout_results,
+            &self.current_window_state.mouse_state.cursor_position,
+            &self.scroll_states,
+            self.current_window_state.size.hidpi_factor,
+        );
+        self.current_window_state.hovered_nodes = ht.hovered_nodes.clone();
+
+        // hit_test
+        let nodes_to_check = NodesToCheck::simulated_mouse_move(&ht, self.current_window_state.mouse_state.mouse_down());
+        let _ = StyleAndLayoutChanges::new(
+            &nodes_to_check,
+            &mut layout_results,
+            &image_cache,
+            &mut self.renderer_resources,
+            self.current_window_state.size.get_layout_size(),
+            &self.pipeline_id,
+            &BTreeMap::new(),
+            &None,
+            relayout_fn,
+        );
+
+        let gl_texture_cache = GlTextureCache::new(
+            &mut layout_results,
+            gl_context,
+            self.id_namespace,
+            &self.pipeline_id,
+            self.epoch,
+            self.current_window_state.size.hidpi_factor,
+            image_cache,
+            &fc_cache_real,
+            callbacks,
+            all_resource_updates,
+            &mut self.renderer_resources,
         );
 
         // Delete unused font and image keys (that were not used in this frame)
@@ -1670,6 +1731,13 @@ pub struct WindowSize {
 
 impl WindowSize {
 
+    pub fn get_layout_size(&self) -> LayoutSize {
+        LayoutSize::new(
+            libm::roundf(self.dimensions.width) as isize,
+            libm::roundf(self.dimensions.height) as isize,
+        )
+    }
+
     /// Get the actual logical size
     pub fn get_logical_size(&self) -> LogicalSize {
         self.dimensions
@@ -1679,7 +1747,8 @@ impl WindowSize {
         self.dimensions.to_physical(self.hidpi_factor)
     }
 
-    /// Get a size that is usually smaller than the logical one, so that the winit DPI factor is compensated for.
+    /// Get a size that is usually smaller than the logical one,
+    /// so that the winit DPI factor is compensated for.
     pub fn get_reverse_logical_size(&self) -> LogicalSize {
         LogicalSize::new(
             self.dimensions.width * self.hidpi_factor / self.system_hidpi_factor,
