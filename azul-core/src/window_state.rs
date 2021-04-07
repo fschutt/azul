@@ -376,7 +376,7 @@ impl StyleAndLayoutChanges {
             let layout_result = &mut layout_results[dom_id.inner];
             let dom_id: DomId = *dom_id;
             for (node_id, changed_css_property_vec) in existing_changes_map.iter() {
-                let current_prop_changes = layout_result.styled_dom.restyle_inline_normal_props(node_id, &changed_css_property_vec);
+                let current_prop_changes = layout_result.styled_dom.restyle_user_property(node_id, &changed_css_property_vec);
                 insert_props!(dom_id, current_prop_changes);
             }
         }

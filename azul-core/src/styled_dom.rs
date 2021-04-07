@@ -677,7 +677,7 @@ impl CssPropertyCache {
         node_data: &'a NodeData,
         node_id: &NodeId,
         node_state: &StyledNodeState,
-        css_property_type: CssPropertyType
+        css_property_type: &CssPropertyType
     ) -> Option<&CssProperty> {
         // NOTE: This function is slow, but it is going to be called on every
         // node in parallel, so it should be rather fast in the end
@@ -685,7 +685,7 @@ impl CssPropertyCache {
         // First test if there is some user-defined override for the property
         if let Some(p) = self.user_overridden_properties
             .get(node_id)
-            .and_then(|n| n.get(&css_property_type)) {
+            .and_then(|n| n.get(css_property_type)) {
             return Some(p);
         }
 
@@ -729,25 +729,25 @@ impl CssPropertyCache {
             // :focus > :active > :hover > :normal
             if node_state.focused {
                 if let Some(p) = self.css_focus_props.get(node_id)
-                .and_then(|map| map.get(&css_property_type)) {
+                .and_then(|map| map.get(css_property_type)) {
                     return Some(p);
                 }
             }
             if node_state.active {
                 if let Some(p) = self.css_active_props.get(node_id)
-                .and_then(|map| map.get(&css_property_type)) {
+                .and_then(|map| map.get(css_property_type)) {
                     return Some(p);
                 }
             }
             if node_state.hover {
                 if let Some(p) = self.css_hover_props.get(node_id)
-                .and_then(|map| map.get(&css_property_type)) {
+                .and_then(|map| map.get(css_property_type)) {
                     return Some(p);
                 }
             }
             if node_state.normal {
                 if let Some(p) = self.css_normal_props.get(node_id)
-                .and_then(|map| map.get(&css_property_type)) {
+                .and_then(|map| map.get(css_property_type)) {
                     return Some(p);
                 }
             }
@@ -756,28 +756,28 @@ impl CssPropertyCache {
             // :focus > :active > :hover > :normal
             if node_state.focused {
                 if let Some(p) = self.cascaded_focus_props.get(node_id)
-                .and_then(|map| map.get(&css_property_type)) {
+                .and_then(|map| map.get(css_property_type)) {
                     return Some(p);
                 }
             }
 
             if node_state.active {
                 if let Some(p) = self.cascaded_active_props.get(node_id)
-                .and_then(|map| map.get(&css_property_type)) {
+                .and_then(|map| map.get(css_property_type)) {
                     return Some(p);
                 }
             }
 
             if node_state.hover {
                 if let Some(p) = self.cascaded_hover_props.get(node_id)
-                .and_then(|map| map.get(&css_property_type)) {
+                .and_then(|map| map.get(css_property_type)) {
                     return Some(p);
                 }
             }
 
             if node_state.normal {
                 if let Some(p) = self.cascaded_normal_props.get(node_id)
-                .and_then(|map| map.get(&css_property_type)) {
+                .and_then(|map| map.get(css_property_type)) {
                     return Some(p);
                 }
             }
@@ -788,211 +788,211 @@ impl CssPropertyCache {
     }
 
     pub fn get_background_content<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBackgroundContentVecValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BackgroundContent).and_then(|p| p.as_background_content())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BackgroundContent).and_then(|p| p.as_background_content())
     }
     pub fn get_background_position<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBackgroundPositionVecValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BackgroundPosition).and_then(|p| p.as_background_position())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BackgroundPosition).and_then(|p| p.as_background_position())
     }
     pub fn get_background_size<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBackgroundSizeVecValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BackgroundSize).and_then(|p| p.as_background_size())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BackgroundSize).and_then(|p| p.as_background_size())
     }
     pub fn get_background_repeat<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBackgroundRepeatVecValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BackgroundRepeat).and_then(|p| p.as_background_repeat())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BackgroundRepeat).and_then(|p| p.as_background_repeat())
     }
     pub fn get_font_size<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleFontSizeValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::FontSize).and_then(|p| p.as_font_size())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::FontSize).and_then(|p| p.as_font_size())
     }
     pub fn get_font_family<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleFontFamilyVecValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::FontFamily).and_then(|p| p.as_font_family())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::FontFamily).and_then(|p| p.as_font_family())
     }
     pub fn get_text_color<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleTextColorValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::TextColor).and_then(|p| p.as_text_color())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextColor).and_then(|p| p.as_text_color())
     }
     pub fn get_text_align<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleTextAlignmentHorzValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::TextAlign).and_then(|p| p.as_text_align())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextAlign).and_then(|p| p.as_text_align())
     }
     pub fn get_line_height<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleLineHeightValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::LineHeight).and_then(|p| p.as_line_height())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::LineHeight).and_then(|p| p.as_line_height())
     }
     pub fn get_letter_spacing<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleLetterSpacingValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::LetterSpacing).and_then(|p| p.as_letter_spacing())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::LetterSpacing).and_then(|p| p.as_letter_spacing())
     }
     pub fn get_word_spacing<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleWordSpacingValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::WordSpacing).and_then(|p| p.as_word_spacing())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::WordSpacing).and_then(|p| p.as_word_spacing())
     }
     pub fn get_tab_width<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleTabWidthValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::TabWidth).and_then(|p| p.as_tab_width())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TabWidth).and_then(|p| p.as_tab_width())
     }
     pub fn get_cursor<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleCursorValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::Cursor).and_then(|p| p.as_cursor())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Cursor).and_then(|p| p.as_cursor())
     }
     pub fn get_box_shadow_left<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBoxShadowValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BoxShadowLeft).and_then(|p| p.as_box_shadow_left())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BoxShadowLeft).and_then(|p| p.as_box_shadow_left())
     }
     pub fn get_box_shadow_right<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBoxShadowValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BoxShadowRight).and_then(|p| p.as_box_shadow_right())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BoxShadowRight).and_then(|p| p.as_box_shadow_right())
     }
     pub fn get_box_shadow_top<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBoxShadowValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BoxShadowTop).and_then(|p| p.as_box_shadow_top())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BoxShadowTop).and_then(|p| p.as_box_shadow_top())
     }
     pub fn get_box_shadow_bottom<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBoxShadowValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BoxShadowBottom).and_then(|p| p.as_box_shadow_bottom())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BoxShadowBottom).and_then(|p| p.as_box_shadow_bottom())
     }
     pub fn get_border_top_color<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBorderTopColorValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderTopColor).and_then(|p| p.as_border_top_color())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderTopColor).and_then(|p| p.as_border_top_color())
     }
     pub fn get_border_left_color<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBorderLeftColorValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderLeftColor).and_then(|p| p.as_border_left_color())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderLeftColor).and_then(|p| p.as_border_left_color())
     }
     pub fn get_border_right_color<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBorderRightColorValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderRightColor).and_then(|p| p.as_border_right_color())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderRightColor).and_then(|p| p.as_border_right_color())
     }
     pub fn get_border_bottom_color<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBorderBottomColorValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderBottomColor).and_then(|p| p.as_border_bottom_color())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderBottomColor).and_then(|p| p.as_border_bottom_color())
     }
     pub fn get_border_top_style<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBorderTopStyleValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderTopStyle).and_then(|p| p.as_border_top_style())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderTopStyle).and_then(|p| p.as_border_top_style())
     }
     pub fn get_border_left_style<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBorderLeftStyleValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderLeftStyle).and_then(|p| p.as_border_left_style())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderLeftStyle).and_then(|p| p.as_border_left_style())
     }
     pub fn get_border_right_style<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBorderRightStyleValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderRightStyle).and_then(|p| p.as_border_right_style())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderRightStyle).and_then(|p| p.as_border_right_style())
     }
     pub fn get_border_bottom_style<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBorderBottomStyleValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderBottomStyle).and_then(|p| p.as_border_bottom_style())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderBottomStyle).and_then(|p| p.as_border_bottom_style())
     }
     pub fn get_border_top_left_radius<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBorderTopLeftRadiusValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderTopLeftRadius).and_then(|p| p.as_border_top_left_radius())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderTopLeftRadius).and_then(|p| p.as_border_top_left_radius())
     }
     pub fn get_border_top_right_radius<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBorderTopRightRadiusValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderTopRightRadius).and_then(|p| p.as_border_top_right_radius())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderTopRightRadius).and_then(|p| p.as_border_top_right_radius())
     }
     pub fn get_border_bottom_left_radius<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBorderBottomLeftRadiusValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderBottomLeftRadius).and_then(|p| p.as_border_bottom_left_radius())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderBottomLeftRadius).and_then(|p| p.as_border_bottom_left_radius())
     }
     pub fn get_border_bottom_right_radius<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBorderBottomRightRadiusValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderBottomRightRadius).and_then(|p| p.as_border_bottom_right_radius())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderBottomRightRadius).and_then(|p| p.as_border_bottom_right_radius())
     }
     pub fn get_opacity<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleOpacityValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::Opacity).and_then(|p| p.as_opacity())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Opacity).and_then(|p| p.as_opacity())
     }
     pub fn get_transform<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleTransformVecValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::Transform).and_then(|p| p.as_transform())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Transform).and_then(|p| p.as_transform())
     }
     pub fn get_transform_origin<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleTransformOriginValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::TransformOrigin).and_then(|p| p.as_transform_origin())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TransformOrigin).and_then(|p| p.as_transform_origin())
     }
     pub fn get_perspective_origin<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StylePerspectiveOriginValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::PerspectiveOrigin).and_then(|p| p.as_perspective_origin())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::PerspectiveOrigin).and_then(|p| p.as_perspective_origin())
     }
     pub fn get_backface_visibility<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBackfaceVisibilityValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BackfaceVisibility).and_then(|p| p.as_backface_visibility())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BackfaceVisibility).and_then(|p| p.as_backface_visibility())
     }
     pub fn get_display<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutDisplayValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::Display).and_then(|p| p.as_display())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Display).and_then(|p| p.as_display())
     }
     pub fn get_float<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutFloatValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::Float).and_then(|p| p.as_float())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Float).and_then(|p| p.as_float())
     }
     pub fn get_box_sizing<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutBoxSizingValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BoxSizing).and_then(|p| p.as_box_sizing())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BoxSizing).and_then(|p| p.as_box_sizing())
     }
     pub fn get_width<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutWidthValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::Width).and_then(|p| p.as_width())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Width).and_then(|p| p.as_width())
     }
     pub fn get_height<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutHeightValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::Height).and_then(|p| p.as_height())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Height).and_then(|p| p.as_height())
     }
     pub fn get_min_width<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutMinWidthValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::MinWidth).and_then(|p| p.as_min_width())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::MinWidth).and_then(|p| p.as_min_width())
     }
     pub fn get_min_height<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutMinHeightValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::MinHeight).and_then(|p| p.as_min_height())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::MinHeight).and_then(|p| p.as_min_height())
     }
     pub fn get_max_width<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutMaxWidthValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::MaxWidth).and_then(|p| p.as_max_width())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::MaxWidth).and_then(|p| p.as_max_width())
     }
     pub fn get_max_height<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutMaxHeightValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::MaxHeight).and_then(|p| p.as_max_height())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::MaxHeight).and_then(|p| p.as_max_height())
     }
     pub fn get_position<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutPositionValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::Position).and_then(|p| p.as_position())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Position).and_then(|p| p.as_position())
     }
     pub fn get_top<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutTopValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::Top).and_then(|p| p.as_top())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Top).and_then(|p| p.as_top())
     }
     pub fn get_bottom<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutBottomValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::Bottom).and_then(|p| p.as_bottom())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Bottom).and_then(|p| p.as_bottom())
     }
     pub fn get_right<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutRightValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::Right).and_then(|p| p.as_right())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Right).and_then(|p| p.as_right())
     }
     pub fn get_left<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutLeftValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::Left).and_then(|p| p.as_left())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Left).and_then(|p| p.as_left())
     }
     pub fn get_padding_top<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutPaddingTopValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::PaddingTop).and_then(|p| p.as_padding_top())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::PaddingTop).and_then(|p| p.as_padding_top())
     }
     pub fn get_padding_bottom<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutPaddingBottomValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::PaddingBottom).and_then(|p| p.as_padding_bottom())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::PaddingBottom).and_then(|p| p.as_padding_bottom())
     }
     pub fn get_padding_left<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutPaddingLeftValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::PaddingLeft).and_then(|p| p.as_padding_left())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::PaddingLeft).and_then(|p| p.as_padding_left())
     }
     pub fn get_padding_right<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutPaddingRightValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::PaddingRight).and_then(|p| p.as_padding_right())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::PaddingRight).and_then(|p| p.as_padding_right())
     }
     pub fn get_margin_top<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutMarginTopValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::MarginTop).and_then(|p| p.as_margin_top())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::MarginTop).and_then(|p| p.as_margin_top())
     }
     pub fn get_margin_bottom<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutMarginBottomValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::MarginBottom).and_then(|p| p.as_margin_bottom())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::MarginBottom).and_then(|p| p.as_margin_bottom())
     }
     pub fn get_margin_left<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutMarginLeftValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::MarginLeft).and_then(|p| p.as_margin_left())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::MarginLeft).and_then(|p| p.as_margin_left())
     }
     pub fn get_margin_right<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutMarginRightValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::MarginRight).and_then(|p| p.as_margin_right())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::MarginRight).and_then(|p| p.as_margin_right())
     }
     pub fn get_border_top_width<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutBorderTopWidthValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderTopWidth).and_then(|p| p.as_border_top_width())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderTopWidth).and_then(|p| p.as_border_top_width())
     }
     pub fn get_border_left_width<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutBorderLeftWidthValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderLeftWidth).and_then(|p| p.as_border_left_width())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderLeftWidth).and_then(|p| p.as_border_left_width())
     }
     pub fn get_border_right_width<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutBorderRightWidthValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderRightWidth).and_then(|p| p.as_border_right_width())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderRightWidth).and_then(|p| p.as_border_right_width())
     }
     pub fn get_border_bottom_width<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutBorderBottomWidthValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::BorderBottomWidth).and_then(|p| p.as_border_bottom_width())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderBottomWidth).and_then(|p| p.as_border_bottom_width())
     }
     pub fn get_overflow_x<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutOverflowValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::OverflowX).and_then(|p| p.as_overflow_x())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowX).and_then(|p| p.as_overflow_x())
     }
     pub fn get_overflow_y<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutOverflowValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::OverflowY).and_then(|p| p.as_overflow_y())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowY).and_then(|p| p.as_overflow_y())
     }
     pub fn get_flex_direction<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutFlexDirectionValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::FlexDirection).and_then(|p| p.as_direction())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlexDirection).and_then(|p| p.as_direction())
     }
     pub fn get_flex_wrap<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutFlexWrapValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::FlexWrap).and_then(|p| p.as_flex_wrap())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlexWrap).and_then(|p| p.as_flex_wrap())
     }
     pub fn get_flex_grow<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutFlexGrowValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::FlexGrow).and_then(|p| p.as_flex_grow())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlexGrow).and_then(|p| p.as_flex_grow())
     }
     pub fn get_flex_shrink<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutFlexShrinkValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::FlexShrink).and_then(|p| p.as_flex_shrink())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::FlexShrink).and_then(|p| p.as_flex_shrink())
     }
     pub fn get_justify_content<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutJustifyContentValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::JustifyContent).and_then(|p| p.as_justify_content())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::JustifyContent).and_then(|p| p.as_justify_content())
     }
     pub fn get_align_items<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutAlignItemsValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::AlignItems).and_then(|p| p.as_align_items())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::AlignItems).and_then(|p| p.as_align_items())
     }
     pub fn get_align_content<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutAlignContentValue> {
-        self.get_property(node_data, node_id, node_state, CssPropertyType::AlignContent).and_then(|p| p.as_align_content())
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::AlignContent).and_then(|p| p.as_align_content())
     }
 }
 
@@ -1211,125 +1211,6 @@ impl Default for StyledDom {
     }
 }
 
-macro_rules! diff_properties {(
-    $self_val:expr,
-    $old_properties:expr,
-    $new_properties:expr,
-    $node_id:expr,
-    $current_node_state:expr,
-    $new_node_state:expr
-) => {{
-    if $new_properties.is_empty() && $old_properties.is_empty() {
-        None
-    } else if $new_properties.is_empty() {
-        // all old_properties removed
-        Some((*$node_id, $old_properties.into_iter().map(|(key, value)| {
-            ChangedCssProperty {
-                previous_state: $current_node_state.clone(),
-                current_state: $new_node_state.clone(),
-                previous_prop: value,
-                current_prop: CssProperty::none(key),
-            }
-        }).collect()))
-    } else if $old_properties.is_empty() {
-        // all new_properties added
-        Some((*$node_id, $new_properties.into_iter().map(|(key, value)| {
-            ChangedCssProperty {
-                previous_state: $current_node_state.clone(),
-                current_state: $new_node_state.clone(),
-                previous_prop: CssProperty::none(key),
-                current_prop: value,
-            }
-        }).collect()))
-    } else {
-        // mix between the two
-        let mut changed_properties = Vec::new();
-
-        for (old_key, old_value) in $old_properties.iter() {
-            let new_prop = $new_properties.get(&old_key).cloned().unwrap_or(CssProperty::none(*old_key));
-            if *old_value != new_prop {
-                changed_properties.push(ChangedCssProperty {
-                    previous_state: $current_node_state.clone(),
-                    current_state: $new_node_state.clone(),
-                    previous_prop: old_value.clone(),
-                    current_prop: new_prop,
-                });
-            }
-        }
-
-        for (new_key, new_value) in $new_properties.iter() {
-            let old_prop = $old_properties.get(&new_key).cloned().unwrap_or(CssProperty::none(*new_key));
-            if *new_value != old_prop {
-                changed_properties.push(ChangedCssProperty {
-                    previous_state: $current_node_state.clone(),
-                    current_state: $new_node_state.clone(),
-                    previous_prop: old_prop,
-                    current_prop: new_value.clone(),
-                });
-            }
-        }
-
-        if !changed_properties.is_empty() {
-            Some((*$node_id, changed_properties))
-        } else {
-            None
-        }
-    }
-}};}
-
-macro_rules! restyle_nodes {($self_val:expr, $field:ident, $new_field_state:expr, $css_props_field:ident, $nodes:expr, $filter:ident) => {{
-    use rayon::prelude::*;
-
-    let default_map = BTreeMap::new();
-
-    let ret = $nodes
-    .par_iter()
-    .filter_map(|node_id| {
-
-        let current_node_state = $self_val.styled_nodes.as_container()[*node_id].state.clone();
-        let mut new_node_state = current_node_state.clone();
-        new_node_state.$field = $new_field_state;
-
-        if current_node_state == new_node_state {
-            return None; // state is the same, no changes
-        }
-
-        let mut old_properties = FastHashMap::new();
-
-        if current_node_state.$field {
-            for (prop_type, prop_value) in $self_val.get_css_property_cache().$css_props_field.get(node_id).unwrap_or(&default_map).iter() {
-                old_properties.insert(*prop_type, prop_value.clone());
-            }
-            for prop_value in $self_val.node_data.as_container()[*node_id].inline_css_props.as_ref().iter() {
-                if let NodeDataInlineCssProperty::$filter(prop_value) = prop_value {
-                    old_properties.insert(prop_value.get_type(), prop_value.clone());
-                }
-            }
-        }
-
-        let mut new_properties = FastHashMap::new();
-
-        if new_node_state.$field {
-            for (prop_type, prop_value) in $self_val.get_css_property_cache().$css_props_field.get(node_id).unwrap_or(&default_map).iter() {
-                new_properties.insert(*prop_type, prop_value.clone());
-            }
-            for prop_value in $self_val.node_data.as_container()[*node_id].inline_css_props.as_ref().iter() {
-                if let NodeDataInlineCssProperty::$filter(prop_value) = prop_value {
-                    new_properties.insert(prop_value.get_type(), prop_value.clone());
-                }
-            }
-        }
-
-        diff_properties!($self_val, old_properties, new_properties, node_id, current_node_state, new_node_state)
-    }).collect::<Vec<_>>();
-
-    for node_id in $nodes {
-        $self_val.styled_nodes.as_container_mut()[*node_id].state.$field = $new_field_state;
-    }
-
-    ret.into_iter().collect()
-}};}
-
 impl StyledDom {
 
     #[cfg(feature = "multithreading")]
@@ -1496,6 +1377,7 @@ impl StyledDom {
         self.tag_ids_to_node_ids = new_tag_ids.into();
     }
 
+    #[inline]
     pub fn node_count(&self) -> usize {
         self.node_data.len()
     }
@@ -1510,6 +1392,7 @@ impl StyledDom {
         &mut *self.css_property_cache.ptr
     }
 
+    #[inline]
     pub fn get_styled_node_state(&self, node_id: &NodeId) -> StyledNodeState {
         self.styled_nodes.as_container()[*node_id].state.clone()
     }
@@ -1645,76 +1528,289 @@ impl StyledDom {
         set
     }
 
-    pub fn restyle_nodes_hover_noreturn(&mut self, nodes: &[NodeId], new_hover_state: bool) {
-        for node_id in nodes {
-            self.styled_nodes.as_container_mut()[*node_id].state.hover = new_hover_state;
-        }
-    }
-
-    pub fn restyle_nodes_active_noreturn(&mut self, nodes: &[NodeId], new_active_state: bool) {
-        for node_id in nodes {
-            self.styled_nodes.as_container_mut()[*node_id].state.active = new_active_state;
-        }
-    }
-
-    pub fn restyle_nodes_focus_noreturn(&mut self, nodes: &[NodeId], new_focus_state: bool) {
-        for node_id in nodes {
-            self.styled_nodes.as_container_mut()[*node_id].state.focused = new_focus_state;
-        }
-    }
-
     #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_nodes_hover(&mut self, nodes: &[NodeId], new_hover_state: bool)
     -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        restyle_nodes!(self, hover, new_hover_state, css_hover_props, nodes, Hover)
+
+        use rayon::prelude::*;
+
+        // save the old node state
+        let old_node_states = nodes.par_iter().map(|nid| {
+            self.styled_nodes.as_container()[*nid].state.clone()
+        }).collect::<Vec<_>>();
+
+        for nid in nodes.iter() {
+            self.styled_nodes.as_container_mut()[*nid].state.hover = new_hover_state;
+        }
+
+        let css_property_cache = self.get_css_property_cache();
+        let styled_nodes = self.styled_nodes.as_container();
+        let node_data = self.node_data.as_container();
+
+        let default_map = BTreeMap::default();
+
+        // scan all properties that could have changed because of addition / removal
+        let v = nodes
+        .par_iter()
+        .zip(old_node_states.par_iter())
+        .filter_map(|(node_id, old_node_state)| {
+
+            let mut keys_normal: Vec<_> = css_property_cache.css_hover_props.get(node_id).unwrap_or(&default_map).keys().collect();
+            let mut keys_inherited: Vec<_> = css_property_cache.cascaded_hover_props.get(node_id).unwrap_or(&default_map).keys().collect();
+            keys_normal.append(&mut keys_inherited);
+
+            let node_properties_that_could_have_changed = keys_normal;
+
+            if node_properties_that_could_have_changed.is_empty() {
+                return None;
+            }
+
+            let new_node_state = &styled_nodes[*node_id].state;
+            let node_data = &node_data[*node_id];
+
+            let changes = node_properties_that_could_have_changed
+            .into_iter()
+            .filter_map(|prop| {
+                // calculate both the old and the new state
+                let old = css_property_cache.get_property(node_data, node_id, old_node_state, prop);
+                let new = css_property_cache.get_property(node_data, node_id, new_node_state, prop);
+                if old == new {
+                    None
+                } else {
+                    Some(ChangedCssProperty {
+                        previous_state: old_node_state.clone(),
+                        previous_prop: match old { None => CssProperty::auto(*prop), Some(s) => s.clone() },
+                        current_state: new_node_state.clone(),
+                        current_prop: match new { None => CssProperty::auto(*prop), Some(s) => s.clone() },
+                    })
+                }
+            }).collect::<Vec<_>>();
+
+            if changes.is_empty() {
+                None
+            } else {
+                Some((*node_id, changes))
+            }
+        })
+        .collect::<Vec<_>>();
+
+        v.into_iter().collect()
     }
 
     #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_nodes_active(&mut self, nodes: &[NodeId], new_active_state: bool)
     -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        restyle_nodes!(self, active, new_active_state, css_active_props, nodes, Active)
+
+        use rayon::prelude::*;
+
+        // save the old node state
+        let old_node_states = nodes.par_iter().map(|nid| {
+            self.styled_nodes.as_container()[*nid].state.clone()
+        }).collect::<Vec<_>>();
+
+        for nid in nodes.iter() {
+            self.styled_nodes.as_container_mut()[*nid].state.active = new_active_state;
+        }
+
+        let css_property_cache = self.get_css_property_cache();
+        let styled_nodes = self.styled_nodes.as_container();
+        let node_data = self.node_data.as_container();
+
+        let default_map = BTreeMap::default();
+
+        // scan all properties that could have changed because of addition / removal
+        let v = nodes
+        .par_iter()
+        .zip(old_node_states.par_iter())
+        .filter_map(|(node_id, old_node_state)| {
+
+            let mut keys_normal: Vec<_> = css_property_cache.css_active_props.get(node_id).unwrap_or(&default_map).keys().collect();
+            let mut keys_inherited: Vec<_> = css_property_cache.cascaded_active_props.get(node_id).unwrap_or(&default_map).keys().collect();
+            keys_normal.append(&mut keys_inherited);
+
+            let node_properties_that_could_have_changed = keys_normal;
+
+            if node_properties_that_could_have_changed.is_empty() {
+                return None;
+            }
+
+            let new_node_state = &styled_nodes[*node_id].state;
+            let node_data = &node_data[*node_id];
+
+            let changes = node_properties_that_could_have_changed
+            .into_iter()
+            .filter_map(|prop| {
+                // calculate both the old and the new state
+                let old = css_property_cache.get_property(node_data, node_id, old_node_state, prop);
+                let new = css_property_cache.get_property(node_data, node_id, new_node_state, prop);
+                if old == new {
+                    None
+                } else {
+                    Some(ChangedCssProperty {
+                        previous_state: old_node_state.clone(),
+                        previous_prop: match old { None => CssProperty::auto(*prop), Some(s) => s.clone() },
+                        current_state: new_node_state.clone(),
+                        current_prop: match new { None => CssProperty::auto(*prop), Some(s) => s.clone() },
+                    })
+                }
+            }).collect::<Vec<_>>();
+
+            if changes.is_empty() {
+                None
+            } else {
+                Some((*node_id, changes))
+            }
+        })
+        .collect::<Vec<_>>();
+
+        v.into_iter().collect()
     }
 
     #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_nodes_focus(&mut self, nodes: &[NodeId], new_focus_state: bool)
     -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        restyle_nodes!(self, focused, new_focus_state, css_focus_props, nodes, Focus)
+
+        use rayon::prelude::*;
+
+        // save the old node state
+        let old_node_states = nodes.par_iter().map(|nid| {
+            self.styled_nodes.as_container()[*nid].state.clone()
+        }).collect::<Vec<_>>();
+
+        for nid in nodes.iter() {
+            self.styled_nodes.as_container_mut()[*nid].state.focused = new_focus_state;
+        }
+
+        let css_property_cache = self.get_css_property_cache();
+        let styled_nodes = self.styled_nodes.as_container();
+        let node_data = self.node_data.as_container();
+
+        let default_map = BTreeMap::default();
+
+        // scan all properties that could have changed because of addition / removal
+        let v = nodes
+        .par_iter()
+        .zip(old_node_states.par_iter())
+        .filter_map(|(node_id, old_node_state)| {
+
+            let mut keys_normal: Vec<_> = css_property_cache.css_focus_props.get(node_id).unwrap_or(&default_map).keys().collect();
+            let mut keys_inherited: Vec<_> = css_property_cache.cascaded_focus_props.get(node_id).unwrap_or(&default_map).keys().collect();
+            keys_normal.append(&mut keys_inherited);
+
+            let node_properties_that_could_have_changed = keys_normal;
+
+            if node_properties_that_could_have_changed.is_empty() {
+                return None;
+            }
+
+            let new_node_state = &styled_nodes[*node_id].state;
+            let node_data = &node_data[*node_id];
+
+            let changes = node_properties_that_could_have_changed
+            .into_iter()
+            .filter_map(|prop| {
+                // calculate both the old and the new state
+                let old = css_property_cache.get_property(node_data, node_id, old_node_state, prop);
+                let new = css_property_cache.get_property(node_data, node_id, new_node_state, prop);
+                if old == new {
+                    None
+                } else {
+                    Some(ChangedCssProperty {
+                        previous_state: old_node_state.clone(),
+                        previous_prop: match old { None => CssProperty::auto(*prop), Some(s) => s.clone() },
+                        current_state: new_node_state.clone(),
+                        current_prop: match new { None => CssProperty::auto(*prop), Some(s) => s.clone() },
+                    })
+                }
+            }).collect::<Vec<_>>();
+
+            if changes.is_empty() {
+                None
+            } else {
+                Some((*node_id, changes))
+            }
+        })
+        .collect::<Vec<_>>();
+
+        v.into_iter().collect()
     }
 
+    // Inserts a property into the self.user_overridden_properties
     #[cfg(feature = "multithreading")]
     #[must_use]
-    pub fn restyle_inline_normal_props(&mut self, node_id: &NodeId, new_properties: &[CssProperty])
+    pub fn restyle_user_property(&mut self, node_id: &NodeId, new_properties: &[CssProperty])
     -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
 
-        let default_map = BTreeMap::new();
+        use rayon::prelude::*;
 
-        // exchange the inline properties for the node n with the new properties
-        let mut old_properties = BTreeMap::new();
+        let mut map = BTreeMap::default();
 
-        for (prop_type, prop_value) in self.get_css_property_cache().css_normal_props.get(node_id).unwrap_or(&default_map).iter() {
-            old_properties.insert(*prop_type, prop_value.clone());
+        if new_properties.is_empty() {
+            return map;
         }
-        for prop_value in self.node_data.as_container()[*node_id].inline_css_props.as_ref().iter() {
-            if let NodeDataInlineCssProperty::Normal(prop_value) = prop_value {
-                old_properties.insert(prop_value.get_type(), prop_value.clone());
+
+        let node_data = self.node_data.as_container();
+        let node_data = &node_data[*node_id];
+
+        let node_states = &self.styled_nodes.as_container();
+        let old_node_state = &node_states[*node_id].state;
+
+
+        let changes: Vec<ChangedCssProperty> = {
+            let css_property_cache = self.get_css_property_cache();
+
+            new_properties
+            .par_iter()
+            .filter_map(|new_prop| {
+                let old_prop = css_property_cache.get_property(node_data, node_id, old_node_state, &new_prop.get_type());
+                let old_prop = match old_prop {
+                    None => CssProperty::auto(new_prop.get_type()),
+                    Some(s) => s.clone(),
+                };
+
+                if old_prop == *new_prop {
+                    None
+                } else {
+                    Some(ChangedCssProperty {
+                        previous_state: old_node_state.clone(),
+                        previous_prop: old_prop,
+                        // overriding a user property does not change the state
+                        current_state: old_node_state.clone(),
+                        current_prop: new_prop.clone(),
+                    })
+                }
+            }).collect()
+        };
+
+        let css_property_cache_mut = self.get_css_property_cache_mut();
+
+        for new_prop in new_properties.iter() {
+            if new_prop.is_initial() {
+                let mut should_remove_map = false;
+                if let Some(map) = css_property_cache_mut.user_overridden_properties.get_mut(node_id) {
+                    // CssProperty::Initial = remove overridden property
+                    map.remove(&new_prop.get_type());
+                    should_remove_map = map.is_empty();
+                }
+                if should_remove_map {
+                    css_property_cache_mut.user_overridden_properties.remove(node_id);
+                }
+            } else {
+                css_property_cache_mut.user_overridden_properties
+                .entry(*node_id)
+                .or_insert_with(|| BTreeMap::new())
+                .insert(new_prop.get_type(), new_prop.clone());
             }
         }
 
-        let new_properties: BTreeMap<_, _> = new_properties.iter().map(|c| (c.get_type(), c.clone())).collect();
-
-        let current_node_state = self.styled_nodes.as_container()[*node_id].state.clone();
-        let new_node_state = current_node_state.clone();
-        match diff_properties!(self, new_properties, old_properties, node_id, current_node_state, new_node_state) {
-            Some((node_id, prop_vec)) => {
-                let mut map = BTreeMap::default();
-                map.insert(node_id, prop_vec);
-                map
-            },
-            None => BTreeMap::default(),
+        if !changes.is_empty() {
+            map.insert(*node_id, changes);
         }
+
+        map
     }
 
     /// Scans the `StyledDom` for iframe callbacks
@@ -1946,15 +2042,6 @@ impl StyledDom {
         root_content_group
     }
 
-    // Scans the dom for all image sources
-    // pub fn get_all_image_sources(&self) -> Vec<ImageSource>
-
-    // Scans the dom for all font instances
-    // pub fn get_all_font_instances(&self) -> Vec<FontSource, FontSize>
-
     // Computes the diff between the two DOMs
     // pub fn diff(&self, other: &Self) -> StyledDomDiff { /**/ }
-
-    // Restyles the DOM using a DOM diff
-    // pub fn restyle(&mut self, css: &Css, style_options: StyleOptions, diff: &DomDiff) { }
 }

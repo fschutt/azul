@@ -556,12 +556,15 @@ impl_vec_eq!(CallbackData, CallbackDataVec);
 impl_vec_hash!(CallbackData, CallbackDataVec);
 
 impl CallbackDataVec {
+    #[inline]
     pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, CallbackData> {
         NodeDataContainerRef { internal: self.as_ref() }
     }
+    #[inline]
     pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, CallbackData> {
         NodeDataContainerRefMut { internal: self.as_mut() }
     }
+    #[inline]
     pub(crate) fn into_library_owned_vec(&mut self) -> Vec<CallbackData> {
         let mut vec = Vec::with_capacity(self.as_ref().len());
         for item in self.as_mut().iter_mut() {
@@ -686,12 +689,15 @@ impl_vec_eq!(NodeData, NodeDataVec);
 impl_vec_hash!(NodeData, NodeDataVec);
 
 impl NodeDataVec {
+    #[inline]
     pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, NodeData> {
         NodeDataContainerRef { internal: self.as_ref() }
     }
+    #[inline]
     pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, NodeData> {
         NodeDataContainerRefMut { internal: self.as_mut() }
     }
+    #[inline]
     pub fn into_library_owned_vec(&mut self) -> Vec<NodeData> {
         let mut vec = Vec::with_capacity(self.as_ref().len());
         for item in self.as_mut().iter_mut() {

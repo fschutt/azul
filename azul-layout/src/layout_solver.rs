@@ -2430,8 +2430,6 @@ pub fn do_the_relayout(
         };
     }
 
-    println!("recalculating size for nodes: {:#?}", nodes_to_relayout);
-
     // ---- step 1: recalc size
 
     // TODO: for now, the preferred_widths and preferred_widths is always None,
@@ -2689,7 +2687,8 @@ pub fn do_the_relayout(
 
     for (node_id, (old_preferred_width, new_preferred_width)) in nodes_that_need_to_bubble_width.iter() {
         if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[*node_id].parent_id() {
-            let change = new_preferred_width.min_needed_space().unwrap_or(0.0) - old_preferred_width.min_needed_space().unwrap_or(0.0);
+            let change = new_preferred_width.min_needed_space().unwrap_or(0.0) -
+                         old_preferred_width.min_needed_space().unwrap_or(0.0);
             layout_result.width_calculated_rects.as_ref_mut()[parent_id].min_inner_size_px += change;
             if change != 0.0 {
                 *rebubble_parent_widths.entry(parent_id).or_insert_with(|| 0.0) += change;
@@ -2700,7 +2699,8 @@ pub fn do_the_relayout(
 
     for (node_id, (old_preferred_height, new_preferred_height)) in nodes_that_need_to_bubble_height.iter() {
         if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[*node_id].parent_id() {
-            let change = new_preferred_height.min_needed_space().unwrap_or(0.0) - old_preferred_height.min_needed_space().unwrap_or(0.0);
+            let change = new_preferred_height.min_needed_space().unwrap_or(0.0) -
+                         old_preferred_height.min_needed_space().unwrap_or(0.0);
             layout_result.height_calculated_rects.as_ref_mut()[parent_id].min_inner_size_px += change;
             if change != 0.0 {
                 *rebubble_parent_heights.entry(parent_id).or_insert_with(|| 0.0) += change;
