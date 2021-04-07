@@ -872,13 +872,13 @@ pub fn displaylist_handle_rect<'a>(
         position: positioned_rect.position.clone(),
         border_radius: StyleBorderRadius {
             top_left: layout_result.styled_dom.get_css_property_cache()
-                .get_border_top_left_radius(&html_node, &rect_idx, &styled_node.state),
+                .get_border_top_left_radius(&html_node, &rect_idx, &styled_node.state).cloned(),
             top_right: layout_result.styled_dom.get_css_property_cache()
-                .get_border_top_right_radius(&html_node, &rect_idx, &styled_node.state),
+                .get_border_top_right_radius(&html_node, &rect_idx, &styled_node.state).cloned(),
             bottom_left: layout_result.styled_dom.get_css_property_cache()
-                .get_border_bottom_left_radius(&html_node, &rect_idx, &styled_node.state),
+                .get_border_bottom_left_radius(&html_node, &rect_idx, &styled_node.state).cloned(),
             bottom_right: layout_result.styled_dom.get_css_property_cache()
-                .get_border_bottom_right_radius(&html_node, &rect_idx, &styled_node.state),
+                .get_border_bottom_right_radius(&html_node, &rect_idx, &styled_node.state).cloned(),
         },
         flags: PrimitiveFlags {
             is_backface_visible: false, // TODO!
@@ -916,7 +916,13 @@ pub fn displaylist_handle_rect<'a>(
             clip_mode = Some(BoxShadowClipMode::Inset);
         }
 
-        clip_mode.map(|c| BoxShadow { clip_mode: c, left: box_shadow_left, right: box_shadow_right, top: box_shadow_top, bottom: box_shadow_bottom })
+        clip_mode.map(|c| BoxShadow {
+            clip_mode: c,
+            left: box_shadow_left.cloned(),
+            right: box_shadow_right.cloned(),
+            top: box_shadow_top.cloned(),
+            bottom: box_shadow_bottom.cloned(),
+        })
     } else {
         None
     };
@@ -1085,22 +1091,22 @@ pub fn displaylist_handle_rect<'a>(
     if layout_result.styled_dom.get_css_property_cache().has_border(&html_node, &rect_idx, &styled_node.state) {
         frame.content.push(LayoutRectContent::Border {
             widths: StyleBorderWidths {
-                top: layout_result.styled_dom.get_css_property_cache().get_border_top_width(&html_node, &rect_idx, &styled_node.state),
-                left: layout_result.styled_dom.get_css_property_cache().get_border_left_width(&html_node, &rect_idx, &styled_node.state),
-                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_width(&html_node, &rect_idx, &styled_node.state),
-                right: layout_result.styled_dom.get_css_property_cache().get_border_right_width(&html_node, &rect_idx, &styled_node.state),
+                top: layout_result.styled_dom.get_css_property_cache().get_border_top_width(&html_node, &rect_idx, &styled_node.state).cloned(),
+                left: layout_result.styled_dom.get_css_property_cache().get_border_left_width(&html_node, &rect_idx, &styled_node.state).cloned(),
+                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_width(&html_node, &rect_idx, &styled_node.state).cloned(),
+                right: layout_result.styled_dom.get_css_property_cache().get_border_right_width(&html_node, &rect_idx, &styled_node.state).cloned(),
             },
             colors: StyleBorderColors {
-                top: layout_result.styled_dom.get_css_property_cache().get_border_top_color(&html_node, &rect_idx, &styled_node.state),
-                left: layout_result.styled_dom.get_css_property_cache().get_border_left_color(&html_node, &rect_idx, &styled_node.state),
-                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_color(&html_node, &rect_idx, &styled_node.state),
-                right: layout_result.styled_dom.get_css_property_cache().get_border_right_color(&html_node, &rect_idx, &styled_node.state),
+                top: layout_result.styled_dom.get_css_property_cache().get_border_top_color(&html_node, &rect_idx, &styled_node.state).cloned(),
+                left: layout_result.styled_dom.get_css_property_cache().get_border_left_color(&html_node, &rect_idx, &styled_node.state).cloned(),
+                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_color(&html_node, &rect_idx, &styled_node.state).cloned(),
+                right: layout_result.styled_dom.get_css_property_cache().get_border_right_color(&html_node, &rect_idx, &styled_node.state).cloned(),
             },
             styles: StyleBorderStyles {
-                top: layout_result.styled_dom.get_css_property_cache().get_border_top_style(&html_node, &rect_idx, &styled_node.state),
-                left: layout_result.styled_dom.get_css_property_cache().get_border_left_style(&html_node, &rect_idx, &styled_node.state),
-                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_style(&html_node, &rect_idx, &styled_node.state),
-                right: layout_result.styled_dom.get_css_property_cache().get_border_right_style(&html_node, &rect_idx, &styled_node.state),
+                top: layout_result.styled_dom.get_css_property_cache().get_border_top_style(&html_node, &rect_idx, &styled_node.state).cloned(),
+                left: layout_result.styled_dom.get_css_property_cache().get_border_left_style(&html_node, &rect_idx, &styled_node.state).cloned(),
+                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_style(&html_node, &rect_idx, &styled_node.state).cloned(),
+                right: layout_result.styled_dom.get_css_property_cache().get_border_right_style(&html_node, &rect_idx, &styled_node.state).cloned(),
             },
         });
     }
