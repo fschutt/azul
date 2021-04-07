@@ -2378,8 +2378,8 @@ pub fn do_the_relayout(
     nodes_to_relayout: &BTreeMap<NodeId, Vec<ChangedCssProperty>>
 ) -> RelayoutChanges {
 
-    // shortcut: in most cases, the root size hasn't changed and there
-    // are no nodes to relayout
+    // shortcut: in most cases, the root size hasn't
+    // changed and there are no nodes to relayout
 
     let root_size = root_bounds.size;
     let root_size_changed = root_bounds != layout_result.get_bounds();
@@ -2421,6 +2421,8 @@ pub fn do_the_relayout(
         };
     }
 
+    println!("recalculating size for nodes: {:#?}", nodes_to_relayout);
+
     // ---- step 1: recalc size
 
     // TODO: for now, the preferred_widths and preferred_widths is always None,
@@ -2434,29 +2436,25 @@ pub fn do_the_relayout(
     // recalc(&mut layout_result.preferred_widths);
 
     // update the precalculated properties (position, flex-grow, flex-direction, justify-content)
-    nodes_to_relayout.keys().for_each(|node_id| {
+    nodes_to_relayout.iter().for_each(|(node_id, changed_props)| {
 
-        let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[*node_id].state;
-        let css_property_cache = layout_result.styled_dom.get_css_property_cache();
-        let node_data = &layout_result.styled_dom.node_data.as_container()[*node_id];
+        if let Some(CssProperty::Position(new_position_state)) = changed_props.get(&CssPropertyType::Position).map(|p| &p.current_prop) {
+            layout_result.layout_positions.as_ref_mut()[*node_id] = new_position_state.get_property().cloned().unwrap_or_default();
+        }
 
-        let new_layout_position = css_property_cache.get_position(node_data, node_id, styled_node_state)
-        .and_then(|p| p.get_property().copied()).unwrap_or_default();
-        layout_result.layout_positions.as_ref_mut()[*node_id] = new_layout_position;
-
-        let new_flex_grow = css_property_cache.get_flex_grow(node_data, node_id, styled_node_state)
-            .and_then(|g| g.get_property().copied())
-            .and_then(|grow| Some(grow.inner.get().max(0.0)))
+        if let Some(CssProperty::FlexGrow(new_flex_grow)) = changed_props.get(&CssPropertyType::FlexGrow).map(|p| &p.current_prop) {
+            layout_result.layout_flex_grows.as_ref_mut()[*node_id] = new_flex_grow.get_property().cloned()
+            .map(|grow| grow.inner.get().max(0.0))
             .unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
-        layout_result.layout_flex_grows.as_ref_mut()[*node_id] = new_flex_grow;
+        }
 
-        let new_flex_direction = css_property_cache.get_flex_direction(node_data, node_id, styled_node_state)
-        .and_then(|p| p.get_property().copied()).unwrap_or_default();
-        layout_result.layout_flex_directions.as_ref_mut()[*node_id] = new_flex_direction;
+        if let Some(CssProperty::FlexDirection(new_flex_direction)) = changed_props.get(&CssPropertyType::FlexDirection).map(|p| &p.current_prop) {
+            layout_result.layout_flex_directions.as_ref_mut()[*node_id] = new_flex_direction.get_property().cloned().unwrap_or_default();
+        }
 
-        let new_justify_content = css_property_cache.get_justify_content(node_data, node_id, styled_node_state)
-        .and_then(|p| p.get_property().copied()).unwrap_or_default();
-        layout_result.layout_justify_contents.as_ref_mut()[*node_id] = new_justify_content;
+        if let Some(CssProperty::JustifyContent(new_justify_content)) = changed_props.get(&CssPropertyType::JustifyContent).map(|p| &p.current_prop) {
+            layout_result.layout_justify_contents.as_ref_mut()[*node_id] = new_justify_content.get_property().cloned().unwrap_or_default();
+        }
     });
 
     let mut parents_that_need_to_recalc_width_of_children = BTreeSet::new();
@@ -2478,229 +2476,214 @@ pub fn do_the_relayout(
     // parents need to be adjust before children
     for ParentWithNodeDepth { depth: _, node_id } in layout_result.styled_dom.non_leaf_nodes.iter() {
 
-        let node_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
-        let parent_id = layout_result.styled_dom.node_hierarchy.as_container()[node_id].parent_id()
-        .unwrap_or(layout_result.styled_dom.root.into_crate_internal().unwrap());
-        let node_data = &layout_result.styled_dom.node_data.as_container()[node_id];
+        macro_rules! detect_changes {($node_id:expr, $parent_id:expr) => (
 
-        let changes_for_this_node = match nodes_to_relayout.get(&node_id) {
-            None => continue,
+            let node_data = &layout_result.styled_dom.node_data.as_container()[$node_id];
+
+            println!("changes for node {:?}: {:?}", $node_id, nodes_to_relayout.get(&$node_id));
+
+            if let Some(changes_for_this_node) = nodes_to_relayout.get(&$node_id) {
+
+                let mut preferred_width_changed = None;
+                let mut preferred_height_changed = None;
+                let mut padding_x_changed = false;
+                let mut padding_y_changed = false;
+                let mut margin_x_changed = false;
+                let mut margin_y_changed = false;
+
+                let solved_width_layout = &mut layout_result.width_calculated_rects.as_ref_mut()[$node_id];
+                let solved_height_layout = &mut layout_result.height_calculated_rects.as_ref_mut()[$node_id];
+                let css_property_cache = layout_result.styled_dom.get_css_property_cache();
+
+                // recalculate min / max / preferred width constraint if needed
+                if changes_for_this_node.contains_key(&CssPropertyType::Width) ||
+                   changes_for_this_node.contains_key(&CssPropertyType::MinWidth) ||
+                   changes_for_this_node.contains_key(&CssPropertyType::MaxWidth) {
+                    let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[$node_id].state;
+                    println!("styled node state is now: {:?}", styled_node_state);
+                    let wh_config = WhConfig {
+                        width: WidthConfig {
+                            exact: css_property_cache.get_width(node_data, &$node_id, styled_node_state)
+                            .and_then(|p| p.get_property().copied()),
+                            max: css_property_cache.get_max_width(node_data, &$node_id, styled_node_state)
+                            .and_then(|p| p.get_property().copied()),
+                            min: css_property_cache.get_min_width(node_data, &$node_id, styled_node_state)
+                            .and_then(|p| p.get_property().copied()),
+                        },
+                        height: HeightConfig::default(),
+                    };
+
+                    let parent_width = layout_result.preferred_widths.as_ref()[$parent_id].clone().unwrap_or(root_size.width as f32);
+                    let new_preferred_width = determine_preferred_width(
+                        &wh_config,
+                        layout_result.preferred_widths.as_ref()[$node_id],
+                        parent_width
+                    );
+
+                    if new_preferred_width != solved_width_layout.preferred_width {
+                        preferred_width_changed = Some(solved_width_layout.preferred_width.min_needed_space().unwrap_or(0.0));
+                        solved_width_layout.preferred_width = new_preferred_width;
+                    }
+                }
+
+                println!("preferred_width_changed: {:?}", preferred_width_changed);
+
+                // recalculate min / max / preferred width constraint if needed
+                if changes_for_this_node.contains_key(&CssPropertyType::MinHeight) ||
+                   changes_for_this_node.contains_key(&CssPropertyType::MaxHeight) ||
+                   changes_for_this_node.contains_key(&CssPropertyType::Height) {
+                    let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[$node_id].state;
+                    let wh_config = WhConfig {
+                        width: WidthConfig::default(),
+                        height: HeightConfig {
+                            exact: css_property_cache.get_height(node_data, &$node_id, &styled_node_state)
+                            .and_then(|p| p.get_property().copied()),
+                            max: css_property_cache.get_max_height(node_data, &$node_id, &styled_node_state)
+                            .and_then(|p| p.get_property().copied()),
+                            min: css_property_cache.get_min_height(node_data, &$node_id, &styled_node_state)
+                            .and_then(|p| p.get_property().copied()),
+                        },
+                    };
+                    let parent_height = layout_result.preferred_heights.as_ref()[$parent_id].clone().unwrap_or(root_size.height as f32);
+                    let new_preferred_height = determine_preferred_height(
+                        &wh_config,
+                        layout_result.preferred_heights.as_ref()[$node_id],
+                        parent_height
+                    );
+
+                    if new_preferred_height != solved_height_layout.preferred_height {
+                        preferred_height_changed = Some(solved_height_layout.preferred_height.min_needed_space().unwrap_or(0.0));
+                        solved_height_layout.preferred_height = new_preferred_height;
+                    }
+                }
+
+                // padding / margin horizontal change
+                if let Some(CssProperty::PaddingLeft(prop)) = changes_for_this_node
+                .get(&CssPropertyType::PaddingLeft).map(|p| &p.current_prop) {
+                    solved_width_layout.padding_left = Some(*prop);
+                    padding_x_changed = true;
+                }
+
+                if let Some(CssProperty::PaddingRight(prop)) = changes_for_this_node
+                .get(&CssPropertyType::PaddingRight).map(|p| &p.current_prop) {
+                    solved_width_layout.padding_right = Some(*prop);
+                    padding_x_changed = true;
+                }
+
+                if let Some(CssProperty::MarginLeft(prop)) = changes_for_this_node
+                .get(&CssPropertyType::MarginLeft).map(|p| &p.current_prop) {
+                    solved_width_layout.margin_left = Some(*prop);
+                    margin_x_changed = true;
+                }
+
+                if let Some(CssProperty::MarginRight(prop)) = changes_for_this_node
+                .get(&CssPropertyType::MarginRight).map(|p| &p.current_prop) {
+                    solved_width_layout.margin_right = Some(*prop);
+                    margin_x_changed = true;
+                }
+
+                // padding / margin vertical change
+                if let Some(CssProperty::PaddingTop(prop)) = changes_for_this_node
+                .get(&CssPropertyType::PaddingTop).map(|p| &p.current_prop) {
+                    solved_height_layout.padding_top = Some(*prop);
+                    padding_y_changed = true;
+                }
+
+                if let Some(CssProperty::PaddingBottom(prop)) = changes_for_this_node
+                .get(&CssPropertyType::PaddingBottom).map(|p| &p.current_prop) {
+                    solved_height_layout.padding_bottom = Some(*prop);
+                    padding_y_changed = true;
+                }
+
+                if let Some(CssProperty::MarginTop(prop)) = changes_for_this_node
+                .get(&CssPropertyType::MarginTop).map(|p| &p.current_prop) {
+                    solved_height_layout.margin_top = Some(*prop);
+                    margin_y_changed = true;
+                }
+
+                if let Some(CssProperty::MarginBottom(prop)) = changes_for_this_node
+                .get(&CssPropertyType::MarginBottom).map(|p| &p.current_prop) {
+                    solved_height_layout.margin_bottom = Some(*prop);
+                    margin_y_changed = true;
+                }
+
+                if let Some(preferred_width_changed) = preferred_width_changed {
+                    // need to recalc the width of the node
+                    // need to bubble the width to the parent width
+                    // need to recalc the width of all children
+                    // need to recalc the x position of all siblings
+                    parents_that_need_to_recalc_width_of_children.insert($parent_id);
+                    nodes_that_need_to_bubble_width.insert($node_id, preferred_width_changed);
+                    parents_that_need_to_recalc_width_of_children.insert($node_id);
+                    parents_that_need_to_reposition_children_x.insert($parent_id);
+                }
+
+                if let Some(preferred_height_changed) = preferred_height_changed {
+                    // need to recalc the height of the node
+                    // need to bubble the height of all current node siblings to the parent height
+                    // need to recalc the height of all children
+                    // need to recalc the y position of all siblings
+                    parents_that_need_to_recalc_height_of_children.insert($parent_id);
+                    nodes_that_need_to_bubble_height.insert($node_id, preferred_height_changed);
+                    parents_that_need_to_recalc_height_of_children.insert($node_id);
+                    parents_that_need_to_reposition_children_y.insert($parent_id);
+                }
+
+                if padding_x_changed {
+                    // need to recalc the widths of all children
+                    // need to recalc the x position of all children
+                    parents_that_need_to_recalc_width_of_children.insert($node_id);
+                    parents_that_need_to_reposition_children_x.insert($node_id);
+                }
+
+                if padding_y_changed {
+                    // need to recalc the heights of all children
+                    // need to bubble the height of all current node children to the
+                    // current node min_inner_size_px
+                    parents_that_need_to_recalc_height_of_children.insert($node_id);
+                    parents_that_need_to_reposition_children_y.insert($node_id);
+                }
+
+                if margin_x_changed {
+                    // need to recalc the widths of all siblings
+                    // need to recalc the x positions of all siblings
+                    parents_that_need_to_recalc_width_of_children.insert($parent_id);
+                    parents_that_need_to_reposition_children_x.insert($parent_id);
+                }
+
+                if margin_y_changed {
+                    // need to recalc the heights of all siblings
+                    // need to recalc the y positions of all siblings
+                    parents_that_need_to_recalc_height_of_children.insert($parent_id);
+                    parents_that_need_to_reposition_children_y.insert($parent_id);
+                }
+
+                // TODO: absolute positions / top-left-right-bottom changes!
+            }
+        )}
+
+        let node_id = match node_id.into_crate_internal() {
             Some(s) => s,
+            None => continue,
         };
 
-        let mut preferred_width_changed = (false, 0.0);
-        let mut preferred_height_changed = (false, 0.0);
-        let mut padding_x_changed = false;
-        let mut padding_y_changed = false;
-        let mut margin_x_changed = false;
-        let mut margin_y_changed = false;
+        let parent_id = layout_result.styled_dom.node_hierarchy.as_container()[node_id].parent_id()
+        .unwrap_or(layout_result.styled_dom.root.into_crate_internal().unwrap());
 
-        let solved_width_layout = &mut layout_result.width_calculated_rects.as_ref_mut()[node_id];
-        let solved_height_layout = &mut layout_result.height_calculated_rects.as_ref_mut()[node_id];
-        let css_property_cache = layout_result.styled_dom.get_css_property_cache();
 
-        if changes_for_this_node.contains_key(&CssPropertyType::MinWidth) ||
-           changes_for_this_node.contains_key(&CssPropertyType::MaxWidth) ||
-           changes_for_this_node.contains_key(&CssPropertyType::Width) {
-            let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[node_id].state;
-            let wh_config = WhConfig {
-                width: WidthConfig {
-                    exact: css_property_cache.get_width(node_data, &node_id, styled_node_state)
-                    .and_then(|p| p.get_property().copied()),
-                    max: css_property_cache.get_max_width(node_data, &node_id, styled_node_state)
-                    .and_then(|p| p.get_property().copied()),
-                    min: css_property_cache.get_min_width(node_data, &node_id, styled_node_state)
-                    .and_then(|p| p.get_property().copied()),
-                },
-                height: HeightConfig::default(),
-            };
+        detect_changes!(node_id, parent_id);
 
-            let parent_width = layout_result.preferred_widths.as_ref()[parent_id].clone().unwrap_or(root_size.width as f32);
-            let new_preferred_width = determine_preferred_width(
-                &wh_config,
-                layout_result.preferred_widths.as_ref()[node_id],
-                parent_width
-            );
-
-            if new_preferred_width != solved_width_layout.preferred_width {
-                preferred_width_changed = (true, solved_width_layout.preferred_width.min_needed_space().unwrap_or(0.0));
-                solved_width_layout.preferred_width = new_preferred_width;
-            }
+        for child_id in node_id.az_children(&layout_result.styled_dom.node_hierarchy.as_container()) {
+            detect_changes!(child_id, node_id);
         }
-
-        if changes_for_this_node.contains_key(&CssPropertyType::MinHeight) ||
-           changes_for_this_node.contains_key(&CssPropertyType::MaxHeight) ||
-           changes_for_this_node.contains_key(&CssPropertyType::Height) {
-            let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[node_id].state;
-            let wh_config = WhConfig {
-                width: WidthConfig::default(),
-                height: HeightConfig {
-                    exact: css_property_cache.get_height(node_data, &node_id, &styled_node_state)
-                    .and_then(|p| p.get_property().copied()),
-                    max: css_property_cache.get_max_height(node_data, &node_id, &styled_node_state)
-                    .and_then(|p| p.get_property().copied()),
-                    min: css_property_cache.get_min_height(node_data, &node_id, &styled_node_state)
-                    .and_then(|p| p.get_property().copied()),
-                },
-            };
-            let parent_height = layout_result.preferred_heights.as_ref()[parent_id].clone().unwrap_or(root_size.height as f32);
-            let new_preferred_height = determine_preferred_height(
-                &wh_config,
-                layout_result.preferred_heights.as_ref()[node_id],
-                parent_height
-            );
-
-            if new_preferred_height != solved_height_layout.preferred_height {
-                preferred_height_changed = (true, solved_height_layout.preferred_height.min_needed_space().unwrap_or(0.0));
-                solved_height_layout.preferred_height = new_preferred_height;
-            }
-        }
-
-        // width
-        if let Some(prop) = changes_for_this_node.get(&CssPropertyType::PaddingLeft) {
-            if let CssProperty::PaddingLeft(prop) = &prop.current_prop {
-                solved_width_layout.padding_left = Some(*prop);
-            } else {
-                solved_width_layout.padding_left = None;
-            }
-            padding_x_changed = true;
-        }
-
-        if let Some(prop) = changes_for_this_node.get(&CssPropertyType::PaddingRight) {
-            if let CssProperty::PaddingRight(prop) = &prop.current_prop {
-                solved_width_layout.padding_right = Some(*prop);
-            } else {
-                solved_width_layout.padding_right = None;
-            }
-            padding_x_changed = true;
-        }
-
-        if let Some(prop) = changes_for_this_node.get(&CssPropertyType::MarginLeft) {
-            if let CssProperty::MarginLeft(prop) = &prop.current_prop {
-                solved_width_layout.margin_left = Some(*prop);
-            } else {
-                solved_width_layout.margin_left = None;
-            }
-            margin_x_changed = true;
-        }
-
-        if let Some(prop) = changes_for_this_node.get(&CssPropertyType::MarginRight) {
-            if let CssProperty::MarginRight(prop) = &prop.current_prop {
-                solved_width_layout.margin_right = Some(*prop);
-            } else {
-                solved_width_layout.margin_right = None;
-            }
-            margin_x_changed = true;
-        }
-
-        // height
-        if let Some(prop) = changes_for_this_node.get(&CssPropertyType::PaddingTop) {
-            if let CssProperty::PaddingTop(prop) = &prop.current_prop {
-                solved_height_layout.padding_top = Some(*prop);
-            } else {
-                solved_height_layout.padding_top = None;
-            }
-            padding_y_changed = true;
-        }
-
-        if let Some(prop) = changes_for_this_node.get(&CssPropertyType::PaddingBottom) {
-            if let CssProperty::PaddingBottom(prop) = &prop.current_prop {
-                solved_height_layout.padding_bottom = Some(*prop);
-            } else {
-                solved_height_layout.padding_bottom = None;
-            }
-            padding_y_changed = true;
-        }
-
-        if let Some(prop) = changes_for_this_node.get(&CssPropertyType::MarginTop) {
-            if let CssProperty::MarginTop(prop) = &prop.current_prop {
-                solved_height_layout.margin_top = Some(*prop);
-            } else {
-                solved_height_layout.margin_top = None;
-            }
-            margin_y_changed = true;
-        }
-
-        if let Some(prop) = changes_for_this_node.get(&CssPropertyType::MarginBottom) {
-            if let CssProperty::MarginBottom(prop) = &prop.current_prop {
-                solved_height_layout.margin_bottom = Some(*prop);
-            } else {
-                solved_height_layout.margin_bottom = None;
-            }
-            margin_y_changed = true;
-        }
-
-        if preferred_width_changed.0 {
-            // need to recalc the width of the node
-            // need to bubble the width to the parent width
-            // need to recalc the width of all children
-            // need to recalc the x position of all siblings
-            parents_that_need_to_recalc_width_of_children.insert(parent_id);
-            nodes_that_need_to_bubble_width.insert(node_id, preferred_width_changed.1);
-            parents_that_need_to_recalc_width_of_children.insert(node_id);
-            parents_that_need_to_reposition_children_x.insert(parent_id);
-        }
-
-        if preferred_height_changed.0 {
-            // need to recalc the height of the node
-            // need to bubble the height of all current node siblings to the parent height
-            // need to recalc the height of all children
-            // need to recalc the y position of all siblings
-            parents_that_need_to_recalc_height_of_children.insert(parent_id);
-            nodes_that_need_to_bubble_height.insert(node_id, preferred_height_changed.1);
-            parents_that_need_to_recalc_height_of_children.insert(node_id);
-            parents_that_need_to_reposition_children_y.insert(parent_id);
-        }
-
-        if padding_x_changed {
-            // need to recalc the widths of all children
-            // need to recalc the x position of all children
-            parents_that_need_to_recalc_width_of_children.insert(node_id);
-            parents_that_need_to_reposition_children_x.insert(node_id);
-        }
-
-        if padding_y_changed {
-            // need to recalc the heights of all children
-            // need to bubble the height of all current node children to the
-            // current node min_inner_size_px
-            parents_that_need_to_recalc_height_of_children.insert(node_id);
-            parents_that_need_to_reposition_children_y.insert(node_id);
-        }
-
-        if margin_x_changed {
-            // need to recalc the widths of all siblings
-            // need to recalc the x positions of all siblings
-            parents_that_need_to_recalc_width_of_children.insert(parent_id);
-            parents_that_need_to_reposition_children_x.insert(parent_id);
-        }
-
-        if margin_y_changed {
-            // need to recalc the heights of all siblings
-            // need to recalc the y positions of all siblings
-            parents_that_need_to_recalc_height_of_children.insert(parent_id);
-            parents_that_need_to_reposition_children_y.insert(parent_id);
-        }
-
-        /*
-        let layout_position = layout_result.layout_positions.as_ref()[node_id];
-        // TODO: recalc absolute positions!
-        let layout_position_changed = nodes_that_have_changed_layout_position.contains(&node_id);
-
-        if layout_position_changed && layout_position != LayoutPosition::Static {
-            if changes_for_this_node.get(&CssPropertyType::Top).is_some() ||
-               changes_for_this_node.get(&CssPropertyType::Left).is_some() ||
-               changes_for_this_node.get(&CssPropertyType::Right).is_some() ||
-               changes_for_this_node.get(&CssPropertyType::Bottom).is_some() {
-                // TODO: recalc the absolute position for this node
-                // if the width / height / position changed, insert accordingly
-                // let new_absolute_width = determine_child_width_absolute();
-                // let new_absolute_height = determine_child_height_absolute();
-                // let new_absolute_x = determine_child_x_absolute();
-                // let new_absolute_y = determine_child_y_absolute();
-            }
-        }
-        */
     }
+
+    // expected = NodeId(0) (bubbling node 1 to node 0 may cause children to recalc size)
+    println!("parents_that_need_to_recalc_width_of_children: {:?}", parents_that_need_to_recalc_width_of_children);
+    // expected = NodeId(1) (need to bubble intrinsic with to parent)
+    println!("nodes_that_need_to_bubble_width: {:?}", nodes_that_need_to_bubble_width);
+    // expected = NodeId(0)
+    println!("parents_that_need_to_reposition_children_x: {:?}", parents_that_need_to_reposition_children_x);
 
     // for all nodes that changed, recalculate the min_inner_size_px of the parents
     // by re-bubbling the sizes to the parents (but only for the nodes that need it)
@@ -2718,8 +2701,6 @@ pub fn do_the_relayout(
             }
         }
     }
-
-    // recalc(&mut layout_result.preferred_heights);
 
     for (node_id, old_preferred_height) in nodes_that_need_to_bubble_height.iter() {
         if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[*node_id].parent_id() {
