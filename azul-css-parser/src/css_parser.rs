@@ -2056,27 +2056,27 @@ pub fn parse_style_transform<'a>(input: &'a str)
     }
 
     match transform_type {
-        "matrix" => Ok(StyleTransform::Matrix(parse_matrix(input)?)),
-        "matrix3d" => Ok(StyleTransform::Matrix3D(parse_matrix_3d(input)?)),
-        "translate" => Ok(StyleTransform::Translate(parse_translate(input)?)),
-        "translate3d" => Ok(StyleTransform::Translate3D(parse_translate_3d(input)?)),
-        "translateX" => Ok(StyleTransform::TranslateX(parse_pixel_value(input)?)),
-        "translateY" => Ok(StyleTransform::TranslateY(parse_pixel_value(input)?)),
-        "translateZ" => Ok(StyleTransform::TranslateZ(parse_pixel_value(input)?)),
-        "rotate" => Ok(StyleTransform::Rotate(parse_angle_value(input)?)),
-        "rotate3d" => Ok(StyleTransform::Rotate3D(parse_rotate_3d(input)?)),
-        "rotateX" => Ok(StyleTransform::RotateX(parse_angle_value(input)?)),
-        "rotateY" => Ok(StyleTransform::RotateY(parse_angle_value(input)?)),
-        "rotateZ" => Ok(StyleTransform::RotateZ(parse_angle_value(input)?)),
-        "scale" => Ok(StyleTransform::Scale(parse_scale(input)?)),
-        "scale3d" => Ok(StyleTransform::Scale3D(parse_scale_3d(input)?)),
-        "scaleX" => Ok(StyleTransform::ScaleX(parse_percentage_value(input)?)),
-        "scaleY" => Ok(StyleTransform::ScaleY(parse_percentage_value(input)?)),
-        "scaleZ" => Ok(StyleTransform::ScaleZ(parse_percentage_value(input)?)),
-        "skew" => Ok(StyleTransform::Skew(parse_skew(input)?)),
-        "skewX" => Ok(StyleTransform::SkewX(parse_percentage_value(input)?)),
-        "skewY" => Ok(StyleTransform::SkewY(parse_percentage_value(input)?)),
-        "perspective" => Ok(StyleTransform::Perspective(parse_pixel_value(input)?)),
+        "matrix" => Ok(StyleTransform::Matrix(parse_matrix(transform_values)?)),
+        "matrix3d" => Ok(StyleTransform::Matrix3D(parse_matrix_3d(transform_values)?)),
+        "translate" => Ok(StyleTransform::Translate(parse_translate(transform_values)?)),
+        "translate3d" => Ok(StyleTransform::Translate3D(parse_translate_3d(transform_values)?)),
+        "translateX" => Ok(StyleTransform::TranslateX(parse_pixel_value(transform_values)?)),
+        "translateY" => Ok(StyleTransform::TranslateY(parse_pixel_value(transform_values)?)),
+        "translateZ" => Ok(StyleTransform::TranslateZ(parse_pixel_value(transform_values)?)),
+        "rotate" => Ok(StyleTransform::Rotate(parse_angle_value(transform_values)?)),
+        "rotate3d" => Ok(StyleTransform::Rotate3D(parse_rotate_3d(transform_values)?)),
+        "rotateX" => Ok(StyleTransform::RotateX(parse_angle_value(transform_values)?)),
+        "rotateY" => Ok(StyleTransform::RotateY(parse_angle_value(transform_values)?)),
+        "rotateZ" => Ok(StyleTransform::RotateZ(parse_angle_value(transform_values)?)),
+        "scale" => Ok(StyleTransform::Scale(parse_scale(transform_values)?)),
+        "scale3d" => Ok(StyleTransform::Scale3D(parse_scale_3d(transform_values)?)),
+        "scaleX" => Ok(StyleTransform::ScaleX(parse_percentage_value(transform_values)?)),
+        "scaleY" => Ok(StyleTransform::ScaleY(parse_percentage_value(transform_values)?)),
+        "scaleZ" => Ok(StyleTransform::ScaleZ(parse_percentage_value(transform_values)?)),
+        "skew" => Ok(StyleTransform::Skew(parse_skew(transform_values)?)),
+        "skewX" => Ok(StyleTransform::SkewX(parse_percentage_value(transform_values)?)),
+        "skewY" => Ok(StyleTransform::SkewY(parse_percentage_value(transform_values)?)),
+        "perspective" => Ok(StyleTransform::Perspective(parse_pixel_value(transform_values)?)),
         _ => unreachable!(),
     }
 }
@@ -3695,6 +3695,11 @@ mod css_tests {
     #[test]
     fn test_parse_css_color_26() {
         assert_eq!(parse_css_color("hsla(60.9grad, 80.3%, 40%, 0.5)"), Ok(ColorU { r: 184, g: 170, b: 20, a: 128 }));
+    }
+
+    #[test]
+    fn test_parse_transform() {
+        assert_eq!(parse_style_transform("rotate(25deg)"), Ok(StyleTransform::Rotate(AngleValue::deg(25.0))));
     }
 
     #[test]
