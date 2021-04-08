@@ -668,12 +668,7 @@ impl LayoutResult {
                 .and_then(|t| t.get_property())
                 .map(|transform_vec| {
 
-                    let parent_size = self.styled_dom.node_hierarchy.as_container()[p]
-                    .parent_id().map(|p| self.rects.as_ref()[p].size)
-                    .unwrap_or(LogicalSize::new(
-                        self.root_size.width as f32,
-                        self.root_size.height as f32,
-                    ));
+                    let parent_size = self.rects.as_ref()[p].size;
 
                     let transform_origin = css_property_cache
                     .get_transform_origin(&node_data[p], &p, &styled_nodes[p].state)
@@ -698,10 +693,8 @@ impl LayoutResult {
                 }
             }
 
-            // transform is computed now, un-project the rect into screen
-            // space by using the inverse transform
-            let inverse_transform = transform.inverse().unwrap_or(ComputedTransform3D::IDENTITY);
-            let cursor_projected = inverse_transform.transform_point2d(*cursor).unwrap_or(*cursor);
+            // project the cursor into the coordinate space of the target rect
+            let cursor_projected = transform.transform_point2d(*cursor).unwrap_or(*cursor);
 
             // TODO: If the item is a scroll rect, then also unproject
             // the scroll transform!
@@ -1402,128 +1395,6 @@ impl ComputedTransform3D {
         )
     }
 
-    /// Computes the inverse of the matrix, returns None if the determinant is zero.
-    #[must_use]
-    pub fn inverse(&self) -> Option<Self> {
-        let det = self.determinant();
-
-        if det == 0.0 {
-            return None;
-        }
-
-        // todo(gw): this could be made faster by special casing
-        // for simpler transform types.
-        let m = Self::new(
-            self.m[1][2]*self.m[2][3]*self.m[3][1] - self.m[1][3]*self.m[3][2]*self.m[3][1] +
-            self.m[1][3]*self.m[2][1]*self.m[3][2] - self.m[1][1]*self.m[2][3]*self.m[3][2] -
-            self.m[1][2]*self.m[2][1]*self.m[3][3] + self.m[1][1]*self.m[3][2]*self.m[3][3],
-
-            self.m[0][3]*self.m[3][2]*self.m[3][1] - self.m[0][2]*self.m[2][3]*self.m[3][1] -
-            self.m[0][3]*self.m[2][1]*self.m[3][2] + self.m[0][1]*self.m[2][3]*self.m[3][2] +
-            self.m[0][2]*self.m[2][1]*self.m[3][3] - self.m[0][1]*self.m[3][2]*self.m[3][3],
-
-            self.m[0][2]*self.m[1][3]*self.m[3][1] - self.m[0][3]*self.m[1][2]*self.m[3][1] +
-            self.m[0][3]*self.m[1][1]*self.m[3][2] - self.m[0][1]*self.m[1][3]*self.m[3][2] -
-            self.m[0][2]*self.m[1][1]*self.m[3][3] + self.m[0][1]*self.m[1][2]*self.m[3][3],
-
-            self.m[0][3]*self.m[1][2]*self.m[2][1] - self.m[0][2]*self.m[1][3]*self.m[2][1] -
-            self.m[0][3]*self.m[1][1]*self.m[3][2] + self.m[0][1]*self.m[1][3]*self.m[3][2] +
-            self.m[0][2]*self.m[1][1]*self.m[2][3] - self.m[0][1]*self.m[1][2]*self.m[2][3],
-
-            self.m[1][3]*self.m[3][2]*self.m[3][0] - self.m[1][2]*self.m[2][3]*self.m[3][0] -
-            self.m[1][3]*self.m[2][0]*self.m[3][2] + self.m[1][0]*self.m[2][3]*self.m[3][2] +
-            self.m[1][2]*self.m[2][0]*self.m[3][3] - self.m[1][0]*self.m[3][2]*self.m[3][3],
-
-            self.m[0][2]*self.m[2][3]*self.m[3][0] - self.m[0][3]*self.m[3][2]*self.m[3][0] +
-            self.m[0][3]*self.m[2][0]*self.m[3][2] - self.m[0][0]*self.m[2][3]*self.m[3][2] -
-            self.m[0][2]*self.m[2][0]*self.m[3][3] + self.m[0][0]*self.m[3][2]*self.m[3][3],
-
-            self.m[0][3]*self.m[1][2]*self.m[3][0] - self.m[0][2]*self.m[1][3]*self.m[3][0] -
-            self.m[0][3]*self.m[1][0]*self.m[3][2] + self.m[0][0]*self.m[1][3]*self.m[3][2] +
-            self.m[0][2]*self.m[1][0]*self.m[3][3] - self.m[0][0]*self.m[1][2]*self.m[3][3],
-
-            self.m[0][2]*self.m[1][3]*self.m[2][0] - self.m[0][3]*self.m[1][2]*self.m[2][0] +
-            self.m[0][3]*self.m[1][0]*self.m[3][2] - self.m[0][0]*self.m[1][3]*self.m[3][2] -
-            self.m[0][2]*self.m[1][0]*self.m[2][3] + self.m[0][0]*self.m[1][2]*self.m[2][3],
-
-            self.m[1][1]*self.m[2][3]*self.m[3][0] - self.m[1][3]*self.m[2][1]*self.m[3][0] +
-            self.m[1][3]*self.m[2][0]*self.m[3][1] - self.m[1][0]*self.m[2][3]*self.m[3][1] -
-            self.m[1][1]*self.m[2][0]*self.m[3][3] + self.m[1][0]*self.m[2][1]*self.m[3][3],
-
-            self.m[0][3]*self.m[2][1]*self.m[3][0] - self.m[0][1]*self.m[2][3]*self.m[3][0] -
-            self.m[0][3]*self.m[2][0]*self.m[3][1] + self.m[0][0]*self.m[2][3]*self.m[3][1] +
-            self.m[0][1]*self.m[2][0]*self.m[3][3] - self.m[0][0]*self.m[2][1]*self.m[3][3],
-
-            self.m[0][1]*self.m[1][3]*self.m[3][0] - self.m[0][3]*self.m[1][1]*self.m[3][0] +
-            self.m[0][3]*self.m[1][0]*self.m[3][1] - self.m[0][0]*self.m[1][3]*self.m[3][1] -
-            self.m[0][1]*self.m[1][0]*self.m[3][3] + self.m[0][0]*self.m[1][1]*self.m[3][3],
-
-            self.m[0][3]*self.m[1][1]*self.m[2][0] - self.m[0][1]*self.m[1][3]*self.m[2][0] -
-            self.m[0][3]*self.m[1][0]*self.m[2][1] + self.m[0][0]*self.m[1][3]*self.m[2][1] +
-            self.m[0][1]*self.m[1][0]*self.m[2][3] - self.m[0][0]*self.m[1][1]*self.m[2][3],
-
-            self.m[1][2]*self.m[2][1]*self.m[3][0] - self.m[1][1]*self.m[3][2]*self.m[3][0] -
-            self.m[1][2]*self.m[2][0]*self.m[3][1] + self.m[1][0]*self.m[3][2]*self.m[3][1] +
-            self.m[1][1]*self.m[2][0]*self.m[3][2] - self.m[1][0]*self.m[2][1]*self.m[3][2],
-
-            self.m[0][1]*self.m[3][2]*self.m[3][0] - self.m[0][2]*self.m[2][1]*self.m[3][0] +
-            self.m[0][2]*self.m[2][0]*self.m[3][1] - self.m[0][0]*self.m[3][2]*self.m[3][1] -
-            self.m[0][1]*self.m[2][0]*self.m[3][2] + self.m[0][0]*self.m[2][1]*self.m[3][2],
-
-            self.m[0][2]*self.m[1][1]*self.m[3][0] - self.m[0][1]*self.m[1][2]*self.m[3][0] -
-            self.m[0][2]*self.m[1][0]*self.m[3][1] + self.m[0][0]*self.m[1][2]*self.m[3][1] +
-            self.m[0][1]*self.m[1][0]*self.m[3][2] - self.m[0][0]*self.m[1][1]*self.m[3][2],
-
-            self.m[0][1]*self.m[1][2]*self.m[2][0] - self.m[0][2]*self.m[1][1]*self.m[2][0] +
-            self.m[0][2]*self.m[1][0]*self.m[2][1] - self.m[0][0]*self.m[1][2]*self.m[2][1] -
-            self.m[0][1]*self.m[1][0]*self.m[3][2] + self.m[0][0]*self.m[1][1]*self.m[3][2]
-        );
-
-        Some(m.multiply_scalar(1.0 / det))
-    }
-
-    /// Compute the determinant of the transform.
-    #[inline]
-    pub fn determinant(&self) -> f32 {
-        // TODO: SIMD
-        self.m[0][3] * self.m[1][2] * self.m[2][1] * self.m[3][0] -
-        self.m[0][2] * self.m[1][3] * self.m[2][1] * self.m[3][0] -
-        self.m[0][3] * self.m[1][1] * self.m[2][2] * self.m[3][0] +
-        self.m[0][1] * self.m[1][3] * self.m[2][2] * self.m[3][0] +
-        self.m[0][2] * self.m[1][1] * self.m[2][3] * self.m[3][0] -
-        self.m[0][1] * self.m[1][2] * self.m[2][3] * self.m[3][0] -
-        self.m[0][3] * self.m[1][2] * self.m[2][0] * self.m[3][1] +
-        self.m[0][2] * self.m[1][3] * self.m[2][0] * self.m[3][1] +
-        self.m[0][3] * self.m[1][0] * self.m[2][2] * self.m[3][1] -
-        self.m[0][0] * self.m[1][3] * self.m[2][2] * self.m[3][1] -
-        self.m[0][2] * self.m[1][0] * self.m[2][3] * self.m[3][1] +
-        self.m[0][0] * self.m[1][2] * self.m[2][3] * self.m[3][1] +
-        self.m[0][3] * self.m[1][1] * self.m[2][0] * self.m[3][2] -
-        self.m[0][1] * self.m[1][3] * self.m[2][0] * self.m[3][2] -
-        self.m[0][3] * self.m[1][0] * self.m[2][1] * self.m[3][2] +
-        self.m[0][0] * self.m[1][3] * self.m[2][1] * self.m[3][2] +
-        self.m[0][1] * self.m[1][0] * self.m[2][3] * self.m[3][2] -
-        self.m[0][0] * self.m[1][1] * self.m[2][3] * self.m[3][2] -
-        self.m[0][2] * self.m[1][1] * self.m[2][0] * self.m[3][3] +
-        self.m[0][1] * self.m[1][2] * self.m[2][0] * self.m[3][3] +
-        self.m[0][2] * self.m[1][0] * self.m[2][1] * self.m[3][3] -
-        self.m[0][0] * self.m[1][2] * self.m[2][1] * self.m[3][3] -
-        self.m[0][1] * self.m[1][0] * self.m[2][2] * self.m[3][3] +
-        self.m[0][0] * self.m[1][1] * self.m[2][2] * self.m[3][3]
-    }
-
-    /// Multiplies all of the transform's component by a scalar and returns the result.
-    #[must_use]
-    #[inline]
-    pub fn multiply_scalar(&self, x: f32) -> Self {
-        Self::new(
-            self.m[0][0] * x, self.m[0][1] * x, self.m[0][2] * x, self.m[0][3] * x,
-            self.m[1][0] * x, self.m[1][1] * x, self.m[1][2] * x, self.m[1][3] * x,
-            self.m[2][0] * x, self.m[2][1] * x, self.m[2][2] * x, self.m[2][3] * x,
-            self.m[3][0] * x, self.m[3][1] * x, self.m[3][2] * x, self.m[3][3] * x
-        )
-    }
-
     /*
 
     #[inline]
@@ -1555,16 +1426,6 @@ impl ComputedTransform3D {
     #[inline]
     #[must_use]
     pub unsafe fn determinant_avx8(&self) -> f32 { }
-
-    #[inline]
-    #[must_use]
-    pub unsafe fn multiply_scalar_sse(&self, x: f32) -> Self { }
-    #[inline]
-    #[must_use]
-    pub unsafe fn multiply_scalar_avx4(&self, x: f32) -> Self { }
-    #[inline]
-    #[must_use]
-    pub unsafe fn multiply_scalar_avx8(&self, x: f32) -> Self { }
 
     */
 
