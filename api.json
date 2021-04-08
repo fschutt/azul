@@ -2635,19 +2635,19 @@
                         { "number": {"type": "FloatValue" }}
                     ]
                 },
-                "LinearColorStop": {
-                    "external": "azul_impl::css::LinearColorStop",
+                "NormalizedLinearColorStop": {
+                    "external": "azul_impl::css::NormalizedLinearColorStop",
                     "derive": ["Copy"],
                     "struct_fields": [
-                        {"offset": {"type": "OptionPercentageValue"}},
+                        {"offset": {"type": "PercentageValue"}},
                         {"color": {"type": "ColorU"}}
                     ]
                 },
-                "RadialColorStop": {
-                    "external": "azul_impl::css::RadialColorStop",
+                "NormalizedRadialColorStop": {
+                    "external": "azul_impl::css::NormalizedRadialColorStop",
                     "derive": ["Copy"],
                     "struct_fields": [
-                        {"offset": {"type": "OptionAngleValue"}},
+                        {"offset": {"type": "AngleValue"}},
                         {"color": {"type": "ColorU"}}
                     ]
                 },
@@ -2694,7 +2694,7 @@
                     "struct_fields": [
                         {"direction": {"type": "Direction"}},
                         {"extend_mode": {"type": "ExtendMode"}},
-                        {"stops": {"type": "LinearColorStopVec"}}
+                        {"stops": {"type": "NormalizedLinearColorStopVec"}}
                     ]
                 },
                 "Shape": {
@@ -2721,7 +2721,7 @@
                         {"size": {"type": "RadialGradientSize"}},
                         {"position": {"type": "StyleBackgroundPosition"}},
                         {"extend_mode": {"type": "ExtendMode"}},
-                        {"stops": {"type": "LinearColorStopVec"}}
+                        {"stops": {"type": "NormalizedLinearColorStopVec"}}
                     ]
                 },
                 "ConicGradient": {
@@ -2730,7 +2730,7 @@
                         {"extend_mode": {"type": "ExtendMode"}},
                         {"center": {"type": "StyleBackgroundPosition"}},
                         {"angle": {"type": "AngleValue"}},
-                        {"stops": {"type": "RadialColorStopVec"}}
+                        {"stops": {"type": "NormalizedRadialColorStopVec"}}
                     ]
                 },
                 "StyleBackgroundContent": {
@@ -8227,26 +8227,26 @@
                         { "destructor": { "type": "StringPairVecDestructor" } }
                     ]
                 },
-                "LinearColorStopVec": {
-                    "doc": "Wrapper over a Rust-allocated `LinearColorStopVec`",
+                "NormalizedLinearColorStopVec": {
+                    "doc": "Wrapper over a Rust-allocated `NormalizedLinearColorStopVec`",
                     "custom_destructor": true,
-                    "external": "azul_impl::css::LinearColorStopVec",
+                    "external": "azul_impl::css::NormalizedLinearColorStopVec",
                     "struct_fields": [
-                        { "ptr": { "type": "*const LinearColorStop" } },
+                        { "ptr": { "type": "*const NormalizedLinearColorStop" } },
                         { "len": { "type": "usize" } },
                         { "cap": { "type": "usize" } },
-                        { "destructor": { "type": "LinearColorStopVecDestructor" } }
+                        { "destructor": { "type": "NormalizedLinearColorStopVecDestructor" } }
                     ]
                 },
-                "RadialColorStopVec": {
-                    "doc": "Wrapper over a Rust-allocated `RadialColorStopVec`",
+                "NormalizedRadialColorStopVec": {
+                    "doc": "Wrapper over a Rust-allocated `NormalizedRadialColorStopVec`",
                     "custom_destructor": true,
-                    "external": "azul_impl::css::RadialColorStopVec",
+                    "external": "azul_impl::css::NormalizedRadialColorStopVec",
                     "struct_fields": [
-                        { "ptr": { "type": "*const RadialColorStop" } },
+                        { "ptr": { "type": "*const NormalizedRadialColorStop" } },
                         { "len": { "type": "usize" } },
                         { "cap": { "type": "usize" } },
-                        { "destructor": { "type": "RadialColorStopVecDestructor" } }
+                        { "destructor": { "type": "NormalizedRadialColorStopVecDestructor" } }
                     ]
                 },
                 "NodeIdVec": {
@@ -8987,35 +8987,35 @@
                         ]
                     }
                 },
-                "LinearColorStopVecDestructor": {
-                    "external": "azul_impl::css::LinearColorStopVecDestructor",
+                "NormalizedLinearColorStopVecDestructor": {
+                    "external": "azul_impl::css::NormalizedLinearColorStopVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
                         {"NoDestructor": {}},
-                        {"External": {"type": "LinearColorStopVecDestructorType"}}
+                        {"External": {"type": "NormalizedLinearColorStopVecDestructorType"}}
                     ]
                 },
-                "LinearColorStopVecDestructorType": {
+                "NormalizedLinearColorStopVecDestructorType": {
                     "callback_typedef": {
                         "fn_args": [
-                            {"type": "LinearColorStopVec", "ref": "refmut"}
+                            {"type": "NormalizedLinearColorStopVec", "ref": "refmut"}
                         ]
                     }
                 },
-                "RadialColorStopVecDestructor": {
-                    "external": "azul_impl::css::RadialColorStopVecDestructor",
+                "NormalizedRadialColorStopVecDestructor": {
+                    "external": "azul_impl::css::NormalizedRadialColorStopVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
                         {"NoDestructor": {}},
-                        {"External": {"type": "RadialColorStopVecDestructorType"}}
+                        {"External": {"type": "NormalizedRadialColorStopVecDestructorType"}}
                     ]
                 },
-                "RadialColorStopVecDestructorType": {
+                "NormalizedRadialColorStopVecDestructorType": {
                     "callback_typedef": {
                         "fn_args": [
-                            {"type": "RadialColorStopVec", "ref": "refmut"}
+                            {"type": "NormalizedRadialColorStopVec", "ref": "refmut"}
                         ]
                     }
                 },

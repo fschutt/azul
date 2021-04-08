@@ -805,13 +805,13 @@ pub use AzAngleMetricTT as AzAngleMetric;
 pub type AzAngleValueTT = azul_impl::css::AngleValue;
 pub use AzAngleValueTT as AzAngleValue;
 
-/// Re-export of rust-allocated (stack based) `LinearColorStop` struct
-pub type AzLinearColorStopTT = azul_impl::css::LinearColorStop;
-pub use AzLinearColorStopTT as AzLinearColorStop;
+/// Re-export of rust-allocated (stack based) `NormalizedLinearColorStop` struct
+pub type AzNormalizedLinearColorStopTT = azul_impl::css::NormalizedLinearColorStop;
+pub use AzNormalizedLinearColorStopTT as AzNormalizedLinearColorStop;
 
-/// Re-export of rust-allocated (stack based) `RadialColorStop` struct
-pub type AzRadialColorStopTT = azul_impl::css::RadialColorStop;
-pub use AzRadialColorStopTT as AzRadialColorStop;
+/// Re-export of rust-allocated (stack based) `NormalizedRadialColorStop` struct
+pub type AzNormalizedRadialColorStopTT = azul_impl::css::NormalizedRadialColorStop;
+pub use AzNormalizedRadialColorStopTT as AzNormalizedRadialColorStop;
 
 /// Re-export of rust-allocated (stack based) `DirectionCorner` struct
 pub type AzDirectionCornerTT = azul_impl::css::DirectionCorner;
@@ -2695,17 +2695,17 @@ pub use AzStringPairVecTT as AzStringPairVec;
 /// Destructor: Takes ownership of the `StringPairVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzStringPairVec_delete(object: &mut AzStringPairVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Wrapper over a Rust-allocated `LinearColorStopVec`
-pub type AzLinearColorStopVecTT = azul_impl::css::LinearColorStopVec;
-pub use AzLinearColorStopVecTT as AzLinearColorStopVec;
-/// Destructor: Takes ownership of the `LinearColorStopVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzLinearColorStopVec_delete(object: &mut AzLinearColorStopVec) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Wrapper over a Rust-allocated `NormalizedLinearColorStopVec`
+pub type AzNormalizedLinearColorStopVecTT = azul_impl::css::NormalizedLinearColorStopVec;
+pub use AzNormalizedLinearColorStopVecTT as AzNormalizedLinearColorStopVec;
+/// Destructor: Takes ownership of the `NormalizedLinearColorStopVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNormalizedLinearColorStopVec_delete(object: &mut AzNormalizedLinearColorStopVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Wrapper over a Rust-allocated `RadialColorStopVec`
-pub type AzRadialColorStopVecTT = azul_impl::css::RadialColorStopVec;
-pub use AzRadialColorStopVecTT as AzRadialColorStopVec;
-/// Destructor: Takes ownership of the `RadialColorStopVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzRadialColorStopVec_delete(object: &mut AzRadialColorStopVec) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Wrapper over a Rust-allocated `NormalizedRadialColorStopVec`
+pub type AzNormalizedRadialColorStopVecTT = azul_impl::css::NormalizedRadialColorStopVec;
+pub use AzNormalizedRadialColorStopVecTT as AzNormalizedRadialColorStopVec;
+/// Destructor: Takes ownership of the `NormalizedRadialColorStopVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNormalizedRadialColorStopVec_delete(object: &mut AzNormalizedRadialColorStopVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `NodeIdVec`
 pub type AzNodeIdVecTT = azul_impl::styled_dom::NodeIdVec;
@@ -2953,16 +2953,16 @@ pub type AzStringPairVecDestructorTT = azul_impl::window::StringPairVecDestructo
 pub use AzStringPairVecDestructorTT as AzStringPairVecDestructor;
 
 pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
-/// Re-export of rust-allocated (stack based) `LinearColorStopVecDestructor` struct
-pub type AzLinearColorStopVecDestructorTT = azul_impl::css::LinearColorStopVecDestructor;
-pub use AzLinearColorStopVecDestructorTT as AzLinearColorStopVecDestructor;
+/// Re-export of rust-allocated (stack based) `NormalizedLinearColorStopVecDestructor` struct
+pub type AzNormalizedLinearColorStopVecDestructorTT = azul_impl::css::NormalizedLinearColorStopVecDestructor;
+pub use AzNormalizedLinearColorStopVecDestructorTT as AzNormalizedLinearColorStopVecDestructor;
 
-pub type AzLinearColorStopVecDestructorType = extern "C" fn(&mut AzLinearColorStopVec);
-/// Re-export of rust-allocated (stack based) `RadialColorStopVecDestructor` struct
-pub type AzRadialColorStopVecDestructorTT = azul_impl::css::RadialColorStopVecDestructor;
-pub use AzRadialColorStopVecDestructorTT as AzRadialColorStopVecDestructor;
+pub type AzNormalizedLinearColorStopVecDestructorType = extern "C" fn(&mut AzNormalizedLinearColorStopVec);
+/// Re-export of rust-allocated (stack based) `NormalizedRadialColorStopVecDestructor` struct
+pub type AzNormalizedRadialColorStopVecDestructorTT = azul_impl::css::NormalizedRadialColorStopVecDestructor;
+pub use AzNormalizedRadialColorStopVecDestructorTT as AzNormalizedRadialColorStopVecDestructor;
 
-pub type AzRadialColorStopVecDestructorType = extern "C" fn(&mut AzRadialColorStopVec);
+pub type AzNormalizedRadialColorStopVecDestructorType = extern "C" fn(&mut AzNormalizedRadialColorStopVec);
 /// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
 pub type AzNodeIdVecDestructorTT = azul_impl::styled_dom::NodeIdVecDestructor;
 pub use AzNodeIdVecDestructorTT as AzNodeIdVecDestructor;
@@ -4971,22 +4971,22 @@ mod test_sizes {
     }
     /// `AzStringPairVecDestructorType` struct
     pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
-    /// Re-export of rust-allocated (stack based) `LinearColorStopVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzLinearColorStopVecDestructor {
+    /// Re-export of rust-allocated (stack based) `NormalizedLinearColorStopVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzNormalizedLinearColorStopVecDestructor {
         DefaultRust,
         NoDestructor,
-        External(AzLinearColorStopVecDestructorType),
+        External(AzNormalizedLinearColorStopVecDestructorType),
     }
-    /// `AzLinearColorStopVecDestructorType` struct
-    pub type AzLinearColorStopVecDestructorType = extern "C" fn(&mut AzLinearColorStopVec);
-    /// Re-export of rust-allocated (stack based) `RadialColorStopVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzRadialColorStopVecDestructor {
+    /// `AzNormalizedLinearColorStopVecDestructorType` struct
+    pub type AzNormalizedLinearColorStopVecDestructorType = extern "C" fn(&mut AzNormalizedLinearColorStopVec);
+    /// Re-export of rust-allocated (stack based) `NormalizedRadialColorStopVecDestructor` struct
+    #[repr(C, u8)]     pub enum AzNormalizedRadialColorStopVecDestructor {
         DefaultRust,
         NoDestructor,
-        External(AzRadialColorStopVecDestructorType),
+        External(AzNormalizedRadialColorStopVecDestructorType),
     }
-    /// `AzRadialColorStopVecDestructorType` struct
-    pub type AzRadialColorStopVecDestructorType = extern "C" fn(&mut AzRadialColorStopVec);
+    /// `AzNormalizedRadialColorStopVecDestructorType` struct
+    pub type AzNormalizedRadialColorStopVecDestructorType = extern "C" fn(&mut AzNormalizedRadialColorStopVec);
     /// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
     #[repr(C, u8)]     pub enum AzNodeIdVecDestructor {
         DefaultRust,
@@ -5352,6 +5352,16 @@ mod test_sizes {
     #[repr(C)]     pub struct AzAngleValue {
         pub metric: AzAngleMetric,
         pub number: AzFloatValue,
+    }
+    /// Re-export of rust-allocated (stack based) `NormalizedLinearColorStop` struct
+    #[repr(C)]     pub struct AzNormalizedLinearColorStop {
+        pub offset: AzPercentageValue,
+        pub color: AzColorU,
+    }
+    /// Re-export of rust-allocated (stack based) `NormalizedRadialColorStop` struct
+    #[repr(C)]     pub struct AzNormalizedRadialColorStop {
+        pub offset: AzAngleValue,
+        pub color: AzColorU,
     }
     /// Re-export of rust-allocated (stack based) `DirectionCorners` struct
     #[repr(C)]     pub struct AzDirectionCorners {
@@ -6301,6 +6311,20 @@ mod test_sizes {
         pub cap: usize,
         pub destructor: AzGLintVecDestructor,
     }
+    /// Wrapper over a Rust-allocated `NormalizedLinearColorStopVec`
+    #[repr(C)]     pub struct AzNormalizedLinearColorStopVec {
+        pub(crate) ptr: *const AzNormalizedLinearColorStop,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNormalizedLinearColorStopVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `NormalizedRadialColorStopVec`
+    #[repr(C)]     pub struct AzNormalizedRadialColorStopVec {
+        pub(crate) ptr: *const AzNormalizedRadialColorStop,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNormalizedRadialColorStopVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `NodeIdVec`
     #[repr(C)]     pub struct AzNodeIdVec {
         pub(crate) ptr: *const AzNodeId,
@@ -6634,15 +6658,26 @@ mod test_sizes {
         pub current_rect_width: f32,
         pub current_rect_height: f32,
     }
-    /// Re-export of rust-allocated (stack based) `LinearColorStop` struct
-    #[repr(C)]     pub struct AzLinearColorStop {
-        pub offset: AzOptionPercentageValue,
-        pub color: AzColorU,
+    /// Re-export of rust-allocated (stack based) `LinearGradient` struct
+    #[repr(C)]     pub struct AzLinearGradient {
+        pub direction: AzDirection,
+        pub extend_mode: AzExtendMode,
+        pub stops: AzNormalizedLinearColorStopVec,
     }
-    /// Re-export of rust-allocated (stack based) `RadialColorStop` struct
-    #[repr(C)]     pub struct AzRadialColorStop {
-        pub offset: AzOptionAngleValue,
-        pub color: AzColorU,
+    /// Re-export of rust-allocated (stack based) `RadialGradient` struct
+    #[repr(C)]     pub struct AzRadialGradient {
+        pub shape: AzShape,
+        pub size: AzRadialGradientSize,
+        pub position: AzStyleBackgroundPosition,
+        pub extend_mode: AzExtendMode,
+        pub stops: AzNormalizedLinearColorStopVec,
+    }
+    /// Re-export of rust-allocated (stack based) `ConicGradient` struct
+    #[repr(C)]     pub struct AzConicGradient {
+        pub extend_mode: AzExtendMode,
+        pub center: AzStyleBackgroundPosition,
+        pub angle: AzAngleValue,
+        pub stops: AzNormalizedRadialColorStopVec,
     }
     /// Re-export of rust-allocated (stack based) `StyleTransform` struct
     #[repr(C, u8)]     pub enum AzStyleTransform {
@@ -6804,20 +6839,6 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStringVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `LinearColorStopVec`
-    #[repr(C)]     pub struct AzLinearColorStopVec {
-        pub(crate) ptr: *const AzLinearColorStop,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzLinearColorStopVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `RadialColorStopVec`
-    #[repr(C)]     pub struct AzRadialColorStopVec {
-        pub(crate) ptr: *const AzRadialColorStop,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzRadialColorStopVecDestructor,
     }
     /// Wrapper over a Rust-allocated `StyledNodeVec`
     #[repr(C)]     pub struct AzStyledNodeVec {
@@ -7010,27 +7031,6 @@ mod test_sizes {
         PseudoSelector(AzCssPathPseudoSelector),
         DirectChildren,
         Children,
-    }
-    /// Re-export of rust-allocated (stack based) `LinearGradient` struct
-    #[repr(C)]     pub struct AzLinearGradient {
-        pub direction: AzDirection,
-        pub extend_mode: AzExtendMode,
-        pub stops: AzLinearColorStopVec,
-    }
-    /// Re-export of rust-allocated (stack based) `RadialGradient` struct
-    #[repr(C)]     pub struct AzRadialGradient {
-        pub shape: AzShape,
-        pub size: AzRadialGradientSize,
-        pub position: AzStyleBackgroundPosition,
-        pub extend_mode: AzExtendMode,
-        pub stops: AzLinearColorStopVec,
-    }
-    /// Re-export of rust-allocated (stack based) `ConicGradient` struct
-    #[repr(C)]     pub struct AzConicGradient {
-        pub extend_mode: AzExtendMode,
-        pub center: AzStyleBackgroundPosition,
-        pub angle: AzAngleValue,
-        pub stops: AzRadialColorStopVec,
     }
     /// Re-export of rust-allocated (stack based) `StyleBackgroundContent` struct
     #[repr(C, u8)]     pub enum AzStyleBackgroundContent {
@@ -7941,8 +7941,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::GLintVecDestructor>(), "AzGLintVecDestructor"), (Layout::new::<AzGLintVecDestructor>(), "AzGLintVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::StringVecDestructor>(), "AzStringVecDestructor"), (Layout::new::<AzStringVecDestructor>(), "AzStringVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::window::StringPairVecDestructor>(), "AzStringPairVecDestructor"), (Layout::new::<AzStringPairVecDestructor>(), "AzStringPairVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::LinearColorStopVecDestructor>(), "AzLinearColorStopVecDestructor"), (Layout::new::<AzLinearColorStopVecDestructor>(), "AzLinearColorStopVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::css::RadialColorStopVecDestructor>(), "AzRadialColorStopVecDestructor"), (Layout::new::<AzRadialColorStopVecDestructor>(), "AzRadialColorStopVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::NormalizedLinearColorStopVecDestructor>(), "AzNormalizedLinearColorStopVecDestructor"), (Layout::new::<AzNormalizedLinearColorStopVecDestructor>(), "AzNormalizedLinearColorStopVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::NormalizedRadialColorStopVecDestructor>(), "AzNormalizedRadialColorStopVecDestructor"), (Layout::new::<AzNormalizedRadialColorStopVecDestructor>(), "AzNormalizedRadialColorStopVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVecDestructor>(), "AzNodeIdVecDestructor"), (Layout::new::<AzNodeIdVecDestructor>(), "AzNodeIdVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVecDestructor>(), "AzNodeVecDestructor"), (Layout::new::<AzNodeVecDestructor>(), "AzNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVecDestructor>(), "AzStyledNodeVecDestructor"), (Layout::new::<AzStyledNodeVecDestructor>(), "AzStyledNodeVecDestructor"));
@@ -8009,6 +8009,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::LayoutWidth>(), "AzLayoutWidth"), (Layout::new::<AzLayoutWidth>(), "AzLayoutWidth"));
         assert_eq!((Layout::new::<azul_impl::css::PercentageValue>(), "AzPercentageValue"), (Layout::new::<AzPercentageValue>(), "AzPercentageValue"));
         assert_eq!((Layout::new::<azul_impl::css::AngleValue>(), "AzAngleValue"), (Layout::new::<AzAngleValue>(), "AzAngleValue"));
+        assert_eq!((Layout::new::<azul_impl::css::NormalizedLinearColorStop>(), "AzNormalizedLinearColorStop"), (Layout::new::<AzNormalizedLinearColorStop>(), "AzNormalizedLinearColorStop"));
+        assert_eq!((Layout::new::<azul_impl::css::NormalizedRadialColorStop>(), "AzNormalizedRadialColorStop"), (Layout::new::<AzNormalizedRadialColorStop>(), "AzNormalizedRadialColorStop"));
         assert_eq!((Layout::new::<azul_impl::css::DirectionCorners>(), "AzDirectionCorners"), (Layout::new::<AzDirectionCorners>(), "AzDirectionCorners"));
         assert_eq!((Layout::new::<azul_impl::css::Direction>(), "AzDirection"), (Layout::new::<AzDirection>(), "AzDirection"));
         assert_eq!((Layout::new::<azul_impl::css::BackgroundPositionHorizontal>(), "AzBackgroundPositionHorizontal"), (Layout::new::<AzBackgroundPositionHorizontal>(), "AzBackgroundPositionHorizontal"));
@@ -8140,6 +8142,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::U8Vec>(), "AzU8Vec"), (Layout::new::<AzU8Vec>(), "AzU8Vec"));
         assert_eq!((Layout::new::<azul_impl::gl::GLuintVec>(), "AzGLuintVec"), (Layout::new::<AzGLuintVec>(), "AzGLuintVec"));
         assert_eq!((Layout::new::<azul_impl::gl::GLintVec>(), "AzGLintVec"), (Layout::new::<AzGLintVec>(), "AzGLintVec"));
+        assert_eq!((Layout::new::<azul_impl::css::NormalizedLinearColorStopVec>(), "AzNormalizedLinearColorStopVec"), (Layout::new::<AzNormalizedLinearColorStopVec>(), "AzNormalizedLinearColorStopVec"));
+        assert_eq!((Layout::new::<azul_impl::css::NormalizedRadialColorStopVec>(), "AzNormalizedRadialColorStopVec"), (Layout::new::<AzNormalizedRadialColorStopVec>(), "AzNormalizedRadialColorStopVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
@@ -8195,8 +8199,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::CssPathPseudoSelector>(), "AzCssPathPseudoSelector"), (Layout::new::<AzCssPathPseudoSelector>(), "AzCssPathPseudoSelector"));
         assert_eq!((Layout::new::<azul_impl::css::AnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"), (Layout::new::<AzAnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"));
         assert_eq!((Layout::new::<azul_impl::css::InterpolateResolver>(), "AzInterpolateContext"), (Layout::new::<AzInterpolateContext>(), "AzInterpolateContext"));
-        assert_eq!((Layout::new::<azul_impl::css::LinearColorStop>(), "AzLinearColorStop"), (Layout::new::<AzLinearColorStop>(), "AzLinearColorStop"));
-        assert_eq!((Layout::new::<azul_impl::css::RadialColorStop>(), "AzRadialColorStop"), (Layout::new::<AzRadialColorStop>(), "AzRadialColorStop"));
+        assert_eq!((Layout::new::<azul_impl::css::LinearGradient>(), "AzLinearGradient"), (Layout::new::<AzLinearGradient>(), "AzLinearGradient"));
+        assert_eq!((Layout::new::<azul_impl::css::RadialGradient>(), "AzRadialGradient"), (Layout::new::<AzRadialGradient>(), "AzRadialGradient"));
+        assert_eq!((Layout::new::<azul_impl::css::ConicGradient>(), "AzConicGradient"), (Layout::new::<AzConicGradient>(), "AzConicGradient"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTransform>(), "AzStyleTransform"), (Layout::new::<AzStyleTransform>(), "AzStyleTransform"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBackgroundPositionVec>>(), "AzStyleBackgroundPositionVecValue"), (Layout::new::<AzStyleBackgroundPositionVecValue>(), "AzStyleBackgroundPositionVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleBackgroundRepeatVec>>(), "AzStyleBackgroundRepeatVecValue"), (Layout::new::<AzStyleBackgroundRepeatVecValue>(), "AzStyleBackgroundRepeatVecValue"));
@@ -8219,8 +8224,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformVec>(), "AzStyleTransformVec"), (Layout::new::<AzStyleTransformVec>(), "AzStyleTransformVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVec>(), "AzSvgPathElementVec"), (Layout::new::<AzSvgPathElementVec>(), "AzSvgPathElementVec"));
         assert_eq!((Layout::new::<azul_impl::css::StringVec>(), "AzStringVec"), (Layout::new::<AzStringVec>(), "AzStringVec"));
-        assert_eq!((Layout::new::<azul_impl::css::LinearColorStopVec>(), "AzLinearColorStopVec"), (Layout::new::<AzLinearColorStopVec>(), "AzLinearColorStopVec"));
-        assert_eq!((Layout::new::<azul_impl::css::RadialColorStopVec>(), "AzRadialColorStopVec"), (Layout::new::<AzRadialColorStopVec>(), "AzRadialColorStopVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVec>(), "AzStyledNodeVec"), (Layout::new::<AzStyledNodeVec>(), "AzStyledNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"), (Layout::new::<AzTagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"));
         assert_eq!((Layout::new::<azul_impl::css::OptionStringVec>(), "AzOptionStringVec"), (Layout::new::<AzOptionStringVec>(), "AzOptionStringVec"));
@@ -8246,9 +8249,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::NodeType>(), "AzNodeType"), (Layout::new::<AzNodeType>(), "AzNodeType"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClass>(), "AzIdOrClass"), (Layout::new::<AzIdOrClass>(), "AzIdOrClass"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathSelector>(), "AzCssPathSelector"), (Layout::new::<AzCssPathSelector>(), "AzCssPathSelector"));
-        assert_eq!((Layout::new::<azul_impl::css::LinearGradient>(), "AzLinearGradient"), (Layout::new::<AzLinearGradient>(), "AzLinearGradient"));
-        assert_eq!((Layout::new::<azul_impl::css::RadialGradient>(), "AzRadialGradient"), (Layout::new::<AzRadialGradient>(), "AzRadialGradient"));
-        assert_eq!((Layout::new::<azul_impl::css::ConicGradient>(), "AzConicGradient"), (Layout::new::<AzConicGradient>(), "AzConicGradient"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContent>(), "AzStyleBackgroundContent"), (Layout::new::<AzStyleBackgroundContent>(), "AzStyleBackgroundContent"));
         assert_eq!((Layout::new::<azul_impl::css::ScrollbarInfo>(), "AzScrollbarInfo"), (Layout::new::<AzScrollbarInfo>(), "AzScrollbarInfo"));
         assert_eq!((Layout::new::<azul_impl::css::ScrollbarStyle>(), "AzScrollbarStyle"), (Layout::new::<AzScrollbarStyle>(), "AzScrollbarStyle"));

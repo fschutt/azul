@@ -1742,14 +1742,14 @@ mod background {
         offset_info.clip_rect.origin.x += offset.x;
         offset_info.clip_rect.origin.y += offset.y;
 
-        let radial_gradient_normalized = conic_gradient.stops.get_normalized_radial_stops();
-
-        let stops: Vec<WrGradientStop> = radial_gradient_normalized.iter().map(|gradient_pre|
+        let stops: Vec<WrGradientStop> = conic_gradient.stops.iter().map(|gradient_pre|
             WrGradientStop {
                 offset: gradient_pre.angle.to_degrees(),
                 color: wr_translate_color_u(gradient_pre.color).into(),
             }
         ).collect();
+
+        if stops.len() < 2 { return; }
 
         let center = calculate_background_position(width, height, conic_gradient.center, background_size);
         let center = WrLayoutPoint::new(center.x, center.y);
@@ -1794,14 +1794,15 @@ mod background {
 
         let center = calculate_background_position(width, height, radial_gradient.position, background_size);
         let center = WrLayoutPoint::new(center.x, center.y);
-        let linear_gradient_normalized = radial_gradient.stops.get_normalized_linear_stops();
 
-        let stops: Vec<WrGradientStop> = linear_gradient_normalized.iter().map(|gradient_pre|
+        let stops: Vec<WrGradientStop> = radial_gradient.stops.iter().map(|gradient_pre|
             WrGradientStop {
                 offset: gradient_pre.offset.get() / 100.0,
                 color: wr_translate_color_u(gradient_pre.color).into(),
             }
         ).collect();
+
+        if stops.len() < 2 { return; }
 
         // Note: division by 2.0 because it's the radius, not the diameter
         let radius = match radial_gradient.shape {
@@ -1845,14 +1846,14 @@ mod background {
         offset_info.clip_rect.origin.x += offset.x;
         offset_info.clip_rect.origin.y += offset.y;
 
-        let linear_gradient_normalized = linear_gradient.stops.get_normalized_linear_stops();
-
-        let stops: Vec<WrGradientStop> = linear_gradient_normalized.iter().map(|gradient_pre|
+        let stops: Vec<WrGradientStop> = linear_gradient.stops.iter().map(|gradient_pre|
             WrGradientStop {
                 offset: gradient_pre.offset.get() / 100.0,
                 color: wr_translate_color_u(gradient_pre.color).into(),
             }
         ).collect();
+
+        if stops.len() < 2 { return; }
 
         let (begin_pt, end_pt) = linear_gradient.direction.to_points(&wr_translate_css_layout_rect(offset_info.clip_rect));
         let gradient = builder.create_gradient(

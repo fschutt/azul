@@ -562,13 +562,9 @@ impl PrintAsCssValue for LinearGradient {
     }
 }
 
-impl PrintAsCssValue for LinearColorStop {
+impl PrintAsCssValue for NormalizedLinearColorStop {
     fn print_as_css_value(&self) -> String {
-        let offset = match self.offset.as_ref() {
-            None => String::new(),
-            Some(s) => format!("{} ", s),
-        };
-        format!("{}{}", offset, self.color.to_hash())
+        format!("{}{}", self.offset, self.color.to_hash())
     }
 }
 
@@ -620,13 +616,9 @@ impl PrintAsCssValue for StyleBackgroundSize {
     }
 }
 
-impl PrintAsCssValue for RadialColorStop {
+impl PrintAsCssValue for NormalizedRadialColorStop {
     fn print_as_css_value(&self) -> String {
-        let offset = match self.offset.as_ref() {
-            None => String::new(),
-            Some(s) => format!("{} ", s),
-        };
-        format!("{}{}", offset, self.color.to_hash())
+        format!("{}{}", self.angle, self.color.to_hash())
     }
 }
 

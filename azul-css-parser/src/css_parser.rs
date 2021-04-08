@@ -14,7 +14,7 @@ use azul_css::{
     StyleBoxShadow, StyleBorderSide, BorderStyle,
     SizeMetric, BoxShadowClipMode, ExtendMode, OptionPercentageValue,
     BackgroundPositionHorizontal, BackgroundPositionVertical, ScrollbarStyle,
-    RadialGradientSize, AzString,
+    RadialGradientSize, AzString, NormalizedLinearColorStop, NormalizedRadialColorStop,
 
     StyleTextColor, StyleFontSize, StyleFontFamily, StyleTextAlignmentHorz,
     StyleLetterSpacing, StyleLineHeight, StyleWordSpacing, StyleTabWidth,
@@ -409,6 +409,16 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
                 CssPropertyType::BoxShadowBottom,
             ]
         },
+        BackgroundColor => {
+            vec![
+                CssPropertyType::BackgroundContent,
+            ]
+        },
+        BackgroundImage => {
+            vec![
+                CssPropertyType::BackgroundContent,
+            ]
+        }
     };
 
     match value {
@@ -512,6 +522,20 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
                CssProperty::BoxShadowBottom(CssPropertyValue::Exact(box_shadow)),
             ])
         },
+        BackgroundColor => {
+            let color = parse_css_color(value)?;
+            let vec: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
+            Ok(vec![
+               CssProperty::BackgroundContent(vec.into()),
+            ])
+        },
+        BackgroundImage => {
+            let background_content = parse_style_background_content(value)?;
+            let vec: StyleBackgroundContentVec = vec![background_content].into();
+            Ok(vec![
+                CssProperty::BackgroundContent(vec.into()),
+            ])
+        }
     }
 }
 
@@ -2264,7 +2288,7 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
         while let Some(next_brace_item) = brace_iterator.next() {
             linear_gradient_stops.push(parse_linear_color_stop(next_brace_item)?);
         }
-        linear_gradient.stops = linear_gradient_stops.into();
+        linear_gradient.stops = LinearColorStop::get_normalized_linear_stops(&linear_gradient_stops).into();
         Ok(StyleBackgroundContent::LinearGradient(linear_gradient))
     } else if is_radial_gradient {
         let mut radial_gradient = RadialGradient::default();
@@ -2278,7 +2302,7 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
         while let Some(next_brace_item) = brace_iterator.next() {
             radial_gradient_stops.push(parse_linear_color_stop(next_brace_item)?);
         }
-        radial_gradient.stops = radial_gradient_stops.into();
+        radial_gradient.stops = LinearColorStop::get_normalized_linear_stops(&radial_gradient_stops).into();
         Ok(StyleBackgroundContent::RadialGradient(radial_gradient))
     } else /* if is_conic_gradient */ {
         let mut conic_gradient = ConicGradient::default();
@@ -2293,7 +2317,7 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
         while let Some(next_brace_item) = brace_iterator.next() {
             conic_gradient_stops.push(parse_radial_color_stop(next_brace_item)?);
         }
-        conic_gradient.stops = conic_gradient_stops.into();
+        conic_gradient.stops = RadialColorStop::get_normalized_radial_stops(&conic_gradient_stops).into();
         Ok(StyleBackgroundContent::ConicGradient(conic_gradient))
     }
 }
@@ -2571,8 +2595,8 @@ pub fn parse_angle_value<'a>(input: &'a str)
     let match_values = &[
         ("deg", AngleMetric::Degree),
         ("turn", AngleMetric::Turn),
-        ("rad", AngleMetric::Radians),
         ("grad", AngleMetric::Grad),
+        ("rad", AngleMetric::Radians),
         ("%", AngleMetric::Percent),
     ];
 
@@ -3244,12 +3268,12 @@ mod css_tests {
                 }),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(0.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(0.0),
                         color: ColorU { r: 255, g: 0, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(100.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 255, g: 255, b: 0, a: 255 },
                     }
                 ].into(),
@@ -3266,20 +3290,20 @@ mod css_tests {
                 }),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(0.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(0.0),
                         color: ColorU { r: 255, g: 0, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(33.333332)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(33.333332),
                         color: ColorU { r: 0, g: 255, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(66.666664)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(66.666664),
                         color: ColorU { r: 0, g: 0, b: 255, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(99.9999)).into(), // note: not 100%, but close enough
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 255, g: 255, b: 0, a: 255 },
                     }
                 ].into(),
@@ -3293,16 +3317,16 @@ mod css_tests {
                 direction: Direction::Angle(AngleValue::deg(50.0)),
                 extend_mode: ExtendMode::Repeat,
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(0.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(0.0),
                         color: ColorU { r: 0, g: 0, b: 255, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(50.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(50.0),
                         color: ColorU { r: 255, g: 255, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(100.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 0, g: 255, b: 0, a: 255 },
                     }
                 ].into(),
@@ -3319,12 +3343,12 @@ mod css_tests {
                 }),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(0.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(0.0),
                         color: ColorU { r: 255, g: 0, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(100.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 255, g: 255, b: 0, a: 255 },
                     }
                 ].into(),
@@ -3339,12 +3363,12 @@ mod css_tests {
                 direction: Direction::Angle(AngleValue::rad(0.42)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(0.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(0.0),
                         color: ColorU { r: 255, g: 0, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(100.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 255, g: 255, b: 0, a: 255 },
                     }
                 ].into(),
@@ -3358,12 +3382,12 @@ mod css_tests {
                 direction: Direction::Angle(AngleValue::grad(12.93)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(0.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(0.0),
                         color: ColorU { r: 255, g: 0, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(100.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 255, g: 255, b: 0, a: 255 },
                     }
                 ].into(),
@@ -3380,12 +3404,12 @@ mod css_tests {
                 }),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(0.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(0.0),
                         color: ColorU { r: 255, g: 0, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(100.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 0, g: 0, b: 0, a: 0 },
                     }
                 ].into(),
@@ -3403,12 +3427,12 @@ mod css_tests {
                 }),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(0.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(0.0),
                         color: ColorU { r: 255, g: 0, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(100.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 0, g: 0, b: 0, a: 255 },
                     }
                 ].into(),
@@ -3423,12 +3447,12 @@ mod css_tests {
                 direction: Direction::Angle(AngleValue::deg(10.0)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(0.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(0.0),
                         color: ColorU { r: 10, g: 30, b: 20, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(100.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 255, g: 255, b: 0, a: 255 },
                     }
                 ].into(),
@@ -3442,12 +3466,12 @@ mod css_tests {
                 direction: Direction::Angle(AngleValue::deg(50.0)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(0.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(0.0),
                         color: ColorU { r: 10, g: 30, b: 20, a: 238 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(100.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 138, g: 97, b: 15, a: 25 },
                     }
                 ].into(),
@@ -3465,16 +3489,16 @@ mod css_tests {
                 }),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(0.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(0.0),
                         color: ColorU { r: 255, g: 0, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(10.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(10.0),
                         color: ColorU { r: 0, g: 255, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(100.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 0, g: 0, b: 255, a: 255 },
                     }
                 ].into(),
@@ -3494,16 +3518,16 @@ mod css_tests {
                     vertical: BackgroundPositionVertical::Top,
                 },
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(0.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(0.0),
                         color: ColorU { r: 0, g: 255, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(50.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(50.0),
                         color: ColorU { r: 0, g: 0, b: 255, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(100.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 255, g: 255, b: 0, a: 255 },
                     }
                 ].into(),
@@ -3523,20 +3547,20 @@ mod css_tests {
                     vertical: BackgroundPositionVertical::Top,
                 },
                 stops: vec![
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(10.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(10.0),
                         color: ColorU { r: 255, g: 0, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(50.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(50.0),
                         color: ColorU { r: 0, g: 0, b: 255, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(75.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(75.0),
                         color: ColorU { r: 0, g: 255, b: 0, a: 255 },
                     },
-                    LinearColorStop {
-                        offset: Some(PercentageValue::new(100.0)).into(),
+                    NormalizedLinearColorStop {
+                        offset: PercentageValue::new(100.0),
                         color: ColorU { r: 255, g: 255, b: 0, a: 255 },
                     }
                 ].into(),
@@ -3809,35 +3833,32 @@ mod css_tests {
     fn test_parse_style_font_family_1() {
         use azul_css::{AzString, StringVec};
         use crate::alloc::string::ToString;
-        let fonts0: Vec<AzString> = vec![
-            "Webly Sleeky UI".to_string().into(),
-            "monospace".to_string().into(),
+        let fonts0: Vec<StyleFontFamily> = vec![
+            StyleFontFamily::Native("Webly Sleeky UI".to_string().into()),
+            StyleFontFamily::Native("monospace".to_string().into()),
         ];
-        let fonts0: StringVec = fonts0.into();
-        assert_eq!(parse_style_font_family("\"Webly Sleeky UI\", monospace"), Ok(StyleFontFamily {
-            fonts: fonts0,
-        }));
+        let fonts0: StyleFontFamilyVec = fonts0.into();
+        assert_eq!(parse_style_font_family("\"Webly Sleeky UI\", monospace"), Ok(fonts0));
     }
 
     #[test]
     fn test_parse_style_font_family_2() {
         use azul_css::{AzString, StringVec};
         use crate::alloc::string::ToString;
-        let fonts0: Vec<AzString> = vec![
-            "Webly Sleeky UI".to_string().into(),
+        let fonts0: Vec<StyleFontFamily> = vec![
+            StyleFontFamily::Native("Webly Sleeky UI".to_string().into()),
         ];
-        let fonts0: StringVec = fonts0.into();
-        assert_eq!(parse_style_font_family("'Webly Sleeky UI'"), Ok(StyleFontFamily {
-            fonts: fonts0,
-        }));
+        let fonts0: StyleFontFamilyVec = fonts0.into();
+        assert_eq!(parse_style_font_family("'Webly Sleeky UI'"), Ok(fonts0));
     }
 
     #[test]
     fn test_parse_background_image() {
         use crate::alloc::string::ToString;
-        assert_eq!(parse_style_background_content("image(\"Cat 01\")"), Ok(StyleBackgroundContent::Image(
-            CssImageId { inner: "Cat 01".to_string().into() }
-        )));
+        assert_eq!(
+            parse_style_background_content("image(\"Cat 01\")"),
+            Ok(StyleBackgroundContent::Image("Cat 01".to_string().into()))
+        );
     }
 
     #[test]

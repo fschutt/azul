@@ -2185,22 +2185,22 @@ mod dll {
     }
     /// `AzStringPairVecDestructorType` struct
     pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
-    /// Re-export of rust-allocated (stack based) `LinearColorStopVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzLinearColorStopVecDestructor {
+    /// Re-export of rust-allocated (stack based) `NormalizedLinearColorStopVecDestructor` struct
+    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzNormalizedLinearColorStopVecDestructor {
         DefaultRust,
         NoDestructor,
-        External(AzLinearColorStopVecDestructorType),
+        External(AzNormalizedLinearColorStopVecDestructorType),
     }
-    /// `AzLinearColorStopVecDestructorType` struct
-    pub type AzLinearColorStopVecDestructorType = extern "C" fn(&mut AzLinearColorStopVec);
-    /// Re-export of rust-allocated (stack based) `RadialColorStopVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzRadialColorStopVecDestructor {
+    /// `AzNormalizedLinearColorStopVecDestructorType` struct
+    pub type AzNormalizedLinearColorStopVecDestructorType = extern "C" fn(&mut AzNormalizedLinearColorStopVec);
+    /// Re-export of rust-allocated (stack based) `NormalizedRadialColorStopVecDestructor` struct
+    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzNormalizedRadialColorStopVecDestructor {
         DefaultRust,
         NoDestructor,
-        External(AzRadialColorStopVecDestructorType),
+        External(AzNormalizedRadialColorStopVecDestructorType),
     }
-    /// `AzRadialColorStopVecDestructorType` struct
-    pub type AzRadialColorStopVecDestructorType = extern "C" fn(&mut AzRadialColorStopVec);
+    /// `AzNormalizedRadialColorStopVecDestructorType` struct
+    pub type AzNormalizedRadialColorStopVecDestructorType = extern "C" fn(&mut AzNormalizedRadialColorStopVec);
     /// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
     #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzNodeIdVecDestructor {
         DefaultRust,
@@ -2566,6 +2566,16 @@ mod dll {
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzAngleValue {
         pub metric: AzAngleMetric,
         pub number: AzFloatValue,
+    }
+    /// Re-export of rust-allocated (stack based) `NormalizedLinearColorStop` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzNormalizedLinearColorStop {
+        pub offset: AzPercentageValue,
+        pub color: AzColorU,
+    }
+    /// Re-export of rust-allocated (stack based) `NormalizedRadialColorStop` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzNormalizedRadialColorStop {
+        pub offset: AzAngleValue,
+        pub color: AzColorU,
     }
     /// Re-export of rust-allocated (stack based) `DirectionCorners` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzDirectionCorners {
@@ -3515,6 +3525,20 @@ mod dll {
         pub cap: usize,
         pub destructor: AzGLintVecDestructor,
     }
+    /// Wrapper over a Rust-allocated `NormalizedLinearColorStopVec`
+    #[repr(C)]     pub struct AzNormalizedLinearColorStopVec {
+        pub(crate) ptr: *const AzNormalizedLinearColorStop,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNormalizedLinearColorStopVecDestructor,
+    }
+    /// Wrapper over a Rust-allocated `NormalizedRadialColorStopVec`
+    #[repr(C)]     pub struct AzNormalizedRadialColorStopVec {
+        pub(crate) ptr: *const AzNormalizedRadialColorStop,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNormalizedRadialColorStopVecDestructor,
+    }
     /// Wrapper over a Rust-allocated `NodeIdVec`
     #[repr(C)]     pub struct AzNodeIdVec {
         pub(crate) ptr: *const AzNodeId,
@@ -3848,15 +3872,26 @@ mod dll {
         pub current_rect_width: f32,
         pub current_rect_height: f32,
     }
-    /// Re-export of rust-allocated (stack based) `LinearColorStop` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLinearColorStop {
-        pub offset: AzOptionPercentageValue,
-        pub color: AzColorU,
+    /// Re-export of rust-allocated (stack based) `LinearGradient` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzLinearGradient {
+        pub direction: AzDirection,
+        pub extend_mode: AzExtendMode,
+        pub stops: AzNormalizedLinearColorStopVec,
     }
-    /// Re-export of rust-allocated (stack based) `RadialColorStop` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzRadialColorStop {
-        pub offset: AzOptionAngleValue,
-        pub color: AzColorU,
+    /// Re-export of rust-allocated (stack based) `RadialGradient` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzRadialGradient {
+        pub shape: AzShape,
+        pub size: AzRadialGradientSize,
+        pub position: AzStyleBackgroundPosition,
+        pub extend_mode: AzExtendMode,
+        pub stops: AzNormalizedLinearColorStopVec,
+    }
+    /// Re-export of rust-allocated (stack based) `ConicGradient` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzConicGradient {
+        pub extend_mode: AzExtendMode,
+        pub center: AzStyleBackgroundPosition,
+        pub angle: AzAngleValue,
+        pub stops: AzNormalizedRadialColorStopVec,
     }
     /// Re-export of rust-allocated (stack based) `StyleTransform` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleTransform {
@@ -4018,20 +4053,6 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStringVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `LinearColorStopVec`
-    #[repr(C)]     pub struct AzLinearColorStopVec {
-        pub(crate) ptr: *const AzLinearColorStop,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzLinearColorStopVecDestructor,
-    }
-    /// Wrapper over a Rust-allocated `RadialColorStopVec`
-    #[repr(C)]     pub struct AzRadialColorStopVec {
-        pub(crate) ptr: *const AzRadialColorStop,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzRadialColorStopVecDestructor,
     }
     /// Wrapper over a Rust-allocated `StyledNodeVec`
     #[repr(C)]     pub struct AzStyledNodeVec {
@@ -4224,27 +4245,6 @@ mod dll {
         PseudoSelector(AzCssPathPseudoSelector),
         DirectChildren,
         Children,
-    }
-    /// Re-export of rust-allocated (stack based) `LinearGradient` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzLinearGradient {
-        pub direction: AzDirection,
-        pub extend_mode: AzExtendMode,
-        pub stops: AzLinearColorStopVec,
-    }
-    /// Re-export of rust-allocated (stack based) `RadialGradient` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzRadialGradient {
-        pub shape: AzShape,
-        pub size: AzRadialGradientSize,
-        pub position: AzStyleBackgroundPosition,
-        pub extend_mode: AzExtendMode,
-        pub stops: AzLinearColorStopVec,
-    }
-    /// Re-export of rust-allocated (stack based) `ConicGradient` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzConicGradient {
-        pub extend_mode: AzExtendMode,
-        pub center: AzStyleBackgroundPosition,
-        pub angle: AzAngleValue,
-        pub stops: AzRadialColorStopVec,
     }
     /// Re-export of rust-allocated (stack based) `StyleBackgroundContent` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleBackgroundContent {
@@ -5417,8 +5417,8 @@ mod dll {
         pub(crate) fn AzGLintVec_delete(_:  &mut AzGLintVec);
         pub(crate) fn AzStringVec_delete(_:  &mut AzStringVec);
         pub(crate) fn AzStringPairVec_delete(_:  &mut AzStringPairVec);
-        pub(crate) fn AzLinearColorStopVec_delete(_:  &mut AzLinearColorStopVec);
-        pub(crate) fn AzRadialColorStopVec_delete(_:  &mut AzRadialColorStopVec);
+        pub(crate) fn AzNormalizedLinearColorStopVec_delete(_:  &mut AzNormalizedLinearColorStopVec);
+        pub(crate) fn AzNormalizedRadialColorStopVec_delete(_:  &mut AzNormalizedRadialColorStopVec);
         pub(crate) fn AzNodeIdVec_delete(_:  &mut AzNodeIdVec);
         pub(crate) fn AzNodeVec_delete(_:  &mut AzNodeVec);
         pub(crate) fn AzStyledNodeVec_delete(_:  &mut AzStyledNodeVec);
@@ -7336,12 +7336,12 @@ pub mod css {
     /// `AngleValue` struct
     
 #[doc(inline)] pub use crate::dll::AzAngleValue as AngleValue;
-    /// `LinearColorStop` struct
+    /// `NormalizedLinearColorStop` struct
     
-#[doc(inline)] pub use crate::dll::AzLinearColorStop as LinearColorStop;
-    /// `RadialColorStop` struct
+#[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStop as NormalizedLinearColorStop;
+    /// `NormalizedRadialColorStop` struct
     
-#[doc(inline)] pub use crate::dll::AzRadialColorStop as RadialColorStop;
+#[doc(inline)] pub use crate::dll::AzNormalizedRadialColorStop as NormalizedRadialColorStop;
     /// `DirectionCorner` struct
     
 #[doc(inline)] pub use crate::dll::AzDirectionCorner as DirectionCorner;
@@ -11092,12 +11092,12 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `StringPairVec`
     
 #[doc(inline)] pub use crate::dll::AzStringPairVec as StringPairVec;
-    /// Wrapper over a Rust-allocated `LinearColorStopVec`
+    /// Wrapper over a Rust-allocated `NormalizedLinearColorStopVec`
     
-#[doc(inline)] pub use crate::dll::AzLinearColorStopVec as LinearColorStopVec;
-    /// Wrapper over a Rust-allocated `RadialColorStopVec`
+#[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStopVec as NormalizedLinearColorStopVec;
+    /// Wrapper over a Rust-allocated `NormalizedRadialColorStopVec`
     
-#[doc(inline)] pub use crate::dll::AzRadialColorStopVec as RadialColorStopVec;
+#[doc(inline)] pub use crate::dll::AzNormalizedRadialColorStopVec as NormalizedRadialColorStopVec;
     /// Wrapper over a Rust-allocated `NodeIdVec`
     
 #[doc(inline)] pub use crate::dll::AzNodeIdVec as NodeIdVec;
@@ -11368,18 +11368,18 @@ pub mod vec {
     /// `StringPairVecDestructorType` struct
     
 #[doc(inline)] pub use crate::dll::AzStringPairVecDestructorType as StringPairVecDestructorType;
-    /// `LinearColorStopVecDestructor` struct
+    /// `NormalizedLinearColorStopVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzLinearColorStopVecDestructor as LinearColorStopVecDestructor;
-    /// `LinearColorStopVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStopVecDestructor as NormalizedLinearColorStopVecDestructor;
+    /// `NormalizedLinearColorStopVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzLinearColorStopVecDestructorType as LinearColorStopVecDestructorType;
-    /// `RadialColorStopVecDestructor` struct
+#[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStopVecDestructorType as NormalizedLinearColorStopVecDestructorType;
+    /// `NormalizedRadialColorStopVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzRadialColorStopVecDestructor as RadialColorStopVecDestructor;
-    /// `RadialColorStopVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzNormalizedRadialColorStopVecDestructor as NormalizedRadialColorStopVecDestructor;
+    /// `NormalizedRadialColorStopVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzRadialColorStopVecDestructorType as RadialColorStopVecDestructorType;
+#[doc(inline)] pub use crate::dll::AzNormalizedRadialColorStopVecDestructorType as NormalizedRadialColorStopVecDestructorType;
     /// `NodeIdVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzNodeIdVecDestructor as NodeIdVecDestructor;

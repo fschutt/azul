@@ -19,7 +19,7 @@ use crate::{
 pub const EM_HEIGHT: f32 = 16.0;
 pub const PT_TO_PX: f32 = 96.0 / 72.0;
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);10] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);12] = [
     (CombinedCssPropertyType::BorderRadius,         "border-radius"),
     (CombinedCssPropertyType::Overflow,             "overflow"),
     (CombinedCssPropertyType::Padding,              "padding"),
@@ -30,6 +30,8 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::BorderTop,            "border-top"),
     (CombinedCssPropertyType::BorderBottom,         "border-bottom"),
     (CombinedCssPropertyType::BoxShadow,            "box-shadow"),
+    (CombinedCssPropertyType::BackgroundColor,      "background-color"),
+    (CombinedCssPropertyType::BackgroundImage,      "background-image"),
 ];
 
 /// Map between CSS keys and a statically typed enum
@@ -668,6 +670,8 @@ pub enum CombinedCssPropertyType {
     BorderBottom,
     Padding,
     BoxShadow,
+    BackgroundColor, // BackgroundContent::Colo
+    BackgroundImage, // BackgroundContent::Colo
 }
 
 impl fmt::Display for CombinedCssPropertyType {
@@ -2636,100 +2640,102 @@ impl<'a> From<AzString> for StyleBackgroundContent {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LinearGradient {
     pub direction: Direction,
     pub extend_mode: ExtendMode,
-    pub stops: LinearColorStopVec,
+    pub stops: NormalizedLinearColorStopVec,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl Default for LinearGradient {
+    fn default() -> Self {
+        Self {
+            direction: Direction::default(),
+            extend_mode: ExtendMode::default(),
+            stops: Vec::new().into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ConicGradient {
     pub extend_mode: ExtendMode, // default = clamp (no-repeat)
     pub center: StyleBackgroundPosition, // default = center center
     pub angle: AngleValue, // default = 0deg
-    pub stops: RadialColorStopVec, // default = []
+    pub stops: NormalizedRadialColorStopVec, // default = []
+}
+
+impl Default for ConicGradient {
+    fn default() -> Self {
+        Self {
+            extend_mode: ExtendMode::default(),
+            center: StyleBackgroundPosition::default(),
+            angle: AngleValue::default(),
+            stops: Vec::new().into(),
+        }
+    }
 }
 
 // normalized linear color stop
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct NormalizedLinearColorStop {
     pub offset: PercentageValue, // 0 to 100% // -- todo: theoretically this should be PixelValue
     pub color: ColorU,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct NormalizedRadialColorStop {
     pub angle: AngleValue, // 0 to 360 degrees
     pub color: ColorU,
 }
 
-impl LinearColorStopVec {
-    pub fn get_normalized_linear_stops(&self) -> Vec<NormalizedLinearColorStop> {
+impl LinearColorStop {
+    pub fn get_normalized_linear_stops(stops: &[LinearColorStop]) -> Vec<NormalizedLinearColorStop> {
 
+        const MIN_STOP_DEGREE: f32 = 0.0;
+        const MAX_STOP_DEGREE: f32 = 100.0;
 
-        let mut last_stop = MIN_STOP_DEGREE;
-        let mut stops = Vec::new();
-        let mut i = 0;
+        if stops.is_empty() {
+            return Vec::new();
+        }
 
-        const MIN_STOP_DEGREE: PercentageValue = PercentageValue::const_new(0);
-        const MAX_STOP_DEGREE: PercentageValue = PercentageValue::const_new(360);
+        let self_stops = stops;
 
-        let self_stops = self.as_ref();
+        let mut stops = self_stops.iter()
+        .map(|s| NormalizedLinearColorStop {
+            offset: s.offset.as_ref().copied().unwrap_or(PercentageValue::new(MIN_STOP_DEGREE)),
+            color: s.color,
+        })
+        .collect::<Vec<_>>();
 
-        'outer: loop {
-            if i >= self_stops.len() { break; }
-            let stop = &self_stops[i];
+        let mut stops_to_distribute = 0;
+        let stops_len = stops.len();
+
+        for (stop_id, stop) in self_stops.iter().enumerate() {
             if let Some(s) = stop.offset.into_option() {
-                let cs = s.get().max(last_stop.get()).min(MAX_STOP_DEGREE.get());
-                last_stop = PercentageValue::new(cs);
-                stops.push(NormalizedLinearColorStop { offset: last_stop, color: stop.color });
-                i += 1;
-            } else {
-                let (_, remaining_color_stops) = self_stops.split_at(i);
-
-                let mut next_percentage = None;
-                let mut values_until_next_percentage = 0;
-
-                // iterate until we find the next value where the offset isn't None
-                // or the array is finished
-                'inner: for next_stop in remaining_color_stops.iter() {
-                    values_until_next_percentage += 1;
-                    if let Some(next_offset) = next_stop.offset.as_ref() {
-                        next_percentage = Some(*next_offset);
-                        break 'inner;
+                let current_stop_val = s.get();
+                if stops_to_distribute != 0 {
+                    let last_stop_val = stops[(stop_id - stops_to_distribute)].offset.get();
+                    let value_to_add_per_stop = (current_stop_val.max(last_stop_val) - last_stop_val) / (stops_to_distribute - 1) as f32;
+                    for (s_id, s) in stops[(stop_id - stops_to_distribute)..stop_id].iter_mut().enumerate() {
+                        s.offset = PercentageValue::new(last_stop_val + (s_id as f32 * value_to_add_per_stop));
                     }
                 }
+                stops_to_distribute = 0;
+            } else {
+                stops_to_distribute += 1;
+            }
+        }
 
-                if values_until_next_percentage == 0 {
-                    // this stop is the last stop
-                    stops.push(NormalizedLinearColorStop {
-                        offset: MAX_STOP_DEGREE,
-                        color: stop.color
-                    });
-                    break 'outer;
-                }
-
-                let next = next_percentage.unwrap_or(MAX_STOP_DEGREE).get().max(MIN_STOP_DEGREE.get()).min(MAX_STOP_DEGREE.get());
-                let max_stop = last_stop.get().max(next);
-                let min_stop = last_stop.get().min(next);
-                let increase_per_stop = (max_stop - min_stop) / values_until_next_percentage as f32;
-
-                for j in 0..values_until_next_percentage {
-                    stops.push(NormalizedLinearColorStop {
-                        offset: PercentageValue::new(min_stop + increase_per_stop * j as f32),
-                        color: self_stops[i + j].color
-                    });
-                }
-
-                if next_percentage.is_none() {
-                    break 'outer; // all stops until end were processed
-                }
-
-                last_stop = PercentageValue::new(max_stop);
-                i += values_until_next_percentage;
+        if stops_to_distribute != 0 {
+            let last_stop_val = stops[(stops_len - stops_to_distribute)].offset.get();
+            let value_to_add_per_stop = (MAX_STOP_DEGREE.max(last_stop_val) - last_stop_val) / (stops_to_distribute - 1) as f32;
+            for (s_id, s) in stops[(stops_len - stops_to_distribute)..].iter_mut().enumerate() {
+                s.offset = PercentageValue::new(last_stop_val + (s_id as f32 * value_to_add_per_stop));
             }
         }
 
@@ -2737,69 +2743,49 @@ impl LinearColorStopVec {
     }
 }
 
-impl RadialColorStopVec {
-    pub fn get_normalized_radial_stops(&self) -> Vec<NormalizedRadialColorStop> {
+impl RadialColorStop {
+    pub fn get_normalized_radial_stops(stops: &[RadialColorStop]) -> Vec<NormalizedRadialColorStop> {
 
-        let mut last_stop = MIN_STOP_DEGREE;
-        let mut stops = Vec::new();
-        let mut i = 0;
+        const MIN_STOP_DEGREE: f32 = 0.0;
+        const MAX_STOP_DEGREE: f32 = 360.0;
 
-        const MIN_STOP_DEGREE: AngleValue = AngleValue::const_deg(0);
-        const MAX_STOP_DEGREE: AngleValue = AngleValue::const_deg(360);
+        if stops.is_empty() {
+            return Vec::new();
+        }
 
-        let self_stops = self.as_ref();
+        let self_stops = stops;
 
-        'outer: loop {
-            if i >= self_stops.len() { break; }
-            let stop = &self_stops[i];
+        let mut stops = self_stops.iter()
+        .map(|s| NormalizedRadialColorStop {
+            angle: s.offset.as_ref().copied().unwrap_or(AngleValue::deg(MIN_STOP_DEGREE)),
+            color: s.color,
+        })
+        .collect::<Vec<_>>();
+
+        let mut stops_to_distribute = 0;
+        let stops_len = stops.len();
+
+        for (stop_id, stop) in self_stops.iter().enumerate() {
             if let Some(s) = stop.offset.into_option() {
-                let cs = s.to_degrees().max(last_stop.to_degrees()).min(MAX_STOP_DEGREE.to_degrees());
-                last_stop = AngleValue::deg(cs);
-                stops.push(NormalizedRadialColorStop { angle: last_stop, color: stop.color });
-                i += 1;
-            } else {
-                let (_, remaining_color_stops) = self_stops.split_at(i);
-
-                let mut next_percentage = None;
-                let mut values_until_next_percentage = 0;
-
-                // iterate until we find the next value where the offset isn't None
-                // or the array is finished
-                'inner: for next_stop in remaining_color_stops.iter() {
-                    values_until_next_percentage += 1;
-                    if let Some(next_offset) = next_stop.offset.as_ref() {
-                        next_percentage = Some(*next_offset);
-                        break 'inner;
+                let current_stop_val = s.to_degrees();
+                if stops_to_distribute != 0 {
+                    let last_stop_val = stops[(stop_id - stops_to_distribute)].angle.to_degrees();
+                    let value_to_add_per_stop = (current_stop_val.max(last_stop_val) - last_stop_val) / (stops_to_distribute - 1) as f32;
+                    for (s_id, s) in stops[(stop_id - stops_to_distribute)..stop_id].iter_mut().enumerate() {
+                        s.angle = AngleValue::deg(last_stop_val + (s_id as f32 * value_to_add_per_stop));
                     }
                 }
+                stops_to_distribute = 0;
+            } else {
+                stops_to_distribute += 1;
+            }
+        }
 
-                if values_until_next_percentage == 0 {
-                    // this stop is the last stop
-                    stops.push(NormalizedRadialColorStop {
-                        angle: MAX_STOP_DEGREE,
-                        color: stop.color
-                    });
-                    break 'outer;
-                }
-
-                let next = next_percentage.unwrap_or(MAX_STOP_DEGREE).to_degrees().max(MIN_STOP_DEGREE.to_degrees()).min(MAX_STOP_DEGREE.to_degrees());
-                let max_stop = last_stop.to_degrees().max(next);
-                let min_stop = last_stop.to_degrees().min(next);
-                let increase_per_stop = (max_stop - min_stop) / values_until_next_percentage as f32;
-
-                for j in 0..values_until_next_percentage {
-                    stops.push(NormalizedRadialColorStop {
-                        angle: AngleValue::deg(min_stop + increase_per_stop * j as f32),
-                        color: self_stops[i + j].color
-                    });
-                }
-
-                if next_percentage.is_none() {
-                    break 'outer; // all stops until end were processed
-                }
-
-                last_stop = AngleValue::deg(max_stop);
-                i += values_until_next_percentage;
+        if stops_to_distribute != 0 {
+            let last_stop_val = stops[(stops_len - stops_to_distribute)].angle.to_degrees();
+            let value_to_add_per_stop = (MAX_STOP_DEGREE.max(last_stop_val) - last_stop_val) / (stops_to_distribute - 1) as f32;
+            for (s_id, s) in stops[(stops_len - stops_to_distribute)..].iter_mut().enumerate() {
+                s.angle = AngleValue::deg(last_stop_val + (s_id as f32 * value_to_add_per_stop));
             }
         }
 
@@ -2807,14 +2793,26 @@ impl RadialColorStopVec {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct RadialGradient {
     pub shape: Shape,
     pub size: RadialGradientSize,
     pub position: StyleBackgroundPosition,
     pub extend_mode: ExtendMode,
-    pub stops: LinearColorStopVec,
+    pub stops: NormalizedLinearColorStopVec,
+}
+
+impl Default for RadialGradient {
+    fn default() -> Self {
+        Self {
+            shape: Shape::default(),
+            size: RadialGradientSize::default(),
+            position: StyleBackgroundPosition::default(),
+            extend_mode: ExtendMode::default(),
+            stops: Vec::new().into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -3100,38 +3098,36 @@ impl DirectionCorner {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
 pub struct RadialColorStop {
     // this is set to None if there was no offset that could be parsed
     pub offset: OptionAngleValue,
     pub color: ColorU,
 }
 
-impl_vec!(RadialColorStop, RadialColorStopVec, RadialColorStopVecDestructor);
-impl_vec_debug!(RadialColorStop, RadialColorStopVec);
-impl_vec_partialord!(RadialColorStop, RadialColorStopVec);
-impl_vec_ord!(RadialColorStop, RadialColorStopVec);
-impl_vec_clone!(RadialColorStop, RadialColorStopVec, RadialColorStopVecDestructor);
-impl_vec_partialeq!(RadialColorStop, RadialColorStopVec);
-impl_vec_eq!(RadialColorStop, RadialColorStopVec);
-impl_vec_hash!(RadialColorStop, RadialColorStopVec);
+impl_vec!(NormalizedRadialColorStop, NormalizedRadialColorStopVec, NormalizedRadialColorStopVecDestructor);
+impl_vec_debug!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
+impl_vec_partialord!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
+impl_vec_ord!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
+impl_vec_clone!(NormalizedRadialColorStop, NormalizedRadialColorStopVec, NormalizedRadialColorStopVecDestructor);
+impl_vec_partialeq!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
+impl_vec_eq!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
+impl_vec_hash!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
 pub struct LinearColorStop {
     // this is set to None if there was no offset that could be parsed
     pub offset: OptionPercentageValue,
     pub color: ColorU,
 }
 
-impl_vec!(LinearColorStop, LinearColorStopVec, LinearColorStopVecDestructor);
-impl_vec_debug!(LinearColorStop, LinearColorStopVec);
-impl_vec_partialord!(LinearColorStop, LinearColorStopVec);
-impl_vec_ord!(LinearColorStop, LinearColorStopVec);
-impl_vec_clone!(LinearColorStop, LinearColorStopVec, LinearColorStopVecDestructor);
-impl_vec_partialeq!(LinearColorStop, LinearColorStopVec);
-impl_vec_eq!(LinearColorStop, LinearColorStopVec);
-impl_vec_hash!(LinearColorStop, LinearColorStopVec);
+impl_vec!(NormalizedLinearColorStop, NormalizedLinearColorStopVec, NormalizedLinearColorStopVecDestructor);
+impl_vec_debug!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
+impl_vec_partialord!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
+impl_vec_ord!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
+impl_vec_clone!(NormalizedLinearColorStop, NormalizedLinearColorStopVec, NormalizedLinearColorStopVecDestructor);
+impl_vec_partialeq!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
+impl_vec_eq!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
+impl_vec_hash!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
 
 /// Represents a `width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

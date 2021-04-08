@@ -282,13 +282,13 @@ struct AzStringPairVec;
 typedef struct AzStringPairVec AzStringPairVec;
 typedef void (*AzStringPairVecDestructorType)(AzStringPairVec* restrict A);
 
-struct AzLinearColorStopVec;
-typedef struct AzLinearColorStopVec AzLinearColorStopVec;
-typedef void (*AzLinearColorStopVecDestructorType)(AzLinearColorStopVec* restrict A);
+struct AzNormalizedLinearColorStopVec;
+typedef struct AzNormalizedLinearColorStopVec AzNormalizedLinearColorStopVec;
+typedef void (*AzNormalizedLinearColorStopVecDestructorType)(AzNormalizedLinearColorStopVec* restrict A);
 
-struct AzRadialColorStopVec;
-typedef struct AzRadialColorStopVec AzRadialColorStopVec;
-typedef void (*AzRadialColorStopVecDestructorType)(AzRadialColorStopVec* restrict A);
+struct AzNormalizedRadialColorStopVec;
+typedef struct AzNormalizedRadialColorStopVec AzNormalizedRadialColorStopVec;
+typedef void (*AzNormalizedRadialColorStopVecDestructorType)(AzNormalizedRadialColorStopVec* restrict A);
 
 struct AzNodeIdVec;
 typedef struct AzNodeIdVec AzNodeIdVec;
@@ -2684,51 +2684,51 @@ typedef union AzStringPairVecDestructor AzStringPairVecDestructor;
 #define AzStringPairVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStringPairVecDestructorTag_NoDestructor } }
 #define AzStringPairVecDestructor_External(v) { .External = { .tag = AzStringPairVecDestructorTag_External, .payload = v } }
 
-enum AzLinearColorStopVecDestructorTag {
-   AzLinearColorStopVecDestructorTag_DefaultRust,
-   AzLinearColorStopVecDestructorTag_NoDestructor,
-   AzLinearColorStopVecDestructorTag_External,
+enum AzNormalizedLinearColorStopVecDestructorTag {
+   AzNormalizedLinearColorStopVecDestructorTag_DefaultRust,
+   AzNormalizedLinearColorStopVecDestructorTag_NoDestructor,
+   AzNormalizedLinearColorStopVecDestructorTag_External,
 };
-typedef enum AzLinearColorStopVecDestructorTag AzLinearColorStopVecDestructorTag;
+typedef enum AzNormalizedLinearColorStopVecDestructorTag AzNormalizedLinearColorStopVecDestructorTag;
 
-struct AzLinearColorStopVecDestructorVariant_DefaultRust { AzLinearColorStopVecDestructorTag tag; };
-typedef struct AzLinearColorStopVecDestructorVariant_DefaultRust AzLinearColorStopVecDestructorVariant_DefaultRust;
-struct AzLinearColorStopVecDestructorVariant_NoDestructor { AzLinearColorStopVecDestructorTag tag; };
-typedef struct AzLinearColorStopVecDestructorVariant_NoDestructor AzLinearColorStopVecDestructorVariant_NoDestructor;
-struct AzLinearColorStopVecDestructorVariant_External { AzLinearColorStopVecDestructorTag tag; AzLinearColorStopVecDestructorType payload; };
-typedef struct AzLinearColorStopVecDestructorVariant_External AzLinearColorStopVecDestructorVariant_External;
-union AzLinearColorStopVecDestructor {
-    AzLinearColorStopVecDestructorVariant_DefaultRust DefaultRust;
-    AzLinearColorStopVecDestructorVariant_NoDestructor NoDestructor;
-    AzLinearColorStopVecDestructorVariant_External External;
+struct AzNormalizedLinearColorStopVecDestructorVariant_DefaultRust { AzNormalizedLinearColorStopVecDestructorTag tag; };
+typedef struct AzNormalizedLinearColorStopVecDestructorVariant_DefaultRust AzNormalizedLinearColorStopVecDestructorVariant_DefaultRust;
+struct AzNormalizedLinearColorStopVecDestructorVariant_NoDestructor { AzNormalizedLinearColorStopVecDestructorTag tag; };
+typedef struct AzNormalizedLinearColorStopVecDestructorVariant_NoDestructor AzNormalizedLinearColorStopVecDestructorVariant_NoDestructor;
+struct AzNormalizedLinearColorStopVecDestructorVariant_External { AzNormalizedLinearColorStopVecDestructorTag tag; AzNormalizedLinearColorStopVecDestructorType payload; };
+typedef struct AzNormalizedLinearColorStopVecDestructorVariant_External AzNormalizedLinearColorStopVecDestructorVariant_External;
+union AzNormalizedLinearColorStopVecDestructor {
+    AzNormalizedLinearColorStopVecDestructorVariant_DefaultRust DefaultRust;
+    AzNormalizedLinearColorStopVecDestructorVariant_NoDestructor NoDestructor;
+    AzNormalizedLinearColorStopVecDestructorVariant_External External;
 };
-typedef union AzLinearColorStopVecDestructor AzLinearColorStopVecDestructor;
-#define AzLinearColorStopVecDestructor_DefaultRust { .DefaultRust = { .tag = AzLinearColorStopVecDestructorTag_DefaultRust } }
-#define AzLinearColorStopVecDestructor_NoDestructor { .NoDestructor = { .tag = AzLinearColorStopVecDestructorTag_NoDestructor } }
-#define AzLinearColorStopVecDestructor_External(v) { .External = { .tag = AzLinearColorStopVecDestructorTag_External, .payload = v } }
+typedef union AzNormalizedLinearColorStopVecDestructor AzNormalizedLinearColorStopVecDestructor;
+#define AzNormalizedLinearColorStopVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNormalizedLinearColorStopVecDestructorTag_DefaultRust } }
+#define AzNormalizedLinearColorStopVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNormalizedLinearColorStopVecDestructorTag_NoDestructor } }
+#define AzNormalizedLinearColorStopVecDestructor_External(v) { .External = { .tag = AzNormalizedLinearColorStopVecDestructorTag_External, .payload = v } }
 
-enum AzRadialColorStopVecDestructorTag {
-   AzRadialColorStopVecDestructorTag_DefaultRust,
-   AzRadialColorStopVecDestructorTag_NoDestructor,
-   AzRadialColorStopVecDestructorTag_External,
+enum AzNormalizedRadialColorStopVecDestructorTag {
+   AzNormalizedRadialColorStopVecDestructorTag_DefaultRust,
+   AzNormalizedRadialColorStopVecDestructorTag_NoDestructor,
+   AzNormalizedRadialColorStopVecDestructorTag_External,
 };
-typedef enum AzRadialColorStopVecDestructorTag AzRadialColorStopVecDestructorTag;
+typedef enum AzNormalizedRadialColorStopVecDestructorTag AzNormalizedRadialColorStopVecDestructorTag;
 
-struct AzRadialColorStopVecDestructorVariant_DefaultRust { AzRadialColorStopVecDestructorTag tag; };
-typedef struct AzRadialColorStopVecDestructorVariant_DefaultRust AzRadialColorStopVecDestructorVariant_DefaultRust;
-struct AzRadialColorStopVecDestructorVariant_NoDestructor { AzRadialColorStopVecDestructorTag tag; };
-typedef struct AzRadialColorStopVecDestructorVariant_NoDestructor AzRadialColorStopVecDestructorVariant_NoDestructor;
-struct AzRadialColorStopVecDestructorVariant_External { AzRadialColorStopVecDestructorTag tag; AzRadialColorStopVecDestructorType payload; };
-typedef struct AzRadialColorStopVecDestructorVariant_External AzRadialColorStopVecDestructorVariant_External;
-union AzRadialColorStopVecDestructor {
-    AzRadialColorStopVecDestructorVariant_DefaultRust DefaultRust;
-    AzRadialColorStopVecDestructorVariant_NoDestructor NoDestructor;
-    AzRadialColorStopVecDestructorVariant_External External;
+struct AzNormalizedRadialColorStopVecDestructorVariant_DefaultRust { AzNormalizedRadialColorStopVecDestructorTag tag; };
+typedef struct AzNormalizedRadialColorStopVecDestructorVariant_DefaultRust AzNormalizedRadialColorStopVecDestructorVariant_DefaultRust;
+struct AzNormalizedRadialColorStopVecDestructorVariant_NoDestructor { AzNormalizedRadialColorStopVecDestructorTag tag; };
+typedef struct AzNormalizedRadialColorStopVecDestructorVariant_NoDestructor AzNormalizedRadialColorStopVecDestructorVariant_NoDestructor;
+struct AzNormalizedRadialColorStopVecDestructorVariant_External { AzNormalizedRadialColorStopVecDestructorTag tag; AzNormalizedRadialColorStopVecDestructorType payload; };
+typedef struct AzNormalizedRadialColorStopVecDestructorVariant_External AzNormalizedRadialColorStopVecDestructorVariant_External;
+union AzNormalizedRadialColorStopVecDestructor {
+    AzNormalizedRadialColorStopVecDestructorVariant_DefaultRust DefaultRust;
+    AzNormalizedRadialColorStopVecDestructorVariant_NoDestructor NoDestructor;
+    AzNormalizedRadialColorStopVecDestructorVariant_External External;
 };
-typedef union AzRadialColorStopVecDestructor AzRadialColorStopVecDestructor;
-#define AzRadialColorStopVecDestructor_DefaultRust { .DefaultRust = { .tag = AzRadialColorStopVecDestructorTag_DefaultRust } }
-#define AzRadialColorStopVecDestructor_NoDestructor { .NoDestructor = { .tag = AzRadialColorStopVecDestructorTag_NoDestructor } }
-#define AzRadialColorStopVecDestructor_External(v) { .External = { .tag = AzRadialColorStopVecDestructorTag_External, .payload = v } }
+typedef union AzNormalizedRadialColorStopVecDestructor AzNormalizedRadialColorStopVecDestructor;
+#define AzNormalizedRadialColorStopVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNormalizedRadialColorStopVecDestructorTag_DefaultRust } }
+#define AzNormalizedRadialColorStopVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNormalizedRadialColorStopVecDestructorTag_NoDestructor } }
+#define AzNormalizedRadialColorStopVecDestructor_External(v) { .External = { .tag = AzNormalizedRadialColorStopVecDestructorTag_External, .payload = v } }
 
 enum AzNodeIdVecDestructorTag {
    AzNodeIdVecDestructorTag_DefaultRust,
@@ -3481,6 +3481,18 @@ struct AzAngleValue {
     AzFloatValue number;
 };
 typedef struct AzAngleValue AzAngleValue;
+
+struct AzNormalizedLinearColorStop {
+    AzPercentageValue offset;
+    AzColorU color;
+};
+typedef struct AzNormalizedLinearColorStop AzNormalizedLinearColorStop;
+
+struct AzNormalizedRadialColorStop {
+    AzAngleValue offset;
+    AzColorU color;
+};
+typedef struct AzNormalizedRadialColorStop AzNormalizedRadialColorStop;
 
 struct AzDirectionCorners {
     AzDirectionCorner from;
@@ -6049,6 +6061,22 @@ struct AzGLintVec {
 };
 typedef struct AzGLintVec AzGLintVec;
 
+struct AzNormalizedLinearColorStopVec {
+    AzNormalizedLinearColorStop* ptr;
+    size_t len;
+    size_t cap;
+    AzNormalizedLinearColorStopVecDestructor destructor;
+};
+typedef struct AzNormalizedLinearColorStopVec AzNormalizedLinearColorStopVec;
+
+struct AzNormalizedRadialColorStopVec {
+    AzNormalizedRadialColorStop* ptr;
+    size_t len;
+    size_t cap;
+    AzNormalizedRadialColorStopVecDestructor destructor;
+};
+typedef struct AzNormalizedRadialColorStopVec AzNormalizedRadialColorStopVec;
+
 struct AzNodeIdVec {
     AzNodeId* ptr;
     size_t len;
@@ -6905,17 +6933,29 @@ struct AzInterpolateContext {
 };
 typedef struct AzInterpolateContext AzInterpolateContext;
 
-struct AzLinearColorStop {
-    AzOptionPercentageValue offset;
-    AzColorU color;
+struct AzLinearGradient {
+    AzDirection direction;
+    AzExtendMode extend_mode;
+    AzNormalizedLinearColorStopVec stops;
 };
-typedef struct AzLinearColorStop AzLinearColorStop;
+typedef struct AzLinearGradient AzLinearGradient;
 
-struct AzRadialColorStop {
-    AzOptionAngleValue offset;
-    AzColorU color;
+struct AzRadialGradient {
+    AzShape shape;
+    AzRadialGradientSize size;
+    AzStyleBackgroundPosition position;
+    AzExtendMode extend_mode;
+    AzNormalizedLinearColorStopVec stops;
 };
-typedef struct AzRadialColorStop AzRadialColorStop;
+typedef struct AzRadialGradient AzRadialGradient;
+
+struct AzConicGradient {
+    AzExtendMode extend_mode;
+    AzStyleBackgroundPosition center;
+    AzAngleValue angle;
+    AzNormalizedRadialColorStopVec stops;
+};
+typedef struct AzConicGradient AzConicGradient;
 
 enum AzStyleTransformTag {
    AzStyleTransformTag_Matrix,
@@ -7303,22 +7343,6 @@ struct AzStringVec {
     AzStringVecDestructor destructor;
 };
 typedef struct AzStringVec AzStringVec;
-
-struct AzLinearColorStopVec {
-    AzLinearColorStop* ptr;
-    size_t len;
-    size_t cap;
-    AzLinearColorStopVecDestructor destructor;
-};
-typedef struct AzLinearColorStopVec AzLinearColorStopVec;
-
-struct AzRadialColorStopVec {
-    AzRadialColorStop* ptr;
-    size_t len;
-    size_t cap;
-    AzRadialColorStopVecDestructor destructor;
-};
-typedef struct AzRadialColorStopVec AzRadialColorStopVec;
 
 struct AzStyledNodeVec {
     AzStyledNode* ptr;
@@ -7724,30 +7748,6 @@ typedef union AzCssPathSelector AzCssPathSelector;
 #define AzCssPathSelector_PseudoSelector(v) { .PseudoSelector = { .tag = AzCssPathSelectorTag_PseudoSelector, .payload = v } }
 #define AzCssPathSelector_DirectChildren { .DirectChildren = { .tag = AzCssPathSelectorTag_DirectChildren } }
 #define AzCssPathSelector_Children { .Children = { .tag = AzCssPathSelectorTag_Children } }
-
-struct AzLinearGradient {
-    AzDirection direction;
-    AzExtendMode extend_mode;
-    AzLinearColorStopVec stops;
-};
-typedef struct AzLinearGradient AzLinearGradient;
-
-struct AzRadialGradient {
-    AzShape shape;
-    AzRadialGradientSize size;
-    AzStyleBackgroundPosition position;
-    AzExtendMode extend_mode;
-    AzLinearColorStopVec stops;
-};
-typedef struct AzRadialGradient AzRadialGradient;
-
-struct AzConicGradient {
-    AzExtendMode extend_mode;
-    AzStyleBackgroundPosition center;
-    AzAngleValue angle;
-    AzRadialColorStopVec stops;
-};
-typedef struct AzConicGradient AzConicGradient;
 
 enum AzStyleBackgroundContentTag {
    AzStyleBackgroundContentTag_LinearGradient,
@@ -9632,13 +9632,13 @@ AzStringPair AzStringPairVecArray[] = {};
 #define AzStringPairVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStringPair), .cap = sizeof(v) / sizeof(AzStringPair), .destructor = { .NoDestructor = { .tag = AzStringPairVecDestructorTag_NoDestructor, }, }, }
 #define AzStringPairVec_empty { .ptr = &AzStringPairVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStringPairVecDestructorTag_NoDestructor, }, }, }
 
-AzLinearColorStop AzLinearColorStopVecArray[] = {};
-#define AzLinearColorStopVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzLinearColorStop), .cap = sizeof(v) / sizeof(AzLinearColorStop), .destructor = { .NoDestructor = { .tag = AzLinearColorStopVecDestructorTag_NoDestructor, }, }, }
-#define AzLinearColorStopVec_empty { .ptr = &AzLinearColorStopVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzLinearColorStopVecDestructorTag_NoDestructor, }, }, }
+AzNormalizedLinearColorStop AzNormalizedLinearColorStopVecArray[] = {};
+#define AzNormalizedLinearColorStopVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNormalizedLinearColorStop), .cap = sizeof(v) / sizeof(AzNormalizedLinearColorStop), .destructor = { .NoDestructor = { .tag = AzNormalizedLinearColorStopVecDestructorTag_NoDestructor, }, }, }
+#define AzNormalizedLinearColorStopVec_empty { .ptr = &AzNormalizedLinearColorStopVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNormalizedLinearColorStopVecDestructorTag_NoDestructor, }, }, }
 
-AzRadialColorStop AzRadialColorStopVecArray[] = {};
-#define AzRadialColorStopVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzRadialColorStop), .cap = sizeof(v) / sizeof(AzRadialColorStop), .destructor = { .NoDestructor = { .tag = AzRadialColorStopVecDestructorTag_NoDestructor, }, }, }
-#define AzRadialColorStopVec_empty { .ptr = &AzRadialColorStopVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzRadialColorStopVecDestructorTag_NoDestructor, }, }, }
+AzNormalizedRadialColorStop AzNormalizedRadialColorStopVecArray[] = {};
+#define AzNormalizedRadialColorStopVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNormalizedRadialColorStop), .cap = sizeof(v) / sizeof(AzNormalizedRadialColorStop), .destructor = { .NoDestructor = { .tag = AzNormalizedRadialColorStopVecDestructorTag_NoDestructor, }, }, }
+#define AzNormalizedRadialColorStopVec_empty { .ptr = &AzNormalizedRadialColorStopVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNormalizedRadialColorStopVecDestructorTag_NoDestructor, }, }, }
 
 AzNodeId AzNodeIdVecArray[] = {};
 #define AzNodeIdVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNodeId), .cap = sizeof(v) / sizeof(AzNodeId), .destructor = { .NoDestructor = { .tag = AzNodeIdVecDestructorTag_NoDestructor, }, }, }
@@ -10116,8 +10116,8 @@ extern DLLIMPORT void AzGLuintVec_delete(AzGLuintVec* restrict instance);
 extern DLLIMPORT void AzGLintVec_delete(AzGLintVec* restrict instance);
 extern DLLIMPORT void AzStringVec_delete(AzStringVec* restrict instance);
 extern DLLIMPORT void AzStringPairVec_delete(AzStringPairVec* restrict instance);
-extern DLLIMPORT void AzLinearColorStopVec_delete(AzLinearColorStopVec* restrict instance);
-extern DLLIMPORT void AzRadialColorStopVec_delete(AzRadialColorStopVec* restrict instance);
+extern DLLIMPORT void AzNormalizedLinearColorStopVec_delete(AzNormalizedLinearColorStopVec* restrict instance);
+extern DLLIMPORT void AzNormalizedRadialColorStopVec_delete(AzNormalizedRadialColorStopVec* restrict instance);
 extern DLLIMPORT void AzNodeIdVec_delete(AzNodeIdVec* restrict instance);
 extern DLLIMPORT void AzNodeVec_delete(AzNodeVec* restrict instance);
 extern DLLIMPORT void AzStyledNodeVec_delete(AzStyledNodeVec* restrict instance);

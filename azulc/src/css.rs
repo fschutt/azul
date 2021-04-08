@@ -602,7 +602,7 @@ fn format_radial_gradient(r: &RadialGradient, tabs: usize) -> String {
     )
 }
 
-fn format_linear_color_stops(stops: &[LinearColorStop], tabs: usize) -> String {
+fn format_linear_color_stops(stops: &[NormalizedLinearColorStop], tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     stops.iter()
         .map(|s| format_linear_color_stop(s))
@@ -610,17 +610,14 @@ fn format_linear_color_stops(stops: &[LinearColorStop], tabs: usize) -> String {
         .join(&format!(",\r\n{}", t))
 }
 
-fn format_linear_color_stop(g: &LinearColorStop) -> String {
-    format!("LinearColorStop {{ offset: {}, color: {} }}",
-        {
-            let offset: Option<PercentageValue> = g.offset.into();
-            offset.as_ref().map(|s| format_percentage_value(s)).unwrap_or(format!("None"))
-        },
+fn format_linear_color_stop(g: &NormalizedLinearColorStop) -> String {
+    format!("NormalizedLinearColorStop {{ offset: {}, color: {} }}",
+        format_percentage_value(&g.offset),
         format_color_value(&g.color),
     )
 }
 
-fn format_radial_color_stops(stops: &[RadialColorStop], tabs: usize) -> String {
+fn format_radial_color_stops(stops: &[NormalizedRadialColorStop], tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     stops.iter()
         .map(|s| format_radial_color_stop(s))
@@ -628,12 +625,9 @@ fn format_radial_color_stops(stops: &[RadialColorStop], tabs: usize) -> String {
         .join(&format!(",\r\n{}", t))
 }
 
-fn format_radial_color_stop(g: &RadialColorStop) -> String {
-    format!("RadialColorStop {{ offset: {}, color: {} }}",
-        {
-            let offset: Option<AngleValue> = g.offset.into();
-            offset.as_ref().map(|s| format_angle_value(s)).unwrap_or(format!("None"))
-        },
+fn format_radial_color_stop(g: &NormalizedRadialColorStop) -> String {
+    format!("RadialColorStop {{ angle: {}, color: {} }}",
+        format_angle_value(&g.angle),
         format_color_value(&g.color),
     )
 }
