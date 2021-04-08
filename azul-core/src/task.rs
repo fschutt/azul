@@ -28,13 +28,17 @@ use crate::{
         CallbackInfo, FocusTarget, ScrollPosition, DomNodeId
     },
     app_resources::{ImageCache, ImageRef, ImageMask},
-    window::{FullWindowState, LogicalPosition, RawWindowHandle, WindowState, WindowCreateOptions},
+    window::{
+        FullWindowState, LogicalPosition,
+        OptionLogicalPosition, RawWindowHandle, WindowState,
+        WindowCreateOptions
+    },
     styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
     ui_solver::LayoutResult,
 };
 use crate::gl::OptionGlContextPtr;
-use azul_css::{AzString, OptionLayoutPoint, CssProperty};
+use azul_css::{AzString, CssProperty};
 use rust_fontconfig::FcFontCache;
 
 /// Should a timer terminate or not - used to remove active timers
@@ -1018,8 +1022,8 @@ pub fn run_all_timers<'a, 'b>(
     for (key, timer) in current_timers.iter_mut() {
 
         let hit_dom_node = DomNodeId { dom: DomId::ROOT_ID, node: AzNodeId::from_crate_internal(None) };
-        let cursor_relative_to_item = OptionLayoutPoint::None;
-        let cursor_in_viewport = OptionLayoutPoint::None;
+        let cursor_relative_to_item = OptionLogicalPosition::None;
+        let cursor_in_viewport = OptionLogicalPosition::None;
 
         let layout_result = &mut layout_results[hit_dom_node.dom.inner];
         let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
@@ -1112,8 +1116,8 @@ pub fn clean_up_finished_threads<'a, 'b>(
     let mut update_screen = UpdateScreen::DoNothing;
 
     let hit_dom_node = DomNodeId { dom: DomId::ROOT_ID, node: AzNodeId::from_crate_internal(None) };
-    let cursor_relative_to_item = OptionLayoutPoint::None;
-    let cursor_in_viewport = OptionLayoutPoint::None;
+    let cursor_relative_to_item = OptionLogicalPosition::None;
+    let cursor_in_viewport = OptionLogicalPosition::None;
 
     let layout_result = &mut layout_results[hit_dom_node.dom.inner];
     let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();

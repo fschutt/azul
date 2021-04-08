@@ -992,8 +992,8 @@
                         {"current_scroll_states": {"type": "*const c_void"}},
                         {"nodes_scrolled_in_callback": {"type": "*mut c_void"}},
                         {"hit_dom_node": {"type": "DomNodeId"}},
-                        {"cursor_relative_to_item": {"type": "OptionLayoutPoint"}},
-                        {"cursor_in_viewport": {"type": "OptionLayoutPoint"}},
+                        {"cursor_relative_to_item": {"type": "OptionLogicalPosition"}},
+                        {"cursor_in_viewport": {"type": "OptionLogicalPosition"}},
                         {"_reserved_ref": {"type": "*const c_void"}},
                         {"_reserved_mut": {"type": "*mut c_void"}}
                     ],
@@ -1011,7 +1011,7 @@
                             "fn_args": [
                                 {"self": "ref"}
                             ],
-                            "returns": {"type": "OptionLayoutPoint"},
+                            "returns": {"type": "OptionLogicalPosition"},
                             "fn_body": "callbackinfo.get_cursor_relative_to_viewport()"
                         },
                         "get_cursor_relative_to_node": {
@@ -1019,7 +1019,7 @@
                             "fn_args": [
                                 {"self": "ref"}
                             ],
-                            "returns": {"type": "OptionLayoutPoint"},
+                            "returns": {"type": "OptionLogicalPosition"},
                             "fn_body": "callbackinfo.get_cursor_relative_to_node()"
                         },
                         "get_window_state": {

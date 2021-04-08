@@ -4740,8 +4740,8 @@ mod dll {
         pub current_scroll_states: *const c_void,
         pub nodes_scrolled_in_callback: *mut c_void,
         pub hit_dom_node: AzDomNodeId,
-        pub cursor_relative_to_item: AzOptionLayoutPoint,
-        pub cursor_in_viewport: AzOptionLayoutPoint,
+        pub cursor_relative_to_item: AzOptionLogicalPosition,
+        pub cursor_in_viewport: AzOptionLogicalPosition,
         pub _reserved_ref: *const c_void,
         pub _reserved_mut: *mut c_void,
     }
@@ -4978,8 +4978,8 @@ mod dll {
         pub(crate) fn AzWindowState_new(_:  AzLayoutCallbackType) -> AzWindowState;
         pub(crate) fn AzWindowState_default() -> AzWindowState;
         pub(crate) fn AzCallbackInfo_getHitNode(_:  &AzCallbackInfo) -> AzDomNodeId;
-        pub(crate) fn AzCallbackInfo_getCursorRelativeToViewport(_:  &AzCallbackInfo) -> AzOptionLayoutPoint;
-        pub(crate) fn AzCallbackInfo_getCursorRelativeToNode(_:  &AzCallbackInfo) -> AzOptionLayoutPoint;
+        pub(crate) fn AzCallbackInfo_getCursorRelativeToViewport(_:  &AzCallbackInfo) -> AzOptionLogicalPosition;
+        pub(crate) fn AzCallbackInfo_getCursorRelativeToNode(_:  &AzCallbackInfo) -> AzOptionLogicalPosition;
         pub(crate) fn AzCallbackInfo_getWindowState(_:  &AzCallbackInfo) -> AzWindowState;
         pub(crate) fn AzCallbackInfo_getKeyboardState(_:  &AzCallbackInfo) -> AzKeyboardState;
         pub(crate) fn AzCallbackInfo_getMouseState(_:  &AzCallbackInfo) -> AzMouseState;
@@ -5919,9 +5919,9 @@ pub mod callbacks {
         /// Returns the `DomNodeId` of the element that the callback was attached to.
         pub fn get_hit_node(&self)  -> crate::callbacks::DomNodeId { unsafe { crate::dll::AzCallbackInfo_getHitNode(self) } }
         /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not in the current window.
-        pub fn get_cursor_relative_to_viewport(&self)  -> crate::option::OptionLayoutPoint { unsafe { crate::dll::AzCallbackInfo_getCursorRelativeToViewport(self) } }
+        pub fn get_cursor_relative_to_viewport(&self)  -> crate::option::OptionLogicalPosition { unsafe { crate::dll::AzCallbackInfo_getCursorRelativeToViewport(self) } }
         /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.
-        pub fn get_cursor_relative_to_node(&self)  -> crate::option::OptionLayoutPoint { unsafe { crate::dll::AzCallbackInfo_getCursorRelativeToNode(self) } }
+        pub fn get_cursor_relative_to_node(&self)  -> crate::option::OptionLogicalPosition { unsafe { crate::dll::AzCallbackInfo_getCursorRelativeToNode(self) } }
         /// Returns a copy of the current windows `WindowState`.
         pub fn get_window_state(&self)  -> crate::window::WindowState { unsafe { crate::dll::AzCallbackInfo_getWindowState(self) } }
         /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
@@ -10919,10 +10919,10 @@ pub mod vec {
     impl_vec_clone!(AzString, AzStringVec, AzStringVecDestructor);
     impl_vec!(AzStringPair, AzStringPairVec, AzStringPairVecDestructor, az_string_pair_vec_destructor, AzStringPairVec_delete);
     impl_vec_clone!(AzStringPair, AzStringPairVec, AzStringPairVecDestructor);
-    impl_vec!(AzLinearColorStop, AzLinearColorStopVec, AzLinearColorStopVecDestructor, az_linear_color_stop_vec_destructor, AzLinearColorStopVec_delete);
-    impl_vec_clone!(AzLinearColorStop, AzLinearColorStopVec, AzLinearColorStopVecDestructor);
-    impl_vec!(AzRadialColorStop, AzRadialColorStopVec, AzRadialColorStopVecDestructor, az_radial_color_stop_vec_destructor, AzRadialColorStopVec_delete);
-    impl_vec_clone!(AzRadialColorStop, AzRadialColorStopVec, AzRadialColorStopVecDestructor);
+    impl_vec!(AzNormalizedLinearColorStop, AzNormalizedLinearColorStopVec, AzNormalizedLinearColorStopVecDestructor, az_normalized_linear_color_stop_vec_destructor, AzNormalizedLinearColorStopVec_delete);
+    impl_vec_clone!(AzNormalizedLinearColorStop, AzNormalizedLinearColorStopVec, AzNormalizedLinearColorStopVecDestructor);
+    impl_vec!(AzNormalizedRadialColorStop, AzNormalizedRadialColorStopVec, AzNormalizedRadialColorStopVecDestructor, az_normalized_radial_color_stop_vec_destructor, AzNormalizedRadialColorStopVec_delete);
+    impl_vec_clone!(AzNormalizedRadialColorStop, AzNormalizedRadialColorStopVec, AzNormalizedRadialColorStopVecDestructor);
     impl_vec!(AzNodeId, AzNodeIdVec, AzNodeIdVecDestructor, az_node_id_vec_destructor, AzNodeIdVec_delete);
     impl_vec_clone!(AzNodeId, AzNodeIdVec, AzNodeIdVecDestructor);
     impl_vec!(AzNode, AzNodeVec, AzNodeVecDestructor, az_node_vec_destructor, AzNodeVec_delete);

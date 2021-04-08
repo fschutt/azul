@@ -635,36 +635,92 @@ impl HitTest {
 
 impl LayoutResult {
 
-    pub fn get_hits(&self, cursor: &LayoutPoint, scroll_states: &ScrollStates) -> HitTest {
+    pub fn get_hits(&self, cursor: &LogicalPosition, scroll_states: &ScrollStates) -> HitTest {
 
         // TODO: SIMD-optimize!
+        let css_property_cache = self.styled_dom.get_css_property_cache();
+        let node_data = &self.styled_dom.node_data.as_container();
+        let styled_nodes = &self.styled_dom.styled_nodes.as_container();
 
         // insert the regular hit items
         let regular_hit_test_nodes =
         self.styled_dom.tag_ids_to_node_ids
         .as_ref()
-        .iter()
+        .iter() // par_iter?
         .filter_map(|t| {
 
             let node_id = t.node_id.into_crate_internal()?;
-            let layout_offset = self.rects.as_ref()[node_id].get_static_offset();
-            let layout_size = LayoutSize::new(self.width_calculated_rects.as_ref()[node_id].total() as isize, self.height_calculated_rects.as_ref()[node_id].total() as isize);
-            let layout_rect = LayoutRect::new(layout_offset, layout_size);
+            let logical_offset = self.rects.as_ref()[node_id].get_logical_static_offset();
+            let logical_size = self.rects.as_ref()[node_id].size;
+            let logical_rect = LogicalRect::new(logical_offset, logical_size);
 
-            layout_rect
-            .hit_test(cursor)
+            // Traverse up the tree and  calculate the transformation matrix of
+            // this rect, then transform the point into the current coordinate space
+            let mut transform = ComputedTransform3D::IDENTITY;
+            let mut node = Some(node_id);
+
+            while let Some(p) = node {
+
+                // Go from the root and calculate the transformation matrix of this rect
+                // Then transform the point into the current coordinate space
+                let parent_transform = css_property_cache
+                .get_transform(&node_data[p], &p, &styled_nodes[p].state)
+                .and_then(|t| t.get_property())
+                .map(|transform_vec| {
+
+                    let parent_size = self.styled_dom.node_hierarchy.as_container()[p]
+                    .parent_id().map(|p| self.rects.as_ref()[p].size)
+                    .unwrap_or(LogicalSize::new(
+                        self.root_size.width as f32,
+                        self.root_size.height as f32,
+                    ));
+
+                    let transform_origin = css_property_cache
+                    .get_transform_origin(&node_data[p], &p, &styled_nodes[p].state)
+                    .and_then(|t| t.get_property())
+                    .cloned()
+                    .unwrap_or_default();
+
+                    ComputedTransform3D::from_style_transform_vec(
+                        transform_vec.as_ref(), &transform_origin,
+                        parent_size.width, parent_size.height
+                    )
+                });
+
+                if let Some(parent) = parent_transform {
+                    transform = parent.then(&transform);
+                }
+
+                if let Some(parent) = self.styled_dom.node_hierarchy.as_container()[p].parent_id() {
+                    node = Some(parent);
+                } else {
+                    break;
+                }
+            }
+
+            // transform is computed now, un-project the rect into screen
+            // space by using the inverse transform
+            let inverse_transform = transform.inverse().unwrap_or(ComputedTransform3D::IDENTITY);
+            let cursor_projected = inverse_transform.transform_point2d(*cursor).unwrap_or(*cursor);
+
+            // TODO: If the item is a scroll rect, then also unproject
+            // the scroll transform!
+
+            logical_rect
+            .hit_test(&cursor_projected)
             .map(|relative_to_item| {
                 (node_id, HitTestItem {
                     point_in_viewport: *cursor,
                     point_relative_to_item: relative_to_item,
                     is_iframe_hit: self.iframe_mapping.get(&node_id).map(|iframe_dom_id| {
-                        (*iframe_dom_id, layout_offset)
+                        (*iframe_dom_id, logical_offset)
                     }),
                     is_focusable: self.styled_dom.node_data.as_container()[node_id].get_tab_index().into_option().is_some(),
                 })
             })
         }).collect();
 
+        /*
         // insert the scroll node hit items
         let scroll_hit_test_nodes = self.scrollable_nodes.tags_to_node_ids.iter().filter_map(|(_scroll_tag_id, node_id)| {
 
@@ -673,12 +729,14 @@ impl LayoutResult {
             let scroll_state = scroll_states.get_scroll_position(&overflowing_scroll_node.parent_external_scroll_id)?;
 
             let mut scrolled_cursor = *cursor;
-            scrolled_cursor.x += libm::roundf(scroll_state.x) as isize;
-            scrolled_cursor.y += libm::roundf(scroll_state.y) as isize;
+            scrolled_cursor.x += scroll_state.x;
+            scrolled_cursor.y += scroll_state.y;
 
             let rect = overflowing_scroll_node.child_rect.clone();
 
-            rect.hit_test(&scrolled_cursor).map(|relative_to_scroll| {
+            rect
+            .hit_test(&scrolled_cursor)
+            .map(|relative_to_scroll| {
                 (node_id, ScrollHitTestItem {
                     point_in_viewport: *cursor,
                     point_relative_to_item: relative_to_scroll,
@@ -686,10 +744,11 @@ impl LayoutResult {
                 })
             })
         }).collect();
+        */
 
         HitTest {
             regular_hit_test_nodes,
-            scroll_hit_test_nodes,
+            scroll_hit_test_nodes: BTreeMap::default(),
         }
     }
 }
@@ -828,6 +887,18 @@ impl PositionedRectangle {
     #[inline]
     fn get_content_size(&self) -> LayoutSize {
         LayoutSize::new(libm::roundf(self.size.width) as isize, libm::roundf(self.size.height) as isize)
+    }
+
+    #[inline]
+    fn get_logical_static_offset(&self) -> LogicalPosition {
+        match self.position {
+            PositionInfo::Static { static_x_offset, static_y_offset, .. } |
+            PositionInfo::Fixed { static_x_offset, static_y_offset, .. } |
+            PositionInfo::Absolute { static_x_offset, static_y_offset, .. } |
+            PositionInfo::Relative { static_x_offset, static_y_offset, .. } => {
+                LogicalPosition::new(static_x_offset, static_y_offset)
+            },
+        }
     }
 
     #[inline]

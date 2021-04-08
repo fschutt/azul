@@ -698,25 +698,33 @@ impl CssPropertyCache {
 
                 if node_state.focused {
                     if let NodeDataInlineCssProperty::Focus(p) = css_prop {
-                        return Some(p);
+                        if p.get_type() == *css_property_type {
+                            return Some(p);
+                        }
                     }
                 }
 
                 if node_state.active {
                     if let NodeDataInlineCssProperty::Active(p) = css_prop {
-                        return Some(p);
+                        if p.get_type() == *css_property_type {
+                            return Some(p);
+                        }
                     }
                 }
 
                 if node_state.hover {
                     if let NodeDataInlineCssProperty::Hover(p) = css_prop {
-                        return Some(p);
+                        if p.get_type() == *css_property_type {
+                            return Some(p);
+                        }
                     }
                 }
 
                 if node_state.normal {
                     if let NodeDataInlineCssProperty::Normal(p) = css_prop {
-                        return Some(p);
+                        if p.get_type() == *css_property_type {
+                            return Some(p);
+                        }
                     }
                 }
 

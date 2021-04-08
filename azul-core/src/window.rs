@@ -623,10 +623,7 @@ impl FullHitTest {
 
         let cursor_location = match cursor_position {
             CursorPosition::OutOfWindow | CursorPosition::Uninitialized => return FullHitTest::default(),
-            CursorPosition::InWindow(pos) => LayoutPoint::new(
-                libm::roundf(pos.x / hidpi_factor) as isize,
-                libm::roundf(pos.y / hidpi_factor) as isize
-            ),
+            CursorPosition::InWindow(pos) => LogicalPosition::new(pos.x / hidpi_factor, pos.y / hidpi_factor),
         };
 
         let mut map = BTreeMap::new();

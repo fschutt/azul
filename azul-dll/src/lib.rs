@@ -279,9 +279,9 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Returns the `DomNodeId` of the element that the callback was attached to.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getHitNode(callbackinfo: &AzCallbackInfo) -> AzDomNodeId { callbackinfo.get_hit_node() }
 /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not in the current window.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_getCursorRelativeToViewport(callbackinfo: &AzCallbackInfo) -> AzOptionLayoutPoint { callbackinfo.get_cursor_relative_to_viewport() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getCursorRelativeToViewport(callbackinfo: &AzCallbackInfo) -> AzOptionLogicalPosition { callbackinfo.get_cursor_relative_to_viewport() }
 /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_getCursorRelativeToNode(callbackinfo: &AzCallbackInfo) -> AzOptionLayoutPoint { callbackinfo.get_cursor_relative_to_node() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getCursorRelativeToNode(callbackinfo: &AzCallbackInfo) -> AzOptionLogicalPosition { callbackinfo.get_cursor_relative_to_node() }
 /// Returns a copy of the current windows `WindowState`.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getWindowState(callbackinfo: &AzCallbackInfo) -> AzWindowState { callbackinfo.get_window_state() }
 /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
@@ -7526,8 +7526,8 @@ mod test_sizes {
         pub current_scroll_states: *const c_void,
         pub nodes_scrolled_in_callback: *mut c_void,
         pub hit_dom_node: AzDomNodeId,
-        pub cursor_relative_to_item: AzOptionLayoutPoint,
-        pub cursor_in_viewport: AzOptionLayoutPoint,
+        pub cursor_relative_to_item: AzOptionLogicalPosition,
+        pub cursor_in_viewport: AzOptionLogicalPosition,
         pub _reserved_ref: *const c_void,
         pub _reserved_mut: *mut c_void,
     }

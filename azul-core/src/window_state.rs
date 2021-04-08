@@ -708,8 +708,8 @@ impl CallbacksOfHitTest {
                             /*current_scroll_states:*/ scroll_states,
                             /*nodes_scrolled_in_callback:*/ &mut ret.nodes_scrolled_in_callbacks,
                             /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: AzNodeId::from_crate_internal(Some(child_id)) },
-                            /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_relative_to_item.x, hi.point_relative_to_item.y)).into(),
-                            /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_in_viewport.x, hi.point_in_viewport.y)).into(),
+                            /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi| hi.point_relative_to_item).into(),
+                            /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi|hi.point_in_viewport).into(),
                         );
 
                         let callback_return = {
@@ -782,8 +782,8 @@ impl CallbacksOfHitTest {
                         /*current_scroll_states:*/ scroll_states,
                         /*nodes_scrolled_in_callback:*/ &mut ret.nodes_scrolled_in_callbacks,
                         /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: AzNodeId::from_crate_internal(Some(*root_id)) },
-                        /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_relative_to_item.x, hi.point_relative_to_item.y)).into(),
-                        /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_in_viewport.x, hi.point_in_viewport.y)).into(),
+                        /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi|hi.point_relative_to_item).into(),
+                        /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi| hi.point_in_viewport).into(),
                     );
 
                     let callback_return = {

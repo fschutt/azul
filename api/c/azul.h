@@ -8920,8 +8920,8 @@ struct AzCallbackInfo {
     void* current_scroll_states;
     void* restrict nodes_scrolled_in_callback;
     AzDomNodeId hit_dom_node;
-    AzOptionLayoutPoint cursor_relative_to_item;
-    AzOptionLayoutPoint cursor_in_viewport;
+    AzOptionLogicalPosition cursor_relative_to_item;
+    AzOptionLogicalPosition cursor_in_viewport;
     void* _reserved_ref;
     void* restrict _reserved_mut;
 };
@@ -9677,8 +9677,8 @@ extern DLLIMPORT AzWindowCreateOptions AzWindowCreateOptions_new(AzLayoutCallbac
 extern DLLIMPORT AzWindowState AzWindowState_new(AzLayoutCallbackType  layout_callback);
 extern DLLIMPORT AzWindowState AzWindowState_default();
 extern DLLIMPORT AzDomNodeId AzCallbackInfo_getHitNode(AzCallbackInfo* const callbackinfo);
-extern DLLIMPORT AzOptionLayoutPoint AzCallbackInfo_getCursorRelativeToViewport(AzCallbackInfo* const callbackinfo);
-extern DLLIMPORT AzOptionLayoutPoint AzCallbackInfo_getCursorRelativeToNode(AzCallbackInfo* const callbackinfo);
+extern DLLIMPORT AzOptionLogicalPosition AzCallbackInfo_getCursorRelativeToViewport(AzCallbackInfo* const callbackinfo);
+extern DLLIMPORT AzOptionLogicalPosition AzCallbackInfo_getCursorRelativeToNode(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzWindowState AzCallbackInfo_getWindowState(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzKeyboardState AzCallbackInfo_getKeyboardState(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzMouseState AzCallbackInfo_getMouseState(AzCallbackInfo* const callbackinfo);

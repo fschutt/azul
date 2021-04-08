@@ -12,8 +12,8 @@ use alloc::collections::BTreeMap;
 #[cfg(feature = "std")]
 use std::hash::Hash;
 use azul_css::{
-    CssProperty, LayoutPoint, OptionLayoutPoint,
-    LayoutSize, CssPath, AzString, LayoutRect,
+    CssProperty, LayoutSize, CssPath,
+    AzString, LayoutRect,
 };
 use rust_fontconfig::FcFontCache;
 use crate::{
@@ -22,7 +22,7 @@ use crate::{
         ImageCache, ImageRef, IdNamespace, Words, ShapedWords,
         WordPositions, FontInstanceKey, LayoutedGlyphs, ImageMask
     },
-    window::AzStringPair,
+    window::{AzStringPair, OptionLogicalPosition},
     styled_dom::StyledDom,
     ui_solver::{
         OverflowingScrollNode, PositionedRectangle,
@@ -364,24 +364,24 @@ impl PipelineId {
 pub struct HitTestItem {
     /// The hit point in the coordinate space of the "viewport" of the display item.
     /// The viewport is the scroll node formed by the root reference frame of the display item's pipeline.
-    pub point_in_viewport: LayoutPoint,
+    pub point_in_viewport: LogicalPosition,
     /// The coordinates of the original hit test point relative to the origin of this item.
     /// This is useful for calculating things like text offsets in the client.
-    pub point_relative_to_item: LayoutPoint,
+    pub point_relative_to_item: LogicalPosition,
     /// Necessary to easily get the nearest IFrame node
     pub is_focusable: bool,
     /// If this hit is an IFrame node, stores the IFrames DomId + the origin of the IFrame
-    pub is_iframe_hit: Option<(DomId, LayoutPoint)>,
+    pub is_iframe_hit: Option<(DomId, LogicalPosition)>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct ScrollHitTestItem {
     /// The hit point in the coordinate space of the "viewport" of the display item.
     /// The viewport is the scroll node formed by the root reference frame of the display item's pipeline.
-    pub point_in_viewport: LayoutPoint,
+    pub point_in_viewport: LogicalPosition,
     /// The coordinates of the original hit test point relative to the origin of this item.
     /// This is useful for calculating things like text offsets in the client.
-    pub point_relative_to_item: LayoutPoint,
+    pub point_relative_to_item: LogicalPosition,
     /// If this hit is an IFrame node, stores the IFrames DomId + the origin of the IFrame
     pub scroll_node: OverflowingScrollNode,
 }
@@ -877,9 +877,9 @@ pub struct CallbackInfo {
     /// statements based on the `NodeId`
     hit_dom_node: DomNodeId,
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
-    cursor_relative_to_item: OptionLayoutPoint,
+    cursor_relative_to_item: OptionLogicalPosition,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
-    cursor_in_viewport: OptionLayoutPoint,
+    cursor_in_viewport: OptionLogicalPosition,
     /// Extension for future ABI stability (referenced data)
     _abi_ref: *const c_void,
     /// Extension for future ABI stability (mutable data)
@@ -919,8 +919,8 @@ impl CallbackInfo {
        current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
        nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
        hit_dom_node: DomNodeId,
-       cursor_relative_to_item: OptionLayoutPoint,
-       cursor_in_viewport: OptionLayoutPoint,
+       cursor_relative_to_item: OptionLogicalPosition,
+       cursor_in_viewport: OptionLogicalPosition,
     ) -> Self {
         Self {
             current_window_state: current_window_state as *const FullWindowState,
@@ -974,8 +974,8 @@ impl CallbackInfo {
     fn internal_get_css_properties_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>> { unsafe { &mut *self.css_properties_changed_in_callbacks } }
     fn internal_get_nodes_scrolled_in_callback<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>> { unsafe { &mut *self.nodes_scrolled_in_callback } }
     fn internal_get_hit_dom_node<'a>(&'a self) -> DomNodeId { self.hit_dom_node }
-    fn internal_get_cursor_relative_to_item<'a>(&'a self) -> OptionLayoutPoint { self.cursor_relative_to_item }
-    fn internal_get_cursor_in_viewport<'a>(&'a self) -> OptionLayoutPoint { self.cursor_in_viewport }
+    fn internal_get_cursor_relative_to_item<'a>(&'a self) -> OptionLogicalPosition { self.cursor_relative_to_item }
+    fn internal_get_cursor_in_viewport<'a>(&'a self) -> OptionLogicalPosition { self.cursor_in_viewport }
     fn internal_words_changed_in_callbacks<'a>(&'a self) -> &'a BTreeMap<NodeId, Words> { unsafe { &*self.words_cache } }
     fn internal_get_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, Words> { unsafe { &*self.words_cache } }
     fn internal_get_shaped_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, ShapedWords> { unsafe { &*self.shaped_words_cache } }
@@ -986,8 +986,8 @@ impl CallbackInfo {
     fn internal_get_image_masks_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>> { unsafe { &mut *self.image_masks_changed_in_callbacks } }
 
     pub fn get_hit_node(&self) -> DomNodeId { self.internal_get_hit_dom_node() }
-    pub fn get_cursor_relative_to_node(&self) -> OptionLayoutPoint { self.internal_get_cursor_relative_to_item() }
-    pub fn get_cursor_relative_to_viewport(&self) -> OptionLayoutPoint { self.internal_get_cursor_in_viewport() }
+    pub fn get_cursor_relative_to_node(&self) -> OptionLogicalPosition { self.internal_get_cursor_relative_to_item() }
+    pub fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition { self.internal_get_cursor_in_viewport() }
     pub fn get_window_state(&self) -> WindowState { self.internal_get_current_window_state().clone().into() }
     pub fn get_keyboard_state(&self) -> KeyboardState { self.internal_get_current_window_state().keyboard_state.clone() }
     pub fn get_mouse_state(&self) -> MouseState { self.internal_get_current_window_state().mouse_state.clone() }

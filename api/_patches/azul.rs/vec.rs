@@ -272,10 +272,10 @@
     impl_vec_clone!(AzString, AzStringVec, AzStringVecDestructor);
     impl_vec!(AzStringPair, AzStringPairVec, AzStringPairVecDestructor, az_string_pair_vec_destructor, AzStringPairVec_delete);
     impl_vec_clone!(AzStringPair, AzStringPairVec, AzStringPairVecDestructor);
-    impl_vec!(AzLinearColorStop, AzLinearColorStopVec, AzLinearColorStopVecDestructor, az_linear_color_stop_vec_destructor, AzLinearColorStopVec_delete);
-    impl_vec_clone!(AzLinearColorStop, AzLinearColorStopVec, AzLinearColorStopVecDestructor);
-    impl_vec!(AzRadialColorStop, AzRadialColorStopVec, AzRadialColorStopVecDestructor, az_radial_color_stop_vec_destructor, AzRadialColorStopVec_delete);
-    impl_vec_clone!(AzRadialColorStop, AzRadialColorStopVec, AzRadialColorStopVecDestructor);
+    impl_vec!(AzNormalizedLinearColorStop, AzNormalizedLinearColorStopVec, AzNormalizedLinearColorStopVecDestructor, az_normalized_linear_color_stop_vec_destructor, AzNormalizedLinearColorStopVec_delete);
+    impl_vec_clone!(AzNormalizedLinearColorStop, AzNormalizedLinearColorStopVec, AzNormalizedLinearColorStopVecDestructor);
+    impl_vec!(AzNormalizedRadialColorStop, AzNormalizedRadialColorStopVec, AzNormalizedRadialColorStopVecDestructor, az_normalized_radial_color_stop_vec_destructor, AzNormalizedRadialColorStopVec_delete);
+    impl_vec_clone!(AzNormalizedRadialColorStop, AzNormalizedRadialColorStopVec, AzNormalizedRadialColorStopVecDestructor);
     impl_vec!(AzNodeId, AzNodeIdVec, AzNodeIdVecDestructor, az_node_id_vec_destructor, AzNodeIdVec_delete);
     impl_vec_clone!(AzNodeId, AzNodeIdVec, AzNodeIdVecDestructor);
     impl_vec!(AzNode, AzNodeVec, AzNodeVecDestructor, az_node_vec_destructor, AzNodeVec_delete);
