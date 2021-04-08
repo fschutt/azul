@@ -307,13 +307,9 @@ pub type PipelineSourceId = u32;
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ScrollPosition {
     /// How big is the scroll rect (i.e. the union of all children)?
-    pub scroll_frame_rect: LayoutRect,
+    pub children_rect: LogicalRect,
     /// How big is the parent container (so that things like "scroll to left edge" can be implemented)?
-    pub parent_rect_size: LogicalSize,
-    /// Position of the parent rect
-    pub parent_rect_position: PositionInfo,
-    /// Where (measured from the top left corner) is the frame currently scrolled to?
-    pub scroll_location: LogicalPosition,
+    pub parent_rect: LogicalRect,
 }
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -1000,7 +996,12 @@ impl CallbackInfo {
         self.internal_get_current_scroll_states()
         .get(&node_id.dom)?
         .get(&node_id.node)
-        .map(|sp| sp.scroll_location)
+        .map(|sp| {
+            LogicalPosition::new(
+                sp.children_rect.origin.x - sp.parent_rect.origin.x,
+                sp.children_rect.origin.y - sp.parent_rect.origin.y,
+            )
+        })
     }
 
     pub fn set_scroll_amount(&mut self, node_id: DomNodeId, scroll_position: LogicalPosition) {

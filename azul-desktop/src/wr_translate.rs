@@ -1487,21 +1487,6 @@ fn push_scroll_frame(
 
     // Push hit-testing + scrolling children
 
-    /*
-    // scroll frame has the hit-testing clip as a parent
-    let scroll_frame_clip_info = builder.define_scroll_frame(
-        /* parent_space_and_clip */ &WrSpaceAndClipInfo {
-            clip_id: hit_testing_clip_id,
-            spatial_id: parent_spatial_id,
-        },
-        /* external_id */ wr_translate_external_scroll_id(scroll_frame.scroll_id),
-        /* content_rect */ wr_translate_layout_rect(scroll_frame.content_rect),
-        /* clip_rect */ wr_translate_logical_rect(clip_rect),
-        /* sensitivity */ WrScrollSensitivity::Script,
-        /* external_scroll_offset */ WrLayoutVector2D::zero(),
-    );
-    */
-
     // If the rect has an overflow:* property set, clip the children accordingly
     let children_clip_id = match scroll_frame.frame.clip_children {
         Some(size) => {
@@ -1512,8 +1497,31 @@ fn push_scroll_frame(
         None => WrClipId::root(builder.pipeline_id), // no clipping
     };
 
+    // scroll frame has the hit-testing clip as a parent
+    let scroll_frame_clip_info = builder.define_scroll_frame(
+        /* parent_space_and_clip */ &WrSpaceAndClipInfo {
+            clip_id: children_clip_id,
+            spatial_id: rect_spatial_id,
+        },
+        /* external_id */ wr_translate_external_scroll_id(scroll_frame.scroll_id),
+        /* content_rect */ wr_translate_logical_rect(scroll_frame.content_rect),
+        /* clip_rect */ wr_translate_logical_rect(scroll_frame.parent_rect),
+        /* sensitivity */ WrScrollSensitivity::Script,
+        /* external_scroll_offset */ WrLayoutVector2D::new(
+            scroll_frame.content_rect.origin.x - scroll_frame.parent_rect.origin.x,
+            scroll_frame.content_rect.origin.y - scroll_frame.parent_rect.origin.y,
+        ),
+    );
+
     for child in scroll_frame.frame.children {
-        push_display_list_msg(builder, child, rect_spatial_id, children_clip_id, positioned_items, current_hidpi_factor);
+        push_display_list_msg(
+            builder,
+            child,
+            scroll_frame_clip_info.spatial_id,
+            scroll_frame_clip_info.clip_id,
+            positioned_items,
+            current_hidpi_factor
+        );
     }
 }
 

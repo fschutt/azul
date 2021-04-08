@@ -180,8 +180,10 @@ impl DisplayListMsg {
 
 #[derive(Clone, PartialEq, PartialOrd)]
 pub struct DisplayListScrollFrame {
+    /// Containing rect of the parent node
+    pub parent_rect: LogicalRect,
     /// Bounding rect of the (overflowing) content of the scroll frame
-    pub content_rect: LayoutRect,
+    pub content_rect: LogicalRect,
     /// The scroll ID is the hash of the DOM node, so that scrolling
     /// positions can be tracked across multiple frames
     pub scroll_id: ExternalScrollId,
@@ -194,6 +196,7 @@ pub struct DisplayListScrollFrame {
 impl fmt::Debug for DisplayListScrollFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "DisplayListScrollFrame {{\r\n")?;
+        write!(f, "    parent_rect: {}\r\n", self.parent_rect)?;
         write!(f, "    content_rect: {}\r\n", self.content_rect)?;
         write!(f, "    scroll_tag: {}\r\n", self.scroll_tag)?;
         write!(f, "    frame: DisplayListFrame {{\r\n")?;
@@ -1113,6 +1116,7 @@ pub fn displaylist_handle_rect<'a>(
 
     match layout_result.scrollable_nodes.overflowing_nodes.get(&AzNodeId::from_crate_internal(Some(rect_idx))) {
         Some(scroll_node) => DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
+            parent_rect: scroll_node.parent_rect,
             content_rect: scroll_node.child_rect,
             scroll_id: scroll_node.parent_external_scroll_id,
             scroll_tag: scroll_node.scroll_tag_id,

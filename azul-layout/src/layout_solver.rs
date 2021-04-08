@@ -2351,7 +2351,7 @@ fn get_nodes_that_need_scroll_clip(
     }
 
     // Insert all rectangles that need to scroll
-    for (parent_id, (_, children_sum_rect)) in all_direct_overflows {
+    for (parent_id, (parent_rect, children_sum_rect)) in all_direct_overflows {
         let parent_dom_hash = dom_rects[parent_id].calculate_node_data_hash();
         let parent_external_scroll_id = ExternalScrollId(parent_dom_hash.0, *pipeline_id);
         let scroll_tag_id = match display_list_rects[parent_id].tag_id.as_ref() {
@@ -2359,11 +2359,19 @@ fn get_nodes_that_need_scroll_clip(
             None => ScrollTagId(TagId::unique()),
         };
         overflowing_nodes.insert(AzNodeId::from_crate_internal(Some(parent_id)), OverflowingScrollNode {
-            child_rect: children_sum_rect,
+            parent_rect: LogicalRect::new(
+                LogicalPosition::new(parent_rect.origin.x as f32, parent_rect.origin.y as f32),
+                LogicalSize::new(parent_rect.size.width as f32, parent_rect.size.height as f32),
+            ),
+            child_rect: LogicalRect::new(
+                LogicalPosition::new(children_sum_rect.origin.x as f32, children_sum_rect.origin.y as f32),
+                LogicalSize::new(children_sum_rect.size.width as f32, children_sum_rect.size.height as f32),
+            ),
             parent_external_scroll_id,
             parent_dom_hash,
             scroll_tag_id,
         });
+        // tags_to_node_ids.insert(scroll_tag_id, parent_id)
     }
 
     println!("overflowing nodes: {:#?}", overflowing_nodes);

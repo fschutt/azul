@@ -521,15 +521,15 @@ impl ScrollState {
     }
 
     /// Add a scroll X / Y onto the existing scroll state
-    pub fn add(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
-        self.scroll_position.x = (self.scroll_position.x + x).max(0.0).min(child_rect.size.width as f32);
-        self.scroll_position.y = (self.scroll_position.y + y).max(0.0).min(child_rect.size.height as f32);
+    pub fn add(&mut self, x: f32, y: f32, child_rect: &LogicalRect) {
+        self.scroll_position.x = (self.scroll_position.x + x).max(0.0).min(child_rect.size.width);
+        self.scroll_position.y = (self.scroll_position.y + y).max(0.0).min(child_rect.size.height);
     }
 
     /// Set the scroll state to a new position
-    pub fn set(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
-        self.scroll_position.x = x.max(0.0).min(child_rect.size.width as f32);
-        self.scroll_position.y = y.max(0.0).min(child_rect.size.height as f32);
+    pub fn set(&mut self, x: f32, y: f32, child_rect: &LogicalRect) {
+        self.scroll_position.x = x.max(0.0).min(child_rect.size.width);
+        self.scroll_position.y = y.max(0.0).min(child_rect.size.height);
     }
 
     /// Returns the scroll position and also set the "used_this_frame" flag
@@ -947,18 +947,14 @@ impl WindowInternal {
 
     /// Returns a copy of the current scroll states + scroll positions
     pub fn get_current_scroll_states(&self) -> BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>> {
-
-        self.layout_results.iter().enumerate().filter_map(|(dom_id, layout_result)| {
-
+        self.layout_results
+        .iter()
+        .enumerate()
+        .filter_map(|(dom_id, layout_result)| {
             let scroll_positions = layout_result.scrollable_nodes.overflowing_nodes.iter().filter_map(|(node_id, overflowing_node)| {
-                let scroll_location = self.scroll_states.get_scroll_position(&overflowing_node.parent_external_scroll_id)?; // TODO: unwrap_or_default()?
-                let parent_node = layout_result.styled_dom.node_hierarchy.as_container()[node_id.into_crate_internal()?].parent_id().unwrap_or(NodeId::ZERO);
-                let parent_rect = &layout_result.rects.as_ref()[parent_node];
                 let scroll_position = ScrollPosition {
-                    scroll_frame_rect: overflowing_node.child_rect,
-                    parent_rect_size: parent_rect.size,
-                    parent_rect_position: parent_rect.position.clone(),
-                    scroll_location,
+                    parent_rect: overflowing_node.parent_rect,
+                    children_rect: overflowing_node.child_rect,
                 };
                 Some((*node_id, scroll_position))
             }).collect::<BTreeMap<_, _>>();
@@ -1845,9 +1841,15 @@ pub struct LogicalRect {
     pub size: LogicalSize,
 }
 
-impl ::core::fmt::Debug for LogicalRect {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{:?} @ {:?}", self.size, self.origin)
+impl core::fmt::Debug for LogicalRect {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{} @ {}", self.size, self.origin)
+    }
+}
+
+impl core::fmt::Display for LogicalRect {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{} @ {}", self.size, self.origin)
     }
 }
 
@@ -1919,8 +1921,14 @@ pub struct LogicalPosition {
     pub y: f32,
 }
 
-impl ::core::fmt::Debug for LogicalPosition {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+impl core::fmt::Debug for LogicalPosition {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}
+
+impl core::fmt::Display for LogicalPosition {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "({}, {})", self.x, self.y)
     }
 }
@@ -1981,8 +1989,14 @@ pub struct LogicalSize {
     pub height: f32,
 }
 
-impl ::core::fmt::Debug for LogicalSize {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+impl core::fmt::Debug for LogicalSize {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{}x{}", self.width, self.height)
+    }
+}
+
+impl core::fmt::Display for LogicalSize {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "{}x{}", self.width, self.height)
     }
 }
