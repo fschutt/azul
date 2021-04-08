@@ -1293,7 +1293,7 @@ fn wr_translate_image_dirty_rect(dirty_rect: ImageDirtyRect) -> WrImageDirtyRect
 }
 
 #[inline]
-pub(crate) const fn wr_translate_transform(t: &ComputedTransform3D) -> WrLayoutTransform {
+pub(crate) const fn wr_translate_layout_transform(t: &ComputedTransform3D) -> WrLayoutTransform {
     WrLayoutTransform::new(
         t.m[0][0], t.m[0][1], t.m[0][2], t.m[0][3],
         t.m[1][0], t.m[1][1], t.m[1][2], t.m[1][3],
@@ -1367,7 +1367,7 @@ fn push_display_list_msg(
 
     let property_binding = match transform {
         Some(s) => WrPropertyBinding::Binding(
-            WrPropertyBindingKey::new(s.0.id as u64), wr_translate_transform(&s.1)
+            WrPropertyBindingKey::new(s.0.id as u64), wr_translate_layout_transform(&s.1)
         ),
         None => WrPropertyBinding::Value(WrLayoutTransform::identity()),
     };

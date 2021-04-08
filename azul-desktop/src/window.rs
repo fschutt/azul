@@ -1119,6 +1119,7 @@ impl Window {
     pub(crate) fn render_async(&mut self, mut txn: WrTransaction, display_list_was_rebuilt: bool) {
 
         use crate::wr_translate;
+        use azul_core::ui_solver::LayoutResult;
 
         /// Scroll all nodes in the ScrollStates to their correct position and insert
         /// the positions into the transaction
@@ -1137,6 +1138,47 @@ impl Window {
             }
         }
 
+        /// Synchronize transform / opacity keys
+        fn synchronize_gpu_values(layout_results: &[LayoutResult], txn: &mut WrTransaction) {
+
+            use webrender::api::{
+                PropertyBindingKey as WrPropertyBindingKey,
+                PropertyValue as WrPropertyValue,
+                DynamicProperties as WrDynamicProperties,
+            };
+            use crate::wr_translate::wr_translate_layout_transform;
+
+            let transforms = layout_results.iter().flat_map(|lr| {
+                lr.gpu_value_cache.transform_keys.iter().filter_map(|(nid, key)| {
+                    let value = lr.gpu_value_cache.current_transform_values.get(nid)?;
+                    Some((key, value.clone()))
+                }).collect::<Vec<_>>().into_iter()
+            })
+            .map(|(k, v)| WrPropertyValue {
+                key: WrPropertyBindingKey::new(k.id as u64),
+                value: wr_translate_layout_transform(&v),
+            })
+            .collect::<Vec<_>>();
+
+            let floats = layout_results.iter().flat_map(|lr| {
+                lr.gpu_value_cache.opacity_keys.iter().filter_map(|(nid, key)| {
+                    let value = lr.gpu_value_cache.current_opacity_values.get(nid)?;
+                    Some((key, *value))
+                }).collect::<Vec<_>>().into_iter()
+            })
+            .map(|(k, v)| WrPropertyValue {
+                key: WrPropertyBindingKey::new(k.id as u64),
+                value: v,
+            })
+            .collect::<Vec<_>>();
+
+            txn.update_dynamic_properties(WrDynamicProperties {
+                transforms,
+                floats,
+                colors: Vec::new(), // TODO: animate colors?
+            });
+        }
+
         let physical_size = self.internal.current_window_state.size.get_physical_size();
         let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
 
@@ -1152,6 +1194,7 @@ impl Window {
         txn.set_root_pipeline(wr_translate::wr_translate_pipeline_id(self.internal.pipeline_id));
         txn.set_document_view(WrDeviceIntRect::new(WrDeviceIntPoint::new(0, 0), framebuffer_size), self.internal.current_window_state.size.hidpi_factor);
         scroll_all_nodes(&mut self.internal.scroll_states, &mut txn);
+        synchronize_gpu_values(&self.internal.layout_results, &mut txn);
 
         if !display_list_was_rebuilt {
             txn.skip_scene_builder(); // avoid rebuilding the scene if DL hasn't changed
