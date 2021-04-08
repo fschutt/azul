@@ -148,7 +148,7 @@ pub struct ExternalScrollId(pub u64, pub PipelineId);
 
 impl ::core::fmt::Display for ExternalScrollId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ExternalScrollId({:0x}, {})", self.0, self.1)
+        write!(f, "ExternalScrollId({})", self.0)
     }
 }
 

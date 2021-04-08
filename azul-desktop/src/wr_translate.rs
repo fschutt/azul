@@ -1423,21 +1423,14 @@ fn push_frame(
     positioned_items: &mut Vec<(WrSpatialId, WrClipId)>,
     current_hidpi_factor: f32,
 ) {
-
-    let rect = LogicalRect::new(LogicalPosition::zero(), frame.size);
-    let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.size);
-    let clip_content_id = define_border_radius_clip(builder, rect, wr_border_radius, rect_spatial_id, parent_clip_id);
-
-    for item in frame.content {
+    for content in frame.content {
         push_display_list_content(
             builder,
             &frame.box_shadow,
-            item,
-            rect,
+            content,
+            frame.size,
             frame.border_radius,
-            frame.tag,
             frame.flags,
-            clip_content_id,
             rect_spatial_id,
             current_hidpi_factor,
         );
@@ -1478,21 +1471,15 @@ fn push_scroll_frame(
 
     // if let Some(image_mask) = scroll_frame.frame.image_mask { push_image_mask_clip() }
 
-    let rect = LogicalRect::new(LogicalPosition::zero(), scroll_frame.frame.size);
-    let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.size);
-    let clip_content_id = define_border_radius_clip(builder, rect, wr_border_radius, rect_spatial_id, parent_clip_id);
-
     // Only children should scroll, not the frame itself!
-    for item in scroll_frame.frame.content {
+    for content in scroll_frame.frame.content {
         push_display_list_content(
             builder,
             &scroll_frame.frame.box_shadow,
-            item,
-            rect,
+            content,
+            scroll_frame.frame.size,
             scroll_frame.frame.border_radius,
-            scroll_frame.frame.tag,
             scroll_frame.frame.flags,
-            clip_content_id,
             rect_spatial_id,
             current_hidpi_factor,
         );
@@ -1501,17 +1488,6 @@ fn push_scroll_frame(
     // Push hit-testing + scrolling children
 
     /*
-    let hit_testing_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
-
-    let hit_test_info = WrCommonItemProperties {
-        clip_rect: wr_translate_logical_rect(clip_rect),
-        flags: wr_translate_primitive_flags(scroll_frame.frame.flags),
-        clip_id: hit_testing_clip_id,
-        spatial_id: parent_spatial_id,
-    };
-
-    builder.push_rect(&hit_test_info, hit_test_info.clip_rect, wr_translate_color_u(ColorU::TRANSPARENT).into());
-
     // scroll frame has the hit-testing clip as a parent
     let scroll_frame_clip_info = builder.define_scroll_frame(
         /* parent_space_and_clip */ &WrSpaceAndClipInfo {
@@ -1541,6 +1517,7 @@ fn push_scroll_frame(
     }
 }
 
+#[inline]
 fn define_border_radius_clip(
     builder: &mut WrDisplayListBuilder,
     layout_rect: LogicalRect,
@@ -1568,19 +1545,18 @@ fn push_display_list_content(
     builder: &mut WrDisplayListBuilder,
     box_shadow: &Option<BoxShadow>,
     content: LayoutRectContent,
-    clip_rect: LogicalRect,
+    rect_size: LogicalSize,
     border_radius: StyleBorderRadius,
-    hit_info: Option<TagId>,
     flags: PrimitiveFlags,
-    parent_clip_id: WrClipId,
     rect_spatial_id: WrSpatialId,
     current_hidpi_factor: f32,
 ) {
     use azul_core::display_list::LayoutRectContent::*;
 
-    let mut normal_info = WrCommonItemProperties {
+    let clip_rect = LogicalRect::new(LogicalPosition::zero(), rect_size);
+    let normal_info = WrCommonItemProperties {
         clip_rect: wr_translate_logical_rect(clip_rect),
-        clip_id: parent_clip_id,
+        clip_id: WrClipId::root(builder.pipeline_id), // default: no clipping
         spatial_id: rect_spatial_id,
         flags: wr_translate_primitive_flags(flags),
     };
@@ -1591,33 +1567,38 @@ fn push_display_list_content(
         // push outset box shadow before the item clip is pushed
         if box_shadow.clip_mode == CssBoxShadowClipMode::Outset {
             // If the content is a shadow, it needs to be clipped by the root
-            normal_info.clip_id = WrClipId::root(builder.pipeline_id);
             box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Outset, box_shadow, border_radius, normal_info.spatial_id, normal_info.clip_id);
         }
     }
+
+    let mut content_clip: Option<WrClipId> = None;
 
     // Border and BoxShadow::Outset get a root clip, since they
     // are outside of the rect contents
     // All other content types get the regular clip
     match content {
         Text { glyphs, font_instance_key, color, glyph_options, overflow } => {
-            let border_radius_clip_id = if overflow.0 || overflow.1 {
-                WrClipId::root(builder.pipeline_id)
-            } else {
-                define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id)
-            };
-            normal_info.clip_id = border_radius_clip_id;
-            text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options);
+            let mut text_info = normal_info.clone();
+            if overflow.0 || overflow.1 {
+                text_info.clip_id = content_clip.get_or_insert_with(|| {
+                    define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, normal_info.clip_id)
+                }).clone();
+            }
+            text::push_text(builder, &text_info, glyphs, font_instance_key, color, glyph_options);
         },
         Background { content, size, offset, repeat  } => {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
-            normal_info.clip_id = border_radius_clip_id;
-            background::push_background(builder, &normal_info, content, size, offset, repeat);
+            let mut background_info = normal_info.clone();
+            background_info.clip_id = content_clip.get_or_insert_with(|| {
+                define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, normal_info.clip_id)
+            }).clone();
+            background::push_background(builder, &background_info, content, size, offset, repeat);
         },
         Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
-            normal_info.clip_id = border_radius_clip_id;
-            image::push_image(builder, &normal_info, size, offset, image_key, alpha_type, image_rendering, background_color);
+            let mut image_info = normal_info.clone();
+            image_info.clip_id = content_clip.get_or_insert_with(|| {
+                define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, normal_info.clip_id)
+            }).clone();
+            image::push_image(builder, &image_info, size, offset, image_key, alpha_type, image_rendering, background_color);
         },
         Border { widths, colors, styles } => {
             // no clip necessary because item will always be in parent bounds
@@ -1628,9 +1609,10 @@ fn push_display_list_content(
     if let Some(box_shadow) = box_shadow.as_ref() {
         // push outset box shadow before the item clip is pushed
         if box_shadow.clip_mode == CssBoxShadowClipMode::Inset {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id);
-            normal_info.clip_id = border_radius_clip_id;
-            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Inset, box_shadow, border_radius, normal_info.spatial_id, normal_info.clip_id);
+            let inset_clip_id = content_clip.get_or_insert_with(|| {
+                define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, normal_info.clip_id)
+            }).clone();
+            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Inset, box_shadow, border_radius, normal_info.spatial_id, inset_clip_id);
         }
     }
 }

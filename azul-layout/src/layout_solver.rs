@@ -2366,6 +2366,8 @@ fn get_nodes_that_need_scroll_clip(
         });
     }
 
+    println!("overflowing nodes: {:#?}", overflowing_nodes);
+
     *scrolled_nodes = ScrolledNodes {
         overflowing_nodes,
         clip_nodes,
