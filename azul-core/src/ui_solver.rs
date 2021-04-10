@@ -544,13 +544,21 @@ impl GpuValueCache {
             let styled_node_state = &node_states[node_id].state;
             let node_data = &node_data[node_id];
             let current_transform = css_property_cache.get_transform(node_data, &node_id, styled_node_state)?.get_property().map(|t| {
-                let parent_size = positioned_rects[node_id].size;
+
+                let parent_size = positioned_rects[node_id].size_including_borders();
                 let transform_origin = css_property_cache.get_transform_origin(node_data, &node_id, styled_node_state);
                 let transform_origin = transform_origin
                     .as_ref()
                     .and_then(|o| o.get_property())
                     .unwrap_or(&default_transform_origin);
-                ComputedTransform3D::from_style_transform_vec(t.as_ref(), transform_origin, parent_size.width, parent_size.height)
+
+                ComputedTransform3D::from_style_transform_vec(
+                    t.as_ref(),
+                    transform_origin,
+                    parent_size.width,
+                    parent_size.height,
+                    RotationMode::ForWebRender,
+                )
             });
             let existing_transform = self.current_transform_values.get(&node_id);
 
@@ -636,7 +644,16 @@ impl HitTest {
 
 impl LayoutResult {
 
-    pub fn get_hits(&self, cursor: &LogicalPosition, scroll_states: &ScrollStates) -> HitTest {
+    pub fn get_hits(
+        &self,
+        cursor: &LogicalPosition,
+        scroll_states: &ScrollStates,
+        hidpi_factor: f32,
+    ) -> HitTest {
+
+        let mut cursor = *cursor;
+        cursor.x /= hidpi_factor;
+        cursor.y /= hidpi_factor;
 
         // TODO: SIMD-optimize!
         let css_property_cache = self.styled_dom.get_css_property_cache();
@@ -652,7 +669,7 @@ impl LayoutResult {
 
             let node_id = t.node_id.into_crate_internal()?;
             let logical_offset = self.rects.as_ref()[node_id].get_logical_static_offset();
-            let logical_size = self.rects.as_ref()[node_id].size;
+            let logical_size = self.rects.as_ref()[node_id].size_including_borders();
             let logical_rect = LogicalRect::new(logical_offset, logical_size);
 
             // Traverse up the tree and  calculate the transformation matrix of
@@ -678,13 +695,16 @@ impl LayoutResult {
                     .unwrap_or_default();
 
                     ComputedTransform3D::from_style_transform_vec(
-                        transform_vec.as_ref(), &transform_origin,
-                        parent_size.width, parent_size.height
+                        transform_vec.as_ref(),
+                        &transform_origin,
+                        parent_size.width,
+                        parent_size.height,
+                        RotationMode::ForHitTesting,
                     )
                 });
 
                 if let Some(parent) = parent_transform {
-                    transform = parent.then(&transform);
+                    transform = transform.then(&parent);
                 }
 
                 if let Some(parent) = self.styled_dom.node_hierarchy.as_container()[p].parent_id() {
@@ -695,7 +715,7 @@ impl LayoutResult {
             }
 
             // project the cursor into the coordinate space of the target rect
-            let cursor_projected = transform.transform_point2d(*cursor).unwrap_or(*cursor);
+            let cursor_projected = transform.transform_point2d(cursor).unwrap_or(cursor);
 
             // TODO: If the item is a scroll rect, then also unproject
             // the scroll transform!
@@ -704,7 +724,7 @@ impl LayoutResult {
             .hit_test(&cursor_projected)
             .map(|relative_to_item| {
                 (node_id, HitTestItem {
-                    point_in_viewport: *cursor,
+                    point_in_viewport: cursor,
                     point_relative_to_item: relative_to_item,
                     is_iframe_hit: self.iframe_mapping.get(&node_id).map(|iframe_dom_id| {
                         (*iframe_dom_id, logical_offset)
@@ -1069,6 +1089,18 @@ pub struct StyleBoxShadowOffsets {
     pub bottom: Option<CssPropertyValue<StyleBoxShadow>>,
 }
 
+/// For some reason the rotation matrix for webrender is inverted:
+/// When rendering, the matrix turns the rectangle counter-clockwise
+/// direction instead of clockwise.
+///
+/// This is technically a workaround, but it's necessary so that
+/// rotation works properly
+#[derive(Debug, Copy, Clone)]
+pub enum RotationMode {
+    ForWebRender,
+    ForHitTesting,
+}
+
 /// Computed transform of pixels in pixel space, optimized
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(packed)]
@@ -1122,6 +1154,7 @@ impl ComputedTransform3D {
         transform_origin: &StyleTransformOrigin,
         percent_resolve_x: f32,
         percent_resolve_y: f32,
+        rotation_mode: RotationMode,
     ) -> Self {
 
         // TODO: use correct SIMD optimization!
@@ -1129,8 +1162,11 @@ impl ComputedTransform3D {
 
         for t in t_vec.iter() {
             matrix = matrix.then(&Self::from_style_transform(
-                t, transform_origin,
-                percent_resolve_x, percent_resolve_y
+                t,
+                transform_origin,
+                percent_resolve_x,
+                percent_resolve_y,
+                rotation_mode,
             ));
         }
 
@@ -1144,6 +1180,7 @@ impl ComputedTransform3D {
         transform_origin: &StyleTransformOrigin,
         percent_resolve_x: f32,
         percent_resolve_y: f32,
+        rotation_mode: RotationMode,
     ) -> Self {
         use azul_css::StyleTransform::*;
         match t {
@@ -1218,6 +1255,7 @@ impl ComputedTransform3D {
                     rot3d.x.normalized(),
                     rot3d.y.normalized(),
                     rot3d.z.normalized(),
+                    rotation_mode
                 )
             },
             RotateX(angle_x) => {
@@ -1231,6 +1269,7 @@ impl ComputedTransform3D {
                     1.0,
                     0.0,
                     0.0,
+                    rotation_mode
                 )
             },
             RotateY(angle_y) => {
@@ -1244,6 +1283,7 @@ impl ComputedTransform3D {
                     0.0,
                     1.0,
                     0.0,
+                    rotation_mode
                 )
             },
             Rotate(angle_z) | RotateZ(angle_z) => {
@@ -1257,6 +1297,7 @@ impl ComputedTransform3D {
                     0.0,
                     0.0,
                     1.0,
+                    rotation_mode
                 )
             },
             Scale(scale2d) => Self::new_scale(
@@ -1430,16 +1471,22 @@ impl ComputedTransform3D {
 
     */
 
+    // NOTE: webrenders RENDERING has a different rotat
     #[inline]
     pub fn make_rotation(
         rotation_origin: (f32, f32),
-        degrees: f32,
+        mut degrees: f32,
         axis_x: f32,
         axis_y: f32,
         axis_z: f32,
+        // see documentation for RotationMode
+        rotation_mode: RotationMode,
     ) -> Self {
 
-        let degrees = -degrees; // CSS rotations are clockwise
+        degrees = match rotation_mode {
+            RotationMode::ForWebRender => -degrees, // CSS rotations are clockwise
+            RotationMode::ForHitTesting => degrees, // hit-testing turns counter-clockwise
+        };
 
         let (origin_x, origin_y) = rotation_origin;
         let pre_transform = Self::new_translation(-origin_x, -origin_y, -0.0);

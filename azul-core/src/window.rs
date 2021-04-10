@@ -623,7 +623,7 @@ impl FullHitTest {
 
         let cursor_location = match cursor_position {
             CursorPosition::OutOfWindow | CursorPosition::Uninitialized => return FullHitTest::default(),
-            CursorPosition::InWindow(pos) => LogicalPosition::new(pos.x / hidpi_factor, pos.y / hidpi_factor),
+            CursorPosition::InWindow(pos) => LogicalPosition::new(pos.x, pos.y),
         };
 
         let mut map = BTreeMap::new();
@@ -639,7 +639,7 @@ impl FullHitTest {
             for (dom_id, cursor_relative_to_dom) in dom_ids.iter() {
 
                 let layout_result = &layout_results[dom_id.inner];
-                let hit_test = layout_result.get_hits(cursor_relative_to_dom, scroll_states);
+                let hit_test = layout_result.get_hits(cursor_relative_to_dom, scroll_states, hidpi_factor);
 
                 for (node_id, hit_item) in hit_test.regular_hit_test_nodes.iter() {
 
