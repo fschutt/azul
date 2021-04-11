@@ -1363,7 +1363,8 @@ fn push_display_list_msg(
     // so we have to push the parent as a "reference frame", optionally
     // adding an (animatable) transformation on top
     let transform = msg.get_transform_key();
-    let should_push_stacking_context = transform.is_some();
+    let opacity = msg.get_opacity_key();
+    let should_push_stacking_context = transform.is_some() || opacity.is_some();
 
     let property_binding = match transform {
         Some(s) => WrPropertyBinding::Binding(
@@ -1388,11 +1389,25 @@ fn push_display_list_msg(
     }
 
     if should_push_stacking_context {
+
+        use webrender::api::FilterOp as WrFilterOp;
+
+        let opacity_filters = match opacity {
+            None => Vec::new(),
+            Some(s) => vec![WrFilterOp::Opacity(
+                WrPropertyBinding::Binding(WrPropertyBindingKey::new(s.0.id as u64), s.1),
+                s.1
+            )],
+        };
+
+        // let filters = ...
+        // let backdrop_filters = ...
+
         builder.push_simple_stacking_context_with_filters(
             WrLayoutPoint::zero(),
             rect_spatial_id,
             WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
-            &[], // TODO: opacity!
+            &opacity_filters,
             &[],
             &[]
         );

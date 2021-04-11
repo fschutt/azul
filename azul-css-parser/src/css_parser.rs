@@ -2736,18 +2736,18 @@ typed_pixel_value_parser!(parse_style_font_size, StyleFontSize);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OpacityParseError<'a> {
-    ParseFloat(ParseFloatError, &'a str),
+    ParsePercentage(PercentageParseError, &'a str),
 }
 
 impl_display!{OpacityParseError<'a>, {
-    ParseFloat(e, orig_str) => format!("opacity: Could not parse floating-point value: \"{}\" - Error: \"{}\"", orig_str, e),
+    ParsePercentage(e, orig_str) => format!("opacity: Could not parse percentage value: \"{}\" - Error: \"{}\"", orig_str, e),
 }}
 
 pub fn parse_style_opacity<'a>(input: &'a str)
 -> Result<StyleOpacity, OpacityParseError<'a>>
 {
-    parse_float_value(input)
-    .map_err(|e| OpacityParseError::ParseFloat(e, input))
+    parse_percentage_value(input)
+    .map_err(|e| OpacityParseError::ParsePercentage(e, input))
     .and_then(|e| Ok(StyleOpacity { inner: e }))
 }
 

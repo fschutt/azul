@@ -600,8 +600,8 @@ impl GpuValueCache {
 
             match (existing_opacity, current_opacity) {
                 (None, None) => None, // no new opacity, no old transform
-                (None, Some(new)) => Some(GpuOpacityKeyEvent::Added(node_id, OpacityKey::unique(), new.get())),
-                (Some(old), Some(new)) => Some(GpuOpacityKeyEvent::Changed(node_id, self.opacity_keys.get(&node_id).copied()?, *old, new.get())),
+                (None, Some(new)) => Some(GpuOpacityKeyEvent::Added(node_id, OpacityKey::unique(), new.inner.normalized())),
+                (Some(old), Some(new)) => Some(GpuOpacityKeyEvent::Changed(node_id, self.opacity_keys.get(&node_id).copied()?, *old, new.inner.normalized())),
                 (Some(_old), None) => Some(GpuOpacityKeyEvent::Removed(node_id, self.opacity_keys.get(&node_id).copied()?)),
             }
         }).collect::<Vec<GpuOpacityKeyEvent>>();

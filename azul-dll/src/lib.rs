@@ -5484,7 +5484,7 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `StyleOpacity` struct
     #[repr(C)]     pub struct AzStyleOpacity {
-        pub inner: AzFloatValue,
+        pub inner: AzPercentageValue,
     }
     /// Re-export of rust-allocated (stack based) `StyleTransformOrigin` struct
     #[repr(C)]     pub struct AzStyleTransformOrigin {

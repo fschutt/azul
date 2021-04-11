@@ -3704,7 +3704,7 @@ struct AzStyleTabWidth {
 typedef struct AzStyleTabWidth AzStyleTabWidth;
 
 struct AzStyleOpacity {
-    AzFloatValue inner;
+    AzPercentageValue inner;
 };
 typedef struct AzStyleOpacity AzStyleOpacity;
 

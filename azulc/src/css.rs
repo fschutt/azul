@@ -241,30 +241,30 @@ fn format_color_value(c: &ColorU) -> String {
 macro_rules! impl_float_value_fmt {($struct_name:ident) => (
     impl FormatAsRustCode for $struct_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
-            format!("{}({})", stringify!($struct_name), format_float_value(&self.inner))
+            format!("{} {{ inner: {} }}", stringify!($struct_name), format_float_value(&self.inner))
         }
     }
 )}
 
 impl_float_value_fmt!(LayoutFlexGrow);
 impl_float_value_fmt!(LayoutFlexShrink);
-impl_float_value_fmt!(StyleOpacity);
 
 macro_rules! impl_percentage_value_fmt {($struct_name:ident) => (
     impl FormatAsRustCode for $struct_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
-            format!("{}({})", stringify!($struct_name), format_percentage_value(&self.inner))
+            format!("{} {{ inner: {} }}", stringify!($struct_name), format_percentage_value(&self.inner))
         }
     }
 )}
 
 impl_percentage_value_fmt!(StyleTabWidth);
 impl_percentage_value_fmt!(StyleLineHeight);
+impl_percentage_value_fmt!(StyleOpacity);
 
 macro_rules! impl_pixel_value_fmt {($struct_name:ident) => (
     impl FormatAsRustCode for $struct_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
-            format!("{}({})", stringify!($struct_name), format_pixel_value(&self.inner))
+            format!("{} {{ {} }}", stringify!($struct_name), format_pixel_value(&self.inner))
         }
     }
 )}

@@ -3583,15 +3583,15 @@ impl Default for StyleTextAlignmentVert {
 /// Represents an `opacity` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct StyleOpacity { pub inner: FloatValue }
+pub struct StyleOpacity { pub inner: PercentageValue }
 
 impl Default for StyleOpacity {
     fn default() -> Self {
-        StyleOpacity { inner: FloatValue::const_new(0) }
+        StyleOpacity { inner: PercentageValue::const_new(0) }
     }
 }
 
-impl_float_value!(StyleOpacity);
+impl_percentage_value!(StyleOpacity);
 
 /// Represents a `perspective-origin` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

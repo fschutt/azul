@@ -2694,7 +2694,7 @@ mod dll {
     }
     /// Re-export of rust-allocated (stack based) `StyleOpacity` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleOpacity {
-        pub inner: AzFloatValue,
+        pub inner: AzPercentageValue,
     }
     /// Re-export of rust-allocated (stack based) `StyleTransformOrigin` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleTransformOrigin {

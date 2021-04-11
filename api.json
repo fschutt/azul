@@ -3032,7 +3032,7 @@
                     "external": "azul_impl::css::StyleOpacity",
                     "derive": ["Copy"],
                     "struct_fields": [
-                        {"inner": {"type": "FloatValue"}}
+                        {"inner": {"type": "PercentageValue"}}
                     ]
                 },
                 "StyleTransformOrigin": {
