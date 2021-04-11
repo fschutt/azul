@@ -1706,7 +1706,7 @@ mod background {
             LinearGradient(g)    => push_linear_gradient_background(builder, &info, g, background_position, background_size, content_size),
             RadialGradient(rg)   => push_radial_gradient_background(builder, &info, rg, background_position, background_size, content_size),
             ConicGradient(cg)    => push_conic_gradient_background(builder, &info, cg, background_position, background_size, content_size),
-            Image((key, _))    => push_image_background(builder, &info, key, background_position, background_size, background_repeat, content_size),
+            Image((key, _))      => push_image_background(builder, &info, key, background_position, background_size, background_repeat, content_size),
             Color(col)           => push_color_background(builder, &info, col, background_position, background_size, background_repeat, content_size),
         }
     }
@@ -1734,7 +1734,7 @@ mod background {
 
         let stops: Vec<WrGradientStop> = conic_gradient.stops.iter().map(|gradient_pre|
             WrGradientStop {
-                offset: gradient_pre.angle.to_degrees(),
+                offset: gradient_pre.angle.to_degrees() / 360.0,
                 color: wr_translate_color_u(gradient_pre.color).into(),
             }
         ).collect();
@@ -1746,7 +1746,7 @@ mod background {
 
         let gradient = builder.create_conic_gradient(
             center,
-            conic_gradient.angle.to_degrees(),
+            conic_gradient.angle.to_degrees() / 360.0,
             stops,
             wr_translate_extend_mode(conic_gradient.extend_mode)
         );
@@ -1787,7 +1787,7 @@ mod background {
 
         let stops: Vec<WrGradientStop> = radial_gradient.stops.iter().map(|gradient_pre|
             WrGradientStop {
-                offset: gradient_pre.offset.get() / 100.0,
+                offset: gradient_pre.offset.normalized(),
                 color: wr_translate_color_u(gradient_pre.color).into(),
             }
         ).collect();
@@ -1803,7 +1803,12 @@ mod background {
             },
         };
 
-        let gradient = builder.create_radial_gradient(center, radius, stops, wr_translate_extend_mode(radial_gradient.extend_mode));
+        let gradient = builder.create_radial_gradient(
+            center,
+            radius,
+            stops,
+            wr_translate_extend_mode(radial_gradient.extend_mode)
+        );
 
         builder.push_radial_gradient(
             &offset_info,
