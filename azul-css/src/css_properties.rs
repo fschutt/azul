@@ -2671,7 +2671,10 @@ impl Default for ConicGradient {
     fn default() -> Self {
         Self {
             extend_mode: ExtendMode::default(),
-            center: StyleBackgroundPosition::default(),
+            center: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Center,
+                vertical: BackgroundPositionVertical::Center,
+            },
             angle: AngleValue::default(),
             stops: Vec::new().into(),
         }
@@ -2713,6 +2716,7 @@ impl LinearColorStop {
         .collect::<Vec<_>>();
 
         let mut stops_to_distribute = 0;
+        let mut last_stop = None;
         let stops_len = stops.len();
 
         for (stop_id, stop) in self_stops.iter().enumerate() {
@@ -2726,13 +2730,14 @@ impl LinearColorStop {
                     }
                 }
                 stops_to_distribute = 0;
+                last_stop = Some(s);
             } else {
                 stops_to_distribute += 1;
             }
         }
 
         if stops_to_distribute != 0 {
-            let last_stop_val = stops[(stops_len - stops_to_distribute)].offset.get();
+            let last_stop_val = last_stop.unwrap_or(PercentageValue::new(MIN_STOP_DEGREE)).get();
             let value_to_add_per_stop = (MAX_STOP_DEGREE.max(last_stop_val) - last_stop_val) / (stops_to_distribute - 1) as f32;
             for (s_id, s) in stops[(stops_len - stops_to_distribute)..].iter_mut().enumerate() {
                 s.offset = PercentageValue::new(last_stop_val + (s_id as f32 * value_to_add_per_stop));
@@ -2763,6 +2768,7 @@ impl RadialColorStop {
         .collect::<Vec<_>>();
 
         let mut stops_to_distribute = 0;
+        let mut last_stop = None;
         let stops_len = stops.len();
 
         for (stop_id, stop) in self_stops.iter().enumerate() {
@@ -2776,13 +2782,14 @@ impl RadialColorStop {
                     }
                 }
                 stops_to_distribute = 0;
+                last_stop = Some(s);
             } else {
                 stops_to_distribute += 1;
             }
         }
 
         if stops_to_distribute != 0 {
-            let last_stop_val = stops[(stops_len - stops_to_distribute)].angle.to_degrees();
+            let last_stop_val = last_stop.unwrap_or(AngleValue::deg(MIN_STOP_DEGREE)).to_degrees();
             let value_to_add_per_stop = (MAX_STOP_DEGREE.max(last_stop_val) - last_stop_val) / (stops_to_distribute - 1) as f32;
             for (s_id, s) in stops[(stops_len - stops_to_distribute)..].iter_mut().enumerate() {
                 s.angle = AngleValue::deg(last_stop_val + (s_id as f32 * value_to_add_per_stop));

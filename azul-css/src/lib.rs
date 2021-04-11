@@ -1,6 +1,6 @@
 //! Provides datatypes used to describe an application's style using the Azul GUI framework.
 
-#![no_std]
+// #![no_std]
 
 #[macro_use]
 extern crate alloc;
