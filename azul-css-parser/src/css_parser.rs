@@ -923,7 +923,8 @@ pub fn parse_pixel_value_no_percent<'a>(input: &'a str)
 #[derive(Clone, PartialEq, Eq)]
 pub enum PercentageParseError {
     ValueParseErr(ParseFloatError),
-    NoPercentSign
+    NoPercentSign,
+    InvalidUnit(AzString),
 }
 
 impl_debug_as_display!(PercentageParseError);
@@ -932,6 +933,7 @@ impl_from!(ParseFloatError, PercentageParseError::ValueParseErr);
 impl_display! { PercentageParseError, {
     ValueParseErr(e) => format!("\"{}\"", e),
     NoPercentSign => format!("No percent sign after number"),
+    InvalidUnit(u) => format!("Error parsing percentage: invalid unit \"{}\"", u.as_str()),
 }}
 
 // Parse "1.2" or "120%" (similar to parse_pixel_value)
@@ -950,8 +952,10 @@ pub fn parse_percentage_value(input: &str)
     let unit = &input[split_pos..];
     let mut number = input[..split_pos].parse::<f32>().map_err(|e| PercentageParseError::ValueParseErr(e))?;
 
-    if unit == "%" {
-        number /= 100.0;
+    match unit {
+        "" => { number *= 100.0; }, // 0.5 => 50%
+        "%" => { }, // 50% => PercentageValue(50.0)
+        other => { return Err(PercentageParseError::InvalidUnit(other.to_string().into())); }
     }
 
     Ok(PercentageValue::new(number))
@@ -3915,6 +3919,22 @@ mod css_tests {
                 bottom: PixelValueWithAuto::Exact(PixelValue::px(75.0)),
                 left: PixelValueWithAuto::Exact(PixelValue::px(100.0)),
             })
+        );
+    }
+
+    #[test]
+    fn test_parse_percentage_value_1() {
+        assert_eq!(
+            parse_percentage_value("5%"),
+            Ok(PercentageValue::new(5.0))
+        );
+    }
+
+    #[test]
+    fn test_parse_percentage_value_2() {
+        assert_eq!(
+            parse_percentage_value("0.5"),
+            Ok(PercentageValue::new(50.0))
         );
     }
 }
