@@ -121,6 +121,14 @@ impl DisplayListMsg {
         }
     }
 
+    pub fn get_image_mask(&self) -> Option<&DisplayListImageMask> {
+        use self::DisplayListMsg::*;
+        match self {
+            Frame(f) => f.clip_mask.as_ref(),
+            ScrollFrame(sf) => sf.frame.clip_mask.as_ref(),
+        }
+    }
+
     pub fn get_position(&self) -> PositionInfo {
         use self::DisplayListMsg::*;
         match self {

@@ -677,7 +677,7 @@ pub(crate) mod winit_translate {
 }
 
 #[inline]
-fn wr_translate_image_mask(input: DisplayListImageMask) -> WrImageMask {
+fn wr_translate_image_mask(input: &DisplayListImageMask) -> WrImageMask {
     WrImageMask {
         image: wr_translate_image_key(input.image),
         rect: wr_translate_logical_rect(input.rect),
@@ -1384,10 +1384,6 @@ fn push_display_list_msg(
         },
     );
 
-    if msg_position.is_positioned() {
-        positioned_items.push((rect_spatial_id, parent_clip_id));
-    }
-
     if should_push_stacking_context {
 
         use webrender::api::FilterOp as WrFilterOp;
@@ -1412,6 +1408,23 @@ fn push_display_list_msg(
             &[]
         );
     }
+
+    if msg_position.is_positioned() {
+        positioned_items.push((rect_spatial_id, parent_clip_id));
+    }
+
+    // push the clip image mask before pushing the scroll frame
+    let clip_mask_id = msg.get_image_mask().map(|im| {
+        builder.define_clip_image_mask(&WrSpaceAndClipInfo {
+            spatial_id: rect_spatial_id,
+            clip_id: parent_clip_id,
+        }, wr_translate_image_mask(im))
+    });
+
+    let parent_clip_id = match clip_mask_id {
+        None => parent_clip_id,
+        Some(s) => s,
+    };
 
     match msg {
         Frame(f) => push_frame(builder, f, rect_spatial_id, parent_clip_id, positioned_items, current_hidpi_factor),
