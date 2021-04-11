@@ -300,6 +300,8 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getStringContents(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionString { callbackinfo.get_string_contents(node_id).into() }
 /// If the node is a `Text` node, returns the layouted inline glyphs
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getInlineText(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionInlineText { callbackinfo.get_inline_text(node_id).into() }
+/// Returns the index of the node relative to the parent node.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getIndexInParent(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> usize { let mut t = 0; let mut n = node_id; while let Some(prev) = callbackinfo.get_previous_sibling(n) { n = prev; t += 1; } t }
 /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getParent(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { callbackinfo.get_parent(node_id).into() }
 /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
@@ -430,6 +432,8 @@ pub use AzRenderImageCallbackInfoTT as AzRenderImageCallbackInfo;
 #[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getCallbackNodeId(renderimagecallbackinfo: &AzRenderImageCallbackInfo) -> AzDomNodeId { renderimagecallbackinfo.get_callback_node_id() }
 /// If the node is a `Text` node, returns the layouted inline glyphs
 #[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getInlineText(renderimagecallbackinfo: &AzRenderImageCallbackInfo, node_id: AzDomNodeId) -> AzOptionInlineText { renderimagecallbackinfo.get_inline_text(node_id).into() }
+/// Returns the index of the node relative to the parent node.
+#[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getIndexInParent(renderimagecallbackinfo: &mut AzRenderImageCallbackInfo, node_id: AzDomNodeId) -> usize { let mut t = 0; let mut n = node_id; while let Some(prev) = renderimagecallbackinfo.get_previous_sibling(n) { n = prev; t += 1; } t }
 /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
 #[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getParent(renderimagecallbackinfo: &mut AzRenderImageCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { renderimagecallbackinfo.get_parent(node_id).into() }
 /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.

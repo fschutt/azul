@@ -1098,6 +1098,15 @@
                             "returns": {"type": "OptionInlineText"},
                             "fn_body": "callbackinfo.get_inline_text(node_id).into()"
                         },
+                        "get_index_in_parent": {
+                            "doc": "Returns the index of the node relative to the parent node.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"node_id": "DomNodeId"}
+                            ],
+                            "returns": {"type": "usize"},
+                            "fn_body": "let mut t = 0; let mut n = node_id; while let Some(prev) = callbackinfo.get_previous_sibling(n) { n = prev; t += 1; } t"
+                        },
                         "get_parent": {
                             "doc": "Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
                             "fn_args": [
@@ -1551,6 +1560,15 @@
                             ],
                             "returns": {"type": "OptionInlineText"},
                             "fn_body": "renderimagecallbackinfo.get_inline_text(node_id).into()"
+                        },
+                        "get_index_in_parent": {
+                            "doc": "Returns the index of the node relative to the parent node.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"node_id": "DomNodeId"}
+                            ],
+                            "returns": {"type": "usize"},
+                            "fn_body": "let mut t = 0; let mut n = node_id; while let Some(prev) = renderimagecallbackinfo.get_previous_sibling(n) { n = prev; t += 1; } t"
                         },
                         "get_parent": {
                             "doc": "Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",

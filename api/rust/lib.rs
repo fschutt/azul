@@ -4989,6 +4989,7 @@ mod dll {
         pub(crate) fn AzCallbackInfo_getDataset(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionRefAny;
         pub(crate) fn AzCallbackInfo_getStringContents(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionString;
         pub(crate) fn AzCallbackInfo_getInlineText(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionInlineText;
+        pub(crate) fn AzCallbackInfo_getIndexInParent(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> usize;
         pub(crate) fn AzCallbackInfo_getParent(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
         pub(crate) fn AzCallbackInfo_getPreviousSibling(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
         pub(crate) fn AzCallbackInfo_getNextSibling(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
@@ -5017,6 +5018,7 @@ mod dll {
         pub(crate) fn AzRenderImageCallbackInfo_getBounds(_:  &AzRenderImageCallbackInfo) -> AzHidpiAdjustedBounds;
         pub(crate) fn AzRenderImageCallbackInfo_getCallbackNodeId(_:  &AzRenderImageCallbackInfo) -> AzDomNodeId;
         pub(crate) fn AzRenderImageCallbackInfo_getInlineText(_:  &AzRenderImageCallbackInfo, _:  AzDomNodeId) -> AzOptionInlineText;
+        pub(crate) fn AzRenderImageCallbackInfo_getIndexInParent(_:  &mut AzRenderImageCallbackInfo, _:  AzDomNodeId) -> usize;
         pub(crate) fn AzRenderImageCallbackInfo_getParent(_:  &mut AzRenderImageCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
         pub(crate) fn AzRenderImageCallbackInfo_getPreviousSibling(_:  &mut AzRenderImageCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
         pub(crate) fn AzRenderImageCallbackInfo_getNextSibling(_:  &mut AzRenderImageCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
@@ -5940,6 +5942,8 @@ pub mod callbacks {
         pub fn get_string_contents(&self, node_id: DomNodeId)  -> crate::option::OptionString { unsafe { crate::dll::AzCallbackInfo_getStringContents(self, node_id) } }
         /// If the node is a `Text` node, returns the layouted inline glyphs
         pub fn get_inline_text(&self, node_id: DomNodeId)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzCallbackInfo_getInlineText(self, node_id) } }
+        /// Returns the index of the node relative to the parent node.
+        pub fn get_index_in_parent(&mut self, node_id: DomNodeId)  -> usize { unsafe { crate::dll::AzCallbackInfo_getIndexInParent(self, node_id) } }
         /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
         pub fn get_parent(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getParent(self, node_id) } }
         /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
@@ -6065,6 +6069,8 @@ pub mod callbacks {
         pub fn get_callback_node_id(&self)  -> crate::callbacks::DomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getCallbackNodeId(self) } }
         /// If the node is a `Text` node, returns the layouted inline glyphs
         pub fn get_inline_text(&self, node_id: DomNodeId)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzRenderImageCallbackInfo_getInlineText(self, node_id) } }
+        /// Returns the index of the node relative to the parent node.
+        pub fn get_index_in_parent(&mut self, node_id: DomNodeId)  -> usize { unsafe { crate::dll::AzRenderImageCallbackInfo_getIndexInParent(self, node_id) } }
         /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
         pub fn get_parent(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getParent(self, node_id) } }
         /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.

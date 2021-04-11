@@ -9688,6 +9688,7 @@ extern DLLIMPORT AzOptionLogicalPosition AzCallbackInfo_getScrollPosition(AzCall
 extern DLLIMPORT AzOptionRefAny AzCallbackInfo_getDataset(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionString AzCallbackInfo_getStringContents(AzCallbackInfo* const callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionInlineText AzCallbackInfo_getInlineText(AzCallbackInfo* const callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT size_t AzCallbackInfo_getIndexInParent(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getParent(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getPreviousSibling(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getNextSibling(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
@@ -9716,6 +9717,7 @@ extern DLLIMPORT AzOptionGl AzRenderImageCallbackInfo_getGlContext(AzRenderImage
 extern DLLIMPORT AzHidpiAdjustedBounds AzRenderImageCallbackInfo_getBounds(AzRenderImageCallbackInfo* const renderimagecallbackinfo);
 extern DLLIMPORT AzDomNodeId AzRenderImageCallbackInfo_getCallbackNodeId(AzRenderImageCallbackInfo* const renderimagecallbackinfo);
 extern DLLIMPORT AzOptionInlineText AzRenderImageCallbackInfo_getInlineText(AzRenderImageCallbackInfo* const renderimagecallbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT size_t AzRenderImageCallbackInfo_getIndexInParent(AzRenderImageCallbackInfo* restrict renderimagecallbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionDomNodeId AzRenderImageCallbackInfo_getParent(AzRenderImageCallbackInfo* restrict renderimagecallbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionDomNodeId AzRenderImageCallbackInfo_getPreviousSibling(AzRenderImageCallbackInfo* restrict renderimagecallbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionDomNodeId AzRenderImageCallbackInfo_getNextSibling(AzRenderImageCallbackInfo* restrict renderimagecallbackinfo, AzDomNodeId  node_id);
