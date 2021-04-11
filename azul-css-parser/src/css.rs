@@ -340,15 +340,17 @@ impl<'a> From<CssSyntaxError> for CssPathParseError<'a> {
 ///
 /// assert_eq!(
 ///     parse_css_path("* div #my_id > .class:nth-child(2)"),
-///     Ok(CssPath { selectors: vec![
-///          Global,
-///          Type(Div),
-///          Children,
-///          Id("my_id".to_string()),
-///          DirectChildren,
-///          Class("class".to_string()),
-///          PseudoSelector(NthChild(Number(2))),
-///     ]})
+///     Ok(CssPath {
+///         selectors: vec![
+///             Global,
+///             Type(Div),
+///             Children,
+///             Id("my_id".to_string().into()),
+///             DirectChildren,
+///             Class("class".to_string().into()),
+///             PseudoSelector(NthChild(Number(2))),
+///         ].into()
+///     })
 /// );
 /// ```
 pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'a>> {

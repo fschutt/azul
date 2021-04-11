@@ -178,7 +178,7 @@ macro_rules! typed_pixel_value_parser {
                 "# use azul_css_parser::", stringify!($fn), ";", "\r\n",
                 "# use azul_css::{PixelValue, ", stringify!($return), "};"
             ),
-            concat!("assert_eq!(", stringify!($fn), "(\"5px\"), Ok(", stringify!($return), "(PixelValue::px(5.0))));")
+            concat!("assert_eq!(", stringify!($fn), "(\"5px\"), Ok(", stringify!($return), " { inner: PixelValue::px(5.0) }));")
         );
     };
 }
@@ -194,7 +194,7 @@ macro_rules! typed_pixel_value_parser {
 /// # use azul_css::{LayoutWidth, PixelValue, CssPropertyType, CssPropertyValue, CssProperty};
 /// assert_eq!(
 ///     azul_css_parser::parse_css_property(CssPropertyType::Width, "500px"),
-///     Ok(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth(PixelValue::px(500.0)))))
+///     Ok(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth { inner: PixelValue::px(500.0) })))
 /// )
 /// ```
 pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<CssProperty, CssParsingError<'a>> {
@@ -2518,12 +2518,12 @@ impl<'a> From<CssDirectionCornerParseError<'a>> for CssDirectionParseError<'a> {
 /// # extern crate azul_css;
 /// # extern crate azul_css_parser;
 /// # use azul_css_parser::parse_direction;
-/// # use azul_css::{Direction, FloatValue};
+/// # use azul_css::{Direction, DirectionCorners, AngleValue};
 /// use azul_css::DirectionCorner::*;
 ///
-/// assert_eq!(parse_direction("to right bottom"), Ok(Direction::FromTo(TopLeft, BottomRight)));
-/// assert_eq!(parse_direction("to right"), Ok(Direction::FromTo(Left, Right)));
-/// assert_eq!(parse_direction("50deg"), Ok(Direction::Angle(FloatValue::new(50.0))));
+/// assert_eq!(parse_direction("to right bottom"), Ok(Direction::FromTo(DirectionCorners { from: TopLeft, to: BottomRight })));
+/// assert_eq!(parse_direction("to right"), Ok(Direction::FromTo(DirectionCorners { from: Left, to: Right })));
+/// assert_eq!(parse_direction("50deg"), Ok(Direction::Angle(AngleValue::deg(50.0))));
 /// ```
 pub fn parse_direction<'a>(input: &'a str)
 -> Result<Direction, CssDirectionParseError<'a>>
@@ -2776,15 +2776,15 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
 /// # extern crate azul_css;
 /// # extern crate azul_css_parser;
 /// # use azul_css_parser::parse_style_font_family;
-/// # use azul_css::{StyleFontFamily, FontId};
+/// # use azul_css::{StyleFontFamily, StyleFontFamilyVec};
 /// let input = "\"Helvetica\", 'Arial', Times New Roman";
-/// let fonts = vec![
-///     "Helvetica".into(),
-///     "Arial".into(),
-///     "Times New Roman".into()
-/// ];
+/// let fonts: StyleFontFamilyVec = vec![
+///     StyleFontFamily::Native("Helvetica".into()),
+///     StyleFontFamily::Native("Arial".into()),
+///     StyleFontFamily::Native("Times New Roman".into()),
+/// ].into();
 ///
-/// assert_eq!(parse_style_font_family(input), Ok(StyleFontFamily { fonts }));
+/// assert_eq!(parse_style_font_family(input), Ok(fonts));
 /// ```
 pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamilyVec, CssStyleFontFamilyParseError<'a>> {
     use alloc::string::ToString;
