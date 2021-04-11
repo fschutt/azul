@@ -1796,10 +1796,10 @@ mod background {
 
         // Note: division by 2.0 because it's the radius, not the diameter
         let radius = match radial_gradient.shape {
-            Shape::Ellipse => WrLayoutSize::new(background_size.width / 2.0, background_size.height / 2.0),
+            Shape::Ellipse => WrLayoutSize::new(background_size.width, background_size.height),
             Shape::Circle => {
                 let largest_bound_size = background_size.width.max(background_size.height);
-                WrLayoutSize::new(largest_bound_size / 2.0, largest_bound_size / 2.0)
+                WrLayoutSize::new(largest_bound_size, largest_bound_size)
             },
         };
 
