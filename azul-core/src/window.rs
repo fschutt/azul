@@ -821,6 +821,7 @@ impl WindowInternal {
             current_window_state.size.get_layout_size(),
             &init.pipeline_id,
             &BTreeMap::new(),
+            &BTreeMap::new(),
             &None,
             relayout_fn,
         );
@@ -911,7 +912,10 @@ impl WindowInternal {
         self.current_window_state.hovered_nodes = ht.hovered_nodes.clone();
 
         // hit_test
-        let nodes_to_check = NodesToCheck::simulated_mouse_move(&ht, self.current_window_state.mouse_state.mouse_down());
+        let nodes_to_check = NodesToCheck::simulated_mouse_move(
+            &ht, self.current_window_state.mouse_state.mouse_down()
+        );
+
         let _ = StyleAndLayoutChanges::new(
             &nodes_to_check,
             &mut layout_results,
@@ -919,6 +923,7 @@ impl WindowInternal {
             &mut self.renderer_resources,
             self.current_window_state.size.get_layout_size(),
             &self.pipeline_id,
+            &BTreeMap::new(),
             &BTreeMap::new(),
             &None,
             relayout_fn,

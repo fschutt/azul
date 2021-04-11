@@ -2394,7 +2394,8 @@ pub fn do_the_relayout(
     _image_cache: &ImageCache,
     renderer_resources: &mut RendererResources,
     pipeline_id: &PipelineId,
-    nodes_to_relayout: &BTreeMap<NodeId, Vec<ChangedCssProperty>>
+    nodes_to_relayout: &BTreeMap<NodeId, Vec<ChangedCssProperty>>,
+    words_to_relayout: &BTreeMap<NodeId, AzString>
 ) -> RelayoutChanges {
 
     // shortcut: in most cases, the root size hasn't

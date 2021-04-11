@@ -77,7 +77,10 @@ use crate::{
     task::ExternalSystemCallbacks,
     window::{FullHitTest, RawWindowHandle, FullWindowState, ScrollStates, CallCallbacksResult},
 };
-use azul_css::{LayoutSize, CssProperty, LayoutPoint, LayoutRect};
+use azul_css::{
+    AzString, LayoutSize, CssProperty,
+    LayoutPoint, LayoutRect
+};
 use crate::gl::OptionGlContextPtr;
 use rust_fontconfig::FcFontCache;
 
@@ -270,6 +273,7 @@ impl NodesToCheck {
 
 pub type RestyleNodes = BTreeMap<NodeId, Vec<ChangedCssProperty>>;
 pub type RelayoutNodes = BTreeMap<NodeId, Vec<ChangedCssProperty>>;
+pub type RelayoutWords = BTreeMap<NodeId, AzString>;
 
 /// Style and layout changes
 #[derive(Debug, Clone, PartialEq)]
@@ -283,9 +287,18 @@ pub struct StyleAndLayoutChanges {
 }
 
 // azul_layout::do_the_relayout satifies this
-pub type RelayoutFn = fn(LayoutRect, &mut LayoutResult, &ImageCache, &mut RendererResources, &PipelineId, &RelayoutNodes) -> RelayoutChanges;
+pub type RelayoutFn = fn(
+    LayoutRect,
+    &mut LayoutResult,
+    &ImageCache,
+    &mut RendererResources,
+    &PipelineId,
+    &RelayoutNodes,
+    &RelayoutWords,
+) -> RelayoutChanges;
 
 impl StyleAndLayoutChanges {
+
     /// Determines and immediately applies the changes to the layout results
     #[cfg(feature = "multithreading")]
     pub fn new(
@@ -296,6 +309,7 @@ impl StyleAndLayoutChanges {
         window_size: LayoutSize,
         pipeline_id: &PipelineId,
         css_changes: &BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+        word_changes: &BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
         callbacks_new_focus: &Option<Option<DomNodeId>>,
         relayout_cb: RelayoutFn,
     ) -> StyleAndLayoutChanges {
@@ -401,12 +415,25 @@ impl StyleAndLayoutChanges {
                         parent_layout_result.rects.as_ref()[parent_iframe_node_id].get_approximate_static_bounds()
                     }
                 };
+
                 let default_layout_changes = BTreeMap::new();
                 let layout_changes = layout_changes.get(&dom_id).unwrap_or(&default_layout_changes);
-                let RelayoutChanges { resized_nodes, gpu_key_changes } = (relayout_cb)(
-                    parent_rect, &mut layout_results[dom_id.inner], image_cache,
-                    renderer_resources, pipeline_id, layout_changes
+                let default_word_changes = BTreeMap::new();
+                let word_changes = word_changes.get(&dom_id).unwrap_or(&default_word_changes);
+
+                let RelayoutChanges {
+                    resized_nodes,
+                    gpu_key_changes,
+                } = (relayout_cb)(
+                    parent_rect,
+                    &mut layout_results[dom_id.inner],
+                    image_cache,
+                    renderer_resources,
+                    pipeline_id,
+                    layout_changes,
+                    word_changes,
                 );
+
                 if gpu_key_changes.is_empty() {
                     gpu_key_change_events.insert(dom_id, gpu_key_changes);
                 }

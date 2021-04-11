@@ -422,6 +422,7 @@ fn run_inner(app: App) -> ! {
                                 window_size,
                                 &window.internal.pipeline_id,
                                 &css_properties_changed_in_timers,
+                                &words_changed_in_timers,
                                 &new_focus_node,
                                 azul_layout::do_the_relayout,
                             );
@@ -551,6 +552,7 @@ fn run_inner(app: App) -> ! {
                                 window_size,
                                 &window.internal.pipeline_id,
                                 &css_properties_changed_in_threads,
+                                &words_changed_in_threads,
                                 &new_focus_node,
                                 azul_layout::do_the_relayout,
                             );
@@ -737,6 +739,7 @@ fn run_inner(app: App) -> ! {
                                     window_size,
                                     &window.internal.pipeline_id,
                                     &callback_results.css_properties_changed,
+                                    &callback_results.words_changed,
                                     &callback_results.update_focused_node,
                                     azul_layout::do_the_relayout,
                                 );
