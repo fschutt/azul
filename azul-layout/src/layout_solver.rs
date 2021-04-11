@@ -2404,7 +2404,9 @@ pub fn do_the_relayout(
     let root_size = root_bounds.size;
     let root_size_changed = root_bounds != layout_result.get_bounds();
 
-    if !root_size_changed && nodes_to_relayout.is_empty() {
+    if !root_size_changed &&
+        nodes_to_relayout.is_empty() &&
+        words_to_relayout.is_empty() {
         return RelayoutChanges::empty();
     }
 
@@ -2428,7 +2430,10 @@ pub fn do_the_relayout(
         }
     }).collect::<BTreeMap<NodeId, BTreeMap<CssPropertyType, ChangedCssProperty>>>();
 
-    if !root_size_changed && nodes_to_relayout.is_empty() {
+    if !root_size_changed &&
+        nodes_to_relayout.is_empty() &&
+        words_to_relayout.is_empty() {
+
         let resized_nodes = Vec::new();
         let gpu_key_changes = layout_result.gpu_value_cache.synchronize(
             &layout_result.rects.as_ref(),
@@ -2453,8 +2458,11 @@ pub fn do_the_relayout(
 
     // recalc(&mut layout_result.preferred_widths);
 
-    // update the precalculated properties (position, flex-grow, flex-direction, justify-content)
-    nodes_to_relayout.iter().for_each(|(node_id, changed_props)| {
+    // update the precalculated properties (position, flex-grow,
+    // flex-direction, justify-content)
+    nodes_to_relayout
+    .iter()
+    .for_each(|(node_id, changed_props)| {
 
         if let Some(CssProperty::Position(new_position_state)) = changed_props.get(&CssPropertyType::Position).map(|p| &p.current_prop) {
             layout_result.layout_positions.as_ref_mut()[*node_id] = new_position_state.get_property().cloned().unwrap_or_default();
@@ -2486,10 +2494,93 @@ pub fn do_the_relayout(
         let root_id = layout_result.styled_dom.root.into_crate_internal().unwrap();
         parents_that_need_to_recalc_width_of_children.insert(root_id);
     }
+
     if root_size.height != layout_result.root_size.height {
         let root_id = layout_result.styled_dom.root.into_crate_internal().unwrap();
         parents_that_need_to_recalc_height_of_children.insert(root_id);
     }
+
+    // Update words cache and shaped words cache
+    for (node_id, new_string) in words_to_relayout.iter() {
+
+        use azul_text_layout::text_layout::split_text_into_words;
+        use azul_core::styled_dom::StyleFontFamiliesHash;
+        use azul_text_layout::text_layout::shape_words;
+        use azul_core::ui_solver::DEFAULT_LETTER_SPACING;
+        use azul_core::ui_solver::DEFAULT_WORD_SPACING;
+        use azul_core::ui_solver::ResolvedTextLayoutOptions;
+        use azul_text_layout::text_layout::position_words;
+        use azul_text_layout::text_shaping::ParsedFont;
+
+        if layout_result.words_cache.get(&node_id).is_none() { continue; }
+        if layout_result.shaped_words_cache.get(&node_id).is_none() { continue; }
+        if layout_result.positioned_words_cache.get(&node_id).is_none() { continue; }
+
+        let new_words = split_text_into_words(new_string.as_str());
+
+        let css_property_cache = layout_result.styled_dom.get_css_property_cache();
+        let styled_nodes = layout_result.styled_dom.styled_nodes.as_container();
+        let node_data = layout_result.styled_dom.node_data.as_container();
+        let styled_node_state = &styled_nodes[*node_id].state;
+        let node_data = &node_data[*node_id];
+
+        let css_font_families = css_property_cache.get_font_id_or_default(node_data, node_id, styled_node_state);
+        let css_font_families_hash = StyleFontFamiliesHash::new(css_font_families.as_ref());
+        let css_font_family = match renderer_resources.font_families_map.get(&css_font_families_hash) {
+            Some(s) => s,
+            None => continue,
+        };
+        let font_key = match renderer_resources.font_id_map.get(&css_font_family) {
+            Some(s) => s,
+            None => continue,
+        };
+        let (font_ref, _) = match renderer_resources.currently_registered_fonts.get(&font_key) {
+            Some(s) => s,
+            None => continue,
+        };
+        let font_data = font_ref.get_data();
+        let parsed_font_downcasted = unsafe { &*(font_data.parsed as *const ParsedFont) };
+        let new_shaped_words = shape_words(&new_words, parsed_font_downcasted);
+
+        let font_size = css_property_cache.get_font_size_or_default(node_data, node_id, &styled_node_state);
+        let font_size_px = font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32);
+
+        let letter_spacing = css_property_cache
+        .get_letter_spacing(node_data, node_id, &styled_node_state)
+        .and_then(|ls| Some(ls.get_property()?.inner.to_pixels(DEFAULT_LETTER_SPACING)));
+
+        let word_spacing = css_property_cache
+        .get_word_spacing(node_data, node_id, &styled_node_state)
+        .and_then(|ws| Some(ws.get_property()?.inner.to_pixels(DEFAULT_WORD_SPACING)));
+
+        let line_height = css_property_cache
+        .get_line_height(node_data, node_id, &styled_node_state)
+        .and_then(|lh| Some(lh.get_property()?.inner.get()));
+
+        let tab_width = css_property_cache
+        .get_tab_width(node_data, node_id, &styled_node_state)
+        .and_then(|tw| Some(tw.get_property()?.inner.get()));
+
+        let text_layout_options = ResolvedTextLayoutOptions {
+            max_horizontal_width: None.into(),
+            leading: None.into(), // TODO
+            holes: Vec::new().into(), // TODO
+            font_size_px,
+            word_spacing: word_spacing.into(),
+            letter_spacing: letter_spacing.into(),
+            line_height: line_height.into(),
+            tab_width: tab_width.into(),
+        };
+
+        let new_word_positions = position_words(&new_words, &new_shaped_words, &text_layout_options);
+
+        layout_result.preferred_widths.as_ref_mut()[*node_id] = Some(new_word_positions.content_size.width);
+        *layout_result.words_cache.get_mut(node_id).unwrap() = new_words;
+        *layout_result.shaped_words_cache.get_mut(node_id).unwrap() = new_shaped_words;
+        layout_result.positioned_words_cache.get_mut(node_id).unwrap().0 = new_word_positions;
+    }
+
+    let default_changes = BTreeMap::new();
 
     // parents need to be adjust before children
     for ParentWithNodeDepth { depth: _, node_id } in layout_result.styled_dom.non_leaf_nodes.iter() {
@@ -2497,8 +2588,10 @@ pub fn do_the_relayout(
         macro_rules! detect_changes {($node_id:expr, $parent_id:expr) => (
 
             let node_data = &layout_result.styled_dom.node_data.as_container()[$node_id];
+            let changes_for_this_node = nodes_to_relayout.get(&$node_id).unwrap_or(&default_changes);
+            let has_word_positions = layout_result.positioned_words_cache.get(&$node_id).is_some();
 
-            if let Some(changes_for_this_node) = nodes_to_relayout.get(&$node_id) {
+            if !changes_for_this_node.is_empty() || has_word_positions {
 
                 let mut preferred_width_changed = None;
                 let mut preferred_height_changed = None;
@@ -2514,8 +2607,11 @@ pub fn do_the_relayout(
                 // recalculate min / max / preferred width constraint if needed
                 if changes_for_this_node.contains_key(&CssPropertyType::Width) ||
                    changes_for_this_node.contains_key(&CssPropertyType::MinWidth) ||
-                   changes_for_this_node.contains_key(&CssPropertyType::MaxWidth) {
+                   changes_for_this_node.contains_key(&CssPropertyType::MaxWidth) ||
+                   has_word_positions {
+
                     let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[$node_id].state;
+
                     let wh_config = WhConfig {
                         width: WidthConfig {
                             exact: css_property_cache.get_width(node_data, &$node_id, styled_node_state)
@@ -2544,7 +2640,8 @@ pub fn do_the_relayout(
                 // recalculate min / max / preferred width constraint if needed
                 if changes_for_this_node.contains_key(&CssPropertyType::MinHeight) ||
                    changes_for_this_node.contains_key(&CssPropertyType::MaxHeight) ||
-                   changes_for_this_node.contains_key(&CssPropertyType::Height) {
+                   changes_for_this_node.contains_key(&CssPropertyType::Height) ||
+                   has_word_positions {
                     let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[$node_id].state;
                     let wh_config = WhConfig {
                         width: WidthConfig::default(),
