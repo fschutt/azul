@@ -7035,6 +7035,11 @@ pub mod css {
         pub fn new(value: f32) -> Self {
             Self { number: value.into() }
         }
+
+        #[inline]
+        pub fn get(&self) -> f32 {
+            self.number.get()
+        }
     }
 
     /// Creates `pt`, `px` and `em` constructors for any struct that has a
@@ -7164,7 +7169,26 @@ pub mod css {
 
     impl_float_value!(LayoutFlexGrow);
     impl_float_value!(LayoutFlexShrink);
-    impl_float_value!(StyleOpacity);
+
+    macro_rules! impl_percentage_value{($struct:ident) => (
+        impl ::core::fmt::Display for $struct {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}%", self.inner.get())
+            }
+        }
+        impl $struct {
+            /// Same as `PercentageValue::new()`, but only accepts whole numbers,
+            /// since using `f32` in const fn is not yet stabilized.
+            #[inline]
+            pub const fn const_new(value: isize) -> Self {
+                Self { inner: PercentageValue::const_new(value) }
+            }
+        }
+    )}
+
+    impl_percentage_value!(StyleLineHeight);
+    impl_percentage_value!(StyleTabWidth);
+    impl_percentage_value!(StyleOpacity);
     use crate::str::String;
     /// `CssRuleBlock` struct
     
