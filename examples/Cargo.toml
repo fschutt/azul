@@ -34,6 +34,10 @@ path = "rust/hello-world.rs"
 name = "opengl"
 path = "rust/opengl.rs"
 
+[[bin]]
+name = "issue"
+path = "rust/issue.rs"
+
 [dependencies]
 azul = { version = "0.0.1", path = "../api/rust" }
 azul-widgets = { version = "0.0.2", path = "../azul-widgets" }

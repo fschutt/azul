@@ -1,45 +1,62 @@
 use azul::{
-    dom::TabIndex,
+    dom::{TabIndex, IdOrClass, IdOrClass::Class},
     style::StyledDom,
     image::ImageRef,
     css::Css,
     str::String as AzString,
+    callbacks::{CallbackType, Callback, RefAny},
+    vec::IdOrClassVec,
 };
+
+static CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-button"))];
+
+pub type OnClickFn = CallbackType;
 
 #[derive(Debug, Clone)]
 pub struct Button {
+    /// Content (image or text) of this button, centered by default
     pub content: ButtonContent,
+    /// Style for this button
     pub style: Css,
+    /// Optional: Function to call when the button is clicked
+    pub onclick: Option<(RefAny, Callback)>,
 }
 
 #[derive(Debug, Clone)]
 pub enum ButtonContent {
-    Image(ImageRef),
-    // Buttons should only contain short amounts of text
+    // Buttons displays a centered text
     Text(AzString),
+    // Button displays a centered image
+    Image(ImageRef),
 }
 
 impl Button {
 
-    pub fn label<S: Into<AzString>>(text: S) -> Self {
+    #[inline]
+    pub fn text<S: Into<AzString>>(text: S) -> Self {
         Self {
             content: ButtonContent::Text(text.into()),
             style: Self::native_css(),
+            onclick: None,
         }
     }
 
+    #[inline]
     pub fn image(image: ImageRef) -> Self {
         Self {
             content: ButtonContent::Image(image),
             style: Self::native_css(),
+            onclick: None,
         }
     }
 
+    #[inline]
     pub fn with_style(self, css: Css) -> Self {
         Self { style: css, .. self }
     }
 
     /// Returns the native style for the button, differs based on operating system
+    #[inline]
     pub fn native_css() -> Css {
         #[cfg(target_os = "windows")] { Self::windows_css() }
         #[cfg(target_os = "mac")] { Self::mac_css() }
@@ -47,6 +64,7 @@ impl Button {
         #[cfg(not(any(target_os = "windows", target_os = "mac", target_os = "linux")))] { Self::web_css() }
     }
 
+    #[inline]
     pub fn windows_css() -> Css {
         Css::from_string("
             .__azul-native-button {
@@ -81,6 +99,7 @@ impl Button {
         )
     }
 
+    #[inline]
     pub fn linux_css() -> Css {
         Css::from_string("
            .__azul-native-button {
@@ -109,6 +128,7 @@ impl Button {
         )
     }
 
+    #[inline]
     pub fn mac_css() -> Css {
         Css::from_string("
             .__azul-native-button {
@@ -127,29 +147,51 @@ impl Button {
         )
     }
 
+    #[inline]
     pub fn web_css() -> Css {
         Css::empty() // TODO
     }
 
+    #[inline]
+    pub fn on_click(self, data: RefAny, onclick: OnClickFn) -> Self {
+        Self {
+            onclick: Some((data, Callback { cb: onclick })),
+            .. self
+        }
+    }
+
+    #[inline]
     pub fn dom(self) -> StyledDom {
 
         use self::ButtonContent::*;
-        use azul::vec::{IdOrClassVec, DomVec};
-        use azul::dom::{Dom, IdOrClass, IdOrClass::Class};
+        use azul::vec::DomVec;
+        use azul::dom::{
+            Dom, EventFilter, HoverEventFilter,
+            CallbackData,
+        };
 
         let content = match self.content {
             Text(s) => Dom::text(s),
             Image(i) => Dom::image(i),
         };
 
-        const CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-button"))];
+        let callbacks = match self.onclick {
+            Some((data, callback)) => vec![
+                CallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    callback,
+                    data,
+                }
+            ],
+            None => Vec::new(),
+        };
 
-        let dom = Dom::div()
+        Dom::div()
         .with_ids_and_classes(IdOrClassVec::from(CLASSES))
+        .with_callbacks(callbacks.into())
         .with_tab_index(Some(TabIndex::Auto).into())
-            .with_children(DomVec::from(vec![content]));
-
-        StyledDom::new(dom, self.style)
+        .with_children(DomVec::from(vec![content]))
+        .style(self.style)
     }
 }
 

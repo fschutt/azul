@@ -1,8 +1,10 @@
 #![windows_subsystem = "windows"]
 
 use azul::{
-    callbacks::{RefAny, CallbackInfo, LayoutCallbackInfo},
-    styled_dom::StyledDom,
+    css::Css,
+    dom::Dom,
+    callbacks::{RefAny, UpdateScreen, CallbackInfo, LayoutCallbackInfo},
+    style::StyledDom,
     app::{App, AppConfig},
     window::WindowCreateOptions,
 };
@@ -17,28 +19,31 @@ struct DataModel {
 
 extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom {
 
-    let counter = data.downcast_ref::<DataModel>() {
+    let mut body = StyledDom::new(Dom::body(), Css::empty());
+
+    let counter = match data.downcast_ref::<DataModel>() {
         Some(s) => s.counter,
-        None => return StyledDom::body(),
+        None => return body,
     };
 
     let label = Label::new(format!("{}", counter));
-    let button = Button::with_label("Update counter")
-        .on_click(increment_counter);
+    let button = Button::text("Update counter")
+        .on_click(data.clone(), increment_counter);
 
-    StyledDom::body()
-    .append(label.dom())
-    .append(button.dom())
+    body.append_child(label.dom());
+    body.append_child(button.dom());
+
+    body
 }
 
 extern "C" fn increment_counter(data: &mut RefAny, _: CallbackInfo) -> UpdateScreen {
     match data.downcast_mut::<DataModel>() {
-        Some(s) => { s.counter += 1; UpdateScreen::Redraw },
+        Some(mut s) => { s.counter += 1; UpdateScreen::RegenerateStyledDomForCurrentWindow },
         None => UpdateScreen::DoNothing, // error
     }
 }
 
 fn main() {
-    let app = App::new(DataModel { counter: 0 }, AppConfig::default()).unwrap();
+    let app = App::new(RefAny::new(DataModel { counter: 0 }), AppConfig::default());
     app.run(WindowCreateOptions::new(layout));
 }
