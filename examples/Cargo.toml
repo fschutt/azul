@@ -31,12 +31,12 @@ name = "hello-world"
 path = "rust/hello-world.rs"
 
 [[bin]]
-name = "opengl"
-path = "rust/opengl.rs"
+name = "widgets"
+path = "rust/widgets.rs"
 
 [[bin]]
-name = "issue"
-path = "rust/issue.rs"
+name = "opengl"
+path = "rust/opengl.rs"
 
 [dependencies]
 azul = { version = "0.0.1", path = "../api/rust" }
