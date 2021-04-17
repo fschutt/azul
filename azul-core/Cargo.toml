@@ -23,7 +23,7 @@ azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1", opti
 rayon                   = { version = "1.5.0",   default-features = false,  optional = true }
 gleam                   = { version = "0.13.1",  default-features = false,  optional = true }
 ahash                   = { version = "0.7.0", default-features = false }
-rust-fontconfig         = { version = "0.1.2", default-features = false }
+rust-fontconfig         = { version = "0.1.4", default-features = false }
 
 [features]
 default = ["opengl"]
