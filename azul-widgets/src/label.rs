@@ -38,12 +38,12 @@ impl Label {
                 display: flex;
                 box-sizing: border-box;
                 font-size: 13px;
-                text-align: center;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
                 flex-grow: 1;
                 font-family: sans-serif;
+                flex-direction: row;
+                text-align: center;
+                justify-content: center;
+                align-items: center;
             }".into()
         )
     }
@@ -51,14 +51,15 @@ impl Label {
     pub fn linux_css() -> Css {
         Css::from_string("
            .__azul-native-label {
-               font-size: 16px;
+               font-size: 13px;
                font-family: sans-serif;
                color: #4c4c4c;
                display: flex;
                flex-grow: 1;
+               flex-direction: row;
                text-align: center;
-               flex-direction: column;
                justify-content: center;
+               align-items: center;
            }".into()
         )
     }
@@ -69,9 +70,10 @@ impl Label {
                 font-size: 12px;
                 font-family: \"Helvetica\";
                 color: #4c4c4c;
+                flex-direction: row;
                 text-align: center;
-                flex-direction: column;
                 justify-content: center;
+                align-items: center;
             }".into()
         )
     }
@@ -86,10 +88,10 @@ impl Label {
         use azul::vec::{IdOrClassVec};
         use azul::dom::{Dom, IdOrClass, IdOrClass::Class};
 
-        const CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-label"))];
+        static CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-label"))];
 
         let dom = Dom::text(self.string)
-        .with_ids_and_classes(IdOrClassVec::from(CLASSES));
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLASSES));
 
         StyledDom::new(dom, self.style)
     }

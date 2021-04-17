@@ -103,7 +103,7 @@ impl Button {
     pub fn linux_css() -> Css {
         Css::from_string("
            .__azul-native-button {
-               font-size: 16px;
+               font-size: 13px;
                font-family: sans-serif;
                color: #4c4c4c;
                display: flex;

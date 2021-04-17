@@ -73,9 +73,17 @@ macro_rules! impl_callback {($callback_value:ident) => (
 
 /// Button widget
 pub mod button;
-/// Label widget
+/// Checkbox widget
+pub mod check_box;
+/// Slider widget
+// pub mod slider;
+/// Dropdown selection widget
+// pub mod drop_down;
+/// Multi-line text input
+// pub mod text_edit;
+/// Label widget (centered text)
 pub mod label;
-/// Text input (two-way binding) widget
+/// Single line text input widget
 pub mod text_input;
 /// Table view (iframe) widget
 pub mod table_view;

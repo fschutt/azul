@@ -608,8 +608,6 @@ impl CssPropertyCache {
 
     pub fn append(&mut self, other: Self) {
 
-        self.node_count += other.node_count;
-
         macro_rules! append_css_property_vec {($field_name:ident) => {{
             for (node_id, property_map) in other.$field_name.into_iter() {
                 self.$field_name.insert(node_id + self.node_count, property_map);
@@ -625,6 +623,8 @@ impl CssPropertyCache {
         append_css_property_vec!(css_hover_props);
         append_css_property_vec!(css_active_props);
         append_css_property_vec!(css_focus_props);
+
+        self.node_count += other.node_count;
     }
 
     pub fn is_horizontal_overflow_visible(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> bool {
