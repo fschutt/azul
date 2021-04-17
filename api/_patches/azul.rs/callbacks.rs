@@ -59,9 +59,11 @@
                 // note: in the default constructor, we do not need to check whether U == T
 
                 unsafe {
-                    // copy the struct from the heap to the stack and call mem::drop on U to run the destructor
-                    let mut stack_mem = mem::zeroed::<U>();
-                    ptr::copy_nonoverlapping((ptr as *mut c_void) as *const U, &mut stack_mem as *mut U, mem::size_of::<U>());
+                    // copy the struct from the heap to the stack and
+                    // call mem::drop on U to run the destructor
+                    let mut stack_mem = mem::MaybeUninit::<U>::uninit();
+                    ptr::copy_nonoverlapping((ptr as *mut c_void) as *const U, stack_mem.as_mut_ptr(), mem::size_of::<U>());
+                    let stack_mem = stack_mem.assume_init();
                     mem::drop(stack_mem);
                 }
             }
