@@ -462,8 +462,6 @@ impl TableView {
 
     extern "C" fn render_table_iframe_contents(state: &mut RefAny, info: IFrameCallbackInfo) -> IFrameCallbackReturn {
 
-        use azul::window::{LayoutRect, LayoutSize, LayoutPoint};
-
         let table_view_state = state.downcast_ref::<TableViewState>().unwrap();
 
         let logical_size = info.bounds.get_logical_size();

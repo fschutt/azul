@@ -2,48 +2,160 @@
 
 use core::ops::Range;
 use azul::{
+    css::Css,
+    str::String as AzString,
+    style::StyledDom,
+    vec::NodeDataInlineCssPropertyVec,
     dom::{Dom, EventFilter, FocusEventFilter, TabIndex},
     window::{KeyboardState, VirtualKeyCode},
-    callbacks::{RefAny, Callback, CallbackInfo, CallbackReturn, UpdateScreen},
+    callbacks::{RefAny, Callback, CallbackInfo, UpdateScreen},
 };
-
-pub type OnTextInputFn = fn(&mut RefAny, &mut TextInputState, CallbackInfo) -> UpdateScreen;
-pub type OnVirtualKeyDownFn = fn(&mut RefAny, &mut TextInputState, CallbackInfo) -> UpdateScreen;
-
-#[derive(Debug, Clone)]
-pub enum VirtualKeyAction {
-    CopyToClipboard,
-    PasteFromClipboard,
-}
 
 #[derive(Debug, Clone)]
 pub struct TextInput {
-    state: TextInputState,
-    style: Css,
+    pub state: TextInputStateWrapper,
+    pub placeholder_style: NodeDataInlineCssPropertyVec,
+    pub placeholder_hover_style: NodeDataInlineCssPropertyVec,
+    pub placeholder_focus_style: NodeDataInlineCssPropertyVec,
+    pub container_style: NodeDataInlineCssPropertyVec,
+    pub container_hover_style: NodeDataInlineCssPropertyVec,
+    pub container_focus_style: NodeDataInlineCssPropertyVec,
+    pub label_style: NodeDataInlineCssPropertyVec,
+    pub label_hover_style: NodeDataInlineCssPropertyVec,
+    pub label_focus_style: NodeDataInlineCssPropertyVec,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum TextInputSelection {
-    All,
-    FromTo(Range<usize>),
+pub struct CustomCallbackFn {
+    pub cb: extern "C" fn(&mut RefAny, &TextInputState, CallbackInfo) -> UpdateScreen,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+impl_callback!(CustomCallbackFn);
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct TextInputState {
-    pub text: String,
-    pub on_text_input: Option<(OnTextInputFn, RefAny)>,
-    pub on_virtual_key_down: Option<(OnVirtualKeyDownFn, RefAny)>,
-    pub update_text_input_before_calling_text_input_fn: bool,
-    pub update_text_input_before_calling_vk_down_fn: bool,
+    pub text: Vec<char>,
+    pub placeholder: Option<AzString>,
+    pub max_len: usize,
     pub selection: Option<TextInputSelection>,
     pub cursor_pos: usize,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextInputStateWrapper {
+    pub inner: TextInputState,
+    pub on_text_input: Option<(CustomCallbackFn, RefAny)>,
+    pub on_virtual_key_down: Option<(CustomCallbackFn, RefAny)>,
+    pub on_focus_lost: Option<(CustomCallbackFn, RefAny)>,
+    pub update_text_input_before_calling_text_input_fn: bool,
+    pub update_text_input_before_calling_focus_lost_fn: bool,
+    pub update_text_input_before_calling_vk_down_fn: bool,
+}
+
+static TEXT_INPUT_CONTAINER_WINDOWS: &[NodeDataInlineCssProperty] = &[
+    /*
+        box-sizing: border-box;
+        font-size: 13px;
+        flex-grow: 1;
+        background-color: white;
+        border: 1px solid #9b9b9b;
+        padding: 1px;
+        overflow: hidden;
+        text-align: left;
+        flex-direction: row;
+        align-content: flex-end;
+        justify-content: flex-end;
+        font-family: sans-serif;
+    */
+];
+
+static TEXT_INPUT_CONTAINER_LINUX = [
+    /*
+        font-size: 16px;
+        font-family: sans-serif;
+        color: #4c4c4c;
+        display: flex;
+        flex-grow: 1;
+        background-color: white;
+        border: 1px solid #9b9b9b;
+        padding: 1px;
+        overflow: hidden;
+        text-align: left;
+        flex-direction: row;
+        align-content: flex-end;
+        justify-content: flex-end;
+        box-sizing: border-box;
+    */
+];
+
+static TEXT_INPUT_CONTAINER_MAC = [
+    /*
+        font-size: 12px;
+        font-family: \"Helvetica\";
+        color: #4c4c4c;
+        background-color: white;
+        height: 14px;
+        border: 1px solid #9b9b9b;
+        padding: 1px;
+        overflow: hidden;
+        text-align: left;
+        flex-direction: row;
+        align-content: flex-end;
+        justify-content: flex-end;
+    */
+];
+
+static TEXT_INPUT_CONTAINER_HOVER = [
+    /*
+        border: 1px solid #4286f4;
+    */
+];
+
+static TEXT_INPUT_LABEL_WINDOWS = [
+    /*
+        font-family: sans-serif;
+    */
+];
+
+static TEXT_INPUT_LABEL_LINUX = [
+    /*
+        font-size: 16px;
+        font-family: sans-serif;
+        color: #4c4c4c;
+        display: flex;
+        flex-grow: 1;
+    */
+];
+
 impl Default for TextInput {
     fn default() -> Self {
         TextInput {
-            state: TextInputState::default(),
-            style: TextInput::native_style(),
+            state: TextInputStateWrapper::default(),
+            placeholder_style: Vec::new().into(),
+            placeholder_hover_style: Vec::new().into(),
+            placeholder_focus_style: Vec::new().into(),
+            container_style: Vec::new().into(),
+            container_hover_style: Vec::new().into(),
+            container_focus_style: Vec::new().into(),
+            /*
+                LINUX:
+                .__azul-native-input-text-label {
+                    font-size: 16px;
+                    font-family: sans-serif;
+                    color: #4c4c4c;
+                    display: flex;
+                    flex-grow: 1;
+                }
+
+                MAC:
+                .__azul-native-input-text-label {
+                    font-size: 12px;
+                    font-family: \"Helvetica\";
+                    color: #4c4c4c;
+                }
+            */
+            label_style: Vec::new().into(),
+            label_hover_style: Vec::new().into(),
+            label_focus_style: Vec::new().into(),
         }
     }
 }
@@ -51,13 +163,25 @@ impl Default for TextInput {
 impl Default for TextInputState {
     fn default() -> Self {
         TextInputState {
-            text: String::new(),
-            on_text_input: None,
-            on_virtual_key_down: None,
-            update_text_input_before_calling_text_input_fn: true,
-            update_text_input_before_calling_vk_down_fn: true,
+            text: Vec::new(),
+            placeholder: None,
+            max_len: 50,
             selection: None,
             cursor_pos: 0,
+        }
+    }
+}
+
+impl Default for TextInputStateWrapper {
+    fn default() -> Self {
+        TextInputStateWrapper {
+            inner: TextInputState::default(),
+            on_text_input: None,
+            on_virtual_key_down: None,
+            on_focus_lost: None,
+            update_text_input_before_calling_text_input_fn: true,
+            update_text_input_before_calling_focus_lost_fn: true,
+            update_text_input_before_calling_vk_down_fn: true,
         }
     }
 }
@@ -68,198 +192,204 @@ impl TextInput {
         Self::default()
     }
 
-    pub fn with_state(self, state: TextInputState) -> Self {
-        Self { state, .. self }
+    pub fn on_text_input(mut self, callback: CustomCallbackFn, data: RefAny) -> Self {
+        self.state.on_text_input = Some((callback, data));
+        self
     }
 
-    pub fn override_on_text_input(self, callback: OnTextInputFn, on_text_input_data: RefAny) -> Self {
-        Self { on_text_input: callback, .. self }
+    pub fn on_virtual_key_down(self, callback: CustomCallbackFn, data: RefAny) -> Self {
+        self.state.on_virtual_key_down = Some((callback, data));
+        self
     }
 
-    pub fn override_on_virtual_key_down(self, callback: OnVirtualKeyDownFn, on_virtual_key_down_data: RefAny) -> Self {
-        Self { on_text_input: callback, .. self }
-    }
-
-
-    pub fn with_style(self, css: Css) -> Self {
-        Self { style: css, .. self }
-    }
-
-    /// Returns the native style for the button, differs based on operating system
-    pub fn native_css() -> Css {
-        #[cfg(target_os = "windows")] { Self::windows_css() }
-        #[cfg(target_os = "mac")] { Self::mac_css() }
-        #[cfg(target_os = "linux")] { Self::linux_css() }
-        #[cfg(not(any(target_os = "windows", target_os = "mac", target_os = "linux")))] { Self::web_css() }
-    }
-
-    pub fn windows_css() -> Css {
-        Css::from_string("
-            .__azul-native-input-text {
-                display: flex;
-                box-sizing: border-box;
-                font-size: 13px;
-                flex-grow: 1;
-                background-color: white;
-                border: 1px solid #9b9b9b;
-                padding: 1px;
-                overflow: hidden;
-                text-align: left;
-                flex-direction: row;
-                align-content: flex-end;
-                justify-content: flex-end;
-                font-family: sans-serif;
-            }
-
-            .__azul-native-input-text:hover {
-                border: 1px solid #4286f4;
-            }".to_string().into()
-        )
-    }
-
-    pub fn linux_css() -> Css {
-        Css::from_string("
-           .__azul-native-input-text {
-               font-size: 16px;
-               font-family: sans-serif;
-               color: #4c4c4c;
-               display: flex;
-               flex-grow: 1;
-               background-color: white;
-               border: 1px solid #9b9b9b;
-               padding: 1px;
-               overflow: hidden;
-               text-align: left;
-               flex-direction: row;
-               align-content: flex-end;
-               justify-content: flex-end;
-               box-sizing: border-box;
-           }
-
-           .__azul-native-input-text:hover {
-               border: 1px solid #4286f4;
-           }
-
-           .__azul-native-input-text-label {
-               font-size: 16px;
-               font-family: sans-serif;
-               color: #4c4c4c;
-               display: flex;
-               flex-grow: 1;
-           }".to_string().into()
-        )
-    }
-
-    pub fn mac_css() -> Css {
-        Css::from_string("
-            .__azul-native-input-text {
-                font-size: 12px;
-                font-family: \"Helvetica\";
-                color: #4c4c4c;
-                background-color: white;
-                height: 14px;
-                border: 1px solid #9b9b9b;
-                padding: 1px;
-                overflow: hidden;
-                text-align: left;
-                flex-direction: row;
-                align-content: flex-end;
-                justify-content: flex-end;
-            }
-
-            .__azul-native-input-text:hover {
-                border: 1px solid #4286f4;
-            }
-
-            .__azul-native-input-text-label {
-                font-size: 12px;
-                font-family: \"Helvetica\";
-                color: #4c4c4c;
-            }".to_string().into()
-        )
-    }
-
-    pub fn web_css() -> Css {
-        Css::empty() // TODO
+    pub fn on_focus_lost(self, callback: CustomCallbackFn, data: RefAny) -> Self {
+        self.state.on_focus_lost = Some((callback, data));
+        self
     }
 
     pub fn dom(self) -> StyledDom {
 
-        let label = Dom::label(self.state.text.as_ref().into())
-            .with_class("__azul-native-input-text-label".into());
-
-        // let text_selection = Dom::div().with_class("__azul-native-input-text-selection".into());
+        use azul::dom::{CallbackData, EventFilter, HoverEventFilter, FocusEventFilter};
 
         let state_ref = RefAny::new(self.state);
 
-        let container = Dom::div()
-            .with_class("__azul-native-input-text".into())
-            .with_tab_index(Some(TabIndex::Auto).into())
-            .with_dataset(state_ref.clone())
-            .with_callback(EventFilter::Focus(FocusEventFilter::TextInput), state_ref.clone(), Self::default_on_text_input)
-            .with_callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), state_ref, Self::default_on_virtual_key_down)
-            .with_child(label);
-            // .with_child(text_selection);
-
-        StyledDom::new(container, self.style)
+        Dom::div()
+        .with_class("__azul-native-text-input-text".into())
+        .with_tab_index(Some(TabIndex::Auto).into())
+        .with_dataset(state_ref.clone())
+        .with_callbacks(vec![
+            CallbackData {
+                event: EventFilter::Focus(FocusEventFilter::FocusReceived),
+                data: state_ref.clone(),
+                callback: Callback { cb: self::input::default_on_focus_received }
+            },
+            CallbackData {
+                event: EventFilter::Focus(FocusEventFilter::FocusLost),
+                data: state_ref.clone(),
+                callback: Callback { cb: self::input::default_on_focus_lost }
+            },
+            CallbackData {
+                event: EventFilter::Focus(FocusEventFilter::TextInput),
+                data: state_ref.clone(),
+                callback: Callback { cb: self::input::default_on_text_input }
+            },
+            CallbackData {
+                event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                data: state_ref.clone(),
+                callback: Callback { cb: self::input::default_on_virtual_key_down }
+            },
+            CallbackData {
+                event: EventFilter::Hover(HoverEventFilter::LeftMouseDown),
+                data: state_ref.clone(),
+                callback: Callback { cb: self::input::default_on_container_click }
+            },
+        ].into())
+        .with_children(vec![
+            Dom::text(self.state.inner.text.iter().collect::<String>().into())
+            .with_class("__azul-native-input-text-label".into()),
+            // let cursor = Dom::div().with_class("__azul-native-text-input-cursor");
+            // let text_selection = Dom::div().with_class("__azul-native-text-input-selection".into());
+        ].into()).style(Css::empty())
     }
+}
 
-    extern "C" fn default_on_text_input(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
+// handle input events for the TextInput
+mod input {
 
-        fn default_on_text_input_inner(text_input: &mut RefAny, info: CallbackInfo) -> Option<()> {
+    use azul::callbacks::{RefAny, CallbackInfo, UpdateScreen};
+    use super::TextInputStateWrapper;
 
-            let text_input = text_input.downcast_mut::<TextInputState>()?;
-            let keyboard_state = info.get_keyboard_state();
-            let c = keyboard_state.current_char.into_option()?;
-            let c = core::char::from_u32(c)?;
+    pub(in super) extern "C" fn default_on_text_input(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
 
-            if text_input_state.update_text_input_before_calling_vk_down_fn {
-                text_input.handle_on_text_input(c);
-            }
+        let text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+            Some(s) => s,
+            None => return UpdateScreen::DoNothing,
+        };
 
-            // let label = info.get_first_child(info.get_hit_node()?)?;
-            // let text_selection = info.get_next_sibling(label)?;
-            // info.set_text(label, text_input.text.as_ref().into()); // update text on screen
-            // info.start_timer(scroll_to_left(label)); // start timer to update scroll position of label
-            // info.update_image(label, text_selection.selection.to_image_mask(info.get_gl_context()))?; // update selection
+        let keyboard_state = info.get_keyboard_state();
 
-            let (on_text_input_fn, on_text_input_data) = text_input.on_text_input.as_mut()?;
-            (on_text_input_fn)(on_text_input_data, text_input, info)
+        let c = match keyboard_state.current_char.into_option() {
+            Some(s) => s,
+            None => return UpdateScreen::DoNothing,
+        };
 
-            None
+        let c = match core::char::from_u32(c) {
+            Some(s) => s,
+            None => return UpdateScreen::DoNothing,
+        };
+
+        let label_node_id = match info.get_first_child(info.get_hit_node()).into_option() {
+            Some(s) => s,
+            None => return UpdateScreen::DoNothing,
+        };
+
+        if text_input.update_text_input_before_calling_vk_down_fn {
+            text_input.inner.handle_on_text_input(c);
         }
 
-        let _ = default_on_text_input_inner(text_input, info);
+        let result = match text_input.on_text_input.as_mut() {
+            Some((f, d)) => (f.cb)(d, &text_input.inner, info),
+            None => UpdateScreen::DoNothing,
+        };
 
+        if !text_input.update_text_input_before_calling_vk_down_fn {
+            text_input.inner.handle_on_text_input(c);
+        }
+
+        // Update the string, cursor position on the screen and selection background
+        // TODO: restart the timer for cursor blinking
+        info.set_string_contents(label_node_id, text_input.inner.text.iter().collect::<String>().into());
+        // info.set_css_property(cursor_node_id, CssProperty::transform(get_cursor_transform(info.get_text_contents()[self.cursor_pos])))
+        // info.update_image(selection_node_id, render_selection(self.selection));
+
+        result
+    }
+
+    pub(in super) extern "C" fn default_on_virtual_key_down(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
+
+        let text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+            Some(s) => s,
+            None => return UpdateScreen::DoNothing,
+        };
+        let keyboard_state = info.get_keyboard_state();
+        let last_keycode = match keyboard_state.current_virtual_keycode.into_option() {
+            Some(s) => s,
+            None => return UpdateScreen::DoNothing,
+        };
+
+        let kb_state = info.get_keyboard_state();
+
+        if text_input.update_text_input_before_calling_vk_down_fn {
+            let _ = text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, info);
+        }
+
+        let result = match text_input.on_virtual_key_down.as_mut() {
+            Some((f, d)) => (f.cb)(d, &text_input.inner, info),
+            None => UpdateScreen::DoNothing,
+        };
+
+        if !text_input.update_text_input_before_calling_vk_down_fn {
+            let _ = text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, info);
+        }
+
+        result
+    }
+
+    pub(in super) extern "C" fn default_on_container_click(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
+        let text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+            Some(s) => s,
+            None => return UpdateScreen::DoNothing,
+        };
+        // TODO: clear selection, set cursor to text hit
         UpdateScreen::DoNothing
     }
 
-    extern "C" fn default_on_virtual_key_down(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
-
-        fn default_on_virtual_key_down_inner(text_input_state: &mut RefAny, info: CallbackInfo) -> Option<()> {
-
-            let text_input_state = text_input_state.downcast_mut::<TextInputState>()?;
-            let keyboard_state = info.get_keyboard_state();
-            let last_keycode = keyboard_state.current_virtual_keycode.into_option()?;
-
-            if text_input_state.update_text_input_before_calling_vk_down_fn {
-                match text_input_state.handle_on_virtual_key_down(last_keycode)? {
-                    VirtualKeyAction::CopyToClipboard => {
-                        // info.set_clipboard_contents(&text_input_state.text);
-                    },
-                    VirtualKeyAction::PasteFromClipboard => {
-                        // text_input_state.text = info.get_clipboard_contents();
-                    }
-                }
-            }
-
-            let (on_virtual_key_down_fn, on_virtual_key_down_data) = text_input.on_virtual_key_down.as_mut()?;
-            (on_virtual_key_down_fn)(on_virtual_key_down_data, text_input, info)
-        }
-
-        let _ = default_on_virtual_key_down_inner(text_input, info);
-
+    pub(in super) extern "C" fn default_on_label_click(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
+        let text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+            Some(s) => s,
+            None => return UpdateScreen::DoNothing,
+        };
+        // TODO: set cursor to end or start
         UpdateScreen::DoNothing
+    }
+
+    pub(in super) extern "C" fn default_on_focus_received(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
+        let text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+            Some(s) => s,
+            None => return UpdateScreen::DoNothing,
+        };
+
+        // TODO: start text cursor blinking
+        UpdateScreen::DoNothing
+    }
+
+    pub(in super) extern "C" fn default_on_focus_lost(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
+        let text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+            Some(s) => s,
+            None => return UpdateScreen::DoNothing,
+        };
+
+        let result = match text_input.on_focus_lost.as_mut() {
+            Some((f, d)) => (f.cb)(d, &text_input.inner, info),
+            None => UpdateScreen::DoNothing,
+        };
+
+        result
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum TextInputSelection {
+    All,
+    FromTo(Range<usize>),
+}
+
+impl TextInputSelection {
+    pub fn get_range(&self, text_len: usize) -> Range<usize> {
+        match self {
+            TextInputSelection::All => 0..text_len,
+            TextInputSelection::FromTo(r) => *r,
+        }
     }
 }
 
@@ -272,12 +402,12 @@ impl TextInputState {
                     self.text.push(c);
                 } else {
                     // TODO: insert character at the cursor location!
-                    self.text.push(c);
+                    self.text.insert(self.cursor_pos, c);
                 }
-                self.cursor_pos = self.cursor_pos.saturating_add(1);
+                self.cursor_pos = self.cursor_pos.saturating_add(1).min(self.text.len() - 1);
             },
             Some(TextInputSelection::All) => {
-                self.text = format!("{}", c);
+                self.text = vec![c];
                 self.cursor_pos = 1;
                 self.selection = None;
             },
@@ -287,25 +417,27 @@ impl TextInputState {
         }
     }
 
-    fn handle_on_virtual_key_down(&mut self, virtual_key: VirtualKeyCoder) -> Option<VirtualKeyAction> {
+    fn handle_on_virtual_key_down(
+        &mut self,
+        virtual_key: VirtualKeyCode,
+        keyboard_state: &KeyboardState,
+        info: CallbackInfo,
+    ) {
         match virtual_key {
             VirtualKeyCode::Back => {
                 // TODO: shift + back = delete last word
                 let selection = self.selection.clone();
                 match selection {
                     None => {
-                        if self.cursor_pos == self.text.len() {
+                        if self.cursor_pos == (self.text.len() - 1) {
                             self.text.pop();
                         } else {
-                            let mut a = self.text.chars().take(self.cursor_pos).collect::<String>();
-                            let new = self.text.len().min(self.cursor_pos.saturating_add(1));
-                            a.extend(self.text.chars().skip(new));
-                            self.text = a;
+                            self.text.remove(self.cursor_pos);
                         }
                         self.cursor_pos = self.cursor_pos.saturating_sub(1);
                     },
                     Some(TextInputSelection::All) => {
-                        self.text.clear();
+                        self.text = Vec::new();
                         self.cursor_pos = 0;
                         self.selection = None;
                     },
@@ -314,68 +446,90 @@ impl TextInputState {
                     },
                 }
             },
-            VirtualKeyCode::Return => {
-                // TODO: selection!
-                self.text.push('\n');
-                self.cursor_pos = self.cursor_pos.saturating_add(1);
-            },
+            VirtualKeyCode::Return => { /* ignore return keys */ },
             VirtualKeyCode::Home => {
                 self.cursor_pos = 0;
                 self.selection = None;
             },
             VirtualKeyCode::End => {
-                self.cursor_pos = self.text.len();
+                self.cursor_pos = self.text.len().saturating_sub(1);
                 self.selection = None;
+            },
+            VirtualKeyCode::Tab => {
+                use azul::callbacks::FocusTarget;
+                if keyboard_state.shift_down {
+                    info.set_focus(FocusTarget::Next);
+                } else {
+                    info.set_focus(FocusTarget::Previous);
+                }
             },
             VirtualKeyCode::Escape => {
                 self.selection = None;
             },
             VirtualKeyCode::Right => {
-                self.cursor_pos = self.text.len().min(self.cursor_pos.saturating_add(1));
+                self.cursor_pos = self.cursor_pos.saturating_add(1).min(self.text.len());
             },
             VirtualKeyCode::Left => {
-                self.cursor_pos = (0.max(self.cursor_pos.saturating_sub(1))).min(self.cursor_pos.saturating_add(1));
+                self.cursor_pos = self.cursor_pos.saturating_sub(1).min(self.text.len());
             },
+            // ctrl + a
             VirtualKeyCode::A if keyboard_state.ctrl_down => {
                 self.selection = Some(TextInputSelection::All);
             },
+            /*
+            // ctrl + c
             VirtualKeyCode::C if keyboard_state.ctrl_down => {
-                return Some(VirtualKeyAction::CopyToClipboard);
+                Clipboard::new().set_string_contents(self.text[self.selection]);
             },
+            // ctrl + v
             VirtualKeyCode::V if keyboard_state.ctrl_down => {
-                return Some(VirtualKeyAction::PasteFromClipboard);
+                let clipboard_contents = Clipboard::new().get_string_contents(self.text[self.selection]).into_option().unwrap_or_default();
+                let clipboard_contents: Vec<char> = clipboard_contents.as_str().chars().collect();
+                match self.selection {
+                    None => {
+
+                    },
+                    Some(TextInputSelection::All) => {
+                        self.text = ;
+                    },
+                    Some(TextInputSelection::Range(r)) => {
+                        self.delete_selection(r);
+
+
+                    }
+                }
+                self.selection = None;
+                self.cursor = ...;
             },
+            // ctrl + x
+            VirtualKeyCode::X if keyboard_state.ctrl_down => {
+                Clipboard::new().set_string_contents(self.text[self.selection.get_range(self.text.len())]);
+            }
+            */
             _ => { },
         }
-
-        None
     }
 
     fn delete_selection(&mut self, selection: Range<usize>, new_text: Option<char>) {
         let Range { start, end } = selection;
-        let max = if end > self.text.len() { self.text.len() } else { end };
+        let max = end.min(self.text.len() - 1);
 
         let mut cur = start;
-        if max == self.text.len() {
+
+        if max == (self.text.len() - 1) {
             self.text.truncate(start);
         } else {
-            let mut a = self.text.chars().take(start).collect::<String>();
-
-            if let Some(new) = new_text {
-                a.push(new);
-                cur += 1;
-            }
-
-            a.extend(self.text.chars().skip(end));
-            self.text = a;
+            let end = &self.text[end.min(self.text.len() - 1)..].to_vec();
+            self.text.truncate(start);
+            self.text.extend(end.iter());
         }
 
-        self.cursor_pos = cur;
+        self.cursor_pos = start;
     }
 }
 
 impl From<TextInput> for StyledDom {
-    fn into(self) -> StyledDom {
-        self.dom()
+    fn from(t: TextInput) -> StyledDom {
+        t.dom()
     }
 }
