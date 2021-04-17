@@ -2,11 +2,18 @@
 
 use core::ops::Range;
 use azul::{
-    css::Css,
+    css::*,
     str::String as AzString,
     style::StyledDom,
-    vec::NodeDataInlineCssPropertyVec,
-    dom::{Dom, EventFilter, FocusEventFilter, TabIndex},
+    vec::{
+        NodeDataInlineCssPropertyVec,
+        StyleBackgroundContentVec,
+        StyleFontFamilyVec,
+    },
+    dom::{
+        Dom, NodeDataInlineCssProperty,
+        NodeDataInlineCssProperty::{Normal, Hover, Focus}
+    },
     window::{KeyboardState, VirtualKeyCode},
     callbacks::{RefAny, Callback, CallbackInfo, UpdateScreen},
 };
@@ -15,18 +22,12 @@ use azul::{
 pub struct TextInput {
     pub state: TextInputStateWrapper,
     pub placeholder_style: NodeDataInlineCssPropertyVec,
-    pub placeholder_hover_style: NodeDataInlineCssPropertyVec,
-    pub placeholder_focus_style: NodeDataInlineCssPropertyVec,
     pub container_style: NodeDataInlineCssPropertyVec,
-    pub container_hover_style: NodeDataInlineCssPropertyVec,
-    pub container_focus_style: NodeDataInlineCssPropertyVec,
     pub label_style: NodeDataInlineCssPropertyVec,
-    pub label_hover_style: NodeDataInlineCssPropertyVec,
-    pub label_focus_style: NodeDataInlineCssPropertyVec,
 }
 
 pub struct CustomCallbackFn {
-    pub cb: extern "C" fn(&mut RefAny, &TextInputState, CallbackInfo) -> UpdateScreen,
+    pub cb: extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> UpdateScreen,
 }
 
 impl_callback!(CustomCallbackFn);
@@ -51,111 +52,202 @@ pub struct TextInputStateWrapper {
     pub update_text_input_before_calling_vk_down_fn: bool,
 }
 
-static TEXT_INPUT_CONTAINER_WINDOWS: &[NodeDataInlineCssProperty] = &[
-    /*
-        box-sizing: border-box;
-        font-size: 13px;
-        flex-grow: 1;
-        background-color: white;
-        border: 1px solid #9b9b9b;
-        padding: 1px;
-        overflow: hidden;
-        text-align: left;
-        flex-direction: row;
-        align-content: flex-end;
-        justify-content: flex-end;
-        font-family: sans-serif;
-    */
+const BACKGROUND_COLOR: ColorU = ColorU { r: 255,  g: 255,  b: 255,  a: 255 }; // white
+const TEXT_COLOR: StyleTextColor = StyleTextColor { inner: ColorU { r: 0, g: 0, b: 0, a: 255 } }; // black
+const COLOR_9B9B9B: ColorU = ColorU { r: 155, g: 155, b: 155, a: 255 }; // #9b9b9b
+const COLOR_4286F4: ColorU = ColorU { r: 66, g: 134, b: 244, a: 255 }; // #4286f4
+const COLOR_4C4C4C: ColorU = ColorU { r: 76, g: 76, b: 76, a: 255 }; // #4C4C4C
+const BACKGROUND_THEME_LIGHT: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(BACKGROUND_COLOR)];
+const BACKGROUND_COLOR_LIGHT: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_slice(BACKGROUND_THEME_LIGHT);
+
+const SANS_SERIF_STR: &str = "sans-serif";
+const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
+const SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_SERIF)];
+const SANS_SERIF_FAMILY: StyleFontFamilyVec = StyleFontFamilyVec::from_const_slice(SANS_SERIF_FAMILIES);
+
+// -- container style
+
+#[cfg(target_os = "windows")]
+static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
+
+    Normal(CssProperty::box_sizing(LayoutBoxSizing::BorderBox)),
+    Normal(CssProperty::min_width(LayoutMinWidth::const_px(200))),
+    Normal(CssProperty::background_content(BACKGROUND_COLOR_LIGHT)),
+
+    Normal(CssProperty::padding_left(LayoutPaddingLeft::const_px(2))),
+    Normal(CssProperty::padding_right(LayoutPaddingRight::const_px(2))),
+    Normal(CssProperty::padding_top(LayoutPaddingTop::const_px(1))),
+    Normal(CssProperty::padding_bottom(LayoutPaddingBottom::const_px(1))),
+
+    // border: 1px solid #484c52;
+
+    Normal(CssProperty::border_top_width(LayoutBorderTopWidth::const_px(1))),
+    Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+    Normal(CssProperty::border_left_width(LayoutBorderLeftWidth::const_px(1))),
+    Normal(CssProperty::border_right_width(LayoutBorderRightWidth::const_px(1))),
+
+    Normal(CssProperty::border_top_style(StyleBorderTopStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Inset })),
+
+    Normal(CssProperty::border_top_color(StyleBorderTopColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_9B9B9B })),
+
+    Normal(CssProperty::overflow_x(LayoutOverflow::Hidden)),
+    Normal(CssProperty::overflow_y(LayoutOverflow::Hidden)),
+    Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
+
+    // Hover(border-color: #4286f4;)
+
+    Hover(CssProperty::border_top_color(StyleBorderTopColor { inner: COLOR_4286F4 })),
+    Hover(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_4286F4 })),
+    Hover(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_4286F4 })),
+    Hover(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_4286F4 })),
+
+    // Focus(border-color: #4286f4;)
+
+    Focus(CssProperty::border_top_color(StyleBorderTopColor { inner: COLOR_4286F4 })),
+    Focus(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_4286F4 })),
+    Focus(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_4286F4 })),
+    Focus(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_4286F4 })),
 ];
 
-static TEXT_INPUT_CONTAINER_LINUX = [
-    /*
-        font-size: 16px;
-        font-family: sans-serif;
-        color: #4c4c4c;
-        display: flex;
-        flex-grow: 1;
-        background-color: white;
-        border: 1px solid #9b9b9b;
-        padding: 1px;
-        overflow: hidden;
-        text-align: left;
-        flex-direction: row;
-        align-content: flex-end;
-        justify-content: flex-end;
-        box-sizing: border-box;
-    */
+#[cfg(target_os = "linux")]
+static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
+
+    Normal(CssProperty::box_sizing(LayoutBoxSizing::BorderBox)),
+    Normal(CssProperty::font_size(StyleFontSize::const_px(13))),
+    Normal(CssProperty::min_width(LayoutMinWidth::const_px(200))),
+    Normal(CssProperty::background_content(BACKGROUND_COLOR_LIGHT)),
+    Normal(CssProperty::text_color(StyleTextColor { inner: COLOR_4C4C4C })),
+
+    Normal(CssProperty::padding_left(LayoutPaddingLeft::const_px(2))),
+    Normal(CssProperty::padding_right(LayoutPaddingRight::const_px(2))),
+    Normal(CssProperty::padding_top(LayoutPaddingTop::const_px(1))),
+    Normal(CssProperty::padding_bottom(LayoutPaddingBottom::const_px(1))),
+
+    // border: 1px solid #484c52;
+
+    Normal(CssProperty::border_top_width(LayoutBorderTopWidth::const_px(1))),
+    Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+    Normal(CssProperty::border_left_width(LayoutBorderLeftWidth::const_px(1))),
+    Normal(CssProperty::border_right_width(LayoutBorderRightWidth::const_px(1))),
+
+    Normal(CssProperty::border_top_style(StyleBorderTopStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Inset })),
+
+    Normal(CssProperty::border_top_color(StyleBorderTopColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_9B9B9B })),
+
+    Normal(CssProperty::overflow_x(LayoutOverflow::Hidden)),
+    Normal(CssProperty::overflow_y(LayoutOverflow::Hidden)),
+    Normal(CssProperty::text_align(StyleTextAlignmentHorz::Left)),
+    Normal(CssProperty::font_size(StyleFontSize::const_px(13))),
+    Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
+
+    Normal(CssProperty::font_family(SANS_SERIF_FAMILY)),
+
+    // Hover(border-color: #4286f4;)
+
+    Hover(CssProperty::border_top_color(StyleBorderTopColor { inner: COLOR_4286F4 })),
+    Hover(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_4286F4 })),
+    Hover(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_4286F4 })),
+    Hover(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_4286F4 })),
+
+    // Focus(border-color: #4286f4;)
+
+    Focus(CssProperty::border_top_color(StyleBorderTopColor { inner: COLOR_4286F4 })),
+    Focus(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_4286F4 })),
+    Focus(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_4286F4 })),
+    Focus(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_4286F4 })),
 ];
 
-static TEXT_INPUT_CONTAINER_MAC = [
-    /*
-        font-size: 12px;
-        font-family: \"Helvetica\";
-        color: #4c4c4c;
-        background-color: white;
-        height: 14px;
-        border: 1px solid #9b9b9b;
-        padding: 1px;
-        overflow: hidden;
-        text-align: left;
-        flex-direction: row;
-        align-content: flex-end;
-        justify-content: flex-end;
-    */
+#[cfg(target_os = "macos")]
+static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
+
+    Normal(CssProperty::box_sizing(LayoutBoxSizing::BorderBox)),
+    Normal(CssProperty::min_width(LayoutMinWidth::const_px(200))),
+    Normal(CssProperty::background_content(BACKGROUND_COLOR_LIGHT)),
+
+    Normal(CssProperty::padding_left(LayoutPaddingLeft::const_px(2))),
+    Normal(CssProperty::padding_right(LayoutPaddingRight::const_px(2))),
+    Normal(CssProperty::padding_top(LayoutPaddingTop::const_px(1))),
+    Normal(CssProperty::padding_bottom(LayoutPaddingBottom::const_px(1))),
+
+    // border: 1px solid #484c52;
+
+    Normal(CssProperty::border_top_width(LayoutBorderTopWidth::const_px(1))),
+    Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+    Normal(CssProperty::border_left_width(LayoutBorderLeftWidth::const_px(1))),
+    Normal(CssProperty::border_right_width(LayoutBorderRightWidth::const_px(1))),
+
+    Normal(CssProperty::border_top_style(StyleBorderTopStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Inset })),
+
+    Normal(CssProperty::border_top_color(StyleBorderTopColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_9B9B9B })),
+
+    Normal(CssProperty::overflow_x(LayoutOverflow::Hidden)),
+    Normal(CssProperty::overflow_y(LayoutOverflow::Hidden)),
+    Normal(CssProperty::text_align(StyleTextAlign::Left)),
+    Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
+
+    // Hover(border-color: #4286f4;)
+
+    Hover(CssProperty::border_top_color(StyleBorderTopColor { inner: COLOR_4286F4 })),
+    Hover(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_4286F4 })),
+    Hover(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_4286F4 })),
+    Hover(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_4286F4 })),
+
+    // Focus(border-color: #4286f4;)
+
+    Focus(CssProperty::border_top_color(StyleBorderTopColor { inner: COLOR_4286F4 })),
+    Focus(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_4286F4 })),
+    Focus(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_4286F4 })),
+    Focus(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_4286F4 })),
 ];
 
-static TEXT_INPUT_CONTAINER_HOVER = [
-    /*
-        border: 1px solid #4286f4;
-    */
+// -- label style
+
+#[cfg(target_os = "windows")]
+static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
+    Normal(CssProperty::font_size(StyleFontSize::const_px(13))),
+    Normal(CssProperty::text_color(StyleTextColor { inner: COLOR_4C4C4C })),
+    Normal(CssProperty::font_family(SANS_SERIF_FAMILY)),
 ];
 
-static TEXT_INPUT_LABEL_WINDOWS = [
-    /*
-        font-family: sans-serif;
-    */
+#[cfg(target_os = "linux")]
+static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
+    Normal(CssProperty::font_size(StyleFontSize::const_px(13))),
+    Normal(CssProperty::text_color(StyleTextColor { inner: COLOR_4C4C4C })),
+    Normal(CssProperty::font_family(SANS_SERIF_FAMILY)),
 ];
 
-static TEXT_INPUT_LABEL_LINUX = [
-    /*
-        font-size: 16px;
-        font-family: sans-serif;
-        color: #4c4c4c;
-        display: flex;
-        flex-grow: 1;
-    */
+#[cfg(target_os = "macos")]
+static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
+    Normal(CssProperty::font_size(StyleFontSize::const_px(13))),
+    Normal(CssProperty::text_color(StyleTextColor { inner: COLOR_4C4C4C })),
+    Normal(CssProperty::font_family(SANS_SERIF_FAMILY)),
 ];
 
 impl Default for TextInput {
     fn default() -> Self {
         TextInput {
             state: TextInputStateWrapper::default(),
-            placeholder_style: Vec::new().into(),
-            placeholder_hover_style: Vec::new().into(),
-            placeholder_focus_style: Vec::new().into(),
-            container_style: Vec::new().into(),
-            container_hover_style: Vec::new().into(),
-            container_focus_style: Vec::new().into(),
-            /*
-                LINUX:
-                .__azul-native-input-text-label {
-                    font-size: 16px;
-                    font-family: sans-serif;
-                    color: #4c4c4c;
-                    display: flex;
-                    flex-grow: 1;
-                }
-
-                MAC:
-                .__azul-native-input-text-label {
-                    font-size: 12px;
-                    font-family: \"Helvetica\";
-                    color: #4c4c4c;
-                }
-            */
-            label_style: Vec::new().into(),
-            label_hover_style: Vec::new().into(),
-            label_focus_style: Vec::new().into(),
+            placeholder_style: Vec::new().into(), // TEXT_INPUT_PLACEHOLDER_PROPS
+            container_style: NodeDataInlineCssPropertyVec::from_const_slice(TEXT_INPUT_CONTAINER_PROPS),
+            label_style: NodeDataInlineCssPropertyVec::from_const_slice(TEXT_INPUT_LABEL_PROPS),
         }
     }
 }
@@ -197,24 +289,30 @@ impl TextInput {
         self
     }
 
-    pub fn on_virtual_key_down(self, callback: CustomCallbackFn, data: RefAny) -> Self {
+    pub fn on_virtual_key_down(mut self, callback: CustomCallbackFn, data: RefAny) -> Self {
         self.state.on_virtual_key_down = Some((callback, data));
         self
     }
 
-    pub fn on_focus_lost(self, callback: CustomCallbackFn, data: RefAny) -> Self {
+    pub fn on_focus_lost(mut self, callback: CustomCallbackFn, data: RefAny) -> Self {
         self.state.on_focus_lost = Some((callback, data));
         self
     }
 
     pub fn dom(self) -> StyledDom {
 
-        use azul::dom::{CallbackData, EventFilter, HoverEventFilter, FocusEventFilter};
+        use azul::dom::{
+            CallbackData, EventFilter,
+            HoverEventFilter, FocusEventFilter,
+            IdOrClass::Class, TabIndex,
+        };
 
+        let label_text = self.state.inner.text.iter().collect::<String>();
         let state_ref = RefAny::new(self.state);
 
         Dom::div()
-        .with_class("__azul-native-text-input-text".into())
+        .with_ids_and_classes(vec![Class("__azul-native-text-input-container".into())].into())
+        .with_inline_css_props(self.container_style)
         .with_tab_index(Some(TabIndex::Auto).into())
         .with_dataset(state_ref.clone())
         .with_callbacks(vec![
@@ -245,8 +343,9 @@ impl TextInput {
             },
         ].into())
         .with_children(vec![
-            Dom::text(self.state.inner.text.iter().collect::<String>().into())
-            .with_class("__azul-native-input-text-label".into()),
+            Dom::text(label_text)
+            .with_ids_and_classes(vec![Class("__azul-native-text-input-label".into())].into())
+            .with_inline_css_props(self.label_style),
             // let cursor = Dom::div().with_class("__azul-native-text-input-cursor");
             // let text_selection = Dom::div().with_class("__azul-native-text-input-selection".into());
         ].into()).style(Css::empty())
@@ -259,9 +358,9 @@ mod input {
     use azul::callbacks::{RefAny, CallbackInfo, UpdateScreen};
     use super::TextInputStateWrapper;
 
-    pub(in super) extern "C" fn default_on_text_input(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
+    pub(in super) extern "C" fn default_on_text_input(text_input: &mut RefAny, mut info: CallbackInfo) -> UpdateScreen {
 
-        let text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+        let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
             Some(s) => s,
             None => return UpdateScreen::DoNothing,
         };
@@ -287,9 +386,16 @@ mod input {
             text_input.inner.handle_on_text_input(c);
         }
 
-        let result = match text_input.on_text_input.as_mut() {
-            Some((f, d)) => (f.cb)(d, &text_input.inner, info),
-            None => UpdateScreen::DoNothing,
+        let result = {
+            // rustc doesn't understand the borrowing lifetime here
+            let text_input = &mut *text_input;
+            let ontextinput = &mut text_input.on_text_input;
+            let inner = &text_input.inner;
+
+            match ontextinput.as_mut() {
+                Some((f, d)) => (f.cb)(d, &inner, &mut info),
+                None => UpdateScreen::DoNothing,
+            }
         };
 
         if !text_input.update_text_input_before_calling_vk_down_fn {
@@ -305,9 +411,9 @@ mod input {
         result
     }
 
-    pub(in super) extern "C" fn default_on_virtual_key_down(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
+    pub(in super) extern "C" fn default_on_virtual_key_down(text_input: &mut RefAny, mut info: CallbackInfo) -> UpdateScreen {
 
-        let text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+        let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
             Some(s) => s,
             None => return UpdateScreen::DoNothing,
         };
@@ -320,23 +426,30 @@ mod input {
         let kb_state = info.get_keyboard_state();
 
         if text_input.update_text_input_before_calling_vk_down_fn {
-            let _ = text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, info);
+            let _ = text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info);
         }
 
-        let result = match text_input.on_virtual_key_down.as_mut() {
-            Some((f, d)) => (f.cb)(d, &text_input.inner, info),
-            None => UpdateScreen::DoNothing,
+        let result = {
+            // rustc doesn't understand the borrowing lifetime here
+            let text_input = &mut *text_input;
+            let ontextinput = &mut text_input.on_virtual_key_down;
+            let inner = &text_input.inner;
+
+            match ontextinput.as_mut() {
+                Some((f, d)) => (f.cb)(d, &inner, &mut info),
+                None => UpdateScreen::DoNothing,
+            }
         };
 
         if !text_input.update_text_input_before_calling_vk_down_fn {
-            let _ = text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, info);
+            let _ = text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info);
         }
 
         result
     }
 
     pub(in super) extern "C" fn default_on_container_click(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
-        let text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+        let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
             Some(s) => s,
             None => return UpdateScreen::DoNothing,
         };
@@ -345,7 +458,7 @@ mod input {
     }
 
     pub(in super) extern "C" fn default_on_label_click(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
-        let text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+        let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
             Some(s) => s,
             None => return UpdateScreen::DoNothing,
         };
@@ -354,7 +467,7 @@ mod input {
     }
 
     pub(in super) extern "C" fn default_on_focus_received(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
-        let text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+        let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
             Some(s) => s,
             None => return UpdateScreen::DoNothing,
         };
@@ -363,15 +476,22 @@ mod input {
         UpdateScreen::DoNothing
     }
 
-    pub(in super) extern "C" fn default_on_focus_lost(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
-        let text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+    pub(in super) extern "C" fn default_on_focus_lost(text_input: &mut RefAny, mut info: CallbackInfo) -> UpdateScreen {
+        let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
             Some(s) => s,
             None => return UpdateScreen::DoNothing,
         };
 
-        let result = match text_input.on_focus_lost.as_mut() {
-            Some((f, d)) => (f.cb)(d, &text_input.inner, info),
-            None => UpdateScreen::DoNothing,
+        let result = {
+            // rustc doesn't understand the borrowing lifetime here
+            let text_input = &mut *text_input;
+            let ontextinput = &mut text_input.on_focus_lost;
+            let inner = &text_input.inner;
+
+            match ontextinput.as_mut() {
+                Some((f, d)) => (f.cb)(d, &inner, &mut info),
+                None => UpdateScreen::DoNothing,
+            }
         };
 
         result
@@ -388,7 +508,7 @@ impl TextInputSelection {
     pub fn get_range(&self, text_len: usize) -> Range<usize> {
         match self {
             TextInputSelection::All => 0..text_len,
-            TextInputSelection::FromTo(r) => *r,
+            TextInputSelection::FromTo(r) => r.clone(),
         }
     }
 }
@@ -421,7 +541,7 @@ impl TextInputState {
         &mut self,
         virtual_key: VirtualKeyCode,
         keyboard_state: &KeyboardState,
-        info: CallbackInfo,
+        info: &mut CallbackInfo,
     ) {
         match virtual_key {
             VirtualKeyCode::Back => {
@@ -514,12 +634,10 @@ impl TextInputState {
         let Range { start, end } = selection;
         let max = end.min(self.text.len() - 1);
 
-        let mut cur = start;
-
         if max == (self.text.len() - 1) {
             self.text.truncate(start);
         } else {
-            let end = &self.text[end.min(self.text.len() - 1)..].to_vec();
+            let end = &self.text[max..].to_vec();
             self.text.truncate(start);
             self.text.extend(end.iter());
         }
