@@ -19,7 +19,7 @@ pub struct Button {
     /// Style for this button
     pub style: Css,
     /// Optional: Function to call when the button is clicked
-    pub onclick: Option<(RefAny, Callback)>,
+    pub on_click: Option<(RefAny, Callback)>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ impl Button {
         Self {
             content: ButtonContent::Text(text.into()),
             style: Self::native_css(),
-            onclick: None,
+            on_click: None,
         }
     }
 
@@ -46,7 +46,7 @@ impl Button {
         Self {
             content: ButtonContent::Image(image),
             style: Self::native_css(),
-            onclick: None,
+            on_click: None,
         }
     }
 
@@ -153,9 +153,9 @@ impl Button {
     }
 
     #[inline]
-    pub fn on_click(self, data: RefAny, onclick: OnClickFn) -> Self {
+    pub fn on_click(self, data: RefAny, on_click: OnClickFn) -> Self {
         Self {
-            onclick: Some((data, Callback { cb: onclick })),
+            on_click: Some((data, Callback { cb: on_click })),
             .. self
         }
     }
@@ -175,7 +175,7 @@ impl Button {
             Image(i) => Dom::image(i),
         };
 
-        let callbacks = match self.onclick {
+        let callbacks = match self.on_click {
             Some((data, callback)) => vec![
                 CallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
