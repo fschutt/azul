@@ -66,8 +66,9 @@ impl ColorInput {
             },
             style: vec![
                 Normal(CssProperty::flex_grow(LayoutFlexGrow::const_new(1))),
-                Normal(CssProperty::min_width(LayoutMinWidth::const_px(10))),
-                Normal(CssProperty::min_height(LayoutMinHeight::const_px(10))),
+                Normal(CssProperty::min_width(LayoutMinWidth::const_px(15))),
+                Normal(CssProperty::min_height(LayoutMinHeight::const_px(15))),
+                Normal(CssProperty::cursor(StyleCursor::Pointer)),
             ],
         }
     }

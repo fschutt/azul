@@ -91,6 +91,7 @@ const SANS_SERIF_FAMILY: StyleFontFamilyVec = StyleFontFamilyVec::from_const_sli
 #[cfg(target_os = "windows")]
 static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 
+    Normal(CssProperty::cursor(StyleCursor::Text)),
     Normal(CssProperty::box_sizing(LayoutBoxSizing::BorderBox)),
     Normal(CssProperty::min_width(LayoutMinWidth::const_px(200))),
     Normal(CssProperty::background_content(BACKGROUND_COLOR_LIGHT)),
@@ -139,6 +140,7 @@ static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 #[cfg(target_os = "linux")]
 static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 
+    Normal(CssProperty::cursor(StyleCursor::Text)),
     Normal(CssProperty::box_sizing(LayoutBoxSizing::BorderBox)),
     Normal(CssProperty::font_size(StyleFontSize::const_px(13))),
     Normal(CssProperty::min_width(LayoutMinWidth::const_px(200))),
@@ -193,6 +195,7 @@ static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 #[cfg(target_os = "macos")]
 static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 
+    Normal(CssProperty::cursor(StyleCursor::Text)),
     Normal(CssProperty::box_sizing(LayoutBoxSizing::BorderBox)),
     Normal(CssProperty::min_width(LayoutMinWidth::const_px(200))),
     Normal(CssProperty::background_content(BACKGROUND_COLOR_LIGHT)),

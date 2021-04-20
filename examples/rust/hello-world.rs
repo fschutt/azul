@@ -30,6 +30,7 @@ extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom 
 
     Dom::body()
     .with_children(vec![
+        CheckBox::new(true).dom(),
         CheckBox::new(false).dom(),
         ColorInput::new(ColorU { r: 255, g: 0, b: 0, a: 255 }).dom(),
         TextInput::new(String::new()).dom(),

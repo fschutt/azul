@@ -54,8 +54,8 @@ const FILL_THEME: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(FI
 const FILL_COLOR_BACKGROUND: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_slice(FILL_THEME);
 
 static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::width(LayoutWidth::const_px(10))),
-    Normal(CssProperty::height(LayoutHeight::const_px(10))),
+    Normal(CssProperty::width(LayoutWidth::const_px(15))),
+    Normal(CssProperty::height(LayoutHeight::const_px(15))),
     Normal(CssProperty::background_content(BACKGROUND_COLOR_LIGHT)),
 
     // padding: 2px
@@ -81,13 +81,24 @@ static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_9B9B9B })),
     Normal(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_9B9B9B })),
     Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_9B9B9B })),
+
+    Normal(CssProperty::cursor(StyleCursor::Pointer)),
 ];
 
-static DEFAULT_CHECKBOX_CONTENT_STYLE: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::width(LayoutWidth::const_px(10))),
-    Normal(CssProperty::height(LayoutHeight::const_px(10))),
+static DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED: &[NodeDataInlineCssProperty] = &[
+    Normal(CssProperty::width(LayoutWidth::const_px(12))),
+    Normal(CssProperty::height(LayoutHeight::const_px(12))),
     Normal(CssProperty::background_content(FILL_COLOR_BACKGROUND)),
-    Normal(CssProperty::opacity(StyleOpacity::const_new(1))),
+    Normal(CssProperty::opacity(StyleOpacity::const_new(100))),
+
+    // padding: 2px
+];
+
+static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[NodeDataInlineCssProperty] = &[
+    Normal(CssProperty::width(LayoutWidth::const_px(12))),
+    Normal(CssProperty::height(LayoutHeight::const_px(12))),
+    Normal(CssProperty::background_content(FILL_COLOR_BACKGROUND)),
+    Normal(CssProperty::opacity(StyleOpacity::const_new(0))),
 
     // padding: 2px
 ];
@@ -101,7 +112,11 @@ impl CheckBox {
                 .. Default::default()
             },
             container_style: NodeDataInlineCssPropertyVec::from_const_slice(DEFAULT_CHECKBOX_CONTAINER_STYLE),
-            content_style: NodeDataInlineCssPropertyVec::from_const_slice(DEFAULT_CHECKBOX_CONTENT_STYLE),
+            content_style: if checked {
+                NodeDataInlineCssPropertyVec::from_const_slice(DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED)
+            } else {
+                NodeDataInlineCssPropertyVec::from_const_slice(DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED)
+            },
         }
     }
 
