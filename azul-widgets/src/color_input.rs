@@ -80,31 +80,26 @@ impl ColorInput {
 
     pub fn dom(mut self) -> Dom {
 
+        use azul::callbacks::Callback;
         use azul::dom::{
             EventFilter, HoverEventFilter,
             IdOrClass::Class, CallbackData,
         };
-        use azul::callbacks::Callback;
-
-        let color = self.state.inner.color;
-        let mut callbacks = Vec::new();
-
-        if self.state.on_value_change.is_some() {
-            callbacks.push(CallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                data: RefAny::new(self.state),
-                callback: Callback { cb: on_color_input_clicked }
-            })
-        }
 
         self.style.push(Normal(CssProperty::background_content(vec![
-            StyleBackgroundContent::Color(color)
+            StyleBackgroundContent::Color(self.state.inner.color)
         ].into())));
 
         Dom::div()
         .with_ids_and_classes(vec![Class("__azul_native_color_input".into())].into())
         .with_inline_css_props(self.style.into())
-        .with_callbacks(callbacks.into())
+        .with_callbacks(vec![
+            CallbackData {
+                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                data: RefAny::new(self.state),
+                callback: Callback { cb: on_color_input_clicked }
+            }
+        ].into())
     }
 }
 
