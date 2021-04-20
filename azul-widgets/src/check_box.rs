@@ -1,10 +1,9 @@
 use azul::{
     dom::{
-        TabIndex, IdOrClass, IdOrClass::Class,
+        TabIndex, Dom, IdOrClass, IdOrClass::Class,
         NodeDataInlineCssProperty,
         NodeDataInlineCssProperty::{Normal, Hover, Active, Focus},
     },
-    style::StyledDom,
     image::ImageRef,
     css::*,
     str::String as AzString,
@@ -120,7 +119,7 @@ impl CheckBox {
     }
 
     #[inline]
-    pub fn dom(self) -> StyledDom {
+    pub fn dom(self) -> Dom {
 
         use azul::vec::DomVec;
         use azul::dom::{
@@ -150,7 +149,6 @@ impl CheckBox {
             .with_inline_css_props(self.content_style)
 
         ].into())
-        .style(Css::empty())
     }
 }
 
@@ -196,8 +194,8 @@ mod input {
     }
 }
 
-impl From<CheckBox> for StyledDom {
-    fn from(b: CheckBox) -> StyledDom {
+impl From<CheckBox> for Dom {
+    fn from(b: CheckBox) -> Dom {
         b.dom()
     }
 }

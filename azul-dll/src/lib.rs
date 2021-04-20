@@ -1029,9 +1029,9 @@ pub use AzStyleTransformScale3DTT as AzStyleTransformScale3D;
 pub type AzStyleTransformSkew2DTT = azul_impl::css::StyleTransformSkew2D;
 pub use AzStyleTransformSkew2DTT as AzStyleTransformSkew2D;
 
-/// Re-export of rust-allocated (stack based) `StyleTextAlignmentHorz` struct
-pub type AzStyleTextAlignmentHorzTT = azul_impl::css::StyleTextAlignmentHorz;
-pub use AzStyleTextAlignmentHorzTT as AzStyleTextAlignmentHorz;
+/// Re-export of rust-allocated (stack based) `StyleTextAlign` struct
+pub type AzStyleTextAlignTT = azul_impl::css::StyleTextAlignmentHorz;
+pub use AzStyleTextAlignTT as AzStyleTextAlign;
 
 /// Re-export of rust-allocated (stack based) `StyleTextColor` struct
 pub type AzStyleTextColorTT = azul_impl::css::StyleTextColor;
@@ -1273,9 +1273,9 @@ pub use AzStyleLineHeightValueTT as AzStyleLineHeightValue;
 pub type AzStyleTabWidthValueTT = azul_impl::css::CssPropertyValue::<AzStyleTabWidth>;
 pub use AzStyleTabWidthValueTT as AzStyleTabWidthValue;
 
-/// Re-export of rust-allocated (stack based) `StyleTextAlignmentHorzValue` struct
-pub type AzStyleTextAlignmentHorzValueTT = azul_impl::css::CssPropertyValue::<AzStyleTextAlignmentHorz>;
-pub use AzStyleTextAlignmentHorzValueTT as AzStyleTextAlignmentHorzValue;
+/// Re-export of rust-allocated (stack based) `StyleTextAlignValue` struct
+pub type AzStyleTextAlignValueTT = azul_impl::css::CssPropertyValue::<AzStyleTextAlignmentHorz>;
+pub use AzStyleTextAlignValueTT as AzStyleTextAlignValue;
 
 /// Re-export of rust-allocated (stack based) `StyleTextColorValue` struct
 pub type AzStyleTextColorValueTT = azul_impl::css::CssPropertyValue::<AzStyleTextColor>;
@@ -4255,8 +4255,8 @@ mod test_sizes {
         Hidden,
         Visible,
     }
-    /// Re-export of rust-allocated (stack based) `StyleTextAlignmentHorz` struct
-    #[repr(C)]     pub enum AzStyleTextAlignmentHorz {
+    /// Re-export of rust-allocated (stack based) `StyleTextAlign` struct
+    #[repr(C)]     pub enum AzStyleTextAlign {
         Left,
         Center,
         Right,
@@ -5982,13 +5982,13 @@ mod test_sizes {
         Initial,
         Exact(AzStyleTabWidth),
     }
-    /// Re-export of rust-allocated (stack based) `StyleTextAlignmentHorzValue` struct
-    #[repr(C, u8)]     pub enum AzStyleTextAlignmentHorzValue {
+    /// Re-export of rust-allocated (stack based) `StyleTextAlignValue` struct
+    #[repr(C, u8)]     pub enum AzStyleTextAlignValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzStyleTextAlignmentHorz),
+        Exact(AzStyleTextAlign),
     }
     /// Re-export of rust-allocated (stack based) `StyleTextColorValue` struct
     #[repr(C, u8)]     pub enum AzStyleTextColorValue {
@@ -7337,7 +7337,7 @@ mod test_sizes {
         TextColor(AzStyleTextColorValue),
         FontSize(AzStyleFontSizeValue),
         FontFamily(AzStyleFontFamilyVecValue),
-        TextAlign(AzStyleTextAlignmentHorzValue),
+        TextAlign(AzStyleTextAlignValue),
         LetterSpacing(AzStyleLetterSpacingValue),
         LineHeight(AzStyleLineHeightValue),
         WordSpacing(AzStyleWordSpacingValue),
@@ -7836,7 +7836,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::BorderStyle>(), "AzBorderStyle"), (Layout::new::<AzBorderStyle>(), "AzBorderStyle"));
         assert_eq!((Layout::new::<azul_impl::css::StyleCursor>(), "AzStyleCursor"), (Layout::new::<AzStyleCursor>(), "AzStyleCursor"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"), (Layout::new::<AzStyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"));
-        assert_eq!((Layout::new::<azul_impl::css::StyleTextAlignmentHorz>(), "AzStyleTextAlignmentHorz"), (Layout::new::<AzStyleTextAlignmentHorz>(), "AzStyleTextAlignmentHorz"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleTextAlignmentHorz>(), "AzStyleTextAlign"), (Layout::new::<AzStyleTextAlign>(), "AzStyleTextAlign"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNode>(), "AzNode"), (Layout::new::<AzNode>(), "AzNode"));
         assert_eq!((Layout::new::<azul_impl::style::CascadeInfo>(), "AzCascadeInfo"), (Layout::new::<AzCascadeInfo>(), "AzCascadeInfo"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeState>(), "AzStyledNodeState"), (Layout::new::<AzStyledNodeState>(), "AzStyledNodeState"));
@@ -8106,7 +8106,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleLetterSpacing>>(), "AzStyleLetterSpacingValue"), (Layout::new::<AzStyleLetterSpacingValue>(), "AzStyleLetterSpacingValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleLineHeight>>(), "AzStyleLineHeightValue"), (Layout::new::<AzStyleLineHeightValue>(), "AzStyleLineHeightValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTabWidth>>(), "AzStyleTabWidthValue"), (Layout::new::<AzStyleTabWidthValue>(), "AzStyleTabWidthValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTextAlignmentHorz>>(), "AzStyleTextAlignmentHorzValue"), (Layout::new::<AzStyleTextAlignmentHorzValue>(), "AzStyleTextAlignmentHorzValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTextAlignmentHorz>>(), "AzStyleTextAlignValue"), (Layout::new::<AzStyleTextAlignValue>(), "AzStyleTextAlignValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTextColor>>(), "AzStyleTextColorValue"), (Layout::new::<AzStyleTextColorValue>(), "AzStyleTextColorValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleWordSpacing>>(), "AzStyleWordSpacingValue"), (Layout::new::<AzStyleWordSpacingValue>(), "AzStyleWordSpacingValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleOpacity>>(), "AzStyleOpacityValue"), (Layout::new::<AzStyleOpacityValue>(), "AzStyleOpacityValue"));

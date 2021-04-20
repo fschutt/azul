@@ -3172,7 +3172,7 @@
                         {"y": {"type": "PercentageValue"}}
                     ]
                 },
-                "StyleTextAlignmentHorz": {
+                "StyleTextAlign": {
                     "external": "azul_impl::css::StyleTextAlignmentHorz",
                     "derive": ["Copy"],
                     "enum_fields": [
@@ -3827,7 +3827,7 @@
                         { "Exact": { "type": "StyleTabWidth" }}
                     ]
                 },
-                "StyleTextAlignmentHorzValue": {
+                "StyleTextAlignValue": {
                     "external": "azul_impl::css::CssPropertyValue::<AzStyleTextAlignmentHorz>",
                     "derive": ["Copy"],
                     "enum_fields": [
@@ -3835,7 +3835,7 @@
                         { "None": { }} ,
                         { "Inherit": { }} ,
                         { "Initial": { }} ,
-                        { "Exact": { "type": "StyleTextAlignmentHorz" }}
+                        { "Exact": { "type": "StyleTextAlign" }}
                     ]
                 },
                 "StyleTextColorValue": {
@@ -3921,7 +3921,7 @@
                         {"TextColor": {"type": "StyleTextColorValue" }},
                         {"FontSize": {"type": "StyleFontSizeValue" }},
                         {"FontFamily": {"type": "StyleFontFamilyVecValue" }},
-                        {"TextAlign": {"type": "StyleTextAlignmentHorzValue" }},
+                        {"TextAlign": {"type": "StyleTextAlignValue" }},
                         {"LetterSpacing": {"type": "StyleLetterSpacingValue" }},
                         {"LineHeight": {"type": "StyleLineHeightValue" }},
                         {"WordSpacing": {"type": "StyleWordSpacingValue" }},

@@ -1,14 +1,18 @@
 use azul::{
-    dom::{TabIndex, IdOrClass, IdOrClass::Class},
-    style::StyledDom,
+    dom::{
+        TabIndex, Dom, IdOrClass, IdOrClass::Class,
+        NodeDataInlineCssProperty, NodeDataInlineCssProperty::{Normal, Active, Hover, Focus},
+    },
     image::ImageRef,
-    css::Css,
+    css::*,
     str::String as AzString,
     callbacks::{CallbackType, Callback, RefAny},
-    vec::IdOrClassVec,
+    vec::{
+        IdOrClassVec, StyleFontFamilyVec,
+        StyleBackgroundContentVec, NodeDataInlineCssPropertyVec,
+        NormalizedLinearColorStopVec,
+    },
 };
-
-static CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-button"))];
 
 pub type OnClickFn = CallbackType;
 
@@ -17,10 +21,211 @@ pub struct Button {
     /// Content (image or text) of this button, centered by default
     pub content: ButtonContent,
     /// Style for this button
-    pub style: Css,
+    pub container_style: NodeDataInlineCssPropertyVec,
+    pub label_style: NodeDataInlineCssPropertyVec,
+    pub image_style: NodeDataInlineCssPropertyVec,
     /// Optional: Function to call when the button is clicked
     pub on_click: Option<(RefAny, Callback)>,
 }
+
+
+const SANS_SERIF_STR: &str = "sans-serif";
+const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
+const SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_SERIF)];
+const SANS_SERIF_FAMILY: StyleFontFamilyVec = StyleFontFamilyVec::from_const_slice(SANS_SERIF_FAMILIES);
+
+const RGB_172: ColorU = ColorU { r: 172, g: 172, b: 172, a: 255 };
+const RGB_239: ColorU = ColorU { r: 239, g: 239, b: 239, a: 255 };
+const RGB_229: ColorU = ColorU { r: 229, g: 229, b: 229, a: 255 };
+
+const WINDOWS_HOVER_START: ColorU = ColorU { r: 234, g: 243, b: 252, a: 255 };
+const WINDOWS_HOVER_END: ColorU = ColorU { r: 126, g: 180, b: 234, a: 255 };
+const WINDOWS_HOVER_BORDER: ColorU = ColorU { r: 126, g: 180, b: 234, a: 255 };
+
+const WINDOWS_ACTIVE_START: ColorU = ColorU { r: 217, g: 235, b: 252, a: 255 };
+const WINDOWS_ACTIVE_END: ColorU = ColorU { r: 86, g: 157, b: 229, a: 255 };
+const WINDOWS_ACTIVE_BORDER: ColorU = ColorU { r: 86, g: 157, b: 229, a: 255 };
+
+const WINDOWS_FOCUS_BORDER: ColorU = ColorU { r: 51, g: 153, b: 255, a: 255 };
+
+const BUTTON_NOMRAL_BACKGROUND_COLOR_STOPS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: RGB_239,
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: RGB_229,
+    },
+];
+const BUTTON_NORMAL_BACKGROUND: &[StyleBackgroundContent] = &[
+StyleBackgroundContent::LinearGradient(LinearGradient {
+    direction: Direction::FromTo(DirectionCorners {
+        from: DirectionCorner::Top,
+        to: DirectionCorner::Bottom,
+    }),
+    extend_mode: ExtendMode::Clamp,
+    stops: NormalizedLinearColorStopVec::from_const_slice(
+        BUTTON_NOMRAL_BACKGROUND_COLOR_STOPS
+    ),
+})];
+
+const BUTTON_HOVER_BACKGROUND_WINDOWS_COLOR_STOPS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: WINDOWS_HOVER_START,
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: WINDOWS_HOVER_END,
+    },
+];
+const BUTTON_HOVER_BACKGROUND_WINDOWS: &[StyleBackgroundContent] = &[
+StyleBackgroundContent::LinearGradient(LinearGradient {
+    direction: Direction::FromTo(DirectionCorners {
+        from: DirectionCorner::Top,
+        to: DirectionCorner::Bottom,
+    }),
+    extend_mode: ExtendMode::Clamp,
+    stops: NormalizedLinearColorStopVec::from_const_slice(
+        BUTTON_HOVER_BACKGROUND_WINDOWS_COLOR_STOPS
+    ),
+})];
+const BUTTON_ACTIVE_BACKGROUND_WINDOWS_COLOR_STOPS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: WINDOWS_ACTIVE_START,
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: WINDOWS_ACTIVE_END,
+    },
+];
+const BUTTON_ACTIVE_BACKGROUND_WINDOWS: &[StyleBackgroundContent] = &[
+StyleBackgroundContent::LinearGradient(LinearGradient {
+    direction: Direction::FromTo(DirectionCorners {
+        from: DirectionCorner::Top,
+        to: DirectionCorner::Bottom,
+    }),
+    extend_mode: ExtendMode::Clamp,
+    stops: NormalizedLinearColorStopVec::from_const_slice(
+        BUTTON_ACTIVE_BACKGROUND_WINDOWS_COLOR_STOPS
+    ),
+})];
+
+static BUTTON_CONTAINER_WINDOWS: &[NodeDataInlineCssProperty] = &[
+    Normal(CssProperty::display(LayoutDisplay::Flex)),
+    Normal(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(BUTTON_NORMAL_BACKGROUND))),
+    Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
+    Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
+    Normal(CssProperty::cursor(StyleCursor::Pointer)),
+    Normal(CssProperty::flex_grow(LayoutFlexGrow::const_new(1))),
+
+    //     border: 1px solid rgb(172, 172, 172);
+
+    Normal(CssProperty::border_top_width(LayoutBorderTopWidth::const_px(1))),
+    Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+    Normal(CssProperty::border_left_width(LayoutBorderLeftWidth::const_px(1))),
+    Normal(CssProperty::border_right_width(LayoutBorderRightWidth::const_px(1))),
+
+    Normal(CssProperty::border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+
+    Normal(CssProperty::border_top_color(StyleBorderTopColor { inner: RGB_172 })),
+    Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: RGB_172 })),
+    Normal(CssProperty::border_left_color(StyleBorderLeftColor { inner: RGB_172 })),
+    Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: RGB_172 })),
+
+    // padding: 5px
+
+    Normal(CssProperty::padding_left(LayoutPaddingLeft::const_px(5))),
+    Normal(CssProperty::padding_right(LayoutPaddingRight::const_px(5))),
+    Normal(CssProperty::padding_top(LayoutPaddingTop::const_px(5))),
+    Normal(CssProperty::padding_bottom(LayoutPaddingBottom::const_px(5))),
+
+    Hover(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(BUTTON_HOVER_BACKGROUND_WINDOWS))),
+    Hover(CssProperty::border_top_color(StyleBorderTopColor { inner: WINDOWS_HOVER_BORDER })),
+    Hover(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: WINDOWS_HOVER_BORDER })),
+    Hover(CssProperty::border_left_color(StyleBorderLeftColor { inner: WINDOWS_HOVER_BORDER })),
+    Hover(CssProperty::border_right_color(StyleBorderRightColor { inner: WINDOWS_HOVER_BORDER })),
+
+    Active(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(BUTTON_ACTIVE_BACKGROUND_WINDOWS))),
+    Active(CssProperty::border_top_color(StyleBorderTopColor { inner: WINDOWS_ACTIVE_BORDER })),
+    Active(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: WINDOWS_ACTIVE_BORDER })),
+    Active(CssProperty::border_left_color(StyleBorderLeftColor { inner: WINDOWS_ACTIVE_BORDER })),
+    Active(CssProperty::border_right_color(StyleBorderRightColor { inner: WINDOWS_ACTIVE_BORDER })),
+
+    Focus(CssProperty::border_top_color(StyleBorderTopColor { inner: WINDOWS_FOCUS_BORDER })),
+    Focus(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: WINDOWS_FOCUS_BORDER })),
+    Focus(CssProperty::border_left_color(StyleBorderLeftColor { inner: WINDOWS_FOCUS_BORDER })),
+    Focus(CssProperty::border_right_color(StyleBorderRightColor { inner: WINDOWS_FOCUS_BORDER })),
+];
+
+static BUTTON_CONTAINER_LINUX: &[NodeDataInlineCssProperty] = &[
+/*
+.__azul-native-button {
+    font-size: 13px;
+    font-family: sans-serif;
+    color: #4c4c4c;
+    display: flex;
+    flex-grow: 1;
+    border: 1px solid #b7b7b7;
+    border-radius: 4px;
+    box-shadow: 0px 0px 3px #c5c5c5ad;
+    background: linear-gradient(#fcfcfc, #efefef);
+    text-align: center;
+    flex-direction: column;
+    justify-content: center;
+    flex-grow: 1;
+}
+
+.__azul-native-button:hover {
+    background: linear-gradient(red, black);
+}
+
+.__azul-native-button:active {
+    background: linear-gradient(blue, green);
+}
+*/
+];
+
+static BUTTON_CONTAINER_MAC: &[NodeDataInlineCssProperty] = &[
+/*
+.__azul-native-button {
+    font-size: 12px;
+    font-family: \"Helvetica\";
+    color: #4c4c4c;
+    background-color: #e7e7e7;
+    border: 1px solid #b7b7b7;
+    border-radius: 4px;
+    box-shadow: 0px 0px 3px #c5c5c5ad;
+    background: linear-gradient(#fcfcfc, #efefef);
+    text-align: center;
+    flex-direction: column;
+    justify-content: center;
+}
+*/
+];
+
+static BUTTON_CONTAINER_OTHER: &[NodeDataInlineCssProperty] = &[
+];
+
+static BUTTON_LABEL_WINDOWS: &[NodeDataInlineCssProperty] = &[
+    Normal(CssProperty::font_size(StyleFontSize::const_px(13))),
+    Normal(CssProperty::text_align(StyleTextAlign::Center)),
+    Normal(CssProperty::font_family(SANS_SERIF_FAMILY)),
+];
+
+static BUTTON_LABEL_LINUX: &[NodeDataInlineCssProperty] = &[
+];
+
+static BUTTON_LABEL_MAC: &[NodeDataInlineCssProperty] = &[
+];
+
+static BUTTON_LABEL_OTHER: &[NodeDataInlineCssProperty] = &[
+];
 
 #[derive(Debug, Clone)]
 pub enum ButtonContent {
@@ -36,7 +241,34 @@ impl Button {
     pub fn text<S: Into<AzString>>(text: S) -> Self {
         Self {
             content: ButtonContent::Text(text.into()),
-            style: Self::native_css(),
+
+            #[cfg(target_os = "windows")]
+            container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_WINDOWS),
+            #[cfg(target_os = "linux")]
+            container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_LINUX),
+            #[cfg(target_os = "macos")]
+            container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_MAC),
+            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "mac")))]
+            container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_OTHER),
+
+            #[cfg(target_os = "windows")]
+            label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_WINDOWS),
+            #[cfg(target_os = "linux")]
+            label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_LINUX),
+            #[cfg(target_os = "macos")]
+            label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_MAC),
+            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "mac")))]
+            label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_OTHER),
+
+            #[cfg(target_os = "windows")]
+            image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_WINDOWS),
+            #[cfg(target_os = "linux")]
+            image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_LINUX),
+            #[cfg(target_os = "macos")]
+            image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_MAC),
+            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "mac")))]
+            image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_OTHER),
+
             on_click: None,
         }
     }
@@ -45,111 +277,11 @@ impl Button {
     pub fn image(image: ImageRef) -> Self {
         Self {
             content: ButtonContent::Image(image),
-            style: Self::native_css(),
+            container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_WINDOWS),
+            label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_WINDOWS),
+            image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_WINDOWS),
             on_click: None,
         }
-    }
-
-    #[inline]
-    pub fn with_style(self, css: Css) -> Self {
-        Self { style: css, .. self }
-    }
-
-    /// Returns the native style for the button, differs based on operating system
-    #[inline]
-    pub fn native_css() -> Css {
-        #[cfg(target_os = "windows")] { Self::windows_css() }
-        #[cfg(target_os = "mac")] { Self::mac_css() }
-        #[cfg(target_os = "linux")] { Self::linux_css() }
-        #[cfg(not(any(target_os = "windows", target_os = "mac", target_os = "linux")))] { Self::web_css() }
-    }
-
-    #[inline]
-    pub fn windows_css() -> Css {
-        Css::from_string("
-            .__azul-native-button {
-                display: flex;
-                box-sizing: border-box;
-                font-size: 13px;
-                border: 1px solid rgb(172, 172, 172);
-                background: linear-gradient(to bottom, rgb(239, 239, 239), rgb(229, 229, 229));
-                text-align: center;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                cursor: pointer;
-                flex-grow: 1;
-                font-family: sans-serif;
-                padding: 5px;
-            }
-
-            .__azul-native-button:hover {
-                background: linear-gradient(to bottom, rgb(234, 243, 252), rgb(126, 180, 234));
-                border: 1px solid rgb(126, 180, 234);
-            }
-
-            .__azul-native-button:active {
-                background: linear-gradient(to bottom, rgb(217, 235, 252), rgb(86, 157, 229));
-                border: 1px solid rgb(86, 157, 229);
-            }
-
-            .__azul-native-button:focus {
-                border: 1px solid rgb(51, 153, 255);
-            }".into()
-        )
-    }
-
-    #[inline]
-    pub fn linux_css() -> Css {
-        Css::from_string("
-           .__azul-native-button {
-               font-size: 13px;
-               font-family: sans-serif;
-               color: #4c4c4c;
-               display: flex;
-               flex-grow: 1;
-               border: 1px solid #b7b7b7;
-               border-radius: 4px;
-               box-shadow: 0px 0px 3px #c5c5c5ad;
-               background: linear-gradient(#fcfcfc, #efefef);
-               text-align: center;
-               flex-direction: column;
-               justify-content: center;
-               flex-grow: 1;
-           }
-
-           .__azul-native-button:hover {
-               background: linear-gradient(red, black);
-           }
-
-           .__azul-native-button:active {
-               background: linear-gradient(blue, green);
-           }".into()
-        )
-    }
-
-    #[inline]
-    pub fn mac_css() -> Css {
-        Css::from_string("
-            .__azul-native-button {
-                font-size: 12px;
-                font-family: \"Helvetica\";
-                color: #4c4c4c;
-                background-color: #e7e7e7;
-                border: 1px solid #b7b7b7;
-                border-radius: 4px;
-                box-shadow: 0px 0px 3px #c5c5c5ad;
-                background: linear-gradient(#fcfcfc, #efefef);
-                text-align: center;
-                flex-direction: column;
-                justify-content: center;
-            }".into()
-        )
-    }
-
-    #[inline]
-    pub fn web_css() -> Css {
-        Css::empty() // TODO
     }
 
     #[inline]
@@ -161,18 +293,12 @@ impl Button {
     }
 
     #[inline]
-    pub fn dom(self) -> StyledDom {
+    pub fn dom(self) -> Dom {
 
         use self::ButtonContent::*;
-        use azul::vec::DomVec;
         use azul::dom::{
             Dom, EventFilter, HoverEventFilter,
             CallbackData,
-        };
-
-        let content = match self.content {
-            Text(s) => Dom::text(s),
-            Image(i) => Dom::image(i),
         };
 
         let callbacks = match self.on_click {
@@ -186,17 +312,33 @@ impl Button {
             None => Vec::new(),
         };
 
+        static CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-button-container"))];
+        static LABEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-button-content"))];
+
         Dom::div()
-        .with_ids_and_classes(IdOrClassVec::from(CLASSES))
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CONTAINER_CLASS))
+        .with_inline_css_props(self.container_style)
         .with_callbacks(callbacks.into())
         .with_tab_index(Some(TabIndex::Auto).into())
-        .with_children(DomVec::from(vec![content]))
-        .style(self.style)
+        .with_children(vec![
+            match self.content {
+                Text(s) => {
+                    Dom::text(s)
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
+                    .with_inline_css_props(self.label_style)
+                },
+                Image(i) => {
+                    Dom::image(i)
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
+                    .with_inline_css_props(self.image_style)
+                },
+            }
+        ].into())
     }
 }
 
-impl From<Button> for StyledDom {
-    fn from(b: Button) -> StyledDom {
+impl From<Button> for Dom {
+    fn from(b: Button) -> Dom {
         b.dom()
     }
 }

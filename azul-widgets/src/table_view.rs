@@ -140,7 +140,7 @@ impl TableViewState {
 
     /// Renders a cutout of the table from, horizontally from (col_start..col_end)
     /// and vertically from (row_start..row_end)
-    pub fn render_dom(&self, rows: Range<usize>, columns: Range<usize>) -> Dom {
+    pub fn dom(&self, rows: Range<usize>, columns: Range<usize>) -> Dom {
 
         use azul::css::*;
         use azul::str::String as AzString;
@@ -199,15 +199,12 @@ impl TableViewState {
         .with_ids_and_classes(IdOrClassVec::from_const_slice(TOP_LEFT_EMPTY_RECT_CLASS))
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(TOP_LEFT_EMPTY_RECT_STYLE));
 
-        static TEST_TRANSFORM: &[StyleTransform] = &[StyleTransform::Rotate(AngleValue::const_deg(30))];
-
         static ROW_NUMBERS_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
             Normal(CssProperty::font_family(SANS_SERIF_FONT_FAMILY)),
             Normal(CssProperty::text_color(StyleTextColor { inner: COLOR_2D2D2D })),
             Normal(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(COLOR_E6E6E6_BACKGROUND))),
             Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
             Normal(CssProperty::box_shadow_right(SHADOW)),
-            Normal(CssProperty::transform(StyleTransformVec::from_const_slice(TEST_TRANSFORM))),
         ];
         static ROW_NUMBERS_CONTAINER_CLASS: &[IdOrClass] = &[
             IdOrClass::Class(AzString::from_const_str("az-table-row-numbers-container"))
@@ -361,7 +358,7 @@ impl TableViewState {
                         Normal(CssProperty::min_height(LayoutMinHeight::const_px(20))),
                         Normal(CssProperty::max_height(LayoutMaxHeight::const_px(20))),
                         Normal(CssProperty::font_size(StyleFontSize::const_px(14))),
-                        Normal(CssProperty::text_align(StyleTextAlignmentHorz::Left)),
+                        Normal(CssProperty::text_align(StyleTextAlign::Left)),
                         Normal(CssProperty::text_color(StyleTextColor { inner: COLOR_BLACK })),
                         Normal(CssProperty::font_family(SANS_SERIF_FONT_FAMILY)),
                         Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
@@ -425,11 +422,6 @@ impl TableViewState {
 
         dom
     }
-
-    pub fn render(&self, rows: Range<usize>, columns: Range<usize>) -> StyledDom {
-        use azul::css::Css;
-        self.render_dom(rows, columns).style(Css::empty())
-    }
 }
 
 impl TableView {
@@ -440,7 +432,7 @@ impl TableView {
     }
 
     #[inline]
-    pub fn dom(self) -> StyledDom {
+    pub fn dom(self) -> Dom {
 
         use azul::css::*;
         use azul::vec::NodeDataInlineCssPropertyVec;
@@ -457,10 +449,11 @@ impl TableView {
 
         Dom::iframe(RefAny::new(self.state), Self::render_table_iframe_contents)
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(IFRAME_STYLE))
-        .style(Css::empty())
     }
 
     extern "C" fn render_table_iframe_contents(state: &mut RefAny, info: IFrameCallbackInfo) -> IFrameCallbackReturn {
+
+        use azul::css::Css;
 
         let table_view_state = state.downcast_ref::<TableViewState>().unwrap();
 
@@ -487,13 +480,13 @@ impl TableView {
         let table_height = (necessary_rows + padding_rows) as f32 * table_view_state.default_row_height;
         let table_width = (necessary_columns + padding_columns) as f32 * table_view_state.default_column_width;
 
-        let styled_dom = table_view_state.render(
+        let dom = table_view_state.dom(
             row_start..((row_start + necessary_rows + padding_rows)),
             column_start..((column_start + necessary_columns + padding_columns))
         );
 
         IFrameCallbackReturn {
-            dom: styled_dom,
+            dom: dom.style(Css::empty()),
             scroll_size: info.scroll_size,
             scroll_offset: info.scroll_offset,
             virtual_scroll_size: info.virtual_scroll_size,
@@ -502,8 +495,8 @@ impl TableView {
     }
 }
 
-impl From<TableView> for StyledDom  {
-    fn from(t: TableView) -> StyledDom {
+impl From<TableView> for Dom  {
+    fn from(t: TableView) -> Dom {
         t.dom()
     }
 }

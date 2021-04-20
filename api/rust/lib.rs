@@ -1465,8 +1465,8 @@ mod dll {
         Hidden,
         Visible,
     }
-    /// Re-export of rust-allocated (stack based) `StyleTextAlignmentHorz` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleTextAlignmentHorz {
+    /// Re-export of rust-allocated (stack based) `StyleTextAlign` struct
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleTextAlign {
         Left,
         Center,
         Right,
@@ -3192,13 +3192,13 @@ mod dll {
         Initial,
         Exact(AzStyleTabWidth),
     }
-    /// Re-export of rust-allocated (stack based) `StyleTextAlignmentHorzValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleTextAlignmentHorzValue {
+    /// Re-export of rust-allocated (stack based) `StyleTextAlignValue` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleTextAlignValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzStyleTextAlignmentHorz),
+        Exact(AzStyleTextAlign),
     }
     /// Re-export of rust-allocated (stack based) `StyleTextColorValue` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleTextColorValue {
@@ -4547,7 +4547,7 @@ mod dll {
         TextColor(AzStyleTextColorValue),
         FontSize(AzStyleFontSizeValue),
         FontFamily(AzStyleFontFamilyVecValue),
-        TextAlign(AzStyleTextAlignmentHorzValue),
+        TextAlign(AzStyleTextAlignValue),
         LetterSpacing(AzStyleLetterSpacingValue),
         LineHeight(AzStyleLineHeightValue),
         WordSpacing(AzStyleWordSpacingValue),
@@ -6491,7 +6491,7 @@ pub mod css {
             CssPropertyType::TextColor => CssProperty::TextColor(StyleTextColorValue::$content_type),
             CssPropertyType::FontSize => CssProperty::FontSize(StyleFontSizeValue::$content_type),
             CssPropertyType::FontFamily => CssProperty::FontFamily(StyleFontFamilyVecValue::$content_type),
-            CssPropertyType::TextAlign => CssProperty::TextAlign(StyleTextAlignmentHorzValue::$content_type),
+            CssPropertyType::TextAlign => CssProperty::TextAlign(StyleTextAlignValue::$content_type),
             CssPropertyType::LetterSpacing => CssProperty::LetterSpacing(StyleLetterSpacingValue::$content_type),
             CssPropertyType::LineHeight => CssProperty::LineHeight(StyleLineHeightValue::$content_type),
             CssPropertyType::WordSpacing => CssProperty::WordSpacing(StyleWordSpacingValue::$content_type),
@@ -6651,7 +6651,7 @@ pub mod css {
         pub const fn text_color(input: StyleTextColor) -> Self { CssProperty::TextColor(StyleTextColorValue::Exact(input)) }
         pub const fn font_size(input: StyleFontSize) -> Self { CssProperty::FontSize(StyleFontSizeValue::Exact(input)) }
         pub const fn font_family(input: StyleFontFamilyVec) -> Self { CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(input)) }
-        pub const fn text_align(input: StyleTextAlignmentHorz) -> Self { CssProperty::TextAlign(StyleTextAlignmentHorzValue::Exact(input)) }
+        pub const fn text_align(input: StyleTextAlign) -> Self { CssProperty::TextAlign(StyleTextAlignValue::Exact(input)) }
         pub const fn letter_spacing(input: StyleLetterSpacing) -> Self { CssProperty::LetterSpacing(StyleLetterSpacingValue::Exact(input)) }
         pub const fn line_height(input: StyleLineHeight) -> Self { CssProperty::LineHeight(StyleLineHeightValue::Exact(input)) }
         pub const fn word_spacing(input: StyleWordSpacing) -> Self { CssProperty::WordSpacing(StyleWordSpacingValue::Exact(input)) }
@@ -6725,7 +6725,7 @@ pub mod css {
         pub const fn as_font_size(&self) -> Option<&StyleFontSizeValue> { match self { CssProperty::FontSize(f) => Some(f), _ => None, } }
         pub const fn as_font_family(&self) -> Option<&StyleFontFamilyVecValue> { match self { CssProperty::FontFamily(f) => Some(f), _ => None, } }
         pub const fn as_text_color(&self) -> Option<&StyleTextColorValue> { match self { CssProperty::TextColor(f) => Some(f), _ => None, } }
-        pub const fn as_text_align(&self) -> Option<&StyleTextAlignmentHorzValue> { match self { CssProperty::TextAlign(f) => Some(f), _ => None, } }
+        pub const fn as_text_align(&self) -> Option<&StyleTextAlignValue> { match self { CssProperty::TextAlign(f) => Some(f), _ => None, } }
         pub const fn as_line_height(&self) -> Option<&StyleLineHeightValue> { match self { CssProperty::LineHeight(f) => Some(f), _ => None, } }
         pub const fn as_letter_spacing(&self) -> Option<&StyleLetterSpacingValue> { match self { CssProperty::LetterSpacing(f) => Some(f), _ => None, } }
         pub const fn as_word_spacing(&self) -> Option<&StyleWordSpacingValue> { match self { CssProperty::WordSpacing(f) => Some(f), _ => None, } }
@@ -7533,9 +7533,9 @@ pub mod css {
     /// `StyleTransformSkew2D` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleTransformSkew2D as StyleTransformSkew2D;
-    /// `StyleTextAlignmentHorz` struct
+    /// `StyleTextAlign` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTextAlignmentHorz as StyleTextAlignmentHorz;
+#[doc(inline)] pub use crate::dll::AzStyleTextAlign as StyleTextAlign;
     /// `StyleTextColor` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleTextColor as StyleTextColor;
@@ -7716,9 +7716,9 @@ pub mod css {
     /// `StyleTabWidthValue` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleTabWidthValue as StyleTabWidthValue;
-    /// `StyleTextAlignmentHorzValue` struct
+    /// `StyleTextAlignValue` struct
     
-#[doc(inline)] pub use crate::dll::AzStyleTextAlignmentHorzValue as StyleTextAlignmentHorzValue;
+#[doc(inline)] pub use crate::dll::AzStyleTextAlignValue as StyleTextAlignValue;
     /// `StyleTextColorValue` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleTextColorValue as StyleTextColorValue;

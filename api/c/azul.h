@@ -1253,12 +1253,12 @@ enum AzStyleBackfaceVisibility {
 };
 typedef enum AzStyleBackfaceVisibility AzStyleBackfaceVisibility;
 
-enum AzStyleTextAlignmentHorz {
-   AzStyleTextAlignmentHorz_Left,
-   AzStyleTextAlignmentHorz_Center,
-   AzStyleTextAlignmentHorz_Right,
+enum AzStyleTextAlign {
+   AzStyleTextAlign_Left,
+   AzStyleTextAlign_Center,
+   AzStyleTextAlign_Right,
 };
-typedef enum AzStyleTextAlignmentHorz AzStyleTextAlignmentHorz;
+typedef enum AzStyleTextAlign AzStyleTextAlign;
 
 struct AzNode {
     size_t parent;
@@ -5516,38 +5516,38 @@ typedef union AzStyleTabWidthValue AzStyleTabWidthValue;
 #define AzStyleTabWidthValue_Initial { .Initial = { .tag = AzStyleTabWidthValueTag_Initial } }
 #define AzStyleTabWidthValue_Exact(v) { .Exact = { .tag = AzStyleTabWidthValueTag_Exact, .payload = v } }
 
-enum AzStyleTextAlignmentHorzValueTag {
-   AzStyleTextAlignmentHorzValueTag_Auto,
-   AzStyleTextAlignmentHorzValueTag_None,
-   AzStyleTextAlignmentHorzValueTag_Inherit,
-   AzStyleTextAlignmentHorzValueTag_Initial,
-   AzStyleTextAlignmentHorzValueTag_Exact,
+enum AzStyleTextAlignValueTag {
+   AzStyleTextAlignValueTag_Auto,
+   AzStyleTextAlignValueTag_None,
+   AzStyleTextAlignValueTag_Inherit,
+   AzStyleTextAlignValueTag_Initial,
+   AzStyleTextAlignValueTag_Exact,
 };
-typedef enum AzStyleTextAlignmentHorzValueTag AzStyleTextAlignmentHorzValueTag;
+typedef enum AzStyleTextAlignValueTag AzStyleTextAlignValueTag;
 
-struct AzStyleTextAlignmentHorzValueVariant_Auto { AzStyleTextAlignmentHorzValueTag tag; };
-typedef struct AzStyleTextAlignmentHorzValueVariant_Auto AzStyleTextAlignmentHorzValueVariant_Auto;
-struct AzStyleTextAlignmentHorzValueVariant_None { AzStyleTextAlignmentHorzValueTag tag; };
-typedef struct AzStyleTextAlignmentHorzValueVariant_None AzStyleTextAlignmentHorzValueVariant_None;
-struct AzStyleTextAlignmentHorzValueVariant_Inherit { AzStyleTextAlignmentHorzValueTag tag; };
-typedef struct AzStyleTextAlignmentHorzValueVariant_Inherit AzStyleTextAlignmentHorzValueVariant_Inherit;
-struct AzStyleTextAlignmentHorzValueVariant_Initial { AzStyleTextAlignmentHorzValueTag tag; };
-typedef struct AzStyleTextAlignmentHorzValueVariant_Initial AzStyleTextAlignmentHorzValueVariant_Initial;
-struct AzStyleTextAlignmentHorzValueVariant_Exact { AzStyleTextAlignmentHorzValueTag tag; AzStyleTextAlignmentHorz payload; };
-typedef struct AzStyleTextAlignmentHorzValueVariant_Exact AzStyleTextAlignmentHorzValueVariant_Exact;
-union AzStyleTextAlignmentHorzValue {
-    AzStyleTextAlignmentHorzValueVariant_Auto Auto;
-    AzStyleTextAlignmentHorzValueVariant_None None;
-    AzStyleTextAlignmentHorzValueVariant_Inherit Inherit;
-    AzStyleTextAlignmentHorzValueVariant_Initial Initial;
-    AzStyleTextAlignmentHorzValueVariant_Exact Exact;
+struct AzStyleTextAlignValueVariant_Auto { AzStyleTextAlignValueTag tag; };
+typedef struct AzStyleTextAlignValueVariant_Auto AzStyleTextAlignValueVariant_Auto;
+struct AzStyleTextAlignValueVariant_None { AzStyleTextAlignValueTag tag; };
+typedef struct AzStyleTextAlignValueVariant_None AzStyleTextAlignValueVariant_None;
+struct AzStyleTextAlignValueVariant_Inherit { AzStyleTextAlignValueTag tag; };
+typedef struct AzStyleTextAlignValueVariant_Inherit AzStyleTextAlignValueVariant_Inherit;
+struct AzStyleTextAlignValueVariant_Initial { AzStyleTextAlignValueTag tag; };
+typedef struct AzStyleTextAlignValueVariant_Initial AzStyleTextAlignValueVariant_Initial;
+struct AzStyleTextAlignValueVariant_Exact { AzStyleTextAlignValueTag tag; AzStyleTextAlign payload; };
+typedef struct AzStyleTextAlignValueVariant_Exact AzStyleTextAlignValueVariant_Exact;
+union AzStyleTextAlignValue {
+    AzStyleTextAlignValueVariant_Auto Auto;
+    AzStyleTextAlignValueVariant_None None;
+    AzStyleTextAlignValueVariant_Inherit Inherit;
+    AzStyleTextAlignValueVariant_Initial Initial;
+    AzStyleTextAlignValueVariant_Exact Exact;
 };
-typedef union AzStyleTextAlignmentHorzValue AzStyleTextAlignmentHorzValue;
-#define AzStyleTextAlignmentHorzValue_Auto { .Auto = { .tag = AzStyleTextAlignmentHorzValueTag_Auto } }
-#define AzStyleTextAlignmentHorzValue_None { .None = { .tag = AzStyleTextAlignmentHorzValueTag_None } }
-#define AzStyleTextAlignmentHorzValue_Inherit { .Inherit = { .tag = AzStyleTextAlignmentHorzValueTag_Inherit } }
-#define AzStyleTextAlignmentHorzValue_Initial { .Initial = { .tag = AzStyleTextAlignmentHorzValueTag_Initial } }
-#define AzStyleTextAlignmentHorzValue_Exact(v) { .Exact = { .tag = AzStyleTextAlignmentHorzValueTag_Exact, .payload = v } }
+typedef union AzStyleTextAlignValue AzStyleTextAlignValue;
+#define AzStyleTextAlignValue_Auto { .Auto = { .tag = AzStyleTextAlignValueTag_Auto } }
+#define AzStyleTextAlignValue_None { .None = { .tag = AzStyleTextAlignValueTag_None } }
+#define AzStyleTextAlignValue_Inherit { .Inherit = { .tag = AzStyleTextAlignValueTag_Inherit } }
+#define AzStyleTextAlignValue_Initial { .Initial = { .tag = AzStyleTextAlignValueTag_Initial } }
+#define AzStyleTextAlignValue_Exact(v) { .Exact = { .tag = AzStyleTextAlignValueTag_Exact, .payload = v } }
 
 enum AzStyleTextColorValueTag {
    AzStyleTextColorValueTag_Auto,
@@ -8493,7 +8493,7 @@ struct AzCssPropertyVariant_FontSize { AzCssPropertyTag tag; AzStyleFontSizeValu
 typedef struct AzCssPropertyVariant_FontSize AzCssPropertyVariant_FontSize;
 struct AzCssPropertyVariant_FontFamily { AzCssPropertyTag tag; AzStyleFontFamilyVecValue payload; };
 typedef struct AzCssPropertyVariant_FontFamily AzCssPropertyVariant_FontFamily;
-struct AzCssPropertyVariant_TextAlign { AzCssPropertyTag tag; AzStyleTextAlignmentHorzValue payload; };
+struct AzCssPropertyVariant_TextAlign { AzCssPropertyTag tag; AzStyleTextAlignValue payload; };
 typedef struct AzCssPropertyVariant_TextAlign AzCssPropertyVariant_TextAlign;
 struct AzCssPropertyVariant_LetterSpacing { AzCssPropertyTag tag; AzStyleLetterSpacingValue payload; };
 typedef struct AzCssPropertyVariant_LetterSpacing AzCssPropertyVariant_LetterSpacing;

@@ -19,21 +19,18 @@ struct DataModel {
 
 extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom {
 
-    let mut body = StyledDom::new(Dom::body(), Css::empty());
-
     let counter = match data.downcast_ref::<DataModel>() {
         Some(s) => s.counter,
-        None => return body,
+        None => return Dom::body().style(Css::empty()),
     };
 
-    let label = Label::new(format!("{}", counter));
-    let button = Button::text("Update counter")
-        .on_click(data.clone(), increment_counter);
-
-    body.append_child(label.dom());
-    body.append_child(button.dom());
-
-    body
+    Dom::body()
+    .with_children(vec![
+        Label::new(format!("{}", counter)).dom(),
+        Button::text("Update counter")
+            .on_click(data.clone(), increment_counter).dom(),
+    ].into())
+    .style(Css::empty())
 }
 
 extern "C" fn increment_counter(data: &mut RefAny, _: CallbackInfo) -> UpdateScreen {

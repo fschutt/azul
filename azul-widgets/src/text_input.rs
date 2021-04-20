@@ -148,7 +148,7 @@ static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 
     Normal(CssProperty::overflow_x(LayoutOverflow::Hidden)),
     Normal(CssProperty::overflow_y(LayoutOverflow::Hidden)),
-    Normal(CssProperty::text_align(StyleTextAlignmentHorz::Left)),
+    Normal(CssProperty::text_align(StyleTextAlign::Left)),
     Normal(CssProperty::font_size(StyleFontSize::const_px(13))),
     Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
 
@@ -299,7 +299,7 @@ impl TextInput {
         self
     }
 
-    pub fn dom(self) -> StyledDom {
+    pub fn dom(self) -> Dom {
 
         use azul::dom::{
             CallbackData, EventFilter,
@@ -348,7 +348,7 @@ impl TextInput {
             .with_inline_css_props(self.label_style),
             // let cursor = Dom::div().with_class("__azul-native-text-input-cursor");
             // let text_selection = Dom::div().with_class("__azul-native-text-input-selection".into());
-        ].into()).style(Css::empty())
+        ].into())
     }
 }
 
@@ -646,8 +646,8 @@ impl TextInputState {
     }
 }
 
-impl From<TextInput> for StyledDom {
-    fn from(t: TextInput) -> StyledDom {
+impl From<TextInput> for Dom {
+    fn from(t: TextInput) -> Dom {
         t.dom()
     }
 }
