@@ -18,7 +18,7 @@ use azul::{
     callbacks::{RefAny, Callback, CallbackInfo, UpdateScreen},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TextInput {
     pub state: TextInputStateWrapper,
     pub placeholder_style: NodeDataInlineCssPropertyVec,
@@ -26,11 +26,25 @@ pub struct TextInput {
     pub label_style: NodeDataInlineCssPropertyVec,
 }
 
-pub struct CustomCallbackFn {
-    pub cb: extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> UpdateScreen,
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum TextInputValid {
+    Yes,
+    No,
 }
 
-impl_callback!(CustomCallbackFn);
+// The text input field has a special return which specifies
+// whether the text input should handle the character
+pub type TextInputCallback = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> (UpdateScreen, TextInputValid);
+pub struct TextInputCallbackFn { pub cb: TextInputCallback }
+impl_callback!(TextInputCallbackFn);
+
+pub type VirtualKeyDownCallback = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> (UpdateScreen, TextInputValid);
+pub struct VirtualKeyDownCallbackFn { pub cb: VirtualKeyDownCallback }
+impl_callback!(VirtualKeyDownCallbackFn);
+
+pub type OnFocusLostCallback = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> UpdateScreen;
+pub struct OnFocusLostCallbackFn { pub cb: OnFocusLostCallback }
+impl_callback!(OnFocusLostCallbackFn);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextInputState {
@@ -44,10 +58,9 @@ pub struct TextInputState {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextInputStateWrapper {
     pub inner: TextInputState,
-    pub on_text_input: Option<(CustomCallbackFn, RefAny)>,
-    pub on_virtual_key_down: Option<(CustomCallbackFn, RefAny)>,
-    pub on_focus_lost: Option<(CustomCallbackFn, RefAny)>,
-    pub update_text_input_before_calling_text_input_fn: bool,
+    pub on_text_input: Option<(TextInputCallbackFn, RefAny)>,
+    pub on_virtual_key_down: Option<(VirtualKeyDownCallbackFn, RefAny)>,
+    pub on_focus_lost: Option<(OnFocusLostCallbackFn, RefAny)>,
     pub update_text_input_before_calling_focus_lost_fn: bool,
     pub update_text_input_before_calling_vk_down_fn: bool,
 }
@@ -271,7 +284,6 @@ impl Default for TextInputStateWrapper {
             on_text_input: None,
             on_virtual_key_down: None,
             on_focus_lost: None,
-            update_text_input_before_calling_text_input_fn: true,
             update_text_input_before_calling_focus_lost_fn: true,
             update_text_input_before_calling_vk_down_fn: true,
         }
@@ -280,22 +292,33 @@ impl Default for TextInputStateWrapper {
 
 impl TextInput {
 
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new<I: Into<String>>(s: I) -> Self {
+        let s: String = s.into();
+
+        Self {
+            state: TextInputStateWrapper {
+                inner: TextInputState {
+                    text: s.chars().collect(),
+                    .. Default::default()
+                },
+                .. Default::default()
+            },
+            .. Default::default()
+        }
     }
 
-    pub fn on_text_input(mut self, callback: CustomCallbackFn, data: RefAny) -> Self {
-        self.state.on_text_input = Some((callback, data));
+    pub fn on_text_input(mut self, callback: TextInputCallback, data: RefAny) -> Self {
+        self.state.on_text_input = Some((TextInputCallbackFn { cb: callback }, data));
         self
     }
 
-    pub fn on_virtual_key_down(mut self, callback: CustomCallbackFn, data: RefAny) -> Self {
-        self.state.on_virtual_key_down = Some((callback, data));
+    pub fn on_virtual_key_down(mut self, callback: VirtualKeyDownCallback, data: RefAny) -> Self {
+        self.state.on_virtual_key_down = Some((VirtualKeyDownCallbackFn { cb: callback }, data));
         self
     }
 
-    pub fn on_focus_lost(mut self, callback: CustomCallbackFn, data: RefAny) -> Self {
-        self.state.on_focus_lost = Some((callback, data));
+    pub fn on_focus_lost(mut self, callback: OnFocusLostCallback, data: RefAny) -> Self {
+        self.state.on_focus_lost = Some((OnFocusLostCallbackFn { cb: callback }, data));
         self
     }
 
@@ -356,7 +379,7 @@ impl TextInput {
 mod input {
 
     use azul::callbacks::{RefAny, CallbackInfo, UpdateScreen};
-    use super::TextInputStateWrapper;
+    use super::{TextInputStateWrapper, TextInputValid};
 
     pub(in super) extern "C" fn default_on_text_input(text_input: &mut RefAny, mut info: CallbackInfo) -> UpdateScreen {
 
@@ -382,23 +405,22 @@ mod input {
             None => return UpdateScreen::DoNothing,
         };
 
-        if text_input.update_text_input_before_calling_vk_down_fn {
-            text_input.inner.handle_on_text_input(c);
-        }
-
-        let result = {
+        let (result, update_text_input) = {
             // rustc doesn't understand the borrowing lifetime here
             let text_input = &mut *text_input;
             let ontextinput = &mut text_input.on_text_input;
-            let inner = &text_input.inner;
+
+            // inner_clone has the new text
+            let mut inner_clone = text_input.inner.clone();
+            inner_clone.handle_on_text_input(c);
 
             match ontextinput.as_mut() {
-                Some((f, d)) => (f.cb)(d, &inner, &mut info),
-                None => UpdateScreen::DoNothing,
+                Some((f, d)) => (f.cb)(d, &inner_clone, &mut info),
+                None => (UpdateScreen::DoNothing, TextInputValid::Yes),
             }
         };
 
-        if !text_input.update_text_input_before_calling_vk_down_fn {
+        if update_text_input == TextInputValid::Yes {
             text_input.inner.handle_on_text_input(c);
         }
 
@@ -425,24 +447,23 @@ mod input {
 
         let kb_state = info.get_keyboard_state();
 
-        if text_input.update_text_input_before_calling_vk_down_fn {
-            let _ = text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info);
-        }
-
-        let result = {
+        let (result, valid) = {
             // rustc doesn't understand the borrowing lifetime here
             let text_input = &mut *text_input;
             let ontextinput = &mut text_input.on_virtual_key_down;
-            let inner = &text_input.inner;
+
+            // inner_clone has the new text
+            let mut inner_clone = text_input.inner.clone();
+            inner_clone.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info);
 
             match ontextinput.as_mut() {
-                Some((f, d)) => (f.cb)(d, &inner, &mut info),
-                None => UpdateScreen::DoNothing,
+                Some((f, d)) => (f.cb)(d, &inner_clone, &mut info),
+                None => (UpdateScreen::DoNothing, TextInputValid::Yes),
             }
         };
 
-        if !text_input.update_text_input_before_calling_vk_down_fn {
-            let _ = text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info);
+        if valid == TextInputValid::Yes {
+            text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info);
         }
 
         result
@@ -514,6 +535,10 @@ impl TextInputSelection {
 }
 
 impl TextInputState {
+
+    pub fn get_text(&self) -> String {
+        self.text.clone().into_iter().collect()
+    }
 
     fn handle_on_text_input(&mut self, c: char) {
         match self.selection.clone() {
@@ -636,13 +661,23 @@ impl TextInputState {
 
         if max == (self.text.len() - 1) {
             self.text.truncate(start);
+            if let Some(new) = new_text {
+                self.text.push(new);
+                self.cursor_pos = start + 1;
+            } else {
+                self.cursor_pos = start;
+            }
         } else {
             let end = &self.text[max..].to_vec();
             self.text.truncate(start);
+            if let Some(new) = new_text {
+                self.text.push(new);
+                self.cursor_pos = start + 1;
+            } else {
+                self.cursor_pos = start;
+            }
             self.text.extend(end.iter());
         }
-
-        self.cursor_pos = start;
     }
 }
 

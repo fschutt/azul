@@ -85,5 +85,9 @@ pub mod check_box;
 pub mod label;
 /// Single line text input widget
 pub mod text_input;
+/// Same as text input, but only allows numeric input
+pub mod number_input;
+/// Box displaying a color which opens a color picker dialog on being clicked
+pub mod color_input;
 /// Table view (iframe) widget
 pub mod table_view;
