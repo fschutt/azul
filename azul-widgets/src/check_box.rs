@@ -136,20 +136,16 @@ impl CheckBox {
         };
         use azul::callbacks::Callback;
 
-        let mut callbacks = Vec::new();
-
-        if self.state.on_toggle.is_some() {
-            callbacks.push(CallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                callback: Callback { cb: self::input::default_on_checkbox_clicked },
-                data: RefAny::new(self.state),
-            });
-        };
-
         Dom::div()
         .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTAINER_CLASS))
         .with_inline_css_props(self.container_style)
-        .with_callbacks(callbacks.into())
+        .with_callbacks(vec![
+            CallbackData {
+                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                callback: Callback { cb: self::input::default_on_checkbox_clicked },
+                data: RefAny::new(self.state),
+            }
+        ].into())
         .with_tab_index(Some(TabIndex::Auto).into())
         .with_children(vec![
             Dom::div()
@@ -193,9 +189,9 @@ mod input {
         check_box.inner.checked = !check_box.inner.checked;
 
         if check_box.inner.checked {
-            info.set_css_property(checkbox_content_id, CssProperty::opacity(StyleOpacity::const_new(0)));
+            info.set_css_property(checkbox_content_id, CssProperty::opacity(StyleOpacity::const_new(100)));
         } else {
-            info.set_css_property(checkbox_content_id, CssProperty::opacity(StyleOpacity::const_new(1)));
+            info.set_css_property(checkbox_content_id, CssProperty::opacity(StyleOpacity::const_new(0)));
         }
 
         result
