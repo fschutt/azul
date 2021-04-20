@@ -94,21 +94,14 @@ static DEFAULT_CHECKBOX_CONTENT_STYLE: &[NodeDataInlineCssProperty] = &[
 
 impl CheckBox {
 
-    pub fn new() -> Self {
-        Self {
-            state: CheckBoxStateWrapper::default(),
-            container_style: NodeDataInlineCssPropertyVec::from_const_slice(DEFAULT_CHECKBOX_CONTAINER_STYLE),
-            content_style: NodeDataInlineCssPropertyVec::from_const_slice(DEFAULT_CHECKBOX_CONTENT_STYLE),
-        }
-    }
-
-    pub fn checked(checked: bool) -> Self {
+    pub fn new(checked: bool) -> Self {
         Self {
             state: CheckBoxStateWrapper {
                 inner: CheckBoxState { checked },
                 .. Default::default()
             },
-            .. Self::new()
+            container_style: NodeDataInlineCssPropertyVec::from_const_slice(DEFAULT_CHECKBOX_CONTAINER_STYLE),
+            content_style: NodeDataInlineCssPropertyVec::from_const_slice(DEFAULT_CHECKBOX_CONTENT_STYLE),
         }
     }
 

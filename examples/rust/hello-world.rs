@@ -1,7 +1,7 @@
 #![windows_subsystem = "windows"]
 
 use azul::{
-    css::Css,
+    css::{Css, ColorU},
     dom::Dom,
     callbacks::{RefAny, UpdateScreen, CallbackInfo, LayoutCallbackInfo},
     style::StyledDom,
@@ -10,7 +10,11 @@ use azul::{
 };
 use azul_widgets::{
     label::Label,
-    button::Button
+    button::Button,
+    text_input::TextInput,
+    number_input::NumberInput,
+    color_input::ColorInput,
+    check_box::CheckBox,
 };
 
 struct DataModel {
@@ -26,6 +30,10 @@ extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom 
 
     Dom::body()
     .with_children(vec![
+        CheckBox::new(false).dom(),
+        ColorInput::new(ColorU { r: 255, g: 0, b: 0, a: 255 }).dom(),
+        TextInput::new(String::new()).dom(),
+        NumberInput::new(0.0).dom(),
         Label::new(format!("{}", counter)).dom(),
         Button::text("Update counter")
             .on_click(data.clone(), increment_counter).dom(),
