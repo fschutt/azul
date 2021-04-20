@@ -27,6 +27,14 @@ pub struct TextInput {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
+pub struct OnTextInputReturn {
+    pub update: UpdateScreen,
+    pub valid: TextInputValid,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
 pub enum TextInputValid {
     Yes,
     No,
@@ -34,11 +42,11 @@ pub enum TextInputValid {
 
 // The text input field has a special return which specifies
 // whether the text input should handle the character
-pub type TextInputCallback = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> (UpdateScreen, TextInputValid);
+pub type TextInputCallback = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> OnTextInputReturn;
 pub struct TextInputCallbackFn { pub cb: TextInputCallback }
 impl_callback!(TextInputCallbackFn);
 
-pub type VirtualKeyDownCallback = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> (UpdateScreen, TextInputValid);
+pub type VirtualKeyDownCallback = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> OnTextInputReturn;
 pub struct VirtualKeyDownCallbackFn { pub cb: VirtualKeyDownCallback }
 impl_callback!(VirtualKeyDownCallbackFn);
 
@@ -379,7 +387,7 @@ impl TextInput {
 mod input {
 
     use azul::callbacks::{RefAny, CallbackInfo, UpdateScreen};
-    use super::{TextInputStateWrapper, TextInputValid};
+    use super::{TextInputStateWrapper, OnTextInputReturn, TextInputValid};
 
     pub(in super) extern "C" fn default_on_text_input(text_input: &mut RefAny, mut info: CallbackInfo) -> UpdateScreen {
 
@@ -405,7 +413,7 @@ mod input {
             None => return UpdateScreen::DoNothing,
         };
 
-        let (result, update_text_input) = {
+        let result = {
             // rustc doesn't understand the borrowing lifetime here
             let text_input = &mut *text_input;
             let ontextinput = &mut text_input.on_text_input;
@@ -416,11 +424,14 @@ mod input {
 
             match ontextinput.as_mut() {
                 Some((f, d)) => (f.cb)(d, &inner_clone, &mut info),
-                None => (UpdateScreen::DoNothing, TextInputValid::Yes),
+                None => OnTextInputReturn {
+                    update: UpdateScreen::DoNothing,
+                    valid: TextInputValid::Yes,
+                },
             }
         };
 
-        if update_text_input == TextInputValid::Yes {
+        if result.valid == TextInputValid::Yes {
             text_input.inner.handle_on_text_input(c);
         }
 
@@ -430,7 +441,7 @@ mod input {
         // info.set_css_property(cursor_node_id, CssProperty::transform(get_cursor_transform(info.get_text_contents()[self.cursor_pos])))
         // info.update_image(selection_node_id, render_selection(self.selection));
 
-        result
+        result.update
     }
 
     pub(in super) extern "C" fn default_on_virtual_key_down(text_input: &mut RefAny, mut info: CallbackInfo) -> UpdateScreen {
@@ -447,7 +458,7 @@ mod input {
 
         let kb_state = info.get_keyboard_state();
 
-        let (result, valid) = {
+        let result = {
             // rustc doesn't understand the borrowing lifetime here
             let text_input = &mut *text_input;
             let ontextinput = &mut text_input.on_virtual_key_down;
@@ -458,15 +469,18 @@ mod input {
 
             match ontextinput.as_mut() {
                 Some((f, d)) => (f.cb)(d, &inner_clone, &mut info),
-                None => (UpdateScreen::DoNothing, TextInputValid::Yes),
+                None => OnTextInputReturn {
+                    update: UpdateScreen::DoNothing,
+                    valid: TextInputValid::Yes,
+                },
             }
         };
 
-        if valid == TextInputValid::Yes {
+        if result.valid == TextInputValid::Yes {
             text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info);
         }
 
-        result
+        result.update
     }
 
     pub(in super) extern "C" fn default_on_container_click(text_input: &mut RefAny, info: CallbackInfo) -> UpdateScreen {

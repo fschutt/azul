@@ -4,9 +4,12 @@ use azul::str::String as AzString;
 use azul::callbacks::{RefAny, CallbackInfo, UpdateScreen};
 use azul::vec::NodeDataInlineCssPropertyVec;
 use azul::dom::Dom;
+use core::ops::Deref;
+use core::ops::DerefMut;
 
 use crate::text_input::{
     TextInput, TextInputState,
+    OnTextInputReturn,
     TextInputStateWrapper, TextInputValid
 };
 
@@ -22,6 +25,19 @@ impl_callback!(NumberInputCallbackFn);
 pub struct NumberInput {
     pub text_input: TextInput,
     pub state: NumberInputStateWrapper,
+}
+
+impl Deref for NumberInput {
+    type Target = TextInput;
+    fn deref(&self) -> &TextInput {
+        &self.text_input
+    }
+}
+
+impl DerefMut for NumberInput {
+    fn deref_mut(&mut self) -> &mut TextInput {
+        &mut self.text_input
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -82,11 +98,14 @@ impl NumberInput {
     }
 }
 
-extern "C" fn validate_text_input(data: &mut RefAny, state: &TextInputState, info: &mut CallbackInfo) -> (UpdateScreen, TextInputValid) {
+extern "C" fn validate_text_input(data: &mut RefAny, state: &TextInputState, info: &mut CallbackInfo) -> OnTextInputReturn {
 
     let mut data = match data.downcast_mut::<NumberInputStateWrapper>() {
         Some(s) => s,
-        None => return (UpdateScreen::DoNothing, TextInputValid::Yes),
+        None => return OnTextInputReturn {
+            update: UpdateScreen::DoNothing,
+            valid: TextInputValid::Yes
+        },
     };
 
     let validated_input: String = state.text.iter().collect();
@@ -95,7 +114,10 @@ extern "C" fn validate_text_input(data: &mut RefAny, state: &TextInputState, inf
         Err(_) => {
             // do not re-layout the entire screen,
             // but don't handle the character
-            return (UpdateScreen::DoNothing, TextInputValid::No);
+            return OnTextInputReturn {
+                update: UpdateScreen::DoNothing,
+                valid: TextInputValid::No,
+            };
         }
     };
 
@@ -110,5 +132,8 @@ extern "C" fn validate_text_input(data: &mut RefAny, state: &TextInputState, inf
         }
     };
 
-    (result, TextInputValid::Yes)
+    OnTextInputReturn {
+        update: result,
+        valid: TextInputValid::Yes
+    }
 }
