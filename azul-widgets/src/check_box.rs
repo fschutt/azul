@@ -121,7 +121,7 @@ impl CheckBox {
     }
 
     #[inline]
-    pub fn on_toggle(mut self, data: RefAny, on_toggle: CheckboxCallback) -> Self {
+    pub fn on_toggle(mut self, on_toggle: CheckboxCallback, data: RefAny) -> Self {
         self.state.on_toggle = Some((CheckBoxCallbackFn { cb: on_toggle }, data));
         self
     }
