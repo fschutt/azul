@@ -113,7 +113,7 @@ pub enum NodeType {
 }
 
 impl NodeType {
-    fn into_library_owned_nodetype(&mut self) -> Self {
+    fn into_library_owned_nodetype(&self) -> Self {
         use self::NodeType::*;
         match self {
             Div => Div,
@@ -527,7 +527,7 @@ pub struct IFrameNode {
     pub data: RefAny,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CallbackData {
     pub event: EventFilter,
@@ -535,18 +535,8 @@ pub struct CallbackData {
     pub data: RefAny,
 }
 
-impl CallbackData {
-    // Copies the internal RefAny
-    pub(crate) fn copy_special(&mut self) -> Self {
-        Self {
-            event: self.event,
-            callback: self.callback.clone(),
-            data: self.data.clone(),
-        }
-    }
-}
-
 impl_vec!(CallbackData, CallbackDataVec, CallbackDataVecDestructor);
+impl_vec_clone!(CallbackData, CallbackDataVec, CallbackDataVecDestructor);
 impl_vec_mut!(CallbackData, CallbackDataVec);
 impl_vec_debug!(CallbackData, CallbackDataVec);
 impl_vec_partialord!(CallbackData, CallbackDataVec);
@@ -563,14 +553,6 @@ impl CallbackDataVec {
     #[inline]
     pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, CallbackData> {
         NodeDataContainerRefMut { internal: self.as_mut() }
-    }
-    #[inline]
-    pub(crate) fn into_library_owned_vec(&mut self) -> Vec<CallbackData> {
-        let mut vec = Vec::with_capacity(self.as_ref().len());
-        for item in self.as_mut().iter_mut() {
-            vec.push(item.copy_special());
-        }
-        vec
     }
 }
 
@@ -648,18 +630,37 @@ pub struct NodeData {
     pub(crate) tab_index: OptionTabIndex,
 }
 
-impl NodeData {
+impl Clone for NodeData {
     #[inline]
-    pub fn copy_special(&mut self) -> Self {
+    fn clone(&self) -> Self {
         Self {
             node_type: self.node_type.into_library_owned_nodetype(),
-            dataset: match &mut self.dataset {
+            dataset: match &self.dataset {
                 OptionRefAny::None => OptionRefAny::None,
                 OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
             },
             ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
             inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
-            callbacks: self.callbacks.into_library_owned_vec().into(),
+            callbacks: self.callbacks.clone(),
+            clip_mask: self.clip_mask.clone(),
+            tab_index: self.tab_index.clone(),
+        }
+    }
+}
+
+impl NodeData {
+
+    #[inline]
+    pub fn copy_special(&self) -> Self {
+        Self {
+            node_type: self.node_type.into_library_owned_nodetype(),
+            dataset: match &self.dataset {
+                OptionRefAny::None => OptionRefAny::None,
+                OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
+            },
+            ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
+            inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
+            callbacks: self.callbacks.clone(),
             clip_mask: self.clip_mask.clone(),
             tab_index: self.tab_index.clone(),
         }
@@ -969,7 +970,7 @@ impl NodeData {
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
 #[repr(C)]
-#[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(PartialEq, Clone, Eq, Hash, PartialOrd, Ord)]
 pub struct Dom {
     pub root: NodeData,
     pub children: DomVec,
@@ -982,7 +983,7 @@ impl Dom {
     pub fn copy_except_for_root(&mut self) -> Self {
         Self {
             root: self.root.copy_special(),
-            children: self.children.into_library_owned_vec().into(),
+            children: self.children.clone(),
             estimated_total_children: self.estimated_total_children,
         }
     }
@@ -991,20 +992,10 @@ impl Dom {
     }
 }
 
-impl DomVec {
-    #[inline(always)]
-    pub fn into_library_owned_vec(&mut self) -> Vec<Dom> {
-        let mut vec = Vec::with_capacity(self.as_ref().len());
-        for item in self.as_mut().iter_mut() {
-            vec.push(item.copy_except_for_root());
-        }
-        vec
-    }
-}
-
 impl_option!(Dom, OptionDom, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl_vec!(Dom, DomVec, DomVecDestructor);
+impl_vec_clone!(Dom, DomVec, DomVecDestructor);
 impl_vec_mut!(Dom, DomVec);
 impl_vec_debug!(Dom, DomVec);
 impl_vec_partialord!(Dom, DomVec);

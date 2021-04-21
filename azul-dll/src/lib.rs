@@ -1274,7 +1274,7 @@ pub type AzStyleTabWidthValueTT = azul_impl::css::CssPropertyValue::<AzStyleTabW
 pub use AzStyleTabWidthValueTT as AzStyleTabWidthValue;
 
 /// Re-export of rust-allocated (stack based) `StyleTextAlignValue` struct
-pub type AzStyleTextAlignValueTT = azul_impl::css::CssPropertyValue::<AzStyleTextAlignmentHorz>;
+pub type AzStyleTextAlignValueTT = azul_impl::css::CssPropertyValue::<AzStyleTextAlign>;
 pub use AzStyleTextAlignValueTT as AzStyleTextAlignValue;
 
 /// Re-export of rust-allocated (stack based) `StyleTextColorValue` struct
@@ -3391,8 +3391,8 @@ mod test_sizes {
     impl ::std::fmt::Debug for AzGLintVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzGLintVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     impl ::std::fmt::Debug for AzStringVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzStringVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     impl ::std::fmt::Debug for AzStringPairVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzStringPairVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
-    impl ::std::fmt::Debug for AzLinearColorStopVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzLinearColorStopVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
-    impl ::std::fmt::Debug for AzRadialColorStopVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzRadialColorStopVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
+    impl ::std::fmt::Debug for AzNormalizedLinearColorStopVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzNormalizedLinearColorStopVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
+    impl ::std::fmt::Debug for AzNormalizedRadialColorStopVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzNormalizedRadialColorStopVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     impl ::std::fmt::Debug for AzNodeIdVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzNodeIdVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     impl ::std::fmt::Debug for AzNodeVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzNodeVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     impl ::std::fmt::Debug for AzStyledNodeVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzStyledNodeVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
@@ -8106,7 +8106,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleLetterSpacing>>(), "AzStyleLetterSpacingValue"), (Layout::new::<AzStyleLetterSpacingValue>(), "AzStyleLetterSpacingValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleLineHeight>>(), "AzStyleLineHeightValue"), (Layout::new::<AzStyleLineHeightValue>(), "AzStyleLineHeightValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTabWidth>>(), "AzStyleTabWidthValue"), (Layout::new::<AzStyleTabWidthValue>(), "AzStyleTabWidthValue"));
-        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTextAlignmentHorz>>(), "AzStyleTextAlignValue"), (Layout::new::<AzStyleTextAlignValue>(), "AzStyleTextAlignValue"));
+        assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTextAlign>>(), "AzStyleTextAlignValue"), (Layout::new::<AzStyleTextAlignValue>(), "AzStyleTextAlignValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleTextColor>>(), "AzStyleTextColorValue"), (Layout::new::<AzStyleTextColorValue>(), "AzStyleTextColorValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleWordSpacing>>(), "AzStyleWordSpacingValue"), (Layout::new::<AzStyleWordSpacingValue>(), "AzStyleWordSpacingValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyValue::<AzStyleOpacity>>(), "AzStyleOpacityValue"), (Layout::new::<AzStyleOpacityValue>(), "AzStyleOpacityValue"));

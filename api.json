@@ -1822,7 +1822,6 @@
             "classes": {
                 "Dom": {
                     "external": "azul_impl::dom::Dom",
-                    "clone": false,
                     "struct_fields": [
                         {"root": {"type": "NodeData", "doc": "Root node data - note that the global DOM root should be of `NodeType::Body`"}},
                         {"children": {"type": "DomVec", "doc": "Child nodes of this root node"}},
@@ -3828,7 +3827,7 @@
                     ]
                 },
                 "StyleTextAlignValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleTextAlignmentHorz>",
+                    "external": "azul_impl::css::CssPropertyValue::<AzStyleTextAlign>",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,

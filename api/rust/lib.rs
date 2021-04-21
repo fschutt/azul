@@ -4884,7 +4884,7 @@ mod dll {
         ParserError(AzXmlParseError),
     }
     /// Re-export of rust-allocated (stack based) `Dom` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzDom {
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzDom {
         pub root: AzNodeData,
         pub children: AzDomVec,
         pub total_children: usize,
