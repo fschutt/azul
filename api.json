@@ -9265,7 +9265,6 @@
                 },
                 "OptionRefAny": {
                     "external": "azul_impl::callbacks::OptionRefAny",
-                    "clone": false,
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "RefAny" }}
@@ -9273,7 +9272,6 @@
                 },
                 "OptionInlineText": {
                     "external": "azul_impl::callbacks::OptionInlineText",
-                    "clone": false,
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "InlineText" }}

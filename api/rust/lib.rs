@@ -3616,7 +3616,7 @@ mod dll {
         Some(AzLayoutRect),
     }
     /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionRefAny {
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionRefAny {
         None,
         Some(AzRefAny),
     }
@@ -4800,7 +4800,7 @@ mod dll {
         pub destructor: AzNodeDataInlineCssPropertyVecDestructor,
     }
     /// Re-export of rust-allocated (stack based) `OptionInlineText` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionInlineText {
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionInlineText {
         None,
         Some(AzInlineText),
     }
