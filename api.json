@@ -1865,7 +1865,6 @@
                 "NodeData": {
                     "doc": "Represents one single DOM node (node type, classes, ids and callbacks are stored here)",
                     "external": "azul_impl::dom::NodeData",
-                    "clone": false,
                     "struct_fields": [
                         {"node_type": {"type": "NodeType", "doc": "Stores the type of the node, i.e. `div`, `img`, `p`, etc."}},
                         {"dataset": {"type": "OptionRefAny", "doc": "`dataset` attribute of the node, useful to store any UI-related data on the node itself"}},
@@ -7884,7 +7883,6 @@
                 "DomVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<Dom>`",
                     "custom_destructor": true,
-                    "clone": false,
                     "external": "azul_impl::dom::DomVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const Dom" } },

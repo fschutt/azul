@@ -4836,7 +4836,7 @@ mod dll {
         NoFocus,
     }
     /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzNodeData {
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzNodeData {
         pub node_type: AzNodeType,
         pub dataset: AzOptionRefAny,
         pub ids_and_classes: AzIdOrClassVec,
