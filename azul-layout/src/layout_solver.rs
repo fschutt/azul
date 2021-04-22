@@ -198,6 +198,7 @@ macro_rules! typed_arena {(
     $preferred_field:ident,
     $determine_preferred_fn:ident,
     $get_padding_fn:ident,
+    $get_margin_fn:ident,
     $get_flex_basis:ident,
     $from_rect_layout_arena_fn_name:ident,
     $bubble_fn_name:ident,
@@ -416,6 +417,13 @@ macro_rules! typed_arena {(
                 parent_node.total() - parent_node.$get_padding_fn(parent_parent_width)
             };
 
+            let child_margins: f32 = children.par_iter().map(|child_id| {
+                if layout_positions[*child_id] != LayoutPosition::Absolute {
+                    width_calculated_arena[*child_id].$get_margin_fn(parent_node_inner_width)
+                } else {
+                    0.0
+                }
+            }).sum();
 
             // 1. Set all child elements to their minimum required width or 0.0
             // if there is no min width
@@ -479,7 +487,7 @@ macro_rules! typed_arena {(
 
             // all items are now expanded to their minimum width,
             // calculate how much space is remaining
-            let mut space_available = parent_node_inner_width - space_taken_up;
+            let mut space_available = parent_node_inner_width - child_margins - space_taken_up;
 
             if space_available <= 0.0 {
                 // no space to distribute
@@ -713,6 +721,7 @@ typed_arena!(
     preferred_width,
     determine_preferred_width,
     get_horizontal_padding,
+    get_horizontal_margin,
     get_flex_basis_horizontal,
     width_calculated_rect_arena_from_rect_layout_arena,
     bubble_preferred_widths_to_parents,
@@ -733,6 +742,7 @@ typed_arena!(
     preferred_height,
     determine_preferred_height,
     get_vertical_padding,
+    get_vertical_margin,
     get_flex_basis_vertical,
     height_calculated_rect_arena_from_rect_layout_arena,
     bubble_preferred_heights_to_parents,

@@ -295,11 +295,23 @@ impl WidthCalculatedRect {
         self_padding_right
     }
 
+    pub fn get_margin_left(&self, percent_resolve: f32) -> f32 {
+        self.margin_left.as_ref()
+            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn get_margin_right(&self, percent_resolve: f32) -> f32 {
+        self.margin_right.as_ref()
+            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+            .unwrap_or(0.0)
+    }
+
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_horizontal(&self, parent_width: f32) -> f32 {
         self.min_inner_size_px +
-        self.margin_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
-        self.margin_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
+        self.get_margin_left(parent_width) +
+        self.get_margin_right(parent_width) +
         self.get_padding_left(parent_width) +
         self.get_padding_right(parent_width)
     }
@@ -308,6 +320,12 @@ impl WidthCalculatedRect {
     pub fn get_horizontal_padding(&self, parent_width: f32) -> f32 {
         self.get_padding_left(parent_width) +
         self.get_padding_right(parent_width)
+    }
+
+    /// Get the sum of the horizontal padding amount (`margin.left + margin.right`)
+    pub fn get_horizontal_margin(&self, parent_width: f32) -> f32 {
+        self.get_margin_left(parent_width) +
+        self.get_margin_right(parent_width)
     }
 
     /// Called after solver has run: Solved width of rectangle
@@ -383,13 +401,24 @@ impl HeightCalculatedRect {
         self_padding_top
     }
 
+    pub fn get_margin_top(&self, percent_resolve: f32) -> f32 {
+        self.margin_top.as_ref()
+            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+            .unwrap_or(0.0)
+    }
+
+    pub fn get_margin_bottom(&self, percent_resolve: f32) -> f32 {
+        self.margin_bottom.as_ref()
+            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+            .unwrap_or(0.0)
+    }
 
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_vertical(&self, parent_height: f32) -> f32 {
         let parent_height = parent_height as f32;
         self.min_inner_size_px +
-        self.margin_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +
-        self.margin_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +
+        self.get_margin_top(parent_height) +
+        self.get_margin_bottom(parent_height) +
         self.get_padding_top(parent_height) +
         self.get_padding_bottom(parent_height)
     }
@@ -398,6 +427,12 @@ impl HeightCalculatedRect {
     pub fn get_vertical_padding(&self, parent_height: f32) -> f32 {
         self.get_padding_top(parent_height) +
         self.get_padding_bottom(parent_height)
+    }
+
+    /// Get the sum of the horizontal margin amount (`margin_top + margin_bottom`)
+    pub fn get_vertical_margin(&self, parent_height: f32) -> f32 {
+        self.get_margin_top(parent_height) +
+        self.get_margin_bottom(parent_height)
     }
 
     /// Called after solver has run: Solved height of rectangle
