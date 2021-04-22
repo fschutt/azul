@@ -198,6 +198,7 @@ macro_rules! typed_arena {(
     $preferred_field:ident,
     $determine_preferred_fn:ident,
     $get_padding_fn:ident,
+    $get_border_fn:ident,
     $get_margin_fn:ident,
     $get_flex_basis:ident,
     $from_rect_layout_arena_fn_name:ident,
@@ -414,16 +415,9 @@ macro_rules! typed_arena {(
                 let parent_parent_width = node_hierarchy[*node_id].parent_id().and_then(|p| {
                     width_calculated_arena[p].$preferred_field.max_available_space()
                 }).unwrap_or(root_width);
-                parent_node.total() - parent_node.$get_padding_fn(parent_parent_width)
+                parent_node.total() -
+                parent_node.$get_padding_fn(parent_parent_width)
             };
-
-            let child_margins: f32 = children.par_iter().map(|child_id| {
-                if layout_positions[*child_id] != LayoutPosition::Absolute {
-                    width_calculated_arena[*child_id].$get_margin_fn(parent_node_inner_width)
-                } else {
-                    0.0
-                }
-            }).sum();
 
             // 1. Set all child elements to their minimum required width or 0.0
             // if there is no min width
@@ -481,13 +475,14 @@ macro_rules! typed_arena {(
             .filter(|(_, child_id)| layout_positions[**child_id] != LayoutPosition::Absolute)
             .map(|(child_index_in_parent, child_id)| {
                 width_calculated_arena[*child_id].min_inner_size_px +
+                width_calculated_arena[*child_id].$get_margin_fn(parent_node_inner_width) +
                 children_flex_grow[child_index_in_parent]
             })
             .sum();
 
             // all items are now expanded to their minimum width,
             // calculate how much space is remaining
-            let mut space_available = parent_node_inner_width - child_margins - space_taken_up;
+            let mut space_available = parent_node_inner_width - space_taken_up;
 
             if space_available <= 0.0 {
                 // no space to distribute
@@ -721,6 +716,7 @@ typed_arena!(
     preferred_width,
     determine_preferred_width,
     get_horizontal_padding,
+    get_horizontal_border,
     get_horizontal_margin,
     get_flex_basis_horizontal,
     width_calculated_rect_arena_from_rect_layout_arena,
@@ -742,6 +738,7 @@ typed_arena!(
     preferred_height,
     determine_preferred_height,
     get_vertical_padding,
+    get_vertical_border,
     get_vertical_margin,
     get_flex_basis_vertical,
     height_calculated_rect_arena_from_rect_layout_arena,
@@ -911,10 +908,8 @@ macro_rules! get_position {(
 
             use azul_css::LayoutJustifyContent::*;
 
-            let child_width_with_padding = {
-                let child_node = &solved_widths[child_id];
-                child_node.min_inner_size_px + child_node.flex_grow_px
-            };
+            // total width of the child, including padding + border
+            let child_width_with_padding = solved_widths[child_id].total();
 
             // width: increase X according to the main axis, Y according to the cross_axis
             let child_node = &solved_widths[child_id];
@@ -1009,10 +1004,11 @@ macro_rules! get_position {(
             let parent_node = &solved_widths[parent_id];
             let parent_parent_width = node_hierarchy[parent_id].parent_id()
             .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+
             let parent_padding_left = parent_node.$get_padding_left(parent_parent_width);
             let parent_padding_right = parent_node.$get_padding_right(parent_parent_width);
 
-            let parent_x_position = arena.as_ref()[parent_id].0 + parent_padding_left;
+            let parent_x_position = arena.as_ref()[parent_id].0;
             let parent_direction = layout_directions[parent_id];
 
             let parent_inner_width = {
@@ -1021,9 +1017,13 @@ macro_rules! get_position {(
 
             if parent_direction.get_axis() == LayoutAxis::$axis {
 
+                println!("{} / {:?}: laying out parent main axis: ({}px - {}px padding = {}px)",
+                    parent_id, LayoutAxis::$axis, parent_node.total(),
+                    (parent_padding_left + parent_padding_right), parent_inner_width
+                );
                 // Along main axis: Increase X with width of current element
                 let main_axis_alignment = layout_justify_contents[parent_id];
-                let mut sum_x_of_children_so_far = 0.0;
+                let mut sum_x_of_children_so_far = parent_padding_left;
 
                 if parent_direction.is_reverse() {
                     for child_id in parent_id.az_reverse_children(node_hierarchy) {
@@ -1037,6 +1037,7 @@ macro_rules! get_position {(
                             &sum_x_of_children_so_far,
                             node_hierarchy,
                         );
+                        println!("    child {} = {}", child_id, x);
                         arena.as_ref_mut()[child_id].0 = x;
                         sum_x_of_children_so_far += x_to_add;
                     }
@@ -1052,6 +1053,7 @@ macro_rules! get_position {(
                             &sum_x_of_children_so_far,
                             node_hierarchy,
                         );
+                        println!("    child {} = {}", child_id, x);
                         arena.as_ref_mut()[child_id].0 = x;
                         sum_x_of_children_so_far += x_to_add;
                     }
@@ -1099,6 +1101,8 @@ macro_rules! get_position {(
                 }
             }
         }
+
+        println!("------");
     }
 )}
 

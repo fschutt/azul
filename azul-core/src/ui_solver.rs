@@ -271,28 +271,34 @@ impl WidthCalculatedRect {
         .unwrap_or(0.0)
     }
 
+    pub fn get_raw_padding_left(&self, percent_resolve: f32) -> f32 {
+        self.padding_left.as_ref()
+        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+        .unwrap_or(0.0)
+    }
+
+    pub fn get_raw_padding_right(&self, percent_resolve: f32) -> f32 {
+        self.padding_right.as_ref()
+        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+        .unwrap_or(0.0)
+    }
+
     pub fn get_padding_left(&self, percent_resolve: f32) -> f32 {
-        let mut self_padding_left = self.padding_left.as_ref()
-            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
-            .unwrap_or(0.0);
-
         if self.box_sizing == LayoutBoxSizing::ContentBox {
-            self_padding_left += self.get_border_left(percent_resolve);
+            self.get_raw_padding_left(percent_resolve) +
+            self.get_border_left(percent_resolve)
+        } else {
+            self.get_raw_padding_left(percent_resolve)
         }
-
-        self_padding_left
     }
 
     pub fn get_padding_right(&self, percent_resolve: f32) -> f32 {
-        let mut self_padding_right = self.padding_right.as_ref()
-            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
-            .unwrap_or(0.0);
-
         if self.box_sizing == LayoutBoxSizing::ContentBox {
-            self_padding_right += self.get_border_right(percent_resolve);
+            self.get_raw_padding_right(percent_resolve) +
+            self.get_border_right(percent_resolve)
+        } else {
+            self.get_raw_padding_right(percent_resolve)
         }
-
-        self_padding_right
     }
 
     pub fn get_margin_left(&self, percent_resolve: f32) -> f32 {
@@ -312,8 +318,15 @@ impl WidthCalculatedRect {
         self.min_inner_size_px +
         self.get_margin_left(parent_width) +
         self.get_margin_right(parent_width) +
-        self.get_padding_left(parent_width) +
-        self.get_padding_right(parent_width)
+        self.get_raw_padding_left(parent_width) +
+        self.get_raw_padding_right(parent_width) +
+        self.get_border_left(parent_width) +
+        self.get_border_right(parent_width)
+    }
+
+    pub fn get_horizontal_border(&self, parent_width: f32) -> f32 {
+        self.get_border_left(parent_width) +
+        self.get_border_right(parent_width)
     }
 
     /// Get the sum of the horizontal padding amount (`padding.left + padding.right`)
@@ -377,28 +390,34 @@ impl HeightCalculatedRect {
         .unwrap_or(0.0)
     }
 
+    pub fn get_raw_padding_top(&self, percent_resolve: f32) -> f32 {
+        self.padding_top.as_ref()
+        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+        .unwrap_or(0.0)
+    }
+
+    pub fn get_raw_padding_bottom(&self, percent_resolve: f32) -> f32 {
+        self.padding_bottom.as_ref()
+        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+        .unwrap_or(0.0)
+    }
+
     pub fn get_padding_bottom(&self, percent_resolve: f32) -> f32 {
-        let mut self_padding_bottom = self.padding_bottom.as_ref()
-            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
-            .unwrap_or(0.0);
-
         if self.box_sizing == LayoutBoxSizing::ContentBox {
-            self_padding_bottom += self.get_border_bottom(percent_resolve);
+            self.get_raw_padding_bottom(percent_resolve) +
+            self.get_border_bottom(percent_resolve)
+        } else {
+            self.get_raw_padding_bottom(percent_resolve)
         }
-
-        self_padding_bottom
     }
 
     pub fn get_padding_top(&self, percent_resolve: f32) -> f32 {
-        let mut self_padding_top = self.padding_top.as_ref()
-            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
-            .unwrap_or(0.0);
-
         if self.box_sizing == LayoutBoxSizing::ContentBox {
-            self_padding_top += self.get_border_top(percent_resolve);
+            self.get_raw_padding_top(percent_resolve) +
+            self.get_border_top(percent_resolve)
+        } else {
+            self.get_raw_padding_top(percent_resolve)
         }
-
-        self_padding_top
     }
 
     pub fn get_margin_top(&self, percent_resolve: f32) -> f32 {
@@ -419,14 +438,22 @@ impl HeightCalculatedRect {
         self.min_inner_size_px +
         self.get_margin_top(parent_height) +
         self.get_margin_bottom(parent_height) +
-        self.get_padding_top(parent_height) +
-        self.get_padding_bottom(parent_height)
+        self.get_raw_padding_top(parent_height) +
+        self.get_raw_padding_bottom(parent_height) +
+        self.get_border_top(parent_height) +
+        self.get_border_bottom(parent_height)
     }
 
     /// Get the sum of the horizontal padding amount (`padding_top + padding_bottom`)
     pub fn get_vertical_padding(&self, parent_height: f32) -> f32 {
         self.get_padding_top(parent_height) +
         self.get_padding_bottom(parent_height)
+    }
+
+    /// Get the sum of the horizontal padding amount (`padding_top + padding_bottom`)
+    pub fn get_vertical_border(&self, parent_height: f32) -> f32 {
+        self.get_border_top(parent_height) +
+        self.get_border_bottom(parent_height)
     }
 
     /// Get the sum of the horizontal margin amount (`margin_top + margin_bottom`)
