@@ -586,6 +586,8 @@ macro_rules! typed_arena {(
                 parent_node.total() - parent_node.$get_padding_fn(parent_parent_width)
             };
 
+            // println!("parent node inner width: {}, root width: {}", parent_node_inner_width, root_width);
+
             let nearest_relative_node = if layout_positions[*parent_id].is_positioned() {
                 *parent_id
             } else {
@@ -612,8 +614,8 @@ macro_rules! typed_arena {(
                     parent_node_inner_width
                 };
 
-                let min_child_width = width_calculated_arena[*child_id].total() +
-                    width_calculated_arena[*child_id].$get_padding_fn(parent_node_inner_width);
+                let min_child_width = width_calculated_arena[*child_id].total(); // +
+                    // width_calculated_arena[*child_id].$get_padding_fn(parent_node_inner_width);
                     // + margin(child)
 
                 let space_available = parent_node_inner_width - min_child_width;
@@ -1017,10 +1019,10 @@ macro_rules! get_position {(
 
             if parent_direction.get_axis() == LayoutAxis::$axis {
 
-                println!("{} / {:?}: laying out parent main axis: ({}px - {}px padding = {}px)",
-                    parent_id, LayoutAxis::$axis, parent_node.total(),
-                    (parent_padding_left + parent_padding_right), parent_inner_width
-                );
+                // println!("{} / {:?}: laying out parent main axis: ({}px - {}px padding = {}px)",
+                //     parent_id, LayoutAxis::$axis, parent_node.total(),
+                //     (parent_padding_left + parent_padding_right), parent_inner_width
+                // );
                 // Along main axis: Increase X with width of current element
                 let main_axis_alignment = layout_justify_contents[parent_id];
                 let mut sum_x_of_children_so_far = parent_padding_left;
@@ -1037,7 +1039,7 @@ macro_rules! get_position {(
                             &sum_x_of_children_so_far,
                             node_hierarchy,
                         );
-                        println!("    child {} = {}", child_id, x);
+                        // println!("    child {} = {}", child_id, x);
                         arena.as_ref_mut()[child_id].0 = x;
                         sum_x_of_children_so_far += x_to_add;
                     }
@@ -1053,7 +1055,7 @@ macro_rules! get_position {(
                             &sum_x_of_children_so_far,
                             node_hierarchy,
                         );
-                        println!("    child {} = {}", child_id, x);
+                        // println!("    child {} = {}", child_id, x);
                         arena.as_ref_mut()[child_id].0 = x;
                         sum_x_of_children_so_far += x_to_add;
                     }
@@ -1102,7 +1104,7 @@ macro_rules! get_position {(
             }
         }
 
-        println!("------");
+        // println!("------");
     }
 )}
 

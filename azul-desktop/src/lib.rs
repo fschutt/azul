@@ -87,13 +87,17 @@ pub mod text_layout {
 
 /// SVG parsing + rendering
 pub mod svg {
+    #[cfg(feature = "svg")]
     pub use azul_core::svg::*;
+    #[cfg(feature = "svg")]
     pub use azulc_lib::svg::*;
 }
 
 /// XML parsing
 pub mod xml {
+    #[cfg(feature = "xml")]
     pub use azulc_lib::xml::*;
+    #[cfg(feature = "xml")]
     pub use azulc_lib::xml_parser::*;
 }
 
