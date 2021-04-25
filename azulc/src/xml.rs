@@ -1,6 +1,6 @@
 use azul_css::{U8Vec, AzString, OptionAzString};
-use crate::xml_parser::{XmlNode, XmlNodeVec};
 use core::fmt;
+#[cfg(feature = "xml")]
 pub use crate::xml_parser::*;
 
 #[allow(non_camel_case_types)]
