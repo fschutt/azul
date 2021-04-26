@@ -335,7 +335,6 @@ fn run_inner(app: App) -> ! {
         }
 
         let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
-
         let mut windows_created = Vec::<WindowCreateOptions>::new();
 
         match event {
@@ -661,10 +660,10 @@ fn run_inner(app: App) -> ! {
 
                 // NOTE: Has to be done every frame, since there is no real
                 // way to detect if the monitor changed
-                let window_monitor = {
+                if window.internal.may_have_changed_monitor() {
                     let w = window.display.window();
                     let primary_monitor = w.primary_monitor();
-                    w.current_monitor()
+                    let current_monitor = w.current_monitor()
                     .map(|m| {
                         let mut mon = crate::window::monitor_new(m, false);
                         if let Some(p) = primary_monitor.as_ref() {
@@ -672,8 +671,9 @@ fn run_inner(app: App) -> ! {
                         }
                         mon
                     })
-                    .unwrap_or_default()
-                };
+                    .unwrap_or_default();
+                    window.internal.current_window_state.monitor = current_monitor;
+                }
 
                 loop {
                     let events = Events::new(&window.internal.current_window_state, &window.internal.previous_window_state);
@@ -707,9 +707,19 @@ fn run_inner(app: App) -> ! {
                     });
 
                     let cur_should_callback_render = callback_results.should_scroll_render;
-                    if cur_should_callback_render { should_callback_render = true; }
-                    let cur_should_scroll_render = window.internal.current_window_state.get_scroll_amount().as_ref().map(|se| window.internal.scroll_states.should_scroll_render(se, &hit_test)).unwrap_or(false);
-                    if cur_should_scroll_render { should_scroll_render = true; }
+                    if cur_should_callback_render {
+                        should_callback_render = true;
+                    }
+
+                    let cur_should_scroll_render = window.internal.current_window_state
+                    .get_scroll_amount().as_ref().map(|se| {
+                        window.internal.scroll_states.should_scroll_render(se, &hit_test)
+                    }).unwrap_or(false);
+
+                    if cur_should_scroll_render {
+                        should_scroll_render = true;
+                    }
+
                     window.internal.current_window_state.mouse_state.reset_scroll_to_zero();
 
                     if layout_callback_changed {
@@ -785,13 +795,17 @@ fn run_inner(app: App) -> ! {
                         window.internal.current_window_state.focused_node = *callback_new_focus;
                     }
 
-                    let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(callback_results.modified_window_state, window_monitor.clone());
+                    let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(
+                        callback_results.modified_window_state,
+                        window.internal.current_window_state.monitor.clone()
+                    );
+
                     window.internal.previous_window_state = Some(current_window_save_state);
+
                     if !window_state_changed_in_callbacks {
                         break;
                     } else {
-                        continue;    use std::sync::Arc;
-
+                        continue;
                     }
                 }
 

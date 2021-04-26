@@ -989,6 +989,20 @@ impl WindowInternal {
         current_state.height > previous_state.height
     }
 
+    /// Returns whether the size or position of the window changed (if true,
+    /// the caller needs to update the monitor field), since the window may have
+    /// moved to a different monitor
+    pub fn may_have_changed_monitor(&self) -> bool {
+        let previous = match self.previous_window_state.as_ref() {
+            None => return true,
+            Some(s) => s,
+        };
+        let current = &self.current_window_state;
+
+        previous.size.dimensions != current.size.dimensions &&
+        previous.position != current.position
+    }
+
     pub fn get_layout_size(&self) -> LayoutSize {
         LayoutSize::new(
             libm::roundf(self.current_window_state.size.dimensions.width) as isize,

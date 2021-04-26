@@ -21,10 +21,10 @@ panic = "abort"
 debug = false
 
 [profile.release]
-opt-level = 1
-lto = false
+opt-level = 3
+lto = "fat"
 panic = "abort"
-codegen-units = 16
+codegen-units = 1
 debug = false
 overflow-checks = false
-incremental = true
+incremental = false
