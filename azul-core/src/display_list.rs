@@ -878,7 +878,7 @@ pub fn displaylist_handle_rect<'a>(
 
     let mut frame = DisplayListFrame {
         tag: tag_id.map(|t| t.into_crate_internal()),
-        size: positioned_rect.size_including_borders(),
+        size: positioned_rect.size,
         clip_children: layout_result.scrollable_nodes.clip_nodes.get(&rect_idx).copied(),
         position: positioned_rect.position.clone(),
         border_radius: StyleBorderRadius {

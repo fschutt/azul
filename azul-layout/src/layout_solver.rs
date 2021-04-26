@@ -369,10 +369,13 @@ macro_rules! typed_arena {(
             // if the children overflow, then the maximum width / height that can be
             // bubbled is the max_height / max_width of the parent
             let parent_max_available_space = node_data[parent_id].$preferred_field.max_available_space().unwrap_or(children_flex_basis);
-            let children_flex_basis = parent_max_available_space.min(children_flex_basis);
+            let children_inner_width = parent_max_available_space.min(children_flex_basis);
+
+            // parent minimum width = children (including borders, padding + margin of children) PLUS padding (including borders) of parent
+            let parent_min_inner_size_px = children_inner_width + node_data[parent_id].$get_padding_fn(parent_parent_width);
 
             // bubble the min_inner_size_px to the parent
-            node_data[parent_id].min_inner_size_px = node_data[parent_id].min_inner_size_px.max(children_flex_basis);
+            node_data[parent_id].min_inner_size_px = node_data[parent_id].min_inner_size_px.max(parent_min_inner_size_px);
         }
 
         // Now, the width of all elements should be filled,
@@ -585,8 +588,6 @@ macro_rules! typed_arena {(
 
                 parent_node.total() - parent_node.$get_padding_fn(parent_parent_width)
             };
-
-            // println!("parent node inner width: {}, root width: {}", parent_node_inner_width, root_width);
 
             let nearest_relative_node = if layout_positions[*parent_id].is_positioned() {
                 *parent_id

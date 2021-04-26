@@ -607,7 +607,7 @@ impl GpuValueCache {
             let node_data = &node_data[node_id];
             let current_transform = css_property_cache.get_transform(node_data, &node_id, styled_node_state)?.get_property().map(|t| {
 
-                let parent_size = positioned_rects[node_id].size_including_borders();
+                let parent_size = positioned_rects[node_id].size;
                 let transform_origin = css_property_cache.get_transform_origin(node_data, &node_id, styled_node_state);
                 let transform_origin = transform_origin
                     .as_ref()
@@ -731,7 +731,7 @@ impl LayoutResult {
 
             let node_id = t.node_id.into_crate_internal()?;
             let logical_offset = self.rects.as_ref()[node_id].get_logical_static_offset();
-            let logical_size = self.rects.as_ref()[node_id].size_including_borders();
+            let logical_size = self.rects.as_ref()[node_id].size;
             let logical_rect = LogicalRect::new(logical_offset, logical_size);
 
             // Traverse up the tree and  calculate the transformation matrix of
@@ -946,13 +946,6 @@ impl Default for PositionedRectangle {
 }
 
 impl PositionedRectangle {
-
-    #[inline]
-    pub fn size_including_borders(&self) -> LogicalSize {
-        let size_x = self.size.width + self.border_widths.total_horizontal();
-        let size_y = self.size.height + self.border_widths.total_vertical();
-        LogicalSize::new(size_x, size_y)
-    }
 
     #[inline]
     pub fn get_approximate_static_bounds(&self) -> LayoutRect {
