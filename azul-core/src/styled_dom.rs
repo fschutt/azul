@@ -203,6 +203,7 @@ impl CssPropertyCache {
     ) -> Vec<TagIdToNodeIdMapping> {
 
         use azul_css::CssDeclaration;
+        use azul_css::LayoutDisplay;
         use azul_css::CssPathPseudoSelector::*;
         use rayon::prelude::*;
 
@@ -395,6 +396,18 @@ impl CssPropertyCache {
             // workaround for "goto end" - early break if
             // one of the conditions is true
             loop {
+
+                // check for display: none
+                let display = self
+                .get_display(&node_data, &node_id, &default_node_state)
+                .and_then(|p| p.get_property_or_default())
+                .unwrap_or_default();
+
+                if display == LayoutDisplay::None {
+                    node_should_have_tag = false;
+                    break;
+                }
+
                 if tab_index.is_some() {
                     node_should_have_tag = true;
                     break;
@@ -1883,17 +1896,6 @@ impl StyledDom {
 
         let mut output = String::new();
 
-        // calls get_last_child() recursively until the last child of the last child of the ... has been found
-        fn recursive_get_last_child(node_id: NodeId, node_hierarchy: &[AzNode], target: &mut Option<NodeId>) {
-            match node_hierarchy[node_id.index()].last_child_id() {
-                None => return,
-                Some(s) => {
-                    *target = Some(s);
-                    recursive_get_last_child(s, node_hierarchy, target);
-                }
-            }
-        }
-
         // After which nodes should a close tag be printed?
         let mut should_print_close_tag_after_node = BTreeMap::new();
 
@@ -1955,6 +1957,17 @@ impl StyledDom {
         }
 
         format!(include_str!("./default.html"), custom_head = custom_head, output = output, custom_body = custom_body)
+    }
+
+    /// Returns the node ID of all sub-children of a node
+    pub fn get_subtree(&self, parent: NodeId) -> Vec<NodeId> {
+        let mut total_last_child = None;
+        recursive_get_last_child(parent, &self.node_hierarchy.as_ref(), &mut total_last_child);
+        if let Some(last) = total_last_child {
+            (parent.index()..=last.index()).map(|id| NodeId::new(id)).collect()
+        } else {
+            Vec::new()
+        }
     }
 
     #[cfg(feature = "multithreading")]
@@ -2052,4 +2065,15 @@ impl StyledDom {
 
     // Computes the diff between the two DOMs
     // pub fn diff(&self, other: &Self) -> StyledDomDiff { /**/ }
+}
+
+// calls get_last_child() recursively until the last child of the last child of the ... has been found
+fn recursive_get_last_child(node_id: NodeId, node_hierarchy: &[AzNode], target: &mut Option<NodeId>) {
+    match node_hierarchy[node_id.index()].last_child_id() {
+        None => return,
+        Some(s) => {
+            *target = Some(s);
+            recursive_get_last_child(s, node_hierarchy, target);
+        }
+    }
 }

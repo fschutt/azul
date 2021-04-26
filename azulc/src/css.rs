@@ -441,6 +441,7 @@ impl FormatAsRustCode for StyleBackgroundRepeatVec {
 }
 
 impl_enum_fmt!(LayoutDisplay,
+    None,
     Flex,
     Block,
     InlineBlock

@@ -96,6 +96,7 @@ impl PrintAsCssValue for StyleCursor {
 impl PrintAsCssValue for LayoutDisplay {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
+            LayoutDisplay::None => "none",
             LayoutDisplay::Flex => "flex",
             LayoutDisplay::Block => "block",
             LayoutDisplay::InlineBlock => "inline-block",

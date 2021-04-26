@@ -2949,6 +2949,7 @@ multi_type_parser!(parse_style_background_repeat, StyleBackgroundRepeat,
                     ["repeat-y", RepeatY]);
 
 multi_type_parser!(parse_layout_display, LayoutDisplay,
+                    ["none", None],
                     ["flex", Flex],
                     ["block", Block],
                     ["inline-block", InlineBlock]);

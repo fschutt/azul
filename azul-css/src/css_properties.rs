@@ -3373,6 +3373,7 @@ pub enum LayoutAxis {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutDisplay {
+    None,
     Flex,
     Block,
     InlineBlock,

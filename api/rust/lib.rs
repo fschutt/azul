@@ -1334,6 +1334,7 @@ mod dll {
     }
     /// Re-export of rust-allocated (stack based) `LayoutDisplay` struct
     #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutDisplay {
+        None,
         Flex,
         Block,
         InlineBlock,

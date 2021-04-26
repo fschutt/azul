@@ -1106,6 +1106,7 @@ enum AzLayoutFlexDirection {
 typedef enum AzLayoutFlexDirection AzLayoutFlexDirection;
 
 enum AzLayoutDisplay {
+   AzLayoutDisplay_None,
    AzLayoutDisplay_Flex,
    AzLayoutDisplay_Block,
    AzLayoutDisplay_InlineBlock,

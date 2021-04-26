@@ -4124,6 +4124,7 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `LayoutDisplay` struct
     #[repr(C)]     pub enum AzLayoutDisplay {
+        None,
         Flex,
         Block,
         InlineBlock,
