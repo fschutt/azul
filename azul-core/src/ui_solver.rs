@@ -284,21 +284,13 @@ impl WidthCalculatedRect {
     }
 
     pub fn get_padding_left(&self, percent_resolve: f32) -> f32 {
-        if self.box_sizing == LayoutBoxSizing::ContentBox {
-            self.get_raw_padding_left(percent_resolve) +
-            self.get_border_left(percent_resolve)
-        } else {
-            self.get_raw_padding_left(percent_resolve)
-        }
+        self.get_raw_padding_left(percent_resolve) +
+        self.get_border_left(percent_resolve)
     }
 
     pub fn get_padding_right(&self, percent_resolve: f32) -> f32 {
-        if self.box_sizing == LayoutBoxSizing::ContentBox {
-            self.get_raw_padding_right(percent_resolve) +
-            self.get_border_right(percent_resolve)
-        } else {
-            self.get_raw_padding_right(percent_resolve)
-        }
+        self.get_raw_padding_right(percent_resolve) +
+        self.get_border_right(percent_resolve)
     }
 
     pub fn get_margin_left(&self, percent_resolve: f32) -> f32 {
@@ -403,21 +395,13 @@ impl HeightCalculatedRect {
     }
 
     pub fn get_padding_bottom(&self, percent_resolve: f32) -> f32 {
-        if self.box_sizing == LayoutBoxSizing::ContentBox {
-            self.get_raw_padding_bottom(percent_resolve) +
-            self.get_border_bottom(percent_resolve)
-        } else {
-            self.get_raw_padding_bottom(percent_resolve)
-        }
+        self.get_raw_padding_bottom(percent_resolve) +
+        self.get_border_bottom(percent_resolve)
     }
 
     pub fn get_padding_top(&self, percent_resolve: f32) -> f32 {
-        if self.box_sizing == LayoutBoxSizing::ContentBox {
-            self.get_raw_padding_top(percent_resolve) +
-            self.get_border_top(percent_resolve)
-        } else {
-            self.get_raw_padding_top(percent_resolve)
-        }
+        self.get_raw_padding_top(percent_resolve) +
+        self.get_border_top(percent_resolve)
     }
 
     pub fn get_margin_top(&self, percent_resolve: f32) -> f32 {
@@ -434,7 +418,6 @@ impl HeightCalculatedRect {
 
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_vertical(&self, parent_height: f32) -> f32 {
-        let parent_height = parent_height as f32;
         self.min_inner_size_px +
         self.get_margin_top(parent_height) +
         self.get_margin_bottom(parent_height) +

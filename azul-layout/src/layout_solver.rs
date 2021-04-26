@@ -293,7 +293,7 @@ macro_rules! typed_arena {(
                 let width = match widths.get(child_id) { Some(s) => *s, None => continue, };
                 let parent_available_space = parent_width.max_available_space().unwrap_or(0.0);
                 let child_width = $determine_preferred_fn(&nd, width, parent_available_space);
-                new_nodes.as_ref_mut()[child_id] = $struct_name {
+                let mut child = $struct_name {
                     // TODO: get the initial width of the rect content
                     $preferred_field: child_width,
 
@@ -312,7 +312,10 @@ macro_rules! typed_arena {(
                     box_sizing: child_offsets.box_sizing,
                     flex_grow_px: 0.0,
                     min_inner_size_px: child_width.min_needed_space().unwrap_or(0.0),
-                }
+                };
+                let child_flex_basis = child.$get_flex_basis(parent_available_space).min(child_width.max_available_space().unwrap_or(core::f32::MAX));
+                child.min_inner_size_px = child.min_inner_size_px.max(child_flex_basis);
+                new_nodes.as_ref_mut()[child_id] = child;
             }
         }
 
@@ -356,7 +359,7 @@ macro_rules! typed_arena {(
             parent_id
             .az_children(node_hierarchy)
             .filter(|child_id| layout_positions[*child_id] != LayoutPosition::Absolute)
-            .map(|child_id| (child_id, node_data[child_id].$get_flex_basis(parent_width)))
+            .map(|child_id| (child_id, node_data[child_id].min_inner_size_px))
             .for_each(|(_, flex_basis)| {
                 if flex_axis == LayoutAxis::$main_axis {
                     children_flex_basis += flex_basis;
@@ -916,13 +919,11 @@ macro_rules! get_position {(
 
             // width: increase X according to the main axis, Y according to the cross_axis
             let child_node = &solved_widths[child_id];
-            let child_node_parent_width = node_hierarchy[child_id].parent_id()
-            .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
             let child_margin_left = child_node.$margin_left.and_then(|x| {
-                Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+                Some(x.get_property()?.inner.to_pixels(parent_inner_width))
             }).unwrap_or(0.0);
             let child_margin_right = child_node.$margin_right.and_then(|x| {
-                Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+                Some(x.get_property()?.inner.to_pixels(parent_inner_width))
             }).unwrap_or(0.0);
 
             if layout_positions[child_id] == LayoutPosition::Absolute {
@@ -968,15 +969,14 @@ macro_rules! get_position {(
             solved_widths: &NodeDataContainerRef<'a, $width_layout>,
             child_id: NodeId,
             parent_x_position: f32,
+            parent_inner_width: f32,
             node_hierarchy: &NodeDataContainerRef<'a, AzNode>
         ) -> f32 {
 
             let child_node = &solved_widths[child_id];
-            let child_node_parent_width = node_hierarchy[child_id].parent_id()
-            .map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
 
             let child_margin_left = child_node.$margin_left.and_then(|x| {
-                Some(x.get_property()?.inner.to_pixels(child_node_parent_width))
+                Some(x.get_property()?.inner.to_pixels(parent_inner_width))
             }).unwrap_or(0.0);
 
             if layout_positions[child_id] == LayoutPosition::Absolute {
@@ -1011,7 +1011,7 @@ macro_rules! get_position {(
             let parent_padding_left = parent_node.$get_padding_left(parent_parent_width);
             let parent_padding_right = parent_node.$get_padding_right(parent_parent_width);
 
-            let parent_x_position = arena.as_ref()[parent_id].0;
+            let parent_x_position = arena.as_ref()[parent_id].0 + parent_padding_left;
             let parent_direction = layout_directions[parent_id];
 
             let parent_inner_width = {
@@ -1020,13 +1020,9 @@ macro_rules! get_position {(
 
             if parent_direction.get_axis() == LayoutAxis::$axis {
 
-                // println!("{} / {:?}: laying out parent main axis: ({}px - {}px padding = {}px)",
-                //     parent_id, LayoutAxis::$axis, parent_node.total(),
-                //     (parent_padding_left + parent_padding_right), parent_inner_width
-                // );
                 // Along main axis: Increase X with width of current element
                 let main_axis_alignment = layout_justify_contents[parent_id];
-                let mut sum_x_of_children_so_far = parent_padding_left;
+                let mut sum_x_of_children_so_far = 0.0;
 
                 if parent_direction.is_reverse() {
                     for child_id in parent_id.az_reverse_children(node_hierarchy) {
@@ -1040,7 +1036,6 @@ macro_rules! get_position {(
                             &sum_x_of_children_so_far,
                             node_hierarchy,
                         );
-                        // println!("    child {} = {}", child_id, x);
                         arena.as_ref_mut()[child_id].0 = x;
                         sum_x_of_children_so_far += x_to_add;
                     }
@@ -1056,7 +1051,6 @@ macro_rules! get_position {(
                             &sum_x_of_children_so_far,
                             node_hierarchy,
                         );
-                        // println!("    child {} = {}", child_id, x);
                         arena.as_ref_mut()[child_id].0 = x;
                         sum_x_of_children_so_far += x_to_add;
                     }
@@ -1088,6 +1082,7 @@ macro_rules! get_position {(
                             solved_widths,
                             child_id,
                             parent_x_position,
+                            parent_inner_width,
                             node_hierarchy,
                         );
                     }
@@ -1098,14 +1093,13 @@ macro_rules! get_position {(
                             solved_widths,
                             child_id,
                             parent_x_position,
+                            parent_inner_width,
                             node_hierarchy,
                         );
                     }
                 }
             }
         }
-
-        // println!("------");
     }
 )}
 
