@@ -774,7 +774,6 @@ fn run_inner(app: App) -> ! {
                                 }
 
                                 if let Some(focus_change) = changes.focus_change {
-                                    println!("focus changed: {:?}", focus_change);
                                     window.internal.current_window_state.focused_node = focus_change.new;
                                 }
                             }
