@@ -213,7 +213,7 @@ impl NodesToCheck {
         };
 
         // Figure out what the current focused NodeId is
-        let new_focus_node = if events.event_was_mouse_down || events.event_was_mouse_release {
+        let new_focus_node = events.event_was_mouse_release {
             hit_test.focused_node.clone().map(|o| DomNodeId { dom: o.0, node: AzNodeId::from_crate_internal(Some(o.1)) })
         } else {
             events.old_focus_node.clone()
@@ -282,10 +282,18 @@ pub struct StyleAndLayoutChanges {
     pub style_changes: BTreeMap<DomId, RestyleNodes>,
     /// Changes that were made to layout properties of nodes
     pub layout_changes: BTreeMap<DomId, RelayoutNodes>,
+    /// Whether the focus has actually changed
+    pub focus_change: Option<FocusChange>,
     /// Used to call `On::Resize` handlers
     pub nodes_that_changed_size: BTreeMap<DomId, Vec<NodeId>>,
     /// Changes to the text content
     pub nodes_that_changed_text_content: BTreeMap<DomId, Vec<NodeId>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FocusChange {
+    pub old: Option<DomNodeId>,
+    pub new: Option<DomNodeId>,
 }
 
 // azul_layout::do_the_relayout satifies this
@@ -370,7 +378,7 @@ impl StyleAndLayoutChanges {
 
         let new_focus_node = if let Some(new) = callbacks_new_focus.as_ref() { new } else { &nodes.new_focus_node };
 
-        if nodes.old_focus_node != *new_focus_node {
+        let focus_change = if nodes.old_focus_node != *new_focus_node {
             if let Some(DomNodeId { dom, node }) = nodes.old_focus_node.as_ref() {
                 if let Some(node_id) = node.into_crate_internal() {
                     let layout_result = &mut layout_results[dom.inner];
@@ -388,7 +396,11 @@ impl StyleAndLayoutChanges {
                     insert_props!(dom_id, onfocus_enter_restyle_props);
                 }
             }
-        }
+
+            Some(FocusChange { old: nodes.old_focus_node, new: *new_focus_node })
+        } else {
+            None
+        };
 
         // restyle all the nodes according to the existing_changed_styles
         for (dom_id, existing_changes_map) in css_changes.iter() {
@@ -464,6 +476,7 @@ impl StyleAndLayoutChanges {
             layout_changes,
             nodes_that_changed_size,
             nodes_that_changed_text_content,
+            focus_change,
         }
     }
 

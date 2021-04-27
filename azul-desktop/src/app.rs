@@ -438,6 +438,10 @@ fn run_inner(app: App) -> ! {
                             if changes_need_regenerate_dl || changes.need_redraw() {
                                 window.render_async(transaction, changes_need_regenerate_dl);
                             }
+
+                            if let Some(focus_change) = changes.focus_change {
+                                window.internal.current_window_state.focused_node = focus_change.new;
+                            }
                         },
                         UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                             let mut resource_updates = Vec::new();
@@ -566,6 +570,10 @@ fn run_inner(app: App) -> ! {
 
                             if changes_need_regenerate_dl || changes.need_redraw() {
                                 window.render_async(transaction, changes_need_regenerate_dl);
+                            }
+
+                            if let Some(focus_change) = changes.focus_change {
+                                window.internal.current_window_state.focused_node = focus_change.new;
                             }
                         },
                         UpdateScreen::RegenerateStyledDomForCurrentWindow => {
@@ -763,6 +771,11 @@ fn run_inner(app: App) -> ! {
 
                                 if changes.need_redraw() {
                                     should_callback_render = true;
+                                }
+
+                                if let Some(focus_change) = changes.focus_change {
+                                    println!("focus changed: {:?}", focus_change);
+                                    window.internal.current_window_state.focused_node = focus_change.new;
                                 }
                             }
                         }

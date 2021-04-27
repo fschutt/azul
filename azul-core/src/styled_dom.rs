@@ -702,105 +702,103 @@ impl CssPropertyCache {
             return Some(p);
         }
 
-        if node_state.normal || node_state.active ||
-           node_state.hover || node_state.focused
+        if !(node_state.normal || node_state.active ||
+           node_state.hover || node_state.focused)
         {
-            // If that fails, see if there is an inline CSS property that matches
-            // :focus > :active > :hover > :normal
+            return None;
+        }
+
+        // If that fails, see if there is an inline CSS property that matches
+        // :focus > :active > :hover > :normal
+        if node_state.focused {
             if let Some(p) = node_data.inline_css_props.as_ref().iter().find_map(|css_prop| {
-
-                if node_state.focused {
-                    if let NodeDataInlineCssProperty::Focus(p) = css_prop {
-                        if p.get_type() == *css_property_type {
-                            return Some(p);
-                        }
+                if let NodeDataInlineCssProperty::Focus(p) = css_prop {
+                    if p.get_type() == *css_property_type {
+                        return Some(p);
                     }
                 }
-
-                if node_state.active {
-                    if let NodeDataInlineCssProperty::Active(p) = css_prop {
-                        if p.get_type() == *css_property_type {
-                            return Some(p);
-                        }
-                    }
-                }
-
-                if node_state.hover {
-                    if let NodeDataInlineCssProperty::Hover(p) = css_prop {
-                        if p.get_type() == *css_property_type {
-                            return Some(p);
-                        }
-                    }
-                }
-
-                if node_state.normal {
-                    if let NodeDataInlineCssProperty::Normal(p) = css_prop {
-                        if p.get_type() == *css_property_type {
-                            return Some(p);
-                        }
-                    }
-                }
-
                 None
             }) {
                 return Some(p);
             }
 
-            // If that fails, see if there is a CSS property that matches
-            // :focus > :active > :hover > :normal
-            if node_state.focused {
-                if let Some(p) = self.css_focus_props.get(node_id)
-                .and_then(|map| map.get(css_property_type)) {
-                    return Some(p);
-                }
-            }
-            if node_state.active {
-                if let Some(p) = self.css_active_props.get(node_id)
-                .and_then(|map| map.get(css_property_type)) {
-                    return Some(p);
-                }
-            }
-            if node_state.hover {
-                if let Some(p) = self.css_hover_props.get(node_id)
-                .and_then(|map| map.get(css_property_type)) {
-                    return Some(p);
-                }
-            }
-            if node_state.normal {
-                if let Some(p) = self.css_normal_props.get(node_id)
-                .and_then(|map| map.get(css_property_type)) {
-                    return Some(p);
-                }
+            if let Some(p) = self.css_focus_props.get(node_id)
+            .and_then(|map| map.get(css_property_type)) {
+                return Some(p);
             }
 
-            // If that fails, see if there is a cascaded property matches
-            // :focus > :active > :hover > :normal
-            if node_state.focused {
-                if let Some(p) = self.cascaded_focus_props.get(node_id)
-                .and_then(|map| map.get(css_property_type)) {
-                    return Some(p);
+            if let Some(p) = self.cascaded_focus_props.get(node_id)
+            .and_then(|map| map.get(css_property_type)) {
+                return Some(p);
+            }
+        }
+
+        if node_state.active {
+            if let Some(p) = node_data.inline_css_props.as_ref().iter().find_map(|css_prop| {
+                if let NodeDataInlineCssProperty::Active(p) = css_prop {
+                    if p.get_type() == *css_property_type {
+                        return Some(p);
+                    }
                 }
+                None
+            }) {
+                return Some(p);
             }
 
-            if node_state.active {
-                if let Some(p) = self.cascaded_active_props.get(node_id)
-                .and_then(|map| map.get(css_property_type)) {
-                    return Some(p);
-                }
+            if let Some(p) = self.css_active_props.get(node_id)
+            .and_then(|map| map.get(css_property_type)) {
+                return Some(p);
             }
 
-            if node_state.hover {
-                if let Some(p) = self.cascaded_hover_props.get(node_id)
-                .and_then(|map| map.get(css_property_type)) {
-                    return Some(p);
+            if let Some(p) = self.cascaded_active_props.get(node_id)
+            .and_then(|map| map.get(css_property_type)) {
+                return Some(p);
+            }
+        }
+
+        if node_state.hover {
+            if let Some(p) = node_data.inline_css_props.as_ref().iter().find_map(|css_prop| {
+                if let NodeDataInlineCssProperty::Hover(p) = css_prop {
+                    if p.get_type() == *css_property_type {
+                        return Some(p);
+                    }
                 }
+                None
+            }) {
+                return Some(p);
             }
 
-            if node_state.normal {
-                if let Some(p) = self.cascaded_normal_props.get(node_id)
-                .and_then(|map| map.get(css_property_type)) {
-                    return Some(p);
+            if let Some(p) = self.css_hover_props.get(node_id)
+            .and_then(|map| map.get(css_property_type)) {
+                return Some(p);
+            }
+
+            if let Some(p) = self.cascaded_hover_props.get(node_id)
+            .and_then(|map| map.get(css_property_type)) {
+                return Some(p);
+            }
+        }
+
+        if node_state.normal {
+            if let Some(p) = node_data.inline_css_props.as_ref().iter().find_map(|css_prop| {
+                if let NodeDataInlineCssProperty::Normal(p) = css_prop {
+                    if p.get_type() == *css_property_type {
+                        return Some(p);
+                    }
                 }
+                None
+            }) {
+                return Some(p);
+            }
+
+            if let Some(p) = self.css_normal_props.get(node_id)
+            .and_then(|map| map.get(css_property_type)) {
+                return Some(p);
+            }
+
+            if let Some(p) = self.cascaded_normal_props.get(node_id)
+            .and_then(|map| map.get(css_property_type)) {
+                return Some(p);
             }
         }
 
@@ -1579,7 +1577,15 @@ impl StyledDom {
 
             let mut keys_normal: Vec<_> = css_property_cache.css_hover_props.get(node_id).unwrap_or(&default_map).keys().collect();
             let mut keys_inherited: Vec<_> = css_property_cache.cascaded_hover_props.get(node_id).unwrap_or(&default_map).keys().collect();
+            let keys_inline: Vec<CssPropertyType> = node_data[*node_id].inline_css_props.iter()
+            .filter_map(|prop| match prop {
+                NodeDataInlineCssProperty::Hover(h) => Some(h.get_type()),
+                _ => None,
+            }).collect();
+            let mut keys_inline_ref = keys_inline.iter().map(|r| r).collect();
+
             keys_normal.append(&mut keys_inherited);
+            keys_normal.append(&mut keys_inline_ref);
 
             let node_properties_that_could_have_changed = keys_normal;
 
@@ -1649,7 +1655,15 @@ impl StyledDom {
 
             let mut keys_normal: Vec<_> = css_property_cache.css_active_props.get(node_id).unwrap_or(&default_map).keys().collect();
             let mut keys_inherited: Vec<_> = css_property_cache.cascaded_active_props.get(node_id).unwrap_or(&default_map).keys().collect();
+            let keys_inline: Vec<CssPropertyType> = node_data[*node_id].inline_css_props.iter()
+            .filter_map(|prop| match prop {
+                NodeDataInlineCssProperty::Active(h) => Some(h.get_type()),
+                _ => None,
+            }).collect();
+            let mut keys_inline_ref = keys_inline.iter().map(|r| r).collect();
+
             keys_normal.append(&mut keys_inherited);
+            keys_normal.append(&mut keys_inline_ref);
 
             let node_properties_that_could_have_changed = keys_normal;
 
@@ -1719,7 +1733,15 @@ impl StyledDom {
 
             let mut keys_normal: Vec<_> = css_property_cache.css_focus_props.get(node_id).unwrap_or(&default_map).keys().collect();
             let mut keys_inherited: Vec<_> = css_property_cache.cascaded_focus_props.get(node_id).unwrap_or(&default_map).keys().collect();
+            let keys_inline: Vec<CssPropertyType> = node_data[*node_id].inline_css_props.iter()
+            .filter_map(|prop| match prop {
+                NodeDataInlineCssProperty::Focus(h) => Some(h.get_type()),
+                _ => None,
+            }).collect();
+            let mut keys_inline_ref = keys_inline.iter().map(|r| r).collect();
+
             keys_normal.append(&mut keys_inherited);
+            keys_normal.append(&mut keys_inline_ref);
 
             let node_properties_that_could_have_changed = keys_normal;
 
