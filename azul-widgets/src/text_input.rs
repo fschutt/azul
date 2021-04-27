@@ -333,6 +333,22 @@ impl TextInput {
         self
     }
 
+    pub fn placeholder_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+        self.placeholder_style = style;
+        self
+    }
+
+    pub fn container_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+        self.container_style = style;
+        self
+    }
+
+    pub fn label_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+        self.label_style = style;
+        self
+    }
+
+
     pub fn dom(self) -> Dom {
 
         use azul::dom::{
