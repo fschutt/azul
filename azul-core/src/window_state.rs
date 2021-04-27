@@ -213,7 +213,7 @@ impl NodesToCheck {
         };
 
         // Figure out what the current focused NodeId is
-        let new_focus_node = events.event_was_mouse_release {
+        let new_focus_node = if events.event_was_mouse_release {
             hit_test.focused_node.clone().map(|o| DomNodeId { dom: o.0, node: AzNodeId::from_crate_internal(Some(o.1)) })
         } else {
             events.old_focus_node.clone()
