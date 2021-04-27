@@ -172,6 +172,8 @@ mod input {
             None => return UpdateScreen::DoNothing,
         };
 
+        check_box.inner.checked = !check_box.inner.checked;
+
         let result = {
             // rustc doesn't understand the borrowing lifetime here
             let check_box = &mut *check_box;
@@ -183,8 +185,6 @@ mod input {
                 None => UpdateScreen::DoNothing,
             }
         };
-
-        check_box.inner.checked = !check_box.inner.checked;
 
         if check_box.inner.checked {
             info.set_css_property(checkbox_content_id, CssProperty::opacity(StyleOpacity::const_new(100)));
