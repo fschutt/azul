@@ -122,12 +122,12 @@ static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::overflow_y(LayoutOverflow::Hidden)),
     Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
 
-    // Hover(border-color: #4286f4;)
+    // Hover(border-color: #4c4c4c;)
 
-    Hover(CssProperty::border_top_color(StyleBorderTopColor { inner: COLOR_4286F4 })),
-    Hover(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_4286F4 })),
-    Hover(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_4286F4 })),
-    Hover(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_4286F4 })),
+    Hover(CssProperty::border_top_color(StyleBorderTopColor { inner: COLOR_4C4C4C })),
+    Hover(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_4C4C4C })),
+    Hover(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_4C4C4C })),
+    Hover(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_4C4C4C })),
 
     // Focus(border-color: #4286f4;)
 
