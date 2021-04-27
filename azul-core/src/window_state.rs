@@ -284,6 +284,8 @@ pub struct StyleAndLayoutChanges {
     pub layout_changes: BTreeMap<DomId, RelayoutNodes>,
     /// Used to call `On::Resize` handlers
     pub nodes_that_changed_size: BTreeMap<DomId, Vec<NodeId>>,
+    /// Changes to the text content
+    pub nodes_that_changed_text_content: BTreeMap<DomId, Vec<NodeId>>,
 }
 
 // azul_layout::do_the_relayout satifies this
@@ -320,6 +322,9 @@ impl StyleAndLayoutChanges {
         let mut layout_changes = BTreeMap::new();
 
         let is_mouse_down = nodes.current_window_state_mouse_is_down;
+        let nodes_that_changed_text_content = word_changes.iter()
+        .map(|(dom_id, m)| (*dom_id, m.keys().cloned().collect()))
+        .collect();
 
         macro_rules! insert_props {($dom_id:expr, $prop_map:expr) => {{
             let dom_id: DomId = $dom_id;
@@ -458,25 +463,32 @@ impl StyleAndLayoutChanges {
             style_changes,
             layout_changes,
             nodes_that_changed_size,
+            nodes_that_changed_text_content,
         }
     }
 
     // Note: this can be false in case that only opacity: / transform: properties changed!
     pub fn need_regenerate_display_list(&self) -> bool {
         if !self.nodes_that_changed_size.is_empty() { return true; }
+        if !self.nodes_that_changed_text_content.is_empty() { return true; }
         if !self.need_redraw() { return false; }
-        // is_gpu_only_property = is the changed CSS property an opacity / transform / rotate property (which doesn't require to regenerate the display list)
-        self.style_changes.iter().all(|(_, restyle_nodes)| {
+
+        // is_gpu_only_property = is the changed CSS property an opacity /
+        // transform / rotate property (which doesn't require to regenerate the display list)
+        !(self.style_changes.iter().all(|(_, restyle_nodes)| {
             restyle_nodes.iter().all(|(_, changed_css_properties)| {
                 changed_css_properties.iter().all(|changed_prop| changed_prop.current_prop.get_type().is_gpu_only_property())
             })
-        })
+        }))
     }
 
     pub fn need_redraw(&self) -> bool {
-        !self.style_changes.is_empty() &&
-        !self.layout_changes.is_empty() &&
-        !self.nodes_that_changed_size.is_empty()
+        !(
+          self.style_changes.is_empty() &&
+          self.layout_changes.is_empty() &&
+          self.nodes_that_changed_text_content.is_empty() &&
+          self.nodes_that_changed_size.is_empty()
+        )
     }
 }
 
