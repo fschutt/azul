@@ -868,10 +868,12 @@ impl Window {
         }
 
         if self.internal.current_window_state.layout_callback != new_state.layout_callback {
+            self.internal.current_window_state.layout_callback = new_state.layout_callback;
             window_was_updated = true;
         }
 
         if self.internal.current_window_state.close_callback != new_state.close_callback {
+            self.internal.current_window_state.close_callback = new_state.close_callback;
             window_was_updated = true;
         }
 

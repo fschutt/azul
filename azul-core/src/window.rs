@@ -1310,7 +1310,12 @@ impl From<WindowState> for FullWindowState {
             platform_specific_options: window_state.platform_specific_options,
             background_color: window_state.background_color,
             layout_callback: window_state.layout_callback,
-            .. Default::default()
+            close_callback: window_state.close_callback,
+            renderer_options: window_state.renderer_options,
+            dropped_file: None,
+            focused_node: None,
+            hovered_file: None,
+            hovered_nodes: BTreeMap::new(),
         }
     }
 }

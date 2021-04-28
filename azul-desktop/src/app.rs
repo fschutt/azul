@@ -865,6 +865,7 @@ fn run_inner(app: App) -> ! {
                     None => continue,
                 };
                 let close_callback = window.internal.current_window_state.close_callback.clone();
+
                 if let Some(close_callback) = close_callback.as_ref() {
 
                     use azul_core::callbacks::DomNodeId;
@@ -939,8 +940,9 @@ fn run_inner(app: App) -> ! {
                     for (thread_id, thread) in new_threads {
                         threads.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
                     }
-                    if result == UpdateScreen::DoNothing {
+                    if !window_state.flags.is_about_to_close {
                         window_should_close = false;
+                        window.internal.current_window_state.flags.is_about_to_close = false;
                     }
                 }
             }
