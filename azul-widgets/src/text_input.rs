@@ -415,7 +415,7 @@ mod input {
             None => return UpdateScreen::DoNothing,
         };
 
-        let keyboard_state = info.get_keyboard_state();
+        let keyboard_state = info.get_current_keyboard_state();
 
         let c = match keyboard_state.current_char.into_option() {
             Some(s) => s,
@@ -469,13 +469,13 @@ mod input {
             Some(s) => s,
             None => return UpdateScreen::DoNothing,
         };
-        let keyboard_state = info.get_keyboard_state();
+        let keyboard_state = info.get_current_keyboard_state();
         let last_keycode = match keyboard_state.current_virtual_keycode.into_option() {
             Some(s) => s,
             None => return UpdateScreen::DoNothing,
         };
 
-        let kb_state = info.get_keyboard_state();
+        let kb_state = info.get_current_keyboard_state();
 
         let result = {
             // rustc doesn't understand the borrowing lifetime here
