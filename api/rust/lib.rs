@@ -4069,6 +4069,16 @@ mod dll {
         pub cap: usize,
         pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `OptionMouseState` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionMouseState {
+        None,
+        Some(AzMouseState),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionKeyboardState` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionKeyboardState {
+        None,
+        Some(AzKeyboardState),
+    }
     /// Re-export of rust-allocated (stack based) `OptionStringVec` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionStringVec {
         None,
@@ -4716,6 +4726,7 @@ mod dll {
     }
     /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzCallbackInfo {
+        pub previous_window_state: *const c_void,
         pub current_window_state: *const c_void,
         pub modifiable_window_state: *mut AzWindowState,
         pub gl_context: *const AzOptionGl,
@@ -4799,6 +4810,11 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNodeDataInlineCssPropertyVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionWindowState` struct
+    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionWindowState {
+        None,
+        Some(AzWindowState),
     }
     /// Re-export of rust-allocated (stack based) `OptionInlineText` struct
     #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionInlineText {
@@ -4981,9 +4997,12 @@ mod dll {
         pub(crate) fn AzCallbackInfo_getHitNode(_:  &AzCallbackInfo) -> AzDomNodeId;
         pub(crate) fn AzCallbackInfo_getCursorRelativeToViewport(_:  &AzCallbackInfo) -> AzOptionLogicalPosition;
         pub(crate) fn AzCallbackInfo_getCursorRelativeToNode(_:  &AzCallbackInfo) -> AzOptionLogicalPosition;
-        pub(crate) fn AzCallbackInfo_getWindowState(_:  &AzCallbackInfo) -> AzWindowState;
-        pub(crate) fn AzCallbackInfo_getKeyboardState(_:  &AzCallbackInfo) -> AzKeyboardState;
-        pub(crate) fn AzCallbackInfo_getMouseState(_:  &AzCallbackInfo) -> AzMouseState;
+        pub(crate) fn AzCallbackInfo_getCurrentWindowState(_:  &AzCallbackInfo) -> AzWindowState;
+        pub(crate) fn AzCallbackInfo_getCurrentKeyboardState(_:  &AzCallbackInfo) -> AzKeyboardState;
+        pub(crate) fn AzCallbackInfo_getCurrentMouseState(_:  &AzCallbackInfo) -> AzMouseState;
+        pub(crate) fn AzCallbackInfo_getPreviousWindowState(_:  &AzCallbackInfo) -> AzOptionWindowState;
+        pub(crate) fn AzCallbackInfo_getPreviousKeyboardState(_:  &AzCallbackInfo) -> AzOptionKeyboardState;
+        pub(crate) fn AzCallbackInfo_getPreviousMouseState(_:  &AzCallbackInfo) -> AzOptionMouseState;
         pub(crate) fn AzCallbackInfo_getCurrentWindowHandle(_:  &AzCallbackInfo) -> AzRawWindowHandle;
         pub(crate) fn AzCallbackInfo_getGlContext(_:  &AzCallbackInfo) -> AzOptionGl;
         pub(crate) fn AzCallbackInfo_getScrollPosition(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionLogicalPosition;
@@ -5928,11 +5947,17 @@ pub mod callbacks {
         /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.
         pub fn get_cursor_relative_to_node(&self)  -> crate::option::OptionLogicalPosition { unsafe { crate::dll::AzCallbackInfo_getCursorRelativeToNode(self) } }
         /// Returns a copy of the current windows `WindowState`.
-        pub fn get_window_state(&self)  -> crate::window::WindowState { unsafe { crate::dll::AzCallbackInfo_getWindowState(self) } }
+        pub fn get_current_window_state(&self)  -> crate::window::WindowState { unsafe { crate::dll::AzCallbackInfo_getCurrentWindowState(self) } }
         /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
-        pub fn get_keyboard_state(&self)  -> crate::window::KeyboardState { unsafe { crate::dll::AzCallbackInfo_getKeyboardState(self) } }
+        pub fn get_current_keyboard_state(&self)  -> crate::window::KeyboardState { unsafe { crate::dll::AzCallbackInfo_getCurrentKeyboardState(self) } }
         /// Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`
-        pub fn get_mouse_state(&self)  -> crate::window::MouseState { unsafe { crate::dll::AzCallbackInfo_getMouseState(self) } }
+        pub fn get_current_mouse_state(&self)  -> crate::window::MouseState { unsafe { crate::dll::AzCallbackInfo_getCurrentMouseState(self) } }
+        /// Returns a copy of the current windows `WindowState`.
+        pub fn get_previous_window_state(&self)  -> crate::option::OptionWindowState { unsafe { crate::dll::AzCallbackInfo_getPreviousWindowState(self) } }
+        /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
+        pub fn get_previous_keyboard_state(&self)  -> crate::option::OptionKeyboardState { unsafe { crate::dll::AzCallbackInfo_getPreviousKeyboardState(self) } }
+        /// Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`
+        pub fn get_previous_mouse_state(&self)  -> crate::option::OptionMouseState { unsafe { crate::dll::AzCallbackInfo_getPreviousMouseState(self) } }
         /// Returns a copy of the current windows `RawWindowHandle`.
         pub fn get_current_window_handle(&self)  -> crate::window::RawWindowHandle { unsafe { crate::dll::AzCallbackInfo_getCurrentWindowHandle(self) } }
         /// Returns a **reference-counted copy** of the current windows' `Gl` (context). You can use this to render OpenGL textures.
@@ -11618,6 +11643,9 @@ pub mod option {
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
     impl_option!(AzSystemClipboard, AzOptionSystemClipboard, copy = false,  clone = false, [Debug]);
     impl_option!(AzFileTypeList, AzOptionFileTypeList, copy = false, [Debug, Clone]);
+    impl_option!(AzWindowState, AzOptionWindowState, copy = false, [Debug, Clone]);
+    impl_option!(AzKeyboardState, AzOptionKeyboardState, copy = false, [Debug, Clone]);
+    impl_option!(AzMouseState, AzOptionMouseState, [Debug, Clone]);
     /// `OptionI16` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionI16 as OptionI16;
@@ -11639,6 +11667,15 @@ pub mod option {
     /// `OptionFileTypeList` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionFileTypeList as OptionFileTypeList;
+    /// `OptionWindowState` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionWindowState as OptionWindowState;
+    /// `OptionMouseState` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionMouseState as OptionMouseState;
+    /// `OptionKeyboardState` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionKeyboardState as OptionKeyboardState;
     /// `OptionStringVec` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionStringVec as OptionStringVec;

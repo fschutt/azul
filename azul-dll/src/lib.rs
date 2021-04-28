@@ -283,11 +283,17 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getCursorRelativeToNode(callbackinfo: &AzCallbackInfo) -> AzOptionLogicalPosition { callbackinfo.get_cursor_relative_to_node() }
 /// Returns a copy of the current windows `WindowState`.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_getWindowState(callbackinfo: &AzCallbackInfo) -> AzWindowState { callbackinfo.get_window_state() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getCurrentWindowState(callbackinfo: &AzCallbackInfo) -> AzWindowState { callbackinfo.get_current_window_state() }
 /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
-#[no_mangle] pub extern "C" fn AzCallbackInfo_getKeyboardState(callbackinfo: &AzCallbackInfo) -> AzKeyboardState { callbackinfo.get_keyboard_state() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getCurrentKeyboardState(callbackinfo: &AzCallbackInfo) -> AzKeyboardState { callbackinfo.get_current_keyboard_state() }
 /// Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`
-#[no_mangle] pub extern "C" fn AzCallbackInfo_getMouseState(callbackinfo: &AzCallbackInfo) -> AzMouseState { callbackinfo.get_mouse_state() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getCurrentMouseState(callbackinfo: &AzCallbackInfo) -> AzMouseState { callbackinfo.get_current_mouse_state() }
+/// Returns a copy of the current windows `WindowState`.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getPreviousWindowState(callbackinfo: &AzCallbackInfo) -> AzOptionWindowState { callbackinfo.get_previous_window_state().into() }
+/// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getPreviousKeyboardState(callbackinfo: &AzCallbackInfo) -> AzOptionKeyboardState { callbackinfo.get_previous_keyboard_state().into() }
+/// Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getPreviousMouseState(callbackinfo: &AzCallbackInfo) -> AzOptionMouseState { callbackinfo.get_previous_mouse_state().into() }
 /// Returns a copy of the current windows `RawWindowHandle`.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getCurrentWindowHandle(callbackinfo: &AzCallbackInfo) -> AzRawWindowHandle { callbackinfo.get_current_window_handle() }
 /// Returns a **reference-counted copy** of the current windows' `Gl` (context). You can use this to render OpenGL textures.
@@ -3024,6 +3030,18 @@ pub use AzOptionSystemClipboardTT as AzOptionSystemClipboard;
 /// Re-export of rust-allocated (stack based) `OptionFileTypeList` struct
 pub type AzOptionFileTypeListTT = azul_impl::dialogs::OptionFileTypeList;
 pub use AzOptionFileTypeListTT as AzOptionFileTypeList;
+
+/// Re-export of rust-allocated (stack based) `OptionWindowState` struct
+pub type AzOptionWindowStateTT = azul_impl::window::OptionWindowState;
+pub use AzOptionWindowStateTT as AzOptionWindowState;
+
+/// Re-export of rust-allocated (stack based) `OptionMouseState` struct
+pub type AzOptionMouseStateTT = azul_impl::window::OptionMouseState;
+pub use AzOptionMouseStateTT as AzOptionMouseState;
+
+/// Re-export of rust-allocated (stack based) `OptionKeyboardState` struct
+pub type AzOptionKeyboardStateTT = azul_impl::window::OptionKeyboardState;
+pub use AzOptionKeyboardStateTT as AzOptionKeyboardState;
 
 /// Re-export of rust-allocated (stack based) `OptionStringVec` struct
 pub type AzOptionStringVecTT = azul_impl::css::OptionStringVec;
@@ -6859,6 +6877,16 @@ mod test_sizes {
         pub cap: usize,
         pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
     }
+    /// Re-export of rust-allocated (stack based) `OptionMouseState` struct
+    #[repr(C, u8)]     pub enum AzOptionMouseState {
+        None,
+        Some(AzMouseState),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionKeyboardState` struct
+    #[repr(C, u8)]     pub enum AzOptionKeyboardState {
+        None,
+        Some(AzKeyboardState),
+    }
     /// Re-export of rust-allocated (stack based) `OptionStringVec` struct
     #[repr(C, u8)]     pub enum AzOptionStringVec {
         None,
@@ -7506,6 +7534,7 @@ mod test_sizes {
     }
     /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
     #[repr(C)]     pub struct AzCallbackInfo {
+        pub previous_window_state: *const c_void,
         pub current_window_state: *const c_void,
         pub modifiable_window_state: *mut AzWindowState,
         pub gl_context: *const AzOptionGl,
@@ -7589,6 +7618,11 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNodeDataInlineCssPropertyVecDestructor,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionWindowState` struct
+    #[repr(C, u8)]     pub enum AzOptionWindowState {
+        None,
+        Some(AzWindowState),
     }
     /// Re-export of rust-allocated (stack based) `OptionInlineText` struct
     #[repr(C, u8)]     pub enum AzOptionInlineText {
@@ -8231,6 +8265,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StringVec>(), "AzStringVec"), (Layout::new::<AzStringVec>(), "AzStringVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVec>(), "AzStyledNodeVec"), (Layout::new::<AzStyledNodeVec>(), "AzStyledNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"), (Layout::new::<AzTagIdsToNodeIdsMappingVec>(), "AzTagIdsToNodeIdsMappingVec"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionMouseState>(), "AzOptionMouseState"), (Layout::new::<AzOptionMouseState>(), "AzOptionMouseState"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionKeyboardState>(), "AzOptionKeyboardState"), (Layout::new::<AzOptionKeyboardState>(), "AzOptionKeyboardState"));
         assert_eq!((Layout::new::<azul_impl::css::OptionStringVec>(), "AzOptionStringVec"), (Layout::new::<AzOptionStringVec>(), "AzOptionStringVec"));
         assert_eq!((Layout::new::<azul_impl::task::OptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"), (Layout::new::<AzOptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"));
         assert_eq!((Layout::new::<azul_impl::window::OptionTaskBarIcon>(), "AzOptionTaskBarIcon"), (Layout::new::<AzOptionTaskBarIcon>(), "AzOptionTaskBarIcon"));
@@ -8317,6 +8353,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgNode>(), "AzSvgNode"), (Layout::new::<AzSvgNode>(), "AzSvgNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStyledNode>(), "AzSvgStyledNode"), (Layout::new::<AzSvgStyledNode>(), "AzSvgStyledNode"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"), (Layout::new::<AzNodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionWindowState>(), "AzOptionWindowState"), (Layout::new::<AzOptionWindowState>(), "AzOptionWindowState"));
         assert_eq!((Layout::new::<azul_impl::callbacks::OptionInlineText>(), "AzOptionInlineText"), (Layout::new::<AzOptionInlineText>(), "AzOptionInlineText"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlParseError>(), "AzXmlParseError"), (Layout::new::<AzXmlParseError>(), "AzXmlParseError"));
         assert_eq!((Layout::new::<azul_impl::window::WindowCreateOptions>(), "AzWindowCreateOptions"), (Layout::new::<AzWindowCreateOptions>(), "AzWindowCreateOptions"));

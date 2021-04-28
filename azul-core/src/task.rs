@@ -995,6 +995,7 @@ pub fn run_all_timers<'a, 'b>(
     current_timers: &mut FastHashMap<TimerId, Timer>,
     frame_start: Instant,
 
+    previous_window_state: &Option<FullWindowState>,
     current_window_state: &FullWindowState,
     modifiable_window_state: &mut WindowState,
     gl_context: &OptionGlContextPtr,
@@ -1029,6 +1030,7 @@ pub fn run_all_timers<'a, 'b>(
         let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
 
         let callback_info = CallbackInfo::new(
+            previous_window_state,
             current_window_state,
             modifiable_window_state,
             gl_context,
@@ -1092,6 +1094,7 @@ pub fn run_all_timers<'a, 'b>(
 pub fn clean_up_finished_threads<'a, 'b>(
     cleanup_threads: &mut FastHashMap<ThreadId, Thread>,
 
+    previous_window_state: &Option<FullWindowState>,
     current_window_state: &FullWindowState,
     modifiable_window_state: &mut WindowState,
     gl_context: &OptionGlContextPtr,
@@ -1134,6 +1137,7 @@ pub fn clean_up_finished_threads<'a, 'b>(
             OptionThreadReceiveMsg::None => UpdateScreen::DoNothing,
             OptionThreadReceiveMsg::Some(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg { data, callback })) => {
                 let callback_info = CallbackInfo::new(
+                    previous_window_state,
                     current_window_state,
                     modifiable_window_state,
                     gl_context,

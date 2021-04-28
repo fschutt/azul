@@ -981,6 +981,7 @@ impl Window {
         let current_scroll_states = self.internal.get_current_scroll_states();
 
         callbacks.call(
+            &self.internal.previous_window_state,
             &self.internal.current_window_state,
             &raw_window_handle,
             &current_scroll_states,

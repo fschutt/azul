@@ -967,6 +967,7 @@
                     "external": "azul_impl::callbacks::CallbackInfo",
                     "clone": false,
                     "struct_fields": [
+                        {"previous_window_state": {"type": "*const c_void"}},
                         {"current_window_state": {"type": "*const c_void"}},
                         {"modifiable_window_state": {"type": "*mut WindowState"}},
                         {"gl_context": {"type": "*const OptionGl"}},
@@ -1022,29 +1023,53 @@
                             "returns": {"type": "OptionLogicalPosition"},
                             "fn_body": "callbackinfo.get_cursor_relative_to_node()"
                         },
-                        "get_window_state": {
+                        "get_current_window_state": {
                             "doc": "Returns a copy of the current windows `WindowState`.",
                             "fn_args": [
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "WindowState"},
-                            "fn_body": "callbackinfo.get_window_state()"
+                            "fn_body": "callbackinfo.get_current_window_state()"
                         },
-                        "get_keyboard_state": {
+                        "get_current_keyboard_state": {
                             "doc": "Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`",
                             "fn_args": [
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "KeyboardState"},
-                            "fn_body": "callbackinfo.get_keyboard_state()"
+                            "fn_body": "callbackinfo.get_current_keyboard_state()"
                         },
-                        "get_mouse_state": {
+                        "get_current_mouse_state": {
                             "doc": "Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`",
                             "fn_args": [
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "MouseState"},
-                            "fn_body": "callbackinfo.get_mouse_state()"
+                            "fn_body": "callbackinfo.get_current_mouse_state()"
+                        },
+                        "get_previous_window_state": {
+                            "doc": "Returns a copy of the current windows `WindowState`.",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "OptionWindowState"},
+                            "fn_body": "callbackinfo.get_previous_window_state().into()"
+                        },
+                        "get_previous_keyboard_state": {
+                            "doc": "Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "OptionKeyboardState"},
+                            "fn_body": "callbackinfo.get_previous_keyboard_state().into()"
+                        },
+                        "get_previous_mouse_state": {
+                            "doc": "Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "OptionMouseState"},
+                            "fn_body": "callbackinfo.get_previous_mouse_state().into()"
                         },
                         "get_current_window_handle": {
                             "doc": "Returns a copy of the current windows `RawWindowHandle`.",
@@ -9184,6 +9209,27 @@
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "FileTypeList" }}
+                    ]
+                },
+                "OptionWindowState": {
+                    "external": "azul_impl::window::OptionWindowState",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": { "type": "WindowState" }}
+                    ]
+                },
+                "OptionMouseState": {
+                    "external": "azul_impl::window::OptionMouseState",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": { "type": "MouseState" }}
+                    ]
+                },
+                "OptionKeyboardState": {
+                    "external": "azul_impl::window::OptionKeyboardState",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": { "type": "KeyboardState" }}
                     ]
                 },
                 "OptionStringVec": {

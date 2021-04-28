@@ -7361,6 +7361,42 @@ struct AzTagIdsToNodeIdsMappingVec {
 };
 typedef struct AzTagIdsToNodeIdsMappingVec AzTagIdsToNodeIdsMappingVec;
 
+enum AzOptionMouseStateTag {
+   AzOptionMouseStateTag_None,
+   AzOptionMouseStateTag_Some,
+};
+typedef enum AzOptionMouseStateTag AzOptionMouseStateTag;
+
+struct AzOptionMouseStateVariant_None { AzOptionMouseStateTag tag; };
+typedef struct AzOptionMouseStateVariant_None AzOptionMouseStateVariant_None;
+struct AzOptionMouseStateVariant_Some { AzOptionMouseStateTag tag; AzMouseState payload; };
+typedef struct AzOptionMouseStateVariant_Some AzOptionMouseStateVariant_Some;
+union AzOptionMouseState {
+    AzOptionMouseStateVariant_None None;
+    AzOptionMouseStateVariant_Some Some;
+};
+typedef union AzOptionMouseState AzOptionMouseState;
+#define AzOptionMouseState_None { .None = { .tag = AzOptionMouseStateTag_None } }
+#define AzOptionMouseState_Some(v) { .Some = { .tag = AzOptionMouseStateTag_Some, .payload = v } }
+
+enum AzOptionKeyboardStateTag {
+   AzOptionKeyboardStateTag_None,
+   AzOptionKeyboardStateTag_Some,
+};
+typedef enum AzOptionKeyboardStateTag AzOptionKeyboardStateTag;
+
+struct AzOptionKeyboardStateVariant_None { AzOptionKeyboardStateTag tag; };
+typedef struct AzOptionKeyboardStateVariant_None AzOptionKeyboardStateVariant_None;
+struct AzOptionKeyboardStateVariant_Some { AzOptionKeyboardStateTag tag; AzKeyboardState payload; };
+typedef struct AzOptionKeyboardStateVariant_Some AzOptionKeyboardStateVariant_Some;
+union AzOptionKeyboardState {
+    AzOptionKeyboardStateVariant_None None;
+    AzOptionKeyboardStateVariant_Some Some;
+};
+typedef union AzOptionKeyboardState AzOptionKeyboardState;
+#define AzOptionKeyboardState_None { .None = { .tag = AzOptionKeyboardStateTag_None } }
+#define AzOptionKeyboardState_Some(v) { .Some = { .tag = AzOptionKeyboardStateTag_Some, .payload = v } }
+
 enum AzOptionStringVecTag {
    AzOptionStringVecTag_None,
    AzOptionStringVecTag_Some,
@@ -8896,6 +8932,7 @@ struct AzWindowState {
 typedef struct AzWindowState AzWindowState;
 
 struct AzCallbackInfo {
+    void* previous_window_state;
     void* current_window_state;
     AzWindowState* restrict modifiable_window_state;
     AzOptionGl* gl_context;
@@ -9033,6 +9070,24 @@ struct AzNodeDataInlineCssPropertyVec {
     AzNodeDataInlineCssPropertyVecDestructor destructor;
 };
 typedef struct AzNodeDataInlineCssPropertyVec AzNodeDataInlineCssPropertyVec;
+
+enum AzOptionWindowStateTag {
+   AzOptionWindowStateTag_None,
+   AzOptionWindowStateTag_Some,
+};
+typedef enum AzOptionWindowStateTag AzOptionWindowStateTag;
+
+struct AzOptionWindowStateVariant_None { AzOptionWindowStateTag tag; };
+typedef struct AzOptionWindowStateVariant_None AzOptionWindowStateVariant_None;
+struct AzOptionWindowStateVariant_Some { AzOptionWindowStateTag tag; AzWindowState payload; };
+typedef struct AzOptionWindowStateVariant_Some AzOptionWindowStateVariant_Some;
+union AzOptionWindowState {
+    AzOptionWindowStateVariant_None None;
+    AzOptionWindowStateVariant_Some Some;
+};
+typedef union AzOptionWindowState AzOptionWindowState;
+#define AzOptionWindowState_None { .None = { .tag = AzOptionWindowStateTag_None } }
+#define AzOptionWindowState_Some(v) { .Some = { .tag = AzOptionWindowStateTag_Some, .payload = v } }
 
 enum AzOptionInlineTextTag {
    AzOptionInlineTextTag_None,
@@ -9680,9 +9735,12 @@ extern DLLIMPORT AzWindowState AzWindowState_default();
 extern DLLIMPORT AzDomNodeId AzCallbackInfo_getHitNode(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzOptionLogicalPosition AzCallbackInfo_getCursorRelativeToViewport(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzOptionLogicalPosition AzCallbackInfo_getCursorRelativeToNode(AzCallbackInfo* const callbackinfo);
-extern DLLIMPORT AzWindowState AzCallbackInfo_getWindowState(AzCallbackInfo* const callbackinfo);
-extern DLLIMPORT AzKeyboardState AzCallbackInfo_getKeyboardState(AzCallbackInfo* const callbackinfo);
-extern DLLIMPORT AzMouseState AzCallbackInfo_getMouseState(AzCallbackInfo* const callbackinfo);
+extern DLLIMPORT AzWindowState AzCallbackInfo_getCurrentWindowState(AzCallbackInfo* const callbackinfo);
+extern DLLIMPORT AzKeyboardState AzCallbackInfo_getCurrentKeyboardState(AzCallbackInfo* const callbackinfo);
+extern DLLIMPORT AzMouseState AzCallbackInfo_getCurrentMouseState(AzCallbackInfo* const callbackinfo);
+extern DLLIMPORT AzOptionWindowState AzCallbackInfo_getPreviousWindowState(AzCallbackInfo* const callbackinfo);
+extern DLLIMPORT AzOptionKeyboardState AzCallbackInfo_getPreviousKeyboardState(AzCallbackInfo* const callbackinfo);
+extern DLLIMPORT AzOptionMouseState AzCallbackInfo_getPreviousMouseState(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzRawWindowHandle AzCallbackInfo_getCurrentWindowHandle(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzOptionGl AzCallbackInfo_getGlContext(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzOptionLogicalPosition AzCallbackInfo_getScrollPosition(AzCallbackInfo* const callbackinfo, AzDomNodeId  node_id);

@@ -268,6 +268,8 @@ pub struct KeyboardState {
     pub pressed_scancodes: ScanCodeVec,
 }
 
+impl_option!(KeyboardState, OptionKeyboardState, copy = false, [Debug, Clone, PartialEq]);
+
 // char is not ABI-stable, use u32 instead
 impl_option!(u32, OptionChar, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 impl_option!(VirtualKeyCode, OptionVirtualKeyCode, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
@@ -315,6 +317,8 @@ pub struct MouseState {
     /// Scroll amount in pixels in the vertical direction. Gets reset to 0 after every frame (READONLY)
     pub scroll_y: OptionF32,
 }
+
+impl_option!(MouseState, OptionMouseState, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 impl_option!(MouseCursorType, OptionMouseCursorType, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
@@ -1135,6 +1139,8 @@ pub struct WindowState {
     /// Optional callback to run when the window closes
     pub close_callback: OptionCallback,
 }
+
+impl_option!(WindowState, OptionWindowState, copy = false, [Debug, Clone, PartialEq]);
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C, u8)]

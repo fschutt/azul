@@ -821,6 +821,7 @@ impl_vec_partialord!(InlineGlyph, InlineGlyphVec);
 #[derive(Debug)]
 #[repr(C)]
 pub struct CallbackInfo {
+    previous_window_state: *const Option<FullWindowState>,
     /// State of the current window that the callback was called on (read only!)
     current_window_state: *const FullWindowState,
     /// User-modifiable state of the window that the callback was called on
@@ -892,6 +893,7 @@ impl CallbackInfo {
     #[cfg(feature = "opengl")]
     #[inline]
     pub fn new<'a, 'b>(
+       previous_window_state: &'a Option<FullWindowState>,
        current_window_state: &'a FullWindowState,
        modifiable_window_state: &'a mut WindowState,
        gl_context: &'a OptionGlContextPtr,
@@ -921,6 +923,7 @@ impl CallbackInfo {
        cursor_in_viewport: OptionLogicalPosition,
     ) -> Self {
         Self {
+            previous_window_state: previous_window_state as *const Option<FullWindowState>,
             current_window_state: current_window_state as *const FullWindowState,
             modifiable_window_state: modifiable_window_state as *mut WindowState,
             gl_context: gl_context as *const OptionGlContextPtr,
@@ -953,6 +956,7 @@ impl CallbackInfo {
         }
     }
 
+    fn internal_get_previous_window_state<'a>(&'a self) -> &'a Option<FullWindowState> { unsafe { &*self.previous_window_state } }
     fn internal_get_current_window_state<'a>(&'a self) -> &'a FullWindowState { unsafe { &*self.current_window_state } }
     fn internal_get_modifiable_window_state<'a>(&'a mut self)-> &'a mut WindowState { unsafe { &mut *self.modifiable_window_state } }
     fn internal_get_gl_context<'a>(&'a self) -> &'a OptionGlContextPtr { unsafe { &*self.gl_context } }
@@ -986,9 +990,12 @@ impl CallbackInfo {
     pub fn get_hit_node(&self) -> DomNodeId { self.internal_get_hit_dom_node() }
     pub fn get_cursor_relative_to_node(&self) -> OptionLogicalPosition { self.internal_get_cursor_relative_to_item() }
     pub fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition { self.internal_get_cursor_in_viewport() }
-    pub fn get_window_state(&self) -> WindowState { self.internal_get_current_window_state().clone().into() }
-    pub fn get_keyboard_state(&self) -> KeyboardState { self.internal_get_current_window_state().keyboard_state.clone() }
-    pub fn get_mouse_state(&self) -> MouseState { self.internal_get_current_window_state().mouse_state.clone() }
+    pub fn get_current_window_state(&self) -> WindowState { self.internal_get_current_window_state().clone().into() }
+    pub fn get_current_keyboard_state(&self) -> KeyboardState { self.internal_get_current_window_state().keyboard_state.clone() }
+    pub fn get_current_mouse_state(&self) -> MouseState { self.internal_get_current_window_state().mouse_state.clone() }
+    pub fn get_previous_window_state(&self) -> Option<WindowState> { Some(self.internal_get_previous_window_state().as_ref()?.clone().into()) }
+    pub fn get_previous_keyboard_state(&self) -> Option<KeyboardState> { Some(self.internal_get_previous_window_state().as_ref()?.keyboard_state.clone()) }
+    pub fn get_previous_mouse_state(&self) -> Option<MouseState> { Some(self.internal_get_previous_window_state().as_ref()?.mouse_state.clone()) }
     pub fn get_current_window_handle(&self) -> RawWindowHandle { self.internal_get_current_window_handle().clone() }
 
     #[cfg(feature = "opengl")]

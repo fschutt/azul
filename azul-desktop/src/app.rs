@@ -266,6 +266,7 @@ fn run_inner(app: App) -> ! {
                 let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
                 let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
                 let current_window_state = &window.internal.current_window_state;
+                let previous_window_state = &window.internal.previous_window_state;
                 let words_cache = &layout_result.words_cache;
                 let shaped_words_cache = &layout_result.shaped_words_cache;
                 let positioned_words_cache = &layout_result.positioned_words_cache;
@@ -273,6 +274,7 @@ fn run_inner(app: App) -> ! {
                 let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
                 let callback_info = fc_cache.apply_closure(|fc_cache| {
                     CallbackInfo::new(
+                        previous_window_state,
                         current_window_state,
                         &mut window_state,
                         &gl_context_ptr,
@@ -385,6 +387,7 @@ fn run_inner(app: App) -> ! {
                             &mut timer_map,
                             frame_start.clone(),
 
+                            &window.internal.previous_window_state,
                             &window.internal.current_window_state,
                             &mut modifiable_window_state,
                             &window.get_gl_context_ptr(),
@@ -513,6 +516,7 @@ fn run_inner(app: App) -> ! {
                         clean_up_finished_threads(
                             &mut thread_map,
 
+                            &window.internal.previous_window_state,
                             &window.internal.current_window_state,
                             &mut modifiable_window_state,
                             &window.get_gl_context_ptr(),
@@ -886,6 +890,7 @@ fn run_inner(app: App) -> ! {
 
                     let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
                     let current_window_state = &window.internal.current_window_state;
+                    let previous_window_state = &window.internal.previous_window_state;
                     let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
                     let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
                     let words_cache = &layout_result.words_cache;
@@ -895,6 +900,7 @@ fn run_inner(app: App) -> ! {
 
                     let callback_info = fc_cache.apply_closure(|fc_cache| {
                         CallbackInfo::new(
+                            previous_window_state,
                             current_window_state,
                             &mut window_state,
                             &gl_context_ptr,
@@ -993,6 +999,7 @@ fn run_inner(app: App) -> ! {
                     let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
                     let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
                     let current_window_state = &window.internal.current_window_state;
+                    let previous_window_state = &window.internal.previous_window_state;
                     let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
                     let words_cache = &layout_result.words_cache;
                     let shaped_words_cache = &layout_result.shaped_words_cache;
@@ -1001,6 +1008,7 @@ fn run_inner(app: App) -> ! {
 
                     let callback_info = fc_cache.apply_closure(|fc_cache| {
                         CallbackInfo::new(
+                            previous_window_state,
                             current_window_state,
                             &mut window_state,
                             &gl_context_ptr,

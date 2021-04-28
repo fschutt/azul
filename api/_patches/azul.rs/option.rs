@@ -160,3 +160,6 @@
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
     impl_option!(AzSystemClipboard, AzOptionSystemClipboard, copy = false,  clone = false, [Debug]);
     impl_option!(AzFileTypeList, AzOptionFileTypeList, copy = false, [Debug, Clone]);
+    impl_option!(AzWindowState, AzOptionWindowState, copy = false, [Debug, Clone]);
+    impl_option!(AzKeyboardState, AzOptionKeyboardState, copy = false, [Debug, Clone]);
+    impl_option!(AzMouseState, AzOptionMouseState, [Debug, Clone]);

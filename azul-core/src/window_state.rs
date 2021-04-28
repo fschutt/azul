@@ -645,6 +645,7 @@ impl CallbacksOfHitTest {
     #[cfg(feature = "opengl")]
     pub fn call(
         &mut self,
+        previous_window_state: &Option<FullWindowState>,
         full_window_state: &FullWindowState,
         raw_window_handle: &RawWindowHandle,
         scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -735,6 +736,7 @@ impl CallbacksOfHitTest {
                         let mut stop_propagation = false;
 
                         let callback_info = CallbackInfo::new(
+                            /*previous_window_state:*/ &previous_window_state,
                             /*current_window_state:*/ &full_window_state,
                             /*modifiable_window_state:*/ &mut ret.modified_window_state,
                             /*gl_context,*/ gl_context,
@@ -809,6 +811,7 @@ impl CallbacksOfHitTest {
                     let mut stop_propagation = false;
 
                     let callback_info = CallbackInfo::new(
+                        /*previous_window_State:*/ &previous_window_state,
                         /*current_window_state:*/ &full_window_state,
                         /*modifiable_window_state:*/ &mut ret.modified_window_state,
                         /*gl_context,*/ gl_context,
