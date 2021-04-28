@@ -159,3 +159,4 @@
     impl_option!(AzInstant, AzOptionInstant, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
     impl_option!(AzSystemClipboard, AzOptionSystemClipboard, copy = false,  clone = false, [Debug]);
+    impl_option!(AzFileTypeList, AzOptionFileTypeList, copy = false, [Debug, Clone]);
