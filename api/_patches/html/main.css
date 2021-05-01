@@ -71,10 +71,13 @@ aside {
 }
 
 @media screen and (max-width: 720px) {
-  body .center aside { min-width: 100%; }
-  body .center aside header { display: inline-block; }
-  body .center aside nav { display: inline-block; float: right; overflow: hidden; margin: 0px; }
-  body .center aside nav ul li { display: inline-block; width: 50%; }
+  aside { position: static; }
+  body main { padding: 37.5px; clear: both; }
+  body .center aside { min-height: 150px; min-width: 100%; padding: 25px; }
+  body .center aside header { display: inline-block; width: 75px; height: 75px; padding: 12.5px; }
+  body .center aside header img { width: 75px; height: 75px;}
+  body .center aside nav { display: inline-block; max-width: 190px; float: right; overflow: hidden; margin: 0px; }
+  body .center aside nav ul li { display: inline-block; width: 50px; font-size: 1em; }
   body .center aside nav ul li:nth-child(odd) { float: right; }
   body .center aside nav ul li ul { display: none; }
 }
@@ -85,6 +88,8 @@ aside header {
 }
 
 aside nav {
+  padding: 10px;
+  max-width: 230px;
   margin-top: 50px;
 }
 
@@ -92,6 +97,15 @@ aside nav ul {
   line-height: 1.5;
   color: white;
 }
+
+aside nav ul li {
+  background: url("./images/fleur-de-lis.svg") no-repeat 0px 0px transparent;
+  list-style-type: none;
+  margin: 0;
+  padding: 0px 0px 0px 30px;
+  vertical-align: middle;
+}
+
 aside nav ul li a {
   color: white;
   text-decoration: none;
@@ -99,7 +113,7 @@ aside nav ul li a {
 aside nav ul li.active {
   text-decoration: underline;
 }
-aside nav ul li ul a{
+aside nav ul li ul a {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -122,7 +136,6 @@ main {
   padding: 50px;
   box-sizing: border-box;
   min-height: 100%;
-  z-index: 1;
 }
 
 @media print {

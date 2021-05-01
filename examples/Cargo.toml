@@ -19,6 +19,10 @@ name = "xml"
 path = "rust/xml.rs"
 
 [[bin]]
+name = "issue"
+path = "rust/issue.rs"
+
+[[bin]]
 name = "table"
 path = "rust/table.rs"
 

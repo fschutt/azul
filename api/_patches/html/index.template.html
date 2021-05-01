@@ -5,7 +5,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-  <meta name="description" content="Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine">
+  <meta name="description" content="Cross-platform LGPL-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine">
   <meta name="keywords" content="gui, rust, user interface">
 
   <link rel="preload" as="font" href="./fonts/SourceSerifPro-Regular.ttf" type="font/ttf">
@@ -15,8 +15,11 @@
   <link rel="stylesheet" type="text/css" href="./main.css">
   <!-- index.css -->
   <style>
-    main header {
+    main .col-1 {
+      float:left;
       max-width: 500px;
+    }
+    main header {
       margin-bottom: 30px;
     }
     main header h2 {
@@ -42,13 +45,19 @@
       float: left;
       margin-right: 25px;
     }
-    main section .col-2 {
-      overflow: hidden;
-      max-width: 500px;
-      float: right;
-    }
     body > .center > main > section > .col-1 code {
       display: block;
+      max-width: 500px;
+    }
+    @media screen and (max-width: 720px) {
+      body > .center > main > code {
+        min-width: none;
+      }
+    }
+    @media screen and (min-width: 720px) {
+      body > .center > main > code {
+        min-width: 500px;
+      }
     }
     @media screen and (max-width: 720px) {
       body > .center > main > section > .col-2 {
@@ -65,21 +74,43 @@
         float: none;
         position: static !important;
       }
+      body main .col-1 header h2 {
+        font-size: 30px;
+        margin-bottom: 0px;
+      }
+      .feature {
+        float:none;
+        margin-bottom: 50px;
+      }
     }
-    main section .col-2 img {
-      max-width: 100%;
-      margin-bottom: 10px;
-      height: auto;
-    }
-    main section .col-2 .stats {
-      float: left;
-      list-style-type: none;
+
+    .stats {
       font-weight: bold;
+      float: left;
     }
-    main section .col-2 .controls {
+    .stats ul li {
+      list-style-type: none;
+    }
+    .controls:after {
+      clear: both;
+    }
+    .controls > span:first-child > button > img {
+      padding-left: 10px;
+    }
+
+    .controls > span:last-child > button > img {
+      padding-left: 10px;
+      transform: rotate(180deg);
+    }
+
+    .controls > span > button > img {
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .controls {
       overflow: hidden;
     }
-    main section .col-2 .controls > * {
+    .controls > * {
       float: right;
       margin-left: 10px;
     }
@@ -89,7 +120,7 @@
       background: radial-gradient(ellipse farthest-corner at right bottom,#fedb37 0,#fdb931 8%,#9f7928 30%,#8a6e2f 40%,transparent 80%),
                   radial-gradient(ellipse farthest-corner at left top,#fff 0,#ffffac 8%,#d1b464 25%,#5d4a1f 62.5%,#5d4a1f 100%);
     }
-    main section .col-2 .controls .gradient-border-wrap button {
+    .controls .gradient-border-wrap button {
       background: #333;
       color: #eee;
       cursor: pointer;
@@ -102,8 +133,20 @@
     }
     .description {
       clear: both;
-      margin-top: 50px;
-      font-size: 0.9em;
+      margin-top: 20px;
+      font-size: 1.2em;
+    }
+
+    .feature > img {
+      max-width: 100%;
+      margin-bottom: 10px;
+      height: auto;
+    }
+
+    body > .center > main > code {
+      display: block;
+      padding: 20px;
+      max-width: 500px;
     }
   </style>
 </head>
@@ -120,20 +163,44 @@
         <li class="active"><a href="./index.html">overview</a></li>
         <li><a href="./releases.html">releases</a></li>
         <li><a href="https://github.com/maps4print/azul">code</a></li>
-        <li><a href="https://matrix.to/#/#azul:matrix.org">matrix chat</a></li>
+        <li><a href="https://matrix.to/#/#azul:matrix.org">chat</a></li>
         <li><a href="./guide.html">guide</a></li>
         <li><a href="./api.html">api</a></li>
       </ul>
     </nav>
   </aside>
   <main>
-    <header>
-      <h2><span class="first-letter">B</span>uilt for beauty<br/>and speed</h2>
-      <h3>Cross-platform MIT-licensed desktop GUI framework for C and Rust, backed by the Mozilla WebRender rendering engine.</h3>
-    </header>
-    <section class="feature" id="main">
-      $$CONTENT_SECTION_MAIN$$
-    </section>
+    <div class="col-1">
+      <header>
+        <h2><span class="first-letter">B</span>uilt for beauty<br/>and speed</h2>
+        <h3>Cross-platform LGPL-licensed desktop GUI framework for C and Rust, backed by the Mozilla WebRender rendering engine.</h3>
+      </header>
+      <section class="feature">
+        <img class="showcase" id="showcase-image" src="$$EXAMPLE_IMAGE_SOURCE$$" alt="$$EXAMPLE_IMAGE_ALT$$">
+        <div>
+          <div class="stats">
+            <ul>
+              <li id="showcase-stats-memory">$$EXAMPLE_STATS_MEMORY$$</li>
+              <li id="showcase-stats-cpu">$$EXAMPLE_STATS_CPU$$</li>
+            </ul>
+          </div>
+          <div class="controls">
+            <span class="gradient-border-wrap">
+              <button onclick="next()">Next<img src="./images/fleur-de-lis.svg"/></button>
+            </span>
+            <span class="gradient-border-wrap">
+              <button onclick="previous()"><img src="./images/fleur-de-lis.svg"/>Previous</button>
+            </span>
+          </div>
+          <div class="description">
+            <p id="showcase-description">$$EXAMPLE_DESCRIPTION$$</p>
+          </div>
+        </div>
+      </section>
+    </div>
+    <code class="language-c" id="code">
+      $$EXAMPLE_CODE$$
+    </code>
   </main>
   </div>
   <script async type="text/javascript" src="./prism_code_highlighter.js"></script>
@@ -142,14 +209,20 @@
       $$JAVASCRIPT_EXAMPLES$$
     ];
     var current_example = 0;
+    var max_len = examples[0].length;
 
     function render_example() {
-      document.getElementById("main").innerHTML = examples[current_example];
+      document.getElementById("code").innerHTML = examples[0][current_example].code;
+      document.getElementById("showcase-image").src = examples[0][current_example].screenshot_url;
+      document.getElementById("showcase-image").alt = examples[0][current_example].image_alt;
+      document.getElementById("showcase-stats-memory").innerHTML = examples[0][current_example].memory;
+      document.getElementById("showcase-stats-cpu").innerHTML = examples[0][current_example].cpu;
+      document.getElementById("showcase-description").innerHTML = examples[0][current_example].description;
     }
 
     function next() {
       current_example += 1;
-      if (current_example >= examples.length) {
+      if (current_example >= max_len) {
         current_example = 0;
       }
       render_example();
@@ -158,7 +231,7 @@
     function previous() {
       current_example -= 1;
       if (current_example < 0) {
-        current_example = examples.length;
+        current_example = max_len - 1;
       }
       render_example();
     }

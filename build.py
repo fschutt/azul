@@ -38,6 +38,7 @@ def read_api_file(path):
     apiData = json.loads(api_file_contents)
     return apiData
 
+html_root = "https://azul.rs"
 root_folder = os.path.abspath(os.path.join(__file__, os.pardir))
 prefix = "Az"
 fn_prefix = "az_"
@@ -1821,32 +1822,25 @@ def format_doc(docstring):
     newdoc = newdoc.replace("\r\n", "<br/>")
     return newdoc
 
-def render_example(partial, example, replace=True):
-    jsex = example["code"]
+def render_example_description(descr, replace=True):
+    descr = descr.strip()
+    if replace:
+        descr = descr.replace("\"", "&quot;")
+        descr = descr.replace("\n", "")
+        descr = descr.replace("\r\n", "")
+        descr = descr.replace("#", "&pound;")
+    return descr
+
+def render_example_code(jsex, replace=True):
     jsex = jsex.replace(">", "&gt;")
     jsex = jsex.replace("<", "&lt;")
-    if replace:
-        partial = partial.replace("\"", "\\\"")
     if replace:
         # jsex = jsex.replace("#", "%23")
         jsex = jsex.replace("\"", "&quot;")
         jsex = jsex.replace("\n", "<br/>")
         jsex = jsex.replace("\r\n", "<br/>")
         jsex = jsex.replace(" ", "&nbsp;")
-    descr = example["description"]
-    if replace:
-        descr = descr.replace("\"", "&quot;")
-        descr = descr.replace("\n", "")
-        descr = descr.replace("\r\n", "")
-        descr = descr.replace("#", "&pound;")
-    partial = partial.replace("$$CODE$$", jsex)
-    partial = partial.replace("$$ID$$", example["id"])
-    partial = partial.replace("$$IMAGE_SOURCE$$", "/images/" + example["id"] + ".png")
-    partial = partial.replace("$$IMAGE_ALT$$", example["image_alt"])
-    partial = partial.replace("$$MEMORY$$", example["memory"])
-    partial = partial.replace("$$CPU$$", example["cpu"])
-    partial = partial.replace("$$DESCRIPTION$$", descr)
-    return partial
+    return jsex
 
 def generate_docs():
     apiData = read_api_file(root_folder + "/api.json")
@@ -1873,6 +1867,7 @@ def generate_docs():
     # copy files
     # copy_file(, )
     copy_file(root_folder + "/api/_patches/html/logo.svg", root_folder + "/target/html/logo.svg")
+    copy_file(root_folder + "/api/_patches/html/fleur-de-lis.svg", root_folder + "/target/html/images/fleur-de-lis.svg")
     copy_file(root_folder + "/api/_patches/html/main.css", root_folder + "/target/html/main.css")
     copy_file(root_folder + "/examples/assets/fonts/Morris Jenson Initialen.ttf", root_folder + "/target/html/fonts/Morris Jenson Initialen.ttf")
     copy_file(root_folder + "/examples/assets/fonts/SourceSerifPro-Regular.ttf", root_folder + "/target/html/fonts/SourceSerifPro-Regular.ttf")
@@ -1881,93 +1876,91 @@ def generate_docs():
     index_partial = read_file(root_folder + "/api/_patches/html/index.partial.html")
     index_examples = [
         {
-            "id": "table",
-            "description": """
-                Azul can render infinitely large datasets (such as a table, shown here)
-                while using a comparably small amount of memory.<br/>
-                Users can specify special IFrameCallbacks that - given the size and scroll position
-                of the DOM node - only return the currently visible cells. All cells can share their
-                CSS style efficiently via pointers, so that properties do not get duplicated in memory.
-            """,
-            "screenshot": root_folder + "/examples/assets/screenshots/table.png",
-            "cpu": "0%",
-            "memory": "23MB",
-            "image_alt": "Rendering a table using the Azul GUI toolkit",
-            "code": read_file(root_folder + "/examples/c/table.c"),
+            "id": "helloworld",
+            "description": render_example_description("""
+                The UI structure is created via composition instead of inheritance.
+                Callbacks can modify the application data and then tell the framework to
+                reconstruct the entire UI again if necessary - not on every frame.
+            """),
+            "screenshot_path": root_folder + "/examples/assets/screenshots/helloworld.png",
+            "screenshot_url": html_root + "/images/helloworld.png",
+            "cpu": "CPU: 0%",
+            "memory": "Memory: 23MB",
+            "image_alt": "Rendering a simple UI using the Azul GUI toolkit",
+            "code": render_example_code(read_file(root_folder + "/examples/c/helloworld.c")),
         },
         {
-            "id": "helloworld",
-            "description": """
-                The UI structure is created via composition instead of inheritance,
-                with a functional UI to View mapping. Callbacks can modify the application
-                data and then tell the framework to reconstruct the entire UI again.
-                Since azul gives the programmer the tool to render only the visible UI objects,
-                the performance of reconstructing the UI is very managable (~100 µs for a simple UI).
-            """,
-            "screenshot": root_folder + "/examples/assets/screenshots/helloworld.png",
-            "cpu": "0%",
-            "memory": "23MB",
-            "image_alt": "Rendering a simple UI using the Azul GUI toolkit",
-            "code": read_file(root_folder + "/examples/c/helloworld.c"),
+            "id": "table",
+            "description": render_example_description("""
+                Azul supports lazy loading and can render infinitely large datasets
+                (such as a table, shown here) while using a comparably small amount of memory.
+                DOM nodes share their CSS style efficiently via pointers,
+                so that properties do not get duplicated in memory.
+            """),
+            "screenshot_path": root_folder + "/examples/assets/screenshots/table.png",
+            "screenshot_url": html_root + "/images/table.png",
+            "cpu": "CPU: 0%",
+            "memory": "Memory: 23MB",
+            "image_alt": "Rendering a table using the Azul GUI toolkit",
+            "code": render_example_code(read_file(root_folder + "/examples/c/table.c")),
         },
         {
             "id": "svg",
-            "description": """
-                Azul renders everything using GPU-accelerated rectangles by default -
-                however, it allows users to tesselate and paint custom shapes on OpenGL
-                textures and use those textures as clip masks. Clip masks can be
-                animated via Timers as well as rendered on a non-main thread.
-            """,
-            "screenshot": root_folder + "/examples/assets/screenshots/svg.png",
-            "cpu": "0%",
-            "memory": "23MB",
+            "description": render_example_description("""
+                Azul contains a SVG1.1 compatible SVG renderer as well as functions
+                for tesselating and drawing shapes to OpenGL textures. Images / textures
+                can be composited as clip masks and even be animated.
+            """),
+            "screenshot_path": root_folder + "/examples/assets/screenshots/svg.png",
+            "screenshot_url": html_root + "/images/svg.png",
+            "cpu": "CPU: 0%",
+            "memory": "Memory: 23MB",
             "image_alt": "Rendering a SVG file using the Azul GUI toolkit",
-            "code": read_file(root_folder + "/examples/c/svg.c"),
+            "code": render_example_code(read_file(root_folder + "/examples/c/svg.c")),
         },
         {
             "id": "calculator",
-            "description": """
+            "description": render_example_description("""
                 Composing larger UIs is just a matter of proper function composition.
-                Each function returns a styled DOM tree that can be composed into
-                the larger UI. Widgets can also store their widget-specific data on a
-                DOM node itself (similar to a HTML <code>dataset</code> attribute) and
-                provide default callbacks for common UI interactions by rendering the
-                entire state.
-            """,
-            "screenshot": root_folder + "/examples/assets/screenshots/calculator.png",
-            "cpu": "0%",
-            "memory": "23MB",
+                Widget-specific data is either stored on the callback object itself -
+                or on the DOM node, similar to a HTML 'dataset' attribute.
+            """),
+            "screenshot_path": root_folder + "/examples/assets/screenshots/calculator.png",
+            "screenshot_url": html_root + "/images/calculator.png",
+            "cpu": "CPU: 0%",
+            "memory": "Memory: 23MB",
             "image_alt": "Composing widgets via functions in the Azul GUI toolkit",
-            "code": read_file(root_folder + "/examples/c/calculator.c"),
+            "code": render_example_code(read_file(root_folder + "/examples/c/calculator.c")),
         },
         {
             "id": "xml",
-            "description": """
-                For fast protoyping, Azul contains an XML description language
-                that can create a UI from XML / CSS on-the-fly. Azul can watch and
-                hot-reload files - without needing to restart the application.
-                The XML can afterwards <strong>transpiled to native Code</strong>
-                in order to create reusable widgets.
-            """,
-            "screenshot": root_folder + "/examples/assets/screenshots/xml.png",
-            "cpu": "0%",
-            "memory": "23MB",
+            "description": render_example_description("""
+                Azul contains an XML-based UI description which can be instantly
+                hot-reloaded from a file. After prototyping the UI in XML / CSS,
+                you can compile the code to a native language in order to get both
+                fast design iteration times as well as performant code.
+            """),
+            "screenshot_path": root_folder + "/examples/assets/screenshots/xml.png",
+            "screenshot_url": html_root + "/images/xml.png",
+            "cpu": "Memory: 0%",
+            "memory": "Memory: 23MB",
             "image_alt": "XML UI hot-reloading for fast prototyping",
-            "code": read_file(root_folder + "/examples/c/xml.c"),
+            "code": render_example_code(read_file(root_folder + "/examples/c/xml.c")),
         }
     ]
 
-    # $$JAVASCRIPT_EXAMPLES$$
-    # $$CONTENT_SECTION_MAIN$$
+    for ex in index_examples:
+        copy_file(ex["screenshot_path"], root_folder + "/target/html/images/" + ex["id"] + ".png")
 
     first_example = index_examples[0]
-    index_html = index_template.replace("$$CONTENT_SECTION_MAIN$$", render_example(index_partial, first_example, replace=False))
-    js_examples = ""
-    for ex in index_examples:
-        copy_file(ex["screenshot"], root_folder + "/target/html/images/" + ex["id"] + ".png")
-        jsex = render_example(index_partial, ex)
-        js_examples += "\"" + jsex + "\",\r\n"
-    index_html = index_html.replace("$$JAVASCRIPT_EXAMPLES$$", js_examples)
+    index_html = index_template.replace("$$EXAMPLE_CODE$$", first_example["code"])
+    index_html = index_html.replace("$$EXAMPLE_IMAGE_SOURCE$$", first_example["screenshot_url"])
+    index_html = index_html.replace("$$EXAMPLE_IMAGE_ALT$$", first_example["image_alt"])
+    index_html = index_html.replace("$$EXAMPLE_STATS_MEMORY$$", first_example["memory"])
+    index_html = index_html.replace("$$EXAMPLE_STATS_CPU$$", first_example["cpu"])
+    index_html = index_html.replace("$$EXAMPLE_DESCRIPTION$$", first_example["description"])
+    index_html = index_html.replace("$$JAVASCRIPT_EXAMPLES$$", json.dumps(index_examples))
+
     write_file(index_html, root_folder + "/target/html/index.html")
 
     guide_sidebar = "<ul>"
@@ -1977,13 +1970,13 @@ def generate_docs():
         if entry.path.endswith(".md") and entry.is_file():
             entry_name = entry.name[3:-3]
             html_path_name = entry_name.replace(" ", "")
-            guide_sidebar += "<li><a href=\"./guide/" + current_version + "/" + html_path_name + "\">" + entry_name + "</a></li>"
+            guide_sidebar += "<li><a href=\"" + html_root + "/guide/" + current_version + "/" + html_path_name + "\">" + entry_name + "</a></li>"
             guide_sidebar_nested += "<li><a href=\"./" + html_path_name + "\">" + entry_name + "</a></li>"
             guides_rendered.append(tuple((entry_name, read_file(entry.path))))
     guide_sidebar += "</ul>"
     guide_sidebar_nested += "</ul>"
 
-    guide_combined_page = html_template.replace("$$ROOT_RELATIVE$$", ".")
+    guide_combined_page = html_template.replace("$$ROOT_RELATIVE$$", html_root)
     guide_combined_page = guide_combined_page.replace("$$SIDEBAR_GUIDE$$", "")
     guide_combined_page = guide_combined_page.replace("$$SIDEBAR_RELEASES$$", "")
     guide_combined_page = guide_combined_page.replace("$$SIDEBAR_API$$", "")
@@ -1995,7 +1988,7 @@ def generate_docs():
         entry_name = guide[0]
         html_path_name = entry_name.replace(" ", "")
         guide_content = guide[1]
-        formatted_guide = html_template.replace("$$ROOT_RELATIVE$$", "../..")
+        formatted_guide = html_template.replace("$$ROOT_RELATIVE$$", html_root)
         formatted_guide = formatted_guide.replace("$$SIDEBAR_GUIDE$$", guide_sidebar_nested)
         formatted_guide = formatted_guide.replace("$$SIDEBAR_RELEASES$$", "")
         formatted_guide = formatted_guide.replace("$$SIDEBAR_API$$", "")
@@ -2019,7 +2012,7 @@ def generate_docs():
         main code.expand { display: block; margin-top: 20px; padding: 10px; border-radius: 5px; }
         """
         formatted_guide = formatted_guide.replace("/*$$_EXTRA_CSS$$*/", extra_css)
-        write_file(formatted_guide, root_folder + "/target/html/guide/" + current_version + "/" + html_path_name)
+        write_file(formatted_guide, root_folder + "/target/html/guide/" + current_version + "/" + html_path_name + ".html")
 
     releases_string = "<ul>"
 
@@ -2028,11 +2021,11 @@ def generate_docs():
         create_folder(root_folder + "/target/html/release/" + version + "/files")
 
     for version in all_versions:
-        releases_string += "<li><a href=\"/release/" + version + "\">" + version + "</a></li>"
+        releases_string += "<li><a href=\"" + html_root + "/release/" + version + "\">" + version + "</a></li>"
 
     releases_string += "</ul>"
 
-    releases_combined_page = html_template.replace("$$ROOT_RELATIVE$$", ".")
+    releases_combined_page = html_template.replace("$$ROOT_RELATIVE$$", html_root)
     releases_combined_page = releases_combined_page.replace("$$SIDEBAR_GUIDE$$", "")
     releases_combined_page = releases_combined_page.replace("$$SIDEBAR_RELEASES$$", releases_string)
     releases_combined_page = releases_combined_page.replace("$$SIDEBAR_API$$", "")
@@ -2042,7 +2035,7 @@ def generate_docs():
 
     for version in all_versions:
         release_announcement = read_file(root_folder + "/api/_patches/html/release/" + version + ".html")
-        release_page = html_template.replace("$$ROOT_RELATIVE$$", "..")
+        release_page = html_template.replace("$$ROOT_RELATIVE$$", html_root)
         release_page = release_page.replace("$$SIDEBAR_GUIDE$$", "")
         release_page = release_page.replace("$$SIDEBAR_RELEASES$$", releases_string)
         release_page = release_page.replace("$$SIDEBAR_API$$", "")
@@ -2052,7 +2045,7 @@ def generate_docs():
 
     api_sidebar_string = "<ul>"
     for version in all_versions:
-        api_sidebar_string += "<li><a href=\"/api/" + version + "\">" + version + "</a></li>"
+        api_sidebar_string += "<li><a href=\"" + html_root + "/api/" + version + "\">" + version + "</a></li>"
     api_sidebar_string += "</ul>"
 
     for version in all_versions:
@@ -2275,7 +2268,7 @@ def generate_docs():
             releases_string += "<li><a href=\"./" + version + "\">" + version + "</a></li>"
         releases_string += "</ul>"
 
-        final_html = html_template.replace("$$ROOT_RELATIVE$$", "..")
+        final_html = html_template.replace("$$ROOT_RELATIVE$$", html_root)
         extra_css = "\
         body > .center > main > div > ul * { font-size: 12px; font-weight: normal; list-style-type: none; font-family: monospace; }\
         body > .center > main > div > ul > li ul { margin-left: 20px; }\
@@ -2303,7 +2296,7 @@ def generate_docs():
         final_html = final_html.replace("$$CONTENT$$", api_page_contents)
         write_file(final_html, root_folder + "/target/html/api/" + version + ".html")
 
-    api_combined_page = html_template.replace("$$ROOT_RELATIVE$$", ".")
+    api_combined_page = html_template.replace("$$ROOT_RELATIVE$$", html_root)
     api_combined_page = api_combined_page.replace("$$SIDEBAR_GUIDE$$", "")
     api_combined_page = api_combined_page.replace("$$SIDEBAR_RELEASES$$", "")
     api_combined_page = api_combined_page.replace("$$SIDEBAR_API$$", api_sidebar_string)
