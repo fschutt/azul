@@ -682,6 +682,12 @@ pub struct HitTest {
 }
 
 impl HitTest {
+    pub fn empty() -> Self {
+        Self {
+            regular_hit_test_nodes: BTreeMap::new(),
+            scroll_hit_test_nodes: BTreeMap::new(),
+        }
+    }
     pub fn is_empty(&self) -> bool {
         self.regular_hit_test_nodes.is_empty() && self.scroll_hit_test_nodes.is_empty()
     }
@@ -701,6 +707,10 @@ impl LayoutResult {
         cursor.y /= hidpi_factor;
 
         let transform_value_cache = &self.gpu_value_cache.current_transform_values;
+        let root = match self.styled_dom.root.into_crate_internal() {
+            Some(s) => s,
+            None => return HitTest::empty(),
+        };
 
         // insert the regular hit items
         let regular_hit_test_nodes =
@@ -717,9 +727,49 @@ impl LayoutResult {
 
             // Go from the root node to the current node and apply all transform values if necessary
             let mut cursor_projected = cursor;
+            let mut last_positioned_node = root;
+
             for parent_id in t.parent_node_ids.as_ref().iter() {
-                if let Some(parent_transform) = parent_id.into_crate_internal().and_then(|p| transform_value_cache.get(&p)) {
-                    cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
+
+                let parent_id = match parent_id.into_crate_internal() {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                // Now transform the cursor into the space of the new rectangle
+                match self.rects.as_ref()[parent_id].position {
+                    PositionInfo::Static { x_offset, y_offset, .. } => {
+                        if let Some(parent_transform) = transform_value_cache.get(&parent_id) {
+                            cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
+                        }
+                        cursor_projected.x -= x_offset;
+                        cursor_projected.y -= y_offset;
+                    },
+                    PositionInfo::Fixed { x_offset, y_offset, .. } => {
+                        cursor_projected = cursor; // reset to window space
+                        last_positioned_node = root;
+                        if let Some(parent_transform) = transform_value_cache.get(&root) {
+                            cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
+                        }
+                        cursor_projected.x -= x_offset;
+                        cursor_projected.x -= y_offset;
+                    },
+                    PositionInfo::Absolute { x_offset, y_offset, .. } => {
+                        // TODO!
+                        if let Some(parent_transform) = transform_value_cache.get(&parent_id) {
+                            cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
+                        }
+                        last_positioned_node = parent_id;
+                    },
+                    PositionInfo::Relative { x_offset, y_offset, .. } => {
+                        // same as static, but modifies last_positioned_node
+                        if let Some(parent_transform) = transform_value_cache.get(&parent_id) {
+                            cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
+                        }
+                        cursor_projected.x -= x_offset;
+                        cursor_projected.y -= y_offset;
+                        last_positioned_node = parent_id;
+                    },
                 }
             }
 
@@ -915,6 +965,18 @@ impl PositionedRectangle {
             PositionInfo::Absolute { static_x_offset, static_y_offset, .. } |
             PositionInfo::Relative { static_x_offset, static_y_offset, .. } => {
                 LogicalPosition::new(static_x_offset, static_y_offset)
+            },
+        }
+    }
+
+    #[inline]
+    fn get_logical_relative_offset(&self) -> LogicalPosition {
+        match self.position {
+            PositionInfo::Static { x_offset, y_offset, .. } |
+            PositionInfo::Fixed { x_offset, y_offset, .. } |
+            PositionInfo::Absolute { x_offset, y_offset, .. } |
+            PositionInfo::Relative { x_offset, y_offset, .. } => {
+                LogicalPosition::new(x_offset, y_offset)
             },
         }
     }
