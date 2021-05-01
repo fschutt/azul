@@ -784,7 +784,9 @@ fn run_inner(app: App) -> ! {
                         }
                     }
 
-                    windows_created.extend(callback_results.windows_created.drain(..));
+                    if !callback_results.windows_created.is_empty() {
+                        windows_created.extend(callback_results.windows_created.drain(..));
+                    }
 
                     let callbacks_changed_cursor = callback_results.cursor_changed();
 

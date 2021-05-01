@@ -103,38 +103,55 @@ impl Events {
     /// Warning: if the previous_window_state is none, this will return an empty Vec!
     pub fn new(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> Self {
 
-        let mut current_window_events = get_window_events(current_window_state, previous_window_state);
-        let mut current_hover_events = get_hover_events(&current_window_events);
-        let mut current_focus_events = get_focus_events(&current_hover_events);
+        let current_window_event = get_window_event(current_window_state, previous_window_state);
+        let current_hover_event = get_hover_event(&current_window_event);
+        let current_focus_event = get_focus_event(&current_hover_event);
 
-        let event_was_mouse_down    = current_window_events.contains(&WindowEventFilter::MouseDown);
-        let event_was_mouse_release = current_window_events.contains(&WindowEventFilter::MouseUp);
-        let event_was_mouse_leave   = current_window_events.contains(&WindowEventFilter::MouseLeave);
+        let event_was_mouse_down    = current_window_event == Some(WindowEventFilter::MouseDown);
+        let event_was_mouse_release = current_window_event == Some(WindowEventFilter::MouseUp);
+        let event_was_mouse_leave   = current_window_event == Some(WindowEventFilter::MouseLeave);
         let current_window_state_mouse_is_down = current_window_state.mouse_state.mouse_down();
         let previous_window_state_mouse_is_down = previous_window_state.as_ref().map(|f| f.mouse_state.mouse_down()).unwrap_or(false);
 
         let old_focus_node = previous_window_state.as_ref().and_then(|f| f.focused_node.clone());
-        let old_hit_node_ids = previous_window_state.as_ref().map(|f| f.hovered_nodes.iter().map(|(dom_id, hit_test)| (*dom_id, hit_test.regular_hit_test_nodes.clone())).collect()).unwrap_or_default();
+        let old_hit_node_ids = previous_window_state.as_ref().map(|f| {
+            if f.hovered_nodes.is_empty() {
+                BTreeMap::new()
+            } else {
+                f.hovered_nodes.iter().map(|(dom_id, hit_test)| (*dom_id, hit_test.regular_hit_test_nodes.clone())).collect()
+            }
+        }).unwrap_or_default();
+
+        let mut current_window_events = match current_window_event {
+            Some(s) => vec![s],
+            None => Vec::new(),
+        };
+
+        let mut current_hover_events = match current_hover_event {
+            Some(s) => vec![s],
+            None => Vec::new(),
+        };
+
+        let mut current_focus_events = match current_focus_event {
+            Some(s) => vec![s],
+            None => Vec::new(),
+        };
 
         if let Some(prev_state) = previous_window_state.as_ref() {
             if prev_state.theme != current_window_state.theme {
-                current_window_events.insert(WindowEventFilter::ThemeChanged);
+                current_window_events.push(WindowEventFilter::ThemeChanged);
             }
             if current_window_state.hovered_nodes != prev_state.hovered_nodes.clone() {
-                current_hover_events.insert(HoverEventFilter::MouseLeave);
-                current_hover_events.insert(HoverEventFilter::MouseEnter);
+                current_hover_events.push(HoverEventFilter::MouseLeave);
+                current_hover_events.push(HoverEventFilter::MouseEnter);
             }
         }
 
         // even if there are no window events, the focus node can changed
         if current_window_state.focused_node != old_focus_node {
-            current_focus_events.insert(FocusEventFilter::FocusReceived);
-            current_focus_events.insert(FocusEventFilter::FocusLost);
+            current_focus_events.push(FocusEventFilter::FocusReceived);
+            current_focus_events.push(FocusEventFilter::FocusLost);
         }
-
-        let current_hover_events = current_hover_events.into_iter().collect::<Vec<_>>();
-        let current_focus_events = current_focus_events.into_iter().collect::<Vec<_>>();
-        let current_window_events = current_window_events.into_iter().collect::<Vec<_>>();
 
         Events {
             window_events: current_window_events,
@@ -202,6 +219,8 @@ impl NodesToCheck {
     }
 
     /// Determine which nodes are even relevant for callbacks or restyling
+    //
+    // TODO: avoid iteration / allocation!
     pub fn new(hit_test: &FullHitTest, events: &Events) -> Self {
         // TODO: If the current mouse is down, but the event wasn't a click, that means it was a drag
 
@@ -330,9 +349,13 @@ impl StyleAndLayoutChanges {
         let mut layout_changes = BTreeMap::new();
 
         let is_mouse_down = nodes.current_window_state_mouse_is_down;
-        let nodes_that_changed_text_content = word_changes.iter()
-        .map(|(dom_id, m)| (*dom_id, m.keys().cloned().collect()))
-        .collect();
+        let nodes_that_changed_text_content = if word_changes.is_empty() {
+            BTreeMap::new()
+        } else {
+            word_changes.iter()
+            .map(|(dom_id, m)| (*dom_id, m.keys().cloned().collect()))
+            .collect()
+        };
 
         macro_rules! insert_props {($dom_id:expr, $prop_map:expr) => {{
             let dom_id: DomId = $dom_id;
@@ -412,8 +435,8 @@ impl StyleAndLayoutChanges {
             }
         }
 
-        let mut nodes_that_changed_size = BTreeMap::new();
-        let mut gpu_key_change_events = BTreeMap::new();
+        let mut nodes_that_changed_size = BTreeMap::new(); // TODO: avoid allocation
+        let mut gpu_key_change_events = BTreeMap::new(); // TODO: avoid allocation
 
         // recursively relayout if there are layout_changes or the window size has changed
         let window_was_resized = window_size != layout_results[DomId::ROOT_ID.inner].root_size;
@@ -433,11 +456,12 @@ impl StyleAndLayoutChanges {
                     }
                 };
 
-                let default_layout_changes = BTreeMap::new();
+                let default_layout_changes = BTreeMap::new(); // TODO: avoid allocation
                 let layout_changes = layout_changes.get(&dom_id).unwrap_or(&default_layout_changes);
-                let default_word_changes = BTreeMap::new();
+                let default_word_changes = BTreeMap::new(); // TODO: avoid allocation
                 let word_changes = word_changes.get(&dom_id).unwrap_or(&default_word_changes);
 
+                // TODO: avoid allocation
                 let RelayoutChanges {
                     resized_nodes,
                     gpu_key_changes,
@@ -664,14 +688,14 @@ impl CallbacksOfHitTest {
             should_scroll_render: false,
             callbacks_update_screen: UpdateScreen::DoNothing,
             modified_window_state: full_window_state.clone().into(),
-            css_properties_changed: BTreeMap::new(),
-            words_changed: BTreeMap::new(),
-            images_changed: BTreeMap::new(),
-            image_masks_changed: BTreeMap::new(),
-            nodes_scrolled_in_callbacks: BTreeMap::new(),
+            css_properties_changed: BTreeMap::new(), // TODO: avoid allocation!
+            words_changed: BTreeMap::new(), // TODO: avoid allocation!
+            images_changed: BTreeMap::new(), // TODO: avoid allocation!
+            image_masks_changed: BTreeMap::new(), // TODO: avoid allocation!
+            nodes_scrolled_in_callbacks: BTreeMap::new(), // TODO: avoid allocation!
             update_focused_node: None,
-            timers: FastHashMap::new(),
-            threads: FastHashMap::new(),
+            timers: FastHashMap::new(), // TODO: avoid allocation!
+            threads: FastHashMap::new(), // TODO: avoid allocation!
             windows_created: Vec::new(),
             cursor_changed: false,
         };
@@ -916,99 +940,94 @@ impl CallbacksOfHitTest {
     }
 }
 
-fn get_window_events(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> BTreeSet<WindowEventFilter> {
+fn get_window_event(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> Option<WindowEventFilter> {
 
     use crate::window::CursorPosition::*;
     use crate::window::WindowPosition;
 
-    let mut events_vec = BTreeSet::<WindowEventFilter>::new();
+    let previous_window_state = previous_window_state.as_ref()?;
 
-    let previous_window_state = match previous_window_state.as_ref() {
-        Some(s) => s,
-        None => return events_vec,
-    };
-
-    // resize, move, close events
-
-    if current_window_state.flags.has_focus != previous_window_state.flags.has_focus {
-        if current_window_state.flags.has_focus {
-            events_vec.insert(WindowEventFilter::FocusReceived);
-        } else {
-            events_vec.insert(WindowEventFilter::FocusLost);
-        }
-    }
-
-    if current_window_state.size.dimensions != previous_window_state.size.dimensions ||
-       current_window_state.size.hidpi_factor != previous_window_state.size.hidpi_factor ||
-       current_window_state.size.system_hidpi_factor != previous_window_state.size.system_hidpi_factor {
-        events_vec.insert(WindowEventFilter::Resized);
-    }
-
-    match (current_window_state.position, previous_window_state.position) {
-        (WindowPosition::Initialized(cur_pos), WindowPosition::Initialized(prev_pos)) => {
-            if prev_pos != cur_pos {
-                events_vec.insert(WindowEventFilter::Moved);
-            }
-        },
-        (WindowPosition::Initialized(_), WindowPosition::Uninitialized) => {
-            events_vec.insert(WindowEventFilter::Moved);
-        },
-        _ => { }
-    }
-
-    if current_window_state.flags.is_about_to_close {
-        events_vec.insert(WindowEventFilter::CloseRequested);
-    }
-
-    // mouse move events
+    // match mouse move events first since they are the most common
 
     match (previous_window_state.mouse_state.cursor_position, current_window_state.mouse_state.cursor_position) {
         (InWindow(_), OutOfWindow) |
         (InWindow(_), Uninitialized) => {
-            events_vec.insert(WindowEventFilter::MouseLeave);
+            return Some(WindowEventFilter::MouseLeave);
         },
         (OutOfWindow, InWindow(_)) |
         (Uninitialized, InWindow(_)) => {
-            events_vec.insert(WindowEventFilter::MouseEnter);
+            return Some(WindowEventFilter::MouseEnter);
         },
         (InWindow(a), InWindow(b)) => {
             if a != b {
-                events_vec.insert(WindowEventFilter::MouseOver);
+                return Some(WindowEventFilter::MouseOver);
             }
         },
         _ => { },
     }
 
     if current_window_state.mouse_state.mouse_down() && !previous_window_state.mouse_state.mouse_down() {
-        events_vec.insert(WindowEventFilter::MouseDown);
+        return Some(WindowEventFilter::MouseDown);
     }
 
     if current_window_state.mouse_state.left_down && !previous_window_state.mouse_state.left_down {
-        events_vec.insert(WindowEventFilter::LeftMouseDown);
+        return Some(WindowEventFilter::LeftMouseDown);
     }
 
     if current_window_state.mouse_state.right_down && !previous_window_state.mouse_state.right_down {
-        events_vec.insert(WindowEventFilter::RightMouseDown);
+        return Some(WindowEventFilter::RightMouseDown);
     }
 
     if current_window_state.mouse_state.middle_down && !previous_window_state.mouse_state.middle_down {
-        events_vec.insert(WindowEventFilter::MiddleMouseDown);
+        return Some(WindowEventFilter::MiddleMouseDown);
     }
 
     if previous_window_state.mouse_state.mouse_down() && !current_window_state.mouse_state.mouse_down() {
-        events_vec.insert(WindowEventFilter::MouseUp);
+        return Some(WindowEventFilter::MouseUp);
     }
 
     if previous_window_state.mouse_state.left_down && !current_window_state.mouse_state.left_down {
-        events_vec.insert(WindowEventFilter::LeftMouseUp);
+        return Some(WindowEventFilter::LeftMouseUp);
     }
 
     if previous_window_state.mouse_state.right_down && !current_window_state.mouse_state.right_down {
-        events_vec.insert(WindowEventFilter::RightMouseUp);
+        return Some(WindowEventFilter::RightMouseUp);
     }
 
     if previous_window_state.mouse_state.middle_down && !current_window_state.mouse_state.middle_down {
-        events_vec.insert(WindowEventFilter::MiddleMouseUp);
+        return Some(WindowEventFilter::MiddleMouseUp);
+    }
+
+    // resize, move, close events
+
+    if current_window_state.flags.has_focus != previous_window_state.flags.has_focus {
+        if current_window_state.flags.has_focus {
+            return Some(WindowEventFilter::FocusReceived);
+        } else {
+            return Some(WindowEventFilter::FocusLost);
+        }
+    }
+
+    if current_window_state.size.dimensions != previous_window_state.size.dimensions ||
+       current_window_state.size.hidpi_factor != previous_window_state.size.hidpi_factor ||
+       current_window_state.size.system_hidpi_factor != previous_window_state.size.system_hidpi_factor {
+        return Some(WindowEventFilter::Resized);
+    }
+
+    match (current_window_state.position, previous_window_state.position) {
+        (WindowPosition::Initialized(cur_pos), WindowPosition::Initialized(prev_pos)) => {
+            if prev_pos != cur_pos {
+                return Some(WindowEventFilter::Moved);
+            }
+        },
+        (WindowPosition::Initialized(_), WindowPosition::Uninitialized) => {
+            return Some(WindowEventFilter::Moved);
+        },
+        _ => { }
+    }
+
+    if current_window_state.flags.is_about_to_close {
+        return Some(WindowEventFilter::CloseRequested);
     }
 
     // scroll events
@@ -1022,56 +1041,56 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
         current_window_state.mouse_state.scroll_y.is_some();
 
     if !is_scroll_previous && is_scroll_now {
-        events_vec.insert(WindowEventFilter::ScrollStart);
+        return Some(WindowEventFilter::ScrollStart);
     }
 
     if is_scroll_now {
-        events_vec.insert(WindowEventFilter::Scroll);
+        return Some(WindowEventFilter::Scroll);
     }
 
     if is_scroll_previous && !is_scroll_now {
-        events_vec.insert(WindowEventFilter::ScrollEnd);
+        return Some(WindowEventFilter::ScrollEnd);
     }
 
     // keyboard events
 
     if previous_window_state.keyboard_state.current_virtual_keycode.is_none() && current_window_state.keyboard_state.current_virtual_keycode.is_some() {
-        events_vec.insert(WindowEventFilter::VirtualKeyDown);
+        return Some(WindowEventFilter::VirtualKeyDown);
     }
 
     if current_window_state.keyboard_state.current_char.is_some() {
-        events_vec.insert(WindowEventFilter::TextInput);
+        return Some(WindowEventFilter::TextInput);
     }
 
     if previous_window_state.keyboard_state.current_virtual_keycode.is_some() && current_window_state.keyboard_state.current_virtual_keycode.is_none() {
-        events_vec.insert(WindowEventFilter::VirtualKeyUp);
+        return Some(WindowEventFilter::VirtualKeyUp);
     }
 
     // misc events
 
     if previous_window_state.hovered_file.is_none() && current_window_state.hovered_file.is_some() {
-        events_vec.insert(WindowEventFilter::HoveredFile);
+        return Some(WindowEventFilter::HoveredFile);
     }
 
     if previous_window_state.hovered_file.is_some() && current_window_state.hovered_file.is_none() {
         if current_window_state.dropped_file.is_some() {
-            events_vec.insert(WindowEventFilter::DroppedFile);
+            return Some(WindowEventFilter::DroppedFile);
         } else {
-            events_vec.insert(WindowEventFilter::HoveredFileCancelled);
+            return Some(WindowEventFilter::HoveredFileCancelled);
         }
     }
 
     if current_window_state.theme != previous_window_state.theme {
-        events_vec.insert(WindowEventFilter::ThemeChanged);
+        return Some(WindowEventFilter::ThemeChanged);
     }
 
-    events_vec
+    None
 }
 
-fn get_hover_events(input: &BTreeSet<WindowEventFilter>) -> BTreeSet<HoverEventFilter> {
-    input.iter().filter_map(|window_event| window_event.to_hover_event_filter()).collect()
+fn get_hover_event(input: &Option<WindowEventFilter>) -> Option<HoverEventFilter> {
+    input.as_ref().and_then(|window_event| window_event.to_hover_event_filter())
 }
 
-fn get_focus_events(input: &BTreeSet<HoverEventFilter>) -> BTreeSet<FocusEventFilter> {
-    input.iter().filter_map(|hover_event| hover_event.to_focus_event_filter()).collect()
+fn get_focus_event(input: &Option<HoverEventFilter>) -> Option<FocusEventFilter> {
+    input.as_ref().and_then(|hover_event| hover_event.to_focus_event_filter())
 }
