@@ -3952,6 +3952,7 @@ mod dll {
         pub tag_id: AzTagId,
         pub node_id: AzNodeId,
         pub tab_index: AzOptionTabIndex,
+        pub parents: AzNodeIdVec,
     }
     /// Re-export of rust-allocated (stack based) `Texture` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTexture {

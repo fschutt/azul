@@ -4111,7 +4111,8 @@
                     "struct_fields": [
                         {"tag_id": {"type": "TagId"}},
                         {"node_id": {"type": "NodeId"}},
-                        {"tab_index": {"type": "OptionTabIndex"}}
+                        {"tab_index": {"type": "OptionTabIndex"}},
+                        {"parents": {"type": "NodeIdVec"}}
                     ]
                 },
                 "ParentWithNodeDepth": {

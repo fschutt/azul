@@ -700,10 +700,7 @@ impl LayoutResult {
         cursor.x /= hidpi_factor;
         cursor.y /= hidpi_factor;
 
-        // TODO: SIMD-optimize!
-        let css_property_cache = self.styled_dom.get_css_property_cache();
-        let node_data = &self.styled_dom.node_data.as_container();
-        let styled_nodes = &self.styled_dom.styled_nodes.as_container();
+        let transform_value_cache = &self.gpu_value_cache.current_transform_values;
 
         // insert the regular hit items
         let regular_hit_test_nodes =
@@ -713,54 +710,23 @@ impl LayoutResult {
         .filter_map(|t| {
 
             let node_id = t.node_id.into_crate_internal()?;
+
             let logical_offset = self.rects.as_ref()[node_id].get_logical_static_offset();
             let logical_size = self.rects.as_ref()[node_id].size;
             let logical_rect = LogicalRect::new(logical_offset, logical_size);
 
-            // Traverse up the tree and  calculate the transformation matrix of
-            // this rect, then transform the point into the current coordinate space
-            let mut transform = ComputedTransform3D::IDENTITY;
-            let mut node = Some(node_id);
-
-            while let Some(p) = node {
-
-                // Go from the root and calculate the transformation matrix of this rect
-                // Then transform the point into the current coordinate space
-                let parent_transform = css_property_cache
-                .get_transform(&node_data[p], &p, &styled_nodes[p].state)
-                .and_then(|t| t.get_property())
-                .map(|transform_vec| {
-
-                    let parent_size = self.rects.as_ref()[p].size;
-
-                    let transform_origin = css_property_cache
-                    .get_transform_origin(&node_data[p], &p, &styled_nodes[p].state)
-                    .and_then(|t| t.get_property())
-                    .cloned()
-                    .unwrap_or_default();
-
-                    ComputedTransform3D::from_style_transform_vec(
-                        transform_vec.as_ref(),
-                        &transform_origin,
-                        parent_size.width,
-                        parent_size.height,
-                        RotationMode::ForHitTesting,
-                    )
-                });
-
-                if let Some(parent) = parent_transform {
-                    transform = transform.then(&parent);
-                }
-
-                if let Some(parent) = self.styled_dom.node_hierarchy.as_container()[p].parent_id() {
-                    node = Some(parent);
-                } else {
-                    break;
+            // Go from the root node to the current node and apply all transform values if necessary
+            let mut cursor_projected = cursor;
+            for parent_id in t.parent_node_ids.as_ref().iter() {
+                if let Some(parent_transform) = parent_id.into_crate_internal().and_then(|p| transform_value_cache.get(&p)) {
+                    cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
                 }
             }
 
-            // project the cursor into the coordinate space of the target rect
-            let cursor_projected = transform.transform_point2d(cursor).unwrap_or(cursor);
+            // apply the transform of the current node itself if there is any
+            if let Some(node_transform) = transform_value_cache.get(&node_id) {
+                cursor_projected = node_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
+            }
 
             // TODO: If the item is a scroll rect, then also unproject
             // the scroll transform!

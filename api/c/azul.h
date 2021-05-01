@@ -7180,6 +7180,7 @@ struct AzTagIdToNodeIdMapping {
     AzTagId tag_id;
     AzNodeId node_id;
     AzOptionTabIndex tab_index;
+    AzNodeIdVec parents;
 };
 typedef struct AzTagIdToNodeIdMapping AzTagIdToNodeIdMapping;
 

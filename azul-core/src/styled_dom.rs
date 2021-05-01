@@ -473,6 +473,16 @@ impl CssPropertyCache {
                     tag_id: AzTagId::from_crate_internal(TagId::unique()),
                     node_id: AzNodeId::from_crate_internal(Some(node_id)),
                     tab_index: tab_index.into(),
+                    parent_node_ids: {
+                        let mut parents = Vec::new();
+                        let mut cur_parent = node_hierarchy.as_container()[node_id].parent_id();
+                        while let Some(c) = cur_parent.clone() {
+                            parents.push(AzNodeId::from_crate_internal(Some(c)));
+                            cur_parent = node_hierarchy.as_container()[c].parent_id();
+                        }
+                        parents.reverse(); // parents sorted in depth-increasing order
+                        parents.into()
+                    },
                 })
             }
         })
@@ -1058,6 +1068,9 @@ impl_option!(AzNodeId, OptionNodeId, [Debug, Copy, Clone, PartialEq, Eq, Partial
 
 impl_vec!(AzNodeId, NodeIdVec, NodeIdVecDestructor);
 impl_vec_debug!(AzNodeId, NodeIdVec);
+impl_vec_ord!(AzNodeId, NodeIdVec);
+impl_vec_eq!(AzNodeId, NodeIdVec);
+impl_vec_hash!(AzNodeId, NodeIdVec);
 impl_vec_partialord!(AzNodeId, NodeIdVec);
 impl_vec_clone!(AzNodeId, NodeIdVec, NodeIdVecDestructor);
 impl_vec_partialeq!(AzNodeId, NodeIdVec);
@@ -1157,13 +1170,17 @@ impl_vec_partialeq!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 
 
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
 #[repr(C)]
 pub struct TagIdToNodeIdMapping {
-    // Hit-testing tag
+    // Hit-testing tag ID (not all nodes have a tag, only nodes that are hit-testable)
     pub tag_id: AzTagId,
+    /// Node ID of the node that has a tag
     pub node_id: AzNodeId,
+    /// Whether this node has a tab-index field
     pub tab_index: OptionTabIndex,
+    /// Parents of this NodeID, sorted in depth order, necessary for efficient hit-testing
+    pub parent_node_ids: NodeIdVec,
 }
 
 impl_vec!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec, TagIdToNodeIdMappingVecDestructor);
