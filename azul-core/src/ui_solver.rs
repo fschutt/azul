@@ -1,4 +1,8 @@
 use core::fmt;
+#[cfg(target_arch = "x86_64")]
+use core::arch::x86_64::__m256;
+use core::sync::atomic::Ordering as AtomicOrdering;
+use core::sync::atomic::AtomicBool;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 use azul_css::{
@@ -19,6 +23,10 @@ use crate::{
     callbacks::{PipelineId, HitTestItem, ScrollHitTestItem},
     window::{ScrollStates, LogicalPosition, LogicalRect, LogicalSize},
 };
+
+static INITIALIZED: AtomicBool = AtomicBool::new(false);
+static USE_AVX: AtomicBool = AtomicBool::new(false);
+static USE_SSE: AtomicBool = AtomicBool::new(false);
 
 pub const DEFAULT_FONT_SIZE_PX: isize = 16;
 pub const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize { inner: PixelValue::const_px(DEFAULT_FONT_SIZE_PX) };
@@ -581,6 +589,22 @@ impl GpuValueCache {
 
         let default_transform_origin = StyleTransformOrigin::default();
 
+        #[cfg(target_arch = "x86_64")] unsafe {
+            if !INITIALIZED.load(AtomicOrdering::SeqCst) {
+                use core::arch::x86_64::__cpuid;
+
+                let mut cpuid = __cpuid(0);
+                let n_ids = cpuid.eax;
+
+                if n_ids > 0 { // cpuid instruction is present
+                    cpuid = __cpuid(1);
+                    USE_SSE.store((cpuid.edx & (1_u32 << 25)) != 0, AtomicOrdering::SeqCst);
+                    USE_AVX.store((cpuid.ecx & (1_u32 << 28)) != 0, AtomicOrdering::SeqCst);
+                }
+                INITIALIZED.store(true, AtomicOrdering::SeqCst);
+            }
+        }
+
         // calculate the transform values of every single node that has a non-default transform
         let all_current_transform_events = (0..styled_dom.node_data.len())
         .into_par_iter()
@@ -588,7 +612,9 @@ impl GpuValueCache {
             let node_id = NodeId::new(node_id);
             let styled_node_state = &node_states[node_id].state;
             let node_data = &node_data[node_id];
-            let current_transform = css_property_cache.get_transform(node_data, &node_id, styled_node_state)?.get_property().map(|t| {
+            let current_transform = css_property_cache
+            .get_transform(node_data, &node_id, styled_node_state)?
+            .get_property().map(|t| {
 
                 let parent_size = positioned_rects[node_id].size;
                 let transform_origin = css_property_cache.get_transform_origin(node_data, &node_id, styled_node_state);
@@ -605,6 +631,7 @@ impl GpuValueCache {
                     RotationMode::ForWebRender,
                 )
             });
+
             let existing_transform = self.current_transform_values.get(&node_id);
 
             match (existing_transform, current_transform) {
@@ -712,6 +739,8 @@ impl LayoutResult {
             None => return HitTest::empty(),
         };
 
+        let rect_container = self.rects.as_ref();
+
         // insert the regular hit items
         let regular_hit_test_nodes =
         self.styled_dom.tag_ids_to_node_ids
@@ -721,9 +750,9 @@ impl LayoutResult {
 
             let node_id = t.node_id.into_crate_internal()?;
 
-            let logical_offset = self.rects.as_ref()[node_id].get_logical_static_offset();
+            // let logical_offset = self.rects.as_ref()[node_id].get_logical_static_offset();
             let logical_size = self.rects.as_ref()[node_id].size;
-            let logical_rect = LogicalRect::new(logical_offset, logical_size);
+            let logical_rect = LogicalRect::new(LogicalPosition::new(0.0, 0.0), logical_size);
 
             // Go from the root node to the current node and apply all transform values if necessary
             let mut cursor_projected = cursor;
@@ -737,22 +766,22 @@ impl LayoutResult {
                 };
 
                 // Now transform the cursor into the space of the new rectangle
-                match self.rects.as_ref()[parent_id].position {
+                match rect_container[parent_id].position {
                     PositionInfo::Static { x_offset, y_offset, .. } => {
+                        cursor_projected.x -= x_offset;
+                        cursor_projected.y -= y_offset;
                         if let Some(parent_transform) = transform_value_cache.get(&parent_id) {
                             cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
                         }
-                        cursor_projected.x -= x_offset;
-                        cursor_projected.y -= y_offset;
                     },
                     PositionInfo::Fixed { x_offset, y_offset, .. } => {
                         cursor_projected = cursor; // reset to window space
                         last_positioned_node = root;
+                        cursor_projected.x -= x_offset;
+                        cursor_projected.x -= y_offset;
                         if let Some(parent_transform) = transform_value_cache.get(&root) {
                             cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
                         }
-                        cursor_projected.x -= x_offset;
-                        cursor_projected.x -= y_offset;
                     },
                     PositionInfo::Absolute { x_offset, y_offset, .. } => {
                         // TODO!
@@ -763,17 +792,35 @@ impl LayoutResult {
                     },
                     PositionInfo::Relative { x_offset, y_offset, .. } => {
                         // same as static, but modifies last_positioned_node
-                        if let Some(parent_transform) = transform_value_cache.get(&parent_id) {
-                            cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
-                        }
                         cursor_projected.x -= x_offset;
                         cursor_projected.y -= y_offset;
                         last_positioned_node = parent_id;
+                        if let Some(parent_transform) = transform_value_cache.get(&parent_id) {
+                            cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
+                        }
                     },
                 }
             }
 
             // apply the transform of the current node itself if there is any
+            match rect_container[node_id].position {
+                PositionInfo::Static { x_offset, y_offset, .. } => {
+                    cursor_projected.x -= x_offset;
+                    cursor_projected.y -= y_offset;
+                },
+                PositionInfo::Fixed { x_offset, y_offset, .. } => {
+                    cursor_projected.x -= x_offset;
+                    cursor_projected.y -= y_offset;
+                },
+                PositionInfo::Absolute { x_offset, y_offset, .. } => {
+                    cursor_projected.x -= x_offset;
+                    cursor_projected.y -= y_offset;
+                },
+                PositionInfo::Relative { x_offset, y_offset, .. } => {
+                    cursor_projected.x -= x_offset;
+                    cursor_projected.y -= y_offset;
+                },
+            }
             if let Some(node_transform) = transform_value_cache.get(&node_id) {
                 cursor_projected = node_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
             }
@@ -788,7 +835,7 @@ impl LayoutResult {
                     point_in_viewport: cursor,
                     point_relative_to_item: relative_to_item,
                     is_iframe_hit: self.iframe_mapping.get(&node_id).map(|iframe_dom_id| {
-                        (*iframe_dom_id, logical_offset)
+                        (*iframe_dom_id, relative_to_item)
                     }),
                     is_focusable: self.styled_dom.node_data.as_container()[node_id].get_tab_index().into_option().is_some(),
                 })
@@ -1169,7 +1216,7 @@ pub enum RotationMode {
 
 /// Computed transform of pixels in pixel space, optimized
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-#[repr(packed)]
+#[repr(C)]
 pub struct ComputedTransform3D {
     pub m:[[f32;4];4]
 }
@@ -1226,14 +1273,40 @@ impl ComputedTransform3D {
         // TODO: use correct SIMD optimization!
         let mut matrix = Self::IDENTITY;
 
-        for t in t_vec.iter() {
-            matrix = matrix.then(&Self::from_style_transform(
-                t,
-                transform_origin,
-                percent_resolve_x,
-                percent_resolve_y,
-                rotation_mode,
-            ));
+        if INITIALIZED.load(AtomicOrdering::SeqCst) && USE_AVX.load(AtomicOrdering::SeqCst) {
+            for t in t_vec.iter() {
+                unsafe {
+                    matrix = matrix.then_avx8(&Self::from_style_transform(
+                        t,
+                        transform_origin,
+                        percent_resolve_x,
+                        percent_resolve_y,
+                        rotation_mode,
+                    ));
+                }
+            }
+        } else if INITIALIZED.load(AtomicOrdering::SeqCst) && USE_SSE.load(AtomicOrdering::SeqCst) {
+            for t in t_vec.iter() {
+                unsafe {
+                    matrix = matrix.then_sse(&Self::from_style_transform(
+                        t,
+                        transform_origin,
+                        percent_resolve_x,
+                        percent_resolve_y,
+                        rotation_mode,
+                    ));
+                }
+            }
+        } else {
+            for t in t_vec.iter() {
+                matrix = matrix.then(&Self::from_style_transform(
+                    t,
+                    transform_origin,
+                    percent_resolve_x,
+                    percent_resolve_y,
+                    rotation_mode,
+                ));
+            }
         }
 
         matrix
@@ -1479,6 +1552,7 @@ impl ComputedTransform3D {
 
     /// Computes the sum of two matrices while applying `other` AFTER the current matrix.
     #[must_use]
+    #[inline]
     pub fn then(&self, other: &Self) -> Self {
         Self::new(
             self.m[0][0].mul_add(other.m[0][0], self.m[0][1].mul_add(other.m[1][0], self.m[0][2].mul_add(other.m[2][0], self.m[0][3] * other.m[3][0]))),
@@ -1503,17 +1577,85 @@ impl ComputedTransform3D {
         )
     }
 
-    /*
+    // credit: https://gist.github.com/rygorous/4172889
 
+    // linear combination:
+    // a[0] * B.row[0] + a[1] * B.row[1] + a[2] * B.row[2] + a[3] * B.row[3]
+    #[cfg(target_arch = "x86_64")]
     #[inline]
-    #[must_use]
-    pub unsafe fn then_sse(&self, x: f32) -> Self { }
+    unsafe fn linear_combine_sse(a: [f32;4], b: &ComputedTransform3D) -> [f32;4] {
+
+        use core::arch::x86_64::__m128;
+        use core::arch::x86_64::{_mm_mul_ps, _mm_shuffle_ps, _mm_add_ps};
+        use core::mem;
+
+        let a: __m128 = mem::transmute(a);
+        let mut result = _mm_mul_ps(_mm_shuffle_ps(a, a, 0x00), mem::transmute(b.m[0]));
+        result = _mm_add_ps(result, _mm_mul_ps(_mm_shuffle_ps(a, a, 0x55), mem::transmute(b.m[1])));
+        result = _mm_add_ps(result, _mm_mul_ps(_mm_shuffle_ps(a, a, 0xaa), mem::transmute(b.m[2])));
+        result = _mm_add_ps(result, _mm_mul_ps(_mm_shuffle_ps(a, a, 0xff), mem::transmute(b.m[3])));
+
+        mem::transmute(result)
+    }
+
+    #[cfg(target_arch = "x86_64")]
     #[inline]
-    #[must_use]
-    pub unsafe fn then_avx4(&self, x: f32) -> Self { }
+    pub unsafe fn then_sse(&self, other: &Self) -> Self {
+        Self {
+            m: [
+                Self::linear_combine_sse(self.m[0], other),
+                Self::linear_combine_sse(self.m[1], other),
+                Self::linear_combine_sse(self.m[2], other),
+                Self::linear_combine_sse(self.m[3], other),
+            ]
+        }
+    }
+
+    // dual linear combination using AVX instructions on YMM regs
+    #[cfg(target_arch = "x86_64")]
+    pub unsafe fn linear_combine_avx8(a01: __m256, b: &ComputedTransform3D) -> __m256 {
+
+        use core::arch::x86_64::{_mm256_add_ps, _mm256_mul_ps, _mm256_shuffle_ps, _mm256_broadcast_ps};
+        use core::mem;
+
+        let mut result = _mm256_mul_ps(_mm256_shuffle_ps(a01, a01, 0x00), _mm256_broadcast_ps(mem::transmute(&b.m[0])));
+        result = _mm256_add_ps(result, _mm256_mul_ps(_mm256_shuffle_ps(a01, a01, 0x55), _mm256_broadcast_ps(mem::transmute(&b.m[1]))));
+        result = _mm256_add_ps(result, _mm256_mul_ps(_mm256_shuffle_ps(a01, a01, 0xaa), _mm256_broadcast_ps(mem::transmute(&b.m[2]))));
+        result = _mm256_add_ps(result, _mm256_mul_ps(_mm256_shuffle_ps(a01, a01, 0xff), _mm256_broadcast_ps(mem::transmute(&b.m[3]))));
+        result
+    }
+
+    #[cfg(target_arch = "x86_64")]
     #[inline]
-    #[must_use]
-    pub unsafe fn then_avx8(&self, x: f32) -> Self { }
+    pub unsafe fn then_avx8(&self, other: &Self) -> Self {
+
+        use core::arch::x86_64::{_mm256_zeroupper, _mm256_loadu_ps, _mm256_storeu_ps};
+        use core::mem;
+
+        _mm256_zeroupper();
+
+        let a01: __m256 = _mm256_loadu_ps(mem::transmute(&self.m[0][0]));
+        let a23: __m256 = _mm256_loadu_ps(mem::transmute(&self.m[2][0]));
+
+        let out01x = Self::linear_combine_avx8(a01, other);
+        let out23x = Self::linear_combine_avx8(a23, other);
+
+        let mut out = Self {
+            m: [
+                self.m[0],
+                self.m[1],
+                self.m[2],
+                self.m[3],
+            ],
+        };
+
+        _mm256_storeu_ps(mem::transmute(&mut out.m[0][0]), out01x);
+        _mm256_storeu_ps(mem::transmute(&mut out.m[2][0]), out23x);
+
+        out
+    }
+
+    /*
 
     #[inline]
     #[must_use]
