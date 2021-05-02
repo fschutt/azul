@@ -562,8 +562,16 @@ pub struct RelayoutChanges {
 }
 
 impl RelayoutChanges {
+    pub const EMPTY: RelayoutChanges = RelayoutChanges {
+        resized_nodes: Vec::new(),
+        gpu_key_changes: GpuEventChanges {
+            transform_key_changes: Vec::new(),
+            opacity_key_changes: Vec::new(),
+        }
+    };
+
     pub fn empty() -> Self {
-        Self::default()
+        Self::EMPTY.clone()
     }
 }
 

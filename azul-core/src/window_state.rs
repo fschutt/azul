@@ -298,15 +298,15 @@ pub type RelayoutWords = BTreeMap<NodeId, AzString>;
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleAndLayoutChanges {
     /// Changes that were made to style properties of nodes
-    pub style_changes: BTreeMap<DomId, RestyleNodes>,
+    pub style_changes: Option<BTreeMap<DomId, RestyleNodes>>,
     /// Changes that were made to layout properties of nodes
-    pub layout_changes: BTreeMap<DomId, RelayoutNodes>,
+    pub layout_changes: Option<BTreeMap<DomId, RelayoutNodes>>,
     /// Whether the focus has actually changed
     pub focus_change: Option<FocusChange>,
     /// Used to call `On::Resize` handlers
-    pub nodes_that_changed_size: BTreeMap<DomId, Vec<NodeId>>,
+    pub nodes_that_changed_size: Option<BTreeMap<DomId, Vec<NodeId>>>,
     /// Changes to the text content
-    pub nodes_that_changed_text_content: BTreeMap<DomId, Vec<NodeId>>,
+    pub nodes_that_changed_text_content: Option<BTreeMap<DomId, Vec<NodeId>>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -322,8 +322,8 @@ pub type RelayoutFn = fn(
     &ImageCache,
     &mut RendererResources,
     &PipelineId,
-    &RelayoutNodes,
-    &RelayoutWords,
+    Option<&RelayoutNodes>,
+    Option<&RelayoutWords>,
 ) -> RelayoutChanges;
 
 impl StyleAndLayoutChanges {
@@ -345,21 +345,19 @@ impl StyleAndLayoutChanges {
 
         // immediately restyle the DOM to reflect the new :hover, :active and :focus nodes
         // and determine if the DOM needs a redraw or a relayout
-        let mut style_changes = BTreeMap::new();
-        let mut layout_changes = BTreeMap::new();
+        let mut style_changes = None;
+        let mut layout_changes = None;
 
         let is_mouse_down = nodes.current_window_state_mouse_is_down;
-        let nodes_that_changed_text_content = if let Some(word_changes) = word_changes {
+        let nodes_that_changed_text_content = word_changes.and_then(|word_changes| {
             if word_changes.is_empty() {
-                BTreeMap::new()
+                None
             } else {
-                word_changes.iter()
+                Some(word_changes.iter()
                 .map(|(dom_id, m)| (*dom_id, m.keys().cloned().collect()))
-                .collect()
+                .collect())
             }
-        } else {
-            BTreeMap::new()
-        };
+        });
 
         macro_rules! insert_props {($dom_id:expr, $prop_map:expr) => {{
             let dom_id: DomId = $dom_id;
@@ -368,11 +366,13 @@ impl StyleAndLayoutChanges {
                     let prop_key = changed_prop.previous_prop.get_type();
                     if prop_key.can_trigger_relayout() {
                         layout_changes
+                        .get_or_insert_with(|| BTreeMap::new())
                         .entry(dom_id).or_insert_with(|| BTreeMap::new())
                         .entry(node_id).or_insert_with(|| Vec::new())
                         .push(changed_prop);
                     } else {
                         style_changes
+                        .get_or_insert_with(|| BTreeMap::new())
                         .entry(dom_id).or_insert_with(|| BTreeMap::new())
                         .entry(node_id).or_insert_with(|| Vec::new())
                         .push(changed_prop);
@@ -441,15 +441,16 @@ impl StyleAndLayoutChanges {
             }
         }
 
-        let mut nodes_that_changed_size = BTreeMap::new(); // TODO: avoid allocation
-        let mut gpu_key_change_events = BTreeMap::new(); // TODO: avoid allocation
+        let mut nodes_that_changed_size = None;
+        let mut gpu_key_change_events = None;
 
         // recursively relayout if there are layout_changes or the window size has changed
         let window_was_resized = window_size != layout_results[DomId::ROOT_ID.inner].root_size;
-        let mut doms_to_relayout = if layout_changes.is_empty() && !window_was_resized { Vec::new() } else { vec![DomId::ROOT_ID] };
-
-        let default_layout_changes = BTreeMap::new(); // TODO: avoid allocation
-        let default_word_changes = BTreeMap::new(); // TODO: avoid allocation
+        let mut doms_to_relayout = if layout_changes.is_none() && !window_was_resized {
+            Vec::new()
+        } else {
+            vec![DomId::ROOT_ID]
+        };
 
         loop {
             let mut new_iframes_to_relayout = Vec::new();
@@ -465,8 +466,8 @@ impl StyleAndLayoutChanges {
                     }
                 };
 
-                let layout_changes = layout_changes.get(&dom_id).unwrap_or(&default_layout_changes);
-                let word_changes = word_changes.and_then(|w| w.get(&dom_id)).unwrap_or(&default_word_changes);
+                let layout_changes = layout_changes.as_ref().and_then(|w| w.get(&dom_id));
+                let word_changes = word_changes.and_then(|w| w.get(&dom_id));
 
                 // TODO: avoid allocation
                 let RelayoutChanges {
@@ -483,7 +484,9 @@ impl StyleAndLayoutChanges {
                 );
 
                 if gpu_key_changes.is_empty() {
-                    gpu_key_change_events.insert(dom_id, gpu_key_changes);
+                    gpu_key_change_events
+                    .get_or_insert_with(|| BTreeMap::new())
+                    .insert(dom_id, gpu_key_changes);
                 }
 
                 if !resized_nodes.is_empty() {
@@ -491,7 +494,9 @@ impl StyleAndLayoutChanges {
                     .filter_map(|(node_id, dom_id)| {
                         if resized_nodes.contains(node_id) { Some(dom_id) } else { None }
                     }));
-                    nodes_that_changed_size.insert(dom_id, resized_nodes);
+                    nodes_that_changed_size
+                    .get_or_insert_with(|| BTreeMap::new())
+                    .insert(dom_id, resized_nodes);
                 }
             }
 
@@ -513,25 +518,29 @@ impl StyleAndLayoutChanges {
 
     // Note: this can be false in case that only opacity: / transform: properties changed!
     pub fn need_regenerate_display_list(&self) -> bool {
-        if !self.nodes_that_changed_size.is_empty() { return true; }
-        if !self.nodes_that_changed_text_content.is_empty() { return true; }
+        if !self.nodes_that_changed_size.is_none() { return true; }
+        if !self.nodes_that_changed_text_content.is_none() { return true; }
         if !self.need_redraw() { return false; }
 
         // is_gpu_only_property = is the changed CSS property an opacity /
         // transform / rotate property (which doesn't require to regenerate the display list)
-        !(self.style_changes.iter().all(|(_, restyle_nodes)| {
-            restyle_nodes.iter().all(|(_, changed_css_properties)| {
-                changed_css_properties.iter().all(|changed_prop| changed_prop.current_prop.get_type().is_gpu_only_property())
-            })
-        }))
+        if let Some(style_changes) = self.style_changes.as_ref() {
+            !(style_changes.iter().all(|(_, restyle_nodes)| {
+                restyle_nodes.iter().all(|(_, changed_css_properties)| {
+                    changed_css_properties.iter().all(|changed_prop| changed_prop.current_prop.get_type().is_gpu_only_property())
+                })
+            }))
+        } else {
+            false
+        }
     }
 
     pub fn need_redraw(&self) -> bool {
         !(
-          self.style_changes.is_empty() &&
-          self.layout_changes.is_empty() &&
-          self.nodes_that_changed_text_content.is_empty() &&
-          self.nodes_that_changed_size.is_empty()
+          self.style_changes.is_none() &&
+          self.layout_changes.is_none() &&
+          self.nodes_that_changed_text_content.is_none() &&
+          self.nodes_that_changed_size.is_none()
         )
     }
 }
