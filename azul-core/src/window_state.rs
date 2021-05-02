@@ -337,8 +337,8 @@ impl StyleAndLayoutChanges {
         renderer_resources: &mut RendererResources,
         window_size: LayoutSize,
         pipeline_id: &PipelineId,
-        css_changes: &BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
-        word_changes: &BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
+        css_changes: Option<&BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>>,
+        word_changes: Option<&BTreeMap<DomId, BTreeMap<NodeId, AzString>>>,
         callbacks_new_focus: &Option<Option<DomNodeId>>,
         relayout_cb: RelayoutFn,
     ) -> StyleAndLayoutChanges {
@@ -349,12 +349,16 @@ impl StyleAndLayoutChanges {
         let mut layout_changes = BTreeMap::new();
 
         let is_mouse_down = nodes.current_window_state_mouse_is_down;
-        let nodes_that_changed_text_content = if word_changes.is_empty() {
-            BTreeMap::new()
+        let nodes_that_changed_text_content = if let Some(word_changes) = word_changes {
+            if word_changes.is_empty() {
+                BTreeMap::new()
+            } else {
+                word_changes.iter()
+                .map(|(dom_id, m)| (*dom_id, m.keys().cloned().collect()))
+                .collect()
+            }
         } else {
-            word_changes.iter()
-            .map(|(dom_id, m)| (*dom_id, m.keys().cloned().collect()))
-            .collect()
+            BTreeMap::new()
         };
 
         macro_rules! insert_props {($dom_id:expr, $prop_map:expr) => {{
@@ -426,12 +430,14 @@ impl StyleAndLayoutChanges {
         };
 
         // restyle all the nodes according to the existing_changed_styles
-        for (dom_id, existing_changes_map) in css_changes.iter() {
-            let layout_result = &mut layout_results[dom_id.inner];
-            let dom_id: DomId = *dom_id;
-            for (node_id, changed_css_property_vec) in existing_changes_map.iter() {
-                let current_prop_changes = layout_result.styled_dom.restyle_user_property(node_id, &changed_css_property_vec);
-                insert_props!(dom_id, current_prop_changes);
+        if let Some(css_changes) = css_changes {
+            for (dom_id, existing_changes_map) in css_changes.iter() {
+                let layout_result = &mut layout_results[dom_id.inner];
+                let dom_id: DomId = *dom_id;
+                for (node_id, changed_css_property_vec) in existing_changes_map.iter() {
+                    let current_prop_changes = layout_result.styled_dom.restyle_user_property(node_id, &changed_css_property_vec);
+                    insert_props!(dom_id, current_prop_changes);
+                }
             }
         }
 
@@ -441,6 +447,9 @@ impl StyleAndLayoutChanges {
         // recursively relayout if there are layout_changes or the window size has changed
         let window_was_resized = window_size != layout_results[DomId::ROOT_ID.inner].root_size;
         let mut doms_to_relayout = if layout_changes.is_empty() && !window_was_resized { Vec::new() } else { vec![DomId::ROOT_ID] };
+
+        let default_layout_changes = BTreeMap::new(); // TODO: avoid allocation
+        let default_word_changes = BTreeMap::new(); // TODO: avoid allocation
 
         loop {
             let mut new_iframes_to_relayout = Vec::new();
@@ -456,10 +465,8 @@ impl StyleAndLayoutChanges {
                     }
                 };
 
-                let default_layout_changes = BTreeMap::new(); // TODO: avoid allocation
                 let layout_changes = layout_changes.get(&dom_id).unwrap_or(&default_layout_changes);
-                let default_word_changes = BTreeMap::new(); // TODO: avoid allocation
-                let word_changes = word_changes.get(&dom_id).unwrap_or(&default_word_changes);
+                let word_changes = word_changes.and_then(|w| w.get(&dom_id)).unwrap_or(&default_word_changes);
 
                 // TODO: avoid allocation
                 let RelayoutChanges {
@@ -687,15 +694,15 @@ impl CallbacksOfHitTest {
         let mut ret = CallCallbacksResult {
             should_scroll_render: false,
             callbacks_update_screen: UpdateScreen::DoNothing,
-            modified_window_state: full_window_state.clone().into(),
-            css_properties_changed: BTreeMap::new(), // TODO: avoid allocation!
-            words_changed: BTreeMap::new(), // TODO: avoid allocation!
-            images_changed: BTreeMap::new(), // TODO: avoid allocation!
-            image_masks_changed: BTreeMap::new(), // TODO: avoid allocation!
-            nodes_scrolled_in_callbacks: BTreeMap::new(), // TODO: avoid allocation!
+            modified_window_state: None,
+            css_properties_changed: None,
+            words_changed: None,
+            images_changed: None,
+            image_masks_changed: None,
+            nodes_scrolled_in_callbacks: None,
             update_focused_node: None,
-            timers: FastHashMap::new(), // TODO: avoid allocation!
-            threads: FastHashMap::new(), // TODO: avoid allocation!
+            timers: None,
+            threads: None,
             windows_created: Vec::new(),
             cursor_changed: false,
         };
@@ -704,8 +711,18 @@ impl CallbacksOfHitTest {
         let current_cursor = full_window_state.mouse_state.mouse_cursor_type.clone();
 
         if self.nodes_with_callbacks.is_empty() {
+            // common case
             return ret;
         }
+
+        let mut ret_modified_window_state = full_window_state.clone().into();
+        let mut ret_timers = FastHashMap::new();
+        let mut ret_threads = FastHashMap::new();
+        let mut ret_words_changed = BTreeMap::new();
+        let mut ret_images_changed = BTreeMap::new();
+        let mut ret_image_masks_changed = BTreeMap::new();
+        let mut ret_css_properties_changed = BTreeMap::new();
+        let mut ret_nodes_scrolled_in_callbacks = BTreeMap::new();
 
         {
 
@@ -762,12 +779,12 @@ impl CallbacksOfHitTest {
                         let callback_info = CallbackInfo::new(
                             /*previous_window_state:*/ &previous_window_state,
                             /*current_window_state:*/ &full_window_state,
-                            /*modifiable_window_state:*/ &mut ret.modified_window_state,
+                            /*modifiable_window_state:*/ &mut ret_modified_window_state,
                             /*gl_context,*/ gl_context,
                             /*image_cache,*/ image_cache,
                             /*system_fonts,*/ system_fonts,
-                            /*timers:*/ &mut ret.timers,
-                            /*threads:*/ &mut ret.threads,
+                            /*timers:*/ &mut ret_timers,
+                            /*threads:*/ &mut ret_threads,
                             /*new_windows:*/ &mut ret.windows_created,
                             /*current_window_handle:*/ raw_window_handle,
                             /*node_hierarchy*/ &node_hierarchy,
@@ -779,12 +796,12 @@ impl CallbacksOfHitTest {
                             /*dataset_map*/ dataset_map,
                             /*stop_propagation:*/ &mut stop_propagation,
                             /*focus_target:*/ &mut new_focus,
-                            /*words_changed_in_callbacks:*/ &mut ret.words_changed,
-                            /*images_changed_in_callbacks:*/ &mut ret.images_changed,
-                            /*image_masks_changed_in_callbacks:*/ &mut ret.image_masks_changed,
-                            /*css_properties_changed_in_callbacks:*/ &mut ret.css_properties_changed,
+                            /*words_changed_in_callbacks:*/ &mut ret_words_changed,
+                            /*images_changed_in_callbacks:*/ &mut ret_images_changed,
+                            /*image_masks_changed_in_callbacks:*/ &mut ret_image_masks_changed,
+                            /*css_properties_changed_in_callbacks:*/ &mut ret_css_properties_changed,
                             /*current_scroll_states:*/ scroll_states,
-                            /*nodes_scrolled_in_callback:*/ &mut ret.nodes_scrolled_in_callbacks,
+                            /*nodes_scrolled_in_callback:*/ &mut ret_nodes_scrolled_in_callbacks,
                             /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: AzNodeId::from_crate_internal(Some(child_id)) },
                             /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi| hi.point_relative_to_item).into(),
                             /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi|hi.point_in_viewport).into(),
@@ -837,12 +854,12 @@ impl CallbacksOfHitTest {
                     let callback_info = CallbackInfo::new(
                         /*previous_window_State:*/ &previous_window_state,
                         /*current_window_state:*/ &full_window_state,
-                        /*modifiable_window_state:*/ &mut ret.modified_window_state,
+                        /*modifiable_window_state:*/ &mut ret_modified_window_state,
                         /*gl_context,*/ gl_context,
                         /*image_cache,*/ image_cache,
                         /*system_fonts,*/ system_fonts,
-                        /*timers:*/ &mut ret.timers,
-                        /*threads:*/ &mut ret.threads,
+                        /*timers:*/ &mut ret_timers,
+                        /*threads:*/ &mut ret_threads,
                         /*new_windows:*/ &mut ret.windows_created,
                         /*current_window_handle:*/ raw_window_handle,
                         /*node_hierarchy*/ &node_hierarchy,
@@ -854,12 +871,12 @@ impl CallbacksOfHitTest {
                         /*dataset_map*/ dataset_map,
                         /*stop_propagation:*/ &mut stop_propagation,
                         /*focus_target:*/ &mut new_focus,
-                        /*words_changed_in_callbacks:*/ &mut ret.words_changed,
-                        /*images_changed_in_callbacks:*/ &mut ret.images_changed,
-                        /*image_masks_changed_in_callbacks:*/ &mut ret.image_masks_changed,
-                        /*css_properties_changed_in_callbacks:*/ &mut ret.css_properties_changed,
+                        /*words_changed_in_callbacks:*/ &mut ret_words_changed,
+                        /*images_changed_in_callbacks:*/ &mut ret_images_changed,
+                        /*image_masks_changed_in_callbacks:*/ &mut ret_image_masks_changed,
+                        /*css_properties_changed_in_callbacks:*/ &mut ret_css_properties_changed,
                         /*current_scroll_states:*/ scroll_states,
-                        /*nodes_scrolled_in_callback:*/ &mut ret.nodes_scrolled_in_callbacks,
+                        /*nodes_scrolled_in_callback:*/ &mut ret_nodes_scrolled_in_callbacks,
                         /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: AzNodeId::from_crate_internal(Some(*root_id)) },
                         /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi|hi.point_relative_to_item).into(),
                         /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi| hi.point_in_viewport).into(),
@@ -909,7 +926,7 @@ impl CallbacksOfHitTest {
         }
 
         // Scroll nodes from programmatic callbacks
-        for (dom_id, callback_scrolled_nodes) in ret.nodes_scrolled_in_callbacks.iter() {
+        for (dom_id, callback_scrolled_nodes) in ret_nodes_scrolled_in_callbacks.iter() {
             let scrollable_nodes = &layout_results[dom_id.inner].scrollable_nodes;
             for (scroll_node_id, scroll_position) in callback_scrolled_nodes.iter() {
                 let scroll_node = match scrollable_nodes.overflowing_nodes.get(&scroll_node_id) {
@@ -926,7 +943,7 @@ impl CallbacksOfHitTest {
         let new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&layout_results, full_window_state.focused_node).ok()?);
         let focus_has_changed = full_window_state.focused_node != new_focus_node;
 
-        if current_cursor != ret.modified_window_state.mouse_state.mouse_cursor_type {
+        if current_cursor != ret_modified_window_state.mouse_state.mouse_cursor_type {
             ret.cursor_changed = true;
         }
 
@@ -935,6 +952,15 @@ impl CallbacksOfHitTest {
         } else {
             ret.update_focused_node = Some(new_focus_node);
         }
+
+        ret.modified_window_state = Some(ret_modified_window_state);
+        ret.timers = Some(ret_timers);
+        ret.threads = Some(ret_threads);
+        ret.words_changed = Some(ret_words_changed);
+        ret.images_changed = Some(ret_images_changed);
+        ret.image_masks_changed = Some(ret_image_masks_changed);
+        ret.css_properties_changed = Some(ret_css_properties_changed);
+        ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
 
         ret
     }

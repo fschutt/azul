@@ -423,8 +423,8 @@ fn run_inner(app: App) -> ! {
                                 &mut window.internal.renderer_resources,
                                 window_size,
                                 &window.internal.pipeline_id,
-                                &css_properties_changed_in_timers,
-                                &words_changed_in_timers,
+                                Some(&css_properties_changed_in_timers),
+                                Some(&words_changed_in_timers),
                                 &new_focus_node,
                                 azul_layout::do_the_relayout,
                             );
@@ -558,8 +558,8 @@ fn run_inner(app: App) -> ! {
                                 &mut window.internal.renderer_resources,
                                 window_size,
                                 &window.internal.pipeline_id,
-                                &css_properties_changed_in_threads,
-                                &words_changed_in_threads,
+                                Some(&css_properties_changed_in_threads),
+                                Some(&words_changed_in_threads),
                                 &new_focus_node,
                                 azul_layout::do_the_relayout,
                             );
@@ -760,8 +760,8 @@ fn run_inner(app: App) -> ! {
                                     &mut window.internal.renderer_resources,
                                     window_size,
                                     &window.internal.pipeline_id,
-                                    &callback_results.css_properties_changed,
-                                    &callback_results.words_changed,
+                                    callback_results.css_properties_changed.as_ref(),
+                                    callback_results.words_changed.as_ref(),
                                     &callback_results.update_focused_node,
                                     azul_layout::do_the_relayout,
                                 );
@@ -790,11 +790,15 @@ fn run_inner(app: App) -> ! {
 
                     let callbacks_changed_cursor = callback_results.cursor_changed();
 
-                    for (timer_id, timer) in callback_results.timers {
-                        timers.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
+                    if let Some(timer_map) = callback_results.timers {
+                        for (timer_id, timer) in timer_map {
+                            timers.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
+                        }
                     }
-                    for (thread_id, thread) in callback_results.threads {
-                        threads.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
+                    if let Some(thread_map) = callback_results.threads {
+                        for (thread_id, thread) in thread_map {
+                            threads.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
+                        }
                     }
 
                     // see if the callbacks modified the WindowState - if yes, re-determine the events
@@ -807,16 +811,28 @@ fn run_inner(app: App) -> ! {
                             window.internal.current_window_state.size.hidpi_factor,
                         );
                         let cht = CursorTypeHitTest::new(&ht, &window.internal.layout_results);
-                        callback_results.modified_window_state.mouse_state.mouse_cursor_type = Some(cht.cursor_icon).into();
+                        if let Some(m) = callback_results.modified_window_state.as_mut() {
+                            m.mouse_state.mouse_cursor_type = Some(cht.cursor_icon).into();
+                        } else {
+                            let mut new = window.internal.current_window_state.clone();
+                            new.mouse_state.mouse_cursor_type = Some(cht.cursor_icon).into();
+                            callback_results.modified_window_state = Some(new.into());
+                        }
                     }
+
                     if let Some(callback_new_focus) = callback_results.update_focused_node.as_ref() {
                         window.internal.current_window_state.focused_node = *callback_new_focus;
                     }
 
-                    let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(
-                        callback_results.modified_window_state,
-                        window.internal.current_window_state.monitor.clone()
-                    );
+                    let window_state_changed_in_callbacks = match callback_results.modified_window_state {
+                        Some(modified_window_state) => {
+                            window.synchronize_window_state_with_os(
+                                modified_window_state,
+                                window.internal.current_window_state.monitor.clone()
+                            )
+                        },
+                        None => false,
+                    };
 
                     window.internal.previous_window_state = Some(current_window_save_state);
 

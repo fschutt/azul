@@ -824,8 +824,8 @@ impl WindowInternal {
             &mut inital_renderer_resources,
             current_window_state.size.get_layout_size(),
             &init.pipeline_id,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
+            Some(&BTreeMap::new()),
+            Some(&BTreeMap::new()),
             &None,
             relayout_fn,
         );
@@ -927,8 +927,8 @@ impl WindowInternal {
             &mut self.renderer_resources,
             self.current_window_state.size.get_layout_size(),
             &self.pipeline_id,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
+            Some(&BTreeMap::new()),
+            Some(&BTreeMap::new()),
             &None,
             relayout_fn,
         );
@@ -1350,27 +1350,27 @@ pub struct CallCallbacksResult {
     /// Whether the callbacks say to rebuild the UI or not
     pub callbacks_update_screen: UpdateScreen,
     /// WindowState that was (potentially) modified in the callbacks
-    pub modified_window_state: WindowState,
+    pub modified_window_state: Option<WindowState>,
     /// If a word changed (often times the case with text input), we don't need to relayout / rerender
     /// the whole screen. The result is passed to the `relayout()` function, which will only change the
     /// single node that was modified
-    pub words_changed: BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
+    pub words_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, AzString>>>,
     /// A callback can "exchange" and image for a new one without requiring a new display list to be
     /// rebuilt. This is important for animated images, especially video.
-    pub images_changed: BTreeMap<DomId, BTreeMap<NodeId, ImageRef>>,
+    pub images_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, ImageRef>>>,
     /// Same as images, clip masks can be changed in callbacks, often the case with vector animations
-    pub image_masks_changed: BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
+    pub image_masks_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>>,
     /// If the focus target changes in the callbacks, the function will automatically
     /// restyle the DOM and set the new focus target
-    pub css_properties_changed: BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+    pub css_properties_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>>,
     /// If the callbacks have scrolled any nodes, the new scroll position will be stored here
-    pub nodes_scrolled_in_callbacks: BTreeMap::<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
+    pub nodes_scrolled_in_callbacks: Option<BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>>,
     /// Whether the focused node was changed from the callbacks
     pub update_focused_node: Option<Option<DomNodeId>>,
     /// Timers that were added in the callbacks
-    pub timers: FastHashMap<TimerId, Timer>,
+    pub timers: Option<FastHashMap<TimerId, Timer>>,
     /// Tasks that were added in the callbacks
-    pub threads: FastHashMap<ThreadId, Thread>,
+    pub threads: Option<FastHashMap<ThreadId, Thread>>,
     /// Windows that were created in the callbacks
     pub windows_created: Vec<WindowCreateOptions>,
     /// Whether the cursor changed in the callbacks
