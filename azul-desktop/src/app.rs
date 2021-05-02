@@ -262,7 +262,7 @@ fn run_inner(app: App) -> ! {
                 let mut new_timers = BTreeMap::new();
                 let mut new_threads = BTreeMap::new();
 
-                let gl_context_ptr = window.get_gl_context_ptr();
+                let gl_context_ptr = &window.gl_context_ptr;
                 let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
                 let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
                 let current_window_state = &window.internal.current_window_state;
@@ -405,7 +405,7 @@ fn run_inner(app: App) -> ! {
                             &window.internal.previous_window_state,
                             &window.internal.current_window_state,
                             &mut modifiable_window_state,
-                            &window.get_gl_context_ptr(),
+                            &window.gl_context_ptr,
                             &mut image_cache,
                             fc_cache,
                             &config.system_callbacks,
@@ -534,7 +534,7 @@ fn run_inner(app: App) -> ! {
                             &window.internal.previous_window_state,
                             &window.internal.current_window_state,
                             &mut modifiable_window_state,
-                            &window.get_gl_context_ptr(),
+                            &window.gl_context_ptr,
                             &mut image_cache,
                             fc_cache,
                             &config.system_callbacks,
@@ -675,6 +675,7 @@ fn run_inner(app: App) -> ! {
                     None => {return; },
                 };
 
+
                 // update timer_coarse_frame if necessary
                 if !timers.is_empty() && !threads.is_empty() {
                     coarsetime::Instant::update();
@@ -732,7 +733,6 @@ fn run_inner(app: App) -> ! {
                         window.call_callbacks(
                             &nodes_to_check,
                             &events,
-                            &window.get_gl_context_ptr(),
                             &mut image_cache,
                             fc_cache,
                             &config.system_callbacks
@@ -825,12 +825,15 @@ fn run_inner(app: App) -> ! {
                     // see if the callbacks modified the WindowState - if yes, re-determine the events
                     let current_window_save_state = window.internal.current_window_state.clone();
                     if !callbacks_changed_cursor {
+
                         let ht = FullHitTest::new(
                             &window.internal.layout_results,
                             &window.internal.current_window_state.mouse_state.cursor_position,
                             &window.internal.scroll_states,
                             window.internal.current_window_state.size.hidpi_factor,
                         );
+
+
                         let cht = CursorTypeHitTest::new(&ht, &window.internal.layout_results);
                         if let Some(m) = callback_results.modified_window_state.as_mut() {
                             m.mouse_state.mouse_cursor_type = Some(cht.cursor_icon).into();
@@ -854,6 +857,7 @@ fn run_inner(app: App) -> ! {
                         },
                         None => false,
                     };
+
 
                     window.internal.previous_window_state = Some(current_window_save_state);
 
@@ -928,7 +932,7 @@ fn run_inner(app: App) -> ! {
 
                     let mut new_timers = BTreeMap::new();
                     let mut new_threads = BTreeMap::new();
-                    let gl_context_ptr = window.get_gl_context_ptr();
+                    let gl_context_ptr = &window.gl_context_ptr;
 
                     let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
                     let current_window_state = &window.internal.current_window_state;
@@ -1038,7 +1042,7 @@ fn run_inner(app: App) -> ! {
                     let mut new_timers = BTreeMap::new();
                     let mut new_threads = BTreeMap::new();
 
-                    let gl_context_ptr = window.get_gl_context_ptr();
+                    let gl_context_ptr = &window.gl_context_ptr;
                     let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
                     let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
                     let current_window_state = &window.internal.current_window_state;
@@ -1094,8 +1098,9 @@ fn run_inner(app: App) -> ! {
             }
         }
 
+
         // end: handle control flow and app shutdown
-        *control_flow = if !active_windows.is_empty() {
+        let new_control_flow = if !active_windows.is_empty() {
 
             use azul_core::task::Duration;
             use azul_core::task::Instant;
@@ -1188,6 +1193,8 @@ fn run_inner(app: App) -> ! {
             threads = BTreeMap::new();
             ControlFlow::Exit
         };
+
+        *control_flow = new_control_flow;
     })
 }
 

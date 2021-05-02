@@ -293,6 +293,9 @@ pub struct Window {
     pub(crate) render_api: WrRenderApi,
     // software_context: Option<Rc<swgl::Context>>
     hardware_gl: Rc<dyn Gl>,
+    /// Cached gl context pointer that includes the compiled shaders for
+    /// drawing vertex buffers to the screen
+    pub(crate) gl_context_ptr: OptionGlContextPtr,
     // software_gl: Option<Rc<swgl::Context>>,
     /// Main renderer, responsible for rendering all windows
     ///
@@ -343,16 +346,6 @@ impl Window {
             None => self.hardware_gl.clone(),
         }*/
         self.hardware_gl.clone()
-    }
-
-    pub(crate) fn get_gl_context_ptr(&self) -> OptionGlContextPtr {
-        /*
-        match self.software_gl.as_ref() {
-            Some(sw) => GlContextPtr::new(RendererType::Software, sw.clone()),
-            None => GlContextPtr::new(RendererType::Hardware, self.hardware_gl.clone()),
-        }
-        */
-        Some(GlContextPtr::new(RendererType::Hardware, self.hardware_gl.clone())).into()
     }
 
     /// Creates a new window
@@ -515,7 +508,7 @@ impl Window {
         let mut initial_resource_updates = Vec::new();
         let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
 
-        let gl_context_ptr = GlContextPtr::new(RendererType::Hardware, hardware_gl.clone());
+        let gl_context_ptr = OptionGlContextPtr::Some(GlContextPtr::new(RendererType::Hardware, hardware_gl.clone()));
 
         /*
         let gl_context_ptr = match software_gl.as_ref() {
@@ -534,7 +527,7 @@ impl Window {
                 },
                 data,
                 image_cache,
-                &OptionGlContextPtr::Some(gl_context_ptr.clone()),
+                &gl_context_ptr,
                 &mut initial_resource_updates,
                 &Window::CALLBACKS,
                 fc_cache,
@@ -546,6 +539,7 @@ impl Window {
             display: window_context,
             render_api,
             renderer: Some(renderer),
+            gl_context_ptr,
             // software_gl,
             hardware_gl,
             internal,
@@ -649,7 +643,7 @@ impl Window {
             self.internal.regenerate_styled_dom(
                 data,
                 image_cache,
-                &self.get_gl_context_ptr(),
+                &self.gl_context_ptr,
                 resource_updates,
                 &Window::CALLBACKS,
                 fc_cache,
@@ -971,7 +965,6 @@ impl Window {
         &mut self,
         nodes_to_check: &NodesToCheck,
         events: &Events,
-        gl_context: &OptionGlContextPtr,
         image_cache: &mut ImageCache,
         system_fonts: &mut FcFontCache,
         external_callbacks: &ExternalSystemCallbacks
@@ -987,7 +980,7 @@ impl Window {
             &self.internal.current_window_state,
             &raw_window_handle,
             &current_scroll_states,
-            gl_context,
+            &self.gl_context_ptr,
             &mut self.internal.layout_results,
             &mut self.internal.scroll_states,
             image_cache,
