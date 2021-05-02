@@ -317,6 +317,17 @@ fn run_inner(app: App) -> ! {
         }
     };
 
+    // In order to prevent syscalls on every frame
+    // simply use a std::Instant and a coarsetime::Instant
+    //
+    // In order to get the current time, call timer_time_coarse.recent(),
+    // then add the duration (since application startup) to the std::Instant
+    //
+    // This avoids frequent system calls on every frame
+    let timer_std_start = std::time::Instant::now();
+    let timer_coarse_start = coarsetime::Instant::now();
+    let timer_coarse_frame = coarsetime::Instant::now();
+
     event_loop.run(move |event, event_loop_target, control_flow| {
 
         use glutin::event::{Event, StartCause};
@@ -336,7 +347,6 @@ fn run_inner(app: App) -> ! {
             _ => { },
         }
 
-        let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
         let mut windows_created = Vec::<WindowCreateOptions>::new();
 
         match event {
@@ -350,6 +360,8 @@ fn run_inner(app: App) -> ! {
                 // run timers / tasks only every 60ms, not on every window event
 
                 let mut update_screen_timers_tasks = UpdateScreen::DoNothing;
+                let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
+                coarsetime::Instant::update();
 
                 // run timers
                 let mut all_new_current_timers = BTreeMap::new();
@@ -650,6 +662,8 @@ fn run_inner(app: App) -> ! {
                 };
 
                 window.display.window().set_visible(window.internal.current_window_state.flags.is_visible);
+                *control_flow = ControlFlow::Wait;
+                return;
             },
             Event::WindowEvent { event, window_id } => {
 
@@ -658,7 +672,10 @@ fn run_inner(app: App) -> ! {
                     None => {return; },
                 };
 
-                let window_event_start = (config.system_callbacks.get_system_time_fn.cb)();
+                // update timer_coarse_frame if necessary
+                if !timers.is_empty() && !threads.is_empty() {
+                    coarsetime::Instant::update();
+                }
 
                 // ONLY update the window_state of the window, don't do anything else
                 // everything is then
@@ -861,6 +878,8 @@ fn run_inner(app: App) -> ! {
 
                 // transaction has finished, now render
                 window.render_block_and_swap();
+                *control_flow = ControlFlow::Wait;
+                return;
             }
             _ => { },
         }
@@ -1074,8 +1093,8 @@ fn run_inner(app: App) -> ! {
         // end: handle control flow and app shutdown
         *control_flow = if !active_windows.is_empty() {
 
-            use std::time::Duration as StdDuration;
             use azul_core::task::Duration;
+            use azul_core::task::Instant;
 
             // If no timers / threads are running, wait until next user event
             if threads.is_empty() && timers.is_empty() {
@@ -1092,12 +1111,22 @@ fn run_inner(app: App) -> ! {
                 .min()
                 .map(|d| Duration::System(d.into()));
 
+                fn translate_duration(input: coarsetime::Duration) -> std::time::Duration {
+                    std::time::Duration::new(input.as_secs(), input.subsec_nanos())
+                }
+
                 if threads.is_empty() {
 
                     // timers running
                     if timers.values().any(|timer_map| timer_map.values().any(|t| t.interval.as_ref().is_none())) {
                         ControlFlow::Poll
                     } else {
+
+                        // calulcate frame_start as a std::time::Instant while
+                        // avoiding calling std::Instant::now()
+                        let frame_start = Instant::System((timer_std_start + translate_duration(
+                            timer_coarse_frame.duration_since(timer_coarse_start)
+                        )).into());
 
                         // timers are not empty, select the minimum time that the next timer needs to run
                         // ex. if one timer is set to run every 2 seconds, then we only need
@@ -1121,7 +1150,10 @@ fn run_inner(app: App) -> ! {
                         .add_optional_duration(minimum_refresh_rate.as_ref());
 
                         // in case the callback is handled slower than 16ms, this would panic
-                        let current_time_instant = (config.system_callbacks.get_system_time_fn.cb)();
+                        coarsetime::Instant::update();
+                        let current_time_instant = Instant::System((timer_std_start + translate_duration(
+                            timer_coarse_frame.duration_since(timer_coarse_start)
+                        )).into());
 
                         ControlFlow::WaitUntil(
                             current_time_instant
@@ -1133,7 +1165,14 @@ fn run_inner(app: App) -> ! {
                 } else {
 
                     // in case the callback is handled slower than 16ms, this would panic
-                    let current_time_instant = (config.system_callbacks.get_system_time_fn.cb)();
+                    let frame_start = Instant::System((timer_std_start + translate_duration(
+                        timer_coarse_frame.duration_since(timer_coarse_start)
+                    )).into());
+
+                    coarsetime::Instant::update();
+                    let current_time_instant = Instant::System((timer_std_start + translate_duration(
+                        timer_coarse_frame.duration_since(timer_coarse_start)
+                    )).into());
 
                     ControlFlow::WaitUntil(
                         // if current_time_instant < frame_start + minimum_refresh_rate { WaitUntil(now) }

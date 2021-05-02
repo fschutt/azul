@@ -29,6 +29,7 @@ fern                    = { version = "0.5.7",  default-features = false, option
 backtrace               = { version = "0.3.43", default-features = false, optional = true }
 rust-fontconfig         = { version = "0.1.5", default-features = false, features = ["std"] }
 strfmt                  = { version = "0.1.6", default-features = false }
+coarsetime              = { version = "0.1.19", default-features = false }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 webrender = { git = "https://github.com/servo/webrender", rev = "a21e882682b20ef1ed048b502043cd4bb484b07d", default-features = false, features = ["profiler"] }
