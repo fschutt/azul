@@ -3948,7 +3948,7 @@ mod dll {
         pub tag_id: AzOptionTagId,
     }
     /// Re-export of rust-allocated (stack based) `TagIdToNodeIdMapping` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzTagIdToNodeIdMapping {
+    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzTagIdToNodeIdMapping {
         pub tag_id: AzTagId,
         pub node_id: AzNodeId,
         pub tab_index: AzOptionTabIndex,

@@ -4107,7 +4107,6 @@
                 },
                 "TagIdToNodeIdMapping": {
                     "external": "azul_impl::styled_dom::TagIdToNodeIdMapping",
-                    "derive": ["Copy"],
                     "struct_fields": [
                         {"tag_id": {"type": "TagId"}},
                         {"node_id": {"type": "NodeId"}},
