@@ -74,7 +74,7 @@ impl Default for RendererOptions {
     fn default() -> Self {
         Self {
             vsync: Vsync::Enabled,
-            srgb: Srgb::Enabled,
+            srgb: Srgb::Disabled,
             hw_accel: HwAcceleration::Enabled,
         }
     }

@@ -1244,9 +1244,14 @@ impl Window {
         // hidden_display context, otherwise this will segfault on Windows.
         self.display.make_current();
 
-        // let gl = self.get_gl_context();
-        // let mut current_program = [0_i32];
-        // unsafe { gl.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into()); }
+        let gl = self.get_gl_context();
+
+        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        gl.disable(gl::FRAMEBUFFER_SRGB);
+        gl.disable(gl::MULTISAMPLE);
+
+        let mut current_program = [0_i32];
+        unsafe { gl.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into()); }
 
         if let Some(r) = self.renderer.as_mut() {
             r.update();
@@ -1258,9 +1263,9 @@ impl Window {
         self.display.windowed_context().unwrap().swap_buffers().unwrap();
 
         // self.upload_software_to_native(); // does nothing if hardware acceleration is on
-        // gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
-        // gl.bind_texture(gl::TEXTURE_2D, 0);
-        // gl.use_program(current_program[0] as u32);
+        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        gl.bind_texture(gl::TEXTURE_2D, 0);
+        gl.use_program(current_program[0] as u32);
         // self.display.make_not_current();
     }
 }
@@ -1303,10 +1308,6 @@ impl Drop for Window {
         // Important: destroy all OpenGL textures before the shared
         // OpenGL context is destroyed.
         azul_core::gl::gl_textures_remove_active_pipeline(&pipeline_id);
-
-        gl_context.disable(gl::FRAMEBUFFER_SRGB);
-        gl_context.disable(gl::MULTISAMPLE);
-        gl_context.disable(gl::POLYGON_SMOOTH);
 
         // Delete texture caches
         self.render_api.delete_document(wr_translate_document_id(*document_id));
