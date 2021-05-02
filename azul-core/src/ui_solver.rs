@@ -730,12 +730,15 @@ impl HitTest {
 
 impl LayoutResult {
 
+    #[cfg(feature = "multithreading")]
     pub fn get_hits(
         &self,
         cursor: &LogicalPosition,
         scroll_states: &ScrollStates,
         hidpi_factor: f32,
     ) -> HitTest {
+
+        use rayon::prelude::*;
 
         let mut cursor = *cursor;
         cursor.x /= hidpi_factor;
@@ -753,7 +756,7 @@ impl LayoutResult {
         let regular_hit_test_nodes =
         self.styled_dom.tag_ids_to_node_ids
         .as_ref()
-        .iter() // par_iter?
+        .par_iter() // par_iter?
         .filter_map(|t| {
 
             let node_id = t.node_id.into_crate_internal()?;

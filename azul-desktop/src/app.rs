@@ -358,10 +358,13 @@ fn run_inner(app: App) -> ! {
             Event::NewEvents(StartCause::ResumeTimeReached { .. }) |
             Event::NewEvents(StartCause::Poll) => {
                 // run timers / tasks only every 60ms, not on every window event
+                use azul_core::task::Instant;
 
                 let mut update_screen_timers_tasks = UpdateScreen::DoNothing;
-                let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
                 coarsetime::Instant::update();
+                let frame_start = Instant::System((timer_std_start + translate_duration(
+                    timer_coarse_frame.duration_since(timer_coarse_start)
+                )).into());
 
                 // run timers
                 let mut all_new_current_timers = BTreeMap::new();
@@ -678,7 +681,6 @@ fn run_inner(app: App) -> ! {
                 }
 
                 // ONLY update the window_state of the window, don't do anything else
-                // everything is then
                 process_window_event(&mut window, &event_loop_target, &event);
 
                 let mut need_regenerate_display_list = false;
@@ -708,7 +710,9 @@ fn run_inner(app: App) -> ! {
                     let events = Events::new(&window.internal.current_window_state, &window.internal.previous_window_state);
                     let is_first_frame = window.internal.previous_window_state.is_none();
                     let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(&window.internal.previous_window_state);
-                    let hit_test = if !events.needs_hit_test() { FullHitTest::empty() } else {
+                    let hit_test = if !events.needs_hit_test() {
+                        FullHitTest::empty()
+                    } else {
                         let ht = FullHitTest::new(
                             &window.internal.layout_results,
                             &window.internal.current_window_state.mouse_state.cursor_position,
@@ -1111,10 +1115,6 @@ fn run_inner(app: App) -> ! {
                 .min()
                 .map(|d| Duration::System(d.into()));
 
-                fn translate_duration(input: coarsetime::Duration) -> std::time::Duration {
-                    std::time::Duration::new(input.as_secs(), input.subsec_nanos())
-                }
-
                 if threads.is_empty() {
 
                     // timers running
@@ -1191,8 +1191,16 @@ fn run_inner(app: App) -> ! {
     })
 }
 
+fn translate_duration(input: coarsetime::Duration) -> std::time::Duration {
+    std::time::Duration::new(input.as_secs(), input.subsec_nanos())
+}
+
 /// Updates the `FullWindowState` with the new event
-fn process_window_event(window: &mut Window, event_loop: &GlutinEventLoopWindowTarget<UserEvent>, event: &GlutinWindowEvent) {
+fn process_window_event(
+    window: &mut Window,
+    event_loop: &GlutinEventLoopWindowTarget<UserEvent>,
+    event: &GlutinWindowEvent
+) {
 
     use glutin::event::{KeyboardInput, Touch};
     use azul_core::window::{CursorPosition, WindowPosition, LogicalPosition};
@@ -1203,6 +1211,17 @@ fn process_window_event(window: &mut Window, event_loop: &GlutinEventLoopWindowT
     let mut current_window_state = &mut window.internal.current_window_state;
 
     match event {
+        GlutinWindowEvent::CursorMoved { position, .. } => {
+            let world_pos_x = position.x as f32 / current_window_state.size.hidpi_factor * current_window_state.size.system_hidpi_factor;
+            let world_pos_y = position.y as f32 / current_window_state.size.hidpi_factor * current_window_state.size.system_hidpi_factor;
+            current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(world_pos_x, world_pos_y));
+        },
+        GlutinWindowEvent::CursorLeft { .. } => {
+            current_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow;
+        },
+        GlutinWindowEvent::CursorEntered { .. } => {
+            current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0));
+        },
         GlutinWindowEvent::ModifiersChanged(modifier_state) => {
             current_window_state.keyboard_state.shift_down = modifier_state.shift();
             current_window_state.keyboard_state.ctrl_down = modifier_state.ctrl();
@@ -1223,17 +1242,6 @@ fn process_window_event(window: &mut Window, event_loop: &GlutinEventLoopWindowT
         },
         GlutinWindowEvent::Moved(new_window_position) => {
             current_window_state.position = WindowPosition::Initialized(winit_translate_physical_position(*new_window_position));
-        },
-        GlutinWindowEvent::CursorMoved { position, .. } => {
-            let world_pos_x = position.x as f32 / current_window_state.size.hidpi_factor * current_window_state.size.system_hidpi_factor;
-            let world_pos_y = position.y as f32 / current_window_state.size.hidpi_factor * current_window_state.size.system_hidpi_factor;
-            current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(world_pos_x, world_pos_y));
-        },
-        GlutinWindowEvent::CursorLeft { .. } => {
-            current_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow;
-        },
-        GlutinWindowEvent::CursorEntered { .. } => {
-            current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0));
         },
         GlutinWindowEvent::KeyboardInput { input: KeyboardInput { state, virtual_keycode, scancode, .. }, .. } => {
             use crate::wr_translate::winit_translate::translate_virtual_keycode;
