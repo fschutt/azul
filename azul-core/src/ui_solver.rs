@@ -756,88 +756,59 @@ impl LayoutResult {
         let regular_hit_test_nodes =
         self.styled_dom.tag_ids_to_node_ids
         .as_ref()
-        .par_iter() // par_iter?
+        .par_iter()
         .filter_map(|t| {
 
             let node_id = t.node_id.into_crate_internal()?;
 
-            // let logical_offset = self.rects.as_ref()[node_id].get_logical_static_offset();
-            let logical_size = self.rects.as_ref()[node_id].size;
-            let logical_rect = LogicalRect::new(LogicalPosition::new(0.0, 0.0), logical_size);
-
             // Go from the root node to the current node and apply all transform values if necessary
             let mut cursor_projected = cursor;
-            let mut last_positioned_node = root;
 
-            for parent_id in t.parent_node_ids.as_ref().iter() {
+            // apply the transform of the current node itself if there is any
+            if let Some(node_transform) = transform_value_cache.get(&node_id) {
+                let logical_offset = self.rects.as_ref()[node_id].get_logical_static_offset();
+                let parent_offset = match t.parent_node_ids.as_ref().last().and_then(|p| p.into_crate_internal()) {
+                    Some(s) => self.rects.as_ref()[s].get_logical_static_offset(),
+                    None => LogicalPosition::new(0.0, 0.0),
+                };
+                let diff_to_parent = logical_offset - parent_offset;
+                cursor_projected -= diff_to_parent;
+
+                cursor_projected = node_transform
+                .inverse()
+                .transform_point2d(cursor_projected)
+                .unwrap_or(cursor_projected);
+            }
+
+            let mut iter = t.parent_node_ids.as_ref().iter().rev().peekable();
+
+            while let Some(parent_id) = iter.next() {
 
                 let parent_id = match parent_id.into_crate_internal() {
                     Some(s) => s,
                     None => continue,
                 };
 
-                // Now transform the cursor into the space of the new rectangle
-                match rect_container[parent_id].position {
-                    PositionInfo::Static { x_offset, y_offset, .. } => {
-                        cursor_projected.x -= x_offset;
-                        cursor_projected.y -= y_offset;
-                        if let Some(parent_transform) = transform_value_cache.get(&parent_id) {
-                            cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
-                        }
-                    },
-                    PositionInfo::Fixed { x_offset, y_offset, .. } => {
-                        cursor_projected = cursor; // reset to window space
-                        last_positioned_node = root;
-                        cursor_projected.x -= x_offset;
-                        cursor_projected.x -= y_offset;
-                        if let Some(parent_transform) = transform_value_cache.get(&root) {
-                            cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
-                        }
-                    },
-                    PositionInfo::Absolute { x_offset, y_offset, .. } => {
-                        // TODO!
-                        if let Some(parent_transform) = transform_value_cache.get(&parent_id) {
-                            cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
-                        }
-                        last_positioned_node = parent_id;
-                    },
-                    PositionInfo::Relative { x_offset, y_offset, .. } => {
-                        // same as static, but modifies last_positioned_node
-                        cursor_projected.x -= x_offset;
-                        cursor_projected.y -= y_offset;
-                        last_positioned_node = parent_id;
-                        if let Some(parent_transform) = transform_value_cache.get(&parent_id) {
-                            cursor_projected = parent_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
-                        }
-                    },
-                }
-            }
+                let logical_offset = self.rects.as_ref()[parent_id].get_logical_static_offset();
+                let parent_offset = match iter.peek().and_then(|p| p.into_crate_internal()) {
+                    Some(s) => self.rects.as_ref()[s].get_logical_static_offset(),
+                    None => LogicalPosition::new(0.0, 0.0),
+                };
+                let diff_to_parent = logical_offset - parent_offset;
+                cursor_projected -= diff_to_parent;
 
-            // apply the transform of the current node itself if there is any
-            match rect_container[node_id].position {
-                PositionInfo::Static { x_offset, y_offset, .. } => {
-                    cursor_projected.x -= x_offset;
-                    cursor_projected.y -= y_offset;
-                },
-                PositionInfo::Fixed { x_offset, y_offset, .. } => {
-                    cursor_projected.x -= x_offset;
-                    cursor_projected.y -= y_offset;
-                },
-                PositionInfo::Absolute { x_offset, y_offset, .. } => {
-                    cursor_projected.x -= x_offset;
-                    cursor_projected.y -= y_offset;
-                },
-                PositionInfo::Relative { x_offset, y_offset, .. } => {
-                    cursor_projected.x -= x_offset;
-                    cursor_projected.y -= y_offset;
-                },
-            }
-            if let Some(node_transform) = transform_value_cache.get(&node_id) {
-                cursor_projected = node_transform.transform_point2d(cursor_projected).unwrap_or(cursor_projected);
+                if let Some(parent_transform) = transform_value_cache.get(&parent_id) {
+                    cursor_projected = parent_transform
+                    .inverse()
+                    .transform_point2d(cursor_projected)
+                    .unwrap_or(cursor_projected);
+                }
             }
 
             // TODO: If the item is a scroll rect, then also unproject
             // the scroll transform!
+
+            let logical_rect = LogicalRect::new(LogicalPosition::new(0.0, 0.0), self.rects.as_ref()[node_id].size);
 
             logical_rect
             .hit_test(&cursor_projected)
@@ -853,38 +824,112 @@ impl LayoutResult {
             })
         }).collect();
 
-        /*
-        // insert the scroll node hit items
-        let scroll_hit_test_nodes = self.scrollable_nodes.tags_to_node_ids.iter().filter_map(|(_scroll_tag_id, node_id)| {
-
-            let overflowing_scroll_node = self.scrollable_nodes.overflowing_nodes.get(node_id)?;
-            let node_id = node_id.into_crate_internal()?;
-            let scroll_state = scroll_states.get_scroll_position(&overflowing_scroll_node.parent_external_scroll_id)?;
-
-            let mut scrolled_cursor = *cursor;
-            scrolled_cursor.x += scroll_state.x;
-            scrolled_cursor.y += scroll_state.y;
-
-            let rect = overflowing_scroll_node.child_rect.clone();
-
-            rect
-            .hit_test(&scrolled_cursor)
-            .map(|relative_to_scroll| {
-                (node_id, ScrollHitTestItem {
-                    point_in_viewport: *cursor,
-                    point_relative_to_item: relative_to_scroll,
-                    scroll_node: overflowing_scroll_node.clone(),
-                })
-            })
-        }).collect();
-        */
-
+        // TODO: insert the scroll node hit items
         HitTest {
             regular_hit_test_nodes,
             scroll_hit_test_nodes: BTreeMap::default(),
         }
     }
 }
+
+/*
+    let mut current_spatial_node_index = SpatialNodeIndex::INVALID;
+    let mut point_in_layer = None;
+    let mut current_root_spatial_node_index = SpatialNodeIndex::INVALID;
+    let mut point_in_viewport = None;
+
+    // For each hit test primitive
+    for item in self.scene.items.iter().rev() {
+        let scroll_node = &self.spatial_nodes[item.spatial_node_index.0 as usize];
+        let pipeline_id = scroll_node.pipeline_id;
+        match (test.pipeline_id, pipeline_id) {
+            (Some(id), node_id) if node_id != id => continue,
+            _ => {},
+        }
+
+        // Update the cached point in layer space, if the spatial node
+        // changed since last primitive.
+        if item.spatial_node_index != current_spatial_node_index {
+            point_in_layer = scroll_node
+                .world_content_transform
+                .inverse()
+                .and_then(|inverted| inverted.transform_point2d(test.point));
+            current_spatial_node_index = item.spatial_node_index;
+        }
+
+        // Only consider hit tests on transformable layers.
+        if let Some(point_in_layer) = point_in_layer {
+
+            // If the item's rect or clip rect don't contain this point,
+            // it's not a valid hit.
+            if !item.rect.contains(point_in_layer) {
+                continue;
+            }
+
+            if !item.clip_rect.contains(point_in_layer) {
+                continue;
+            }
+
+            // See if any of the clips for this primitive cull out the item.
+            let mut is_valid = true;
+            let clip_nodes = &self.scene.clip_nodes[item.clip_nodes_range.start.0 as usize .. item.clip_nodes_range.end.0 as usize];
+            for clip_node in clip_nodes {
+                let transform = self
+                    .spatial_nodes[clip_node.spatial_node_index.0 as usize]
+                    .world_content_transform;
+                let transformed_point = match transform
+                    .inverse()
+                    .and_then(|inverted| inverted.transform_point2d(test.point))
+                {
+                    Some(point) => point,
+                    None => {
+                        continue;
+                    }
+                };
+                if !clip_node.region.contains(&transformed_point) {
+                    is_valid = false;
+                    break;
+                }
+            }
+            if !is_valid {
+                continue;
+            }
+
+            // Don't hit items with backface-visibility:hidden if they are facing the back.
+            if !item.is_backface_visible && scroll_node.world_content_transform.is_backface_visible() {
+                continue;
+            }
+
+            // We need to calculate the position of the test point relative to the origin of
+            // the pipeline of the hit item. If we cannot get a transformed point, we are
+            // in a situation with an uninvertible transformation so we should just skip this
+            // result.
+            let root_spatial_node_index = self.pipeline_root_nodes[&pipeline_id];
+            if root_spatial_node_index != current_root_spatial_node_index {
+                let root_node = &self.spatial_nodes[root_spatial_node_index.0 as usize];
+                point_in_viewport = root_node
+                    .world_viewport_transform
+                    .inverse()
+                    .and_then(|inverted| inverted.transform_point2d(test.point))
+                    .map(|pt| pt - scroll_node.external_scroll_offset);
+
+                current_root_spatial_node_index = root_spatial_node_index;
+            }
+
+            if let Some(point_in_viewport) = point_in_viewport {
+                result.items.push(HitTestItem {
+                    pipeline: pipeline_id,
+                    tag: item.tag,
+                    point_in_viewport,
+                    point_relative_to_item: point_in_layer - item.rect.origin.to_vector(),
+                });
+            }
+        }
+    }
+
+    result.items.dedup();
+    result
+*/
 
 /// Layout options that can impact the flow of word positions
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
@@ -1269,6 +1314,118 @@ impl ComputedTransform3D {
              m21,  m22, 0.0, 0.0,
              0.0,  0.0, 1.0, 0.0,
              m41,  m42, 0.0, 1.0
+        )
+    }
+
+    // very slow inverse function
+    pub fn inverse(&self) -> Self {
+
+        let det = self.determinant();
+
+        // if det == 0.0 { return None; }
+
+        let m = ComputedTransform3D::new(
+             self.m[1][2]*self.m[2][3]*self.m[3][1] - self.m[1][3]*self.m[2][2]*self.m[3][1] +
+             self.m[1][3]*self.m[2][1]*self.m[3][2] - self.m[1][1]*self.m[2][3]*self.m[3][2] -
+             self.m[1][2]*self.m[2][1]*self.m[3][3] + self.m[1][1]*self.m[2][2]*self.m[3][3],
+
+             self.m[0][3]*self.m[2][2]*self.m[3][1] - self.m[0][2]*self.m[2][3]*self.m[3][1] -
+             self.m[0][3]*self.m[2][1]*self.m[3][2] + self.m[0][1]*self.m[2][3]*self.m[3][2] +
+             self.m[0][2]*self.m[2][1]*self.m[3][3] - self.m[0][1]*self.m[2][2]*self.m[3][3],
+
+             self.m[0][2]*self.m[1][3]*self.m[3][1] - self.m[0][3]*self.m[1][2]*self.m[3][1] +
+             self.m[0][3]*self.m[1][1]*self.m[3][2] - self.m[0][1]*self.m[1][3]*self.m[3][2] -
+             self.m[0][2]*self.m[1][1]*self.m[3][3] + self.m[0][1]*self.m[1][2]*self.m[3][3],
+
+             self.m[0][3]*self.m[1][2]*self.m[2][1] - self.m[0][2]*self.m[1][3]*self.m[2][1] -
+             self.m[0][3]*self.m[1][1]*self.m[2][2] + self.m[0][1]*self.m[1][3]*self.m[2][2] +
+             self.m[0][2]*self.m[1][1]*self.m[2][3] - self.m[0][1]*self.m[1][2]*self.m[2][3],
+
+             self.m[1][3]*self.m[2][2]*self.m[3][0] - self.m[1][2]*self.m[2][3]*self.m[3][0] -
+             self.m[1][3]*self.m[2][0]*self.m[3][2] + self.m[1][0]*self.m[2][3]*self.m[3][2] +
+             self.m[1][2]*self.m[2][0]*self.m[3][3] - self.m[1][0]*self.m[2][2]*self.m[3][3],
+
+             self.m[0][2]*self.m[2][3]*self.m[3][0] - self.m[0][3]*self.m[2][2]*self.m[3][0] +
+             self.m[0][3]*self.m[2][0]*self.m[3][2] - self.m[0][0]*self.m[2][3]*self.m[3][2] -
+             self.m[0][2]*self.m[2][0]*self.m[3][3] + self.m[0][0]*self.m[2][2]*self.m[3][3],
+
+             self.m[0][3]*self.m[1][2]*self.m[3][0] - self.m[0][2]*self.m[1][3]*self.m[3][0] -
+             self.m[0][3]*self.m[1][0]*self.m[3][2] + self.m[0][0]*self.m[1][3]*self.m[3][2] +
+             self.m[0][2]*self.m[1][0]*self.m[3][3] - self.m[0][0]*self.m[1][2]*self.m[3][3],
+
+             self.m[0][2]*self.m[1][3]*self.m[2][0] - self.m[0][3]*self.m[1][2]*self.m[2][0] +
+             self.m[0][3]*self.m[1][0]*self.m[2][2] - self.m[0][0]*self.m[1][3]*self.m[2][2] -
+             self.m[0][2]*self.m[1][0]*self.m[2][3] + self.m[0][0]*self.m[1][2]*self.m[2][3],
+
+             self.m[1][1]*self.m[2][3]*self.m[3][0] - self.m[1][3]*self.m[2][1]*self.m[3][0] +
+             self.m[1][3]*self.m[2][0]*self.m[3][1] - self.m[1][0]*self.m[2][3]*self.m[3][1] -
+             self.m[1][1]*self.m[2][0]*self.m[3][3] + self.m[1][0]*self.m[2][1]*self.m[3][3],
+
+             self.m[0][3]*self.m[2][1]*self.m[3][0] - self.m[0][1]*self.m[2][3]*self.m[3][0] -
+             self.m[0][3]*self.m[2][0]*self.m[3][1] + self.m[0][0]*self.m[2][3]*self.m[3][1] +
+             self.m[0][1]*self.m[2][0]*self.m[3][3] - self.m[0][0]*self.m[2][1]*self.m[3][3],
+
+             self.m[0][1]*self.m[1][3]*self.m[3][0] - self.m[0][3]*self.m[1][1]*self.m[3][0] +
+             self.m[0][3]*self.m[1][0]*self.m[3][1] - self.m[0][0]*self.m[1][3]*self.m[3][1] -
+             self.m[0][1]*self.m[1][0]*self.m[3][3] + self.m[0][0]*self.m[1][1]*self.m[3][3],
+
+             self.m[0][3]*self.m[1][1]*self.m[2][0] - self.m[0][1]*self.m[1][3]*self.m[2][0] -
+             self.m[0][3]*self.m[1][0]*self.m[2][1] + self.m[0][0]*self.m[1][3]*self.m[2][1] +
+             self.m[0][1]*self.m[1][0]*self.m[2][3] - self.m[0][0]*self.m[1][1]*self.m[2][3],
+
+             self.m[1][2]*self.m[2][1]*self.m[3][0] - self.m[1][1]*self.m[2][2]*self.m[3][0] -
+             self.m[1][2]*self.m[2][0]*self.m[3][1] + self.m[1][0]*self.m[2][2]*self.m[3][1] +
+             self.m[1][1]*self.m[2][0]*self.m[3][2] - self.m[1][0]*self.m[2][1]*self.m[3][2],
+
+             self.m[0][1]*self.m[2][2]*self.m[3][0] - self.m[0][2]*self.m[2][1]*self.m[3][0] +
+             self.m[0][2]*self.m[2][0]*self.m[3][1] - self.m[0][0]*self.m[2][2]*self.m[3][1] -
+             self.m[0][1]*self.m[2][0]*self.m[3][2] + self.m[0][0]*self.m[2][1]*self.m[3][2],
+
+             self.m[0][2]*self.m[1][1]*self.m[3][0] - self.m[0][1]*self.m[1][2]*self.m[3][0] -
+             self.m[0][2]*self.m[1][0]*self.m[3][1] + self.m[0][0]*self.m[1][2]*self.m[3][1] +
+             self.m[0][1]*self.m[1][0]*self.m[3][2] - self.m[0][0]*self.m[1][1]*self.m[3][2],
+
+             self.m[0][1]*self.m[1][2]*self.m[2][0] - self.m[0][2]*self.m[1][1]*self.m[2][0] +
+             self.m[0][2]*self.m[1][0]*self.m[2][1] - self.m[0][0]*self.m[1][2]*self.m[2][1] -
+             self.m[0][1]*self.m[1][0]*self.m[2][2] + self.m[0][0]*self.m[1][1]*self.m[2][2]
+        );
+
+        m.multiply_scalar(1.0 / det)
+    }
+
+    fn determinant(&self) -> f32 {
+        self.m[0][3] * self.m[1][2] * self.m[2][1] * self.m[3][0] -
+        self.m[0][2] * self.m[1][3] * self.m[2][1] * self.m[3][0] -
+        self.m[0][3] * self.m[1][1] * self.m[2][2] * self.m[3][0] +
+        self.m[0][1] * self.m[1][3] * self.m[2][2] * self.m[3][0] +
+        self.m[0][2] * self.m[1][1] * self.m[2][3] * self.m[3][0] -
+        self.m[0][1] * self.m[1][2] * self.m[2][3] * self.m[3][0] -
+        self.m[0][3] * self.m[1][2] * self.m[2][0] * self.m[3][1] +
+        self.m[0][2] * self.m[1][3] * self.m[2][0] * self.m[3][1] +
+        self.m[0][3] * self.m[1][0] * self.m[2][2] * self.m[3][1] -
+        self.m[0][0] * self.m[1][3] * self.m[2][2] * self.m[3][1] -
+        self.m[0][2] * self.m[1][0] * self.m[2][3] * self.m[3][1] +
+        self.m[0][0] * self.m[1][2] * self.m[2][3] * self.m[3][1] +
+        self.m[0][3] * self.m[1][1] * self.m[2][0] * self.m[3][2] -
+        self.m[0][1] * self.m[1][3] * self.m[2][0] * self.m[3][2] -
+        self.m[0][3] * self.m[1][0] * self.m[2][1] * self.m[3][2] +
+        self.m[0][0] * self.m[1][3] * self.m[2][1] * self.m[3][2] +
+        self.m[0][1] * self.m[1][0] * self.m[2][3] * self.m[3][2] -
+        self.m[0][0] * self.m[1][1] * self.m[2][3] * self.m[3][2] -
+        self.m[0][2] * self.m[1][1] * self.m[2][0] * self.m[3][3] +
+        self.m[0][1] * self.m[1][2] * self.m[2][0] * self.m[3][3] +
+        self.m[0][2] * self.m[1][0] * self.m[2][1] * self.m[3][3] -
+        self.m[0][0] * self.m[1][2] * self.m[2][1] * self.m[3][3] -
+        self.m[0][1] * self.m[1][0] * self.m[2][2] * self.m[3][3] +
+        self.m[0][0] * self.m[1][1] * self.m[2][2] * self.m[3][3]
+    }
+
+    fn multiply_scalar(&self, x: f32) -> Self {
+        ComputedTransform3D::new(
+            self.m[0][0] * x, self.m[0][1] * x, self.m[0][2] * x, self.m[0][3] * x,
+            self.m[1][0] * x, self.m[1][1] * x, self.m[1][2] * x, self.m[1][3] * x,
+            self.m[2][0] * x, self.m[2][1] * x, self.m[2][2] * x, self.m[2][3] * x,
+            self.m[3][0] * x, self.m[3][1] * x, self.m[3][2] * x, self.m[3][3] * x,
         )
     }
 

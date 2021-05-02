@@ -1944,11 +1944,20 @@ impl LogicalRect {
     }
 }
 
+use core::ops::SubAssign;
+
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LogicalPosition {
     pub x: f32,
     pub y: f32,
+}
+
+impl SubAssign<LogicalPosition> for LogicalPosition {
+    fn sub_assign(&mut self, other: LogicalPosition) {
+        self.x -= other.x;
+        self.y -= other.y;
+    }
 }
 
 impl core::fmt::Debug for LogicalPosition {
