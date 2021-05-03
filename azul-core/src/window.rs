@@ -625,10 +625,13 @@ impl FullHitTest {
         hidpi_factor: f32,
     ) -> Self {
 
-        let cursor_location = match cursor_position {
+        let mut cursor_location = match cursor_position {
             CursorPosition::OutOfWindow | CursorPosition::Uninitialized => return FullHitTest::default(),
             CursorPosition::InWindow(pos) => LogicalPosition::new(pos.x, pos.y),
         };
+
+        cursor_location.x /= hidpi_factor;
+        cursor_location.y /= hidpi_factor;
 
         let mut map = BTreeMap::new();
         let mut focused_node = None;
@@ -643,17 +646,14 @@ impl FullHitTest {
             for (dom_id, cursor_relative_to_dom) in dom_ids.iter() {
 
                 let layout_result = &layout_results[dom_id.inner];
-                let hit_test = layout_result.get_hits(cursor_relative_to_dom, scroll_states, hidpi_factor);
+                let hit_test = layout_result.get_hits(cursor_relative_to_dom, scroll_states);
 
                 for (node_id, hit_item) in hit_test.regular_hit_test_nodes.iter() {
 
                     // if the hit node is an IFrame node, translate the cursor so that
                     // it is relative to the IFrame origin, then recurse
-                    if let Some((iframe_dom_id, origin_of_iframe)) = hit_item.is_iframe_hit {
-                        let mut new_cursor_relative = cursor_location.clone();
-                        new_cursor_relative.x -= origin_of_iframe.x;
-                        new_cursor_relative.y -= origin_of_iframe.y;
-                        new_dom_ids.push((iframe_dom_id, new_cursor_relative));
+                    if let Some((iframe_dom_id, cursor_relative_to_iframe)) = hit_item.is_iframe_hit {
+                        new_dom_ids.push((iframe_dom_id, cursor_relative_to_iframe));
                     }
 
                     if hit_item.is_focusable && focused_node.is_none(){
@@ -1945,6 +1945,7 @@ impl LogicalRect {
 }
 
 use core::ops::SubAssign;
+use core::ops::AddAssign;
 
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -1957,6 +1958,13 @@ impl SubAssign<LogicalPosition> for LogicalPosition {
     fn sub_assign(&mut self, other: LogicalPosition) {
         self.x -= other.x;
         self.y -= other.y;
+    }
+}
+
+impl AddAssign<LogicalPosition> for LogicalPosition {
+    fn add_assign(&mut self, other: LogicalPosition) {
+        self.x += other.x;
+        self.y += other.y;
     }
 }
 

@@ -735,14 +735,9 @@ impl LayoutResult {
         &self,
         cursor: &LogicalPosition,
         scroll_states: &ScrollStates,
-        hidpi_factor: f32,
     ) -> HitTest {
 
         use rayon::prelude::*;
-
-        let mut cursor = *cursor;
-        cursor.x /= hidpi_factor;
-        cursor.y /= hidpi_factor;
 
         let transform_value_cache = &self.gpu_value_cache.current_transform_values;
         let root = match self.styled_dom.root.into_crate_internal() {
@@ -762,59 +757,55 @@ impl LayoutResult {
             let node_id = t.node_id.into_crate_internal()?;
 
             // Go from the root node to the current node and apply all transform values if necessary
-            let mut cursor_projected = cursor;
+            let mut cursor_unprojected = *cursor;
 
-            // apply the transform of the current node itself if there is any
-            if let Some(node_transform) = transform_value_cache.get(&node_id) {
-                let logical_offset = self.rects.as_ref()[node_id].get_logical_static_offset();
-                let parent_offset = match t.parent_node_ids.as_ref().last().and_then(|p| p.into_crate_internal()) {
-                    Some(s) => self.rects.as_ref()[s].get_logical_static_offset(),
-                    None => LogicalPosition::new(0.0, 0.0),
-                };
-                let diff_to_parent = logical_offset - parent_offset;
-                cursor_projected -= diff_to_parent;
-
-                cursor_projected = node_transform
-                .inverse()
-                .transform_point2d(cursor_projected)
-                .unwrap_or(cursor_projected);
-            }
-
-            let mut iter = t.parent_node_ids.as_ref().iter().rev().peekable();
-
-            while let Some(parent_id) = iter.next() {
+            for parent_id in t.parent_node_ids.as_ref().iter() {
 
                 let parent_id = match parent_id.into_crate_internal() {
                     Some(s) => s,
                     None => continue,
                 };
 
-                let logical_offset = self.rects.as_ref()[parent_id].get_logical_static_offset();
-                let parent_offset = match iter.peek().and_then(|p| p.into_crate_internal()) {
-                    Some(s) => self.rects.as_ref()[s].get_logical_static_offset(),
-                    None => LogicalPosition::new(0.0, 0.0),
+                let parent_transform = match transform_value_cache.get(&parent_id) {
+                    Some(s) => s,
+                    None => continue,
                 };
-                let diff_to_parent = logical_offset - parent_offset;
-                cursor_projected -= diff_to_parent;
 
-                if let Some(parent_transform) = transform_value_cache.get(&parent_id) {
-                    cursor_projected = parent_transform
-                    .inverse()
-                    .transform_point2d(cursor_projected)
-                    .unwrap_or(cursor_projected);
-                }
+                let parent_position = rect_container[parent_id].get_logical_static_offset();
+
+                cursor_unprojected -= parent_position;
+
+                cursor_unprojected = parent_transform
+                .inverse()
+                .transform_point2d(cursor_unprojected)
+                .unwrap_or(cursor_unprojected);
+
+                // TODO: If the item is a scroll rect, then also
+                // unproject the scroll transform!
+
+                cursor_unprojected += parent_position; // - scroll_offset(parent_id)
             }
 
-            // TODO: If the item is a scroll rect, then also unproject
-            // the scroll transform!
+            let rect = &rect_container[node_id];
+            let size = rect.size;
+            let position = rect.get_logical_static_offset();
 
-            let logical_rect = LogicalRect::new(LogicalPosition::new(0.0, 0.0), self.rects.as_ref()[node_id].size);
+            if let Some(node_transform) = transform_value_cache.get(&node_id) {
+                cursor_unprojected -= position;
 
-            logical_rect
-            .hit_test(&cursor_projected)
+                cursor_unprojected = node_transform
+                .inverse()
+                .transform_point2d(cursor_unprojected)
+                .unwrap_or(cursor_unprojected);
+
+                cursor_unprojected += position;
+            }
+
+            LogicalRect::new(position, size)
+            .hit_test(&cursor_unprojected)
             .map(|relative_to_item| {
                 (node_id, HitTestItem {
-                    point_in_viewport: cursor,
+                    point_in_viewport: *cursor,
                     point_relative_to_item: relative_to_item,
                     is_iframe_hit: self.iframe_mapping.get(&node_id).map(|iframe_dom_id| {
                         (*iframe_dom_id, relative_to_item)
@@ -831,105 +822,6 @@ impl LayoutResult {
         }
     }
 }
-
-/*
-    let mut current_spatial_node_index = SpatialNodeIndex::INVALID;
-    let mut point_in_layer = None;
-    let mut current_root_spatial_node_index = SpatialNodeIndex::INVALID;
-    let mut point_in_viewport = None;
-
-    // For each hit test primitive
-    for item in self.scene.items.iter().rev() {
-        let scroll_node = &self.spatial_nodes[item.spatial_node_index.0 as usize];
-        let pipeline_id = scroll_node.pipeline_id;
-        match (test.pipeline_id, pipeline_id) {
-            (Some(id), node_id) if node_id != id => continue,
-            _ => {},
-        }
-
-        // Update the cached point in layer space, if the spatial node
-        // changed since last primitive.
-        if item.spatial_node_index != current_spatial_node_index {
-            point_in_layer = scroll_node
-                .world_content_transform
-                .inverse()
-                .and_then(|inverted| inverted.transform_point2d(test.point));
-            current_spatial_node_index = item.spatial_node_index;
-        }
-
-        // Only consider hit tests on transformable layers.
-        if let Some(point_in_layer) = point_in_layer {
-
-            // If the item's rect or clip rect don't contain this point,
-            // it's not a valid hit.
-            if !item.rect.contains(point_in_layer) {
-                continue;
-            }
-
-            if !item.clip_rect.contains(point_in_layer) {
-                continue;
-            }
-
-            // See if any of the clips for this primitive cull out the item.
-            let mut is_valid = true;
-            let clip_nodes = &self.scene.clip_nodes[item.clip_nodes_range.start.0 as usize .. item.clip_nodes_range.end.0 as usize];
-            for clip_node in clip_nodes {
-                let transform = self
-                    .spatial_nodes[clip_node.spatial_node_index.0 as usize]
-                    .world_content_transform;
-                let transformed_point = match transform
-                    .inverse()
-                    .and_then(|inverted| inverted.transform_point2d(test.point))
-                {
-                    Some(point) => point,
-                    None => {
-                        continue;
-                    }
-                };
-                if !clip_node.region.contains(&transformed_point) {
-                    is_valid = false;
-                    break;
-                }
-            }
-            if !is_valid {
-                continue;
-            }
-
-            // Don't hit items with backface-visibility:hidden if they are facing the back.
-            if !item.is_backface_visible && scroll_node.world_content_transform.is_backface_visible() {
-                continue;
-            }
-
-            // We need to calculate the position of the test point relative to the origin of
-            // the pipeline of the hit item. If we cannot get a transformed point, we are
-            // in a situation with an uninvertible transformation so we should just skip this
-            // result.
-            let root_spatial_node_index = self.pipeline_root_nodes[&pipeline_id];
-            if root_spatial_node_index != current_root_spatial_node_index {
-                let root_node = &self.spatial_nodes[root_spatial_node_index.0 as usize];
-                point_in_viewport = root_node
-                    .world_viewport_transform
-                    .inverse()
-                    .and_then(|inverted| inverted.transform_point2d(test.point))
-                    .map(|pt| pt - scroll_node.external_scroll_offset);
-
-                current_root_spatial_node_index = root_spatial_node_index;
-            }
-
-            if let Some(point_in_viewport) = point_in_viewport {
-                result.items.push(HitTestItem {
-                    pipeline: pipeline_id,
-                    tag: item.tag,
-                    point_in_viewport,
-                    point_relative_to_item: point_in_layer - item.rect.origin.to_vector(),
-                });
-            }
-        }
-    }
-
-    result.items.dedup();
-    result
-*/
 
 /// Layout options that can impact the flow of word positions
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
