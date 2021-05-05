@@ -65,12 +65,16 @@ impl TimerId {
     }
 }
 
+impl_option!(TimerId, OptionTimerId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
 static MAX_THREAD_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// ID for uniquely identifying a timer
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ThreadId { id: usize }
+
+impl_option!(ThreadId, OptionThreadId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl ThreadId {
     /// Generates a new, unique `ThreadId`.
@@ -94,6 +98,25 @@ impl From<StdInstant> for Instant {
 }
 
 impl Instant {
+
+    /// Returns a number from 0.0 to 1.0 indicating the current
+    /// linear interpolation value between (start, end)
+    pub fn linear_interpolate(&self, mut start: Self, mut end: Self) -> f32 {
+        use std::mem;
+
+        if end < start {
+            mem::swap(start, end);
+        }
+
+        if self < start { return 0.0; }
+        if self > end { return 1.0; }
+
+        let duration_total = end.duration_since(start);
+        let duration_current = self.duration_since(start);
+
+        (duration_current / duration_total).min(0.0).max(1.0)
+    }
+
     /// Adds a duration to the instant, does nothing in undefined cases
     /// (i.e. trying to add a Duration::Tick to an Instant::System)
     pub fn add_optional_duration(&self, duration: Option<&Duration>) -> Self {
@@ -476,6 +499,9 @@ impl_option!(Duration, OptionDuration, [Debug, Copy, Clone, PartialEq, Eq, Parti
 pub struct Timer {
     /// Data that is internal to the timer
     pub data: RefAny,
+    /// Optional node that the timer is attached to - timers attached to a DOM node
+    /// will be automatically stopped when the UI is recreated.
+    pub node_id: OptionDomNodeId,
     /// Stores when the timer was created (usually acquired by `Instant::now()`)
     pub created: Instant,
     /// When the timer was last called (`None` only when the timer hasn't been called yet).
@@ -502,6 +528,7 @@ impl Timer {
     pub fn new(data: RefAny, callback: TimerCallbackType, get_system_time_fn: GetSystemTimeCallback) -> Self {
         Timer {
             data,
+            node_id: None.into(),
             created: (get_system_time_fn.cb)(),
             run_count: 0,
             last_run: OptionInstant::None,
@@ -607,16 +634,18 @@ impl Timer {
 /// Message that can be sent from the main thread to the Thread using the ThreadId.
 ///
 /// The thread can ignore the event.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub enum ThreadSendMsg {
     /// The thread should terminate at the nearest
     TerminateThread,
     /// Next frame tick
     Tick,
+    /// Custom data
+    Custom(RefAny),
 }
 
-impl_option!(ThreadSendMsg, OptionThreadSendMsg, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
+impl_option!(ThreadSendMsg, OptionThreadSendMsg, copy = false, [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
 
 // Message that is received from the running thread
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]

@@ -1103,42 +1103,54 @@ impl DirectionalOverflowInfo {
     }
 }
 
-#[derive(Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub enum PositionInfo {
-    Static { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
-    Fixed { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
-    Absolute { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
-    Relative { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+    Static(PositionInfoInner),
+    Fixed(PositionInfoInner),
+    Absolute(PositionInfoInner),
+    Relative(PositionInfoInner),
 }
 
 impl ::core::fmt::Debug for PositionInfo {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         match self {
-            PositionInfo::Static { x_offset, y_offset, .. } => write!(f, "static({}, {})", x_offset, y_offset),
-            PositionInfo::Fixed { x_offset, y_offset, .. } => write!(f, "fixed({}, {})", x_offset, y_offset),
-            PositionInfo::Absolute { x_offset, y_offset, .. } => write!(f, "absolute({}, {})", x_offset, y_offset),
-            PositionInfo::Relative { x_offset, y_offset, .. } => write!(f, "relative({}, {})", x_offset, y_offset),
+            PositionInfo::Static(p) => write!(f, "static({}, {})", p.x_offset, p.y_offset),
+            PositionInfo::Fixed(p) => write!(f, "fixed({}, {})", p.x_offset, p.y_offset),
+            PositionInfo::Absolute(p) => write!(f, "absolute({}, {})", p.x_offset, p.y_offset),
+            PositionInfo::Relative(p) => write!(f, "relative({}, {})", p.x_offset, p.y_offset),
         }
     }
+}
+
+impl_option!(PositionInfo, OptionPositionInfo, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+
+#[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct PositionInfoInner {
+    pub x_offset: f32,
+    pub y_offset: f32,
+    pub static_x_offset: f32,
+    pub static_y_offset: f32
 }
 
 impl PositionInfo {
     #[inline]
     pub fn is_positioned(&self) -> bool {
         match self {
-            PositionInfo::Static { .. } => false,
-            PositionInfo::Fixed { .. } => true,
-            PositionInfo::Absolute { .. } => true,
-            PositionInfo::Relative { .. } => true,
+            PositionInfo::Static(_) => false,
+            PositionInfo::Fixed(_) => true,
+            PositionInfo::Absolute(_) => true,
+            PositionInfo::Relative(_) => true,
         }
     }
     #[inline]
     pub fn get_relative_offset(&self) -> (f32, f32) {
         match self {
-            PositionInfo::Static { x_offset, y_offset, .. } |
-            PositionInfo::Fixed { x_offset, y_offset, .. } |
-            PositionInfo::Absolute { x_offset, y_offset, .. } |
-            PositionInfo::Relative { x_offset, y_offset, .. } => (*x_offset, *y_offset)
+            PositionInfo::Static(p) |
+            PositionInfo::Fixed(p) |
+            PositionInfo::Absolute(p) |
+            PositionInfo::Relative(p) => (p.x_offset, p.y_offset)
         }
     }
 }

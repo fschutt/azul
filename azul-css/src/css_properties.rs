@@ -1035,6 +1035,8 @@ pub enum CssProperty {
     BackfaceVisibility(CssPropertyValue<StyleBackfaceVisibility>),
 }
 
+impl_option!(CssProperty, OptionCssProperty, copy = false, [Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]);
+
 impl CssProperty {
     pub fn is_initial(&self) -> bool {
         use self::CssProperty::*;
@@ -1307,13 +1309,17 @@ impl CssProperty {
         &self,
         other: &Self,
         t: f32,
-        interpolate_resolve: &InterpolateResolver
+        interpolate_resolver: &InterpolateResolver
     ) -> Self {
+
         if t <= 0.0 {
             return self.clone();
         } else if t >= 1.0 {
             return other.clone();
         }
+
+        // Map from linear interpolation function to Easing curve
+        let t = interpolate_resolver.interpolate_func.evaluate(t);
 
         let t = t.max(0.0).min(1.0);
 
@@ -1350,13 +1356,13 @@ impl CssProperty {
             },
             (CssProperty::Width(start), CssProperty::Width(end)) => {
                 let start = start.get_property().copied()
-                .unwrap_or(LayoutWidth::px(interpolate_resolve.current_rect_width));
+                .unwrap_or(LayoutWidth::px(interpolate_resolver.current_rect_width));
                 let end = end.get_property().copied().unwrap_or_default();
                 CssProperty::Width(CssPropertyValue::Exact(start.interpolate(&end, t)))
             },
             (CssProperty::Height(start), CssProperty::Height(end)) => {
                 let start = start.get_property().copied()
-                .unwrap_or(LayoutHeight::px(interpolate_resolve.current_rect_height));
+                .unwrap_or(LayoutHeight::px(interpolate_resolver.current_rect_height));
                 let end = end.get_property().copied().unwrap_or_default();
                 CssProperty::Height(CssPropertyValue::Exact(start.interpolate(&end, t)))
             },

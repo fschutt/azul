@@ -80,6 +80,12 @@ typedef void (*AzRefAnyDestructorType)(void* restrict A);
 
 typedef void (*AzParsedFontDestructorFnType)(void* restrict A);
 
+struct AzInstantPtr;
+typedef struct AzInstantPtr AzInstantPtr;
+typedef AzInstantPtr (*AzInstantPtrCloneFnType)(AzInstantPtr* const A);
+
+typedef void (*AzInstantPtrDestructorFnType)(AzInstantPtr* restrict A);
+
 struct AzThreadCallback;
 typedef struct AzThreadCallback AzThreadCallback;
 struct AzThread;
@@ -92,8 +98,8 @@ typedef AzInstant (*AzGetSystemTimeFnType)();
 
 typedef bool (*AzCheckThreadFinishedFnType)(void* const A);
 
-enum AzThreadSendMsg;
-typedef enum AzThreadSendMsg AzThreadSendMsg;
+union AzThreadSendMsg;
+typedef union AzThreadSendMsg AzThreadSendMsg;
 typedef bool (*AzLibrarySendThreadMsgFnType)(void* const A, AzThreadSendMsg B);
 
 union AzOptionThreadReceiveMsg;
@@ -313,12 +319,6 @@ typedef void (*AzParentWithNodeDepthVecDestructorType)(AzParentWithNodeDepthVec*
 struct AzNodeDataVec;
 typedef struct AzNodeDataVec AzNodeDataVec;
 typedef void (*AzNodeDataVecDestructorType)(AzNodeDataVec* restrict A);
-
-struct AzInstantPtr;
-typedef struct AzInstantPtr AzInstantPtr;
-typedef AzInstantPtr (*AzInstantPtrCloneFnType)(AzInstantPtr* const A);
-
-typedef void (*AzInstantPtrDestructorFnType)(AzInstantPtr* restrict A);
 
 
 struct AzApp {
@@ -778,6 +778,39 @@ struct AzDomId {
     size_t inner;
 };
 typedef struct AzDomId AzDomId;
+
+struct AzPositionInfoInner {
+    float x_offset;
+    float y_offset;
+    float static_x_offset;
+    float static_y_offset;
+};
+typedef struct AzPositionInfoInner AzPositionInfoInner;
+
+enum AzAnimationRepeat {
+   AzAnimationRepeat_NoRepeat,
+   AzAnimationRepeat_Loop,
+   AzAnimationRepeat_PingPong,
+};
+typedef enum AzAnimationRepeat AzAnimationRepeat;
+
+enum AzAnimationRepeatCountTag {
+   AzAnimationRepeatCountTag_Times,
+   AzAnimationRepeatCountTag_Infinite,
+};
+typedef enum AzAnimationRepeatCountTag AzAnimationRepeatCountTag;
+
+struct AzAnimationRepeatCountVariant_Times { AzAnimationRepeatCountTag tag; size_t payload; };
+typedef struct AzAnimationRepeatCountVariant_Times AzAnimationRepeatCountVariant_Times;
+struct AzAnimationRepeatCountVariant_Infinite { AzAnimationRepeatCountTag tag; };
+typedef struct AzAnimationRepeatCountVariant_Infinite AzAnimationRepeatCountVariant_Infinite;
+union AzAnimationRepeatCount {
+    AzAnimationRepeatCountVariant_Times Times;
+    AzAnimationRepeatCountVariant_Infinite Infinite;
+};
+typedef union AzAnimationRepeatCount AzAnimationRepeatCount;
+#define AzAnimationRepeatCount_Times(v) { .Times = { .tag = AzAnimationRepeatCountTag_Times, .payload = v } }
+#define AzAnimationRepeatCount_Infinite { .Infinite = { .tag = AzAnimationRepeatCountTag_Infinite } }
 
 struct AzIFrameCallback {
     AzIFrameCallbackType cb;
@@ -1647,6 +1680,32 @@ struct AzSystemClipboard {
 };
 typedef struct AzSystemClipboard AzSystemClipboard;
 
+struct AzInstantPtrCloneFn {
+    AzInstantPtrCloneFnType cb;
+};
+typedef struct AzInstantPtrCloneFn AzInstantPtrCloneFn;
+
+struct AzInstantPtrDestructorFn {
+    AzInstantPtrDestructorFnType cb;
+};
+typedef struct AzInstantPtrDestructorFn AzInstantPtrDestructorFn;
+
+struct AzSystemTick {
+    uint64_t tick_counter;
+};
+typedef struct AzSystemTick AzSystemTick;
+
+struct AzSystemTimeDiff {
+    uint64_t secs;
+    uint32_t nanos;
+};
+typedef struct AzSystemTimeDiff AzSystemTimeDiff;
+
+struct AzSystemTickDiff {
+    uint64_t tick_diff;
+};
+typedef struct AzSystemTickDiff AzSystemTickDiff;
+
 struct AzTimerId {
     size_t id;
 };
@@ -1662,12 +1721,6 @@ struct AzThreadId {
     size_t id;
 };
 typedef struct AzThreadId AzThreadId;
-
-enum AzThreadSendMsg {
-   AzThreadSendMsg_TerminateThread,
-   AzThreadSendMsg_Tick,
-};
-typedef enum AzThreadSendMsg AzThreadSendMsg;
 
 struct AzCreateThreadFn {
     AzCreateThreadFnType cb;
@@ -3037,32 +3090,6 @@ struct AzSvgParseErrorPosition {
 };
 typedef struct AzSvgParseErrorPosition AzSvgParseErrorPosition;
 
-struct AzInstantPtrCloneFn {
-    AzInstantPtrCloneFnType cb;
-};
-typedef struct AzInstantPtrCloneFn AzInstantPtrCloneFn;
-
-struct AzInstantPtrDestructorFn {
-    AzInstantPtrDestructorFnType cb;
-};
-typedef struct AzInstantPtrDestructorFn AzInstantPtrDestructorFn;
-
-struct AzSystemTick {
-    uint64_t tick_counter;
-};
-typedef struct AzSystemTick AzSystemTick;
-
-struct AzSystemTimeDiff {
-    uint64_t secs;
-    uint32_t nanos;
-};
-typedef struct AzSystemTimeDiff AzSystemTimeDiff;
-
-struct AzSystemTickDiff {
-    uint64_t tick_diff;
-};
-typedef struct AzSystemTickDiff AzSystemTickDiff;
-
 struct AzSystemCallbacks {
     AzCreateThreadFn create_thread_fn;
     AzGetSystemTimeFn get_system_time_fn;
@@ -3240,6 +3267,34 @@ struct AzDomNodeId {
     AzNodeId node;
 };
 typedef struct AzDomNodeId AzDomNodeId;
+
+enum AzPositionInfoTag {
+   AzPositionInfoTag_Static,
+   AzPositionInfoTag_Fixed,
+   AzPositionInfoTag_Absolute,
+   AzPositionInfoTag_Relative,
+};
+typedef enum AzPositionInfoTag AzPositionInfoTag;
+
+struct AzPositionInfoVariant_Static { AzPositionInfoTag tag; AzPositionInfoInner payload; };
+typedef struct AzPositionInfoVariant_Static AzPositionInfoVariant_Static;
+struct AzPositionInfoVariant_Fixed { AzPositionInfoTag tag; AzPositionInfoInner payload; };
+typedef struct AzPositionInfoVariant_Fixed AzPositionInfoVariant_Fixed;
+struct AzPositionInfoVariant_Absolute { AzPositionInfoTag tag; AzPositionInfoInner payload; };
+typedef struct AzPositionInfoVariant_Absolute AzPositionInfoVariant_Absolute;
+struct AzPositionInfoVariant_Relative { AzPositionInfoTag tag; AzPositionInfoInner payload; };
+typedef struct AzPositionInfoVariant_Relative AzPositionInfoVariant_Relative;
+union AzPositionInfo {
+    AzPositionInfoVariant_Static Static;
+    AzPositionInfoVariant_Fixed Fixed;
+    AzPositionInfoVariant_Absolute Absolute;
+    AzPositionInfoVariant_Relative Relative;
+};
+typedef union AzPositionInfo AzPositionInfo;
+#define AzPositionInfo_Static(v) { .Static = { .tag = AzPositionInfoTag_Static, .payload = v } }
+#define AzPositionInfo_Fixed(v) { .Fixed = { .tag = AzPositionInfoTag_Fixed, .payload = v } }
+#define AzPositionInfo_Absolute(v) { .Absolute = { .tag = AzPositionInfoTag_Absolute, .payload = v } }
+#define AzPositionInfo_Relative(v) { .Relative = { .tag = AzPositionInfoTag_Relative, .payload = v } }
 
 struct AzHidpiAdjustedBounds {
     AzLogicalSize logical_size;
@@ -5873,6 +5928,31 @@ struct AzSvgFillStyle {
 };
 typedef struct AzSvgFillStyle AzSvgFillStyle;
 
+struct AzInstantPtr {
+    void* ptr;
+    AzInstantPtrCloneFn clone_fn;
+    AzInstantPtrDestructorFn destructor;
+};
+typedef struct AzInstantPtr AzInstantPtr;
+
+enum AzDurationTag {
+   AzDurationTag_System,
+   AzDurationTag_Tick,
+};
+typedef enum AzDurationTag AzDurationTag;
+
+struct AzDurationVariant_System { AzDurationTag tag; AzSystemTimeDiff payload; };
+typedef struct AzDurationVariant_System AzDurationVariant_System;
+struct AzDurationVariant_Tick { AzDurationTag tag; AzSystemTickDiff payload; };
+typedef struct AzDurationVariant_Tick AzDurationVariant_Tick;
+union AzDuration {
+    AzDurationVariant_System System;
+    AzDurationVariant_Tick Tick;
+};
+typedef union AzDuration AzDuration;
+#define AzDuration_System(v) { .System = { .tag = AzDurationTag_System, .payload = v } }
+#define AzDuration_Tick(v) { .Tick = { .tag = AzDurationTag_Tick, .payload = v } }
+
 struct AzThread {
     void* thread_handle;
     void* sender;
@@ -5899,6 +5979,29 @@ struct AzThreadReceiver {
     AzThreadReceiverDestructorFn destructor;
 };
 typedef struct AzThreadReceiver AzThreadReceiver;
+
+enum AzThreadSendMsgTag {
+   AzThreadSendMsgTag_TerminateThread,
+   AzThreadSendMsgTag_Tick,
+   AzThreadSendMsgTag_Custom,
+};
+typedef enum AzThreadSendMsgTag AzThreadSendMsgTag;
+
+struct AzThreadSendMsgVariant_TerminateThread { AzThreadSendMsgTag tag; };
+typedef struct AzThreadSendMsgVariant_TerminateThread AzThreadSendMsgVariant_TerminateThread;
+struct AzThreadSendMsgVariant_Tick { AzThreadSendMsgTag tag; };
+typedef struct AzThreadSendMsgVariant_Tick AzThreadSendMsgVariant_Tick;
+struct AzThreadSendMsgVariant_Custom { AzThreadSendMsgTag tag; AzRefAny payload; };
+typedef struct AzThreadSendMsgVariant_Custom AzThreadSendMsgVariant_Custom;
+union AzThreadSendMsg {
+    AzThreadSendMsgVariant_TerminateThread TerminateThread;
+    AzThreadSendMsgVariant_Tick Tick;
+    AzThreadSendMsgVariant_Custom Custom;
+};
+typedef union AzThreadSendMsg AzThreadSendMsg;
+#define AzThreadSendMsg_TerminateThread { .TerminateThread = { .tag = AzThreadSendMsgTag_TerminateThread } }
+#define AzThreadSendMsg_Tick { .Tick = { .tag = AzThreadSendMsgTag_Tick } }
+#define AzThreadSendMsg_Custom(v) { .Custom = { .tag = AzThreadSendMsgTag_Custom, .payload = v } }
 
 struct AzThreadWriteBackMsg {
     AzRefAny data;
@@ -6101,6 +6204,60 @@ struct AzParentWithNodeDepthVec {
     AzParentWithNodeDepthVecDestructor destructor;
 };
 typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
+
+enum AzOptionPositionInfoTag {
+   AzOptionPositionInfoTag_None,
+   AzOptionPositionInfoTag_Some,
+};
+typedef enum AzOptionPositionInfoTag AzOptionPositionInfoTag;
+
+struct AzOptionPositionInfoVariant_None { AzOptionPositionInfoTag tag; };
+typedef struct AzOptionPositionInfoVariant_None AzOptionPositionInfoVariant_None;
+struct AzOptionPositionInfoVariant_Some { AzOptionPositionInfoTag tag; AzPositionInfo payload; };
+typedef struct AzOptionPositionInfoVariant_Some AzOptionPositionInfoVariant_Some;
+union AzOptionPositionInfo {
+    AzOptionPositionInfoVariant_None None;
+    AzOptionPositionInfoVariant_Some Some;
+};
+typedef union AzOptionPositionInfo AzOptionPositionInfo;
+#define AzOptionPositionInfo_None { .None = { .tag = AzOptionPositionInfoTag_None } }
+#define AzOptionPositionInfo_Some(v) { .Some = { .tag = AzOptionPositionInfoTag_Some, .payload = v } }
+
+enum AzOptionTimerIdTag {
+   AzOptionTimerIdTag_None,
+   AzOptionTimerIdTag_Some,
+};
+typedef enum AzOptionTimerIdTag AzOptionTimerIdTag;
+
+struct AzOptionTimerIdVariant_None { AzOptionTimerIdTag tag; };
+typedef struct AzOptionTimerIdVariant_None AzOptionTimerIdVariant_None;
+struct AzOptionTimerIdVariant_Some { AzOptionTimerIdTag tag; AzTimerId payload; };
+typedef struct AzOptionTimerIdVariant_Some AzOptionTimerIdVariant_Some;
+union AzOptionTimerId {
+    AzOptionTimerIdVariant_None None;
+    AzOptionTimerIdVariant_Some Some;
+};
+typedef union AzOptionTimerId AzOptionTimerId;
+#define AzOptionTimerId_None { .None = { .tag = AzOptionTimerIdTag_None } }
+#define AzOptionTimerId_Some(v) { .Some = { .tag = AzOptionTimerIdTag_Some, .payload = v } }
+
+enum AzOptionThreadIdTag {
+   AzOptionThreadIdTag_None,
+   AzOptionThreadIdTag_Some,
+};
+typedef enum AzOptionThreadIdTag AzOptionThreadIdTag;
+
+struct AzOptionThreadIdVariant_None { AzOptionThreadIdTag tag; };
+typedef struct AzOptionThreadIdVariant_None AzOptionThreadIdVariant_None;
+struct AzOptionThreadIdVariant_Some { AzOptionThreadIdTag tag; AzThreadId payload; };
+typedef struct AzOptionThreadIdVariant_Some AzOptionThreadIdVariant_Some;
+union AzOptionThreadId {
+    AzOptionThreadIdVariant_None None;
+    AzOptionThreadIdVariant_Some Some;
+};
+typedef union AzOptionThreadId AzOptionThreadId;
+#define AzOptionThreadId_None { .None = { .tag = AzOptionThreadIdTag_None } }
+#define AzOptionThreadId_Some(v) { .Some = { .tag = AzOptionThreadIdTag_Some, .payload = v } }
 
 enum AzOptionImageRefTag {
    AzOptionImageRefTag_None,
@@ -6588,6 +6745,24 @@ typedef union AzOptionTagId AzOptionTagId;
 #define AzOptionTagId_None { .None = { .tag = AzOptionTagIdTag_None } }
 #define AzOptionTagId_Some(v) { .Some = { .tag = AzOptionTagIdTag_Some, .payload = v } }
 
+enum AzOptionDurationTag {
+   AzOptionDurationTag_None,
+   AzOptionDurationTag_Some,
+};
+typedef enum AzOptionDurationTag AzOptionDurationTag;
+
+struct AzOptionDurationVariant_None { AzOptionDurationTag tag; };
+typedef struct AzOptionDurationVariant_None AzOptionDurationVariant_None;
+struct AzOptionDurationVariant_Some { AzOptionDurationTag tag; AzDuration payload; };
+typedef struct AzOptionDurationVariant_Some AzOptionDurationVariant_Some;
+union AzOptionDuration {
+    AzOptionDurationVariant_None None;
+    AzOptionDurationVariant_Some Some;
+};
+typedef union AzOptionDuration AzOptionDuration;
+#define AzOptionDuration_None { .None = { .tag = AzOptionDurationTag_None } }
+#define AzOptionDuration_Some(v) { .Some = { .tag = AzOptionDurationTag_Some, .payload = v } }
+
 enum AzOptionU8VecTag {
    AzOptionU8VecTag_None,
    AzOptionU8VecTag_Some,
@@ -6674,31 +6849,6 @@ struct AzInvalidSpaceError {
 };
 typedef struct AzInvalidSpaceError AzInvalidSpaceError;
 
-struct AzInstantPtr {
-    void* ptr;
-    AzInstantPtrCloneFn clone_fn;
-    AzInstantPtrDestructorFn destructor;
-};
-typedef struct AzInstantPtr AzInstantPtr;
-
-enum AzDurationTag {
-   AzDurationTag_System,
-   AzDurationTag_Tick,
-};
-typedef enum AzDurationTag AzDurationTag;
-
-struct AzDurationVariant_System { AzDurationTag tag; AzSystemTimeDiff payload; };
-typedef struct AzDurationVariant_System AzDurationVariant_System;
-struct AzDurationVariant_Tick { AzDurationTag tag; AzSystemTickDiff payload; };
-typedef struct AzDurationVariant_Tick AzDurationVariant_Tick;
-union AzDuration {
-    AzDurationVariant_System System;
-    AzDurationVariant_Tick Tick;
-};
-typedef union AzDuration AzDuration;
-#define AzDuration_System(v) { .System = { .tag = AzDurationTag_System, .payload = v } }
-#define AzDuration_Tick(v) { .Tick = { .tag = AzDurationTag_Tick, .payload = v } }
-
 struct AzAppConfig {
     AzLayoutSolverVersion layout_solver;
     AzAppLogLevel log_level;
@@ -6783,6 +6933,44 @@ struct AzInlineTextContents {
     AzLogicalRect bounds;
 };
 typedef struct AzInlineTextContents AzInlineTextContents;
+
+enum AzAnimationEasingTag {
+   AzAnimationEasingTag_Ease,
+   AzAnimationEasingTag_Linear,
+   AzAnimationEasingTag_EaseIn,
+   AzAnimationEasingTag_EaseOut,
+   AzAnimationEasingTag_EaseInOut,
+   AzAnimationEasingTag_CubicBezier,
+};
+typedef enum AzAnimationEasingTag AzAnimationEasingTag;
+
+struct AzAnimationEasingVariant_Ease { AzAnimationEasingTag tag; };
+typedef struct AzAnimationEasingVariant_Ease AzAnimationEasingVariant_Ease;
+struct AzAnimationEasingVariant_Linear { AzAnimationEasingTag tag; };
+typedef struct AzAnimationEasingVariant_Linear AzAnimationEasingVariant_Linear;
+struct AzAnimationEasingVariant_EaseIn { AzAnimationEasingTag tag; };
+typedef struct AzAnimationEasingVariant_EaseIn AzAnimationEasingVariant_EaseIn;
+struct AzAnimationEasingVariant_EaseOut { AzAnimationEasingTag tag; };
+typedef struct AzAnimationEasingVariant_EaseOut AzAnimationEasingVariant_EaseOut;
+struct AzAnimationEasingVariant_EaseInOut { AzAnimationEasingTag tag; };
+typedef struct AzAnimationEasingVariant_EaseInOut AzAnimationEasingVariant_EaseInOut;
+struct AzAnimationEasingVariant_CubicBezier { AzAnimationEasingTag tag; AzSvgCubicCurve payload; };
+typedef struct AzAnimationEasingVariant_CubicBezier AzAnimationEasingVariant_CubicBezier;
+union AzAnimationEasing {
+    AzAnimationEasingVariant_Ease Ease;
+    AzAnimationEasingVariant_Linear Linear;
+    AzAnimationEasingVariant_EaseIn EaseIn;
+    AzAnimationEasingVariant_EaseOut EaseOut;
+    AzAnimationEasingVariant_EaseInOut EaseInOut;
+    AzAnimationEasingVariant_CubicBezier CubicBezier;
+};
+typedef union AzAnimationEasing AzAnimationEasing;
+#define AzAnimationEasing_Ease { .Ease = { .tag = AzAnimationEasingTag_Ease } }
+#define AzAnimationEasing_Linear { .Linear = { .tag = AzAnimationEasingTag_Linear } }
+#define AzAnimationEasing_EaseIn { .EaseIn = { .tag = AzAnimationEasingTag_EaseIn } }
+#define AzAnimationEasing_EaseOut { .EaseOut = { .tag = AzAnimationEasingTag_EaseOut } }
+#define AzAnimationEasing_EaseInOut { .EaseInOut = { .tag = AzAnimationEasingTag_EaseInOut } }
+#define AzAnimationEasing_CubicBezier(v) { .CubicBezier = { .tag = AzAnimationEasingTag_CubicBezier, .payload = v } }
 
 struct AzRenderImageCallbackInfo {
     AzDomNodeId callback_node_id;
@@ -7291,6 +7479,24 @@ struct AzXml {
 };
 typedef struct AzXml AzXml;
 
+enum AzInstantTag {
+   AzInstantTag_System,
+   AzInstantTag_Tick,
+};
+typedef enum AzInstantTag AzInstantTag;
+
+struct AzInstantVariant_System { AzInstantTag tag; AzInstantPtr payload; };
+typedef struct AzInstantVariant_System AzInstantVariant_System;
+struct AzInstantVariant_Tick { AzInstantTag tag; AzSystemTick payload; };
+typedef struct AzInstantVariant_Tick AzInstantVariant_Tick;
+union AzInstant {
+    AzInstantVariant_System System;
+    AzInstantVariant_Tick Tick;
+};
+typedef union AzInstant AzInstant;
+#define AzInstant_System(v) { .System = { .tag = AzInstantTag_System, .payload = v } }
+#define AzInstant_Tick(v) { .Tick = { .tag = AzInstantTag_Tick, .payload = v } }
+
 enum AzThreadReceiveMsgTag {
    AzThreadReceiveMsgTag_WriteBack,
    AzThreadReceiveMsgTag_Update,
@@ -7506,23 +7712,23 @@ typedef union AzOptionTexture AzOptionTexture;
 #define AzOptionTexture_None { .None = { .tag = AzOptionTextureTag_None } }
 #define AzOptionTexture_Some(v) { .Some = { .tag = AzOptionTextureTag_Some, .payload = v } }
 
-enum AzOptionDurationTag {
-   AzOptionDurationTag_None,
-   AzOptionDurationTag_Some,
+enum AzOptionInstantTag {
+   AzOptionInstantTag_None,
+   AzOptionInstantTag_Some,
 };
-typedef enum AzOptionDurationTag AzOptionDurationTag;
+typedef enum AzOptionInstantTag AzOptionInstantTag;
 
-struct AzOptionDurationVariant_None { AzOptionDurationTag tag; };
-typedef struct AzOptionDurationVariant_None AzOptionDurationVariant_None;
-struct AzOptionDurationVariant_Some { AzOptionDurationTag tag; AzDuration payload; };
-typedef struct AzOptionDurationVariant_Some AzOptionDurationVariant_Some;
-union AzOptionDuration {
-    AzOptionDurationVariant_None None;
-    AzOptionDurationVariant_Some Some;
+struct AzOptionInstantVariant_None { AzOptionInstantTag tag; };
+typedef struct AzOptionInstantVariant_None AzOptionInstantVariant_None;
+struct AzOptionInstantVariant_Some { AzOptionInstantTag tag; AzInstant payload; };
+typedef struct AzOptionInstantVariant_Some AzOptionInstantVariant_Some;
+union AzOptionInstant {
+    AzOptionInstantVariant_None None;
+    AzOptionInstantVariant_Some Some;
 };
-typedef union AzOptionDuration AzOptionDuration;
-#define AzOptionDuration_None { .None = { .tag = AzOptionDurationTag_None } }
-#define AzOptionDuration_Some(v) { .Some = { .tag = AzOptionDurationTag_Some, .payload = v } }
+typedef union AzOptionInstant AzOptionInstant;
+#define AzOptionInstant_None { .None = { .tag = AzOptionInstantTag_None } }
+#define AzOptionInstant_Some(v) { .Some = { .tag = AzOptionInstantTag_Some, .payload = v } }
 
 struct AzDuplicatedNamespaceError {
     AzString ns;
@@ -7560,24 +7766,6 @@ struct AzInvalidStringError {
     AzSvgParseErrorPosition pos;
 };
 typedef struct AzInvalidStringError AzInvalidStringError;
-
-enum AzInstantTag {
-   AzInstantTag_System,
-   AzInstantTag_Tick,
-};
-typedef enum AzInstantTag AzInstantTag;
-
-struct AzInstantVariant_System { AzInstantTag tag; AzInstantPtr payload; };
-typedef struct AzInstantVariant_System AzInstantVariant_System;
-struct AzInstantVariant_Tick { AzInstantTag tag; AzSystemTick payload; };
-typedef struct AzInstantVariant_Tick AzInstantVariant_Tick;
-union AzInstant {
-    AzInstantVariant_System System;
-    AzInstantVariant_Tick Tick;
-};
-typedef union AzInstant AzInstant;
-#define AzInstant_System(v) { .System = { .tag = AzInstantTag_System, .payload = v } }
-#define AzInstant_Tick(v) { .Tick = { .tag = AzInstantTag_Tick, .payload = v } }
 
 struct AzWindowsWindowOptions {
     bool  allow_drag_drop;
@@ -8010,6 +8198,19 @@ struct AzFileTypeList {
 };
 typedef struct AzFileTypeList AzFileTypeList;
 
+struct AzTimer {
+    AzRefAny data;
+    AzOptionNodeId node_id;
+    AzInstant created;
+    AzOptionInstant last_run;
+    size_t run_count;
+    AzOptionDuration delay;
+    AzOptionDuration interval;
+    AzOptionDuration timeout;
+    AzTimerCallback callback;
+};
+typedef struct AzTimer AzTimer;
+
 enum AzFmtValueTag {
    AzFmtValueTag_Bool,
    AzFmtValueTag_Uchar,
@@ -8248,24 +8449,6 @@ union AzOptionWaylandTheme {
 typedef union AzOptionWaylandTheme AzOptionWaylandTheme;
 #define AzOptionWaylandTheme_None { .None = { .tag = AzOptionWaylandThemeTag_None } }
 #define AzOptionWaylandTheme_Some(v) { .Some = { .tag = AzOptionWaylandThemeTag_Some, .payload = v } }
-
-enum AzOptionInstantTag {
-   AzOptionInstantTag_None,
-   AzOptionInstantTag_Some,
-};
-typedef enum AzOptionInstantTag AzOptionInstantTag;
-
-struct AzOptionInstantVariant_None { AzOptionInstantTag tag; };
-typedef struct AzOptionInstantVariant_None AzOptionInstantVariant_None;
-struct AzOptionInstantVariant_Some { AzOptionInstantTag tag; AzInstant payload; };
-typedef struct AzOptionInstantVariant_Some AzOptionInstantVariant_Some;
-union AzOptionInstant {
-    AzOptionInstantVariant_None None;
-    AzOptionInstantVariant_Some Some;
-};
-typedef union AzOptionInstant AzOptionInstant;
-#define AzOptionInstant_None { .None = { .tag = AzOptionInstantTag_None } }
-#define AzOptionInstant_Some(v) { .Some = { .tag = AzOptionInstantTag_Some, .payload = v } }
 
 enum AzResultRawImageDecodeImageErrorTag {
    AzResultRawImageDecodeImageErrorTag_Ok,
@@ -8862,18 +9045,6 @@ struct AzXmlNode {
 };
 typedef struct AzXmlNode AzXmlNode;
 
-struct AzTimer {
-    AzRefAny data;
-    AzInstant created;
-    AzOptionInstant last_run;
-    size_t run_count;
-    AzOptionDuration delay;
-    AzOptionDuration interval;
-    AzOptionDuration timeout;
-    AzTimerCallback callback;
-};
-typedef struct AzTimer AzTimer;
-
 struct AzInlineLineVec {
     AzInlineLine* ptr;
     size_t len;
@@ -8897,6 +9068,24 @@ struct AzSvgMultiPolygonVec {
     AzSvgMultiPolygonVecDestructor destructor;
 };
 typedef struct AzSvgMultiPolygonVec AzSvgMultiPolygonVec;
+
+enum AzOptionCssPropertyTag {
+   AzOptionCssPropertyTag_None,
+   AzOptionCssPropertyTag_Some,
+};
+typedef enum AzOptionCssPropertyTag AzOptionCssPropertyTag;
+
+struct AzOptionCssPropertyVariant_None { AzOptionCssPropertyTag tag; };
+typedef struct AzOptionCssPropertyVariant_None AzOptionCssPropertyVariant_None;
+struct AzOptionCssPropertyVariant_Some { AzOptionCssPropertyTag tag; AzCssProperty payload; };
+typedef struct AzOptionCssPropertyVariant_Some AzOptionCssPropertyVariant_Some;
+union AzOptionCssProperty {
+    AzOptionCssPropertyVariant_None None;
+    AzOptionCssPropertyVariant_Some Some;
+};
+typedef union AzOptionCssProperty AzOptionCssProperty;
+#define AzOptionCssProperty_None { .None = { .tag = AzOptionCssPropertyTag_None } }
+#define AzOptionCssProperty_Some(v) { .Some = { .tag = AzOptionCssPropertyTag_Some, .payload = v } }
 
 struct AzXmlTextError {
     AzXmlStreamError stream_error;
@@ -8933,6 +9122,8 @@ struct AzWindowState {
 typedef struct AzWindowState AzWindowState;
 
 struct AzCallbackInfo {
+    void* css_property_cache;
+    void* styled_node_states;
     void* previous_window_state;
     void* current_window_state;
     AzWindowState* restrict modifiable_window_state;
@@ -8981,8 +9172,20 @@ struct AzFocusTargetPath {
 };
 typedef struct AzFocusTargetPath AzFocusTargetPath;
 
+struct AzAnimation {
+    AzCssProperty from;
+    AzCssProperty to;
+    AzDuration duration;
+    AzAnimationRepeat repeat;
+    AzAnimationRepeatCount repeat_count;
+    AzAnimationEasing easing;
+    bool  relayout_on_finish;
+};
+typedef struct AzAnimation AzAnimation;
+
 struct AzTimerCallbackInfo {
     AzCallbackInfo callback_info;
+    AzOptionNodeId node_id;
     AzInstant frame_start;
     size_t call_count;
     bool  is_about_to_finish;
@@ -9371,7 +9574,7 @@ struct AzStyledDom {
     AzStyledNodeVec styled_nodes;
     AzCascadeInfoVec cascade_info;
     AzNodeIdVec nodes_with_window_callbacks;
-    AzNodeIdVec nodes_with_none_callbacks;
+    AzNodeIdVec nodes_with_not_callbacks;
     AzTagIdsToNodeIdsMappingVec tag_ids_to_node_ids;
     AzParentWithNodeDepthVec non_leaf_nodes;
     AzCssPropertyCache css_property_cache;
@@ -9736,6 +9939,7 @@ extern DLLIMPORT AzWindowCreateOptions AzWindowCreateOptions_new(AzLayoutCallbac
 extern DLLIMPORT AzWindowState AzWindowState_new(AzLayoutCallbackType  layout_callback);
 extern DLLIMPORT AzWindowState AzWindowState_default();
 extern DLLIMPORT AzDomNodeId AzCallbackInfo_getHitNode(AzCallbackInfo* const callbackinfo);
+extern DLLIMPORT AzGetSystemTimeFn AzCallbackInfo_getSystemTimeFn(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzOptionLogicalPosition AzCallbackInfo_getCursorRelativeToViewport(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzOptionLogicalPosition AzCallbackInfo_getCursorRelativeToNode(AzCallbackInfo* const callbackinfo);
 extern DLLIMPORT AzWindowState AzCallbackInfo_getCurrentWindowState(AzCallbackInfo* const callbackinfo);
@@ -9756,6 +9960,9 @@ extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getPreviousSibling(AzCallbackI
 extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getNextSibling(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getFirstChild(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getLastChild(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionPositionInfo AzCallbackInfo_getNodePosition(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionLogicalSize AzCallbackInfo_getNodeSize(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionCssProperty AzCallbackInfo_getComputedCssProperty(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzCssPropertyType  property_type);
 extern DLLIMPORT void AzCallbackInfo_setWindowState(AzCallbackInfo* restrict callbackinfo, AzWindowState  new_state);
 extern DLLIMPORT void AzCallbackInfo_setFocus(AzCallbackInfo* restrict callbackinfo, AzFocusTarget  target);
 extern DLLIMPORT void AzCallbackInfo_setCssProperty(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzCssProperty  new_property);
@@ -9769,8 +9976,12 @@ extern DLLIMPORT void AzCallbackInfo_deleteImage(AzCallbackInfo* restrict callba
 extern DLLIMPORT void AzCallbackInfo_updateImageMask(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageMask  new_mask);
 extern DLLIMPORT void AzCallbackInfo_stopPropagation(AzCallbackInfo* restrict callbackinfo);
 extern DLLIMPORT void AzCallbackInfo_createWindow(AzCallbackInfo* restrict callbackinfo, AzWindowCreateOptions  new_window);
-extern DLLIMPORT void AzCallbackInfo_startThread(AzCallbackInfo* restrict callbackinfo, AzThreadId  id, AzRefAny  thread_initialize_data, AzRefAny  writeback_data, AzThreadCallback  callback);
-extern DLLIMPORT void AzCallbackInfo_startTimer(AzCallbackInfo* restrict callbackinfo, AzTimerId  id, AzTimer  timer);
+extern DLLIMPORT AzOptionTimerId AzCallbackInfo_startTimer(AzCallbackInfo* restrict callbackinfo, AzTimer  timer);
+extern DLLIMPORT AzOptionTimerId AzCallbackInfo_startAnimation(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node, AzAnimation  animation);
+extern DLLIMPORT bool  AzCallbackInfo_stopTimer(AzCallbackInfo* restrict callbackinfo, AzTimerId  timer_id);
+extern DLLIMPORT AzOptionThreadId AzCallbackInfo_startThread(AzCallbackInfo* restrict callbackinfo, AzRefAny  thread_initialize_data, AzRefAny  writeback_data, AzThreadCallback  callback);
+extern DLLIMPORT bool  AzCallbackInfo_sendThreadMsg(AzCallbackInfo* restrict callbackinfo, AzThreadId  thread_id, AzThreadSendMsg  msg);
+extern DLLIMPORT bool  AzCallbackInfo_stopThread(AzCallbackInfo* restrict callbackinfo, AzThreadId  thread_id);
 extern DLLIMPORT AzLogicalSize AzHidpiAdjustedBounds_getLogicalSize(AzHidpiAdjustedBounds* const hidpiadjustedbounds);
 extern DLLIMPORT AzPhysicalSizeU32 AzHidpiAdjustedBounds_getPhysicalSize(AzHidpiAdjustedBounds* const hidpiadjustedbounds);
 extern DLLIMPORT float AzHidpiAdjustedBounds_getHidpiFactor(AzHidpiAdjustedBounds* const hidpiadjustedbounds);
@@ -10124,7 +10335,11 @@ extern DLLIMPORT AzSystemClipboard AzSystemClipboard_new();
 extern DLLIMPORT AzOptionString AzSystemClipboard_getStringContents(AzSystemClipboard* const systemclipboard);
 extern DLLIMPORT bool  AzSystemClipboard_setStringContents(AzSystemClipboard* restrict systemclipboard, AzString  contents);
 extern DLLIMPORT void AzSystemClipboard_delete(AzSystemClipboard* restrict instance);
-extern DLLIMPORT AzTimerId AzTimerId_unique();
+extern DLLIMPORT AzOptionDuration AzInstant_durationSince(AzInstant* const instant, AzInstant  earlier);
+extern DLLIMPORT void AzInstant_addDuration(AzInstant* restrict instant, AzDuration  duration);
+extern DLLIMPORT float AzInstant_linearInterpolate(AzInstant* const instant, AzInstant  start, AzInstant  end);
+extern DLLIMPORT void AzInstantPtr_delete(AzInstantPtr* restrict instance);
+extern DLLIMPORT AzInstantPtr AzInstantPtr_deepCopy(AzInstantPtr* const instance);
 extern DLLIMPORT AzTimer AzTimer_new(AzRefAny  timer_data, AzTimerCallbackType  callback, AzGetSystemTimeFn  get_system_time_fn);
 extern DLLIMPORT AzTimer AzTimer_withDelay(const AzTimer timer, AzDuration  delay);
 extern DLLIMPORT AzTimer AzTimer_withInterval(const AzTimer timer, AzDuration  interval);
@@ -10188,8 +10403,6 @@ extern DLLIMPORT void AzStyledNodeVec_delete(AzStyledNodeVec* restrict instance)
 extern DLLIMPORT void AzTagIdsToNodeIdsMappingVec_delete(AzTagIdsToNodeIdsMappingVec* restrict instance);
 extern DLLIMPORT void AzParentWithNodeDepthVec_delete(AzParentWithNodeDepthVec* restrict instance);
 extern DLLIMPORT void AzNodeDataVec_delete(AzNodeDataVec* restrict instance);
-extern DLLIMPORT void AzInstantPtr_delete(AzInstantPtr* restrict instance);
-extern DLLIMPORT AzInstantPtr AzInstantPtr_deepCopy(AzInstantPtr* const instance);
 
 /* Macro to turn a compile-time string into a compile-time AzString
  *
