@@ -4138,6 +4138,8 @@
                         {"node_data": {"type": "NodeDataVec" }},
                         {"styled_nodes": {"type": "StyledNodeVec" }},
                         {"cascade_info": {"type": "CascadeInfoVec" }},
+                        {"nodes_with_window_callbacks": {"type": "NodeIdVec" }},
+                        {"nodes_with_not_callbacks": {"type": "NodeIdVec" }},
                         {"tag_ids_to_node_ids": {"type": "TagIdsToNodeIdsMappingVec" }},
                         {"non_leaf_nodes": {"type": "ParentWithNodeDepthVec" }},
                         {"css_property_cache": {"type": "CssPropertyCache" }}

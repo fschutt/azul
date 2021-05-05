@@ -1067,6 +1067,7 @@ impl AzNodeId {
 impl_option!(AzNodeId, OptionNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl_vec!(AzNodeId, NodeIdVec, NodeIdVecDestructor);
+impl_vec_mut!(AzNodeId, NodeIdVec);
 impl_vec_debug!(AzNodeId, NodeIdVec);
 impl_vec_ord!(AzNodeId, NodeIdVec);
 impl_vec_eq!(AzNodeId, NodeIdVec);
@@ -1219,6 +1220,8 @@ pub struct StyledDom {
     pub node_data: NodeDataVec,
     pub styled_nodes: StyledNodeVec,
     pub cascade_info: CascadeInfoVec,
+    pub nodes_with_window_callbacks: NodeIdVec,
+    pub nodes_with_not_callbacks: NodeIdVec,
     pub tag_ids_to_node_ids: TagIdsToNodeIdsMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
     pub css_property_cache: CssPropertyCachePtr,
@@ -1242,6 +1245,8 @@ impl Default for StyledDom {
                 depth: 0,
                 node_id: root_node_id,
             }].into(),
+            nodes_with_window_callbacks: Vec::new().into(),
+            nodes_with_not_callbacks: Vec::new().into(),
             css_property_cache: CssPropertyCachePtr::new(CssPropertyCache::empty(1)),
         }
     }
@@ -1253,6 +1258,7 @@ impl StyledDom {
     pub fn new(dom: Dom, css: Css) -> Self {
 
         use rayon::prelude::*;
+        use crate::dom::EventFilter;
 
         let compact_dom: CompactDom = dom.into();
         let non_leaf_nodes = compact_dom.node_hierarchy.as_ref().get_parents_sorted_by_depth();
@@ -1303,6 +1309,32 @@ impl StyledDom {
             styled_nodes[nid.index()].tag_id = OptionTagId::Some(tag_id);
         });
 
+        // Pre-filter all EventFilter::Window and EventFilter::Not nodes
+        // since we need them in the CallbacksOfHitTest::new function
+        let nodes_with_window_callbacks = compact_dom.node_data.as_ref().internal.par_iter().enumerate().filter_map(|(node_id, c)| {
+            let node_has_none_callbacks = c.get_callbacks().iter().any(|cb| match cb.event {
+                EventFilter::Window(_) => true,
+                _ => false,
+            });
+            if node_has_none_callbacks {
+                Some(AzNodeId::from_crate_internal(Some(NodeId::new(node_id))))
+            } else {
+                None
+            }
+        }).collect::<Vec<_>>();
+
+        let nodes_with_not_callbacks = compact_dom.node_data.as_ref().internal.par_iter().enumerate().filter_map(|(node_id, c)| {
+            let node_has_none_callbacks = c.get_callbacks().iter().any(|cb| match cb.event {
+                EventFilter::Not(_) => true,
+                _ => false,
+            });
+            if node_has_none_callbacks {
+                Some(AzNodeId::from_crate_internal(Some(NodeId::new(node_id))))
+            } else {
+                None
+            }
+        }).collect::<Vec<_>>();
+
         StyledDom {
             root: AzNodeId::from_crate_internal(Some(compact_dom.root)),
             node_hierarchy,
@@ -1310,6 +1342,8 @@ impl StyledDom {
             cascade_info: html_tree.internal.into(),
             styled_nodes: styled_nodes.into(),
             tag_ids_to_node_ids: tag_ids.into(),
+            nodes_with_window_callbacks: nodes_with_window_callbacks.into(),
+            nodes_with_not_callbacks: nodes_with_not_callbacks.into(),
             non_leaf_nodes,
             css_property_cache: CssPropertyCachePtr::new(css_property_cache),
         }
@@ -1365,6 +1399,16 @@ impl StyledDom {
         }
 
         self.tag_ids_to_node_ids.append(&mut other.tag_ids_to_node_ids);
+
+        for nid in other.nodes_with_window_callbacks.iter_mut() {
+            nid.inner += self_len;
+        }
+        self.nodes_with_window_callbacks.append(&mut other.nodes_with_window_callbacks);
+
+        for nid in other.nodes_with_not_callbacks.iter_mut() {
+            nid.inner += self_len;
+        }
+        self.nodes_with_not_callbacks.append(&mut other.nodes_with_not_callbacks);
 
         // edge case: if the other StyledDom consists of only one node
         // then it is not a parent itself

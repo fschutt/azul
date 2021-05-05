@@ -7727,6 +7727,8 @@ mod test_sizes {
         pub node_data: AzNodeDataVec,
         pub styled_nodes: AzStyledNodeVec,
         pub cascade_info: AzCascadeInfoVec,
+        pub nodes_with_window_callbacks: AzNodeIdVec,
+        pub nodes_with_none_callbacks: AzNodeIdVec,
         pub tag_ids_to_node_ids: AzTagIdsToNodeIdsMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub css_property_cache: AzCssPropertyCache,

@@ -552,7 +552,6 @@ impl CallbacksOfHitTest {
     ///
     /// This function also updates / mutates the current window states `focused_node`
     /// as well as the `window_state.previous_state`
-    #[cfg(feature = "multithreading")]
     pub fn new(nodes_to_check: &NodesToCheck, events: &Events, layout_results: &[LayoutResult]) -> Self {
 
         use rayon::prelude::*;
@@ -569,26 +568,23 @@ impl CallbacksOfHitTest {
         let focus_received_filter = EventFilter::Focus(FocusEventFilter::FocusReceived);
         let focus_lost_filter = EventFilter::Focus(FocusEventFilter::FocusLost);
 
-        println!("CallbacksOfHitTest::new - nodes to check: {:#?}", nodes_to_check);
-
         for (dom_id, layout_result) in layout_results.iter().enumerate() {
 
             let dom_id = DomId { inner: dom_id };
 
             // Insert Window:: event filters
-            // TODO: cache keys!
-            let mut window_callbacks_this_dom = layout_result.styled_dom.node_data
-            .as_ref()
-            .par_iter()
-            .enumerate()
-            .flat_map(|(node_id, node_data)| {
-                node_data.get_callbacks().iter().filter_map(|callback| match callback.event {
+            let mut window_callbacks_this_dom = layout_result.styled_dom.nodes_with_window_callbacks.iter().flat_map(|nid| {
+                let node_id = match nid.into_crate_internal() {
+                    Some(s) => s,
+                    None => return Vec::new()
+                };
+                layout_result.styled_dom.node_data.as_container()[node_id].get_callbacks().iter().filter_map(|cb| match cb.event {
                     EventFilter::Window(wev) => {
                         if events.window_events.contains(&wev) {
                             Some(CallbackToCall {
                                 event_filter: EventFilter::Window(wev),
                                 hit_test_item: None,
-                                node_id: NodeId::new(node_id),
+                                node_id,
                             })
                         } else {
                             None
@@ -596,8 +592,7 @@ impl CallbacksOfHitTest {
                     },
                     _ => None,
                 }).collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+            }).collect::<Vec<_>>();
 
             // window_callbacks_this_dom now contains all WindowEvent filters
 
@@ -718,15 +713,12 @@ impl CallbacksOfHitTest {
         for (dom_id, layout_result) in layout_results.iter().enumerate() {
             let dom_id = DomId { inner: dom_id };
 
-            // TODO: cache keys!
-            let not_event_filters = layout_result.styled_dom.node_data
-            .as_ref()
-            .par_iter()
-            .enumerate()
-            .flat_map(|(node_id, node_data)| {
-                let node_id = NodeId::new(node_id);
-                node_data.get_callbacks().iter()
-                .filter_map(|callback| match callback.event {
+            let not_event_filters = layout_result.styled_dom.nodes_with_not_callbacks.iter().flat_map(|node_id| {
+                let node_id = match node_id.into_crate_internal() {
+                    Some(s) => s,
+                    None => return Vec::new()
+                };
+                layout_result.styled_dom.node_data.as_container()[node_id].get_callbacks().iter().filter_map(|cb| match cb.event {
                     EventFilter::Not(nev) => {
                         if nodes_with_callbacks.get(&dom_id).map(|v| v.iter().any(|cb| cb.node_id == node_id && cb.event_filter == nev.as_event_filter())) != Some(true) {
                             Some(CallbackToCall {
@@ -740,7 +732,8 @@ impl CallbacksOfHitTest {
                     },
                     _ => None,
                 }).collect::<Vec<_>>()
-            }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
             for cb in not_event_filters {
                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(cb);

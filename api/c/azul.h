@@ -9370,6 +9370,8 @@ struct AzStyledDom {
     AzNodeDataVec node_data;
     AzStyledNodeVec styled_nodes;
     AzCascadeInfoVec cascade_info;
+    AzNodeIdVec nodes_with_window_callbacks;
+    AzNodeIdVec nodes_with_none_callbacks;
     AzTagIdsToNodeIdsMappingVec tag_ids_to_node_ids;
     AzParentWithNodeDepthVec non_leaf_nodes;
     AzCssPropertyCache css_property_cache;
