@@ -567,113 +567,191 @@ impl CallbacksOfHitTest {
     ///
     /// This function also updates / mutates the current window states `focused_node`
     /// as well as the `window_state.previous_state`
+    #[cfg(feature = "multithreading")]
     pub fn new(nodes_to_check: &NodesToCheck, events: &Events, layout_results: &[LayoutResult]) -> Self {
 
-        use crate::dom::{ComponentEventFilter, ApplicationEventFilter};
+        use rayon::prelude::*;
 
         let mut nodes_with_callbacks = BTreeMap::new();
 
+        if events.is_empty() {
+            return Self { nodes_with_callbacks };
+        }
+
+        let default_map = BTreeMap::new();
+        let mouseenter_filter = EventFilter::Hover(HoverEventFilter::MouseEnter);
+        let mouseleave_filter = EventFilter::Hover(HoverEventFilter::MouseEnter);
+        let focus_received_filter = EventFilter::Focus(FocusEventFilter::FocusReceived);
+        let focus_lost_filter = EventFilter::Focus(FocusEventFilter::FocusLost);
+
         for (dom_id, layout_result) in layout_results.iter().enumerate() {
+
             let dom_id = DomId { inner: dom_id };
-            // iterate through all callbacks of all nodes
-            for (node_id, node_data) in layout_result.styled_dom.node_data.as_ref().iter().enumerate() {
-                let node_id = NodeId::new(node_id);
-                let az_node_id = AzNodeId::from_crate_internal(Some(node_id));
-                for callback in node_data.get_callbacks().iter() {
-                    // see if the callback matches
-                    match callback.event {
-                        EventFilter::Window(wev) => {
-                            if events.window_events.contains(&wev) {
-                                nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    event_filter: callback.event.clone(),
-                                    hit_test_item: None,
-                                    node_id,
+
+            // Insert Window:: event filters
+            let mut window_callbacks_this_dom = layout_result.styled_dom.node_data
+            .as_ref()
+            .par_iter()
+            .enumerate()
+            .flat_map(|(node_id, node_data)| {
+                node_data.get_callbacks().iter().filter_map(|callback| match callback.event {
+                    EventFilter::Window(wev) => {
+                        if events.window_events.contains(&wev) {
+                            Some(CallbackToCall {
+                                event_filter: EventFilter::Window(wev),
+                                hit_test_item: None,
+                                node_id: NodeId::new(node_id),
+                            })
+                        } else {
+                            None
+                        }
+                    },
+                    _ => None,
+                }).collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+            // window_callbacks_this_dom now contains all WindowEvent filters
+
+            // insert Hover::MouseEnter events
+            window_callbacks_this_dom.extend(
+                nodes_to_check.onmouseenter_nodes
+                .get(&dom_id)
+                .unwrap_or(&default_map)
+                .iter()
+                .filter_map(|(node_id, ht)| {
+                    if layout_result.styled_dom.node_data.as_container()[*node_id].get_callbacks().iter().any(|e| e.event == mouseenter_filter) {
+                        Some(CallbackToCall {
+                            event_filter: mouseenter_filter.clone(),
+                            hit_test_item: Some(*ht),
+                            node_id: *node_id,
+                        })
+                    } else {
+                        None
+                    }
+                }
+            ));
+
+            // insert Hover::MouseLeave events
+            window_callbacks_this_dom.extend(
+                nodes_to_check.onmouseleave_nodes
+                .get(&dom_id)
+                .unwrap_or(&default_map)
+                .iter()
+                .filter_map(|(node_id, ht)| {
+                    if layout_result.styled_dom.node_data.as_container()[*node_id].get_callbacks().iter().any(|e| e.event == mouseleave_filter) {
+                        Some(CallbackToCall {
+                            event_filter: mouseleave_filter.clone(),
+                            hit_test_item: Some(*ht),
+                            node_id: *node_id,
+                        })
+                    } else {
+                        None
+                    }
+                }
+            ));
+
+            // insert other Hover:: events
+            for (nid, ht) in nodes_to_check.new_hit_node_ids.get(&dom_id).unwrap_or(&default_map).iter() {
+                window_callbacks_this_dom.extend(
+                    layout_result.styled_dom.node_data.as_container()[*nid].get_callbacks()
+                    .iter().filter_map(|e| match &e.event {
+                        EventFilter::Hover(hev) => {
+                            if *hev != HoverEventFilter::MouseEnter &&
+                               *hev != HoverEventFilter::MouseLeave {
+                                Some(CallbackToCall {
+                                    event_filter: EventFilter::Hover(hev.clone()),
+                                    hit_test_item: Some(*ht),
+                                    node_id: *nid,
+                                })
+                            } else {
+                                None
+                            }
+                        },
+                        _ => None,
+                    })
+                );
+            }
+
+            // insert Focus(FocusReceived / FocusLost) event
+            if nodes_to_check.new_focus_node != nodes_to_check.old_focus_node {
+                if let Some(DomNodeId { dom, node: az_node_id }) = nodes_to_check.old_focus_node {
+                    if dom == dom_id {
+                        if let Some(nid) = az_node_id.into_crate_internal() {
+                            if layout_result.styled_dom.node_data.as_container()[nid].get_callbacks().iter().any(|e| e.event == focus_lost_filter) {
+                                window_callbacks_this_dom.push(CallbackToCall {
+                                    event_filter: focus_lost_filter.clone(),
+                                    hit_test_item: events.old_hit_node_ids.get(&dom_id).and_then(|map| map.get(&nid)).cloned(),
+                                    node_id: nid,
                                 })
                             }
-                        },
-                        EventFilter::Hover(HoverEventFilter::MouseEnter) => {
-                            if let Some(hit_test_item) = nodes_to_check.onmouseenter_nodes.get(&dom_id).and_then(|n| n.get(&node_id)) {
-                                nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    event_filter: callback.event.clone(),
-                                    hit_test_item: Some(*hit_test_item),
-                                    node_id,
-                                });
-                            }
-                        },
-                        EventFilter::Hover(HoverEventFilter::MouseLeave) => {
-                            if let Some(hit_test_item) = nodes_to_check.onmouseleave_nodes.get(&dom_id).and_then(|n| n.get(&node_id)) {
-                                nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    event_filter: callback.event.clone(),
-                                    hit_test_item: Some(*hit_test_item),
-                                    node_id,
-                                });
-                            }
-                        },
-                        EventFilter::Hover(hev) => {
-                            if let Some(hit_test_item) = nodes_to_check.new_hit_node_ids.get(&dom_id).and_then(|n| n.get(&node_id)) {
-                                if events.hover_events.contains(&hev) {
-                                    nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                        event_filter: callback.event.clone(),
-                                        hit_test_item: Some(*hit_test_item),
-                                        node_id,
-                                    });
-                                }
-                            }
-                        },
-                        EventFilter::Focus(FocusEventFilter::FocusReceived) => {
-                            if nodes_to_check.new_focus_node == Some(DomNodeId { dom: dom_id, node: az_node_id }) && nodes_to_check.old_focus_node != nodes_to_check.new_focus_node {
-                                nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    event_filter: callback.event.clone(),
-                                    hit_test_item: None,
-                                    node_id,
-                                });
-                            }
-                        },
-                        EventFilter::Focus(FocusEventFilter::FocusLost) => {
-                            if nodes_to_check.old_focus_node == Some(DomNodeId { dom: layout_result.dom_id, node: az_node_id }) && nodes_to_check.old_focus_node != nodes_to_check.new_focus_node {
-                                nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    event_filter: callback.event.clone(),
-                                    hit_test_item: None,
-                                    node_id,
-                                });
-                            }
-                        },
-                        EventFilter::Focus(fev) => {
-                            if nodes_to_check.new_focus_node == Some(DomNodeId { dom: layout_result.dom_id, node: az_node_id }) && events.focus_events.contains(&fev) {
-                                nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    event_filter: callback.event.clone(),
-                                    hit_test_item: None,
-                                    node_id,
-                                });
-                            }
-                        },
-                        EventFilter::Not(NotEventFilter::Focus(fev)) => {
-                            if nodes_to_check.new_focus_node != Some(DomNodeId { dom: layout_result.dom_id, node: az_node_id }) && events.focus_events.contains(&fev) {
-                                nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    event_filter: callback.event.clone(),
-                                    hit_test_item: None,
-                                    node_id,
-                                });
-                            }
-                        },
-                        EventFilter::Not(NotEventFilter::Hover(hev)) => {
-                            if nodes_to_check.new_hit_node_ids.get(&dom_id).and_then(|n| n.get(&node_id)).is_none() && events.hover_events.contains(&hev) {
-                                nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    event_filter: callback.event.clone(),
-                                    hit_test_item: None,
-                                    node_id,
-                                });
-                            }
-                        },
-                        EventFilter::Component(ComponentEventFilter::AfterMount) => { /* TODO - fire once for all newly created nodes! */ }
-                        EventFilter::Component(ComponentEventFilter::BeforeUnmount) => { /* TODO - fire for all removed nodes! */ }
-                        EventFilter::Component(ComponentEventFilter::NodeResized) => { /* TODO - fire for all resized nodes! */ }
+                        }
+                    }
+                }
 
-                        EventFilter::Application(ApplicationEventFilter::DeviceConnected) => { /* TODO - fire if device connected! */ }
-                        EventFilter::Application(ApplicationEventFilter::DeviceDisconnected) => { /* TODO - fire if device disconnected! */ }
+                if let Some(DomNodeId { dom, node: az_node_id }) = nodes_to_check.new_focus_node {
+                    if dom == dom_id {
+                        if let Some(nid) = az_node_id.into_crate_internal() {
+                            if layout_result.styled_dom.node_data.as_container()[nid].get_callbacks().iter().any(|e| e.event == focus_received_filter) {
+                                window_callbacks_this_dom.push(CallbackToCall {
+                                    event_filter: focus_received_filter.clone(),
+                                    hit_test_item: events.old_hit_node_ids.get(&dom_id).and_then(|map| map.get(&nid)).cloned(),
+                                    node_id: nid,
+                                })
+                            }
+                        }
                     }
                 }
             }
+
+            // Insert other Focus: events
+            if let Some(DomNodeId { dom, node: az_node_id }) = nodes_to_check.new_focus_node {
+                if dom == dom_id {
+                    if let Some(nid) = az_node_id.into_crate_internal() {
+                        for fev in events.focus_events.iter() {
+                            if layout_result.styled_dom.node_data.as_container()[nid].get_callbacks().iter().any(|e| e.event == EventFilter::Focus(*fev)) {
+                                window_callbacks_this_dom.push(CallbackToCall {
+                                    event_filter: EventFilter::Focus(fev.clone()),
+                                    hit_test_item: events.old_hit_node_ids.get(&dom_id).and_then(|map| map.get(&nid)).cloned(),
+                                    node_id: nid,
+                                })
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !window_callbacks_this_dom.is_empty() {
+                nodes_with_callbacks.insert(dom_id, window_callbacks_this_dom);
+            }
+        }
+
+        // Final: insert Not:: event filters
+        for (dom_id, layout_result) in layout_results.iter().enumerate() {
+            let dom_id = DomId { inner: dom_id };
+
+            let not_event_filters = layout_result.styled_dom.node_data
+            .as_ref()
+            .par_iter()
+            .enumerate()
+            .flat_map(|(node_id, node_data)| {
+                let node_id = NodeId::new(node_id);
+                node_data.get_callbacks().iter()
+                .filter_map(|callback| match callback.event {
+                    EventFilter::Not(nev) => {
+                        if nodes_with_callbacks.get(&dom_id).map(|v| v.iter().any(|cb| cb.node_id == node_id && cb.event_filter == nev.as_event_filter())) != Some(true) {
+                            Some(CallbackToCall {
+                                event_filter: EventFilter::Not(nev.clone()),
+                                hit_test_item: events.old_hit_node_ids.get(&dom_id).and_then(|map| map.get(&node_id)).cloned(),
+                                node_id,
+                            })
+                        } else {
+                            None
+                        }
+                    },
+                    _ => None,
+                }).collect::<Vec<_>>()
+            });
         }
 
         CallbacksOfHitTest {

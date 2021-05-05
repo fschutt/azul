@@ -248,7 +248,6 @@ fn run_inner(app: App) -> ! {
 
                 let mut window_state: WindowState = window.internal.current_window_state.clone().into();
                 let mut new_windows = Vec::new();
-                let window_handle = window.get_raw_window_handle();
                 let mut stop_propagation = false;
                 let mut focus_target = None; // TODO: useful to implement autofocus
                 let scroll_states = window.internal.get_current_scroll_states();
@@ -272,6 +271,8 @@ fn run_inner(app: App) -> ! {
                 let positioned_words_cache = &layout_result.positioned_words_cache;
                 let rects = &layout_result.rects;
                 let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
+                let raw_window_handle = &window.window_handle;
+
                 let callback_info = fc_cache.apply_closure(|fc_cache| {
                     CallbackInfo::new(
                         previous_window_state,
@@ -283,7 +284,7 @@ fn run_inner(app: App) -> ! {
                         &mut new_timers,
                         &mut new_threads,
                         &mut new_windows,
-                        &window_handle,
+                        raw_window_handle,
                         node_hierarchy,
                         &config.system_callbacks,
                         words_cache,
@@ -395,7 +396,6 @@ fn run_inner(app: App) -> ! {
                     let mut cur_threads = threads.get_mut(window_id).unwrap_or(&mut threads_uninitialized);
                     let current_scroll_states = window.internal.get_current_scroll_states();
 
-                    let raw_window_handle = window.get_raw_window_handle();
                     let update_screen_timers = fc_cache.apply_closure(|fc_cache| {
                         run_all_timers(
                             &mut data,
@@ -412,7 +412,7 @@ fn run_inner(app: App) -> ! {
                             &mut new_timers,
                             &mut cur_threads,
                             &mut windows_created,
-                            &raw_window_handle,
+                            &window.window_handle,
                             &mut window.internal.layout_results,
                             &mut false, // stop_propagation - can't be set in timer
                             &mut new_focus_node,
@@ -526,7 +526,6 @@ fn run_inner(app: App) -> ! {
                     let mut new_threads = BTreeMap::new();
 
                     let current_scroll_states = window.internal.get_current_scroll_states();
-                    let raw_window_handle = window.get_raw_window_handle();
                     let update_screen_threads = fc_cache.apply_closure(|fc_cache| {
                         clean_up_finished_threads(
                             &mut thread_map,
@@ -541,7 +540,7 @@ fn run_inner(app: App) -> ! {
                             &mut cur_timers,
                             &mut new_threads,
                             &mut windows_created,
-                            &raw_window_handle,
+                            &window.window_handle,
                             &mut window.internal.layout_results,
                             &mut false, // stop_propagation - can't be set in timer
                             &mut new_focus_node,
@@ -675,7 +674,6 @@ fn run_inner(app: App) -> ! {
                     None => {return; },
                 };
 
-
                 // update timer_coarse_frame if necessary
                 if !timers.is_empty() && !threads.is_empty() {
                     coarsetime::Instant::update();
@@ -709,6 +707,7 @@ fn run_inner(app: App) -> ! {
 
                 loop {
                     let events = Events::new(&window.internal.current_window_state, &window.internal.previous_window_state);
+                    println!("events: {:#?}", events);
                     let is_first_frame = window.internal.previous_window_state.is_none();
                     let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(&window.internal.previous_window_state);
                     let hit_test = if !events.needs_hit_test() {
@@ -723,12 +722,14 @@ fn run_inner(app: App) -> ! {
                         window.internal.current_window_state.hovered_nodes = ht.hovered_nodes.clone();
                         ht
                     };
+                    println!("hit test: {:#?}", hit_test);
 
                     // previous_window_state = current_window_state, nothing to do
                     if (events.is_empty() && !is_first_frame) || layout_callback_changed { break; }
 
                     let scroll_event = window.internal.current_window_state.get_scroll_amount();
                     let nodes_to_check = NodesToCheck::new(&hit_test, &events);
+                    println!("nodes to check: {:#?}", nodes_to_check);
                     let mut callback_results = fc_cache.apply_closure(|fc_cache| {
                         window.call_callbacks(
                             &nodes_to_check,
@@ -738,6 +739,8 @@ fn run_inner(app: App) -> ! {
                             &config.system_callbacks
                         )
                     });
+
+                    println!("callback_results: {:#?}", callback_results);
 
                     let cur_should_callback_render = callback_results.should_scroll_render;
                     if cur_should_callback_render {
@@ -919,7 +922,6 @@ fn run_inner(app: App) -> ! {
 
                     let mut window_state: WindowState = window.internal.current_window_state.clone().into();
                     let mut new_windows = Vec::new();
-                    let window_handle = window.get_raw_window_handle();
                     let mut stop_propagation = false;
                     let mut focus_target = None; // TODO: useful to implement autofocus
                     let scroll_states = window.internal.get_current_scroll_states();
@@ -943,6 +945,7 @@ fn run_inner(app: App) -> ! {
                     let shaped_words_cache = &layout_result.shaped_words_cache;
                     let positioned_words_cache = &layout_result.positioned_words_cache;
                     let rects = &layout_result.rects;
+                    let window_handle = &window.window_handle;
 
                     let callback_info = fc_cache.apply_closure(|fc_cache| {
                         CallbackInfo::new(
@@ -1028,7 +1031,6 @@ fn run_inner(app: App) -> ! {
 
                     let mut window_state: WindowState = window.internal.current_window_state.clone().into();
                     let mut new_windows = Vec::new();
-                    let window_handle = window.get_raw_window_handle();
                     let mut stop_propagation = false;
                     let mut focus_target = None; // TODO: useful to implement autofocus
                     let scroll_states = window.internal.get_current_scroll_states();
@@ -1052,6 +1054,7 @@ fn run_inner(app: App) -> ! {
                     let shaped_words_cache = &layout_result.shaped_words_cache;
                     let positioned_words_cache = &layout_result.positioned_words_cache;
                     let rects = &layout_result.rects;
+                    let window_handle = &window.window_handle;
 
                     let callback_info = fc_cache.apply_closure(|fc_cache| {
                         CallbackInfo::new(

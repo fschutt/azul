@@ -287,6 +287,8 @@ impl fmt::Display for WindowCreateError {
 pub struct Window {
     /// Stores things like scroll states, display list + epoch for the window
     pub(crate) internal: WindowInternal,
+    /// Raw window handle of the window
+    pub(crate) window_handle: RawWindowHandle,
     /// The display, i.e. the actual window (+ the attached OpenGL context)
     pub(crate) display: ContextState,
     /// Main render API that can be used to register and un-register fonts and images
@@ -362,6 +364,7 @@ impl Window {
         use webrender::ProgramCache as WrProgramCache;
         use webrender::api::ColorF as WrColorF;
         use crate::wr_translate::translate_id_namespace_wr;
+        use raw_window_handle::HasRawWindowHandle;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.
@@ -535,8 +538,11 @@ impl Window {
             )
         });
 
+        let window_handle = translate_raw_window_handle(window_context.window().raw_window_handle());
+
         let mut window = Window {
             display: window_context,
+            window_handle,
             render_api,
             renderer: Some(renderer),
             gl_context_ptr,
@@ -909,57 +915,6 @@ impl Window {
         window_was_updated
     }
 
-    pub fn get_raw_window_handle(&self) -> RawWindowHandle {
-        use raw_window_handle::HasRawWindowHandle;
-
-        const fn translate_raw_window_handle(input: raw_window_handle::RawWindowHandle) -> RawWindowHandle {
-            match input {
-                #[cfg(target_os = "ios")]
-                raw_window_handle::RawWindowHandle::IOS(h) => RawWindowHandle::IOS(IOSHandle {
-                    ui_window: h.ui_window,
-                    ui_view: h.ui_view,
-                    ui_view_controller: h.ui_view_controller
-                }),
-                #[cfg(target_os = "macos")]
-                raw_window_handle::RawWindowHandle::MacOS(h) => RawWindowHandle::MacOS(MacOSHandle {
-                    ns_window: h.ns_window,
-                    ns_view: h.ns_view,
-                }),
-                #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
-                raw_window_handle::RawWindowHandle::Xlib(h) => RawWindowHandle::Xlib(XlibHandle {
-                    window: h.window,
-                    display: h.display,
-                }),
-                #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
-                raw_window_handle::RawWindowHandle::Xcb(h) => RawWindowHandle::Xcb(XcbHandle {
-                    window: h.window,
-                    connection: h.connection,
-                }),
-                #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
-                raw_window_handle::RawWindowHandle::Wayland(h) => RawWindowHandle::Wayland(WaylandHandle {
-                    surface: h.surface,
-                    display: h.display,
-                }),
-                #[cfg(target_os = "windows")]
-                raw_window_handle::RawWindowHandle::Windows(h) => RawWindowHandle::Windows(WindowsHandle {
-                    hwnd: h.hwnd,
-                    hinstance: h.hinstance,
-                }),
-                #[cfg(target_arch = "wasm32")]
-                raw_window_handle::RawWindowHandle::Web(h) => RawWindowHandle::Web(WebHandle {
-                    id: h.id,
-                }),
-                #[cfg(target_os = "android")]
-                raw_window_handle::RawWindowHandle::Android(h) => RawWindowHandle::Android(AndroidHandle {
-                    a_native_window: h.a_native_window,
-                }),
-                _ => RawWindowHandle::Unsupported,
-            }
-        }
-
-        translate_raw_window_handle(self.display.window().raw_window_handle())
-    }
-
     /// Calls the callbacks and restyles / re-layouts the self.layout_results if necessary
     pub fn call_callbacks(
         &mut self,
@@ -972,13 +927,13 @@ impl Window {
         use azul_core::window_state::CallbacksOfHitTest;
 
         let mut callbacks = CallbacksOfHitTest::new(&nodes_to_check, &events, &self.internal.layout_results);
-        let raw_window_handle = self.get_raw_window_handle();
+        println!("callback function pointers: {:#?}", callbacks);
         let current_scroll_states = self.internal.get_current_scroll_states();
 
         callbacks.call(
             &self.internal.previous_window_state,
             &self.internal.current_window_state,
-            &raw_window_handle,
+            &self.window_handle,
             &current_scroll_states,
             &self.gl_context_ptr,
             &mut self.internal.layout_results,
@@ -1672,4 +1627,49 @@ fn linux_get_hidpi_factor(is_x11: bool) -> Option<f32> {
 
     let options = [system_hidpi_factor, qt_font_dpi, gsettings_dpi_factor, xft_dpi];
     options.iter().filter_map(|x| *x).next()
+}
+
+const fn translate_raw_window_handle(input: raw_window_handle::RawWindowHandle) -> RawWindowHandle {
+    match input {
+        #[cfg(target_os = "ios")]
+        raw_window_handle::RawWindowHandle::IOS(h) => RawWindowHandle::IOS(IOSHandle {
+            ui_window: h.ui_window,
+            ui_view: h.ui_view,
+            ui_view_controller: h.ui_view_controller
+        }),
+        #[cfg(target_os = "macos")]
+        raw_window_handle::RawWindowHandle::MacOS(h) => RawWindowHandle::MacOS(MacOSHandle {
+            ns_window: h.ns_window,
+            ns_view: h.ns_view,
+        }),
+        #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
+        raw_window_handle::RawWindowHandle::Xlib(h) => RawWindowHandle::Xlib(XlibHandle {
+            window: h.window,
+            display: h.display,
+        }),
+        #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
+        raw_window_handle::RawWindowHandle::Xcb(h) => RawWindowHandle::Xcb(XcbHandle {
+            window: h.window,
+            connection: h.connection,
+        }),
+        #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
+        raw_window_handle::RawWindowHandle::Wayland(h) => RawWindowHandle::Wayland(WaylandHandle {
+            surface: h.surface,
+            display: h.display,
+        }),
+        #[cfg(target_os = "windows")]
+        raw_window_handle::RawWindowHandle::Windows(h) => RawWindowHandle::Windows(WindowsHandle {
+            hwnd: h.hwnd,
+            hinstance: h.hinstance,
+        }),
+        #[cfg(target_arch = "wasm32")]
+        raw_window_handle::RawWindowHandle::Web(h) => RawWindowHandle::Web(WebHandle {
+            id: h.id,
+        }),
+        #[cfg(target_os = "android")]
+        raw_window_handle::RawWindowHandle::Android(h) => RawWindowHandle::Android(AndroidHandle {
+            a_native_window: h.a_native_window,
+        }),
+        _ => RawWindowHandle::Unsupported,
+    }
 }

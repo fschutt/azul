@@ -400,6 +400,15 @@ pub enum NotEventFilter {
     Focus(FocusEventFilter),
 }
 
+impl NotEventFilter {
+    pub fn as_event_filter(&self) -> EventFilter {
+        match self {
+            NotEventFilter::Hover(e) => EventFilter::Hover(*e),
+            NotEventFilter::Focus(e) => EventFilter::Focus(*e),
+        }
+    }
+}
+
 /// Event filter similar to `HoverEventFilter` that only fires when the element is focused
 ///
 /// **Important**: In order for this to fire, the item must have a `tabindex` attribute
