@@ -1289,7 +1289,6 @@ pub fn get_layout_flex_grows<'a>(styled_dom: &StyledDom) -> NodeDataContainer<f3
     }
 }
 
-
 #[inline]
 pub fn get_layout_displays<'a>(styled_dom: &StyledDom) -> NodeDataContainer<LayoutDisplay> {
     // Prevent flex-grow and flex-shrink to be less than 0
@@ -2536,10 +2535,10 @@ pub fn do_the_relayout(
         });
     }
 
-    let mut parents_that_need_to_recalc_width_of_children = BTreeSet::new();
-    let mut parents_that_need_to_recalc_height_of_children = BTreeSet::new();
     let mut nodes_that_need_to_bubble_width = BTreeMap::new();
     let mut nodes_that_need_to_bubble_height = BTreeMap::new();
+    let mut parents_that_need_to_recalc_width_of_children = BTreeSet::new();
+    let mut parents_that_need_to_recalc_height_of_children = BTreeSet::new();
     let mut parents_that_need_to_reposition_children_x = BTreeSet::new();
     let mut parents_that_need_to_reposition_children_y = BTreeSet::new();
 
@@ -2890,6 +2889,34 @@ pub fn do_the_relayout(
                 *rebubble_parent_heights.entry(parent_id).or_insert_with(|| 0.0) += change_amount;
                 parents_that_need_to_recalc_height_of_children.insert(parent_id);
             }
+        }
+    }
+
+    // if a node has been modified then the entire subtree needs to be re-laid out
+    for n in parents_that_need_to_recalc_width_of_children.clone() {
+        let subtree_parents = layout_result.styled_dom.get_subtree_parents(n);
+        for s in subtree_parents {
+            parents_that_need_to_recalc_width_of_children.insert(s);
+        }
+        parents_that_need_to_reposition_children_x.insert(n);
+    }
+    for n in parents_that_need_to_recalc_height_of_children.clone() {
+        let subtree_parents = layout_result.styled_dom.get_subtree_parents(n);
+        for s in subtree_parents {
+            parents_that_need_to_recalc_height_of_children.insert(s);
+        }
+        parents_that_need_to_reposition_children_y.insert(n);
+    }
+    for n in parents_that_need_to_reposition_children_x.clone() {
+        let subtree_parents = layout_result.styled_dom.get_subtree_parents(n);
+        for s in subtree_parents {
+            parents_that_need_to_reposition_children_x.insert(s);
+        }
+    }
+    for n in parents_that_need_to_reposition_children_y.clone() {
+        let subtree_parents = layout_result.styled_dom.get_subtree_parents(n);
+        for s in subtree_parents {
+            parents_that_need_to_reposition_children_y.insert(s);
         }
     }
 
