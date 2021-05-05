@@ -671,8 +671,19 @@ macro_rules! typed_arena {(
             parents_grouped_by_depth.entry(depth).or_insert_with(|| Vec::new()).push(parent_id);
         }
 
-        for (_, parent_ids) in parents_grouped_by_depth {
+        for (depth, parent_ids) in parents_grouped_by_depth {
 
+            // reset the flex_grow to 0
+            {
+                let mut node_data_mut = node_data.as_ref_mut();
+                for parent_id in parent_ids.iter() {
+                    for child_id in parent_id.az_children(node_hierarchy) {
+                        node_data_mut[child_id].flex_grow_px = 0.0;
+                    }
+                }
+            }
+
+            // calculate the new flex_grow
             let flex_grows_in_this_depth = parent_ids
             .par_iter()
             .map(|parent_id| {
@@ -704,7 +715,7 @@ macro_rules! typed_arena {(
                 (parent_id, result)
             }).collect::<Vec<_>>();
 
-            // write the flex-grow values of the children into the flex_grow_px
+            // write the new flex-grow values into the flex_grow_px
             {
                 let mut node_data_mut = node_data.as_ref_mut();
                 for (parent_id, flex_grows) in flex_grows_in_this_depth {
