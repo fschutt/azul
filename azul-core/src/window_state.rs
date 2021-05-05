@@ -103,13 +103,13 @@ impl Events {
     /// Warning: if the previous_window_state is none, this will return an empty Vec!
     pub fn new(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> Self {
 
-        let current_window_event = get_window_event(current_window_state, previous_window_state);
-        let current_hover_event = get_hover_event(&current_window_event);
-        let current_focus_event = get_focus_event(&current_hover_event);
+        let mut current_window_events = get_window_events(current_window_state, previous_window_state);
+        let mut current_hover_events = get_hover_events(&current_window_events);
+        let mut current_focus_events = get_focus_events(&current_hover_events);
 
-        let event_was_mouse_down    = current_window_event == Some(WindowEventFilter::MouseDown);
-        let event_was_mouse_release = current_window_event == Some(WindowEventFilter::MouseUp);
-        let event_was_mouse_leave   = current_window_event == Some(WindowEventFilter::MouseLeave);
+        let event_was_mouse_down    = current_window_events.iter().any(|e| *e == WindowEventFilter::MouseDown);
+        let event_was_mouse_release = current_window_events.iter().any(|e| *e == WindowEventFilter::MouseUp);
+        let event_was_mouse_leave   = current_window_events.iter().any(|e| *e == WindowEventFilter::MouseLeave);
         let current_window_state_mouse_is_down = current_window_state.mouse_state.mouse_down();
         let previous_window_state_mouse_is_down = previous_window_state.as_ref().map(|f| f.mouse_state.mouse_down()).unwrap_or(false);
 
@@ -121,21 +121,6 @@ impl Events {
                 f.hovered_nodes.iter().map(|(dom_id, hit_test)| (*dom_id, hit_test.regular_hit_test_nodes.clone())).collect()
             }
         }).unwrap_or_default();
-
-        let mut current_window_events = match current_window_event {
-            Some(s) => vec![s],
-            None => Vec::new(),
-        };
-
-        let mut current_hover_events = match current_hover_event {
-            Some(s) => vec![s],
-            None => Vec::new(),
-        };
-
-        let mut current_focus_events = match current_focus_event {
-            Some(s) => vec![s],
-            None => Vec::new(),
-        };
 
         if let Some(prev_state) = previous_window_state.as_ref() {
             if prev_state.theme != current_window_state.theme {
@@ -584,11 +569,14 @@ impl CallbacksOfHitTest {
         let focus_received_filter = EventFilter::Focus(FocusEventFilter::FocusReceived);
         let focus_lost_filter = EventFilter::Focus(FocusEventFilter::FocusLost);
 
+        println!("CallbacksOfHitTest::new - nodes to check: {:#?}", nodes_to_check);
+
         for (dom_id, layout_result) in layout_results.iter().enumerate() {
 
             let dom_id = DomId { inner: dom_id };
 
             // Insert Window:: event filters
+            // TODO: cache keys!
             let mut window_callbacks_this_dom = layout_result.styled_dom.node_data
             .as_ref()
             .par_iter()
@@ -653,12 +641,13 @@ impl CallbacksOfHitTest {
 
             // insert other Hover:: events
             for (nid, ht) in nodes_to_check.new_hit_node_ids.get(&dom_id).unwrap_or(&default_map).iter() {
-                window_callbacks_this_dom.extend(
-                    layout_result.styled_dom.node_data.as_container()[*nid].get_callbacks()
-                    .iter().filter_map(|e| match &e.event {
-                        EventFilter::Hover(hev) => {
-                            if *hev != HoverEventFilter::MouseEnter &&
-                               *hev != HoverEventFilter::MouseLeave {
+                for hev in events.hover_events.iter() {
+                    window_callbacks_this_dom.extend(
+                        layout_result.styled_dom.node_data.as_container()[*nid].get_callbacks()
+                        .iter().filter_map(|e| {
+                            let should_insert = e.event == EventFilter::Hover(*hev) && e.event != mouseenter_filter && e.event != mouseleave_filter;
+                            println!("hover: checking node {} for event filter {:?}: e.event = {:?}: result = {:?}", nid, hev, e.event, should_insert);
+                            if should_insert {
                                 Some(CallbackToCall {
                                     event_filter: EventFilter::Hover(hev.clone()),
                                     hit_test_item: Some(*ht),
@@ -667,10 +656,9 @@ impl CallbacksOfHitTest {
                             } else {
                                 None
                             }
-                        },
-                        _ => None,
-                    })
-                );
+                        })
+                    );
+                }
             }
 
             // insert Focus(FocusReceived / FocusLost) event
@@ -730,6 +718,7 @@ impl CallbacksOfHitTest {
         for (dom_id, layout_result) in layout_results.iter().enumerate() {
             let dom_id = DomId { inner: dom_id };
 
+            // TODO: cache keys!
             let not_event_filters = layout_result.styled_dom.node_data
             .as_ref()
             .par_iter()
@@ -751,7 +740,11 @@ impl CallbacksOfHitTest {
                     },
                     _ => None,
                 }).collect::<Vec<_>>()
-            });
+            }).collect::<Vec<_>>();
+
+            for cb in not_event_filters {
+                nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(cb);
+            }
         }
 
         CallbacksOfHitTest {
@@ -1053,94 +1046,99 @@ impl CallbacksOfHitTest {
     }
 }
 
-fn get_window_event(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> Option<WindowEventFilter> {
+fn get_window_events(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> Vec<WindowEventFilter> {
 
     use crate::window::CursorPosition::*;
     use crate::window::WindowPosition;
 
-    let previous_window_state = previous_window_state.as_ref()?;
+    let mut events = Vec::new();
+
+    let previous_window_state = match previous_window_state.as_ref() {
+        Some(s) => s,
+        None => return events,
+    };
 
     // match mouse move events first since they are the most common
 
     match (previous_window_state.mouse_state.cursor_position, current_window_state.mouse_state.cursor_position) {
         (InWindow(_), OutOfWindow) |
         (InWindow(_), Uninitialized) => {
-            return Some(WindowEventFilter::MouseLeave);
+            events.push(WindowEventFilter::MouseLeave);
         },
         (OutOfWindow, InWindow(_)) |
         (Uninitialized, InWindow(_)) => {
-            return Some(WindowEventFilter::MouseEnter);
+            events.push(WindowEventFilter::MouseEnter);
         },
         (InWindow(a), InWindow(b)) => {
             if a != b {
-                return Some(WindowEventFilter::MouseOver);
+                events.push(WindowEventFilter::MouseOver);
             }
         },
         _ => { },
     }
 
     if current_window_state.mouse_state.mouse_down() && !previous_window_state.mouse_state.mouse_down() {
-        return Some(WindowEventFilter::MouseDown);
+        events.push(WindowEventFilter::MouseDown);
     }
 
     if current_window_state.mouse_state.left_down && !previous_window_state.mouse_state.left_down {
-        return Some(WindowEventFilter::LeftMouseDown);
+        events.push(WindowEventFilter::LeftMouseDown);
     }
 
     if current_window_state.mouse_state.right_down && !previous_window_state.mouse_state.right_down {
-        return Some(WindowEventFilter::RightMouseDown);
+        events.push(WindowEventFilter::RightMouseDown);
     }
 
     if current_window_state.mouse_state.middle_down && !previous_window_state.mouse_state.middle_down {
-        return Some(WindowEventFilter::MiddleMouseDown);
+        events.push(WindowEventFilter::MiddleMouseDown);
     }
 
     if previous_window_state.mouse_state.mouse_down() && !current_window_state.mouse_state.mouse_down() {
-        return Some(WindowEventFilter::MouseUp);
+        events.push(WindowEventFilter::MouseUp);
     }
 
     if previous_window_state.mouse_state.left_down && !current_window_state.mouse_state.left_down {
-        return Some(WindowEventFilter::LeftMouseUp);
+        events.push(WindowEventFilter::LeftMouseUp);
     }
 
     if previous_window_state.mouse_state.right_down && !current_window_state.mouse_state.right_down {
-        return Some(WindowEventFilter::RightMouseUp);
+        events.push(WindowEventFilter::RightMouseUp);
     }
 
     if previous_window_state.mouse_state.middle_down && !current_window_state.mouse_state.middle_down {
-        return Some(WindowEventFilter::MiddleMouseUp);
+        events.push(WindowEventFilter::MiddleMouseUp);
     }
 
     // resize, move, close events
 
     if current_window_state.flags.has_focus != previous_window_state.flags.has_focus {
         if current_window_state.flags.has_focus {
-            return Some(WindowEventFilter::FocusReceived);
+            events.push(WindowEventFilter::FocusReceived);
         } else {
-            return Some(WindowEventFilter::FocusLost);
+            events.push(WindowEventFilter::FocusLost);
         }
     }
 
     if current_window_state.size.dimensions != previous_window_state.size.dimensions ||
        current_window_state.size.hidpi_factor != previous_window_state.size.hidpi_factor ||
        current_window_state.size.system_hidpi_factor != previous_window_state.size.system_hidpi_factor {
-        return Some(WindowEventFilter::Resized);
+        events.push(WindowEventFilter::Resized);
     }
 
     match (current_window_state.position, previous_window_state.position) {
         (WindowPosition::Initialized(cur_pos), WindowPosition::Initialized(prev_pos)) => {
             if prev_pos != cur_pos {
-                return Some(WindowEventFilter::Moved);
+                events.push(WindowEventFilter::Moved);
             }
         },
         (WindowPosition::Initialized(_), WindowPosition::Uninitialized) => {
-            return Some(WindowEventFilter::Moved);
+            events.push(WindowEventFilter::Moved);
         },
         _ => { }
     }
 
     if current_window_state.flags.is_about_to_close {
-        return Some(WindowEventFilter::CloseRequested);
+        events.push(WindowEventFilter::CloseRequested);
     }
 
     // scroll events
@@ -1154,56 +1152,56 @@ fn get_window_event(current_window_state: &FullWindowState, previous_window_stat
         current_window_state.mouse_state.scroll_y.is_some();
 
     if !is_scroll_previous && is_scroll_now {
-        return Some(WindowEventFilter::ScrollStart);
+        events.push(WindowEventFilter::ScrollStart);
     }
 
     if is_scroll_now {
-        return Some(WindowEventFilter::Scroll);
+        events.push(WindowEventFilter::Scroll);
     }
 
     if is_scroll_previous && !is_scroll_now {
-        return Some(WindowEventFilter::ScrollEnd);
+        events.push(WindowEventFilter::ScrollEnd);
     }
 
     // keyboard events
 
     if previous_window_state.keyboard_state.current_virtual_keycode.is_none() && current_window_state.keyboard_state.current_virtual_keycode.is_some() {
-        return Some(WindowEventFilter::VirtualKeyDown);
+        events.push(WindowEventFilter::VirtualKeyDown);
     }
 
     if current_window_state.keyboard_state.current_char.is_some() {
-        return Some(WindowEventFilter::TextInput);
+        events.push(WindowEventFilter::TextInput);
     }
 
     if previous_window_state.keyboard_state.current_virtual_keycode.is_some() && current_window_state.keyboard_state.current_virtual_keycode.is_none() {
-        return Some(WindowEventFilter::VirtualKeyUp);
+        events.push(WindowEventFilter::VirtualKeyUp);
     }
 
     // misc events
 
     if previous_window_state.hovered_file.is_none() && current_window_state.hovered_file.is_some() {
-        return Some(WindowEventFilter::HoveredFile);
+        events.push(WindowEventFilter::HoveredFile);
     }
 
     if previous_window_state.hovered_file.is_some() && current_window_state.hovered_file.is_none() {
         if current_window_state.dropped_file.is_some() {
-            return Some(WindowEventFilter::DroppedFile);
+            events.push(WindowEventFilter::DroppedFile);
         } else {
-            return Some(WindowEventFilter::HoveredFileCancelled);
+            events.push(WindowEventFilter::HoveredFileCancelled);
         }
     }
 
     if current_window_state.theme != previous_window_state.theme {
-        return Some(WindowEventFilter::ThemeChanged);
+        events.push(WindowEventFilter::ThemeChanged);
     }
 
-    None
+    events
 }
 
-fn get_hover_event(input: &Option<WindowEventFilter>) -> Option<HoverEventFilter> {
-    input.as_ref().and_then(|window_event| window_event.to_hover_event_filter())
+fn get_hover_events(input: &[WindowEventFilter]) -> Vec<HoverEventFilter> {
+    input.iter().filter_map(|window_event| window_event.to_hover_event_filter()).collect()
 }
 
-fn get_focus_event(input: &Option<HoverEventFilter>) -> Option<FocusEventFilter> {
-    input.as_ref().and_then(|hover_event| hover_event.to_focus_event_filter())
+fn get_focus_events(input: &[HoverEventFilter]) -> Vec<FocusEventFilter> {
+    input.iter().filter_map(|hover_event| hover_event.to_focus_event_filter()).collect()
 }
