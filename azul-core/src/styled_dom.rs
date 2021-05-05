@@ -2053,6 +2053,23 @@ impl StyledDom {
         }
     }
 
+    // Same as get_subtree, but only returns parents
+    pub fn get_subtree_parents(&self, parent: NodeId) -> Vec<NodeId> {
+        let mut total_last_child = None;
+        recursive_get_last_child(parent, &self.node_hierarchy.as_ref(), &mut total_last_child);
+        if let Some(last) = total_last_child {
+            (parent.index()..=last.index()).filter_map(|id| {
+                if self.node_hierarchy.as_ref()[id].last_child_id().is_some() {
+                    Some(NodeId::new(id))
+                } else {
+                    None
+                }
+            }).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
     #[cfg(feature = "multithreading")]
     pub fn get_rects_in_rendering_order(&self) -> ContentGroup {
         Self::determine_rendering_order(

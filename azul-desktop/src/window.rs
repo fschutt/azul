@@ -927,7 +927,6 @@ impl Window {
         use azul_core::window_state::CallbacksOfHitTest;
 
         let mut callbacks = CallbacksOfHitTest::new(&nodes_to_check, &events, &self.internal.layout_results);
-        println!("callback function pointers: {:#?}", callbacks);
         let current_scroll_states = self.internal.get_current_scroll_states();
 
         callbacks.call(

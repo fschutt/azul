@@ -7,7 +7,7 @@ use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 use azul_css::{
     LayoutRect, LayoutRectVec, LayoutPoint, LayoutSize, PixelValue, StyleFontSize,
-    StyleTextColor, ColorU as StyleColorU, OptionF32, LayoutOverflow,
+    StyleTextColor, ColorU as StyleColorU, OptionF32, LayoutOverflow, LayoutDisplay,
     StyleTextAlignmentHorz, StyleTextAlignmentVert, LayoutPosition,
     CssPropertyValue, LayoutMarginTop, LayoutMarginRight, LayoutMarginLeft, LayoutMarginBottom,
     LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingBottom,
@@ -501,6 +501,7 @@ pub struct LayoutResult {
     pub solved_pos_x: NodeDataContainer<HorizontalSolvedPosition>,
     pub solved_pos_y: NodeDataContainer<VerticalSolvedPosition>,
     pub layout_flex_grows: NodeDataContainer<f32>,
+    pub layout_displays: NodeDataContainer<LayoutDisplay>,
     pub layout_positions: NodeDataContainer<LayoutPosition>,
     pub layout_flex_directions: NodeDataContainer<LayoutFlexDirection>,
     pub layout_justify_contents: NodeDataContainer<LayoutJustifyContent>,

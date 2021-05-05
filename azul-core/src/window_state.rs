@@ -640,9 +640,7 @@ impl CallbacksOfHitTest {
                     window_callbacks_this_dom.extend(
                         layout_result.styled_dom.node_data.as_container()[*nid].get_callbacks()
                         .iter().filter_map(|e| {
-                            let should_insert = e.event == EventFilter::Hover(*hev) && e.event != mouseenter_filter && e.event != mouseleave_filter;
-                            println!("hover: checking node {} for event filter {:?}: e.event = {:?}: result = {:?}", nid, hev, e.event, should_insert);
-                            if should_insert {
+                            if e.event == EventFilter::Hover(*hev) && e.event != mouseenter_filter && e.event != mouseleave_filter {
                                 Some(CallbackToCall {
                                     event_filter: EventFilter::Hover(hev.clone()),
                                     hit_test_item: Some(*ht),
@@ -692,12 +690,16 @@ impl CallbacksOfHitTest {
                 if dom == dom_id {
                     if let Some(nid) = az_node_id.into_crate_internal() {
                         for fev in events.focus_events.iter() {
-                            if layout_result.styled_dom.node_data.as_container()[nid].get_callbacks().iter().any(|e| e.event == EventFilter::Focus(*fev)) {
-                                window_callbacks_this_dom.push(CallbackToCall {
-                                    event_filter: EventFilter::Focus(fev.clone()),
-                                    hit_test_item: events.old_hit_node_ids.get(&dom_id).and_then(|map| map.get(&nid)).cloned(),
-                                    node_id: nid,
-                                })
+                            for cb in layout_result.styled_dom.node_data.as_container()[nid].get_callbacks().iter() {
+                                if cb.event == EventFilter::Focus(*fev) &&
+                                   cb.event != focus_received_filter &&
+                                   cb.event != focus_lost_filter {
+                                    window_callbacks_this_dom.push(CallbackToCall {
+                                        event_filter: EventFilter::Focus(fev.clone()),
+                                        hit_test_item: events.old_hit_node_ids.get(&dom_id).and_then(|map| map.get(&nid)).cloned(),
+                                        node_id: nid,
+                                    })
+                                }
                             }
                         }
                     }

@@ -1278,6 +1278,30 @@ pub fn get_layout_flex_grows<'a>(styled_dom: &StyledDom) -> NodeDataContainer<f3
     }
 }
 
+
+#[inline]
+pub fn get_layout_displays<'a>(styled_dom: &StyledDom) -> NodeDataContainer<LayoutDisplay> {
+    // Prevent flex-grow and flex-shrink to be less than 0
+    let cache = styled_dom.get_css_property_cache();
+    let node_data_container = styled_dom.node_data.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    assert!(node_data_container.internal.len() == styled_nodes.internal.len()); // elide bounds checking
+
+    NodeDataContainer {
+        internal: styled_nodes.internal
+        .par_iter()
+        .enumerate()
+        .map(|(node_id, styled_node)| {
+            cache.get_display(
+                &node_data_container.internal[node_id],
+                &NodeId::new(node_id),
+                &styled_node.state
+            ).and_then(|g| g.get_property().copied())
+            .unwrap_or_default()
+        }).collect()
+    }
+}
+
 fn precalculate_all_offsets(styled_dom: &StyledDom) -> NodeDataContainer<AllOffsets> {
 
     use rayon::prelude::*;
@@ -1604,6 +1628,7 @@ pub fn do_the_layout_internal(
 
     let layout_position_info = get_layout_positions(&styled_dom);
     let layout_flex_grow_info = get_layout_flex_grows(&styled_dom);
+    let layout_display_info = get_layout_displays(&styled_dom);
     let layout_directions_info = get_layout_flex_directions(&styled_dom);
     let layout_justify_contents = get_layout_justify_contents(&styled_dom);
     let layout_offsets = precalculate_all_offsets(&styled_dom);
@@ -1815,6 +1840,7 @@ pub fn do_the_layout_internal(
         height_calculated_rects: height_calculated_arena,
         solved_pos_x: x_positions,
         solved_pos_y: y_positions,
+        layout_displays: layout_display_info,
         layout_flex_grows: layout_flex_grow_info,
         layout_positions: layout_position_info,
         layout_flex_directions: layout_directions_info,
@@ -2475,6 +2501,10 @@ pub fn do_the_relayout(
         .iter()
         .for_each(|(node_id, changed_props)| {
 
+            if let Some(CssProperty::Display(new_display_state)) = changed_props.get(&CssPropertyType::Display).map(|p| &p.current_prop) {
+                layout_result.layout_displays.as_ref_mut()[*node_id] = new_display_state.get_property().cloned().unwrap_or_default();
+            }
+
             if let Some(CssProperty::Position(new_position_state)) = changed_props.get(&CssPropertyType::Position).map(|p| &p.current_prop) {
                 layout_result.layout_positions.as_ref_mut()[*node_id] = new_position_state.get_property().cloned().unwrap_or_default();
             }
@@ -2794,7 +2824,6 @@ pub fn do_the_relayout(
         let parent_id = layout_result.styled_dom.node_hierarchy.as_container()[node_id].parent_id()
         .unwrap_or(layout_result.styled_dom.root.into_crate_internal().unwrap());
 
-
         detect_changes!(node_id, parent_id);
 
         for child_id in node_id.az_children(&layout_result.styled_dom.node_hierarchy.as_container()) {
@@ -2807,7 +2836,7 @@ pub fn do_the_relayout(
     let mut rebubble_parent_widths = BTreeMap::new();
     let mut rebubble_parent_heights = BTreeMap::new();
 
-    for (node_id, (old_preferred_width, new_preferred_width)) in nodes_that_need_to_bubble_width.iter() {
+    for (node_id, (old_preferred_width, new_preferred_width)) in nodes_that_need_to_bubble_width.iter().rev() {
         if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[*node_id].parent_id() {
             let change = new_preferred_width.min_needed_space().unwrap_or(0.0) -
                          old_preferred_width.min_needed_space().unwrap_or(0.0);
@@ -2819,7 +2848,7 @@ pub fn do_the_relayout(
         }
     }
 
-    for (node_id, (old_preferred_height, new_preferred_height)) in nodes_that_need_to_bubble_height.iter() {
+    for (node_id, (old_preferred_height, new_preferred_height)) in nodes_that_need_to_bubble_height.iter().rev() {
         if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[*node_id].parent_id() {
             let change = new_preferred_height.min_needed_space().unwrap_or(0.0) -
                          old_preferred_height.min_needed_space().unwrap_or(0.0);
@@ -2852,6 +2881,8 @@ pub fn do_the_relayout(
             }
         }
     }
+
+    // parents_that_need_to_recalc_width_of_children += parents_that_need_to_recalc_width_of_children.subtree_parents();
 
     // now for all nodes that need to recalculate their width, calculate their flex_grow_px,
     // then recalculate the width of their children, but STOP recalculating once a child

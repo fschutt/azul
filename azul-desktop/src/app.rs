@@ -707,7 +707,6 @@ fn run_inner(app: App) -> ! {
 
                 loop {
                     let events = Events::new(&window.internal.current_window_state, &window.internal.previous_window_state);
-                    println!("events: {:#?}", events);
                     let is_first_frame = window.internal.previous_window_state.is_none();
                     let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(&window.internal.previous_window_state);
                     let hit_test = if !events.needs_hit_test() {
@@ -722,14 +721,12 @@ fn run_inner(app: App) -> ! {
                         window.internal.current_window_state.hovered_nodes = ht.hovered_nodes.clone();
                         ht
                     };
-                    println!("hit test: {:#?}", hit_test);
 
                     // previous_window_state = current_window_state, nothing to do
                     if (events.is_empty() && !is_first_frame) || layout_callback_changed { break; }
 
                     let scroll_event = window.internal.current_window_state.get_scroll_amount();
                     let nodes_to_check = NodesToCheck::new(&hit_test, &events);
-                    println!("nodes to check: {:#?}", nodes_to_check);
                     let mut callback_results = fc_cache.apply_closure(|fc_cache| {
                         window.call_callbacks(
                             &nodes_to_check,
@@ -740,7 +737,6 @@ fn run_inner(app: App) -> ! {
                         )
                     });
 
-                    println!("callback_results: {:#?}", callback_results);
 
                     let cur_should_callback_render = callback_results.should_scroll_render;
                     if cur_should_callback_render {
