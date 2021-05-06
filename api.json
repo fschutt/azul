@@ -11008,7 +11008,7 @@
                 },
                 "OptionThreadSendMsg": {
                     "external": "azul_impl::task::OptionThreadSendMsg",
-                    "derive": ["Copy"],
+                    "clone": false,
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "ThreadSendMsg" }}
