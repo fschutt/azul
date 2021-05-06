@@ -23,7 +23,7 @@ links = "azul"
 path = "lib.rs"
 
 [dependencies]
-azul-dll = { version = "0.0.1", path = "../../azul-dll", default-features = false, optional = true }
+azul-dll = { version = "0.0.1", path = "../../azul-dll", default-features = false, features = ["rlib"], optional = true }
 
 [features]
 default = []
