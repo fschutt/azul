@@ -14,6 +14,7 @@ use std::hash::Hash;
 use azul_css::{
     CssProperty, LayoutSize, CssPath, InterpolateResolver,
     AzString, LayoutRect, AnimationInterpolationFunction,
+    CssPropertyType,
 };
 use rust_fontconfig::FcFontCache;
 use crate::{
@@ -1246,7 +1247,7 @@ impl CallbackInfo {
         Some(crate::app_resources::get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout))
     }
 
-    pub fn get_computed_css_property(&self, node_id: DomNodeId) -> Option<CssProperty> {
+    pub fn get_computed_css_property(&self, node_id: DomNodeId, property_type: CssPropertyType) -> Option<CssProperty> {
 
         /*
             if node_id.dom != self.get_hit_node().dom {
@@ -1286,7 +1287,7 @@ impl CallbackInfo {
         }
     }
 
-    pub fn send_msg_to_thread(&mut self, thread_id: ThreadId, msg: ThreadSendMsg) -> bool {
+    pub fn send_thread_msg(&mut self, thread_id: ThreadId, msg: ThreadSendMsg) -> bool {
         if let Some(thread) = self.internal_get_threads().get_mut(&thread_id) {
             thread.sender.send(msg);
             true

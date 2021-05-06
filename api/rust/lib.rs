@@ -4424,7 +4424,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `Timer` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTimer {
         pub data: AzRefAny,
-        pub node_id: AzOptionNodeId,
+        pub node_id: AzOptionDomNodeId,
         pub created: AzInstant,
         pub last_run: AzOptionInstant,
         pub run_count: usize,
@@ -4842,7 +4842,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
     #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTimerCallbackInfo {
         pub callback_info: AzCallbackInfo,
-        pub node_id: AzOptionNodeId,
+        pub node_id: AzOptionDomNodeId,
         pub frame_start: AzInstant,
         pub call_count: usize,
         pub is_about_to_finish: bool,
@@ -4990,6 +4990,7 @@ mod dll {
         pub cascade_info: AzCascadeInfoVec,
         pub nodes_with_window_callbacks: AzNodeIdVec,
         pub nodes_with_not_callbacks: AzNodeIdVec,
+        pub nodes_with_datasets_and_callbacks: AzNodeIdVec,
         pub tag_ids_to_node_ids: AzTagIdsToNodeIdsMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub css_property_cache: AzCssPropertyCache,
@@ -5464,7 +5465,7 @@ mod dll {
         pub(crate) fn AzSystemClipboard_setStringContents(_:  &mut AzSystemClipboard, _:  AzString) -> bool;
         pub(crate) fn AzSystemClipboard_delete(_:  &mut AzSystemClipboard);
         pub(crate) fn AzInstant_durationSince(_:  &AzInstant, _:  AzInstant) -> AzOptionDuration;
-        pub(crate) fn AzInstant_addDuration(_:  &mut AzInstant, _:  AzDuration);
+        pub(crate) fn AzInstant_addDuration(_:  &mut AzInstant, _:  AzDuration) -> AzInstant;
         pub(crate) fn AzInstant_linearInterpolate(_:  &AzInstant, _:  AzInstant, _:  AzInstant) -> f32;
         pub(crate) fn AzInstantPtr_delete(_:  &mut AzInstantPtr);
         pub(crate) fn AzInstantPtr_deepCopy(_:  &AzInstantPtr) -> AzInstantPtr;
@@ -9188,8 +9189,8 @@ pub mod time {
     impl Instant {
         /// Returns the duration since and earlier instant or None if the earlier instant is later than self
         pub fn duration_since(&self, earlier: Instant)  -> crate::option::OptionDuration { unsafe { crate::dll::AzInstant_durationSince(self, earlier) } }
-        /// Adds a duration to the current time instant
-        pub fn add_duration(&mut self, duration: Duration)  { unsafe { crate::dll::AzInstant_addDuration(self, duration) } }
+        /// Adds a duration to the current time instant, returning the new `Instant`
+        pub fn add_duration(&mut self, duration: Duration)  -> crate::time::Instant { unsafe { crate::dll::AzInstant_addDuration(self, duration) } }
         /// Linearly interpolates between [start, end] if the `self` Instant lies between start and end. Returns values between 0.0 and 1.0
         pub fn linear_interpolate(&self, start: Instant, end: Instant)  -> f32 { unsafe { crate::dll::AzInstant_linearInterpolate(self, start, end) } }
     }

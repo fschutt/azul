@@ -263,7 +263,9 @@ fn run_inner(app: App) -> ! {
 
                 let gl_context_ptr = &window.gl_context_ptr;
                 let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
-                let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+                let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset(
+                    &layout_result.styled_dom.nodes_with_datasets.as_ref(),
+                );
                 let current_window_state = &window.internal.current_window_state;
                 let previous_window_state = &window.internal.previous_window_state;
                 let words_cache = &layout_result.words_cache;
@@ -272,9 +274,13 @@ fn run_inner(app: App) -> ! {
                 let rects = &layout_result.rects;
                 let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
                 let raw_window_handle = &window.window_handle;
+                let css_property_cache = &layout_result.styled_dom.css_property_cache.ptr;
+                let styled_nodes = &layout_result.styled_dom.styled_nodes;
 
                 let callback_info = fc_cache.apply_closure(|fc_cache| {
                     CallbackInfo::new(
+                        css_property_cache,
+                        styled_nodes,
                         previous_window_state,
                         current_window_state,
                         &mut window_state,
@@ -935,16 +941,22 @@ fn run_inner(app: App) -> ! {
                     let layout_result = &mut window.internal.layout_results[DomId::ROOT_ID.inner];
                     let current_window_state = &window.internal.current_window_state;
                     let previous_window_state = &window.internal.previous_window_state;
-                    let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+                    let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset(
+                        &layout_result.styled_dom.nodes_with_datasets.as_ref(),
+                    );
                     let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
                     let words_cache = &layout_result.words_cache;
                     let shaped_words_cache = &layout_result.shaped_words_cache;
                     let positioned_words_cache = &layout_result.positioned_words_cache;
                     let rects = &layout_result.rects;
                     let window_handle = &window.window_handle;
+                    let css_property_cache = &layout_result.styled_dom.css_property_cache.ptr;
+                    let styled_nodes = &layout_result.styled_dom.styled_nodes;
 
                     let callback_info = fc_cache.apply_closure(|fc_cache| {
                         CallbackInfo::new(
+                            css_property_cache,
+                            styled_nodes,
                             previous_window_state,
                             current_window_state,
                             &mut window_state,
@@ -1045,15 +1057,21 @@ fn run_inner(app: App) -> ! {
                     let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
                     let current_window_state = &window.internal.current_window_state;
                     let previous_window_state = &window.internal.previous_window_state;
-                    let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+                    let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset(
+                        &layout_result.styled_dom.nodes_with_datasets.as_ref(),
+                    );
                     let words_cache = &layout_result.words_cache;
                     let shaped_words_cache = &layout_result.shaped_words_cache;
                     let positioned_words_cache = &layout_result.positioned_words_cache;
                     let rects = &layout_result.rects;
                     let window_handle = &window.window_handle;
+                    let css_property_cache = &layout_result.styled_dom.css_property_cache.ptr;
+                    let styled_nodes = &layout_result.styled_dom.styled_nodes;
 
                     let callback_info = fc_cache.apply_closure(|fc_cache| {
                         CallbackInfo::new(
+                            css_property_cache,
+                            styled_nodes,
                             previous_window_state,
                             current_window_state,
                             &mut window_state,

@@ -1340,21 +1340,21 @@ fn push_display_list_msg(
     let relative_y;
 
     let (parent_spatial_id, parent_clip_id) = match msg_position {
-        Static { x_offset, y_offset, .. } | Relative { x_offset, y_offset, .. } => {
-            relative_x = x_offset;
-            relative_y = y_offset;
+        Static(p) | Relative(p) => {
+            relative_x = p.x_offset;
+            relative_y = p.y_offset;
             (parent_spatial_id, parent_clip_id)
         },
-        Absolute { x_offset, y_offset, .. } => {
+        Absolute(p) => {
             let (last_positioned_spatial_id, last_positioned_clip_id) = positioned_items.last().copied()
             .unwrap_or((WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id)));
-            relative_x = x_offset;
-            relative_y = y_offset;
+            relative_x = p.x_offset;
+            relative_y = p.y_offset;
             (last_positioned_spatial_id, last_positioned_clip_id)
         },
-        Fixed { x_offset, y_offset, .. } => {
-            relative_x = x_offset;
-            relative_y = y_offset;
+        Fixed(p) => {
+            relative_x = p.x_offset;
+            relative_y = p.y_offset;
             (WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id))
         },
     };

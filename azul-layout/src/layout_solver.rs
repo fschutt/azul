@@ -21,7 +21,7 @@ use azul_core::{
         LayoutResult, PositionedRectangle, WhConstraint,
         WidthCalculatedRect, HeightCalculatedRect,
         HorizontalSolvedPosition, VerticalSolvedPosition,
-        GpuValueCache, RelayoutChanges,
+        GpuValueCache, RelayoutChanges, PositionInfoInner,
         StyleBoxShadowOffsets,
     },
     app_resources::{
@@ -1934,34 +1934,34 @@ fn position_nodes<'a>(
         let last_positioned_item_x_pos = x_positions[last_positioned_item_node_id].0;
         let last_positioned_item_y_pos = y_positions[last_positioned_item_node_id].0;
         let parent_position_info = match parent_position {
-            LayoutPosition::Static => PositionInfo::Static {
+            LayoutPosition::Static => PositionInfo::Static(PositionInfoInner {
                 // calculate relative to parent
                 x_offset: x_pos - parent_x_pos,
                 y_offset: y_pos - parent_y_pos,
                 static_x_offset: x_pos,
                 static_y_offset: y_pos,
-            },
-            LayoutPosition::Relative => PositionInfo::Relative {
+            }),
+            LayoutPosition::Relative => PositionInfo::Relative(PositionInfoInner {
                 // calculate relative to parent
                 x_offset: x_pos - parent_x_pos,
                 y_offset: y_pos - parent_y_pos,
                 static_x_offset: x_pos,
                 static_y_offset: y_pos,
-            },
-            LayoutPosition::Absolute => PositionInfo::Absolute {
+            }),
+            LayoutPosition::Absolute => PositionInfo::Absolute(PositionInfoInner {
                 // calculate relative to last positioned item
                 x_offset: x_pos - last_positioned_item_x_pos,
                 y_offset: y_pos - last_positioned_item_y_pos,
                 static_x_offset: x_pos,
                 static_y_offset: y_pos,
-            },
-            LayoutPosition::Fixed => PositionInfo::Fixed {
+            }),
+            LayoutPosition::Fixed => PositionInfo::Fixed(PositionInfoInner {
                 // relative to screen, already done
                 x_offset: x_pos,
                 y_offset: y_pos,
                 static_x_offset: x_pos,
                 static_y_offset: y_pos,
-            },
+            }),
         };
         let parent_size = LogicalSize::new(width.total(), height.total());
 
@@ -1996,34 +1996,34 @@ fn position_nodes<'a>(
             let child_node_data = &styled_dom.node_data.as_container()[child_node_id];
 
             let child_position = match child_position {
-                LayoutPosition::Static => PositionInfo::Static {
+                LayoutPosition::Static => PositionInfo::Static(PositionInfoInner {
                     // calculate relative to parent
                     x_offset: x_pos - parent_x_pos,
                     y_offset: y_pos - parent_y_pos,
                     static_x_offset: x_pos,
                     static_y_offset: y_pos,
-                },
-                LayoutPosition::Relative => PositionInfo::Relative {
+                }),
+                LayoutPosition::Relative => PositionInfo::Relative(PositionInfoInner {
                     // calculate relative to parent
                     x_offset: x_pos - parent_x_pos,
                     y_offset: y_pos - parent_y_pos,
                     static_x_offset: x_pos,
                     static_y_offset: y_pos,
-                },
-                LayoutPosition::Absolute => PositionInfo::Absolute {
+                }),
+                LayoutPosition::Absolute => PositionInfo::Absolute(PositionInfoInner {
                     // calculate relative to last positioned item
                     x_offset: x_pos - last_positioned_item_x_pos,
                     y_offset: y_pos - last_positioned_item_y_pos,
                     static_x_offset: x_pos,
                     static_y_offset: y_pos,
-                },
-                LayoutPosition::Fixed => PositionInfo::Fixed {
+                }),
+                LayoutPosition::Fixed => PositionInfo::Fixed(PositionInfoInner {
                     // relative to screen, already done
                     x_offset: x_pos,
                     y_offset: y_pos,
                     static_x_offset: x_pos,
                     static_y_offset: y_pos,
-                },
+                }),
             };
 
             let child_size_logical = LogicalSize::new(width.total(), height.total());

@@ -1203,7 +1203,7 @@
                                 {"node_id": "DomNodeId"}
                             ],
                             "returns": {"type": "OptionLogicalSize"},
-                            "fn_body": "callbackinfo.get_node_position(node_id).into()"
+                            "fn_body": "callbackinfo.get_node_size(node_id).into()"
                         },
                         "get_computed_css_property": {
                             "doc": "Returns the current computed CSS property of a given DOM node in the UI",
@@ -1333,7 +1333,7 @@
                                 {"timer": "Timer"}
                             ],
                             "returns": {"type": "OptionTimerId"},
-                            "fn_body": "callbackinfo.start_timer(id, timer).into()"
+                            "fn_body": "callbackinfo.start_timer(timer).into()"
                         },
                         "start_animation": {
                             "doc": "Starts an animation timer on a give NodeId - same as a `Timer`, but uses a pre-configured interpolation function to drive the animation timer",
@@ -1343,7 +1343,7 @@
                                 {"animation": "Animation"}
                             ],
                             "returns": {"type": "OptionTimerId"},
-                            "fn_body": "callbackinfo.start_animation(id, animation).into()"
+                            "fn_body": "callbackinfo.start_animation(node, animation).into()"
                         },
                         "stop_timer": {
                             "doc": "Stops / cancels a `Timer`. See the documentation for `Timer` for more information.",
@@ -1352,7 +1352,7 @@
                                 {"timer_id": "TimerId"}
                             ],
                             "returns": {"type": "bool", "doc": "Returns true if the timer was successfully stopped / removed."},
-                            "fn_body": "callbackinfo.start_timer(id, timer);"
+                            "fn_body": "callbackinfo.stop_timer(timer_id)"
                         },
                         "start_thread": {
                             "doc": "Starts a new `Thread` to the runtime. See the documentation for `Thread` for more information.",
@@ -1363,7 +1363,7 @@
                                 {"callback": "ThreadCallback"}
                             ],
                             "returns": {"type": "OptionThreadId" },
-                            "fn_body": "callbackinfo.start_thread(id, thread_initialize_data, writeback_data, callback).into()"
+                            "fn_body": "callbackinfo.start_thread(thread_initialize_data, writeback_data, callback).into()"
                         },
                         "send_thread_msg": {
                             "doc": "Sends a message to a background thread",
@@ -1800,7 +1800,7 @@
                     "clone": false,
                     "struct_fields": [
                         {"callback_info": {"type": "CallbackInfo"}},
-                        {"node_id": {"type": "OptionNodeId", "doc": "If the timer is attached to a NodeId, stores the node ID"}},
+                        {"node_id": {"type": "OptionDomNodeId", "doc": "If the timer is attached to a NodeId, stores the node ID"}},
                         {"frame_start": {"type": "Instant", "doc": "Instant of when the current frame was started, for cancelling timers / animations if they take too long"}},
                         {"call_count": {"type": "usize", "doc": "How many times this animation was called already"}},
                         {"is_about_to_finish": {"type": "bool", "doc": "Set to true on the last invocation of the timer, usually necessar to re-render the DOM only on the last frame"}},
@@ -4277,6 +4277,7 @@
                         {"cascade_info": {"type": "CascadeInfoVec" }},
                         {"nodes_with_window_callbacks": {"type": "NodeIdVec" }},
                         {"nodes_with_not_callbacks": {"type": "NodeIdVec" }},
+                        {"nodes_with_datasets_and_callbacks": {"type": "NodeIdVec" }},
                         {"tag_ids_to_node_ids": {"type": "TagIdsToNodeIdsMappingVec" }},
                         {"non_leaf_nodes": {"type": "ParentWithNodeDepthVec" }},
                         {"css_property_cache": {"type": "CssPropertyCache" }}
@@ -9000,15 +9001,16 @@
                                 {"earlier": "Instant"}
                             ],
                             "returns": {"type": "OptionDuration"},
-                            "fn_body": "instant.duration_since(&earlier)"
+                            "fn_body": "if &earlier < instant { Some(instant.duration_since(&earlier)).into() } else { None.into() }"
                         },
                         "add_duration": {
-                            "doc": "Adds a duration to the current time instant",
+                            "doc": "Adds a duration to the current time instant, returning the new `Instant`",
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"duration": "Duration"}
                             ],
-                            "fn_body": "instant.add_optional_duration(Some((duration))"
+                            "returns": { "type": "Instant", "doc": "The new `Instant` with the added duration"} ,
+                            "fn_body": "instant.add_optional_duration(Some(&duration))"
                         },
                         "linear_interpolate": {
                             "doc": "Linearly interpolates between [start, end] if the `self` Instant lies between start and end. Returns values between 0.0 and 1.0",
@@ -9018,7 +9020,7 @@
                                 {"end": "Instant"}
                             ],
                             "returns": {"type": "f32", "doc": "Interpolation value clamped to the 0.0 - 1.0 range"},
-                            "fn_body": "instant.linear_interpolate(&start, &end)"
+                            "fn_body": "instant.linear_interpolate(start, end)"
                         }
                     }
                 },
@@ -9107,7 +9109,7 @@
                     "clone": false,
                     "struct_fields": [
                         {"data": {"type": "RefAny", "doc": "Stores some timer-specific data (usually animation data)"}},
-                        {"node_id": {"type": "OptionNodeId", "doc": "Whether to attach the timer to a specific DOM node. Timers attached to DOM nodes are removed when the UI is reconstructed."}},
+                        {"node_id": {"type": "OptionDomNodeId", "doc": "Whether to attach the timer to a specific DOM node. Timers attached to DOM nodes are removed when the UI is reconstructed."}},
                         {"created": {"type": "Instant", "doc": "Stores when the timer was created (usually acquired by `Instant::now()`)"}},
                         {"last_run": {"type": "OptionInstant", "doc": "When the timer was last called (`None` only when the timer hasn't been called yet)"}},
                         {"run_count": {"type": "usize", "doc": "How often the timer was run already"}},
@@ -10865,7 +10867,7 @@
                     ]
                 },
                 "OptionThreadId": {
-                    "external": "azul_impl::css::OptionThreadId",
+                    "external": "azul_impl::task::OptionThreadId",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "ThreadId" }}

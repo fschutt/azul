@@ -66,6 +66,13 @@ pub mod resources {
     pub use azulc_lib::image::*;
     pub use azulc_lib::font::*;
 }
+
+pub mod ui_solver {
+    pub use azul_core::ui_solver::{
+        PositionInfo, OptionPositionInfo, PositionInfoInner
+    };
+}
+
 mod compositor;
 #[cfg(feature = "logging")]
 mod logging;

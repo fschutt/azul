@@ -323,7 +323,7 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Returns the position of a given DOM node in the UI
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getNodePosition(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionPositionInfo { callbackinfo.get_node_position(node_id).into() }
 /// Returns the size of a given DOM node in the UI
-#[no_mangle] pub extern "C" fn AzCallbackInfo_getNodeSize(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionLogicalSize { callbackinfo.get_node_position(node_id).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getNodeSize(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionLogicalSize { callbackinfo.get_node_size(node_id).into() }
 /// Returns the current computed CSS property of a given DOM node in the UI
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getComputedCssProperty(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, property_type: AzCssPropertyType) -> AzOptionCssProperty { callbackinfo.get_computed_css_property(node_id, property_type).into() }
 /// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
@@ -353,13 +353,13 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Spawns a new window with the given `WindowCreateOptions`.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_createWindow(callbackinfo: &mut AzCallbackInfo, new_window: AzWindowCreateOptions) { callbackinfo.create_window(new_window); }
 /// Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_startTimer(callbackinfo: &mut AzCallbackInfo, timer: AzTimer) -> AzOptionTimerId { callbackinfo.start_timer(id, timer).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_startTimer(callbackinfo: &mut AzCallbackInfo, timer: AzTimer) -> AzOptionTimerId { callbackinfo.start_timer(timer).into() }
 /// Starts an animation timer on a give NodeId - same as a `Timer`, but uses a pre-configured interpolation function to drive the animation timer
-#[no_mangle] pub extern "C" fn AzCallbackInfo_startAnimation(callbackinfo: &mut AzCallbackInfo, node: AzDomNodeId, animation: AzAnimation) -> AzOptionTimerId { callbackinfo.start_animation(id, animation).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_startAnimation(callbackinfo: &mut AzCallbackInfo, node: AzDomNodeId, animation: AzAnimation) -> AzOptionTimerId { callbackinfo.start_animation(node, animation).into() }
 /// Stops / cancels a `Timer`. See the documentation for `Timer` for more information.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_stopTimer(callbackinfo: &mut AzCallbackInfo, timer_id: AzTimerId) -> bool { callbackinfo.start_timer(id, timer); }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_stopTimer(callbackinfo: &mut AzCallbackInfo, timer_id: AzTimerId) -> bool { callbackinfo.stop_timer(timer_id) }
 /// Starts a new `Thread` to the runtime. See the documentation for `Thread` for more information.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_startThread(callbackinfo: &mut AzCallbackInfo, thread_initialize_data: AzRefAny, writeback_data: AzRefAny, callback: AzThreadCallback) -> AzOptionThreadId { callbackinfo.start_thread(id, thread_initialize_data, writeback_data, callback).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_startThread(callbackinfo: &mut AzCallbackInfo, thread_initialize_data: AzRefAny, writeback_data: AzRefAny, callback: AzThreadCallback) -> AzOptionThreadId { callbackinfo.start_thread(thread_initialize_data, writeback_data, callback).into() }
 /// Sends a message to a background thread
 #[no_mangle] pub extern "C" fn AzCallbackInfo_sendThreadMsg(callbackinfo: &mut AzCallbackInfo, thread_id: AzThreadId, msg: AzThreadSendMsg) -> bool { callbackinfo.send_thread_msg(thread_id, msg) }
 /// Stops a thread at the nearest possible opportunity. Sends a `ThreadSendMsg::TerminateThread` message to the thread and joins the thread.
@@ -2365,11 +2365,11 @@ pub use AzSystemClipboardTT as AzSystemClipboard;
 pub type AzInstantTT = azul_impl::task::Instant;
 pub use AzInstantTT as AzInstant;
 /// Returns the duration since and earlier instant or None if the earlier instant is later than self
-#[no_mangle] pub extern "C" fn AzInstant_durationSince(instant: &AzInstant, earlier: AzInstant) -> AzOptionDuration { instant.duration_since(&earlier) }
-/// Adds a duration to the current time instant
-#[no_mangle] pub extern "C" fn AzInstant_addDuration(instant: &mut AzInstant, duration: AzDuration) { instant.add_optional_duration(Some((duration)) }
+#[no_mangle] pub extern "C" fn AzInstant_durationSince(instant: &AzInstant, earlier: AzInstant) -> AzOptionDuration { if &earlier < instant { Some(instant.duration_since(&earlier)).into() } else { None.into() } }
+/// Adds a duration to the current time instant, returning the new `Instant`
+#[no_mangle] pub extern "C" fn AzInstant_addDuration(instant: &mut AzInstant, duration: AzDuration) -> AzInstant { instant.add_optional_duration(Some(&duration)) }
 /// Linearly interpolates between [start, end] if the `self` Instant lies between start and end. Returns values between 0.0 and 1.0
-#[no_mangle] pub extern "C" fn AzInstant_linearInterpolate(instant: &AzInstant, start: AzInstant, end: AzInstant) -> f32 { instant.linear_interpolate(&start, &end) }
+#[no_mangle] pub extern "C" fn AzInstant_linearInterpolate(instant: &AzInstant, start: AzInstant, end: AzInstant) -> f32 { instant.linear_interpolate(start, end) }
 
 /// Re-export of rust-allocated (stack based) `InstantPtr` struct
 pub type AzInstantPtrTT = azul_impl::task::AzInstantPtr;
@@ -3097,7 +3097,7 @@ pub type AzOptionTimerIdTT = azul_impl::task::OptionTimerId;
 pub use AzOptionTimerIdTT as AzOptionTimerId;
 
 /// Re-export of rust-allocated (stack based) `OptionThreadId` struct
-pub type AzOptionThreadIdTT = azul_impl::css::OptionThreadId;
+pub type AzOptionThreadIdTT = azul_impl::task::OptionThreadId;
 pub use AzOptionThreadIdTT as AzOptionThreadId;
 
 /// Re-export of rust-allocated (stack based) `OptionI16` struct
@@ -7291,7 +7291,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `Timer` struct
     #[repr(C)]     pub struct AzTimer {
         pub data: AzRefAny,
-        pub node_id: AzOptionNodeId,
+        pub node_id: AzOptionDomNodeId,
         pub created: AzInstant,
         pub last_run: AzOptionInstant,
         pub run_count: usize,
@@ -7709,7 +7709,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
     #[repr(C)]     pub struct AzTimerCallbackInfo {
         pub callback_info: AzCallbackInfo,
-        pub node_id: AzOptionNodeId,
+        pub node_id: AzOptionDomNodeId,
         pub frame_start: AzInstant,
         pub call_count: usize,
         pub is_about_to_finish: bool,
@@ -7857,6 +7857,7 @@ mod test_sizes {
         pub cascade_info: AzCascadeInfoVec,
         pub nodes_with_window_callbacks: AzNodeIdVec,
         pub nodes_with_not_callbacks: AzNodeIdVec,
+        pub nodes_with_datasets_and_callbacks: AzNodeIdVec,
         pub tag_ids_to_node_ids: AzTagIdsToNodeIdsMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub css_property_cache: AzCssPropertyCache,
@@ -8325,7 +8326,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
         assert_eq!((Layout::new::<azul_impl::ui_solver::OptionPositionInfo>(), "AzOptionPositionInfo"), (Layout::new::<AzOptionPositionInfo>(), "AzOptionPositionInfo"));
         assert_eq!((Layout::new::<azul_impl::task::OptionTimerId>(), "AzOptionTimerId"), (Layout::new::<AzOptionTimerId>(), "AzOptionTimerId"));
-        assert_eq!((Layout::new::<azul_impl::css::OptionThreadId>(), "AzOptionThreadId"), (Layout::new::<AzOptionThreadId>(), "AzOptionThreadId"));
+        assert_eq!((Layout::new::<azul_impl::task::OptionThreadId>(), "AzOptionThreadId"), (Layout::new::<AzOptionThreadId>(), "AzOptionThreadId"));
         assert_eq!((Layout::new::<azul_impl::resources::OptionImageRef>(), "AzOptionImageRef"), (Layout::new::<AzOptionImageRef>(), "AzOptionImageRef"));
         assert_eq!((Layout::new::<azul_impl::css::OptionFontRef>(), "AzOptionFontRef"), (Layout::new::<AzOptionFontRef>(), "AzOptionFontRef"));
         assert_eq!((Layout::new::<azul_impl::window::OptionClipboard>(), "AzOptionSystemClipboard"), (Layout::new::<AzOptionSystemClipboard>(), "AzOptionSystemClipboard"));

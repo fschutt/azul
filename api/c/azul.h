@@ -8200,7 +8200,7 @@ typedef struct AzFileTypeList AzFileTypeList;
 
 struct AzTimer {
     AzRefAny data;
-    AzOptionNodeId node_id;
+    AzOptionDomNodeId node_id;
     AzInstant created;
     AzOptionInstant last_run;
     size_t run_count;
@@ -9185,7 +9185,7 @@ typedef struct AzAnimation AzAnimation;
 
 struct AzTimerCallbackInfo {
     AzCallbackInfo callback_info;
-    AzOptionNodeId node_id;
+    AzOptionDomNodeId node_id;
     AzInstant frame_start;
     size_t call_count;
     bool  is_about_to_finish;
@@ -9575,6 +9575,7 @@ struct AzStyledDom {
     AzCascadeInfoVec cascade_info;
     AzNodeIdVec nodes_with_window_callbacks;
     AzNodeIdVec nodes_with_not_callbacks;
+    AzNodeIdVec nodes_with_datasets_and_callbacks;
     AzTagIdsToNodeIdsMappingVec tag_ids_to_node_ids;
     AzParentWithNodeDepthVec non_leaf_nodes;
     AzCssPropertyCache css_property_cache;
@@ -10336,7 +10337,7 @@ extern DLLIMPORT AzOptionString AzSystemClipboard_getStringContents(AzSystemClip
 extern DLLIMPORT bool  AzSystemClipboard_setStringContents(AzSystemClipboard* restrict systemclipboard, AzString  contents);
 extern DLLIMPORT void AzSystemClipboard_delete(AzSystemClipboard* restrict instance);
 extern DLLIMPORT AzOptionDuration AzInstant_durationSince(AzInstant* const instant, AzInstant  earlier);
-extern DLLIMPORT void AzInstant_addDuration(AzInstant* restrict instant, AzDuration  duration);
+extern DLLIMPORT AzInstant AzInstant_addDuration(AzInstant* restrict instant, AzDuration  duration);
 extern DLLIMPORT float AzInstant_linearInterpolate(AzInstant* const instant, AzInstant  start, AzInstant  end);
 extern DLLIMPORT void AzInstantPtr_delete(AzInstantPtr* restrict instance);
 extern DLLIMPORT AzInstantPtr AzInstantPtr_deepCopy(AzInstantPtr* const instance);
