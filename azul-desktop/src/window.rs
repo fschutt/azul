@@ -372,21 +372,18 @@ impl Window {
         // NOTE: All windows MUST have a shared EventsLoop, creating a new EventLoop for the
         // new window causes a segfault.
 
-        // always use a transparent background, reduces visible artifacts on resize
-        let is_transparent_background = true;
-
-        let window_builder = Self::create_window_builder(
-            is_transparent_background,
-            options.theme.into_option(),
-            &options.state.platform_specific_options
-        );
+        let window_builder = Self::create_window_builder(&options);
 
         // set the visibility of the window initially to false, only show the
         // window after the first frame has been drawn + swapped
         let window_builder = window_builder.with_visible(false);
 
         // Only create a context with VSync and SRGB if the context creation works
-        let (glutin_window, window_renderer_info) = Self::create_glutin_window(window_builder, options.renderer.into_option().unwrap_or_default(), &events_loop)?;
+        let (glutin_window, window_renderer_info) = Self::create_glutin_window(
+            window_builder,
+            &options,
+            &events_loop
+        )?;
         let window_id = glutin_window.window().id();
         let mut window_context = ContextState::NotCurrent(glutin_window);
 
@@ -569,7 +566,11 @@ impl Window {
     /// `allow_sharing_context` should only be true for the root window - so that
     /// we can be sure the shared context can't be re-shared by the created window. Only
     /// the root window (via `FakeDisplay`) is allowed to manage the OpenGL context.
-    fn create_window_context_builder<'a>(vsync: Vsync, srgb: Srgb, hardware_acceleration: HwAcceleration) -> ContextBuilder<'a, NotCurrent> {
+    fn create_window_context_builder<'a>(
+        vsync: Vsync,
+        srgb: Srgb,
+        hardware_acceleration: HwAcceleration,
+    ) -> ContextBuilder<'a, NotCurrent> {
 
         // See #33 - specifying a specific OpenGL version
         // makes winit crash on older Intel drivers, which is why we
@@ -591,15 +592,15 @@ impl Window {
                 opengles_version: (3, 0),
             })
             .with_vsync(vsync.is_enabled())
-            .with_srgb(srgb.is_enabled())
+            .with_srgb(false) // NOTE: webrender will take care of SRGB
             .with_hardware_acceleration(Some(hardware_acceleration.is_enabled()))
     }
 
-    fn create_glutin_window(window_builder: GlutinWindowBuilder, options: RendererOptions, event_loop: &EventLoopWindowTarget<UserEvent>)
+    fn create_glutin_window(window_builder: GlutinWindowBuilder, options: &WindowCreateOptions, event_loop: &EventLoopWindowTarget<UserEvent>)
     -> Result<(WindowedContext<NotCurrent>, RendererOptions), GlutinCreationError>
     {
         let opts = &[
-            options,
+            options.renderer.into_option().unwrap_or_default(),
 
             RendererOptions::new(Vsync::Enabled,  Srgb::Disabled, HwAcceleration::Enabled),
             RendererOptions::new(Vsync::Disabled, Srgb::Enabled,  HwAcceleration::Enabled),
@@ -611,9 +612,9 @@ impl Window {
         ];
 
         let mut last_err = None;
-
         for o in opts.iter() {
-            match Self::create_window_context_builder(o.vsync, o.srgb, o.hw_accel).build_windowed(window_builder.clone(), event_loop) {
+            match Self::create_window_context_builder(o.vsync, o.srgb, o.hw_accel)
+            .build_windowed(window_builder.clone(), event_loop) {
                 Ok(s) => return Ok((s, *o)),
                 Err(e) => { last_err = Some(e); },
             }
@@ -948,20 +949,12 @@ impl Window {
         Some(monitor_new(self.display.window().current_monitor()?, false))
     }
 
-    fn create_window_builder(
-        has_transparent_background: bool,
-        theme: Option<WindowTheme>,
-        platform_options: &PlatformSpecificOptions,
-    ) -> GlutinWindowBuilder {
-
+    fn create_window_builder(options: &WindowCreateOptions) -> GlutinWindowBuilder {
 
         #[cfg(target_arch = "wasm32")]
-        fn create_window_builder_wasm(
-            has_transparent_background: bool,
-            _platform_options: &WasmWindowOptions,
-        )  -> GlutinWindowBuilder {
+        fn create_window_builder_wasm(options: &WindowCreateOptions)  -> GlutinWindowBuilder {
             let mut window_builder = GlutinWindowBuilder::new()
-                .with_transparent(has_transparent_background);
+                .with_transparent(true);
             window_builder
         }
 
@@ -969,22 +962,19 @@ impl Window {
         /// Create a window builder, depending on the platform options -
         /// set all options that *can only be set when the window is created*
         #[cfg(target_os = "windows")]
-        fn create_window_builder_windows(
-            has_transparent_background: bool,
-            theme: Option<WindowTheme>,
-            platform_options: &WindowsWindowOptions,
-        ) -> GlutinWindowBuilder {
+        fn create_window_builder_windows(options: &WindowCreateOptions) -> GlutinWindowBuilder {
 
             use glutin::platform::windows::WindowBuilderExtWindows;
             use crate::wr_translate::winit_translate::{translate_taskbar_icon, translate_theme};
 
             let mut window_builder = GlutinWindowBuilder::new()
-                .with_transparent(has_transparent_background)
-                .with_theme(theme.map(translate_theme))
-                .with_no_redirection_bitmap(platform_options.no_redirection_bitmap)
-                .with_taskbar_icon(platform_options.taskbar_icon.clone().into_option().and_then(|ic| translate_taskbar_icon(ic).ok()));
+                .with_transparent(true)
+                .with_theme(options.theme.into_option().map(translate_theme))
+                .with_no_redirection_bitmap(options.state.platform_specific_options.windows_options.no_redirection_bitmap)
+                .with_maximized(options.state.flags.is_maximized) // WINDOWS: set_maximized can't be called if window is hidden
+                .with_taskbar_icon(options.state.platform_specific_options.windows_options.taskbar_icon.clone().into_option().and_then(|ic| translate_taskbar_icon(ic).ok()));
 
-            if let Some(parent_window) = platform_options.parent_window.into_option() {
+            if let Some(parent_window) = options.state.platform_specific_options.windows_options.parent_window.into_option() {
                 window_builder = window_builder.with_parent_window(parent_window as *mut _);
             }
 
@@ -992,18 +982,14 @@ impl Window {
         }
 
 
-
         #[cfg(target_os = "linux")]
-        fn create_window_builder_linux(
-            has_transparent_background: bool,
-            platform_options: &LinuxWindowOptions,
-        ) -> GlutinWindowBuilder {
+        fn create_window_builder_linux(options: &WindowCreateOptions) -> GlutinWindowBuilder {
 
             use glutin::platform::unix::WindowBuilderExtUnix;
             use crate::wr_translate::winit_translate::{translate_x_window_type, translate_logical_size};
 
             let mut window_builder = GlutinWindowBuilder::new()
-                .with_transparent(has_transparent_background)
+                .with_transparent(true)
                 .with_override_redirect(platform_options.x11_override_redirect);
 
             for AzStringPair { key, value } in platform_options.x11_wm_classes.iter() {
@@ -1014,23 +1000,24 @@ impl Window {
             }
 
             if !platform_options.x11_window_types.is_empty() {
-                let window_types = platform_options.x11_window_types.iter().map(|e| translate_x_window_type(*e)).collect();
+                let window_types = options.state.platform_specific_options.linux_options.x11_window_types
+                .iter().map(|e| translate_x_window_type(*e)).collect();
                 window_builder = window_builder.with_x11_window_type(window_types);
             }
 
-            if let OptionAzString::Some(theme_variant) = platform_options.x11_gtk_theme_variant.clone() {
+            if let OptionAzString::Some(theme_variant) = options.state.platform_specific_options.linux_options.x11_gtk_theme_variant.clone() {
                 window_builder = window_builder.with_gtk_theme_variant(theme_variant.into_library_owned_string());
             }
 
-            if let OptionLogicalSize::Some(resize_increments) = platform_options.x11_resize_increments {
+            if let OptionLogicalSize::Some(resize_increments) = options.state.platform_specific_options.linux_options.x11_resize_increments {
                 window_builder = window_builder.with_resize_increments(translate_logical_size(resize_increments));
             }
 
-            if let OptionLogicalSize::Some(base_size) = platform_options.x11_base_size {
+            if let OptionLogicalSize::Some(base_size) = options.state.platform_specific_options.linux_options.x11_base_size {
                 window_builder = window_builder.with_base_size(translate_logical_size(base_size));
             }
 
-            if let OptionAzString::Some(app_id) = platform_options.wayland_app_id.clone() {
+            if let OptionAzString::Some(app_id) = options.state.platform_specific_options.linux_options.wayland_app_id.clone() {
                 window_builder = window_builder.with_app_id(app_id.into_library_owned_string());
             }
 
@@ -1039,20 +1026,17 @@ impl Window {
 
 
         #[cfg(target_os = "macos")]
-        fn create_window_builder_macos(
-            has_transparent_background: bool,
-            platform_options: &MacWindowOptions,
-        ) -> GlutinWindowBuilder {
+        fn create_window_builder_macos(options: &WindowCreateOptions) -> GlutinWindowBuilder {
             let mut window_builder = GlutinWindowBuilder::new()
-                .with_transparent(has_transparent_background);
+                .with_transparent(true);
 
             window_builder
         }
 
-        #[cfg(target_os = "linux")] { create_window_builder_linux(has_transparent_background, &platform_options.linux_options) }
-        #[cfg(target_os = "windows")] { create_window_builder_windows(has_transparent_background, theme, &platform_options.windows_options) }
-        #[cfg(target_os = "macos")] { create_window_builder_macos(has_transparent_background, &platform_options.mac_options) }
-        #[cfg(target_arch = "wasm32")] { create_window_builder_wasm(has_transparent_background, &platform_options.wasm_options) }
+        #[cfg(target_os = "linux")] { create_window_builder_linux(options) }
+        #[cfg(target_os = "windows")] { create_window_builder_windows(options) }
+        #[cfg(target_os = "macos")] { create_window_builder_macos(options) }
+        #[cfg(target_arch = "wasm32")] { create_window_builder_wasm(options) }
     }
 
     // Function wrapper that is invoked on scrolling and normal rendering - only renders the
