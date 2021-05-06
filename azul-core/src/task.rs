@@ -22,7 +22,7 @@ use std::time::Duration as StdDuration;
 use crate::{
     FastHashMap,
     callbacks::{
-        TimerCallback, TimerCallbackInfo, RefAny,
+        TimerCallback, TimerCallbackInfo, RefAny, OptionDomNodeId,
         TimerCallbackReturn, TimerCallbackType, UpdateScreen,
         ThreadCallback, WriteBackCallback, WriteBackCallbackType,
         CallbackInfo, FocusTarget, ScrollPosition, DomNodeId
@@ -105,16 +105,16 @@ impl Instant {
         use std::mem;
 
         if end < start {
-            mem::swap(start, end);
+            mem::swap(&mut start, &mut end);
         }
 
-        if self < start { return 0.0; }
-        if self > end { return 1.0; }
+        if self < &start { return 0.0; }
+        if self > &end { return 1.0; }
 
-        let duration_total = end.duration_since(start);
-        let duration_current = self.duration_since(start);
+        let duration_total = end.duration_since(&start);
+        let duration_current = self.duration_since(&start);
 
-        (duration_current / duration_total).min(0.0).max(1.0)
+        duration_current.div(&duration_total).min(0.0).max(1.0)
     }
 
     /// Adds a duration to the instant, does nothing in undefined cases
@@ -366,6 +366,15 @@ impl Duration {
         #[cfg(not(feature = "std"))] { Duration::Tick(SystemTickDiff { tick_diff: u64::MAX }) }
     }
 
+    pub fn div(&self, other: &Self) -> f32 {
+        use self::Duration::*;
+        match (self, other) {
+            (System(s), System(s2)) => s.div(s2) as f32,
+            (Tick(t), Tick(t2)) => t.div(t2) as f32,
+            _ => 0.0,
+        }
+    }
+
     pub fn min(self, other: Self) -> Self {
         if self.smaller_than(&other) { self } else { other }
     }
@@ -422,11 +431,28 @@ pub struct SystemTickDiff {
     pub tick_diff: u64,
 }
 
+impl SystemTickDiff {
+    /// Divide duration A by duration B
+    pub fn div(&self, other: &Self) -> f64 {
+        self.tick_diff as f64 / other.tick_diff as f64
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SystemTimeDiff {
     pub secs: u64,
     pub nanos: u32,
+}
+
+impl SystemTimeDiff {
+    /// Divide duration A by duration B
+    pub fn div(&self, other: &Self) -> f64 {
+        self.as_secs_f64() / other.as_secs_f64()
+    }
+    fn as_secs_f64(&self) -> f64 {
+        (self.secs as f64) + ((self.nanos as f64) / (NANOS_PER_SEC as f64))
+    }
 }
 
 #[cfg(feature = "std")]
@@ -611,6 +637,7 @@ impl Timer {
         let is_about_to_finish = self.is_about_to_finish(&instant_now);
         let timer_callback_info = TimerCallbackInfo {
             callback_info,
+            node_id: self.node_id,
             frame_start,
             call_count: run_count,
             is_about_to_finish,
@@ -1056,9 +1083,13 @@ pub fn run_all_timers<'a, 'b>(
         let cursor_in_viewport = OptionLogicalPosition::None;
 
         let layout_result = &mut layout_results[hit_dom_node.dom.inner];
-        let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+        let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset(
+            layout_result.styled_dom.nodes_with_datasets.as_ref()
+        );
 
         let callback_info = CallbackInfo::new(
+            &layout_result.styled_dom.css_property_cache.ptr,
+            &layout_result.styled_dom.styled_nodes,
             previous_window_state,
             current_window_state,
             modifiable_window_state,
@@ -1152,7 +1183,9 @@ pub fn clean_up_finished_threads<'a, 'b>(
     let cursor_in_viewport = OptionLogicalPosition::None;
 
     let layout_result = &mut layout_results[hit_dom_node.dom.inner];
-    let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+    let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset(
+        layout_result.styled_dom.nodes_with_datasets.as_ref()
+    );
     let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
 
     // originally this code used retain(), but retain() is not available on no_std
@@ -1166,6 +1199,8 @@ pub fn clean_up_finished_threads<'a, 'b>(
             OptionThreadReceiveMsg::None => UpdateScreen::DoNothing,
             OptionThreadReceiveMsg::Some(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg { data, callback })) => {
                 let callback_info = CallbackInfo::new(
+                   &layout_result.styled_dom.css_property_cache.ptr,
+                   &layout_result.styled_dom.styled_nodes,
                     previous_window_state,
                     current_window_state,
                     modifiable_window_state,

@@ -264,16 +264,17 @@ impl fmt::Debug for DisplayListFrame {
 
 impl DisplayListFrame {
     pub fn root(dimensions: LayoutSize, root_origin: LayoutPoint) -> Self {
+        use crate::ui_solver::PositionInfoInner;
         DisplayListFrame {
             tag: None,
             size: LogicalSize::new(dimensions.width as f32, dimensions.height as f32),
             clip_children: None,
-            position: PositionInfo::Static {
+            position: PositionInfo::Static(PositionInfoInner {
                 x_offset: root_origin.x as f32,
                 y_offset: root_origin.y as f32,
                 static_x_offset: root_origin.x as f32,
                 static_y_offset: root_origin.y as f32
-            },
+            }),
             flags: PrimitiveFlags {
                 is_backface_visible: true,
                 is_scrollbar_container: false,

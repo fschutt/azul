@@ -12,7 +12,7 @@ use alloc::collections::BTreeMap;
 #[cfg(feature = "std")]
 use std::hash::Hash;
 use azul_css::{
-    CssProperty, LayoutSize, CssPath,
+    CssProperty, LayoutSize, CssPath, InterpolateResolver,
     AzString, LayoutRect, AnimationInterpolationFunction,
 };
 use rust_fontconfig::FcFontCache;
@@ -23,12 +23,12 @@ use crate::{
         WordPositions, FontInstanceKey, LayoutedGlyphs, ImageMask
     },
     window::{AzStringPair, OptionLogicalPosition},
-    styled_dom::{StyledDom, CssPropertyCache, StyledNodeState},
+    styled_dom::{StyledDom, CssPropertyCache, StyledNode},
     ui_solver::{
         OverflowingScrollNode, PositionedRectangle,
         LayoutResult, PositionInfo,
     },
-    styled_dom::{DomId, AzNodeId, AzNodeVec},
+    styled_dom::{DomId, AzNodeId, AzNodeVec, StyledNodeVec},
     id_tree::{NodeId, NodeDataContainer},
     window::{
         WindowSize, WindowState, FullWindowState, LogicalPosition, OptionChar,
@@ -36,9 +36,10 @@ use crate::{
         RawWindowHandle, KeyboardState, MouseState, LogicalRect, WindowTheme,
     },
     task::{
-        ThreadSendMsg,
+        ThreadSendMsg, Duration as AzDuration, Instant as AzInstant,
         Timer, Thread, TimerId, ThreadId, Instant, ExternalSystemCallbacks,
         TerminateTimer, ThreadSender, ThreadReceiver, GetSystemTimeCallback,
+        CreateThreadCallback,
     },
 };
 use crate::gl::OptionGlContextPtr;
@@ -126,6 +127,55 @@ impl RefCount {
 
     pub fn decrease_refmut(&self) {
         self.downcast().num_mutable_refs.fetch_sub(1, AtomicOrdering::SeqCst);
+    }
+}
+
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct Ref<'a, T> {
+    ptr: &'a T,
+    sharing_info: RefCount,
+}
+
+impl<'a, T> Drop for Ref<'a, T> {
+    fn drop(&mut self) {
+        self.sharing_info.decrease_ref();
+    }
+}
+
+impl<'a, T> core::ops::Deref for Ref<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.ptr
+    }
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct RefMut<'a, T> {
+    ptr: &'a mut T,
+    sharing_info: RefCount,
+}
+
+impl<'a, T> Drop for RefMut<'a, T> {
+    fn drop(&mut self) {
+        self.sharing_info.decrease_refmut();
+    }
+}
+
+impl<'a, T> core::ops::Deref for RefMut<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.ptr
+    }
+}
+
+impl<'a, T> core::ops::DerefMut for RefMut<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ptr
     }
 }
 
@@ -222,6 +272,47 @@ impl RefAny {
             sharing_info: RefCount::new(ref_count_inner),
         }
     }
+
+    /// Returns whether this RefAny is the only instance
+    pub fn has_no_copies(&self) -> bool {
+        self.sharing_info.downcast().num_copies.load(AtomicOrdering::SeqCst) == 0 &&
+        self.sharing_info.downcast().num_refs.load(AtomicOrdering::SeqCst) == 0 &&
+        self.sharing_info.downcast().num_mutable_refs.load(AtomicOrdering::SeqCst) == 0
+    }
+
+    /// Downcasts the type-erased pointer to a type `&U`, returns `None` if the types don't match
+    #[inline]
+    pub fn downcast_ref<'a, U: 'static>(&'a mut self) -> Option<Ref<'a, U>> {
+        let is_same_type = self.get_type_id() == Self::get_type_id_static::<U>();
+        if !is_same_type { return None; }
+
+        let can_be_shared = self.sharing_info.can_be_shared();
+        if !can_be_shared { return None; }
+
+        self.sharing_info.increase_ref();
+        Some(Ref {
+            ptr: unsafe { &*(self._internal_ptr as *const U) },
+            sharing_info: self.sharing_info.clone(),
+        })
+    }
+
+    /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
+    #[inline]
+    pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<RefMut<'a, U>> {
+        let is_same_type = self.get_type_id() == Self::get_type_id_static::<U>();
+        if !is_same_type { return None; }
+
+        let can_be_shared_mut = self.sharing_info.can_be_shared_mut();
+        if !can_be_shared_mut { return None; }
+
+        self.sharing_info.increase_refmut();
+
+        Some(RefMut {
+            ptr: unsafe { &mut *(self._internal_ptr as *mut U) },
+            sharing_info: self.sharing_info.clone(),
+        })
+    }
+
 
     // Returns the typeid of `T` as a u64 (necessary because
     // `core::any::TypeId` is not C-ABI compatible)
@@ -825,7 +916,7 @@ pub struct CallbackInfo {
     /// Css property cache
     css_property_cache: *const CssPropertyCache,
     /// Styled node states
-    styled_node_states: *const NodeDataContainer<StyledNodeState>,
+    styled_node_states: *const StyledNodeVec,
     /// Previous window state
     previous_window_state: *const Option<FullWindowState>,
     /// State of the current window that the callback was called on (read only!)
@@ -900,7 +991,7 @@ impl CallbackInfo {
     #[inline]
     pub fn new<'a, 'b>(
        css_property_cache: &'a CssPropertyCache,
-       styled_node_states: &'a NodeDataContainer<StyledNodeState>,
+       styled_node_states: &'a StyledNodeVec,
        previous_window_state: &'a Option<FullWindowState>,
        current_window_state: &'a FullWindowState,
        modifiable_window_state: &'a mut WindowState,
@@ -932,7 +1023,7 @@ impl CallbackInfo {
     ) -> Self {
         Self {
             css_property_cache: css_property_cache as *const CssPropertyCache,
-            styled_node_states: styled_node_states as *const CssPropertyCache,
+            styled_node_states: styled_node_states as *const StyledNodeVec,
             previous_window_state: previous_window_state as *const Option<FullWindowState>,
             current_window_state: current_window_state as *const FullWindowState,
             modifiable_window_state: modifiable_window_state as *mut WindowState,
@@ -966,7 +1057,7 @@ impl CallbackInfo {
         }
     }
 
-    fn internal_get_styled_node_states<'a>(&'a self) -> &'a NodeDataContainer<StyledNodeState> { unsafe { &*self.styled_node_states } }
+    fn internal_get_styled_node_states<'a>(&'a self) -> &'a StyledNodeVec { unsafe { &*self.styled_node_states } }
     fn internal_get_css_property_cache<'a>(&'a self) -> &'a CssPropertyCache { unsafe { &*self.css_property_cache } }
     fn internal_get_previous_window_state<'a>(&'a self) -> &'a Option<FullWindowState> { unsafe { &*self.previous_window_state } }
     fn internal_get_current_window_state<'a>(&'a self) -> &'a FullWindowState { unsafe { &*self.current_window_state } }
@@ -1000,8 +1091,8 @@ impl CallbackInfo {
     fn internal_get_image_masks_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>> { unsafe { &mut *self.image_masks_changed_in_callbacks } }
 
     pub fn get_hit_node(&self) -> DomNodeId { self.internal_get_hit_dom_node() }
-    pub fn get_system_time_fn(&self) -> GetSystemTimeCallback { self.internal_get_extern_system_callbacks().system_time_fn }
-    pub fn get_thread_create_fn(&self) -> ThreadCreateCallback { self.internal_get_extern_system_callbacks().thread_create_fn }
+    pub fn get_system_time_fn(&self) -> GetSystemTimeCallback { self.internal_get_extern_system_callbacks().get_system_time_fn }
+    pub fn get_thread_create_fn(&self) -> CreateThreadCallback { self.internal_get_extern_system_callbacks().create_thread_fn }
     pub fn get_cursor_relative_to_node(&self) -> OptionLogicalPosition { self.internal_get_cursor_relative_to_item() }
     pub fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition { self.internal_get_cursor_in_viewport() }
     pub fn get_current_window_state(&self) -> WindowState { self.internal_get_current_window_state().clone().into() }
@@ -1156,10 +1247,22 @@ impl CallbackInfo {
     }
 
     pub fn get_computed_css_property(&self, node_id: DomNodeId) -> Option<CssProperty> {
-        if node_id.dom != self.get_hit_node().dom {
-            return None;
-        }
-        let nid = node_id.node.into_crate_internal()?;
+
+        /*
+            if node_id.dom != self.get_hit_node().dom {
+                return None;
+            }
+            let nid = node_id.node.into_crate_internal()?;
+            let css_property_cache = self.internal_get_css_property_cache();
+            let styled_nodes = self.internal_get_styled_node_states();
+            let styled_node_state = styled_nodes.internal.get(nid)?; //
+            let node_data = self.internal_get_
+        */
+
+        // TODO: can't access self.styled_dom.node_data[node_id].classes because
+        // self.styled_dom.node_data[node_id].dataset may be borrowed
+
+        None
 
     }
 
@@ -1176,7 +1279,7 @@ impl CallbackInfo {
         if thread_initialize_data.has_no_copies() {
             let thread_id = ThreadId::unique();
             let thread = (self.internal_get_extern_system_callbacks().create_thread_fn.cb)(thread_initialize_data, writeback_data, callback);
-            self.internal_get_threads().insert(id, thread);
+            self.internal_get_threads().insert(thread_id, thread);
             Some(thread_id)
         } else {
             None
@@ -1185,7 +1288,7 @@ impl CallbackInfo {
 
     pub fn send_msg_to_thread(&mut self, thread_id: ThreadId, msg: ThreadSendMsg) -> bool {
         if let Some(thread) = self.internal_get_threads().get_mut(&thread_id) {
-            thread.send(msg);
+            thread.sender.send(msg);
             true
         } else {
             false
@@ -1194,7 +1297,7 @@ impl CallbackInfo {
 
     /// Removes and stops a thread, sending one last `ThreadSendMsg::TerminateThread`
     pub fn stop_thread(&mut self, thread_id: ThreadId) -> bool {
-        self.internal_get_threads().remove(id).is_some()
+        self.internal_get_threads().remove(&thread_id).is_some()
     }
 
     pub fn start_timer(&mut self, timer: Timer) -> Option<TimerId> {
@@ -1223,9 +1326,9 @@ impl CallbackInfo {
             None // infinite
         };
 
-        let parent_id = self.internal_get_node_hierarchy().as_ref().internal.get(&node_id)?.parent_id().unwrap_or(NodeId::ZERO);
-        let current_size = self.internal_get_positioned_rects().as_ref().internal.get(&node_id)?.size;
-        let parent_size = self.internal_get_positioned_rects().as_ref().internal.get(&parent_id)?.size;
+        let parent_id = self.internal_get_node_hierarchy().as_container().get(node_id)?.parent_id().unwrap_or(NodeId::ZERO);
+        let current_size = self.internal_get_positioned_rectangles().as_ref().get(node_id)?.size;
+        let parent_size = self.internal_get_positioned_rectangles().as_ref().get(parent_id)?.size;
 
         if animation.from.get_type() != animation.to.get_type() {
             return None;
@@ -1238,8 +1341,9 @@ impl CallbackInfo {
         let animation_data = AnimationData {
             from: animation.from,
             to: animation.to,
-            start: now,
+            start: now.clone(),
             repeat: animation.repeat,
+            interpolate: animation.easing,
             duration: animation.duration,
             relayout_on_finish: animation.relayout_on_finish,
             parent_rect_width: parent_size.width,
@@ -1251,29 +1355,31 @@ impl CallbackInfo {
 
         let timer = Timer {
             data: RefAny::new(animation_data),
-            node_id: dom_node_id,
+            node_id: Some(dom_node_id).into(),
             created: now,
             run_count: 0,
+            last_run: None.into(),
             delay: None.into(),
-            interval: Some(AzDuration::SystemTime(SystemTimeDiff::from_millis(16))),
-            duration: timer_duration.into(),
+            interval: Some(AzDuration::System(SystemTimeDiff::from_millis(16))).into(),
+            timeout: timer_duration.into(),
             callback: TimerCallback { cb: drive_animation_func },
         };
 
-        self.internal_get_timers().insert(timer_id, animation.into_timer());
+        self.internal_get_timers().insert(timer_id, timer);
 
         Some(timer_id)
     }
 
     pub fn stop_timer(&mut self, timer_id: TimerId) -> bool {
-        self.internal_get_timers().remove(id).is_some()
+        self.internal_get_timers().remove(&timer_id).is_some()
     }
 
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<PositionInfo> {
         let dom_id = node_id.dom;
         if dom_id != self.get_hit_node().dom { return None; }
         let node_id = node_id.node.into_crate_internal()?;
-        let positioned_rect = self.internal_get_positioned_rects().as_ref().internal.get(node_id)?;
+        let positioned_rects = self.internal_get_positioned_rectangles().as_ref();
+        let positioned_rect = positioned_rects.get(node_id)?;
         Some(positioned_rect.position)
     }
 
@@ -1281,7 +1387,8 @@ impl CallbackInfo {
         let dom_id = node_id.dom;
         if dom_id != self.get_hit_node().dom { return None; }
         let node_id = node_id.node.into_crate_internal()?;
-        let positioned_rect = self.internal_get_positioned_rects().as_ref().internal.get(node_id)?;
+        let positioned_rects = self.internal_get_positioned_rectangles().as_ref();
+        let positioned_rect = positioned_rects.get(node_id)?;
         Some(positioned_rect.size)
     }
 
@@ -1339,6 +1446,7 @@ impl CallbackInfo {
     */
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct AnimationData {
     pub from: CssProperty,
     pub to: CssProperty,
@@ -1354,6 +1462,7 @@ pub struct AnimationData {
     pub get_system_time_fn: GetSystemTimeCallback,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct Animation {
     pub from: CssProperty,
@@ -1365,6 +1474,7 @@ pub struct Animation {
     pub relayout_on_finish: bool,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub enum AnimationRepeat {
     NoRepeat,
@@ -1372,6 +1482,7 @@ pub enum AnimationRepeat {
     PingPong,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash)]
 #[repr(C)]
 pub enum AnimationRepeatCount {
     Times(usize),
@@ -1379,24 +1490,26 @@ pub enum AnimationRepeatCount {
 }
 
 // callback that drives an animation
-extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
 
-    let anim_data = match anim_data.downcast_mut::<AnimationData>() {
+    let mut anim_data = match anim_data.downcast_mut::<AnimationData>() {
         Some(s) => s,
         None => {
             return TimerCallbackReturn {
-                update_screen: UpdateScreen::DoNothing,
-                terminate: TerminateTimer::Terminate,
+                should_update: UpdateScreen::DoNothing,
+                should_terminate: TerminateTimer::Terminate,
             };
         }
     };
 
-    let node_id = match info.node_id {
+    let mut anim_data = &mut *anim_data;
+
+    let node_id = match info.node_id.into_option() {
         Some(s) => s,
         None => {
             return TimerCallbackReturn {
-                update_screen: UpdateScreen::DoNothing,
-                terminate: TerminateTimer::Terminate,
+                should_update: UpdateScreen::DoNothing,
+                should_terminate: TerminateTimer::Terminate,
             };
         }
     };
@@ -1410,17 +1523,17 @@ extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, info:
         interpolate_func: anim_data.interpolate,
     };
 
-    let anim_next_end = anim_data.start.add_duration(anim_data.duration.clone());
+    let anim_next_end = anim_data.start.add_optional_duration(Some(&anim_data.duration));
     let now = (anim_data.get_system_time_fn.cb)();
-    let t = now.linear_interpolate(&anim_data.start, anim_next_end);
+    let t = now.linear_interpolate(anim_data.start.clone(), anim_next_end.clone());
     let interpolated_css = anim_data.from.interpolate(&anim_data.to, t, &resolver);
 
     // actual animation happens here
-    info.set_css_property(node_id, interpolated_css);
+    info.callback_info.set_css_property(node_id, interpolated_css);
 
     // if the timer has finished one iteration, what next?
     if now > anim_next_end {
-        match animation.repeat {
+        match anim_data.repeat {
             AnimationRepeat::Loop => {
                 // reset timer
                 anim_data.start = now;
@@ -1434,9 +1547,9 @@ extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, info:
             AnimationRepeat::NoRepeat => {
                 // remove / cancel timer
                 return TimerCallbackReturn {
-                    terminate: TerminateTimer::Terminate,
-                    update_screen: if anim_data.relayout_on_finish {
-                        UpdateScreen::RelayoutDomForSingleWindow
+                    should_terminate: TerminateTimer::Terminate,
+                    should_update: if anim_data.relayout_on_finish {
+                        UpdateScreen::RegenerateStyledDomForCurrentWindow
                     } else {
                         UpdateScreen::DoNothing
                     },
@@ -1446,19 +1559,19 @@ extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, info:
     }
 
     // if the timer has finished externally, what next?
-    if info.is_about_to_finish() {
+    if info.is_about_to_finish {
         TimerCallbackReturn {
-            terminate: TerminateTimer::Terminate,
-            update_screen: if anim_data.relayout_on_finish {
-                UpdateScreen::RelayoutDomForSingleWindow
+            should_terminate: TerminateTimer::Terminate,
+            should_update: if anim_data.relayout_on_finish {
+                UpdateScreen::RegenerateStyledDomForCurrentWindow
             } else {
                 UpdateScreen::DoNothing
             },
         }
     } else {
         TimerCallbackReturn {
-            terminate: TerminateTimer::Continue,
-            update_screen: UpdateScreen::DoNothing,
+            should_terminate: TerminateTimer::Continue,
+            should_update: UpdateScreen::DoNothing,
         }
     }
 }

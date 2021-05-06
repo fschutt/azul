@@ -343,6 +343,9 @@ impl<'a, T: 'a> NodeDataContainerRefMut<'a, T> {
     pub fn get_mut(&mut self, id: NodeId) -> Option<&mut T> {
         self.internal.get_mut(id.index())
     }
+    pub fn get_mut_extended_lifetime(&'a mut self, id: NodeId) -> Option<&'a mut T> {
+        self.internal.get_mut(id.index())
+    }
 }
 
 impl<'a, T: Send + 'a> NodeDataContainerRefMut<'a, T> {

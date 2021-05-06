@@ -19,7 +19,7 @@ use crate::{
         NodeDataContainer, NodeDataContainerRef,
         NodeDataContainerRefMut
     },
-    styled_dom::StyledDom,
+    styled_dom::{StyledDom, AzNodeId},
 };
 use azul_css::{Css, AzString, NodeTypeTag, CssProperty};
 
@@ -718,19 +718,36 @@ impl NodeDataVec {
 
     // necessary so that the callbacks have mutable access to the NodeType while
     // at the same time the library has mutable access to the CallbackDataVec
-    pub fn split_into_callbacks_and_dataset<'a>(&'a mut self) -> (BTreeMap<NodeId, &'a mut CallbackDataVec>, BTreeMap<NodeId, &'a mut RefAny>) {
+    pub fn split_into_callbacks_and_dataset<'a>(&'a mut self, nodes_to_consider: &[AzNodeId])
+    -> (
+        BTreeMap<NodeId, &'a mut CallbackDataVec>,
+         BTreeMap<NodeId, &'a mut RefAny>
+    ) {
 
         let mut a = BTreeMap::new();
         let mut b = BTreeMap::new();
 
-        for (node_id, node_data) in self.as_mut().iter_mut().enumerate() {
+        for (node_id, self_mut) in nodes_to_consider.iter().map(|n| (n, self.as_mut_slice_extended())) {
+
+            let n_internal = match node_id.into_crate_internal() {
+                Some(s) => s,
+                None => continue,
+            };
+
+            let node_data = match self_mut.get_mut(n_internal.index()) {
+                Some(s) => s,
+                None => continue,
+            };
+
             let a_map = &mut node_data.callbacks;
             let b_map = &mut node_data.dataset;
+
             if !a_map.is_empty() {
-                a.insert(NodeId::new(node_id), a_map);
+                a.insert(n_internal, a_map);
             }
-            if let OptionRefAny::Some(s) = b_map {
-                b.insert(NodeId::new(node_id), s);
+
+            if let Some(s) = b_map.as_mut() {
+                b.insert(n_internal, s);
             }
         }
 

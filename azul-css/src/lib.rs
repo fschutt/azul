@@ -209,6 +209,11 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
 
     impl $struct_name {
 
+        // <'a> has to live longer thant &'self
+        pub fn as_mut_slice_extended<'a>(&mut self) -> &'a mut [$struct_type] {
+            unsafe { core::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) }
+        }
+
         #[inline]
         pub fn as_mut_ptr(&mut self) -> *mut $struct_type {
             self.ptr as *mut $struct_type

@@ -924,12 +924,12 @@ impl Default for PositionedRectangle {
             size: LogicalSize::zero(),
             overflow_x: LayoutOverflow::default(),
             overflow_y: LayoutOverflow::default(),
-            position: PositionInfo::Static {
+            position: PositionInfo::Static(PositionInfoInner {
                 x_offset: 0.0,
                 y_offset: 0.0,
                 static_x_offset: 0.0,
                 static_y_offset: 0.0
-            },
+            }),
             padding: ResolvedOffsets::zero(),
             margin: ResolvedOffsets::zero(),
             border_widths: ResolvedOffsets::zero(),
@@ -956,11 +956,11 @@ impl PositionedRectangle {
     #[inline]
     fn get_logical_static_offset(&self) -> LogicalPosition {
         match self.position {
-            PositionInfo::Static { static_x_offset, static_y_offset, .. } |
-            PositionInfo::Fixed { static_x_offset, static_y_offset, .. } |
-            PositionInfo::Absolute { static_x_offset, static_y_offset, .. } |
-            PositionInfo::Relative { static_x_offset, static_y_offset, .. } => {
-                LogicalPosition::new(static_x_offset, static_y_offset)
+            PositionInfo::Static(p) |
+            PositionInfo::Fixed(p) |
+            PositionInfo::Absolute(p) |
+            PositionInfo::Relative(p) => {
+                LogicalPosition::new(p.static_x_offset, p.static_y_offset)
             },
         }
     }
@@ -968,11 +968,11 @@ impl PositionedRectangle {
     #[inline]
     fn get_logical_relative_offset(&self) -> LogicalPosition {
         match self.position {
-            PositionInfo::Static { x_offset, y_offset, .. } |
-            PositionInfo::Fixed { x_offset, y_offset, .. } |
-            PositionInfo::Absolute { x_offset, y_offset, .. } |
-            PositionInfo::Relative { x_offset, y_offset, .. } => {
-                LogicalPosition::new(x_offset, y_offset)
+            PositionInfo::Static(p) |
+            PositionInfo::Fixed(p) |
+            PositionInfo::Absolute(p) |
+            PositionInfo::Relative(p) => {
+                LogicalPosition::new(p.x_offset, p.y_offset)
             },
         }
     }
@@ -980,11 +980,11 @@ impl PositionedRectangle {
     #[inline]
     fn get_static_offset(&self) -> LayoutPoint {
         match self.position {
-            PositionInfo::Static { static_x_offset, static_y_offset, .. } |
-            PositionInfo::Fixed { static_x_offset, static_y_offset, .. } |
-            PositionInfo::Absolute { static_x_offset, static_y_offset, .. } |
-            PositionInfo::Relative { static_x_offset, static_y_offset, .. } => {
-                LayoutPoint::new(libm::roundf(static_x_offset) as isize, libm::roundf(static_y_offset) as isize)
+            PositionInfo::Static(p) |
+            PositionInfo::Fixed(p) |
+            PositionInfo::Absolute(p) |
+            PositionInfo::Relative(p) => {
+                LayoutPoint::new(libm::roundf(p.static_x_offset) as isize, libm::roundf(p.static_y_offset) as isize)
             },
         }
     }
@@ -1004,10 +1004,38 @@ impl PositionedRectangle {
         let y_offset_add = 0.0 - self.padding.top - self.border_widths.top;
 
         let b_position = match self.position {
-            Static { x_offset, y_offset, static_x_offset, static_y_offset } => Static { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add, static_x_offset, static_y_offset },
-            Fixed { x_offset, y_offset, static_x_offset, static_y_offset } => Fixed { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add, static_x_offset, static_y_offset },
-            Relative { x_offset, y_offset, static_x_offset, static_y_offset } => Relative { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add, static_x_offset, static_y_offset },
-            Absolute { x_offset, y_offset, static_x_offset, static_y_offset } => Absolute { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add, static_x_offset, static_y_offset },
+            Static(PositionInfoInner { x_offset, y_offset, static_x_offset, static_y_offset }) => {
+                Static(PositionInfoInner {
+                    x_offset: x_offset + x_offset_add,
+                    y_offset: y_offset + y_offset_add,
+                    static_x_offset,
+                    static_y_offset
+                })
+            },
+            Fixed(PositionInfoInner { x_offset, y_offset, static_x_offset, static_y_offset }) => {
+                Fixed(PositionInfoInner {
+                    x_offset: x_offset + x_offset_add,
+                    y_offset: y_offset + y_offset_add,
+                    static_x_offset,
+                    static_y_offset
+                })
+            },
+            Relative(PositionInfoInner { x_offset, y_offset, static_x_offset, static_y_offset }) => {
+                Relative(PositionInfoInner {
+                    x_offset: x_offset + x_offset_add,
+                    y_offset: y_offset + y_offset_add,
+                    static_x_offset,
+                    static_y_offset
+                })
+            },
+            Absolute(PositionInfoInner { x_offset, y_offset, static_x_offset, static_y_offset }) => {
+                Absolute(PositionInfoInner {
+                    x_offset: x_offset + x_offset_add,
+                    y_offset: y_offset + y_offset_add,
+                    static_x_offset,
+                    static_y_offset
+                })
+            },
         };
 
         (b_size, b_position)

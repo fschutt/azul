@@ -1222,6 +1222,7 @@ pub struct StyledDom {
     pub cascade_info: CascadeInfoVec,
     pub nodes_with_window_callbacks: NodeIdVec,
     pub nodes_with_not_callbacks: NodeIdVec,
+    pub nodes_with_datasets: NodeIdVec,
     pub tag_ids_to_node_ids: TagIdsToNodeIdsMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
     pub css_property_cache: CssPropertyCachePtr,
@@ -1247,6 +1248,7 @@ impl Default for StyledDom {
             }].into(),
             nodes_with_window_callbacks: Vec::new().into(),
             nodes_with_not_callbacks: Vec::new().into(),
+            nodes_with_datasets: Vec::new().into(),
             css_property_cache: CssPropertyCachePtr::new(CssPropertyCache::empty(1)),
         }
     }
@@ -1311,7 +1313,8 @@ impl StyledDom {
 
         // Pre-filter all EventFilter::Window and EventFilter::Not nodes
         // since we need them in the CallbacksOfHitTest::new function
-        let nodes_with_window_callbacks = compact_dom.node_data.as_ref().internal.par_iter().enumerate().filter_map(|(node_id, c)| {
+        let nodes_with_window_callbacks = compact_dom.node_data.as_ref()
+        .internal.par_iter().enumerate().filter_map(|(node_id, c)| {
             let node_has_none_callbacks = c.get_callbacks().iter().any(|cb| match cb.event {
                 EventFilter::Window(_) => true,
                 _ => false,
@@ -1323,7 +1326,8 @@ impl StyledDom {
             }
         }).collect::<Vec<_>>();
 
-        let nodes_with_not_callbacks = compact_dom.node_data.as_ref().internal.par_iter().enumerate().filter_map(|(node_id, c)| {
+        let nodes_with_not_callbacks = compact_dom.node_data.as_ref()
+        .internal.par_iter().enumerate().filter_map(|(node_id, c)| {
             let node_has_none_callbacks = c.get_callbacks().iter().any(|cb| match cb.event {
                 EventFilter::Not(_) => true,
                 _ => false,
@@ -1335,6 +1339,18 @@ impl StyledDom {
             }
         }).collect::<Vec<_>>();
 
+        // collect nodes with either dataset or callback properties, necessary for
+        // the split_into_callbacks_and_dataset() function
+        let nodes_with_datasets = compact_dom.node_data.as_ref()
+        .internal.par_iter().enumerate().filter_map(|(node_id, c)| {
+            if !c.get_callbacks().is_empty() || c.get_dataset().is_some() {
+                Some(AzNodeId::from_crate_internal(Some(NodeId::new(node_id))))
+            } else {
+                None
+            }
+
+        }).collect::<Vec<_>>();
+
         StyledDom {
             root: AzNodeId::from_crate_internal(Some(compact_dom.root)),
             node_hierarchy,
@@ -1344,6 +1360,7 @@ impl StyledDom {
             tag_ids_to_node_ids: tag_ids.into(),
             nodes_with_window_callbacks: nodes_with_window_callbacks.into(),
             nodes_with_not_callbacks: nodes_with_not_callbacks.into(),
+            nodes_with_datasets: nodes_with_datasets.into(),
             non_leaf_nodes,
             css_property_cache: CssPropertyCachePtr::new(css_property_cache),
         }
@@ -1409,6 +1426,11 @@ impl StyledDom {
             nid.inner += self_len;
         }
         self.nodes_with_not_callbacks.append(&mut other.nodes_with_not_callbacks);
+
+        for nid in other.nodes_with_datasets.iter_mut() {
+            nid.inner += self_len;
+        }
+        self.nodes_with_datasets.append(&mut other.nodes_with_datasets);
 
         // edge case: if the other StyledDom consists of only one node
         // then it is not a parent itself

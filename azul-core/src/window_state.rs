@@ -811,7 +811,9 @@ impl CallbacksOfHitTest {
                 &lr.shaped_words_cache,
                 &lr.positioned_words_cache,
                 &lr.rects,
-                lr.styled_dom.node_data.split_into_callbacks_and_dataset())
+                &lr.styled_dom.styled_nodes,
+                &lr.styled_dom.css_property_cache,
+                lr.styled_dom.node_data.split_into_callbacks_and_dataset(&lr.styled_dom.nodes_with_datasets.as_ref()))
             ))
         }).collect::<BTreeMap<_, _>>();
 
@@ -830,6 +832,8 @@ impl CallbacksOfHitTest {
                  shaped_words_cache,
                  positioned_words_cache,
                  positioned_rects,
+                 styled_nodes,
+                 css_property_cache,
                  (callback_map, dataset_map)
             ) = match node_hierarchies.get_mut(dom_id) {
                 Some(s) => s,
@@ -852,6 +856,8 @@ impl CallbacksOfHitTest {
                         let mut stop_propagation = false;
 
                         let callback_info = CallbackInfo::new(
+                            /*css_property_cache:*/ &css_property_cache.ptr,
+                            /*styled_node_states:*/ styled_nodes,
                             /*previous_window_state:*/ &previous_window_state,
                             /*current_window_state:*/ &full_window_state,
                             /*modifiable_window_state:*/ &mut ret_modified_window_state,
@@ -927,6 +933,8 @@ impl CallbacksOfHitTest {
                     let mut stop_propagation = false;
 
                     let callback_info = CallbackInfo::new(
+                        /*css_property_cache:*/ &css_property_cache.ptr,
+                        /*styled_node_states:*/ styled_nodes,
                         /*previous_window_State:*/ &previous_window_state,
                         /*current_window_state:*/ &full_window_state,
                         /*modifiable_window_state:*/ &mut ret_modified_window_state,
