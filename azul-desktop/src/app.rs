@@ -683,6 +683,13 @@ fn run_inner(app: App) -> ! {
                 };
 
                 window.display.window().set_visible(window.internal.current_window_state.flags.is_visible);
+                #[cfg(target_os = "windows")] {
+                    // workaround for windows bug: window cannot be maximized without being visible
+                    if window.internal.current_window_state.flags.is_maximized {
+                        window.display.window().set_maximized(true);
+                    }
+                }
+
                 *control_flow = ControlFlow::Wait;
                 return;
             },
