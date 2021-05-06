@@ -699,6 +699,7 @@ fn run_inner(app: App) -> ! {
                     Some(s) => s,
                     None => {return; },
                 };
+                let is_first_frame = window.internal.previous_window_state.is_none();
 
                 // update timer_coarse_frame if necessary
                 if !timers.is_empty() && !threads.is_empty() {
@@ -706,7 +707,7 @@ fn run_inner(app: App) -> ! {
                 }
 
                 // ONLY update the window_state of the window, don't do anything else
-                process_window_event(&mut window, &event_loop_target, &event);
+                process_window_event(is_first_frame, &mut window, &event_loop_target, &event);
 
                 let mut need_regenerate_display_list = false;
                 let mut should_scroll_render = false;
@@ -733,7 +734,6 @@ fn run_inner(app: App) -> ! {
 
                 loop {
                     let events = Events::new(&window.internal.current_window_state, &window.internal.previous_window_state);
-                    let is_first_frame = window.internal.previous_window_state.is_none();
                     let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(&window.internal.previous_window_state);
                     let hit_test = if !events.needs_hit_test() {
                         FullHitTest::empty()
@@ -1257,6 +1257,7 @@ fn translate_duration(input: coarsetime::Duration) -> std::time::Duration {
 
 /// Updates the `FullWindowState` with the new event
 fn process_window_event(
+    is_first_frame: bool,
     window: &mut Window,
     event_loop: &GlutinEventLoopWindowTarget<UserEvent>,
     event: &GlutinWindowEvent
@@ -1291,6 +1292,10 @@ fn process_window_event(
         GlutinWindowEvent::Resized(physical_size) => {
             // window.display.make_current();
             // window.display.windowed_context().unwrap().resize(*physical_size);
+            if !is_first_frame {
+                current_window_state.flags.is_minimized = false;
+                current_window_state.flags.is_maximized = false;
+            }
             current_window_state.size.dimensions = winit_translate_physical_size(*physical_size).to_logical(current_window_state.size.system_hidpi_factor as f32);
         },
         GlutinWindowEvent::ScaleFactorChanged { scale_factor, new_inner_size } => {
