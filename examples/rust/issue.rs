@@ -26,6 +26,7 @@ extern "C" fn layout(_: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     .style(Css::from_string("* {
         flex-grow: 1;
         align-items: center;
+        color: white;
     }
     ".into()));
     // child1.restyle(Css::from_string(...));
