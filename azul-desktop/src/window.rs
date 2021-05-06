@@ -360,10 +360,12 @@ impl Window {
         fc_cache: &mut LazyFcCache,
     ) -> Result<Self, WindowCreateError> {
 
-        use crate::wr_translate::translate_document_id_wr;
+        use crate::wr_translate::{
+            translate_document_id_wr, wr_translate_debug_flags,
+            translate_id_namespace_wr
+        };
         use webrender::ProgramCache as WrProgramCache;
         use webrender::api::ColorF as WrColorF;
-        use crate::wr_translate::translate_id_namespace_wr;
         use raw_window_handle::HasRawWindowHandle;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
@@ -432,6 +434,7 @@ impl Window {
                 cached_programs: Some(WrProgramCache::new(None)),
                 clear_color: Some(WrColorF { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }), // transparent
                 enable_multithreading: true,
+                debug_flags: wr_translate_debug_flags(&options.state.debug_state),
                 .. WrRendererOptions::default()
             }
         };
@@ -706,10 +709,21 @@ impl Window {
     ///  updating the OS-level window to reflect the new state
     pub fn synchronize_window_state_with_os(&mut self, new_state: WindowState, current_window_monitor: Monitor) -> bool {
 
-        use crate::wr_translate::winit_translate::{translate_logical_position, translate_logical_size};
+        use crate::wr_translate::{
+            wr_translate_debug_flags,
+            winit_translate::{translate_logical_position, translate_logical_size}
+        };
         use glutin::window::Fullscreen;
 
         let mut window_was_updated = false;
+
+        // theme
+        if self.internal.current_window_state.debug_state != new_state.debug_state {
+            if let Some(r) = self.renderer.as_mut() {
+                r.set_debug_flags(wr_translate_debug_flags(&new_state.debug_state));
+            }
+            window_was_updated = true;
+        }
 
         // theme
         if self.internal.current_window_state.theme != new_state.theme {

@@ -606,7 +606,8 @@ mod dll {
     impl PartialOrd for AzInstantPtrCloneFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzThreadSendFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
 
-    #[cfg(not(feature = "link_static"))]    mod dynamic_link {
+    #[cfg(not(feature = "link_static"))]
+    mod dynamic_link {
     use core::ffi::c_void;
 
     /// Main application class
@@ -5543,9 +5544,9 @@ mod dll {
     #[cfg(feature = "link_static")]
     mod static_link {
        #[cfg(feature = "link_static")]
-        extern crate azul_dll;
+        extern crate azul; // the azul_dll package, confusingly it has to also be named "azul"
        #[cfg(feature = "link_static")]
-        use azul_dll::*;
+        use azul::*;
     }
 
     #[cfg(feature = "link_static")]

@@ -20,7 +20,7 @@ edition = "2018"
 [lib]
 name = "azul"
 edition = "2018"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 doc = false
 
 [profile.dev]
@@ -77,3 +77,6 @@ font_loading = ["azul-desktop/font_loading"]
 text_layout = ["azul-desktop/text_layout"]
 svg = ["azul-desktop/svg"]
 xml = ["azul-desktop/xml"]
+cdylib = []
+rlib = []
+staticlib = []

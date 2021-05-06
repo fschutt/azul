@@ -21,6 +21,7 @@ use webrender::api::{
         LayoutVector2D as WrLayoutVector2D,
         LayoutTransform as WrLayoutTransform,
     },
+    DebugFlags as WrDebugFlags,
     TransformStyle as WrTransformStyle,
     PropertyBinding as WrPropertyBinding,
     ReferenceFrameKind as WrReferenceFrameKind,
@@ -1142,42 +1143,38 @@ fn wr_translate_alpha_type(alpha_type: AlphaType) -> WrAlphaType {
     }
 }
 
-pub(crate) fn set_webrender_debug_flags(r: &mut Renderer, new_flags: &DebugState) {
+pub(crate) fn wr_translate_debug_flags(new_flags: &DebugState) -> WrDebugFlags {
+    let mut debug_flags = WrDebugFlags::empty();
 
-    use webrender::DebugFlags;
+    debug_flags.set(WrDebugFlags::PROFILER_DBG, new_flags.profiler_dbg);
+    debug_flags.set(WrDebugFlags::RENDER_TARGET_DBG, new_flags.render_target_dbg);
+    debug_flags.set(WrDebugFlags::TEXTURE_CACHE_DBG, new_flags.texture_cache_dbg);
+    debug_flags.set(WrDebugFlags::GPU_TIME_QUERIES, new_flags.gpu_time_queries);
+    debug_flags.set(WrDebugFlags::GPU_SAMPLE_QUERIES, new_flags.gpu_sample_queries);
+    debug_flags.set(WrDebugFlags::DISABLE_BATCHING, new_flags.disable_batching);
+    debug_flags.set(WrDebugFlags::EPOCHS, new_flags.epochs);
+    debug_flags.set(WrDebugFlags::ECHO_DRIVER_MESSAGES, new_flags.echo_driver_messages);
+    debug_flags.set(WrDebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);
+    debug_flags.set(WrDebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
+    debug_flags.set(WrDebugFlags::TEXTURE_CACHE_DBG_CLEAR_EVICTED, new_flags.texture_cache_dbg_clear_evicted);
+    debug_flags.set(WrDebugFlags::PICTURE_CACHING_DBG, new_flags.picture_caching_dbg);
+    debug_flags.set(WrDebugFlags::PRIMITIVE_DBG, new_flags.primitive_dbg);
+    debug_flags.set(WrDebugFlags::ZOOM_DBG, new_flags.zoom_dbg);
+    debug_flags.set(WrDebugFlags::SMALL_SCREEN, new_flags.small_screen);
+    debug_flags.set(WrDebugFlags::DISABLE_OPAQUE_PASS, new_flags.disable_opaque_pass);
+    debug_flags.set(WrDebugFlags::DISABLE_ALPHA_PASS, new_flags.disable_alpha_pass);
+    debug_flags.set(WrDebugFlags::DISABLE_CLIP_MASKS, new_flags.disable_clip_masks);
+    debug_flags.set(WrDebugFlags::DISABLE_TEXT_PRIMS, new_flags.disable_text_prims);
+    debug_flags.set(WrDebugFlags::DISABLE_GRADIENT_PRIMS, new_flags.disable_gradient_prims);
+    debug_flags.set(WrDebugFlags::OBSCURE_IMAGES, new_flags.obscure_images);
+    debug_flags.set(WrDebugFlags::GLYPH_FLASHING, new_flags.glyph_flashing);
+    debug_flags.set(WrDebugFlags::SMART_PROFILER, new_flags.smart_profiler);
+    debug_flags.set(WrDebugFlags::INVALIDATION_DBG, new_flags.invalidation_dbg);
+    debug_flags.set(WrDebugFlags::TILE_CACHE_LOGGING_DBG, new_flags.tile_cache_logging_dbg);
+    debug_flags.set(WrDebugFlags::PROFILER_CAPTURE, new_flags.profiler_capture);
+    debug_flags.set(WrDebugFlags::FORCE_PICTURE_INVALIDATION, new_flags.force_picture_invalidation);
 
-    // Set all flags to false
-    let mut debug_flags = DebugFlags::empty();
-
-    debug_flags.set(DebugFlags::PROFILER_DBG, new_flags.profiler_dbg);
-    debug_flags.set(DebugFlags::RENDER_TARGET_DBG, new_flags.render_target_dbg);
-    debug_flags.set(DebugFlags::TEXTURE_CACHE_DBG, new_flags.texture_cache_dbg);
-    debug_flags.set(DebugFlags::GPU_TIME_QUERIES, new_flags.gpu_time_queries);
-    debug_flags.set(DebugFlags::GPU_SAMPLE_QUERIES, new_flags.gpu_sample_queries);
-    debug_flags.set(DebugFlags::DISABLE_BATCHING, new_flags.disable_batching);
-    debug_flags.set(DebugFlags::EPOCHS, new_flags.epochs);
-    debug_flags.set(DebugFlags::ECHO_DRIVER_MESSAGES, new_flags.echo_driver_messages);
-    debug_flags.set(DebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);
-    debug_flags.set(DebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
-    debug_flags.set(DebugFlags::TEXTURE_CACHE_DBG_CLEAR_EVICTED, new_flags.texture_cache_dbg_clear_evicted);
-    debug_flags.set(DebugFlags::PICTURE_CACHING_DBG, new_flags.picture_caching_dbg);
-    debug_flags.set(DebugFlags::PRIMITIVE_DBG, new_flags.primitive_dbg);
-    debug_flags.set(DebugFlags::ZOOM_DBG, new_flags.zoom_dbg);
-    debug_flags.set(DebugFlags::SMALL_SCREEN, new_flags.small_screen);
-    debug_flags.set(DebugFlags::DISABLE_OPAQUE_PASS, new_flags.disable_opaque_pass);
-    debug_flags.set(DebugFlags::DISABLE_ALPHA_PASS, new_flags.disable_alpha_pass);
-    debug_flags.set(DebugFlags::DISABLE_CLIP_MASKS, new_flags.disable_clip_masks);
-    debug_flags.set(DebugFlags::DISABLE_TEXT_PRIMS, new_flags.disable_text_prims);
-    debug_flags.set(DebugFlags::DISABLE_GRADIENT_PRIMS, new_flags.disable_gradient_prims);
-    debug_flags.set(DebugFlags::OBSCURE_IMAGES, new_flags.obscure_images);
-    debug_flags.set(DebugFlags::GLYPH_FLASHING, new_flags.glyph_flashing);
-    debug_flags.set(DebugFlags::SMART_PROFILER, new_flags.smart_profiler);
-    debug_flags.set(DebugFlags::INVALIDATION_DBG, new_flags.invalidation_dbg);
-    debug_flags.set(DebugFlags::TILE_CACHE_LOGGING_DBG, new_flags.tile_cache_logging_dbg);
-    debug_flags.set(DebugFlags::PROFILER_CAPTURE, new_flags.profiler_capture);
-    debug_flags.set(DebugFlags::FORCE_PICTURE_INVALIDATION, new_flags.force_picture_invalidation);
-
-    r.set_debug_flags(debug_flags);
+    debug_flags
 }
 
 #[inline(always)]
