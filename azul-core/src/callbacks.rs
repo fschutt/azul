@@ -276,7 +276,7 @@ impl RefAny {
 
     /// Returns whether this RefAny is the only instance
     pub fn has_no_copies(&self) -> bool {
-        self.sharing_info.downcast().num_copies.load(AtomicOrdering::SeqCst) == 0 &&
+        self.sharing_info.downcast().num_copies.load(AtomicOrdering::SeqCst) == 1 &&
         self.sharing_info.downcast().num_refs.load(AtomicOrdering::SeqCst) == 0 &&
         self.sharing_info.downcast().num_mutable_refs.load(AtomicOrdering::SeqCst) == 0
     }

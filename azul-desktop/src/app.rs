@@ -314,15 +314,19 @@ fn run_inner(app: App) -> ! {
 
                 let _ = (init_callback.cb)(&mut data, callback_info);
 
+
                 for (timer_id, timer) in new_timers {
                     timers.entry(*window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
                 }
+                if timers.get(window_id).map(|w| w.is_empty()) == Some(true) { timers.remove(window_id); }
                 for (thread_id, thread) in new_threads {
                     threads.entry(*window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
                 }
+                if threads.get(window_id).map(|w| w.is_empty()) == Some(true) { threads.remove(window_id); }
             }
         }
     };
+
 
     // In order to prevent syscalls on every frame
     // simply use a std::Instant and a coarsetime::Instant
@@ -376,140 +380,6 @@ fn run_inner(app: App) -> ! {
                 // run timers
                 let mut all_new_current_timers = BTreeMap::new();
                 let mut all_new_current_threads = BTreeMap::new();
-
-                for (window_id, mut timer_map) in timers.iter_mut() {
-
-                    // for timers it makes sense to call them on the window,
-                    // since that's mostly what they're for (animations, etc.)
-                    //
-                    // for threads this model doesn't make that much sense
-                    let window = match active_windows.get_mut(&window_id) {
-                        Some(s) => s,
-                        None => continue,
-                    };
-
-                    let mut words_changed_in_timers = BTreeMap::new();
-                    let mut images_changed_in_timers = BTreeMap::new();
-                    let mut image_masks_changed_in_timers = BTreeMap::new();
-                    let mut css_properties_changed_in_timers = BTreeMap::new();
-
-                    let mut nodes_scrolled_in_timers = BTreeMap::new();
-                    let mut new_focus_node = None;
-                    let mut new_timers = BTreeMap::new();
-                    let mut modifiable_window_state = window.internal.current_window_state.clone().into();
-
-                    let mut threads_uninitialized = BTreeMap::new();
-                    let mut cur_threads = threads.get_mut(window_id).unwrap_or(&mut threads_uninitialized);
-                    let current_scroll_states = window.internal.get_current_scroll_states();
-
-                    let update_screen_timers = fc_cache.apply_closure(|fc_cache| {
-                        run_all_timers(
-                            &mut data,
-                            &mut timer_map,
-                            frame_start.clone(),
-
-                            &window.internal.previous_window_state,
-                            &window.internal.current_window_state,
-                            &mut modifiable_window_state,
-                            &window.gl_context_ptr,
-                            &mut image_cache,
-                            fc_cache,
-                            &config.system_callbacks,
-                            &mut new_timers,
-                            &mut cur_threads,
-                            &mut windows_created,
-                            &window.window_handle,
-                            &mut window.internal.layout_results,
-                            &mut false, // stop_propagation - can't be set in timer
-                            &mut new_focus_node,
-                            &mut words_changed_in_timers,
-                            &mut images_changed_in_timers,
-                            &mut image_masks_changed_in_timers,
-                            &mut css_properties_changed_in_timers,
-                            &current_scroll_states,
-                            &mut nodes_scrolled_in_timers,
-                        )
-                    });
-
-                    match update_screen_timers {
-                        UpdateScreen::DoNothing => {
-                            let new_focus_node = new_focus_node.and_then(|ft| ft.resolve(&window.internal.layout_results, window.internal.current_window_state.focused_node).ok());
-                            let window_size = window.internal.get_layout_size();
-
-                            // re-layouts and re-styles the window.internal.layout_results
-                            let changes = StyleAndLayoutChanges::new(
-                                &NodesToCheck::empty(window.internal.current_window_state.mouse_state.mouse_down()),
-                                &mut window.internal.layout_results,
-                                &mut image_cache,
-                                &mut window.internal.renderer_resources,
-                                window_size,
-                                &window.internal.pipeline_id,
-                                Some(&css_properties_changed_in_timers),
-                                Some(&words_changed_in_timers),
-                                &new_focus_node,
-                                azul_layout::do_the_relayout,
-                            );
-
-                            let changes_need_regenerate_dl = changes.need_regenerate_display_list();
-
-                            let mut transaction = WrTransaction::new();
-
-                            if changes_need_regenerate_dl {
-                                let resource_updates = Vec::new(); // when re-generating the display list, no resource updates necessary
-                                window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
-                            }
-
-                            if changes_need_regenerate_dl || changes.need_redraw() {
-                                window.render_async(transaction, changes_need_regenerate_dl);
-                            }
-
-                            if let Some(focus_change) = changes.focus_change {
-                                window.internal.current_window_state.focused_node = focus_change.new;
-                            }
-                        },
-                        UpdateScreen::RegenerateStyledDomForCurrentWindow => {
-                            let mut resource_updates = Vec::new();
-                            let mut transaction = WrTransaction::new();
-                            window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
-                            window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
-                            window.render_async(transaction, /* display list was rebuilt */ true);
-                            window.internal.current_window_state.focused_node = None; // unset the focus
-                        },
-                        UpdateScreen::RegenerateStyledDomForAllWindows => {
-                            if update_screen_timers_tasks == UpdateScreen::DoNothing ||
-                               update_screen_timers_tasks == UpdateScreen::RegenerateStyledDomForCurrentWindow {
-                                update_screen_timers_tasks = update_screen_timers;
-                            }
-                        }
-                    }
-
-                    for (timer_id, timer) in new_timers {
-                        all_new_current_timers.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
-                    }
-
-                    let window_monitor = {
-                        let w = window.display.window();
-                        let primary_monitor = w.primary_monitor();
-                        w.current_monitor()
-                        .map(|m| {
-                            let mut mon = crate::window::monitor_new(m, false);
-                            if let Some(p) = primary_monitor.as_ref() {
-                                mon.is_primary_monitor = mon.id == crate::window::monitor_handle_get_id(p);
-                            }
-                            mon
-                        })
-                        .unwrap_or_default()
-                    };
-
-                    let current_window_save_state = window.internal.current_window_state.clone();
-                    let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(modifiable_window_state, window_monitor);
-                    window.internal.previous_window_state = Some(current_window_save_state);
-                }
-
-                // -- doesn't work somehow???
-                // for (window_id, mut nct) in all_new_current_timers.into_iter() {
-                //     timers.entry(*window_id).or_insert_with(|| BTreeMap::default()).extend(nct.drain());
-                // }
 
                 // run threads
                 // TODO: threads should not depend on the window being active (?)
@@ -639,10 +509,153 @@ fn run_inner(app: App) -> ! {
                     window.internal.previous_window_state = Some(current_window_save_state);
                 }
 
+                for (window_id, mut timer_map) in timers.iter_mut() {
+
+                    // for timers it makes sense to call them on the window,
+                    // since that's mostly what they're for (animations, etc.)
+                    //
+                    // for threads this model doesn't make that much sense
+                    let window = match active_windows.get_mut(&window_id) {
+                        Some(s) => s,
+                        None => continue,
+                    };
+
+                    let mut words_changed_in_timers = BTreeMap::new();
+                    let mut images_changed_in_timers = BTreeMap::new();
+                    let mut image_masks_changed_in_timers = BTreeMap::new();
+                    let mut css_properties_changed_in_timers = BTreeMap::new();
+
+                    let mut nodes_scrolled_in_timers = BTreeMap::new();
+                    let mut new_focus_node = None;
+                    let mut new_timers = BTreeMap::new();
+                    let mut modifiable_window_state = window.internal.current_window_state.clone().into();
+
+                    let mut threads_uninitialized = BTreeMap::new();
+                    let mut cur_threads = threads.get_mut(window_id).unwrap_or(&mut threads_uninitialized);
+                    let current_scroll_states = window.internal.get_current_scroll_states();
+
+
+                    let update_screen_timers = fc_cache.apply_closure(|fc_cache| {
+                        run_all_timers(
+                            &mut data,
+                            &mut timer_map,
+                            frame_start.clone(),
+
+                            &window.internal.previous_window_state,
+                            &window.internal.current_window_state,
+                            &mut modifiable_window_state,
+                            &window.gl_context_ptr,
+                            &mut image_cache,
+                            fc_cache,
+                            &config.system_callbacks,
+                            &mut new_timers,
+                            &mut cur_threads,
+                            &mut windows_created,
+                            &window.window_handle,
+                            &mut window.internal.layout_results,
+                            &mut false, // stop_propagation - can't be set in timer
+                            &mut new_focus_node,
+                            &mut words_changed_in_timers,
+                            &mut images_changed_in_timers,
+                            &mut image_masks_changed_in_timers,
+                            &mut css_properties_changed_in_timers,
+                            &current_scroll_states,
+                            &mut nodes_scrolled_in_timers,
+                        )
+                    });
+
+
+                    match update_screen_timers {
+                        UpdateScreen::DoNothing => {
+                            let new_focus_node = new_focus_node.and_then(|ft| ft.resolve(&window.internal.layout_results, window.internal.current_window_state.focused_node).ok());
+                            let window_size = window.internal.get_layout_size();
+
+                            // re-layouts and re-styles the window.internal.layout_results
+                            let changes = StyleAndLayoutChanges::new(
+                                &NodesToCheck::empty(window.internal.current_window_state.mouse_state.mouse_down()),
+                                &mut window.internal.layout_results,
+                                &mut image_cache,
+                                &mut window.internal.renderer_resources,
+                                window_size,
+                                &window.internal.pipeline_id,
+                                Some(&css_properties_changed_in_timers),
+                                Some(&words_changed_in_timers),
+                                &new_focus_node,
+                                azul_layout::do_the_relayout,
+                            );
+
+                            let changes_need_regenerate_dl = changes.need_regenerate_display_list();
+
+                            let mut transaction = WrTransaction::new();
+
+                            if changes_need_regenerate_dl {
+                                let resource_updates = Vec::new(); // when re-generating the display list, no resource updates necessary
+                                window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
+                            }
+
+                            if changes_need_regenerate_dl || changes.need_redraw() {
+                                window.render_async(transaction, changes_need_regenerate_dl);
+                            }
+
+                            if let Some(focus_change) = changes.focus_change {
+                                window.internal.current_window_state.focused_node = focus_change.new;
+                            }
+                        },
+                        UpdateScreen::RegenerateStyledDomForCurrentWindow => {
+                            let mut resource_updates = Vec::new();
+                            let mut transaction = WrTransaction::new();
+                            window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
+                            window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
+                            window.render_async(transaction, /* display list was rebuilt */ true);
+                            window.internal.current_window_state.focused_node = None; // unset the focus
+                        },
+                        UpdateScreen::RegenerateStyledDomForAllWindows => {
+                            if update_screen_timers_tasks == UpdateScreen::DoNothing ||
+                               update_screen_timers_tasks == UpdateScreen::RegenerateStyledDomForCurrentWindow {
+                                update_screen_timers_tasks = update_screen_timers;
+                            }
+                        }
+                    }
+
+                    for (timer_id, timer) in new_timers {
+                        all_new_current_timers.entry(*window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
+                    }
+
+                    let window_monitor = {
+                        let w = window.display.window();
+                        let primary_monitor = w.primary_monitor();
+                        w.current_monitor()
+                        .map(|m| {
+                            let mut mon = crate::window::monitor_new(m, false);
+                            if let Some(p) = primary_monitor.as_ref() {
+                                mon.is_primary_monitor = mon.id == crate::window::monitor_handle_get_id(p);
+                            }
+                            mon
+                        })
+                        .unwrap_or_default()
+                    };
+
+                    let current_window_save_state = window.internal.current_window_state.clone();
+                    let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(modifiable_window_state, window_monitor);
+                    window.internal.previous_window_state = Some(current_window_save_state);
+                }
+
+                for (window_id, new_current_timers) in all_new_current_timers {
+                    for (timer_id, timer) in new_current_timers {
+                        timers.entry(window_id).or_insert_with(|| BTreeMap::default()).insert(timer_id, timer);
+                    }
+                }
+                for window_id in active_windows.keys() {
+                    if timers.get(&window_id).map(|w| w.is_empty()) == Some(true) { timers.remove(&window_id); }
+                }
+
                 for (window_id, new_current_threads) in all_new_current_threads {
                     for (thread_id, thread) in new_current_threads {
                         threads.entry(window_id).or_insert_with(|| BTreeMap::default()).insert(thread_id, thread);
                     }
+                }
+                for window_id in active_windows.keys() {
+                    if threads.get(&window_id).map(|w| w.is_empty()) == Some(true) { threads.remove(&window_id); }
                 }
 
                 if update_screen_timers_tasks == UpdateScreen::RegenerateStyledDomForAllWindows {
@@ -821,11 +834,14 @@ fn run_inner(app: App) -> ! {
                             timers.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
                         }
                     }
+                    if timers.get(&window_id).map(|w| w.is_empty()) == Some(true) { timers.remove(&window_id); }
+
                     if let Some(thread_map) = callback_results.threads {
                         for (thread_id, thread) in thread_map {
                             threads.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
                         }
                     }
+                    if threads.get(&window_id).map(|w| w.is_empty()) == Some(true) { threads.remove(&window_id); }
 
                     // see if the callbacks modified the WindowState - if yes, re-determine the events
                     let current_window_save_state = window.internal.current_window_state.clone();
@@ -993,9 +1009,13 @@ fn run_inner(app: App) -> ! {
                     for (timer_id, timer) in new_timers {
                         timers.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
                     }
+                    if timers.get(&window_id).map(|w| w.is_empty()) == Some(true) { timers.remove(&window_id); }
+
                     for (thread_id, thread) in new_threads {
                         threads.entry(window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
                     }
+                    if threads.get(&window_id).map(|w| w.is_empty()) == Some(true) { threads.remove(&window_id); }
+
                     if !window_state.flags.is_about_to_close {
                         window_should_close = false;
                         window.internal.current_window_state.flags.is_about_to_close = false;
@@ -1108,12 +1128,17 @@ fn run_inner(app: App) -> ! {
                     for (timer_id, timer) in new_timers {
                         timers.entry(*window_id).or_insert_with(|| BTreeMap::new()).insert(timer_id, timer);
                     }
+                    if timers.get(&window_id).map(|w| w.is_empty()) == Some(true) { timers.remove(&window_id); }
+
                     for (thread_id, thread) in new_threads {
                         threads.entry(*window_id).or_insert_with(|| BTreeMap::new()).insert(thread_id, thread);
                     }
+                    if threads.get(&window_id).map(|w| w.is_empty()) == Some(true) { threads.remove(&window_id); }
+
                 }
             }
         }
+
 
 
         // end: handle control flow and app shutdown
@@ -1123,7 +1148,9 @@ fn run_inner(app: App) -> ! {
             use azul_core::task::Instant;
 
             // If no timers / threads are running, wait until next user event
-            if threads.is_empty() && timers.is_empty() {
+            if (threads.is_empty() || threads.values().all(|t| t.is_empty()))
+            && (timers.is_empty() || timers.values().all(|t| t.is_empty())) {
+
                 ControlFlow::Wait
             } else {
 
@@ -1138,6 +1165,7 @@ fn run_inner(app: App) -> ! {
                 .map(|d| Duration::System(d.into()));
 
                 if threads.is_empty() {
+
 
                     // timers running
                     if timers.values().any(|timer_map| timer_map.values().any(|t| t.interval.as_ref().is_none())) {
@@ -1210,6 +1238,7 @@ fn run_inner(app: App) -> ! {
             threads = BTreeMap::new();
             ControlFlow::Exit
         };
+
 
         *control_flow = new_control_flow;
     })

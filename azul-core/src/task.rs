@@ -1142,7 +1142,7 @@ pub fn run_all_timers<'a, 'b>(
     }
 
     for key in timers_to_terminate {
-        timers.remove(&key);
+        current_timers.remove(&key);
     }
 
     should_update_screen
