@@ -66,7 +66,7 @@ impl CachedDisplayList {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum DisplayListMsg {
     // nested display list
-    IFrame(PipelineId, LogicalSize, Box<CachedDisplayList>),
+    IFrame(PipelineId, LogicalSize, Epoch, Box<CachedDisplayList>),
     Frame(DisplayListFrame),
     ScrollFrame(DisplayListScrollFrame),
 }
@@ -78,7 +78,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => f.transform.as_ref(),
             ScrollFrame(sf) => sf.frame.transform.as_ref(),
-            IFrame(_, _, _) => None,
+            IFrame(_, _, _, _) => None,
         }
     }
 
@@ -87,7 +87,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => f.opacity.as_ref(),
             ScrollFrame(sf) => sf.frame.opacity.as_ref(),
-            IFrame(_, _, _) => None,
+            IFrame(_, _, _, _) => None,
         }
     }
 
@@ -96,7 +96,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => f.clip_mask.as_ref(),
             ScrollFrame(sf) => sf.frame.clip_mask.as_ref(),
-            IFrame(_, _, _) => None,
+            IFrame(_, _, _, _) => None,
         }
     }
 
@@ -106,7 +106,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => f.position.clone(),
             ScrollFrame(sf) => sf.frame.position.clone(),
-            IFrame(_, _, _) => PositionInfo::Static(PositionInfoInner::zero()),
+            IFrame(_, _, _, _) => PositionInfo::Static(PositionInfoInner::zero()),
         }
     }
 
@@ -115,7 +115,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => { f.content.is_empty() },
             ScrollFrame(sf) => { sf.frame.content.is_empty() },
-            IFrame(_, _, _) => false,
+            IFrame(_, _, _, _) => false,
         }
     }
 
@@ -124,7 +124,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => { f.children.is_empty() },
             ScrollFrame(sf) => { sf.frame.children.is_empty() },
-            IFrame(_, _, _) => false,
+            IFrame(_, _, _, _) => false,
         }
     }
 
@@ -133,7 +133,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => { f.content.push(content); },
             ScrollFrame(sf) => { sf.frame.content.push(content); },
-            IFrame(_, _, _) => { } // invalid
+            IFrame(_, _, _, _) => { } // invalid
         }
     }
 
@@ -142,7 +142,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => { f.children.push(child); },
             ScrollFrame(sf) => { sf.frame.children.push(child); },
-            IFrame(_, _, _) => { } // invalid
+            IFrame(_, _, _, _) => { } // invalid
         }
     }
 
@@ -151,7 +151,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => { f.children.append(&mut children); },
             ScrollFrame(sf) => { sf.frame.children.append(&mut children); },
-            IFrame(_, _, _) => { } // invalid
+            IFrame(_, _, _, _) => { } // invalid
         }
     }
 
@@ -160,7 +160,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => f.size,
             ScrollFrame(sf) => sf.frame.size,
-            IFrame(_, s, _) => *s,
+            IFrame(_, s, _, _) => *s,
         }
     }
 }
@@ -1080,7 +1080,12 @@ pub fn displaylist_handle_rect<'a>(
                     referenced_content.image_cache,
                 );
                 let iframe_clip_size = positioned_rect.size;
-                frame.children.push(DisplayListMsg::IFrame(iframe_pipeline_id, iframe_clip_size, Box::new(cached_display_list)));
+                frame.children.push(DisplayListMsg::IFrame(
+                    iframe_pipeline_id,
+                    iframe_clip_size,
+                    referenced_content.epoch,
+                    Box::new(cached_display_list))
+                );
             }
         },
     };

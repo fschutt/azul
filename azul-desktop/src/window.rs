@@ -44,7 +44,7 @@ use gleam::gl::{self, Gl};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use crate::compositor::Compositor;
 use azul_core::{
-    callbacks::{PipelineId, RefAny},
+    callbacks::{PipelineId, DocumentId, RefAny},
     task::ExternalSystemCallbacks,
     display_list::{CachedDisplayList, RenderCallbacks},
     app_resources::{ResourceUpdate, ImageCache},
@@ -525,7 +525,6 @@ impl Window {
                 WindowInternalInit {
                     window_create_options: options,
                     document_id,
-                    pipeline_id,
                     id_namespace
                 },
                 data,
@@ -678,29 +677,42 @@ impl Window {
             wr_translate_epoch,
             wr_translate_resource_update,
         };
+        use azul_core::styled_dom::DomId;
+        use azul_core::ui_solver::LayoutResult;
 
         // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
-        let cached_display_list = CachedDisplayList::new(
-            self.internal.epoch,
-            &self.internal.current_window_state,
-            &self.internal.layout_results,
-            &self.internal.gl_texture_cache,
-            &self.internal.renderer_resources,
-            image_cache,
+        let root_id = DomId { inner: 0 };
+        let cached_display_list = LayoutResult::get_cached_display_list(
+             &self.internal.document_id,
+             root_id,
+             self.internal.epoch,
+             &self.internal.layout_results,
+             &self.internal.current_window_state,
+             &self.internal.gl_texture_cache,
+             &self.internal.renderer_resources,
+             image_cache,
         );
 
-        let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id, self.internal.current_window_state.size.hidpi_factor);
+        let root_pipeline_id = PipelineId(0, self.internal.document_id.id);
+        let display_list = wr_translate_display_list(
+            self.internal.document_id,
+            &mut self.render_api,
+            cached_display_list,
+            root_pipeline_id,
+            self.internal.current_window_state.size.hidpi_factor
+        );
 
         let logical_size = WrLayoutSize::new(
             self.internal.current_window_state.size.dimensions.width,
             self.internal.current_window_state.size.dimensions.height
         );
+
         txn.update_resources(resources.into_iter().map(wr_translate_resource_update).collect());
         txn.set_display_list(
             wr_translate_epoch(self.internal.epoch),
             None,
             logical_size.clone(),
-            (wr_translate_pipeline_id(self.internal.pipeline_id), display_list),
+            (wr_translate_pipeline_id(root_pipeline_id), display_list),
             true,
         );
     }
@@ -1139,7 +1151,7 @@ impl Window {
 
         self.internal.epoch.increment();
 
-        txn.set_root_pipeline(wr_translate::wr_translate_pipeline_id(self.internal.pipeline_id));
+        txn.set_root_pipeline(wr_translate::wr_translate_pipeline_id(PipelineId(0, self.internal.document_id.id)));
         txn.set_document_view(WrDeviceIntRect::new(WrDeviceIntPoint::new(0, 0), framebuffer_size), self.internal.current_window_state.size.hidpi_factor);
         scroll_all_nodes(&mut self.internal.scroll_states, &mut txn);
         synchronize_gpu_values(&self.internal.layout_results, &mut txn);
@@ -1158,7 +1170,7 @@ impl Window {
     /// Does the actual rendering + swapping
     pub fn render_block_and_swap(&mut self) {
 
-        fn clean_up_unused_opengl_textures(pipeline_info: WrPipelineInfo, pipeline_id: &PipelineId) {
+        fn clean_up_unused_opengl_textures(pipeline_info: WrPipelineInfo, document_id: &DocumentId) {
 
             use azul_core::gl::gl_textures_remove_epochs_from_pipeline;
             use crate::wr_translate::translate_epoch_wr;
@@ -1181,7 +1193,7 @@ impl Window {
             // Epoch(44), Epoch(45), which are currently active.
             let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
 
-            gl_textures_remove_epochs_from_pipeline(pipeline_id, translate_epoch_wr(*oldest_to_remove_epoch));
+            gl_textures_remove_epochs_from_pipeline(document_id, translate_epoch_wr(*oldest_to_remove_epoch));
         }
 
         let physical_size = self.internal.current_window_state.size.get_physical_size();
@@ -1208,7 +1220,7 @@ impl Window {
         if let Some(r) = self.renderer.as_mut() {
             r.update();
             let _ = r.render(framebuffer_size, 0);
-            clean_up_unused_opengl_textures(r.flush_pipeline_info(), &self.internal.pipeline_id);
+            clean_up_unused_opengl_textures(r.flush_pipeline_info(), &self.internal.document_id);
             // self.display.window().request_redraw();
         }
 
@@ -1238,7 +1250,6 @@ impl Drop for Window {
         let WindowInternal {
             renderer_resources,
             document_id,
-            pipeline_id,
             ..
         } = &mut self.internal;
 
@@ -1259,7 +1270,7 @@ impl Drop for Window {
 
         // Important: destroy all OpenGL textures before the shared
         // OpenGL context is destroyed.
-        azul_core::gl::gl_textures_remove_active_pipeline(&pipeline_id);
+        azul_core::gl::gl_textures_remove_active_pipeline(&document_id);
 
         // Delete texture caches
         self.render_api.delete_document(wr_translate_document_id(*document_id));

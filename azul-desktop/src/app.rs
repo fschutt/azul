@@ -450,6 +450,7 @@ fn run_inner(app: App) -> ! {
                                 &image_cache,
                                 &mut window.internal.renderer_resources,
                                 window_size,
+                                &window.internal.document_id,
                                 Some(&css_properties_changed_in_threads),
                                 Some(&words_changed_in_threads),
                                 &new_focus_node,
@@ -574,15 +575,12 @@ fn run_inner(app: App) -> ! {
 
                             // re-layouts and re-styles the window.internal.layout_results
                             let changes = StyleAndLayoutChanges::new(
-                                &NodesToCheck::empty(
-                                    window.internal.current_window_state.mouse_state.mouse_down(),
-                                    window.internal.current_window_state.focused_node,
-                                ),
+                                &NodesToCheck::empty(window.internal.current_window_state.mouse_state.mouse_down(), window.internal.current_window_state.focused_node),
                                 &mut window.internal.layout_results,
                                 &mut image_cache,
                                 &mut window.internal.renderer_resources,
                                 window_size,
-                                &window.internal.pipeline_id,
+                                &window.internal.document_id,
                                 Some(&css_properties_changed_in_timers),
                                 Some(&words_changed_in_timers),
                                 &new_focus_node,
@@ -813,7 +811,7 @@ fn run_inner(app: App) -> ! {
                                     &image_cache,
                                     &mut window.internal.renderer_resources,
                                     window_size,
-                                    &window.internal.pipeline_id,
+                                    &window.internal.document_id,
                                     callback_results.css_properties_changed.as_ref(),
                                     callback_results.words_changed.as_ref(),
                                     &callback_results.update_focused_node,

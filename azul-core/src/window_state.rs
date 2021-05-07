@@ -302,6 +302,7 @@ pub struct FocusChange {
 
 // azul_layout::do_the_relayout satifies this
 pub type RelayoutFn = fn(
+    DomId,
     LayoutRect,
     &mut LayoutResult,
     &ImageCache,
@@ -459,6 +460,7 @@ impl StyleAndLayoutChanges {
                     resized_nodes,
                     gpu_key_changes,
                 } = (relayout_cb)(
+                    dom_id,
                     parent_rect,
                     &mut layout_results[dom_id.inner],
                     image_cache,

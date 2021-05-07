@@ -11,6 +11,7 @@ use webrender::render_api::{
     AddImage as WrAddImage,
     UpdateImage as WrUpdateImage,
     AddFontInstance as WrAddFontInstance,
+    Transaction as WrTransaction,
 };
 use webrender::api::{
     units::{
@@ -715,7 +716,9 @@ pub(crate) fn fullhittest_new_webrender(
         let mut new_dom_ids = Vec::new();
 
         for (dom_id, cursor_relative_to_dom) in dom_ids.iter() {
-            let pipeline_id = PipelineId(dom_id.inner, document_id.inner);
+
+            let pipeline_id = PipelineId(dom_id.inner.min(core::u32::MAX as usize) as u32, document_id.id);
+
             let layout_result = match layout_results.get(dom_id.inner) {
                 Some(s) => s,
                 None => break,
@@ -735,32 +738,36 @@ pub(crate) fn fullhittest_new_webrender(
                 .node_id.into_crate_internal()?;
 
                 let relative_to_item = LogicalPosition::new(i.point_relative_to_item.x, i.point_relative_to_item.y);
-                Some(HitTestItem {
+                Some((node_id, HitTestItem {
                     point_in_viewport: LogicalPosition::new(i.point_in_viewport.x, i.point_in_viewport.y),
                     point_relative_to_item: relative_to_item,
                     is_iframe_hit: layout_result.iframe_mapping.get(&node_id).map(|iframe_dom_id| {
                         (*iframe_dom_id, relative_to_item)
                     }),
                     is_focusable: layout_result.styled_dom.node_data.as_container().get(node_id)?.get_tab_index().into_option().is_some(),
-                })
-            }).collect();
+                }))
+            }).collect::<Vec<_>>();
 
-            for item in hit_items {
+            for (node_id, item) in hit_items.into_iter() {
+
+                use azul_core::ui_solver::HitTest;
 
                 if let Some(i) = item.is_iframe_hit.as_ref() {
-                    new_dom_ids.push(i);
+                    new_dom_ids.push(*i);
                 }
 
                 if item.is_focusable {
-                    ret.focused_node = Some((*dom_id, item.node_id));
+                    ret.focused_node = Some((*dom_id, node_id));
                 }
 
-                if let Some(scroll_node) = layout_result.scrollable_nodes.overflowing_nodes.get(&AzNodeId::from_crate_internal(item.node_id)) {
+                let az_node_id = AzNodeId::from_crate_internal(Some(node_id));
+
+                if let Some(scroll_node) = layout_result.scrollable_nodes.overflowing_nodes.get(&az_node_id) {
                     ret.hovered_nodes
                     .entry(*dom_id)
                     .or_insert_with(|| HitTest::empty())
                     .scroll_hit_test_nodes
-                    .insert(item.node_id, ScrollHitTestItem {
+                    .insert(node_id, ScrollHitTestItem {
                         point_in_viewport: item.point_in_viewport,
                         point_relative_to_item: item.point_relative_to_item,
                         scroll_node: scroll_node.clone(),
@@ -770,7 +777,7 @@ pub(crate) fn fullhittest_new_webrender(
                     .entry(*dom_id)
                     .or_insert_with(|| HitTest::empty())
                     .regular_hit_test_nodes
-                    .insert(item.node_id, item);
+                    .insert(node_id, item);
                 }
             }
         }
@@ -1415,6 +1422,7 @@ pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> Wr
 }
 
 pub(crate) fn wr_translate_display_list(
+    document_id: DocumentId,
     render_api: &mut WrRenderApi,
     input: CachedDisplayList,
     pipeline_id: PipelineId,
@@ -1423,13 +1431,14 @@ pub(crate) fn wr_translate_display_list(
     let root_space_and_clip = WrSpaceAndClipInfo::root_scroll(wr_translate_pipeline_id(pipeline_id));
     let mut positioned_items = Vec::new();
     let mut builder = WrDisplayListBuilder::new(wr_translate_pipeline_id(pipeline_id));
-    push_display_list_msg(&mut builder, input.root, root_space_and_clip.spatial_id, root_space_and_clip.clip_id, &mut positioned_items, current_hidpi_factor);
+    push_display_list_msg(document_id, render_api, &mut builder, input.root, root_space_and_clip.spatial_id, root_space_and_clip.clip_id, &mut positioned_items, current_hidpi_factor);
     let (_pipeline_id, built_display_list) = builder.finalize();
     built_display_list
 }
 
 #[inline]
 fn push_display_list_msg(
+    document_id: DocumentId,
     render_api: &mut WrRenderApi,
     builder: &mut WrDisplayListBuilder,
     msg: DisplayListMsg,
@@ -1535,28 +1544,42 @@ fn push_display_list_msg(
     };
 
     match msg {
-        IFrame((iframe_pipeline_id, iframe_clip_size, cached_display_list)) => {
+        IFrame(iframe_pipeline_id, iframe_clip_size, epoch, cached_display_list) => {
+
+            let iframe_root_size = cached_display_list.root_size;
+
             let built_display_list = wr_translate_display_list(
+                document_id,
                 render_api,
-                cached_display_list,
+                *cached_display_list,
                 iframe_pipeline_id,
                 current_hidpi_factor,
             );
-            let iframe_root_size = built_display_list.root_size;
-            render_api.set_display_list(wr_translate_pipeline_id(iframe_pipeline_id), built_display_list);
+
+            let wr_pipeline_id = wr_translate_pipeline_id(iframe_pipeline_id);
+            let mut transaction = WrTransaction::new();
+            transaction.set_display_list(
+                wr_translate_epoch(epoch),
+                None, // background
+                wr_translate_logical_size(iframe_clip_size), // viewport size
+                (wr_pipeline_id, built_display_list),
+                true, // preserve frame scroll state
+            );
+            render_api.send_transaction(wr_translate_document_id(document_id), transaction);
+
             builder.push_iframe(
-                wr_translate_layout_rect(LayoutRect::new(LayoutPoint::zero(), iframe_root_size)), // bounds
-                wr_translate_layout_rect(LayoutRect::new(LayoutPoint::zero(), iframe_clip_size)), // clip_bounds
-                &SpaceAndClipInfo {
+                WrLayoutRect::new(WrLayoutPoint::zero(), wr_translate_logical_size(iframe_root_size)), // bounds
+                WrLayoutRect::new(WrLayoutPoint::zero(), wr_translate_logical_size(iframe_clip_size)), // clip_bounds
+                &WrSpaceAndClipInfo {
                     clip_id: parent_clip_id,
                     spatial_id: rect_spatial_id,
                 },
-                pipeline_id: wr_translate_pipeline_id(iframe_pipeline_id),
-                ignore_missing_pipeline: false, // the iframe is already submitted into the render API
+                wr_translate_pipeline_id(iframe_pipeline_id),
+                false, // the iframe is already submitted into the render API
             );
         },
-        Frame(f) => push_frame(builder, f, rect_spatial_id, parent_clip_id, positioned_items, current_hidpi_factor),
-        ScrollFrame(sf) => push_scroll_frame(builder, sf, rect_spatial_id, parent_clip_id, positioned_items, current_hidpi_factor),
+        Frame(f) => push_frame(document_id, render_api, builder, f, rect_spatial_id, parent_clip_id, positioned_items, current_hidpi_factor),
+        ScrollFrame(sf) => push_scroll_frame(document_id, render_api, builder, sf, rect_spatial_id, parent_clip_id, positioned_items, current_hidpi_factor),
     }
 
     if msg_position.is_positioned() {
@@ -1572,6 +1595,8 @@ fn push_display_list_msg(
 
 #[inline]
 fn push_frame(
+    document_id: DocumentId,
+    render_api: &mut WrRenderApi,
     builder: &mut WrDisplayListBuilder,
     frame: DisplayListFrame,
     rect_spatial_id: WrSpatialId,
@@ -1605,12 +1630,14 @@ fn push_frame(
 
     // if let Some(image_mask) -> define_image_mask_clip()
     for child in frame.children {
-        push_display_list_msg(builder, child, rect_spatial_id, children_clip_id, positioned_items, current_hidpi_factor);
+        push_display_list_msg(document_id, render_api, builder, child, rect_spatial_id, children_clip_id, positioned_items, current_hidpi_factor);
     }
 }
 
 #[inline]
 fn push_scroll_frame(
+    document_id: DocumentId,
+    render_api: &mut WrRenderApi,
     builder: &mut WrDisplayListBuilder,
     scroll_frame: DisplayListScrollFrame,
     rect_spatial_id: WrSpatialId,
@@ -1671,6 +1698,8 @@ fn push_scroll_frame(
 
     for child in scroll_frame.frame.children {
         push_display_list_msg(
+            document_id,
+            render_api,
             builder,
             child,
             scroll_frame_clip_info.spatial_id,
