@@ -9727,6 +9727,1431 @@ struct AzCss {
 };
 typedef struct AzCss AzCss;
 
+struct AzAppLogLevelEnumWrapper {
+    AzAppLogLevel inner;
+};
+typedef struct AzAppLogLevelEnumWrapper AzAppLogLevelEnumWrapper;
+
+struct AzLayoutSolverVersionEnumWrapper {
+    AzLayoutSolverVersion inner;
+};
+typedef struct AzLayoutSolverVersionEnumWrapper AzLayoutSolverVersionEnumWrapper;
+
+struct AzVsyncEnumWrapper {
+    AzVsync inner;
+};
+typedef struct AzVsyncEnumWrapper AzVsyncEnumWrapper;
+
+struct AzSrgbEnumWrapper {
+    AzSrgb inner;
+};
+typedef struct AzSrgbEnumWrapper AzSrgbEnumWrapper;
+
+struct AzHwAccelerationEnumWrapper {
+    AzHwAcceleration inner;
+};
+typedef struct AzHwAccelerationEnumWrapper AzHwAccelerationEnumWrapper;
+
+struct AzXWindowTypeEnumWrapper {
+    AzXWindowType inner;
+};
+typedef struct AzXWindowTypeEnumWrapper AzXWindowTypeEnumWrapper;
+
+struct AzVirtualKeyCodeEnumWrapper {
+    AzVirtualKeyCode inner;
+};
+typedef struct AzVirtualKeyCodeEnumWrapper AzVirtualKeyCodeEnumWrapper;
+
+struct AzMouseCursorTypeEnumWrapper {
+    AzMouseCursorType inner;
+};
+typedef struct AzMouseCursorTypeEnumWrapper AzMouseCursorTypeEnumWrapper;
+
+struct AzRendererTypeEnumWrapper {
+    AzRendererType inner;
+};
+typedef struct AzRendererTypeEnumWrapper AzRendererTypeEnumWrapper;
+
+struct AzFullScreenModeEnumWrapper {
+    AzFullScreenMode inner;
+};
+typedef struct AzFullScreenModeEnumWrapper AzFullScreenModeEnumWrapper;
+
+struct AzWindowThemeEnumWrapper {
+    AzWindowTheme inner;
+};
+typedef struct AzWindowThemeEnumWrapper AzWindowThemeEnumWrapper;
+
+struct AzUpdateScreenEnumWrapper {
+    AzUpdateScreen inner;
+};
+typedef struct AzUpdateScreenEnumWrapper AzUpdateScreenEnumWrapper;
+
+struct AzAnimationRepeatEnumWrapper {
+    AzAnimationRepeat inner;
+};
+typedef struct AzAnimationRepeatEnumWrapper AzAnimationRepeatEnumWrapper;
+
+struct AzAnimationRepeatCountEnumWrapper {
+    AzAnimationRepeatCount inner;
+};
+typedef struct AzAnimationRepeatCountEnumWrapper AzAnimationRepeatCountEnumWrapper;
+
+struct AzOnEnumWrapper {
+    AzOn inner;
+};
+typedef struct AzOnEnumWrapper AzOnEnumWrapper;
+
+struct AzHoverEventFilterEnumWrapper {
+    AzHoverEventFilter inner;
+};
+typedef struct AzHoverEventFilterEnumWrapper AzHoverEventFilterEnumWrapper;
+
+struct AzFocusEventFilterEnumWrapper {
+    AzFocusEventFilter inner;
+};
+typedef struct AzFocusEventFilterEnumWrapper AzFocusEventFilterEnumWrapper;
+
+struct AzWindowEventFilterEnumWrapper {
+    AzWindowEventFilter inner;
+};
+typedef struct AzWindowEventFilterEnumWrapper AzWindowEventFilterEnumWrapper;
+
+struct AzComponentEventFilterEnumWrapper {
+    AzComponentEventFilter inner;
+};
+typedef struct AzComponentEventFilterEnumWrapper AzComponentEventFilterEnumWrapper;
+
+struct AzApplicationEventFilterEnumWrapper {
+    AzApplicationEventFilter inner;
+};
+typedef struct AzApplicationEventFilterEnumWrapper AzApplicationEventFilterEnumWrapper;
+
+struct AzTabIndexEnumWrapper {
+    AzTabIndex inner;
+};
+typedef struct AzTabIndexEnumWrapper AzTabIndexEnumWrapper;
+
+struct AzNodeTypeKeyEnumWrapper {
+    AzNodeTypeKey inner;
+};
+typedef struct AzNodeTypeKeyEnumWrapper AzNodeTypeKeyEnumWrapper;
+
+struct AzCssPropertyTypeEnumWrapper {
+    AzCssPropertyType inner;
+};
+typedef struct AzCssPropertyTypeEnumWrapper AzCssPropertyTypeEnumWrapper;
+
+struct AzSizeMetricEnumWrapper {
+    AzSizeMetric inner;
+};
+typedef struct AzSizeMetricEnumWrapper AzSizeMetricEnumWrapper;
+
+struct AzBoxShadowClipModeEnumWrapper {
+    AzBoxShadowClipMode inner;
+};
+typedef struct AzBoxShadowClipModeEnumWrapper AzBoxShadowClipModeEnumWrapper;
+
+struct AzLayoutAlignContentEnumWrapper {
+    AzLayoutAlignContent inner;
+};
+typedef struct AzLayoutAlignContentEnumWrapper AzLayoutAlignContentEnumWrapper;
+
+struct AzLayoutAlignItemsEnumWrapper {
+    AzLayoutAlignItems inner;
+};
+typedef struct AzLayoutAlignItemsEnumWrapper AzLayoutAlignItemsEnumWrapper;
+
+struct AzLayoutBoxSizingEnumWrapper {
+    AzLayoutBoxSizing inner;
+};
+typedef struct AzLayoutBoxSizingEnumWrapper AzLayoutBoxSizingEnumWrapper;
+
+struct AzLayoutFlexDirectionEnumWrapper {
+    AzLayoutFlexDirection inner;
+};
+typedef struct AzLayoutFlexDirectionEnumWrapper AzLayoutFlexDirectionEnumWrapper;
+
+struct AzLayoutDisplayEnumWrapper {
+    AzLayoutDisplay inner;
+};
+typedef struct AzLayoutDisplayEnumWrapper AzLayoutDisplayEnumWrapper;
+
+struct AzLayoutFloatEnumWrapper {
+    AzLayoutFloat inner;
+};
+typedef struct AzLayoutFloatEnumWrapper AzLayoutFloatEnumWrapper;
+
+struct AzLayoutJustifyContentEnumWrapper {
+    AzLayoutJustifyContent inner;
+};
+typedef struct AzLayoutJustifyContentEnumWrapper AzLayoutJustifyContentEnumWrapper;
+
+struct AzLayoutPositionEnumWrapper {
+    AzLayoutPosition inner;
+};
+typedef struct AzLayoutPositionEnumWrapper AzLayoutPositionEnumWrapper;
+
+struct AzLayoutFlexWrapEnumWrapper {
+    AzLayoutFlexWrap inner;
+};
+typedef struct AzLayoutFlexWrapEnumWrapper AzLayoutFlexWrapEnumWrapper;
+
+struct AzLayoutOverflowEnumWrapper {
+    AzLayoutOverflow inner;
+};
+typedef struct AzLayoutOverflowEnumWrapper AzLayoutOverflowEnumWrapper;
+
+struct AzAngleMetricEnumWrapper {
+    AzAngleMetric inner;
+};
+typedef struct AzAngleMetricEnumWrapper AzAngleMetricEnumWrapper;
+
+struct AzDirectionCornerEnumWrapper {
+    AzDirectionCorner inner;
+};
+typedef struct AzDirectionCornerEnumWrapper AzDirectionCornerEnumWrapper;
+
+struct AzExtendModeEnumWrapper {
+    AzExtendMode inner;
+};
+typedef struct AzExtendModeEnumWrapper AzExtendModeEnumWrapper;
+
+struct AzShapeEnumWrapper {
+    AzShape inner;
+};
+typedef struct AzShapeEnumWrapper AzShapeEnumWrapper;
+
+struct AzRadialGradientSizeEnumWrapper {
+    AzRadialGradientSize inner;
+};
+typedef struct AzRadialGradientSizeEnumWrapper AzRadialGradientSizeEnumWrapper;
+
+struct AzStyleBackgroundRepeatEnumWrapper {
+    AzStyleBackgroundRepeat inner;
+};
+typedef struct AzStyleBackgroundRepeatEnumWrapper AzStyleBackgroundRepeatEnumWrapper;
+
+struct AzBorderStyleEnumWrapper {
+    AzBorderStyle inner;
+};
+typedef struct AzBorderStyleEnumWrapper AzBorderStyleEnumWrapper;
+
+struct AzStyleCursorEnumWrapper {
+    AzStyleCursor inner;
+};
+typedef struct AzStyleCursorEnumWrapper AzStyleCursorEnumWrapper;
+
+struct AzStyleBackfaceVisibilityEnumWrapper {
+    AzStyleBackfaceVisibility inner;
+};
+typedef struct AzStyleBackfaceVisibilityEnumWrapper AzStyleBackfaceVisibilityEnumWrapper;
+
+struct AzStyleTextAlignEnumWrapper {
+    AzStyleTextAlign inner;
+};
+typedef struct AzStyleTextAlignEnumWrapper AzStyleTextAlignEnumWrapper;
+
+struct AzVertexAttributeTypeEnumWrapper {
+    AzVertexAttributeType inner;
+};
+typedef struct AzVertexAttributeTypeEnumWrapper AzVertexAttributeTypeEnumWrapper;
+
+struct AzIndexBufferFormatEnumWrapper {
+    AzIndexBufferFormat inner;
+};
+typedef struct AzIndexBufferFormatEnumWrapper AzIndexBufferFormatEnumWrapper;
+
+struct AzGlTypeEnumWrapper {
+    AzGlType inner;
+};
+typedef struct AzGlTypeEnumWrapper AzGlTypeEnumWrapper;
+
+struct AzRawImageFormatEnumWrapper {
+    AzRawImageFormat inner;
+};
+typedef struct AzRawImageFormatEnumWrapper AzRawImageFormatEnumWrapper;
+
+struct AzEncodeImageErrorEnumWrapper {
+    AzEncodeImageError inner;
+};
+typedef struct AzEncodeImageErrorEnumWrapper AzEncodeImageErrorEnumWrapper;
+
+struct AzDecodeImageErrorEnumWrapper {
+    AzDecodeImageError inner;
+};
+typedef struct AzDecodeImageErrorEnumWrapper AzDecodeImageErrorEnumWrapper;
+
+struct AzShapeRenderingEnumWrapper {
+    AzShapeRendering inner;
+};
+typedef struct AzShapeRenderingEnumWrapper AzShapeRenderingEnumWrapper;
+
+struct AzTextRenderingEnumWrapper {
+    AzTextRendering inner;
+};
+typedef struct AzTextRenderingEnumWrapper AzTextRenderingEnumWrapper;
+
+struct AzImageRenderingEnumWrapper {
+    AzImageRendering inner;
+};
+typedef struct AzImageRenderingEnumWrapper AzImageRenderingEnumWrapper;
+
+struct AzFontDatabaseEnumWrapper {
+    AzFontDatabase inner;
+};
+typedef struct AzFontDatabaseEnumWrapper AzFontDatabaseEnumWrapper;
+
+struct AzIndentEnumWrapper {
+    AzIndent inner;
+};
+typedef struct AzIndentEnumWrapper AzIndentEnumWrapper;
+
+struct AzSvgFitToEnumWrapper {
+    AzSvgFitTo inner;
+};
+typedef struct AzSvgFitToEnumWrapper AzSvgFitToEnumWrapper;
+
+struct AzSvgFillRuleEnumWrapper {
+    AzSvgFillRule inner;
+};
+typedef struct AzSvgFillRuleEnumWrapper AzSvgFillRuleEnumWrapper;
+
+struct AzSvgLineJoinEnumWrapper {
+    AzSvgLineJoin inner;
+};
+typedef struct AzSvgLineJoinEnumWrapper AzSvgLineJoinEnumWrapper;
+
+struct AzSvgLineCapEnumWrapper {
+    AzSvgLineCap inner;
+};
+typedef struct AzSvgLineCapEnumWrapper AzSvgLineCapEnumWrapper;
+
+struct AzMsgBoxIconEnumWrapper {
+    AzMsgBoxIcon inner;
+};
+typedef struct AzMsgBoxIconEnumWrapper AzMsgBoxIconEnumWrapper;
+
+struct AzMsgBoxYesNoEnumWrapper {
+    AzMsgBoxYesNo inner;
+};
+typedef struct AzMsgBoxYesNoEnumWrapper AzMsgBoxYesNoEnumWrapper;
+
+struct AzMsgBoxOkCancelEnumWrapper {
+    AzMsgBoxOkCancel inner;
+};
+typedef struct AzMsgBoxOkCancelEnumWrapper AzMsgBoxOkCancelEnumWrapper;
+
+struct AzTerminateTimerEnumWrapper {
+    AzTerminateTimer inner;
+};
+typedef struct AzTerminateTimerEnumWrapper AzTerminateTimerEnumWrapper;
+
+struct AzStyleFontFamilyVecDestructorEnumWrapper {
+    AzStyleFontFamilyVecDestructor inner;
+};
+typedef struct AzStyleFontFamilyVecDestructorEnumWrapper AzStyleFontFamilyVecDestructorEnumWrapper;
+
+struct AzTesselatedSvgNodeVecDestructorEnumWrapper {
+    AzTesselatedSvgNodeVecDestructor inner;
+};
+typedef struct AzTesselatedSvgNodeVecDestructorEnumWrapper AzTesselatedSvgNodeVecDestructorEnumWrapper;
+
+struct AzXmlNodeVecDestructorEnumWrapper {
+    AzXmlNodeVecDestructor inner;
+};
+typedef struct AzXmlNodeVecDestructorEnumWrapper AzXmlNodeVecDestructorEnumWrapper;
+
+struct AzFmtArgVecDestructorEnumWrapper {
+    AzFmtArgVecDestructor inner;
+};
+typedef struct AzFmtArgVecDestructorEnumWrapper AzFmtArgVecDestructorEnumWrapper;
+
+struct AzInlineLineVecDestructorEnumWrapper {
+    AzInlineLineVecDestructor inner;
+};
+typedef struct AzInlineLineVecDestructorEnumWrapper AzInlineLineVecDestructorEnumWrapper;
+
+struct AzInlineWordVecDestructorEnumWrapper {
+    AzInlineWordVecDestructor inner;
+};
+typedef struct AzInlineWordVecDestructorEnumWrapper AzInlineWordVecDestructorEnumWrapper;
+
+struct AzInlineGlyphVecDestructorEnumWrapper {
+    AzInlineGlyphVecDestructor inner;
+};
+typedef struct AzInlineGlyphVecDestructorEnumWrapper AzInlineGlyphVecDestructorEnumWrapper;
+
+struct AzInlineTextHitVecDestructorEnumWrapper {
+    AzInlineTextHitVecDestructor inner;
+};
+typedef struct AzInlineTextHitVecDestructorEnumWrapper AzInlineTextHitVecDestructorEnumWrapper;
+
+struct AzMonitorVecDestructorEnumWrapper {
+    AzMonitorVecDestructor inner;
+};
+typedef struct AzMonitorVecDestructorEnumWrapper AzMonitorVecDestructorEnumWrapper;
+
+struct AzVideoModeVecDestructorEnumWrapper {
+    AzVideoModeVecDestructor inner;
+};
+typedef struct AzVideoModeVecDestructorEnumWrapper AzVideoModeVecDestructorEnumWrapper;
+
+struct AzDomVecDestructorEnumWrapper {
+    AzDomVecDestructor inner;
+};
+typedef struct AzDomVecDestructorEnumWrapper AzDomVecDestructorEnumWrapper;
+
+struct AzIdOrClassVecDestructorEnumWrapper {
+    AzIdOrClassVecDestructor inner;
+};
+typedef struct AzIdOrClassVecDestructorEnumWrapper AzIdOrClassVecDestructorEnumWrapper;
+
+struct AzNodeDataInlineCssPropertyVecDestructorEnumWrapper {
+    AzNodeDataInlineCssPropertyVecDestructor inner;
+};
+typedef struct AzNodeDataInlineCssPropertyVecDestructorEnumWrapper AzNodeDataInlineCssPropertyVecDestructorEnumWrapper;
+
+struct AzStyleBackgroundContentVecDestructorEnumWrapper {
+    AzStyleBackgroundContentVecDestructor inner;
+};
+typedef struct AzStyleBackgroundContentVecDestructorEnumWrapper AzStyleBackgroundContentVecDestructorEnumWrapper;
+
+struct AzStyleBackgroundPositionVecDestructorEnumWrapper {
+    AzStyleBackgroundPositionVecDestructor inner;
+};
+typedef struct AzStyleBackgroundPositionVecDestructorEnumWrapper AzStyleBackgroundPositionVecDestructorEnumWrapper;
+
+struct AzStyleBackgroundRepeatVecDestructorEnumWrapper {
+    AzStyleBackgroundRepeatVecDestructor inner;
+};
+typedef struct AzStyleBackgroundRepeatVecDestructorEnumWrapper AzStyleBackgroundRepeatVecDestructorEnumWrapper;
+
+struct AzStyleBackgroundSizeVecDestructorEnumWrapper {
+    AzStyleBackgroundSizeVecDestructor inner;
+};
+typedef struct AzStyleBackgroundSizeVecDestructorEnumWrapper AzStyleBackgroundSizeVecDestructorEnumWrapper;
+
+struct AzStyleTransformVecDestructorEnumWrapper {
+    AzStyleTransformVecDestructor inner;
+};
+typedef struct AzStyleTransformVecDestructorEnumWrapper AzStyleTransformVecDestructorEnumWrapper;
+
+struct AzCssPropertyVecDestructorEnumWrapper {
+    AzCssPropertyVecDestructor inner;
+};
+typedef struct AzCssPropertyVecDestructorEnumWrapper AzCssPropertyVecDestructorEnumWrapper;
+
+struct AzSvgMultiPolygonVecDestructorEnumWrapper {
+    AzSvgMultiPolygonVecDestructor inner;
+};
+typedef struct AzSvgMultiPolygonVecDestructorEnumWrapper AzSvgMultiPolygonVecDestructorEnumWrapper;
+
+struct AzSvgPathVecDestructorEnumWrapper {
+    AzSvgPathVecDestructor inner;
+};
+typedef struct AzSvgPathVecDestructorEnumWrapper AzSvgPathVecDestructorEnumWrapper;
+
+struct AzVertexAttributeVecDestructorEnumWrapper {
+    AzVertexAttributeVecDestructor inner;
+};
+typedef struct AzVertexAttributeVecDestructorEnumWrapper AzVertexAttributeVecDestructorEnumWrapper;
+
+struct AzSvgPathElementVecDestructorEnumWrapper {
+    AzSvgPathElementVecDestructor inner;
+};
+typedef struct AzSvgPathElementVecDestructorEnumWrapper AzSvgPathElementVecDestructorEnumWrapper;
+
+struct AzSvgVertexVecDestructorEnumWrapper {
+    AzSvgVertexVecDestructor inner;
+};
+typedef struct AzSvgVertexVecDestructorEnumWrapper AzSvgVertexVecDestructorEnumWrapper;
+
+struct AzU32VecDestructorEnumWrapper {
+    AzU32VecDestructor inner;
+};
+typedef struct AzU32VecDestructorEnumWrapper AzU32VecDestructorEnumWrapper;
+
+struct AzXWindowTypeVecDestructorEnumWrapper {
+    AzXWindowTypeVecDestructor inner;
+};
+typedef struct AzXWindowTypeVecDestructorEnumWrapper AzXWindowTypeVecDestructorEnumWrapper;
+
+struct AzVirtualKeyCodeVecDestructorEnumWrapper {
+    AzVirtualKeyCodeVecDestructor inner;
+};
+typedef struct AzVirtualKeyCodeVecDestructorEnumWrapper AzVirtualKeyCodeVecDestructorEnumWrapper;
+
+struct AzCascadeInfoVecDestructorEnumWrapper {
+    AzCascadeInfoVecDestructor inner;
+};
+typedef struct AzCascadeInfoVecDestructorEnumWrapper AzCascadeInfoVecDestructorEnumWrapper;
+
+struct AzScanCodeVecDestructorEnumWrapper {
+    AzScanCodeVecDestructor inner;
+};
+typedef struct AzScanCodeVecDestructorEnumWrapper AzScanCodeVecDestructorEnumWrapper;
+
+struct AzCssDeclarationVecDestructorEnumWrapper {
+    AzCssDeclarationVecDestructor inner;
+};
+typedef struct AzCssDeclarationVecDestructorEnumWrapper AzCssDeclarationVecDestructorEnumWrapper;
+
+struct AzCssPathSelectorVecDestructorEnumWrapper {
+    AzCssPathSelectorVecDestructor inner;
+};
+typedef struct AzCssPathSelectorVecDestructorEnumWrapper AzCssPathSelectorVecDestructorEnumWrapper;
+
+struct AzStylesheetVecDestructorEnumWrapper {
+    AzStylesheetVecDestructor inner;
+};
+typedef struct AzStylesheetVecDestructorEnumWrapper AzStylesheetVecDestructorEnumWrapper;
+
+struct AzCssRuleBlockVecDestructorEnumWrapper {
+    AzCssRuleBlockVecDestructor inner;
+};
+typedef struct AzCssRuleBlockVecDestructorEnumWrapper AzCssRuleBlockVecDestructorEnumWrapper;
+
+struct AzF32VecDestructorEnumWrapper {
+    AzF32VecDestructor inner;
+};
+typedef struct AzF32VecDestructorEnumWrapper AzF32VecDestructorEnumWrapper;
+
+struct AzU16VecDestructorEnumWrapper {
+    AzU16VecDestructor inner;
+};
+typedef struct AzU16VecDestructorEnumWrapper AzU16VecDestructorEnumWrapper;
+
+struct AzU8VecDestructorEnumWrapper {
+    AzU8VecDestructor inner;
+};
+typedef struct AzU8VecDestructorEnumWrapper AzU8VecDestructorEnumWrapper;
+
+struct AzCallbackDataVecDestructorEnumWrapper {
+    AzCallbackDataVecDestructor inner;
+};
+typedef struct AzCallbackDataVecDestructorEnumWrapper AzCallbackDataVecDestructorEnumWrapper;
+
+struct AzDebugMessageVecDestructorEnumWrapper {
+    AzDebugMessageVecDestructor inner;
+};
+typedef struct AzDebugMessageVecDestructorEnumWrapper AzDebugMessageVecDestructorEnumWrapper;
+
+struct AzGLuintVecDestructorEnumWrapper {
+    AzGLuintVecDestructor inner;
+};
+typedef struct AzGLuintVecDestructorEnumWrapper AzGLuintVecDestructorEnumWrapper;
+
+struct AzGLintVecDestructorEnumWrapper {
+    AzGLintVecDestructor inner;
+};
+typedef struct AzGLintVecDestructorEnumWrapper AzGLintVecDestructorEnumWrapper;
+
+struct AzStringVecDestructorEnumWrapper {
+    AzStringVecDestructor inner;
+};
+typedef struct AzStringVecDestructorEnumWrapper AzStringVecDestructorEnumWrapper;
+
+struct AzStringPairVecDestructorEnumWrapper {
+    AzStringPairVecDestructor inner;
+};
+typedef struct AzStringPairVecDestructorEnumWrapper AzStringPairVecDestructorEnumWrapper;
+
+struct AzNormalizedLinearColorStopVecDestructorEnumWrapper {
+    AzNormalizedLinearColorStopVecDestructor inner;
+};
+typedef struct AzNormalizedLinearColorStopVecDestructorEnumWrapper AzNormalizedLinearColorStopVecDestructorEnumWrapper;
+
+struct AzNormalizedRadialColorStopVecDestructorEnumWrapper {
+    AzNormalizedRadialColorStopVecDestructor inner;
+};
+typedef struct AzNormalizedRadialColorStopVecDestructorEnumWrapper AzNormalizedRadialColorStopVecDestructorEnumWrapper;
+
+struct AzNodeIdVecDestructorEnumWrapper {
+    AzNodeIdVecDestructor inner;
+};
+typedef struct AzNodeIdVecDestructorEnumWrapper AzNodeIdVecDestructorEnumWrapper;
+
+struct AzNodeVecDestructorEnumWrapper {
+    AzNodeVecDestructor inner;
+};
+typedef struct AzNodeVecDestructorEnumWrapper AzNodeVecDestructorEnumWrapper;
+
+struct AzStyledNodeVecDestructorEnumWrapper {
+    AzStyledNodeVecDestructor inner;
+};
+typedef struct AzStyledNodeVecDestructorEnumWrapper AzStyledNodeVecDestructorEnumWrapper;
+
+struct AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper {
+    AzTagIdsToNodeIdsMappingVecDestructor inner;
+};
+typedef struct AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper;
+
+struct AzParentWithNodeDepthVecDestructorEnumWrapper {
+    AzParentWithNodeDepthVecDestructor inner;
+};
+typedef struct AzParentWithNodeDepthVecDestructorEnumWrapper AzParentWithNodeDepthVecDestructorEnumWrapper;
+
+struct AzNodeDataVecDestructorEnumWrapper {
+    AzNodeDataVecDestructor inner;
+};
+typedef struct AzNodeDataVecDestructorEnumWrapper AzNodeDataVecDestructorEnumWrapper;
+
+struct AzOptionI16EnumWrapper {
+    AzOptionI16 inner;
+};
+typedef struct AzOptionI16EnumWrapper AzOptionI16EnumWrapper;
+
+struct AzOptionU16EnumWrapper {
+    AzOptionU16 inner;
+};
+typedef struct AzOptionU16EnumWrapper AzOptionU16EnumWrapper;
+
+struct AzOptionU32EnumWrapper {
+    AzOptionU32 inner;
+};
+typedef struct AzOptionU32EnumWrapper AzOptionU32EnumWrapper;
+
+struct AzOptionHwndHandleEnumWrapper {
+    AzOptionHwndHandle inner;
+};
+typedef struct AzOptionHwndHandleEnumWrapper AzOptionHwndHandleEnumWrapper;
+
+struct AzOptionX11VisualEnumWrapper {
+    AzOptionX11Visual inner;
+};
+typedef struct AzOptionX11VisualEnumWrapper AzOptionX11VisualEnumWrapper;
+
+struct AzOptionI32EnumWrapper {
+    AzOptionI32 inner;
+};
+typedef struct AzOptionI32EnumWrapper AzOptionI32EnumWrapper;
+
+struct AzOptionF32EnumWrapper {
+    AzOptionF32 inner;
+};
+typedef struct AzOptionF32EnumWrapper AzOptionF32EnumWrapper;
+
+struct AzOptionCharEnumWrapper {
+    AzOptionChar inner;
+};
+typedef struct AzOptionCharEnumWrapper AzOptionCharEnumWrapper;
+
+struct AzOptionUsizeEnumWrapper {
+    AzOptionUsize inner;
+};
+typedef struct AzOptionUsizeEnumWrapper AzOptionUsizeEnumWrapper;
+
+struct AzRawWindowHandleEnumWrapper {
+    AzRawWindowHandle inner;
+};
+typedef struct AzRawWindowHandleEnumWrapper AzRawWindowHandleEnumWrapper;
+
+struct AzAcceleratorKeyEnumWrapper {
+    AzAcceleratorKey inner;
+};
+typedef struct AzAcceleratorKeyEnumWrapper AzAcceleratorKeyEnumWrapper;
+
+struct AzCursorPositionEnumWrapper {
+    AzCursorPosition inner;
+};
+typedef struct AzCursorPositionEnumWrapper AzCursorPositionEnumWrapper;
+
+struct AzWindowPositionEnumWrapper {
+    AzWindowPosition inner;
+};
+typedef struct AzWindowPositionEnumWrapper AzWindowPositionEnumWrapper;
+
+struct AzImePositionEnumWrapper {
+    AzImePosition inner;
+};
+typedef struct AzImePositionEnumWrapper AzImePositionEnumWrapper;
+
+struct AzPositionInfoEnumWrapper {
+    AzPositionInfo inner;
+};
+typedef struct AzPositionInfoEnumWrapper AzPositionInfoEnumWrapper;
+
+struct AzNotEventFilterEnumWrapper {
+    AzNotEventFilter inner;
+};
+typedef struct AzNotEventFilterEnumWrapper AzNotEventFilterEnumWrapper;
+
+struct AzCssNthChildSelectorEnumWrapper {
+    AzCssNthChildSelector inner;
+};
+typedef struct AzCssNthChildSelectorEnumWrapper AzCssNthChildSelectorEnumWrapper;
+
+struct AzDirectionEnumWrapper {
+    AzDirection inner;
+};
+typedef struct AzDirectionEnumWrapper AzDirectionEnumWrapper;
+
+struct AzBackgroundPositionHorizontalEnumWrapper {
+    AzBackgroundPositionHorizontal inner;
+};
+typedef struct AzBackgroundPositionHorizontalEnumWrapper AzBackgroundPositionHorizontalEnumWrapper;
+
+struct AzBackgroundPositionVerticalEnumWrapper {
+    AzBackgroundPositionVertical inner;
+};
+typedef struct AzBackgroundPositionVerticalEnumWrapper AzBackgroundPositionVerticalEnumWrapper;
+
+struct AzStyleBackgroundSizeEnumWrapper {
+    AzStyleBackgroundSize inner;
+};
+typedef struct AzStyleBackgroundSizeEnumWrapper AzStyleBackgroundSizeEnumWrapper;
+
+struct AzStyleBoxShadowValueEnumWrapper {
+    AzStyleBoxShadowValue inner;
+};
+typedef struct AzStyleBoxShadowValueEnumWrapper AzStyleBoxShadowValueEnumWrapper;
+
+struct AzLayoutAlignContentValueEnumWrapper {
+    AzLayoutAlignContentValue inner;
+};
+typedef struct AzLayoutAlignContentValueEnumWrapper AzLayoutAlignContentValueEnumWrapper;
+
+struct AzLayoutAlignItemsValueEnumWrapper {
+    AzLayoutAlignItemsValue inner;
+};
+typedef struct AzLayoutAlignItemsValueEnumWrapper AzLayoutAlignItemsValueEnumWrapper;
+
+struct AzLayoutBottomValueEnumWrapper {
+    AzLayoutBottomValue inner;
+};
+typedef struct AzLayoutBottomValueEnumWrapper AzLayoutBottomValueEnumWrapper;
+
+struct AzLayoutBoxSizingValueEnumWrapper {
+    AzLayoutBoxSizingValue inner;
+};
+typedef struct AzLayoutBoxSizingValueEnumWrapper AzLayoutBoxSizingValueEnumWrapper;
+
+struct AzLayoutFlexDirectionValueEnumWrapper {
+    AzLayoutFlexDirectionValue inner;
+};
+typedef struct AzLayoutFlexDirectionValueEnumWrapper AzLayoutFlexDirectionValueEnumWrapper;
+
+struct AzLayoutDisplayValueEnumWrapper {
+    AzLayoutDisplayValue inner;
+};
+typedef struct AzLayoutDisplayValueEnumWrapper AzLayoutDisplayValueEnumWrapper;
+
+struct AzLayoutFlexGrowValueEnumWrapper {
+    AzLayoutFlexGrowValue inner;
+};
+typedef struct AzLayoutFlexGrowValueEnumWrapper AzLayoutFlexGrowValueEnumWrapper;
+
+struct AzLayoutFlexShrinkValueEnumWrapper {
+    AzLayoutFlexShrinkValue inner;
+};
+typedef struct AzLayoutFlexShrinkValueEnumWrapper AzLayoutFlexShrinkValueEnumWrapper;
+
+struct AzLayoutFloatValueEnumWrapper {
+    AzLayoutFloatValue inner;
+};
+typedef struct AzLayoutFloatValueEnumWrapper AzLayoutFloatValueEnumWrapper;
+
+struct AzLayoutHeightValueEnumWrapper {
+    AzLayoutHeightValue inner;
+};
+typedef struct AzLayoutHeightValueEnumWrapper AzLayoutHeightValueEnumWrapper;
+
+struct AzLayoutJustifyContentValueEnumWrapper {
+    AzLayoutJustifyContentValue inner;
+};
+typedef struct AzLayoutJustifyContentValueEnumWrapper AzLayoutJustifyContentValueEnumWrapper;
+
+struct AzLayoutLeftValueEnumWrapper {
+    AzLayoutLeftValue inner;
+};
+typedef struct AzLayoutLeftValueEnumWrapper AzLayoutLeftValueEnumWrapper;
+
+struct AzLayoutMarginBottomValueEnumWrapper {
+    AzLayoutMarginBottomValue inner;
+};
+typedef struct AzLayoutMarginBottomValueEnumWrapper AzLayoutMarginBottomValueEnumWrapper;
+
+struct AzLayoutMarginLeftValueEnumWrapper {
+    AzLayoutMarginLeftValue inner;
+};
+typedef struct AzLayoutMarginLeftValueEnumWrapper AzLayoutMarginLeftValueEnumWrapper;
+
+struct AzLayoutMarginRightValueEnumWrapper {
+    AzLayoutMarginRightValue inner;
+};
+typedef struct AzLayoutMarginRightValueEnumWrapper AzLayoutMarginRightValueEnumWrapper;
+
+struct AzLayoutMarginTopValueEnumWrapper {
+    AzLayoutMarginTopValue inner;
+};
+typedef struct AzLayoutMarginTopValueEnumWrapper AzLayoutMarginTopValueEnumWrapper;
+
+struct AzLayoutMaxHeightValueEnumWrapper {
+    AzLayoutMaxHeightValue inner;
+};
+typedef struct AzLayoutMaxHeightValueEnumWrapper AzLayoutMaxHeightValueEnumWrapper;
+
+struct AzLayoutMaxWidthValueEnumWrapper {
+    AzLayoutMaxWidthValue inner;
+};
+typedef struct AzLayoutMaxWidthValueEnumWrapper AzLayoutMaxWidthValueEnumWrapper;
+
+struct AzLayoutMinHeightValueEnumWrapper {
+    AzLayoutMinHeightValue inner;
+};
+typedef struct AzLayoutMinHeightValueEnumWrapper AzLayoutMinHeightValueEnumWrapper;
+
+struct AzLayoutMinWidthValueEnumWrapper {
+    AzLayoutMinWidthValue inner;
+};
+typedef struct AzLayoutMinWidthValueEnumWrapper AzLayoutMinWidthValueEnumWrapper;
+
+struct AzLayoutPaddingBottomValueEnumWrapper {
+    AzLayoutPaddingBottomValue inner;
+};
+typedef struct AzLayoutPaddingBottomValueEnumWrapper AzLayoutPaddingBottomValueEnumWrapper;
+
+struct AzLayoutPaddingLeftValueEnumWrapper {
+    AzLayoutPaddingLeftValue inner;
+};
+typedef struct AzLayoutPaddingLeftValueEnumWrapper AzLayoutPaddingLeftValueEnumWrapper;
+
+struct AzLayoutPaddingRightValueEnumWrapper {
+    AzLayoutPaddingRightValue inner;
+};
+typedef struct AzLayoutPaddingRightValueEnumWrapper AzLayoutPaddingRightValueEnumWrapper;
+
+struct AzLayoutPaddingTopValueEnumWrapper {
+    AzLayoutPaddingTopValue inner;
+};
+typedef struct AzLayoutPaddingTopValueEnumWrapper AzLayoutPaddingTopValueEnumWrapper;
+
+struct AzLayoutPositionValueEnumWrapper {
+    AzLayoutPositionValue inner;
+};
+typedef struct AzLayoutPositionValueEnumWrapper AzLayoutPositionValueEnumWrapper;
+
+struct AzLayoutRightValueEnumWrapper {
+    AzLayoutRightValue inner;
+};
+typedef struct AzLayoutRightValueEnumWrapper AzLayoutRightValueEnumWrapper;
+
+struct AzLayoutTopValueEnumWrapper {
+    AzLayoutTopValue inner;
+};
+typedef struct AzLayoutTopValueEnumWrapper AzLayoutTopValueEnumWrapper;
+
+struct AzLayoutWidthValueEnumWrapper {
+    AzLayoutWidthValue inner;
+};
+typedef struct AzLayoutWidthValueEnumWrapper AzLayoutWidthValueEnumWrapper;
+
+struct AzLayoutFlexWrapValueEnumWrapper {
+    AzLayoutFlexWrapValue inner;
+};
+typedef struct AzLayoutFlexWrapValueEnumWrapper AzLayoutFlexWrapValueEnumWrapper;
+
+struct AzLayoutOverflowValueEnumWrapper {
+    AzLayoutOverflowValue inner;
+};
+typedef struct AzLayoutOverflowValueEnumWrapper AzLayoutOverflowValueEnumWrapper;
+
+struct AzStyleBorderBottomColorValueEnumWrapper {
+    AzStyleBorderBottomColorValue inner;
+};
+typedef struct AzStyleBorderBottomColorValueEnumWrapper AzStyleBorderBottomColorValueEnumWrapper;
+
+struct AzStyleBorderBottomLeftRadiusValueEnumWrapper {
+    AzStyleBorderBottomLeftRadiusValue inner;
+};
+typedef struct AzStyleBorderBottomLeftRadiusValueEnumWrapper AzStyleBorderBottomLeftRadiusValueEnumWrapper;
+
+struct AzStyleBorderBottomRightRadiusValueEnumWrapper {
+    AzStyleBorderBottomRightRadiusValue inner;
+};
+typedef struct AzStyleBorderBottomRightRadiusValueEnumWrapper AzStyleBorderBottomRightRadiusValueEnumWrapper;
+
+struct AzStyleBorderBottomStyleValueEnumWrapper {
+    AzStyleBorderBottomStyleValue inner;
+};
+typedef struct AzStyleBorderBottomStyleValueEnumWrapper AzStyleBorderBottomStyleValueEnumWrapper;
+
+struct AzLayoutBorderBottomWidthValueEnumWrapper {
+    AzLayoutBorderBottomWidthValue inner;
+};
+typedef struct AzLayoutBorderBottomWidthValueEnumWrapper AzLayoutBorderBottomWidthValueEnumWrapper;
+
+struct AzStyleBorderLeftColorValueEnumWrapper {
+    AzStyleBorderLeftColorValue inner;
+};
+typedef struct AzStyleBorderLeftColorValueEnumWrapper AzStyleBorderLeftColorValueEnumWrapper;
+
+struct AzStyleBorderLeftStyleValueEnumWrapper {
+    AzStyleBorderLeftStyleValue inner;
+};
+typedef struct AzStyleBorderLeftStyleValueEnumWrapper AzStyleBorderLeftStyleValueEnumWrapper;
+
+struct AzLayoutBorderLeftWidthValueEnumWrapper {
+    AzLayoutBorderLeftWidthValue inner;
+};
+typedef struct AzLayoutBorderLeftWidthValueEnumWrapper AzLayoutBorderLeftWidthValueEnumWrapper;
+
+struct AzStyleBorderRightColorValueEnumWrapper {
+    AzStyleBorderRightColorValue inner;
+};
+typedef struct AzStyleBorderRightColorValueEnumWrapper AzStyleBorderRightColorValueEnumWrapper;
+
+struct AzStyleBorderRightStyleValueEnumWrapper {
+    AzStyleBorderRightStyleValue inner;
+};
+typedef struct AzStyleBorderRightStyleValueEnumWrapper AzStyleBorderRightStyleValueEnumWrapper;
+
+struct AzLayoutBorderRightWidthValueEnumWrapper {
+    AzLayoutBorderRightWidthValue inner;
+};
+typedef struct AzLayoutBorderRightWidthValueEnumWrapper AzLayoutBorderRightWidthValueEnumWrapper;
+
+struct AzStyleBorderTopColorValueEnumWrapper {
+    AzStyleBorderTopColorValue inner;
+};
+typedef struct AzStyleBorderTopColorValueEnumWrapper AzStyleBorderTopColorValueEnumWrapper;
+
+struct AzStyleBorderTopLeftRadiusValueEnumWrapper {
+    AzStyleBorderTopLeftRadiusValue inner;
+};
+typedef struct AzStyleBorderTopLeftRadiusValueEnumWrapper AzStyleBorderTopLeftRadiusValueEnumWrapper;
+
+struct AzStyleBorderTopRightRadiusValueEnumWrapper {
+    AzStyleBorderTopRightRadiusValue inner;
+};
+typedef struct AzStyleBorderTopRightRadiusValueEnumWrapper AzStyleBorderTopRightRadiusValueEnumWrapper;
+
+struct AzStyleBorderTopStyleValueEnumWrapper {
+    AzStyleBorderTopStyleValue inner;
+};
+typedef struct AzStyleBorderTopStyleValueEnumWrapper AzStyleBorderTopStyleValueEnumWrapper;
+
+struct AzLayoutBorderTopWidthValueEnumWrapper {
+    AzLayoutBorderTopWidthValue inner;
+};
+typedef struct AzLayoutBorderTopWidthValueEnumWrapper AzLayoutBorderTopWidthValueEnumWrapper;
+
+struct AzStyleCursorValueEnumWrapper {
+    AzStyleCursorValue inner;
+};
+typedef struct AzStyleCursorValueEnumWrapper AzStyleCursorValueEnumWrapper;
+
+struct AzStyleFontSizeValueEnumWrapper {
+    AzStyleFontSizeValue inner;
+};
+typedef struct AzStyleFontSizeValueEnumWrapper AzStyleFontSizeValueEnumWrapper;
+
+struct AzStyleLetterSpacingValueEnumWrapper {
+    AzStyleLetterSpacingValue inner;
+};
+typedef struct AzStyleLetterSpacingValueEnumWrapper AzStyleLetterSpacingValueEnumWrapper;
+
+struct AzStyleLineHeightValueEnumWrapper {
+    AzStyleLineHeightValue inner;
+};
+typedef struct AzStyleLineHeightValueEnumWrapper AzStyleLineHeightValueEnumWrapper;
+
+struct AzStyleTabWidthValueEnumWrapper {
+    AzStyleTabWidthValue inner;
+};
+typedef struct AzStyleTabWidthValueEnumWrapper AzStyleTabWidthValueEnumWrapper;
+
+struct AzStyleTextAlignValueEnumWrapper {
+    AzStyleTextAlignValue inner;
+};
+typedef struct AzStyleTextAlignValueEnumWrapper AzStyleTextAlignValueEnumWrapper;
+
+struct AzStyleTextColorValueEnumWrapper {
+    AzStyleTextColorValue inner;
+};
+typedef struct AzStyleTextColorValueEnumWrapper AzStyleTextColorValueEnumWrapper;
+
+struct AzStyleWordSpacingValueEnumWrapper {
+    AzStyleWordSpacingValue inner;
+};
+typedef struct AzStyleWordSpacingValueEnumWrapper AzStyleWordSpacingValueEnumWrapper;
+
+struct AzStyleOpacityValueEnumWrapper {
+    AzStyleOpacityValue inner;
+};
+typedef struct AzStyleOpacityValueEnumWrapper AzStyleOpacityValueEnumWrapper;
+
+struct AzStyleTransformOriginValueEnumWrapper {
+    AzStyleTransformOriginValue inner;
+};
+typedef struct AzStyleTransformOriginValueEnumWrapper AzStyleTransformOriginValueEnumWrapper;
+
+struct AzStylePerspectiveOriginValueEnumWrapper {
+    AzStylePerspectiveOriginValue inner;
+};
+typedef struct AzStylePerspectiveOriginValueEnumWrapper AzStylePerspectiveOriginValueEnumWrapper;
+
+struct AzStyleBackfaceVisibilityValueEnumWrapper {
+    AzStyleBackfaceVisibilityValue inner;
+};
+typedef struct AzStyleBackfaceVisibilityValueEnumWrapper AzStyleBackfaceVisibilityValueEnumWrapper;
+
+struct AzDurationEnumWrapper {
+    AzDuration inner;
+};
+typedef struct AzDurationEnumWrapper AzDurationEnumWrapper;
+
+struct AzThreadSendMsgEnumWrapper {
+    AzThreadSendMsg inner;
+};
+typedef struct AzThreadSendMsgEnumWrapper AzThreadSendMsgEnumWrapper;
+
+struct AzOptionPositionInfoEnumWrapper {
+    AzOptionPositionInfo inner;
+};
+typedef struct AzOptionPositionInfoEnumWrapper AzOptionPositionInfoEnumWrapper;
+
+struct AzOptionTimerIdEnumWrapper {
+    AzOptionTimerId inner;
+};
+typedef struct AzOptionTimerIdEnumWrapper AzOptionTimerIdEnumWrapper;
+
+struct AzOptionThreadIdEnumWrapper {
+    AzOptionThreadId inner;
+};
+typedef struct AzOptionThreadIdEnumWrapper AzOptionThreadIdEnumWrapper;
+
+struct AzOptionImageRefEnumWrapper {
+    AzOptionImageRef inner;
+};
+typedef struct AzOptionImageRefEnumWrapper AzOptionImageRefEnumWrapper;
+
+struct AzOptionFontRefEnumWrapper {
+    AzOptionFontRef inner;
+};
+typedef struct AzOptionFontRefEnumWrapper AzOptionFontRefEnumWrapper;
+
+struct AzOptionSystemClipboardEnumWrapper {
+    AzOptionSystemClipboard inner;
+};
+typedef struct AzOptionSystemClipboardEnumWrapper AzOptionSystemClipboardEnumWrapper;
+
+struct AzOptionFileEnumWrapper {
+    AzOptionFile inner;
+};
+typedef struct AzOptionFileEnumWrapper AzOptionFileEnumWrapper;
+
+struct AzOptionGlEnumWrapper {
+    AzOptionGl inner;
+};
+typedef struct AzOptionGlEnumWrapper AzOptionGlEnumWrapper;
+
+struct AzOptionPercentageValueEnumWrapper {
+    AzOptionPercentageValue inner;
+};
+typedef struct AzOptionPercentageValueEnumWrapper AzOptionPercentageValueEnumWrapper;
+
+struct AzOptionAngleValueEnumWrapper {
+    AzOptionAngleValue inner;
+};
+typedef struct AzOptionAngleValueEnumWrapper AzOptionAngleValueEnumWrapper;
+
+struct AzOptionRendererOptionsEnumWrapper {
+    AzOptionRendererOptions inner;
+};
+typedef struct AzOptionRendererOptionsEnumWrapper AzOptionRendererOptionsEnumWrapper;
+
+struct AzOptionCallbackEnumWrapper {
+    AzOptionCallback inner;
+};
+typedef struct AzOptionCallbackEnumWrapper AzOptionCallbackEnumWrapper;
+
+struct AzOptionThreadSendMsgEnumWrapper {
+    AzOptionThreadSendMsg inner;
+};
+typedef struct AzOptionThreadSendMsgEnumWrapper AzOptionThreadSendMsgEnumWrapper;
+
+struct AzOptionLayoutRectEnumWrapper {
+    AzOptionLayoutRect inner;
+};
+typedef struct AzOptionLayoutRectEnumWrapper AzOptionLayoutRectEnumWrapper;
+
+struct AzOptionRefAnyEnumWrapper {
+    AzOptionRefAny inner;
+};
+typedef struct AzOptionRefAnyEnumWrapper AzOptionRefAnyEnumWrapper;
+
+struct AzOptionLayoutPointEnumWrapper {
+    AzOptionLayoutPoint inner;
+};
+typedef struct AzOptionLayoutPointEnumWrapper AzOptionLayoutPointEnumWrapper;
+
+struct AzOptionLayoutSizeEnumWrapper {
+    AzOptionLayoutSize inner;
+};
+typedef struct AzOptionLayoutSizeEnumWrapper AzOptionLayoutSizeEnumWrapper;
+
+struct AzOptionWindowThemeEnumWrapper {
+    AzOptionWindowTheme inner;
+};
+typedef struct AzOptionWindowThemeEnumWrapper AzOptionWindowThemeEnumWrapper;
+
+struct AzOptionNodeIdEnumWrapper {
+    AzOptionNodeId inner;
+};
+typedef struct AzOptionNodeIdEnumWrapper AzOptionNodeIdEnumWrapper;
+
+struct AzOptionDomNodeIdEnumWrapper {
+    AzOptionDomNodeId inner;
+};
+typedef struct AzOptionDomNodeIdEnumWrapper AzOptionDomNodeIdEnumWrapper;
+
+struct AzOptionColorUEnumWrapper {
+    AzOptionColorU inner;
+};
+typedef struct AzOptionColorUEnumWrapper AzOptionColorUEnumWrapper;
+
+struct AzOptionSvgDashPatternEnumWrapper {
+    AzOptionSvgDashPattern inner;
+};
+typedef struct AzOptionSvgDashPatternEnumWrapper AzOptionSvgDashPatternEnumWrapper;
+
+struct AzOptionLogicalPositionEnumWrapper {
+    AzOptionLogicalPosition inner;
+};
+typedef struct AzOptionLogicalPositionEnumWrapper AzOptionLogicalPositionEnumWrapper;
+
+struct AzOptionPhysicalPositionI32EnumWrapper {
+    AzOptionPhysicalPositionI32 inner;
+};
+typedef struct AzOptionPhysicalPositionI32EnumWrapper AzOptionPhysicalPositionI32EnumWrapper;
+
+struct AzOptionMouseCursorTypeEnumWrapper {
+    AzOptionMouseCursorType inner;
+};
+typedef struct AzOptionMouseCursorTypeEnumWrapper AzOptionMouseCursorTypeEnumWrapper;
+
+struct AzOptionLogicalSizeEnumWrapper {
+    AzOptionLogicalSize inner;
+};
+typedef struct AzOptionLogicalSizeEnumWrapper AzOptionLogicalSizeEnumWrapper;
+
+struct AzOptionVirtualKeyCodeEnumWrapper {
+    AzOptionVirtualKeyCode inner;
+};
+typedef struct AzOptionVirtualKeyCodeEnumWrapper AzOptionVirtualKeyCodeEnumWrapper;
+
+struct AzOptionImageMaskEnumWrapper {
+    AzOptionImageMask inner;
+};
+typedef struct AzOptionImageMaskEnumWrapper AzOptionImageMaskEnumWrapper;
+
+struct AzOptionTabIndexEnumWrapper {
+    AzOptionTabIndex inner;
+};
+typedef struct AzOptionTabIndexEnumWrapper AzOptionTabIndexEnumWrapper;
+
+struct AzOptionTagIdEnumWrapper {
+    AzOptionTagId inner;
+};
+typedef struct AzOptionTagIdEnumWrapper AzOptionTagIdEnumWrapper;
+
+struct AzOptionDurationEnumWrapper {
+    AzOptionDuration inner;
+};
+typedef struct AzOptionDurationEnumWrapper AzOptionDurationEnumWrapper;
+
+struct AzOptionU8VecEnumWrapper {
+    AzOptionU8Vec inner;
+};
+typedef struct AzOptionU8VecEnumWrapper AzOptionU8VecEnumWrapper;
+
+struct AzOptionU8VecRefEnumWrapper {
+    AzOptionU8VecRef inner;
+};
+typedef struct AzOptionU8VecRefEnumWrapper AzOptionU8VecRefEnumWrapper;
+
+struct AzResultU8VecEncodeImageErrorEnumWrapper {
+    AzResultU8VecEncodeImageError inner;
+};
+typedef struct AzResultU8VecEncodeImageErrorEnumWrapper AzResultU8VecEncodeImageErrorEnumWrapper;
+
+struct AzWindowIconEnumWrapper {
+    AzWindowIcon inner;
+};
+typedef struct AzWindowIconEnumWrapper AzWindowIconEnumWrapper;
+
+struct AzAnimationEasingEnumWrapper {
+    AzAnimationEasing inner;
+};
+typedef struct AzAnimationEasingEnumWrapper AzAnimationEasingEnumWrapper;
+
+struct AzEventFilterEnumWrapper {
+    AzEventFilter inner;
+};
+typedef struct AzEventFilterEnumWrapper AzEventFilterEnumWrapper;
+
+struct AzCssPathPseudoSelectorEnumWrapper {
+    AzCssPathPseudoSelector inner;
+};
+typedef struct AzCssPathPseudoSelectorEnumWrapper AzCssPathPseudoSelectorEnumWrapper;
+
+struct AzAnimationInterpolationFunctionEnumWrapper {
+    AzAnimationInterpolationFunction inner;
+};
+typedef struct AzAnimationInterpolationFunctionEnumWrapper AzAnimationInterpolationFunctionEnumWrapper;
+
+struct AzStyleTransformEnumWrapper {
+    AzStyleTransform inner;
+};
+typedef struct AzStyleTransformEnumWrapper AzStyleTransformEnumWrapper;
+
+struct AzStyleBackgroundPositionVecValueEnumWrapper {
+    AzStyleBackgroundPositionVecValue inner;
+};
+typedef struct AzStyleBackgroundPositionVecValueEnumWrapper AzStyleBackgroundPositionVecValueEnumWrapper;
+
+struct AzStyleBackgroundRepeatVecValueEnumWrapper {
+    AzStyleBackgroundRepeatVecValue inner;
+};
+typedef struct AzStyleBackgroundRepeatVecValueEnumWrapper AzStyleBackgroundRepeatVecValueEnumWrapper;
+
+struct AzStyleBackgroundSizeVecValueEnumWrapper {
+    AzStyleBackgroundSizeVecValue inner;
+};
+typedef struct AzStyleBackgroundSizeVecValueEnumWrapper AzStyleBackgroundSizeVecValueEnumWrapper;
+
+struct AzRawImageDataEnumWrapper {
+    AzRawImageData inner;
+};
+typedef struct AzRawImageDataEnumWrapper AzRawImageDataEnumWrapper;
+
+struct AzSvgPathElementEnumWrapper {
+    AzSvgPathElement inner;
+};
+typedef struct AzSvgPathElementEnumWrapper AzSvgPathElementEnumWrapper;
+
+struct AzInstantEnumWrapper {
+    AzInstant inner;
+};
+typedef struct AzInstantEnumWrapper AzInstantEnumWrapper;
+
+struct AzThreadReceiveMsgEnumWrapper {
+    AzThreadReceiveMsg inner;
+};
+typedef struct AzThreadReceiveMsgEnumWrapper AzThreadReceiveMsgEnumWrapper;
+
+struct AzOptionMouseStateEnumWrapper {
+    AzOptionMouseState inner;
+};
+typedef struct AzOptionMouseStateEnumWrapper AzOptionMouseStateEnumWrapper;
+
+struct AzOptionKeyboardStateEnumWrapper {
+    AzOptionKeyboardState inner;
+};
+typedef struct AzOptionKeyboardStateEnumWrapper AzOptionKeyboardStateEnumWrapper;
+
+struct AzOptionStringVecEnumWrapper {
+    AzOptionStringVec inner;
+};
+typedef struct AzOptionStringVecEnumWrapper AzOptionStringVecEnumWrapper;
+
+struct AzOptionThreadReceiveMsgEnumWrapper {
+    AzOptionThreadReceiveMsg inner;
+};
+typedef struct AzOptionThreadReceiveMsgEnumWrapper AzOptionThreadReceiveMsgEnumWrapper;
+
+struct AzOptionTaskBarIconEnumWrapper {
+    AzOptionTaskBarIcon inner;
+};
+typedef struct AzOptionTaskBarIconEnumWrapper AzOptionTaskBarIconEnumWrapper;
+
+struct AzOptionWindowIconEnumWrapper {
+    AzOptionWindowIcon inner;
+};
+typedef struct AzOptionWindowIconEnumWrapper AzOptionWindowIconEnumWrapper;
+
+struct AzOptionStringEnumWrapper {
+    AzOptionString inner;
+};
+typedef struct AzOptionStringEnumWrapper AzOptionStringEnumWrapper;
+
+struct AzOptionTextureEnumWrapper {
+    AzOptionTexture inner;
+};
+typedef struct AzOptionTextureEnumWrapper AzOptionTextureEnumWrapper;
+
+struct AzOptionInstantEnumWrapper {
+    AzOptionInstant inner;
+};
+typedef struct AzOptionInstantEnumWrapper AzOptionInstantEnumWrapper;
+
+struct AzInlineWordEnumWrapper {
+    AzInlineWord inner;
+};
+typedef struct AzInlineWordEnumWrapper AzInlineWordEnumWrapper;
+
+struct AzNodeTypeEnumWrapper {
+    AzNodeType inner;
+};
+typedef struct AzNodeTypeEnumWrapper AzNodeTypeEnumWrapper;
+
+struct AzIdOrClassEnumWrapper {
+    AzIdOrClass inner;
+};
+typedef struct AzIdOrClassEnumWrapper AzIdOrClassEnumWrapper;
+
+struct AzCssPathSelectorEnumWrapper {
+    AzCssPathSelector inner;
+};
+typedef struct AzCssPathSelectorEnumWrapper AzCssPathSelectorEnumWrapper;
+
+struct AzStyleBackgroundContentEnumWrapper {
+    AzStyleBackgroundContent inner;
+};
+typedef struct AzStyleBackgroundContentEnumWrapper AzStyleBackgroundContentEnumWrapper;
+
+struct AzStyleFontFamilyEnumWrapper {
+    AzStyleFontFamily inner;
+};
+typedef struct AzStyleFontFamilyEnumWrapper AzStyleFontFamilyEnumWrapper;
+
+struct AzScrollbarStyleValueEnumWrapper {
+    AzScrollbarStyleValue inner;
+};
+typedef struct AzScrollbarStyleValueEnumWrapper AzScrollbarStyleValueEnumWrapper;
+
+struct AzStyleTransformVecValueEnumWrapper {
+    AzStyleTransformVecValue inner;
+};
+typedef struct AzStyleTransformVecValueEnumWrapper AzStyleTransformVecValueEnumWrapper;
+
+struct AzSvgStyleEnumWrapper {
+    AzSvgStyle inner;
+};
+typedef struct AzSvgStyleEnumWrapper AzSvgStyleEnumWrapper;
+
+struct AzFmtValueEnumWrapper {
+    AzFmtValue inner;
+};
+typedef struct AzFmtValueEnumWrapper AzFmtValueEnumWrapper;
+
+struct AzOptionFileTypeListEnumWrapper {
+    AzOptionFileTypeList inner;
+};
+typedef struct AzOptionFileTypeListEnumWrapper AzOptionFileTypeListEnumWrapper;
+
+struct AzOptionRawImageEnumWrapper {
+    AzOptionRawImage inner;
+};
+typedef struct AzOptionRawImageEnumWrapper AzOptionRawImageEnumWrapper;
+
+struct AzOptionWaylandThemeEnumWrapper {
+    AzOptionWaylandTheme inner;
+};
+typedef struct AzOptionWaylandThemeEnumWrapper AzOptionWaylandThemeEnumWrapper;
+
+struct AzResultRawImageDecodeImageErrorEnumWrapper {
+    AzResultRawImageDecodeImageError inner;
+};
+typedef struct AzResultRawImageDecodeImageErrorEnumWrapper AzResultRawImageDecodeImageErrorEnumWrapper;
+
+struct AzXmlStreamErrorEnumWrapper {
+    AzXmlStreamError inner;
+};
+typedef struct AzXmlStreamErrorEnumWrapper AzXmlStreamErrorEnumWrapper;
+
+struct AzStyleBackgroundContentVecValueEnumWrapper {
+    AzStyleBackgroundContentVecValue inner;
+};
+typedef struct AzStyleBackgroundContentVecValueEnumWrapper AzStyleBackgroundContentVecValueEnumWrapper;
+
+struct AzStyleFontFamilyVecValueEnumWrapper {
+    AzStyleFontFamilyVecValue inner;
+};
+typedef struct AzStyleFontFamilyVecValueEnumWrapper AzStyleFontFamilyVecValueEnumWrapper;
+
+struct AzCssPropertyEnumWrapper {
+    AzCssProperty inner;
+};
+typedef struct AzCssPropertyEnumWrapper AzCssPropertyEnumWrapper;
+
+struct AzCssPropertySourceEnumWrapper {
+    AzCssPropertySource inner;
+};
+typedef struct AzCssPropertySourceEnumWrapper AzCssPropertySourceEnumWrapper;
+
+struct AzOptionCssPropertyEnumWrapper {
+    AzOptionCssProperty inner;
+};
+typedef struct AzOptionCssPropertyEnumWrapper AzOptionCssPropertyEnumWrapper;
+
+struct AzNodeDataInlineCssPropertyEnumWrapper {
+    AzNodeDataInlineCssProperty inner;
+};
+typedef struct AzNodeDataInlineCssPropertyEnumWrapper AzNodeDataInlineCssPropertyEnumWrapper;
+
+struct AzSvgNodeEnumWrapper {
+    AzSvgNode inner;
+};
+typedef struct AzSvgNodeEnumWrapper AzSvgNodeEnumWrapper;
+
+struct AzOptionWindowStateEnumWrapper {
+    AzOptionWindowState inner;
+};
+typedef struct AzOptionWindowStateEnumWrapper AzOptionWindowStateEnumWrapper;
+
+struct AzOptionInlineTextEnumWrapper {
+    AzOptionInlineText inner;
+};
+typedef struct AzOptionInlineTextEnumWrapper AzOptionInlineTextEnumWrapper;
+
+struct AzXmlParseErrorEnumWrapper {
+    AzXmlParseError inner;
+};
+typedef struct AzXmlParseErrorEnumWrapper AzXmlParseErrorEnumWrapper;
+
+struct AzFocusTargetEnumWrapper {
+    AzFocusTarget inner;
+};
+typedef struct AzFocusTargetEnumWrapper AzFocusTargetEnumWrapper;
+
+struct AzCssDeclarationEnumWrapper {
+    AzCssDeclaration inner;
+};
+typedef struct AzCssDeclarationEnumWrapper AzCssDeclarationEnumWrapper;
+
+struct AzXmlErrorEnumWrapper {
+    AzXmlError inner;
+};
+typedef struct AzXmlErrorEnumWrapper AzXmlErrorEnumWrapper;
+
+struct AzOptionDomEnumWrapper {
+    AzOptionDom inner;
+};
+typedef struct AzOptionDomEnumWrapper AzOptionDomEnumWrapper;
+
+struct AzResultXmlXmlErrorEnumWrapper {
+    AzResultXmlXmlError inner;
+};
+typedef struct AzResultXmlXmlErrorEnumWrapper AzResultXmlXmlErrorEnumWrapper;
+
+struct AzSvgParseErrorEnumWrapper {
+    AzSvgParseError inner;
+};
+typedef struct AzSvgParseErrorEnumWrapper AzSvgParseErrorEnumWrapper;
+
+struct AzResultSvgXmlNodeSvgParseErrorEnumWrapper {
+    AzResultSvgXmlNodeSvgParseError inner;
+};
+typedef struct AzResultSvgXmlNodeSvgParseErrorEnumWrapper AzResultSvgXmlNodeSvgParseErrorEnumWrapper;
+
+struct AzResultSvgSvgParseErrorEnumWrapper {
+    AzResultSvgSvgParseError inner;
+};
+typedef struct AzResultSvgSvgParseErrorEnumWrapper AzResultSvgSvgParseErrorEnumWrapper;
+
 AzTesselatedSvgNode AzTesselatedSvgNodeVecArray[] = {};
 #define AzTesselatedSvgNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzTesselatedSvgNode), .cap = sizeof(v) / sizeof(AzTesselatedSvgNode), .destructor = { .NoDestructor = { .tag = AzTesselatedSvgNodeVecDestructorTag_NoDestructor, }, }, }
 #define AzTesselatedSvgNodeVec_empty { .ptr = &AzTesselatedSvgNodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzTesselatedSvgNodeVecDestructorTag_NoDestructor, }, }, }

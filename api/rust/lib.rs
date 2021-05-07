@@ -611,11 +611,21 @@ mod dll {
     use core::ffi::c_void;
 
     /// Main application class
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzApp {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "App")]
+    pub struct AzApp {
         pub(crate) ptr: *const c_void,
     }
+
     /// Configuration to set which messages should be logged.
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzAppLogLevel {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzAppLogLevel {
         Off,
         Error,
         Warn,
@@ -623,76 +633,176 @@ mod dll {
         Debug,
         Trace,
     }
+
     /// Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzLayoutSolverVersion {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutSolverVersion {
         March2021,
     }
+
     /// Whether the renderer has VSync enabled
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzVsync {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzVsync {
         Enabled,
         Disabled,
     }
+
     /// Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSrgb {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzSrgb {
         Enabled,
         Disabled,
     }
+
     /// Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzHwAcceleration {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzHwAcceleration {
         Enabled,
         Disabled,
     }
+
     /// Offset in physical pixels (integer units)
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutPoint {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutPoint")]
+    pub struct AzLayoutPoint {
         pub x: isize,
         pub y: isize,
     }
+
     /// Size in physical pixels (integer units)
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutSize {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutSize")]
+    pub struct AzLayoutSize {
         pub width: isize,
         pub height: isize,
     }
+
     /// Re-export of rust-allocated (stack based) `IOSHandle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzIOSHandle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "IOSHandle")]
+    pub struct AzIOSHandle {
         pub ui_window: *mut c_void,
         pub ui_view: *mut c_void,
         pub ui_view_controller: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `MacOSHandle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzMacOSHandle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "MacOSHandle")]
+    pub struct AzMacOSHandle {
         pub ns_window: *mut c_void,
         pub ns_view: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `XlibHandle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzXlibHandle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "XlibHandle")]
+    pub struct AzXlibHandle {
         pub window: u64,
         pub display: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `XcbHandle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzXcbHandle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "XcbHandle")]
+    pub struct AzXcbHandle {
         pub window: u32,
         pub connection: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `WaylandHandle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzWaylandHandle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "WaylandHandle")]
+    pub struct AzWaylandHandle {
         pub surface: *mut c_void,
         pub display: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `WindowsHandle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzWindowsHandle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "WindowsHandle")]
+    pub struct AzWindowsHandle {
         pub hwnd: *mut c_void,
         pub hinstance: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `WebHandle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzWebHandle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "WebHandle")]
+    pub struct AzWebHandle {
         pub id: u32,
     }
+
     /// Re-export of rust-allocated (stack based) `AndroidHandle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzAndroidHandle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "AndroidHandle")]
+    pub struct AzAndroidHandle {
         pub a_native_window: *mut c_void,
     }
+
     /// X11 window hint: Type of window
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzXWindowType {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzXWindowType {
         Desktop,
         Dock,
         Toolbar,
@@ -708,32 +818,73 @@ mod dll {
         Dnd,
         Normal,
     }
+
     /// Same as `LayoutPoint`, but uses `i32` instead of `isize`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzPhysicalPositionI32 {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "PhysicalPositionI32")]
+    pub struct AzPhysicalPositionI32 {
         pub x: i32,
         pub y: i32,
     }
+
     /// Same as `LayoutPoint`, but uses `u32` instead of `isize`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzPhysicalSizeU32 {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "PhysicalSizeU32")]
+    pub struct AzPhysicalSizeU32 {
         pub width: u32,
         pub height: u32,
     }
+
     /// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLogicalPosition {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LogicalPosition")]
+    pub struct AzLogicalPosition {
         pub x: f32,
         pub y: f32,
     }
+
     /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLogicalSize {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LogicalSize")]
+    pub struct AzLogicalSize {
         pub width: f32,
         pub height: f32,
     }
+
     /// Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzIconKey {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "IconKey")]
+    pub struct AzIconKey {
         pub id: usize,
     }
+
     /// Symbolic name for a keyboard key, does **not** take the keyboard locale into account
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzVirtualKeyCode {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzVirtualKeyCode {
         Key1,
         Key2,
         Key3,
@@ -898,8 +1049,15 @@ mod dll {
         Paste,
         Cut,
     }
+
     /// Boolean flags relating to the current window state
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzWindowFlags {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "WindowFlags")]
+    pub struct AzWindowFlags {
         pub is_maximized: bool,
         pub is_minimized: bool,
         pub is_about_to_close: bool,
@@ -912,8 +1070,14 @@ mod dll {
         pub has_extended_window_frame: bool,
         pub has_blur_behind_window: bool,
     }
+
     /// Debugging information, will be rendered as an overlay on top of the UI
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzDebugState {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "DebugState")]
+    pub struct AzDebugState {
         pub profiler_dbg: bool,
         pub render_target_dbg: bool,
         pub texture_cache_dbg: bool,
@@ -942,8 +1106,14 @@ mod dll {
         pub profiler_capture: bool,
         pub force_picture_invalidation: bool,
     }
+
     /// Current icon of the mouse cursor
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzMouseCursorType {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzMouseCursorType {
         Default,
         Crosshair,
         Hand,
@@ -980,117 +1150,244 @@ mod dll {
         ColResize,
         RowResize,
     }
+
     /// Renderer type of the current windows OpenGL context
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzRendererType {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzRendererType {
         Hardware,
         Software,
     }
+
     /// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzMacWindowOptions {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "MacWindowOptions")]
+    pub struct AzMacWindowOptions {
         pub _reserved: u8,
     }
+
     /// Re-export of rust-allocated (stack based) `WasmWindowOptions` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzWasmWindowOptions {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "WasmWindowOptions")]
+    pub struct AzWasmWindowOptions {
         pub _reserved: u8,
     }
+
     /// Re-export of rust-allocated (stack based) `FullScreenMode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzFullScreenMode {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzFullScreenMode {
         SlowFullScreen,
         FastFullScreen,
         SlowWindowed,
         FastWindowed,
     }
+
     /// Window theme, set by the operating system or `WindowCreateOptions.theme` on startup
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzWindowTheme {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzWindowTheme {
         DarkMode,
         LightMode,
     }
+
     /// Current state of touch devices / touch inputs
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzTouchState {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "TouchState")]
+    pub struct AzTouchState {
         pub unused: u8,
     }
+
     /// C-ABI stable wrapper over a `LayoutCallbackType`
-    #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzLayoutCallback {
+    #[repr(C)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutCallback")]
+    pub struct AzLayoutCallback {
         pub cb: AzLayoutCallbackType,
     }
+
     /// `AzLayoutCallbackType` struct
     pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutCallbackInfo) -> AzStyledDom;
+
     /// C-ABI stable wrapper over a `CallbackType`
-    #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzCallback {
+    #[repr(C)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+#[pyclass(name = "Callback")]
+    pub struct AzCallback {
         pub cb: AzCallbackType,
     }
+
     /// `AzCallbackType` struct
     pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
+
     /// Specifies if the screen should be updated after the callback function has returned
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzUpdateScreen {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzUpdateScreen {
         DoNothing,
         RegenerateStyledDomForCurrentWindow,
         RegenerateStyledDomForAllWindows,
     }
+
     /// Index of a Node in the internal `NodeDataContainer`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzNodeId {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "NodeId")]
+    pub struct AzNodeId {
         pub inner: usize,
     }
+
     /// ID of a DOM - one window can contain multiple, nested DOMs (such as iframes)
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzDomId {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "DomId")]
+    pub struct AzDomId {
         pub inner: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `PositionInfoInner` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzPositionInfoInner {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "PositionInfoInner")]
+    pub struct AzPositionInfoInner {
         pub x_offset: f32,
         pub y_offset: f32,
         pub static_x_offset: f32,
         pub static_y_offset: f32,
     }
+
     /// How should an animation repeat (loop, ping-pong, etc.)
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzAnimationRepeat {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzAnimationRepeat {
         NoRepeat,
         Loop,
         PingPong,
     }
+
     /// How many times should an animation repeat
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzAnimationRepeatCount {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzAnimationRepeatCount {
         Times(usize),
         Infinite,
     }
+
     /// C-ABI wrapper over an `IFrameCallbackType`
-    #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzIFrameCallback {
+    #[repr(C)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+#[pyclass(name = "IFrameCallback")]
+    pub struct AzIFrameCallback {
         pub cb: AzIFrameCallbackType,
     }
+
     /// `AzIFrameCallbackType` struct
     pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
+
     /// Re-export of rust-allocated (stack based) `RenderImageCallback` struct
-    #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzRenderImageCallback {
+    #[repr(C)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+#[pyclass(name = "RenderImageCallback")]
+    pub struct AzRenderImageCallback {
         pub cb: AzRenderImageCallbackType,
     }
+
     /// `AzRenderImageCallbackType` struct
     pub type AzRenderImageCallbackType = extern "C" fn(&mut AzRefAny, AzRenderImageCallbackInfo) -> AzImageRef;
+
     /// Re-export of rust-allocated (stack based) `TimerCallback` struct
-    #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzTimerCallback {
+    #[repr(C)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+#[pyclass(name = "TimerCallback")]
+    pub struct AzTimerCallback {
         pub cb: AzTimerCallbackType,
     }
+
     /// `AzTimerCallbackType` struct
     pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzTimerCallbackInfo) -> AzTimerCallbackReturn;
+
     /// `AzWriteBackCallbackType` struct
     pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
+
     /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
-    #[repr(C)]  #[derive(Clone)]   pub struct AzWriteBackCallback {
+    #[repr(C)]
+    #[derive(Clone)]
+#[pyclass(name = "WriteBackCallback")]
+    pub struct AzWriteBackCallback {
         pub cb: AzWriteBackCallbackType,
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadCallback` struct
-    #[repr(C)]  #[derive(Clone)]   pub struct AzThreadCallback {
+    #[repr(C)]
+    #[derive(Clone)]
+#[pyclass(name = "ThreadCallback")]
+    pub struct AzThreadCallback {
         pub cb: AzThreadCallbackType,
     }
+
     /// `AzThreadCallbackType` struct
     pub type AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver);
+
     /// `AzRefAnyDestructorType` struct
     pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
+
     /// Re-export of rust-allocated (stack based) `RefCount` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRefCount {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "RefCount")]
+    pub struct AzRefCount {
         pub(crate) ptr: *const c_void,
     }
+
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOn {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOn {
         MouseOver,
         MouseDown,
         LeftMouseDown,
@@ -1112,8 +1409,14 @@ mod dll {
         FocusReceived,
         FocusLost,
     }
+
     /// Re-export of rust-allocated (stack based) `HoverEventFilter` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzHoverEventFilter {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzHoverEventFilter {
         MouseOver,
         MouseDown,
         LeftMouseDown,
@@ -1139,8 +1442,14 @@ mod dll {
         TouchEnd,
         TouchCancel,
     }
+
     /// Re-export of rust-allocated (stack based) `FocusEventFilter` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzFocusEventFilter {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzFocusEventFilter {
         MouseOver,
         MouseDown,
         LeftMouseDown,
@@ -1161,8 +1470,14 @@ mod dll {
         FocusReceived,
         FocusLost,
     }
+
     /// Re-export of rust-allocated (stack based) `WindowEventFilter` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzWindowEventFilter {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzWindowEventFilter {
         MouseOver,
         MouseDown,
         LeftMouseDown,
@@ -1194,25 +1509,49 @@ mod dll {
         CloseRequested,
         ThemeChanged,
     }
+
     /// Re-export of rust-allocated (stack based) `ComponentEventFilter` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzComponentEventFilter {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzComponentEventFilter {
         AfterMount,
         BeforeUnmount,
         NodeResized,
     }
+
     /// Re-export of rust-allocated (stack based) `ApplicationEventFilter` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzApplicationEventFilter {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzApplicationEventFilter {
         DeviceConnected,
         DeviceDisconnected,
     }
+
     /// Re-export of rust-allocated (stack based) `TabIndex` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzTabIndex {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzTabIndex {
         Auto,
         OverrideInParent(u32),
         NoKeyboardFocus,
     }
+
     /// Re-export of rust-allocated (stack based) `NodeTypeKey` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzNodeTypeKey {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzNodeTypeKey {
         Body,
         Div,
         Br,
@@ -1220,13 +1559,26 @@ mod dll {
         Img,
         IFrame,
     }
+
     /// Re-export of rust-allocated (stack based) `CssNthChildPattern` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzCssNthChildPattern {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "CssNthChildPattern")]
+    pub struct AzCssNthChildPattern {
         pub repeat: u32,
         pub offset: u32,
     }
+
     /// Re-export of rust-allocated (stack based) `CssPropertyType` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzCssPropertyType {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzCssPropertyType {
         TextColor,
         FontSize,
         FontFamily,
@@ -1300,31 +1652,63 @@ mod dll {
         TransformOrigin,
         BackfaceVisibility,
     }
+
     /// Re-export of rust-allocated (stack based) `ColorU` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzColorU {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "ColorU")]
+    pub struct AzColorU {
         pub r: u8,
         pub g: u8,
         pub b: u8,
         pub a: u8,
     }
+
     /// Re-export of rust-allocated (stack based) `SizeMetric` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSizeMetric {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzSizeMetric {
         Px,
         Pt,
         Em,
         Percent,
     }
+
     /// Re-export of rust-allocated (stack based) `FloatValue` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzFloatValue {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "FloatValue")]
+    pub struct AzFloatValue {
         pub number: isize,
     }
+
     /// Re-export of rust-allocated (stack based) `BoxShadowClipMode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzBoxShadowClipMode {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzBoxShadowClipMode {
         Outset,
         Inset,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutAlignContent` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutAlignContent {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutAlignContent {
         Stretch,
         Center,
         Start,
@@ -1332,39 +1716,75 @@ mod dll {
         SpaceBetween,
         SpaceAround,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutAlignItems` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutAlignItems {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutAlignItems {
         Stretch,
         Center,
         FlexStart,
         FlexEnd,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBoxSizing` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutBoxSizing {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutBoxSizing {
         ContentBox,
         BorderBox,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexDirection` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutFlexDirection {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutFlexDirection {
         Row,
         RowReverse,
         Column,
         ColumnReverse,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutDisplay` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutDisplay {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutDisplay {
         None,
         Flex,
         Block,
         InlineBlock,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFloat` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutFloat {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutFloat {
         Left,
         Right,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutJustifyContent` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutJustifyContent {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutJustifyContent {
         Start,
         End,
         Center,
@@ -1372,35 +1792,65 @@ mod dll {
         SpaceAround,
         SpaceEvenly,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPosition` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutPosition {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutPosition {
         Static,
         Relative,
         Absolute,
         Fixed,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexWrap` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutFlexWrap {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutFlexWrap {
         Wrap,
         NoWrap,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutOverflow` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutOverflow {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutOverflow {
         Scroll,
         Auto,
         Hidden,
         Visible,
     }
+
     /// Re-export of rust-allocated (stack based) `AngleMetric` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzAngleMetric {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzAngleMetric {
         Degree,
         Radians,
         Grad,
         Turn,
         Percent,
     }
+
     /// Re-export of rust-allocated (stack based) `DirectionCorner` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzDirectionCorner {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzDirectionCorner {
         Right,
         Left,
         Top,
@@ -1410,32 +1860,61 @@ mod dll {
         BottomRight,
         BottomLeft,
     }
+
     /// Re-export of rust-allocated (stack based) `ExtendMode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzExtendMode {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzExtendMode {
         Clamp,
         Repeat,
     }
+
     /// Re-export of rust-allocated (stack based) `Shape` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzShape {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzShape {
         Ellipse,
         Circle,
     }
+
     /// Re-export of rust-allocated (stack based) `RadialGradientSize` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzRadialGradientSize {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzRadialGradientSize {
         ClosestSide,
         ClosestCorner,
         FarthestSide,
         FarthestCorner,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeat` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBackgroundRepeat {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBackgroundRepeat {
         NoRepeat,
         Repeat,
         RepeatX,
         RepeatY,
     }
+
     /// Re-export of rust-allocated (stack based) `BorderStyle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzBorderStyle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzBorderStyle {
         None,
         Solid,
         Double,
@@ -1447,8 +1926,14 @@ mod dll {
         Inset,
         Outset,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleCursor` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleCursor {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleCursor {
         Alias,
         AllScroll,
         Cell,
@@ -1480,60 +1965,124 @@ mod dll {
         ZoomIn,
         ZoomOut,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackfaceVisibility` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBackfaceVisibility {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBackfaceVisibility {
         Hidden,
         Visible,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTextAlign` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleTextAlign {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleTextAlign {
         Left,
         Center,
         Right,
     }
+
     /// Re-export of rust-allocated (stack based) `Node` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzNode {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "Node")]
+    pub struct AzNode {
         pub parent: usize,
         pub previous_sibling: usize,
         pub next_sibling: usize,
         pub last_child: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `CascadeInfo` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzCascadeInfo {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "CascadeInfo")]
+    pub struct AzCascadeInfo {
         pub index_in_parent: u32,
         pub is_last_child: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `StyledNodeState` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyledNodeState {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyledNodeState")]
+    pub struct AzStyledNodeState {
         pub normal: bool,
         pub hover: bool,
         pub active: bool,
         pub focused: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `TagId` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzTagId {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "TagId")]
+    pub struct AzTagId {
         pub inner: u64,
     }
+
     /// Re-export of rust-allocated (stack based) `CssPropertyCache` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzCssPropertyCache {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssPropertyCache")]
+    pub struct AzCssPropertyCache {
         pub(crate) ptr: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzGlShaderPrecisionFormatReturn {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "GlShaderPrecisionFormatReturn")]
+    pub struct AzGlShaderPrecisionFormatReturn {
         pub _0: i32,
         pub _1: i32,
         pub _2: i32,
     }
+
     /// Re-export of rust-allocated (stack based) `VertexAttributeType` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzVertexAttributeType {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzVertexAttributeType {
         Float,
         Double,
         UnsignedByte,
         UnsignedShort,
         UnsignedInt,
     }
+
     /// Re-export of rust-allocated (stack based) `IndexBufferFormat` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzIndexBufferFormat {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzIndexBufferFormat {
         Points,
         Lines,
         LineStrip,
@@ -1541,82 +2090,163 @@ mod dll {
         TriangleStrip,
         TriangleFan,
     }
+
     /// Re-export of rust-allocated (stack based) `GlType` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzGlType {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzGlType {
         Gl,
         Gles,
     }
+
     /// C-ABI stable reexport of `&[u8]`
-    #[repr(C)]     pub struct AzU8VecRef {
+    #[repr(C)]
+#[pyclass(name = "U8VecRef")]
+    pub struct AzU8VecRef {
         pub(crate) ptr: *const u8,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&mut [u8]`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzU8VecRefMut {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "U8VecRefMut")]
+    pub struct AzU8VecRefMut {
         pub(crate) ptr: *mut u8,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&[f32]`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzF32VecRef {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "F32VecRef")]
+    pub struct AzF32VecRef {
         pub(crate) ptr: *const f32,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&[i32]`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzI32VecRef {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "I32VecRef")]
+    pub struct AzI32VecRef {
         pub(crate) ptr: *const i32,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLuintVecRef {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GLuintVecRef")]
+    pub struct AzGLuintVecRef {
         pub(crate) ptr: *const u32,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLenumVecRef {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GLenumVecRef")]
+    pub struct AzGLenumVecRef {
         pub(crate) ptr: *const u32,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLintVecRefMut {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GLintVecRefMut")]
+    pub struct AzGLintVecRefMut {
         pub(crate) ptr: *mut i32,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLint64VecRefMut {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GLint64VecRefMut")]
+    pub struct AzGLint64VecRefMut {
         pub(crate) ptr: *mut i64,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLbooleanVecRefMut {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GLbooleanVecRefMut")]
+    pub struct AzGLbooleanVecRefMut {
         pub(crate) ptr: *mut u8,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLfloatVecRefMut {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GLfloatVecRefMut")]
+    pub struct AzGLfloatVecRefMut {
         pub(crate) ptr: *mut f32,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&str`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRefstr {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Refstr")]
+    pub struct AzRefstr {
         pub(crate) ptr: *const u8,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `*const gleam::gl::GLsync`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGLsyncPtr {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GLsyncPtr")]
+    pub struct AzGLsyncPtr {
         pub(crate) ptr: *const c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `TextureFlags` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzTextureFlags {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "TextureFlags")]
+    pub struct AzTextureFlags {
         pub is_opaque: bool,
         pub is_video_texture: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `ImageRef` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzImageRef {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ImageRef")]
+    pub struct AzImageRef {
         pub data: *const c_void,
         pub copies: *const c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzRawImageFormat {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzRawImageFormat {
         R8,
         R16,
         RG16,
@@ -1626,48 +2256,95 @@ mod dll {
         RGBAI32,
         RGBA8,
     }
+
     /// Re-export of rust-allocated (stack based) `EncodeImageError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzEncodeImageError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzEncodeImageError {
         InsufficientMemory,
         DimensionError,
         InvalidData,
         Unknown,
     }
+
     /// Re-export of rust-allocated (stack based) `DecodeImageError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzDecodeImageError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzDecodeImageError {
         InsufficientMemory,
         DimensionError,
         UnsupportedImageFormat,
         Unknown,
     }
+
     /// `AzParsedFontDestructorFnType` struct
     pub type AzParsedFontDestructorFnType = extern "C" fn(&mut c_void);
+
     /// Atomically reference-counted parsed font data
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzFontRef {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FontRef")]
+    pub struct AzFontRef {
         pub data: *const c_void,
         pub copies: *const c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `Svg` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvg {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Svg")]
+    pub struct AzSvg {
         pub(crate) ptr: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSvgXmlNode {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgXmlNode")]
+    pub struct AzSvgXmlNode {
         pub(crate) ptr: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgCircle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgCircle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SvgCircle")]
+    pub struct AzSvgCircle {
         pub center_x: f32,
         pub center_y: f32,
         pub radius: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgPoint` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgPoint {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SvgPoint")]
+    pub struct AzSvgPoint {
         pub x: f32,
         pub y: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgRect` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgRect {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SvgRect")]
+    pub struct AzSvgRect {
         pub width: f32,
         pub height: f32,
         pub x: f32,
@@ -1677,53 +2354,108 @@ mod dll {
         pub radius_bottom_left: f32,
         pub radius_bottom_right: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgVertex` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgVertex {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SvgVertex")]
+    pub struct AzSvgVertex {
         pub x: f32,
         pub y: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `ShapeRendering` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzShapeRendering {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzShapeRendering {
         OptimizeSpeed,
         CrispEdges,
         GeometricPrecision,
     }
+
     /// Re-export of rust-allocated (stack based) `TextRendering` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzTextRendering {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzTextRendering {
         OptimizeSpeed,
         OptimizeLegibility,
         GeometricPrecision,
     }
+
     /// Re-export of rust-allocated (stack based) `ImageRendering` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzImageRendering {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzImageRendering {
         OptimizeQuality,
         OptimizeSpeed,
     }
+
     /// Re-export of rust-allocated (stack based) `FontDatabase` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzFontDatabase {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzFontDatabase {
         Empty,
         System,
     }
+
     /// Re-export of rust-allocated (stack based) `Indent` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzIndent {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzIndent {
         None,
         Spaces(u8),
         Tabs,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgFitTo` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgFitTo {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzSvgFitTo {
         Original,
         Width(u32),
         Height(u32),
         Zoom(f32),
     }
+
     /// Re-export of rust-allocated (stack based) `SvgFillRule` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgFillRule {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzSvgFillRule {
         Winding,
         EvenOdd,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgTransform` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgTransform {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SvgTransform")]
+    pub struct AzSvgTransform {
         pub sx: f32,
         pub kx: f32,
         pub ky: f32,
@@ -1731,21 +2463,40 @@ mod dll {
         pub tx: f32,
         pub ty: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgLineJoin` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgLineJoin {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzSvgLineJoin {
         Miter,
         MiterClip,
         Round,
         Bevel,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgLineCap` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgLineCap {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzSvgLineCap {
         Butt,
         Square,
         Round,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgDashPattern` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgDashPattern {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SvgDashPattern")]
+    pub struct AzSvgDashPattern {
         pub offset: f32,
         pub length_1: f32,
         pub gap_1: f32,
@@ -1754,609 +2505,1089 @@ mod dll {
         pub length_3: f32,
         pub gap_3: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `File` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzFile {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "File")]
+    pub struct AzFile {
         pub(crate) ptr: *const c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `MsgBox` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzMsgBox {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "MsgBox")]
+    pub struct AzMsgBox {
         pub _reserved: *mut c_void,
     }
+
     /// Type of message box icon
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzMsgBoxIcon {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzMsgBoxIcon {
         Info,
         Warning,
         Error,
         Question,
     }
+
     /// Value returned from a yes / no message box
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzMsgBoxYesNo {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzMsgBoxYesNo {
         Yes,
         No,
     }
+
     /// Value returned from an ok / cancel message box
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzMsgBoxOkCancel {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzMsgBoxOkCancel {
         Ok,
         Cancel,
     }
+
     /// File picker dialog
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzFileDialog {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FileDialog")]
+    pub struct AzFileDialog {
         pub _reserved: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `ColorPickerDialog` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzColorPickerDialog {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ColorPickerDialog")]
+    pub struct AzColorPickerDialog {
         pub _reserved: *mut c_void,
     }
+
     /// Connection to the system clipboard, on some systems this connection can be cached
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzSystemClipboard {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SystemClipboard")]
+    pub struct AzSystemClipboard {
         pub _native: *const c_void,
     }
+
     /// `AzInstantPtrCloneFnType` struct
     pub type AzInstantPtrCloneFnType = extern "C" fn(&AzInstantPtr) -> AzInstantPtr;
+
     /// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
-    #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzInstantPtrCloneFn {
+    #[repr(C)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+#[pyclass(name = "InstantPtrCloneFn")]
+    pub struct AzInstantPtrCloneFn {
         pub cb: AzInstantPtrCloneFnType,
     }
+
     /// `AzInstantPtrDestructorFnType` struct
     pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut AzInstantPtr);
+
     /// Re-export of rust-allocated (stack based) `InstantPtrDestructorFn` struct
-    #[repr(C)]  #[derive(Clone)]  #[derive(Copy)] pub struct AzInstantPtrDestructorFn {
+    #[repr(C)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+#[pyclass(name = "InstantPtrDestructorFn")]
+    pub struct AzInstantPtrDestructorFn {
         pub cb: AzInstantPtrDestructorFnType,
     }
+
     /// Re-export of rust-allocated (stack based) `SystemTick` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSystemTick {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SystemTick")]
+    pub struct AzSystemTick {
         pub tick_counter: u64,
     }
+
     /// Re-export of rust-allocated (stack based) `SystemTimeDiff` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSystemTimeDiff {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SystemTimeDiff")]
+    pub struct AzSystemTimeDiff {
         pub secs: u64,
         pub nanos: u32,
     }
+
     /// Re-export of rust-allocated (stack based) `SystemTickDiff` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSystemTickDiff {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SystemTickDiff")]
+    pub struct AzSystemTickDiff {
         pub tick_diff: u64,
     }
+
     /// Re-export of rust-allocated (stack based) `TimerId` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzTimerId {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "TimerId")]
+    pub struct AzTimerId {
         pub id: usize,
     }
+
     /// Should a timer terminate or not - used to remove active timers
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzTerminateTimer {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzTerminateTimer {
         Terminate,
         Continue,
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadId` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzThreadId {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "ThreadId")]
+    pub struct AzThreadId {
         pub id: usize,
     }
+
     /// `AzCreateThreadFnType` struct
     pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallback) -> AzThread;
+
     /// Re-export of rust-allocated (stack based) `CreateThreadFn` struct
-    #[repr(C)]  #[derive(Clone)]   pub struct AzCreateThreadFn {
+    #[repr(C)]
+    #[derive(Clone)]
+#[pyclass(name = "CreateThreadFn")]
+    pub struct AzCreateThreadFn {
         pub cb: AzCreateThreadFnType,
     }
+
     /// `AzGetSystemTimeFnType` struct
     pub type AzGetSystemTimeFnType = extern "C" fn() -> AzInstant;
+
     /// Get the current system time, equivalent to `std::time::Instant::now()`, except it also works on systems that work with "ticks" instead of timers
-    #[repr(C)]  #[derive(Clone)]   pub struct AzGetSystemTimeFn {
+    #[repr(C)]
+    #[derive(Clone)]
+#[pyclass(name = "GetSystemTimeFn")]
+    pub struct AzGetSystemTimeFn {
         pub cb: AzGetSystemTimeFnType,
     }
+
     /// `AzCheckThreadFinishedFnType` struct
     pub type AzCheckThreadFinishedFnType = extern "C" fn(&c_void) -> bool;
+
     /// Function called to check if the thread has finished
-    #[repr(C)]  #[derive(Clone)]   pub struct AzCheckThreadFinishedFn {
+    #[repr(C)]
+    #[derive(Clone)]
+#[pyclass(name = "CheckThreadFinishedFn")]
+    pub struct AzCheckThreadFinishedFn {
         pub cb: AzCheckThreadFinishedFnType,
     }
+
     /// `AzLibrarySendThreadMsgFnType` struct
     pub type AzLibrarySendThreadMsgFnType = extern "C" fn(&c_void, AzThreadSendMsg) -> bool;
+
     /// Function to send a message to the thread
-    #[repr(C)]  #[derive(Clone)]   pub struct AzLibrarySendThreadMsgFn {
+    #[repr(C)]
+    #[derive(Clone)]
+#[pyclass(name = "LibrarySendThreadMsgFn")]
+    pub struct AzLibrarySendThreadMsgFn {
         pub cb: AzLibrarySendThreadMsgFnType,
     }
+
     /// `AzLibraryReceiveThreadMsgFnType` struct
     pub type AzLibraryReceiveThreadMsgFnType = extern "C" fn(&c_void) -> AzOptionThreadReceiveMsg;
+
     /// Function to receive a message from the thread
-    #[repr(C)]  #[derive(Clone)]   pub struct AzLibraryReceiveThreadMsgFn {
+    #[repr(C)]
+    #[derive(Clone)]
+#[pyclass(name = "LibraryReceiveThreadMsgFn")]
+    pub struct AzLibraryReceiveThreadMsgFn {
         pub cb: AzLibraryReceiveThreadMsgFnType,
     }
+
     /// `AzThreadRecvFnType` struct
     pub type AzThreadRecvFnType = extern "C" fn(&c_void) -> AzOptionThreadSendMsg;
+
     /// Function that the running `Thread` can call to receive messages from the main UI thread
-    #[repr(C)]  #[derive(Clone)]   pub struct AzThreadRecvFn {
+    #[repr(C)]
+    #[derive(Clone)]
+#[pyclass(name = "ThreadRecvFn")]
+    pub struct AzThreadRecvFn {
         pub cb: AzThreadRecvFnType,
     }
+
     /// `AzThreadSendFnType` struct
     pub type AzThreadSendFnType = extern "C" fn(&c_void, AzThreadReceiveMsg) -> bool;
+
     /// Function that the running `Thread` can call to receive messages from the main UI thread
-    #[repr(C)]  #[derive(Clone)]   pub struct AzThreadSendFn {
+    #[repr(C)]
+    #[derive(Clone)]
+#[pyclass(name = "ThreadSendFn")]
+    pub struct AzThreadSendFn {
         pub cb: AzThreadSendFnType,
     }
+
     /// `AzThreadDestructorFnType` struct
     pub type AzThreadDestructorFnType = extern "C" fn(&mut AzThread);
+
     /// Destructor of the `Thread`
-    #[repr(C)]  #[derive(Clone)]   pub struct AzThreadDestructorFn {
+    #[repr(C)]
+    #[derive(Clone)]
+#[pyclass(name = "ThreadDestructorFn")]
+    pub struct AzThreadDestructorFn {
         pub cb: AzThreadDestructorFnType,
     }
+
     /// `AzThreadReceiverDestructorFnType` struct
     pub type AzThreadReceiverDestructorFnType = extern "C" fn(&mut AzThreadReceiver);
+
     /// Destructor of the `ThreadReceiver`
-    #[repr(C)]  #[derive(Clone)]   pub struct AzThreadReceiverDestructorFn {
+    #[repr(C)]
+    #[derive(Clone)]
+#[pyclass(name = "ThreadReceiverDestructorFn")]
+    pub struct AzThreadReceiverDestructorFn {
         pub cb: AzThreadReceiverDestructorFnType,
     }
+
     /// `AzThreadSenderDestructorFnType` struct
     pub type AzThreadSenderDestructorFnType = extern "C" fn(&mut AzThreadSender);
+
     /// Destructor of the `ThreadSender`
-    #[repr(C)]  #[derive(Clone)]   pub struct AzThreadSenderDestructorFn {
+    #[repr(C)]
+    #[derive(Clone)]
+#[pyclass(name = "ThreadSenderDestructorFn")]
+    pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleFontFamilyVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzStyleFontFamilyVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzStyleFontFamilyVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleFontFamilyVecDestructorType),
     }
+
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
+
     /// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzTesselatedSvgNodeVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzTesselatedSvgNodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzTesselatedSvgNodeVecDestructorType),
     }
+
     /// `AzTesselatedSvgNodeVecDestructorType` struct
     pub type AzTesselatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTesselatedSvgNodeVec);
+
     /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzXmlNodeVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzXmlNodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzXmlNodeVecDestructorType),
     }
+
     /// `AzXmlNodeVecDestructorType` struct
     pub type AzXmlNodeVecDestructorType = extern "C" fn(&mut AzXmlNodeVec);
+
     /// Re-export of rust-allocated (stack based) `FmtArgVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzFmtArgVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzFmtArgVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzFmtArgVecDestructorType),
     }
+
     /// `AzFmtArgVecDestructorType` struct
     pub type AzFmtArgVecDestructorType = extern "C" fn(&mut AzFmtArgVec);
+
     /// Re-export of rust-allocated (stack based) `InlineLineVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzInlineLineVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzInlineLineVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzInlineLineVecDestructorType),
     }
+
     /// `AzInlineLineVecDestructorType` struct
     pub type AzInlineLineVecDestructorType = extern "C" fn(&mut AzInlineLineVec);
+
     /// Re-export of rust-allocated (stack based) `InlineWordVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzInlineWordVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzInlineWordVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzInlineWordVecDestructorType),
     }
+
     /// `AzInlineWordVecDestructorType` struct
     pub type AzInlineWordVecDestructorType = extern "C" fn(&mut AzInlineWordVec);
+
     /// Re-export of rust-allocated (stack based) `InlineGlyphVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzInlineGlyphVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzInlineGlyphVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzInlineGlyphVecDestructorType),
     }
+
     /// `AzInlineGlyphVecDestructorType` struct
     pub type AzInlineGlyphVecDestructorType = extern "C" fn(&mut AzInlineGlyphVec);
+
     /// Re-export of rust-allocated (stack based) `InlineTextHitVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzInlineTextHitVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzInlineTextHitVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzInlineTextHitVecDestructorType),
     }
+
     /// `AzInlineTextHitVecDestructorType` struct
     pub type AzInlineTextHitVecDestructorType = extern "C" fn(&mut AzInlineTextHitVec);
+
     /// Re-export of rust-allocated (stack based) `MonitorVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzMonitorVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzMonitorVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzMonitorVecDestructorType),
     }
+
     /// `AzMonitorVecDestructorType` struct
     pub type AzMonitorVecDestructorType = extern "C" fn(&mut AzMonitorVec);
+
     /// Re-export of rust-allocated (stack based) `VideoModeVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzVideoModeVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzVideoModeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzVideoModeVecDestructorType),
     }
+
     /// `AzVideoModeVecDestructorType` struct
     pub type AzVideoModeVecDestructorType = extern "C" fn(&mut AzVideoModeVec);
+
     /// Re-export of rust-allocated (stack based) `DomVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzDomVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzDomVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzDomVecDestructorType),
     }
+
     /// `AzDomVecDestructorType` struct
     pub type AzDomVecDestructorType = extern "C" fn(&mut AzDomVec);
+
     /// Re-export of rust-allocated (stack based) `IdOrClassVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzIdOrClassVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzIdOrClassVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzIdOrClassVecDestructorType),
     }
+
     /// `AzIdOrClassVecDestructorType` struct
     pub type AzIdOrClassVecDestructorType = extern "C" fn(&mut AzIdOrClassVec);
+
     /// Re-export of rust-allocated (stack based) `NodeDataInlineCssPropertyVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzNodeDataInlineCssPropertyVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzNodeDataInlineCssPropertyVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNodeDataInlineCssPropertyVecDestructorType),
     }
+
     /// `AzNodeDataInlineCssPropertyVecDestructorType` struct
     pub type AzNodeDataInlineCssPropertyVecDestructorType = extern "C" fn(&mut AzNodeDataInlineCssPropertyVec);
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzStyleBackgroundContentVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzStyleBackgroundContentVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleBackgroundContentVecDestructorType),
     }
+
     /// `AzStyleBackgroundContentVecDestructorType` struct
     pub type AzStyleBackgroundContentVecDestructorType = extern "C" fn(&mut AzStyleBackgroundContentVec);
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzStyleBackgroundPositionVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzStyleBackgroundPositionVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleBackgroundPositionVecDestructorType),
     }
+
     /// `AzStyleBackgroundPositionVecDestructorType` struct
     pub type AzStyleBackgroundPositionVecDestructorType = extern "C" fn(&mut AzStyleBackgroundPositionVec);
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzStyleBackgroundRepeatVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzStyleBackgroundRepeatVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleBackgroundRepeatVecDestructorType),
     }
+
     /// `AzStyleBackgroundRepeatVecDestructorType` struct
     pub type AzStyleBackgroundRepeatVecDestructorType = extern "C" fn(&mut AzStyleBackgroundRepeatVec);
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzStyleBackgroundSizeVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzStyleBackgroundSizeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleBackgroundSizeVecDestructorType),
     }
+
     /// `AzStyleBackgroundSizeVecDestructorType` struct
     pub type AzStyleBackgroundSizeVecDestructorType = extern "C" fn(&mut AzStyleBackgroundSizeVec);
+
     /// Re-export of rust-allocated (stack based) `StyleTransformVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzStyleTransformVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzStyleTransformVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleTransformVecDestructorType),
     }
+
     /// `AzStyleTransformVecDestructorType` struct
     pub type AzStyleTransformVecDestructorType = extern "C" fn(&mut AzStyleTransformVec);
+
     /// Re-export of rust-allocated (stack based) `CssPropertyVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzCssPropertyVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzCssPropertyVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCssPropertyVecDestructorType),
     }
+
     /// `AzCssPropertyVecDestructorType` struct
     pub type AzCssPropertyVecDestructorType = extern "C" fn(&mut AzCssPropertyVec);
+
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygonVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzSvgMultiPolygonVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzSvgMultiPolygonVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzSvgMultiPolygonVecDestructorType),
     }
+
     /// `AzSvgMultiPolygonVecDestructorType` struct
     pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
+
     /// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzSvgPathVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzSvgPathVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzSvgPathVecDestructorType),
     }
+
     /// `AzSvgPathVecDestructorType` struct
     pub type AzSvgPathVecDestructorType = extern "C" fn(&mut AzSvgPathVec);
+
     /// Re-export of rust-allocated (stack based) `VertexAttributeVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzVertexAttributeVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzVertexAttributeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzVertexAttributeVecDestructorType),
     }
+
     /// `AzVertexAttributeVecDestructorType` struct
     pub type AzVertexAttributeVecDestructorType = extern "C" fn(&mut AzVertexAttributeVec);
+
     /// Re-export of rust-allocated (stack based) `SvgPathElementVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzSvgPathElementVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzSvgPathElementVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzSvgPathElementVecDestructorType),
     }
+
     /// `AzSvgPathElementVecDestructorType` struct
     pub type AzSvgPathElementVecDestructorType = extern "C" fn(&mut AzSvgPathElementVec);
+
     /// Re-export of rust-allocated (stack based) `SvgVertexVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzSvgVertexVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzSvgVertexVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzSvgVertexVecDestructorType),
     }
+
     /// `AzSvgVertexVecDestructorType` struct
     pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
+
     /// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzU32VecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzU32VecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzU32VecDestructorType),
     }
+
     /// `AzU32VecDestructorType` struct
     pub type AzU32VecDestructorType = extern "C" fn(&mut AzU32Vec);
+
     /// Re-export of rust-allocated (stack based) `XWindowTypeVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzXWindowTypeVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzXWindowTypeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzXWindowTypeVecDestructorType),
     }
+
     /// `AzXWindowTypeVecDestructorType` struct
     pub type AzXWindowTypeVecDestructorType = extern "C" fn(&mut AzXWindowTypeVec);
+
     /// Re-export of rust-allocated (stack based) `VirtualKeyCodeVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzVirtualKeyCodeVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzVirtualKeyCodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzVirtualKeyCodeVecDestructorType),
     }
+
     /// `AzVirtualKeyCodeVecDestructorType` struct
     pub type AzVirtualKeyCodeVecDestructorType = extern "C" fn(&mut AzVirtualKeyCodeVec);
+
     /// Re-export of rust-allocated (stack based) `CascadeInfoVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzCascadeInfoVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzCascadeInfoVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCascadeInfoVecDestructorType),
     }
+
     /// `AzCascadeInfoVecDestructorType` struct
     pub type AzCascadeInfoVecDestructorType = extern "C" fn(&mut AzCascadeInfoVec);
+
     /// Re-export of rust-allocated (stack based) `ScanCodeVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzScanCodeVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzScanCodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzScanCodeVecDestructorType),
     }
+
     /// `AzScanCodeVecDestructorType` struct
     pub type AzScanCodeVecDestructorType = extern "C" fn(&mut AzScanCodeVec);
+
     /// Re-export of rust-allocated (stack based) `CssDeclarationVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzCssDeclarationVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzCssDeclarationVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCssDeclarationVecDestructorType),
     }
+
     /// `AzCssDeclarationVecDestructorType` struct
     pub type AzCssDeclarationVecDestructorType = extern "C" fn(&mut AzCssDeclarationVec);
+
     /// Re-export of rust-allocated (stack based) `CssPathSelectorVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzCssPathSelectorVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzCssPathSelectorVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCssPathSelectorVecDestructorType),
     }
+
     /// `AzCssPathSelectorVecDestructorType` struct
     pub type AzCssPathSelectorVecDestructorType = extern "C" fn(&mut AzCssPathSelectorVec);
+
     /// Re-export of rust-allocated (stack based) `StylesheetVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzStylesheetVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzStylesheetVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStylesheetVecDestructorType),
     }
+
     /// `AzStylesheetVecDestructorType` struct
     pub type AzStylesheetVecDestructorType = extern "C" fn(&mut AzStylesheetVec);
+
     /// Re-export of rust-allocated (stack based) `CssRuleBlockVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzCssRuleBlockVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzCssRuleBlockVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCssRuleBlockVecDestructorType),
     }
+
     /// `AzCssRuleBlockVecDestructorType` struct
     pub type AzCssRuleBlockVecDestructorType = extern "C" fn(&mut AzCssRuleBlockVec);
+
     /// Re-export of rust-allocated (stack based) `F32VecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzF32VecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzF32VecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzF32VecDestructorType),
     }
+
     /// `AzF32VecDestructorType` struct
     pub type AzF32VecDestructorType = extern "C" fn(&mut AzF32Vec);
+
     /// Re-export of rust-allocated (stack based) `U16VecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzU16VecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzU16VecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzU16VecDestructorType),
     }
+
     /// `AzU16VecDestructorType` struct
     pub type AzU16VecDestructorType = extern "C" fn(&mut AzU16Vec);
+
     /// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzU8VecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzU8VecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzU8VecDestructorType),
     }
+
     /// `AzU8VecDestructorType` struct
     pub type AzU8VecDestructorType = extern "C" fn(&mut AzU8Vec);
+
     /// Re-export of rust-allocated (stack based) `CallbackDataVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzCallbackDataVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzCallbackDataVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCallbackDataVecDestructorType),
     }
+
     /// `AzCallbackDataVecDestructorType` struct
     pub type AzCallbackDataVecDestructorType = extern "C" fn(&mut AzCallbackDataVec);
+
     /// Re-export of rust-allocated (stack based) `DebugMessageVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzDebugMessageVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzDebugMessageVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzDebugMessageVecDestructorType),
     }
+
     /// `AzDebugMessageVecDestructorType` struct
     pub type AzDebugMessageVecDestructorType = extern "C" fn(&mut AzDebugMessageVec);
+
     /// Re-export of rust-allocated (stack based) `GLuintVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzGLuintVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzGLuintVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzGLuintVecDestructorType),
     }
+
     /// `AzGLuintVecDestructorType` struct
     pub type AzGLuintVecDestructorType = extern "C" fn(&mut AzGLuintVec);
+
     /// Re-export of rust-allocated (stack based) `GLintVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzGLintVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzGLintVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzGLintVecDestructorType),
     }
+
     /// `AzGLintVecDestructorType` struct
     pub type AzGLintVecDestructorType = extern "C" fn(&mut AzGLintVec);
+
     /// Re-export of rust-allocated (stack based) `StringVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzStringVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzStringVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStringVecDestructorType),
     }
+
     /// `AzStringVecDestructorType` struct
     pub type AzStringVecDestructorType = extern "C" fn(&mut AzStringVec);
+
     /// Re-export of rust-allocated (stack based) `StringPairVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzStringPairVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzStringPairVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStringPairVecDestructorType),
     }
+
     /// `AzStringPairVecDestructorType` struct
     pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
+
     /// Re-export of rust-allocated (stack based) `NormalizedLinearColorStopVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzNormalizedLinearColorStopVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzNormalizedLinearColorStopVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNormalizedLinearColorStopVecDestructorType),
     }
+
     /// `AzNormalizedLinearColorStopVecDestructorType` struct
     pub type AzNormalizedLinearColorStopVecDestructorType = extern "C" fn(&mut AzNormalizedLinearColorStopVec);
+
     /// Re-export of rust-allocated (stack based) `NormalizedRadialColorStopVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzNormalizedRadialColorStopVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzNormalizedRadialColorStopVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNormalizedRadialColorStopVecDestructorType),
     }
+
     /// `AzNormalizedRadialColorStopVecDestructorType` struct
     pub type AzNormalizedRadialColorStopVecDestructorType = extern "C" fn(&mut AzNormalizedRadialColorStopVec);
+
     /// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzNodeIdVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzNodeIdVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNodeIdVecDestructorType),
     }
+
     /// `AzNodeIdVecDestructorType` struct
     pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
+
     /// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzNodeVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzNodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNodeVecDestructorType),
     }
+
     /// `AzNodeVecDestructorType` struct
     pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
+
     /// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzStyledNodeVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzStyledNodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyledNodeVecDestructorType),
     }
+
     /// `AzStyledNodeVecDestructorType` struct
     pub type AzStyledNodeVecDestructorType = extern "C" fn(&mut AzStyledNodeVec);
+
     /// Re-export of rust-allocated (stack based) `TagIdsToNodeIdsMappingVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzTagIdsToNodeIdsMappingVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzTagIdsToNodeIdsMappingVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzTagIdsToNodeIdsMappingVecDestructorType),
     }
+
     /// `AzTagIdsToNodeIdsMappingVecDestructorType` struct
     pub type AzTagIdsToNodeIdsMappingVecDestructorType = extern "C" fn(&mut AzTagIdsToNodeIdsMappingVec);
+
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepthVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzParentWithNodeDepthVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzParentWithNodeDepthVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzParentWithNodeDepthVecDestructorType),
     }
+
     /// `AzParentWithNodeDepthVecDestructorType` struct
     pub type AzParentWithNodeDepthVecDestructorType = extern "C" fn(&mut AzParentWithNodeDepthVec);
+
     /// Re-export of rust-allocated (stack based) `NodeDataVecDestructor` struct
-    #[repr(C, u8)]  #[derive(Clone)]  #[derive(Copy)] pub enum AzNodeDataVecDestructor {
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzNodeDataVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNodeDataVecDestructorType),
     }
+
     /// `AzNodeDataVecDestructorType` struct
     pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+
     /// Re-export of rust-allocated (stack based) `OptionI16` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionI16 {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionI16 {
         None,
         Some(i16),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionU16` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionU16 {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionU16 {
         None,
         Some(u16),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionU32` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionU32 {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionU32 {
         None,
         Some(u32),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionHwndHandle` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionHwndHandle {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionHwndHandle {
         None,
         Some(*mut c_void),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionX11Visual` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionX11Visual {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionX11Visual {
         None,
         Some(*const c_void),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionI32` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionI32 {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionI32 {
         None,
         Some(i32),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionF32` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionF32 {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionF32 {
         None,
         Some(f32),
     }
+
     /// Option<char> but the char is a u32, for C FFI stability reasons
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionChar {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionChar {
         None,
         Some(u32),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionUsize` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionUsize {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionUsize {
         None,
         Some(usize),
     }
+
     /// Re-export of rust-allocated (stack based) `SvgParseErrorPosition` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgParseErrorPosition {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SvgParseErrorPosition")]
+    pub struct AzSvgParseErrorPosition {
         pub row: u32,
         pub col: u32,
     }
+
     /// External system callbacks to get the system time or create / manage threads
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSystemCallbacks {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SystemCallbacks")]
+    pub struct AzSystemCallbacks {
         pub create_thread_fn: AzCreateThreadFn,
         pub get_system_time_fn: AzGetSystemTimeFn,
     }
+
     /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzRendererOptions {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "RendererOptions")]
+    pub struct AzRendererOptions {
         pub vsync: AzVsync,
         pub srgb: AzSrgb,
         pub hw_accel: AzHwAcceleration,
     }
+
     /// Represents a rectangle in physical pixels (integer units)
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutRect {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutRect")]
+    pub struct AzLayoutRect {
         pub origin: AzLayoutPoint,
         pub size: AzLayoutSize,
     }
+
     /// Raw platform handle, for integration in / with other toolkits and custom non-azul window extensions
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzRawWindowHandle {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzRawWindowHandle {
         IOS(AzIOSHandle),
         MacOS(AzMacOSHandle),
         Xlib(AzXlibHandle),
@@ -2367,65 +3598,133 @@ mod dll {
         Android(AzAndroidHandle),
         Unsupported,
     }
+
     /// Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLogicalRect {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LogicalRect")]
+    pub struct AzLogicalRect {
         pub origin: AzLogicalPosition,
         pub size: AzLogicalSize,
     }
+
     /// Symbolic accelerator key (ctrl, alt, shift)
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzAcceleratorKey {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzAcceleratorKey {
         Ctrl,
         Alt,
         Shift,
         Key(AzVirtualKeyCode),
     }
+
     /// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzCursorPosition {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzCursorPosition {
         OutOfWindow,
         Uninitialized,
         InWindow(AzLogicalPosition),
     }
+
     /// Position of the top left corner of the window relative to the top left of the monitor
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzWindowPosition {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzWindowPosition {
         Uninitialized,
         Initialized(AzPhysicalPositionI32),
     }
+
     /// Position of the virtual keyboard necessary to insert CJK characters
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzImePosition {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzImePosition {
         Uninitialized,
         Initialized(AzLogicalPosition),
     }
+
     /// Describes a rendering configuration for a monitor
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzVideoMode {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "VideoMode")]
+    pub struct AzVideoMode {
         pub size: AzLayoutSize,
         pub bit_depth: u16,
         pub refresh_rate: u16,
     }
+
     /// Combination of node ID + DOM ID, both together can identify a node
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzDomNodeId {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "DomNodeId")]
+    pub struct AzDomNodeId {
         pub dom: AzDomId,
         pub node: AzNodeId,
     }
+
     /// Re-export of rust-allocated (stack based) `PositionInfo` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzPositionInfo {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzPositionInfo {
         Static(AzPositionInfoInner),
         Fixed(AzPositionInfoInner),
         Absolute(AzPositionInfoInner),
         Relative(AzPositionInfoInner),
     }
+
     /// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzHidpiAdjustedBounds {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "HidpiAdjustedBounds")]
+    pub struct AzHidpiAdjustedBounds {
         pub logical_size: AzLogicalSize,
         pub hidpi_factor: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `InlineGlyph` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInlineGlyph {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InlineGlyph")]
+    pub struct AzInlineGlyph {
         pub bounds: AzLogicalRect,
         pub unicode_codepoint: AzOptionChar,
         pub glyph_index: u32,
     }
+
     /// Re-export of rust-allocated (stack based) `InlineTextHit` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInlineTextHit {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InlineTextHit")]
+    pub struct AzInlineTextHit {
         pub unicode_codepoint: AzOptionChar,
         pub hit_relative_to_inline_text: AzLogicalPosition,
         pub hit_relative_to_line: AzLogicalPosition,
@@ -2443,8 +3742,13 @@ mod dll {
         pub glyph_index_relative_to_word: usize,
         pub char_index_relative_to_word: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameCallbackInfo {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "IFrameCallbackInfo")]
+    pub struct AzIFrameCallbackInfo {
         pub system_fonts: *const c_void,
         pub image_cache: *const c_void,
         pub window_theme: AzWindowTheme,
@@ -2456,280 +3760,704 @@ mod dll {
         pub _reserved_ref: *const c_void,
         pub _reserved_mut: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `TimerCallbackReturn` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzTimerCallbackReturn {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "TimerCallbackReturn")]
+    pub struct AzTimerCallbackReturn {
         pub should_update: AzUpdateScreen,
         pub should_terminate: AzTerminateTimer,
     }
+
     /// RefAny is a reference-counted, opaque pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRefAny {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "RefAny")]
+    pub struct AzRefAny {
         pub _internal_ptr: *const c_void,
         pub sharing_info: AzRefCount,
     }
+
     /// Re-export of rust-allocated (stack based) `IFrameNode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameNode {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "IFrameNode")]
+    pub struct AzIFrameNode {
         pub callback: AzIFrameCallback,
         pub data: AzRefAny,
     }
+
     /// Re-export of rust-allocated (stack based) `NotEventFilter` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzNotEventFilter {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzNotEventFilter {
         Hover(AzHoverEventFilter),
         Focus(AzFocusEventFilter),
     }
+
     /// Re-export of rust-allocated (stack based) `CssNthChildSelector` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzCssNthChildSelector {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzCssNthChildSelector {
         Number(u32),
         Even,
         Odd,
         Pattern(AzCssNthChildPattern),
     }
+
     /// Re-export of rust-allocated (stack based) `PixelValue` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzPixelValue {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "PixelValue")]
+    pub struct AzPixelValue {
         pub metric: AzSizeMetric,
         pub number: AzFloatValue,
     }
+
     /// Re-export of rust-allocated (stack based) `PixelValueNoPercent` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzPixelValueNoPercent {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "PixelValueNoPercent")]
+    pub struct AzPixelValueNoPercent {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBoxShadow` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBoxShadow {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBoxShadow")]
+    pub struct AzStyleBoxShadow {
         pub offset: [AzPixelValueNoPercent;2],
         pub color: AzColorU,
         pub blur_radius: AzPixelValueNoPercent,
         pub spread_radius: AzPixelValueNoPercent,
         pub clip_mode: AzBoxShadowClipMode,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBottom` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutBottom {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutBottom")]
+    pub struct AzLayoutBottom {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexGrow` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutFlexGrow {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutFlexGrow")]
+    pub struct AzLayoutFlexGrow {
         pub inner: AzFloatValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexShrink` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutFlexShrink {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutFlexShrink")]
+    pub struct AzLayoutFlexShrink {
         pub inner: AzFloatValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutHeight` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutHeight {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutHeight")]
+    pub struct AzLayoutHeight {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutLeft` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutLeft {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutLeft")]
+    pub struct AzLayoutLeft {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginBottom` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutMarginBottom {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutMarginBottom")]
+    pub struct AzLayoutMarginBottom {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginLeft` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutMarginLeft {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutMarginLeft")]
+    pub struct AzLayoutMarginLeft {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginRight` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutMarginRight {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutMarginRight")]
+    pub struct AzLayoutMarginRight {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginTop` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutMarginTop {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutMarginTop")]
+    pub struct AzLayoutMarginTop {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMaxHeight` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutMaxHeight {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutMaxHeight")]
+    pub struct AzLayoutMaxHeight {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMaxWidth` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutMaxWidth {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutMaxWidth")]
+    pub struct AzLayoutMaxWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMinHeight` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutMinHeight {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutMinHeight")]
+    pub struct AzLayoutMinHeight {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMinWidth` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutMinWidth {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutMinWidth")]
+    pub struct AzLayoutMinWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingBottom` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutPaddingBottom {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutPaddingBottom")]
+    pub struct AzLayoutPaddingBottom {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingLeft` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutPaddingLeft {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutPaddingLeft")]
+    pub struct AzLayoutPaddingLeft {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingRight` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutPaddingRight {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutPaddingRight")]
+    pub struct AzLayoutPaddingRight {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingTop` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutPaddingTop {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutPaddingTop")]
+    pub struct AzLayoutPaddingTop {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutRight` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutRight {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutRight")]
+    pub struct AzLayoutRight {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutTop` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutTop {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutTop")]
+    pub struct AzLayoutTop {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutWidth` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutWidth {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutWidth")]
+    pub struct AzLayoutWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `PercentageValue` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzPercentageValue {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "PercentageValue")]
+    pub struct AzPercentageValue {
         pub number: AzFloatValue,
     }
+
     /// Re-export of rust-allocated (stack based) `AngleValue` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzAngleValue {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "AngleValue")]
+    pub struct AzAngleValue {
         pub metric: AzAngleMetric,
         pub number: AzFloatValue,
     }
+
     /// Re-export of rust-allocated (stack based) `NormalizedLinearColorStop` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzNormalizedLinearColorStop {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "NormalizedLinearColorStop")]
+    pub struct AzNormalizedLinearColorStop {
         pub offset: AzPercentageValue,
         pub color: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `NormalizedRadialColorStop` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzNormalizedRadialColorStop {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "NormalizedRadialColorStop")]
+    pub struct AzNormalizedRadialColorStop {
         pub offset: AzAngleValue,
         pub color: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `DirectionCorners` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzDirectionCorners {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "DirectionCorners")]
+    pub struct AzDirectionCorners {
         pub from: AzDirectionCorner,
         pub to: AzDirectionCorner,
     }
+
     /// Re-export of rust-allocated (stack based) `Direction` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzDirection {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzDirection {
         Angle(AzAngleValue),
         FromTo(AzDirectionCorners),
     }
+
     /// Re-export of rust-allocated (stack based) `BackgroundPositionHorizontal` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzBackgroundPositionHorizontal {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzBackgroundPositionHorizontal {
         Left,
         Center,
         Right,
         Exact(AzPixelValue),
     }
+
     /// Re-export of rust-allocated (stack based) `BackgroundPositionVertical` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzBackgroundPositionVertical {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzBackgroundPositionVertical {
         Top,
         Center,
         Bottom,
         Exact(AzPixelValue),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundPosition` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBackgroundPosition {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBackgroundPosition")]
+    pub struct AzStyleBackgroundPosition {
         pub horizontal: AzBackgroundPositionHorizontal,
         pub vertical: AzBackgroundPositionVertical,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundSize` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBackgroundSize {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBackgroundSize {
         ExactSize([AzPixelValue;2]),
         Contain,
         Cover,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomColor` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBorderBottomColor {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBorderBottomColor")]
+    pub struct AzStyleBorderBottomColor {
         pub inner: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomLeftRadius` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBorderBottomLeftRadius {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBorderBottomLeftRadius")]
+    pub struct AzStyleBorderBottomLeftRadius {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomRightRadius` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBorderBottomRightRadius {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBorderBottomRightRadius")]
+    pub struct AzStyleBorderBottomRightRadius {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomStyle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBorderBottomStyle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBorderBottomStyle")]
+    pub struct AzStyleBorderBottomStyle {
         pub inner: AzBorderStyle,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderBottomWidth` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutBorderBottomWidth {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutBorderBottomWidth")]
+    pub struct AzLayoutBorderBottomWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderLeftColor` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBorderLeftColor {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBorderLeftColor")]
+    pub struct AzStyleBorderLeftColor {
         pub inner: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderLeftStyle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBorderLeftStyle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBorderLeftStyle")]
+    pub struct AzStyleBorderLeftStyle {
         pub inner: AzBorderStyle,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderLeftWidth` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutBorderLeftWidth {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutBorderLeftWidth")]
+    pub struct AzLayoutBorderLeftWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderRightColor` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBorderRightColor {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBorderRightColor")]
+    pub struct AzStyleBorderRightColor {
         pub inner: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderRightStyle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBorderRightStyle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBorderRightStyle")]
+    pub struct AzStyleBorderRightStyle {
         pub inner: AzBorderStyle,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderRightWidth` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutBorderRightWidth {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutBorderRightWidth")]
+    pub struct AzLayoutBorderRightWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopColor` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBorderTopColor {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBorderTopColor")]
+    pub struct AzStyleBorderTopColor {
         pub inner: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopLeftRadius` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBorderTopLeftRadius {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBorderTopLeftRadius")]
+    pub struct AzStyleBorderTopLeftRadius {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopRightRadius` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBorderTopRightRadius {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBorderTopRightRadius")]
+    pub struct AzStyleBorderTopRightRadius {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopStyle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleBorderTopStyle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleBorderTopStyle")]
+    pub struct AzStyleBorderTopStyle {
         pub inner: AzBorderStyle,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderTopWidth` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzLayoutBorderTopWidth {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "LayoutBorderTopWidth")]
+    pub struct AzLayoutBorderTopWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleFontSize` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleFontSize {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleFontSize")]
+    pub struct AzStyleFontSize {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleLetterSpacing` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleLetterSpacing {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleLetterSpacing")]
+    pub struct AzStyleLetterSpacing {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleLineHeight` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleLineHeight {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleLineHeight")]
+    pub struct AzStyleLineHeight {
         pub inner: AzPercentageValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTabWidth` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleTabWidth {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleTabWidth")]
+    pub struct AzStyleTabWidth {
         pub inner: AzPercentageValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleOpacity` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleOpacity {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleOpacity")]
+    pub struct AzStyleOpacity {
         pub inner: AzPercentageValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformOrigin` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleTransformOrigin {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleTransformOrigin")]
+    pub struct AzStyleTransformOrigin {
         pub x: AzPixelValue,
         pub y: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StylePerspectiveOrigin` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStylePerspectiveOrigin {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StylePerspectiveOrigin")]
+    pub struct AzStylePerspectiveOrigin {
         pub x: AzPixelValue,
         pub y: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformMatrix2D` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleTransformMatrix2D {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleTransformMatrix2D")]
+    pub struct AzStyleTransformMatrix2D {
         pub a: AzPixelValue,
         pub b: AzPixelValue,
         pub c: AzPixelValue,
@@ -2737,8 +4465,15 @@ mod dll {
         pub tx: AzPixelValue,
         pub ty: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformMatrix3D` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleTransformMatrix3D {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleTransformMatrix3D")]
+    pub struct AzStyleTransformMatrix3D {
         pub m11: AzPixelValue,
         pub m12: AzPixelValue,
         pub m13: AzPixelValue,
@@ -2756,545 +4491,984 @@ mod dll {
         pub m43: AzPixelValue,
         pub m44: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformTranslate2D` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleTransformTranslate2D {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleTransformTranslate2D")]
+    pub struct AzStyleTransformTranslate2D {
         pub x: AzPixelValue,
         pub y: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformTranslate3D` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleTransformTranslate3D {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleTransformTranslate3D")]
+    pub struct AzStyleTransformTranslate3D {
         pub x: AzPixelValue,
         pub y: AzPixelValue,
         pub z: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformRotate3D` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleTransformRotate3D {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleTransformRotate3D")]
+    pub struct AzStyleTransformRotate3D {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
         pub z: AzPercentageValue,
         pub angle: AzAngleValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformScale2D` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleTransformScale2D {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleTransformScale2D")]
+    pub struct AzStyleTransformScale2D {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformScale3D` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleTransformScale3D {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleTransformScale3D")]
+    pub struct AzStyleTransformScale3D {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
         pub z: AzPercentageValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformSkew2D` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleTransformSkew2D {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleTransformSkew2D")]
+    pub struct AzStyleTransformSkew2D {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTextColor` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleTextColor {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleTextColor")]
+    pub struct AzStyleTextColor {
         pub inner: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleWordSpacing` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzStyleWordSpacing {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "StyleWordSpacing")]
+    pub struct AzStyleWordSpacing {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBoxShadowValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBoxShadowValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBoxShadowValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBoxShadow),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutAlignContentValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutAlignContentValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutAlignContentValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutAlignContent),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutAlignItemsValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutAlignItemsValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutAlignItemsValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutAlignItems),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBottomValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutBottomValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutBottomValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutBottom),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBoxSizingValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutBoxSizingValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutBoxSizingValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutBoxSizing),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexDirectionValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutFlexDirectionValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutFlexDirectionValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutFlexDirection),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutDisplayValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutDisplayValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutDisplayValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutDisplay),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexGrowValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutFlexGrowValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutFlexGrowValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutFlexGrow),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexShrinkValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutFlexShrinkValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutFlexShrinkValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutFlexShrink),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFloatValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutFloatValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutFloatValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutFloat),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutHeightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutHeightValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutHeightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutHeight),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutJustifyContentValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutJustifyContentValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutJustifyContentValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutJustifyContent),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutLeftValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutLeftValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutLeftValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutLeft),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginBottomValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutMarginBottomValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutMarginBottomValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMarginBottom),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginLeftValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutMarginLeftValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutMarginLeftValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMarginLeft),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginRightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutMarginRightValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutMarginRightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMarginRight),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginTopValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutMarginTopValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutMarginTopValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMarginTop),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMaxHeightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutMaxHeightValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutMaxHeightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMaxHeight),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMaxWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutMaxWidthValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutMaxWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMaxWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMinHeightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutMinHeightValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutMinHeightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMinHeight),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMinWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutMinWidthValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutMinWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMinWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingBottomValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutPaddingBottomValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutPaddingBottomValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutPaddingBottom),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingLeftValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutPaddingLeftValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutPaddingLeftValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutPaddingLeft),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingRightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutPaddingRightValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutPaddingRightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutPaddingRight),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingTopValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutPaddingTopValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutPaddingTopValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutPaddingTop),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPositionValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutPositionValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutPositionValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutPosition),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutRightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutRightValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutRightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutRight),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutTopValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutTopValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutTopValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutTop),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutWidthValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexWrapValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutFlexWrapValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutFlexWrapValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutFlexWrap),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutOverflowValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutOverflowValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutOverflowValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutOverflow),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomColorValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBorderBottomColorValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBorderBottomColorValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderBottomColor),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomLeftRadiusValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBorderBottomLeftRadiusValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBorderBottomLeftRadiusValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderBottomLeftRadius),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomRightRadiusValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBorderBottomRightRadiusValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBorderBottomRightRadiusValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderBottomRightRadius),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomStyleValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBorderBottomStyleValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBorderBottomStyleValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderBottomStyle),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderBottomWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutBorderBottomWidthValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutBorderBottomWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutBorderBottomWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderLeftColorValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBorderLeftColorValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBorderLeftColorValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderLeftColor),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderLeftStyleValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBorderLeftStyleValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBorderLeftStyleValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderLeftStyle),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderLeftWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutBorderLeftWidthValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutBorderLeftWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutBorderLeftWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderRightColorValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBorderRightColorValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBorderRightColorValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderRightColor),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderRightStyleValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBorderRightStyleValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBorderRightStyleValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderRightStyle),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderRightWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutBorderRightWidthValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutBorderRightWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutBorderRightWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopColorValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBorderTopColorValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBorderTopColorValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderTopColor),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopLeftRadiusValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBorderTopLeftRadiusValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBorderTopLeftRadiusValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderTopLeftRadius),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopRightRadiusValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBorderTopRightRadiusValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBorderTopRightRadiusValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderTopRightRadius),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopStyleValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBorderTopStyleValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBorderTopStyleValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderTopStyle),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderTopWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzLayoutBorderTopWidthValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzLayoutBorderTopWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutBorderTopWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleCursorValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleCursorValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleCursorValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleCursor),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleFontSizeValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleFontSizeValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleFontSizeValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleFontSize),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleLetterSpacingValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleLetterSpacingValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleLetterSpacingValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleLetterSpacing),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleLineHeightValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleLineHeightValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleLineHeightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleLineHeight),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTabWidthValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleTabWidthValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleTabWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleTabWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTextAlignValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleTextAlignValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleTextAlignValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleTextAlign),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTextColorValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleTextColorValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleTextColorValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleTextColor),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleWordSpacingValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleWordSpacingValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleWordSpacingValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleWordSpacing),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleOpacityValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleOpacityValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleOpacityValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleOpacity),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformOriginValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleTransformOriginValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleTransformOriginValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleTransformOrigin),
     }
+
     /// Re-export of rust-allocated (stack based) `StylePerspectiveOriginValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStylePerspectiveOriginValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStylePerspectiveOriginValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStylePerspectiveOrigin),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackfaceVisibilityValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleBackfaceVisibilityValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleBackfaceVisibilityValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBackfaceVisibility),
     }
+
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzParentWithNodeDepth {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "ParentWithNodeDepth")]
+    pub struct AzParentWithNodeDepth {
         pub depth: usize,
         pub node_id: AzNodeId,
     }
+
     /// Re-export of rust-allocated (stack based) `Gl` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzGl {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Gl")]
+    pub struct AzGl {
         pub(crate) ptr: *const c_void,
         pub svg_shader: u32,
         pub fxaa_shader: u32,
         pub renderer_type: AzRendererType,
     }
+
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRefstrVecRef {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "RefstrVecRef")]
+    pub struct AzRefstrVecRef {
         pub(crate) ptr: *const AzRefstr,
         pub len: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `ImageMask` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzImageMask {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ImageMask")]
+    pub struct AzImageMask {
         pub image: AzImageRef,
         pub rect: AzLogicalRect,
         pub repeat: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `FontMetrics` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFontMetrics {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FontMetrics")]
+    pub struct AzFontMetrics {
         pub units_per_em: u16,
         pub font_flags: u16,
         pub x_min: i16,
@@ -3351,32 +5525,66 @@ mod dll {
         pub us_lower_optical_point_size: AzOptionU16,
         pub us_upper_optical_point_size: AzOptionU16,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgLine` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgLine {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SvgLine")]
+    pub struct AzSvgLine {
         pub start: AzSvgPoint,
         pub end: AzSvgPoint,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgQuadraticCurve` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgQuadraticCurve {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SvgQuadraticCurve")]
+    pub struct AzSvgQuadraticCurve {
         pub start: AzSvgPoint,
         pub ctrl: AzSvgPoint,
         pub end: AzSvgPoint,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgCubicCurve` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgCubicCurve {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SvgCubicCurve")]
+    pub struct AzSvgCubicCurve {
         pub start: AzSvgPoint,
         pub ctrl_1: AzSvgPoint,
         pub ctrl_2: AzSvgPoint,
         pub end: AzSvgPoint,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgStringFormatOptions` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgStringFormatOptions {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgStringFormatOptions")]
+    pub struct AzSvgStringFormatOptions {
         pub use_single_quote: bool,
         pub indent: AzIndent,
         pub attributes_indent: AzIndent,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgFillStyle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgFillStyle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SvgFillStyle")]
+    pub struct AzSvgFillStyle {
         pub line_join: AzSvgLineJoin,
         pub miter_limit: f32,
         pub tolerance: f32,
@@ -3385,19 +5593,35 @@ mod dll {
         pub anti_alias: bool,
         pub high_quality_aa: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `InstantPtr` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzInstantPtr {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InstantPtr")]
+    pub struct AzInstantPtr {
         pub(crate) ptr: *const c_void,
         pub clone_fn: AzInstantPtrCloneFn,
         pub destructor: AzInstantPtrDestructorFn,
     }
+
     /// Re-export of rust-allocated (stack based) `Duration` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzDuration {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzDuration {
         System(AzSystemTimeDiff),
         Tick(AzSystemTickDiff),
     }
+
     /// Re-export of rust-allocated (stack based) `Thread` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThread {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Thread")]
+    pub struct AzThread {
         pub thread_handle: *const c_void,
         pub sender: *const c_void,
         pub receiver: *const c_void,
@@ -3408,396 +5632,713 @@ mod dll {
         pub receive_thread_msg_fn: AzLibraryReceiveThreadMsgFn,
         pub thread_destructor_fn: AzThreadDestructorFn,
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadSender` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadSender {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ThreadSender")]
+    pub struct AzThreadSender {
         pub(crate) ptr: *const c_void,
         pub send_fn: AzThreadSendFn,
         pub destructor: AzThreadSenderDestructorFn,
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadReceiver {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ThreadReceiver")]
+    pub struct AzThreadReceiver {
         pub(crate) ptr: *const c_void,
         pub recv_fn: AzThreadRecvFn,
         pub destructor: AzThreadReceiverDestructorFn,
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadSendMsg` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzThreadSendMsg {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzThreadSendMsg {
         TerminateThread,
         Tick,
         Custom(AzRefAny),
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadWriteBackMsg` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzThreadWriteBackMsg {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ThreadWriteBackMsg")]
+    pub struct AzThreadWriteBackMsg {
         pub data: AzRefAny,
         pub callback: AzWriteBackCallback,
     }
+
     /// Wrapper over a Rust-allocated `Vec<XmlNode>`
-    #[repr(C)]     pub struct AzXmlNodeVec {
+    #[repr(C)]
+#[pyclass(name = "XmlNodeVec")]
+    pub struct AzXmlNodeVec {
         pub(crate) ptr: *const AzXmlNode,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzXmlNodeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<InlineGlyph>`
-    #[repr(C)]     pub struct AzInlineGlyphVec {
+    #[repr(C)]
+#[pyclass(name = "InlineGlyphVec")]
+    pub struct AzInlineGlyphVec {
         pub(crate) ptr: *const AzInlineGlyph,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzInlineGlyphVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<InlineTextHit>`
-    #[repr(C)]     pub struct AzInlineTextHitVec {
+    #[repr(C)]
+#[pyclass(name = "InlineTextHitVec")]
+    pub struct AzInlineTextHitVec {
         pub(crate) ptr: *const AzInlineTextHit,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzInlineTextHitVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<VideoMode>`
-    #[repr(C)]     pub struct AzVideoModeVec {
+    #[repr(C)]
+#[pyclass(name = "VideoModeVec")]
+    pub struct AzVideoModeVec {
         pub(crate) ptr: *const AzVideoMode,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzVideoModeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<Dom>`
-    #[repr(C)]     pub struct AzDomVec {
+    #[repr(C)]
+#[pyclass(name = "DomVec")]
+    pub struct AzDomVec {
         pub(crate) ptr: *const AzDom,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzDomVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
-    #[repr(C)]     pub struct AzStyleBackgroundPositionVec {
+    #[repr(C)]
+#[pyclass(name = "StyleBackgroundPositionVec")]
+    pub struct AzStyleBackgroundPositionVec {
         pub(crate) ptr: *const AzStyleBackgroundPosition,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyleBackgroundPositionVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
-    #[repr(C)]     pub struct AzStyleBackgroundRepeatVec {
+    #[repr(C)]
+#[pyclass(name = "StyleBackgroundRepeatVec")]
+    pub struct AzStyleBackgroundRepeatVec {
         pub(crate) ptr: *const AzStyleBackgroundRepeat,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyleBackgroundRepeatVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
-    #[repr(C)]     pub struct AzStyleBackgroundSizeVec {
+    #[repr(C)]
+#[pyclass(name = "StyleBackgroundSizeVec")]
+    pub struct AzStyleBackgroundSizeVec {
         pub(crate) ptr: *const AzStyleBackgroundSize,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyleBackgroundSizeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `SvgVertex`
-    #[repr(C)]     pub struct AzSvgVertexVec {
+    #[repr(C)]
+#[pyclass(name = "SvgVertexVec")]
+    pub struct AzSvgVertexVec {
         pub(crate) ptr: *const AzSvgVertex,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzSvgVertexVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<u32>`
-    #[repr(C)]     pub struct AzU32Vec {
+    #[repr(C)]
+#[pyclass(name = "U32Vec")]
+    pub struct AzU32Vec {
         pub(crate) ptr: *const u32,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzU32VecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `XWindowType`
-    #[repr(C)]     pub struct AzXWindowTypeVec {
+    #[repr(C)]
+#[pyclass(name = "XWindowTypeVec")]
+    pub struct AzXWindowTypeVec {
         pub(crate) ptr: *const AzXWindowType,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzXWindowTypeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `VirtualKeyCode`
-    #[repr(C)]     pub struct AzVirtualKeyCodeVec {
+    #[repr(C)]
+#[pyclass(name = "VirtualKeyCodeVec")]
+    pub struct AzVirtualKeyCodeVec {
         pub(crate) ptr: *const AzVirtualKeyCode,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzVirtualKeyCodeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `CascadeInfo`
-    #[repr(C)]     pub struct AzCascadeInfoVec {
+    #[repr(C)]
+#[pyclass(name = "CascadeInfoVec")]
+    pub struct AzCascadeInfoVec {
         pub(crate) ptr: *const AzCascadeInfo,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzCascadeInfoVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `ScanCode`
-    #[repr(C)]     pub struct AzScanCodeVec {
+    #[repr(C)]
+#[pyclass(name = "ScanCodeVec")]
+    pub struct AzScanCodeVec {
         pub(crate) ptr: *const u32,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzScanCodeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<u16>`
-    #[repr(C)]     pub struct AzU16Vec {
+    #[repr(C)]
+#[pyclass(name = "U16Vec")]
+    pub struct AzU16Vec {
         pub(crate) ptr: *const u16,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzU16VecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<f32>`
-    #[repr(C)]     pub struct AzF32Vec {
+    #[repr(C)]
+#[pyclass(name = "F32Vec")]
+    pub struct AzF32Vec {
         pub(crate) ptr: *const f32,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzF32VecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `U8Vec`
-    #[repr(C)]     pub struct AzU8Vec {
+    #[repr(C)]
+#[pyclass(name = "U8Vec")]
+    pub struct AzU8Vec {
         pub(crate) ptr: *const u8,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzU8VecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `U32Vec`
-    #[repr(C)]     pub struct AzGLuintVec {
+    #[repr(C)]
+#[pyclass(name = "GLuintVec")]
+    pub struct AzGLuintVec {
         pub(crate) ptr: *const u32,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzGLuintVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `GLintVec`
-    #[repr(C)]     pub struct AzGLintVec {
+    #[repr(C)]
+#[pyclass(name = "GLintVec")]
+    pub struct AzGLintVec {
         pub(crate) ptr: *const i32,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzGLintVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `NormalizedLinearColorStopVec`
-    #[repr(C)]     pub struct AzNormalizedLinearColorStopVec {
+    #[repr(C)]
+#[pyclass(name = "NormalizedLinearColorStopVec")]
+    pub struct AzNormalizedLinearColorStopVec {
         pub(crate) ptr: *const AzNormalizedLinearColorStop,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNormalizedLinearColorStopVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `NormalizedRadialColorStopVec`
-    #[repr(C)]     pub struct AzNormalizedRadialColorStopVec {
+    #[repr(C)]
+#[pyclass(name = "NormalizedRadialColorStopVec")]
+    pub struct AzNormalizedRadialColorStopVec {
         pub(crate) ptr: *const AzNormalizedRadialColorStop,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNormalizedRadialColorStopVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `NodeIdVec`
-    #[repr(C)]     pub struct AzNodeIdVec {
+    #[repr(C)]
+#[pyclass(name = "NodeIdVec")]
+    pub struct AzNodeIdVec {
         pub(crate) ptr: *const AzNodeId,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNodeIdVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `NodeVec`
-    #[repr(C)]     pub struct AzNodeVec {
+    #[repr(C)]
+#[pyclass(name = "NodeVec")]
+    pub struct AzNodeVec {
         pub(crate) ptr: *const AzNode,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNodeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
-    #[repr(C)]     pub struct AzParentWithNodeDepthVec {
+    #[repr(C)]
+#[pyclass(name = "ParentWithNodeDepthVec")]
+    pub struct AzParentWithNodeDepthVec {
         pub(crate) ptr: *const AzParentWithNodeDepth,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `OptionPositionInfo` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionPositionInfo {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionPositionInfo {
         None,
         Some(AzPositionInfo),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionTimerId` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTimerId {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionTimerId {
         None,
         Some(AzTimerId),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionThreadId` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionThreadId {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionThreadId {
         None,
         Some(AzThreadId),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionImageRef` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionImageRef {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionImageRef {
         None,
         Some(AzImageRef),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionFontRef` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFontRef {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionFontRef {
         None,
         Some(AzFontRef),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionSystemClipboard` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionSystemClipboard {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionSystemClipboard {
         None,
         Some(AzSystemClipboard),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionFile` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFile {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionFile {
         None,
         Some(AzFile),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionGl` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionGl {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionGl {
         None,
         Some(AzGl),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionPercentageValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionPercentageValue {
         None,
         Some(AzPercentageValue),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionAngleValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionAngleValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionAngleValue {
         None,
         Some(AzAngleValue),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionRendererOptions` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionRendererOptions {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionRendererOptions {
         None,
         Some(AzRendererOptions),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionCallback` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionCallback {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionCallback {
         None,
         Some(AzCallback),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionThreadSendMsg {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionThreadSendMsg {
         None,
         Some(AzThreadSendMsg),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionLayoutRect` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionLayoutRect {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionLayoutRect {
         None,
         Some(AzLayoutRect),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionRefAny {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionRefAny {
         None,
         Some(AzRefAny),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionLayoutPoint` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionLayoutPoint {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionLayoutPoint {
         None,
         Some(AzLayoutPoint),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionLayoutSize` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionLayoutSize {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionLayoutSize {
         None,
         Some(AzLayoutSize),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionWindowTheme {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionWindowTheme {
         None,
         Some(AzWindowTheme),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionNodeId` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionNodeId {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionNodeId {
         None,
         Some(AzNodeId),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionDomNodeId` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionDomNodeId {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionDomNodeId {
         None,
         Some(AzDomNodeId),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionColorU` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionColorU {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionColorU {
         None,
         Some(AzColorU),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionSvgDashPattern` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionSvgDashPattern {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionSvgDashPattern {
         None,
         Some(AzSvgDashPattern),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionLogicalPosition` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionLogicalPosition {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionLogicalPosition {
         None,
         Some(AzLogicalPosition),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionPhysicalPositionI32` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionPhysicalPositionI32 {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionPhysicalPositionI32 {
         None,
         Some(AzPhysicalPositionI32),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionMouseCursorType` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionMouseCursorType {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionMouseCursorType {
         None,
         Some(AzMouseCursorType),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionLogicalSize` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionLogicalSize {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionLogicalSize {
         None,
         Some(AzLogicalSize),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCode` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionVirtualKeyCode {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionVirtualKeyCode {
         None,
         Some(AzVirtualKeyCode),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionImageMask` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionImageMask {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionImageMask {
         None,
         Some(AzImageMask),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionTabIndex` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionTabIndex {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionTabIndex {
         None,
         Some(AzTabIndex),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionTagId` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionTagId {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionTagId {
         None,
         Some(AzTagId),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionDuration` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzOptionDuration {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzOptionDuration {
         None,
         Some(AzDuration),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionU8Vec` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionU8Vec {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionU8Vec {
         None,
         Some(AzU8Vec),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionU8VecRef {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionU8VecRef {
         None,
         Some(AzU8VecRef),
     }
+
     /// Re-export of rust-allocated (stack based) `ResultU8VecEncodeImageError` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultU8VecEncodeImageError {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzResultU8VecEncodeImageError {
         Ok(AzU8Vec),
         Err(AzEncodeImageError),
     }
+
     /// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzNonXmlCharError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "NonXmlCharError")]
+    pub struct AzNonXmlCharError {
         pub ch: u32,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `InvalidCharError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzInvalidCharError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "InvalidCharError")]
+    pub struct AzInvalidCharError {
         pub expected: u8,
         pub got: u8,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `InvalidCharMultipleError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInvalidCharMultipleError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InvalidCharMultipleError")]
+    pub struct AzInvalidCharMultipleError {
         pub expected: u8,
         pub got: AzU8Vec,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `InvalidQuoteError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzInvalidQuoteError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "InvalidQuoteError")]
+    pub struct AzInvalidQuoteError {
         pub got: u8,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `InvalidSpaceError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzInvalidSpaceError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "InvalidSpaceError")]
+    pub struct AzInvalidSpaceError {
         pub got: u8,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Configuration for optional features, such as whether to enable logging or panic hooks
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzAppConfig {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "AppConfig")]
+    pub struct AzAppConfig {
         pub layout_solver: AzLayoutSolverVersion,
         pub log_level: AzAppLogLevel,
         pub enable_visual_panic_hook: bool,
@@ -3805,36 +6346,72 @@ mod dll {
         pub enable_tab_navigation: bool,
         pub system_callbacks: AzSystemCallbacks,
     }
+
     /// Small (16x16x4) window icon, usually shown in the window titlebar
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSmallWindowIconBytes {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SmallWindowIconBytes")]
+    pub struct AzSmallWindowIconBytes {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
     }
+
     /// Large (32x32x4) window icon, usually used on high-resolution displays (instead of `SmallWindowIcon`)
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzLargeWindowIconBytes {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LargeWindowIconBytes")]
+    pub struct AzLargeWindowIconBytes {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
     }
+
     /// Window "favicon", usually shown in the top left of the window on Windows
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzWindowIcon {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzWindowIcon {
         Small(AzSmallWindowIconBytes),
         Large(AzLargeWindowIconBytes),
     }
+
     /// Application taskbar icon, 256x256x4 bytes in size
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzTaskBarIcon {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "TaskBarIcon")]
+    pub struct AzTaskBarIcon {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
     }
+
     /// Minimum / maximum / current size of the window in logical dimensions
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzWindowSize {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "WindowSize")]
+    pub struct AzWindowSize {
         pub dimensions: AzLogicalSize,
         pub hidpi_factor: f32,
         pub system_hidpi_factor: f32,
         pub min_dimensions: AzOptionLogicalSize,
         pub max_dimensions: AzOptionLogicalSize,
     }
+
     /// Current keyboard state, stores what keys / characters have been pressed
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzKeyboardState {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "KeyboardState")]
+    pub struct AzKeyboardState {
         pub shift_down: bool,
         pub ctrl_down: bool,
         pub alt_down: bool,
@@ -3844,8 +6421,14 @@ mod dll {
         pub pressed_virtual_keycodes: AzVirtualKeyCodeVec,
         pub pressed_scancodes: AzScanCodeVec,
     }
+
     /// Current mouse / cursor state
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzMouseState {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "MouseState")]
+    pub struct AzMouseState {
         pub mouse_cursor_type: AzOptionMouseCursorType,
         pub cursor_position: AzCursorPosition,
         pub is_cursor_locked: bool,
@@ -3855,13 +6438,24 @@ mod dll {
         pub scroll_x: AzOptionF32,
         pub scroll_y: AzOptionF32,
     }
+
     /// Re-export of rust-allocated (stack based) `InlineTextContents` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInlineTextContents {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InlineTextContents")]
+    pub struct AzInlineTextContents {
         pub glyphs: AzInlineGlyphVec,
         pub bounds: AzLogicalRect,
     }
+
     /// Easing function of the animation (ease-in, ease-out, ease-in-out, custom)
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzAnimationEasing {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzAnimationEasing {
         Ease,
         Linear,
         EaseIn,
@@ -3869,8 +6463,13 @@ mod dll {
         EaseInOut,
         CubicBezier(AzSvgCubicCurve),
     }
+
     /// Re-export of rust-allocated (stack based) `RenderImageCallbackInfo` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzRenderImageCallbackInfo {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "RenderImageCallbackInfo")]
+    pub struct AzRenderImageCallbackInfo {
         pub callback_node_id: AzDomNodeId,
         pub bounds: AzHidpiAdjustedBounds,
         pub gl_context: *const AzOptionGl,
@@ -3884,8 +6483,13 @@ mod dll {
         pub _reserved_ref: *const c_void,
         pub _reserved_mut: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutCallbackInfo` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzLayoutCallbackInfo {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutCallbackInfo")]
+    pub struct AzLayoutCallbackInfo {
         pub window_size: AzWindowSize,
         pub theme: AzWindowTheme,
         pub image_cache: *const c_void,
@@ -3894,8 +6498,14 @@ mod dll {
         pub _reserved_ref: *const c_void,
         pub _reserved_mut: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `EventFilter` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzEventFilter {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzEventFilter {
         Hover(AzHoverEventFilter),
         Not(AzNotEventFilter),
         Focus(AzFocusEventFilter),
@@ -3903,8 +6513,14 @@ mod dll {
         Component(AzComponentEventFilter),
         Application(AzApplicationEventFilter),
     }
+
     /// Re-export of rust-allocated (stack based) `CssPathPseudoSelector` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzCssPathPseudoSelector {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzCssPathPseudoSelector {
         First,
         Last,
         NthChild(AzCssNthChildSelector),
@@ -3912,8 +6528,14 @@ mod dll {
         Active,
         Focus,
     }
+
     /// Re-export of rust-allocated (stack based) `AnimationInterpolationFunction` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzAnimationInterpolationFunction {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzAnimationInterpolationFunction {
         Ease,
         Linear,
         EaseIn,
@@ -3921,37 +6543,68 @@ mod dll {
         EaseInOut,
         CubicBezier(AzSvgCubicCurve),
     }
+
     /// Re-export of rust-allocated (stack based) `InterpolateContext` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzInterpolateContext {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "InterpolateContext")]
+    pub struct AzInterpolateContext {
         pub animation_func: AzAnimationInterpolationFunction,
         pub parent_rect_width: f32,
         pub parent_rect_height: f32,
         pub current_rect_width: f32,
         pub current_rect_height: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `LinearGradient` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzLinearGradient {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LinearGradient")]
+    pub struct AzLinearGradient {
         pub direction: AzDirection,
         pub extend_mode: AzExtendMode,
         pub stops: AzNormalizedLinearColorStopVec,
     }
+
     /// Re-export of rust-allocated (stack based) `RadialGradient` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzRadialGradient {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "RadialGradient")]
+    pub struct AzRadialGradient {
         pub shape: AzShape,
         pub size: AzRadialGradientSize,
         pub position: AzStyleBackgroundPosition,
         pub extend_mode: AzExtendMode,
         pub stops: AzNormalizedLinearColorStopVec,
     }
+
     /// Re-export of rust-allocated (stack based) `ConicGradient` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzConicGradient {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ConicGradient")]
+    pub struct AzConicGradient {
         pub extend_mode: AzExtendMode,
         pub center: AzStyleBackgroundPosition,
         pub angle: AzAngleValue,
         pub stops: AzNormalizedRadialColorStopVec,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransform` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzStyleTransform {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleTransform {
         Matrix(AzStyleTransformMatrix2D),
         Matrix3D(AzStyleTransformMatrix3D),
         Translate(AzStyleTransformTranslate2D),
@@ -3974,91 +6627,170 @@ mod dll {
         SkewY(AzPercentageValue),
         Perspective(AzPixelValue),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleBackgroundPositionVecValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzStyleBackgroundPositionVecValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBackgroundPositionVec),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleBackgroundRepeatVecValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzStyleBackgroundRepeatVecValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBackgroundRepeatVec),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleBackgroundSizeVecValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzStyleBackgroundSizeVecValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBackgroundSizeVec),
     }
+
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzStyledNode {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyledNode")]
+    pub struct AzStyledNode {
         pub state: AzStyledNodeState,
         pub tag_id: AzOptionTagId,
     }
+
     /// Re-export of rust-allocated (stack based) `TagIdToNodeIdMapping` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzTagIdToNodeIdMapping {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "TagIdToNodeIdMapping")]
+    pub struct AzTagIdToNodeIdMapping {
         pub tag_id: AzTagId,
         pub node_id: AzNodeId,
         pub tab_index: AzOptionTabIndex,
         pub parents: AzNodeIdVec,
     }
+
     /// Re-export of rust-allocated (stack based) `Texture` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTexture {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Texture")]
+    pub struct AzTexture {
         pub texture_id: u32,
         pub format: AzRawImageFormat,
         pub flags: AzTextureFlags,
         pub size: AzPhysicalSizeU32,
         pub gl_context: AzGl,
     }
+
     /// C-ABI stable reexport of `(U8Vec, u32)`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGetProgramBinaryReturn {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GetProgramBinaryReturn")]
+    pub struct AzGetProgramBinaryReturn {
         pub _0: AzU8Vec,
         pub _1: u32,
     }
+
     /// Re-export of rust-allocated (stack based) `RawImageData` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzRawImageData {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzRawImageData {
         U8(AzU8Vec),
         U16(AzU16Vec),
         F32(AzF32Vec),
     }
+
     /// Source data of a font file (bytes)
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFontSource {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FontSource")]
+    pub struct AzFontSource {
         pub data: AzU8Vec,
         pub font_index: u32,
         pub parse_glyph_outlines: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgPathElement {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzSvgPathElement {
         Line(AzSvgLine),
         QuadraticCurve(AzSvgQuadraticCurve),
         CubicCurve(AzSvgCubicCurve),
     }
+
     /// Re-export of rust-allocated (stack based) `TesselatedSvgNode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzTesselatedSvgNode {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "TesselatedSvgNode")]
+    pub struct AzTesselatedSvgNode {
         pub vertices: AzSvgVertexVec,
         pub indices: AzU32Vec,
     }
+
     /// Rust wrapper over a `&[TesselatedSvgNode]` or `&Vec<TesselatedSvgNode>`
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTesselatedSvgNodeVecRef {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "TesselatedSvgNodeVecRef")]
+    pub struct AzTesselatedSvgNodeVecRef {
         pub(crate) ptr: *const AzTesselatedSvgNode,
         pub len: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgRenderOptions` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgRenderOptions {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgRenderOptions")]
+    pub struct AzSvgRenderOptions {
         pub target_size: AzOptionLayoutSize,
         pub background_color: AzOptionColorU,
         pub fit: AzSvgFitTo,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgStrokeStyle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub struct AzSvgStrokeStyle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+#[pyclass(name = "SvgStrokeStyle")]
+    pub struct AzSvgStrokeStyle {
         pub start_cap: AzSvgLineCap,
         pub end_cap: AzSvgLineCap,
         pub line_join: AzSvgLineJoin,
@@ -4071,152 +6803,282 @@ mod dll {
         pub anti_alias: bool,
         pub high_quality_aa: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `Xml` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzXml {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Xml")]
+    pub struct AzXml {
         pub root: AzXmlNodeVec,
     }
+
     /// Re-export of rust-allocated (stack based) `Instant` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzInstant {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzInstant {
         System(AzInstantPtr),
         Tick(AzSystemTick),
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadReceiveMsg` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzThreadReceiveMsg {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzThreadReceiveMsg {
         WriteBack(AzThreadWriteBackMsg),
         Update(AzUpdateScreen),
     }
+
     /// Re-export of rust-allocated (stack based) `String` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzString {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "String")]
+    pub struct AzString {
         pub vec: AzU8Vec,
     }
+
     /// Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`
-    #[repr(C)]     pub struct AzTesselatedSvgNodeVec {
+    #[repr(C)]
+#[pyclass(name = "TesselatedSvgNodeVec")]
+    pub struct AzTesselatedSvgNodeVec {
         pub(crate) ptr: *const AzTesselatedSvgNode,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzTesselatedSvgNodeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
-    #[repr(C)]     pub struct AzStyleTransformVec {
+    #[repr(C)]
+#[pyclass(name = "StyleTransformVec")]
+    pub struct AzStyleTransformVec {
         pub(crate) ptr: *const AzStyleTransform,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyleTransformVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `VertexAttribute`
-    #[repr(C)]     pub struct AzSvgPathElementVec {
+    #[repr(C)]
+#[pyclass(name = "SvgPathElementVec")]
+    pub struct AzSvgPathElementVec {
         pub(crate) ptr: *const AzSvgPathElement,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzSvgPathElementVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `StringVec`
-    #[repr(C)]     pub struct AzStringVec {
+    #[repr(C)]
+#[pyclass(name = "StringVec")]
+    pub struct AzStringVec {
         pub(crate) ptr: *const AzString,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStringVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `StyledNodeVec`
-    #[repr(C)]     pub struct AzStyledNodeVec {
+    #[repr(C)]
+#[pyclass(name = "StyledNodeVec")]
+    pub struct AzStyledNodeVec {
         pub(crate) ptr: *const AzStyledNode,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyledNodeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
-    #[repr(C)]     pub struct AzTagIdsToNodeIdsMappingVec {
+    #[repr(C)]
+#[pyclass(name = "TagIdsToNodeIdsMappingVec")]
+    pub struct AzTagIdsToNodeIdsMappingVec {
         pub(crate) ptr: *const AzTagIdToNodeIdMapping,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `OptionMouseState` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionMouseState {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionMouseState {
         None,
         Some(AzMouseState),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionKeyboardState` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionKeyboardState {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionKeyboardState {
         None,
         Some(AzKeyboardState),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionStringVec` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionStringVec {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionStringVec {
         None,
         Some(AzStringVec),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionThreadReceiveMsg {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionThreadReceiveMsg {
         None,
         Some(AzThreadReceiveMsg),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTaskBarIcon {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionTaskBarIcon {
         None,
         Some(AzTaskBarIcon),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionWindowIcon` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionWindowIcon {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionWindowIcon {
         None,
         Some(AzWindowIcon),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionString` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionString {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionString {
         None,
         Some(AzString),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionTexture` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionTexture {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionTexture {
         None,
         Some(AzTexture),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionInstant` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionInstant {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionInstant {
         None,
         Some(AzInstant),
     }
+
     /// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzDuplicatedNamespaceError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "DuplicatedNamespaceError")]
+    pub struct AzDuplicatedNamespaceError {
         pub ns: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `UnknownNamespaceError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzUnknownNamespaceError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "UnknownNamespaceError")]
+    pub struct AzUnknownNamespaceError {
         pub ns: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `UnexpectedCloseTagError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzUnexpectedCloseTagError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "UnexpectedCloseTagError")]
+    pub struct AzUnexpectedCloseTagError {
         pub expected: AzString,
         pub actual: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `UnknownEntityReferenceError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzUnknownEntityReferenceError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "UnknownEntityReferenceError")]
+    pub struct AzUnknownEntityReferenceError {
         pub entity: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `DuplicatedAttributeError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzDuplicatedAttributeError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "DuplicatedAttributeError")]
+    pub struct AzDuplicatedAttributeError {
         pub attribute: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `InvalidStringError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInvalidStringError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InvalidStringError")]
+    pub struct AzInvalidStringError {
         pub got: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Window configuration specific to Win32
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzWindowsWindowOptions {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "WindowsWindowOptions")]
+    pub struct AzWindowsWindowOptions {
         pub allow_drag_drop: bool,
         pub no_redirection_bitmap: bool,
         pub window_icon: AzOptionWindowIcon,
         pub taskbar_icon: AzOptionTaskBarIcon,
         pub parent_window: AzOptionHwndHandle,
     }
+
     /// CSD theme of the window title / button controls
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzWaylandTheme {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "WaylandTheme")]
+    pub struct AzWaylandTheme {
         pub title_bar_active_background_color: [u8;4],
         pub title_bar_active_separator_color: [u8;4],
         pub title_bar_active_text_color: [u8;4],
@@ -4262,13 +7124,25 @@ mod dll {
         pub title_bar_font: AzString,
         pub title_bar_font_size: f32,
     }
+
     /// Key-value pair, used for setting WM hints values specific to GNOME
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzStringPair {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StringPair")]
+    pub struct AzStringPair {
         pub key: AzString,
         pub value: AzString,
     }
+
     /// Information about a single (or many) monitors, useful for dock widgets
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzMonitor {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Monitor")]
+    pub struct AzMonitor {
         pub id: usize,
         pub name: AzOptionString,
         pub size: AzLayoutSize,
@@ -4277,21 +7151,37 @@ mod dll {
         pub video_modes: AzVideoModeVec,
         pub is_primary_monitor: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `InlineWord` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzInlineWord {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzInlineWord {
         Tab,
         Return,
         Space,
         Word(AzInlineTextContents),
     }
+
     /// Re-export of rust-allocated (stack based) `CallbackData` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzCallbackData {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CallbackData")]
+    pub struct AzCallbackData {
         pub event: AzEventFilter,
         pub callback: AzCallback,
         pub data: AzRefAny,
     }
+
     /// List of core DOM node types built-into by `azul`
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzNodeType {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzNodeType {
         Body,
         Div,
         Br,
@@ -4299,13 +7189,23 @@ mod dll {
         Image(AzImageRef),
         IFrame(AzIFrameNode),
     }
+
     /// Re-export of rust-allocated (stack based) `IdOrClass` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzIdOrClass {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzIdOrClass {
         Id(AzString),
         Class(AzString),
     }
+
     /// Re-export of rust-allocated (stack based) `CssPathSelector` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzCssPathSelector {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzCssPathSelector {
         Global,
         Type(AzNodeTypeKey),
         Class(AzString),
@@ -4314,16 +7214,27 @@ mod dll {
         DirectChildren,
         Children,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundContent` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleBackgroundContent {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzStyleBackgroundContent {
         LinearGradient(AzLinearGradient),
         RadialGradient(AzRadialGradient),
         ConicGradient(AzConicGradient),
         Image(AzString),
         Color(AzColorU),
     }
+
     /// Re-export of rust-allocated (stack based) `ScrollbarInfo` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzScrollbarInfo {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ScrollbarInfo")]
+    pub struct AzScrollbarInfo {
         pub width: AzLayoutWidth,
         pub padding_left: AzLayoutPaddingLeft,
         pub padding_right: AzLayoutPaddingRight,
@@ -4333,74 +7244,137 @@ mod dll {
         pub corner: AzStyleBackgroundContent,
         pub resizer: AzStyleBackgroundContent,
     }
+
     /// Re-export of rust-allocated (stack based) `ScrollbarStyle` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzScrollbarStyle {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ScrollbarStyle")]
+    pub struct AzScrollbarStyle {
         pub horizontal: AzScrollbarInfo,
         pub vertical: AzScrollbarInfo,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleFontFamily` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleFontFamily {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzStyleFontFamily {
         System(AzString),
         File(AzString),
         Ref(AzFontRef),
     }
+
     /// Re-export of rust-allocated (stack based) `ScrollbarStyleValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzScrollbarStyleValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzScrollbarStyleValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzScrollbarStyle),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformVecValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleTransformVecValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzStyleTransformVecValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleTransformVec),
     }
+
     /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzVertexAttribute {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "VertexAttribute")]
+    pub struct AzVertexAttribute {
         pub name: AzString,
         pub layout_location: AzOptionUsize,
         pub attribute_type: AzVertexAttributeType,
         pub item_count: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `DebugMessage` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzDebugMessage {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "DebugMessage")]
+    pub struct AzDebugMessage {
         pub message: AzString,
         pub source: u32,
         pub ty: u32,
         pub id: u32,
         pub severity: u32,
     }
+
     /// C-ABI stable reexport of `(i32, u32, AzString)`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGetActiveAttribReturn {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GetActiveAttribReturn")]
+    pub struct AzGetActiveAttribReturn {
         pub _0: i32,
         pub _1: u32,
         pub _2: AzString,
     }
+
     /// C-ABI stable reexport of `(i32, u32, AzString)`
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzGetActiveUniformReturn {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GetActiveUniformReturn")]
+    pub struct AzGetActiveUniformReturn {
         pub _0: i32,
         pub _1: u32,
         pub _2: AzString,
     }
+
     /// Re-export of rust-allocated (stack based) `RawImage` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzRawImage {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "RawImage")]
+    pub struct AzRawImage {
         pub pixels: AzRawImageData,
         pub width: usize,
         pub height: usize,
         pub alpha_premultiplied: bool,
         pub data_format: AzRawImageFormat,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgPath` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgPath {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgPath")]
+    pub struct AzSvgPath {
         pub items: AzSvgPathElementVec,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgParseOptions` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgParseOptions {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgParseOptions")]
+    pub struct AzSvgParseOptions {
         pub relative_image_path: AzOptionString,
         pub dpi: f32,
         pub default_font_family: AzString,
@@ -4412,18 +7386,35 @@ mod dll {
         pub keep_named_groups: bool,
         pub fontdb: AzFontDatabase,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgStyle` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)] #[derive(Copy)] pub enum AzSvgStyle {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzSvgStyle {
         Fill(AzSvgFillStyle),
         Stroke(AzSvgStrokeStyle),
     }
+
     /// Re-export of rust-allocated (stack based) `FileTypeList` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFileTypeList {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FileTypeList")]
+    pub struct AzFileTypeList {
         pub document_types: AzStringVec,
         pub document_descriptor: AzString,
     }
+
     /// Re-export of rust-allocated (stack based) `Timer` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTimer {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Timer")]
+    pub struct AzTimer {
         pub data: AzRefAny,
         pub node_id: AzOptionDomNodeId,
         pub created: AzInstant,
@@ -4434,8 +7425,13 @@ mod dll {
         pub timeout: AzOptionDuration,
         pub callback: AzTimerCallback,
     }
+
     /// Re-export of rust-allocated (stack based) `FmtValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzFmtValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzFmtValue {
         Bool(bool),
         Uchar(u8),
         Schar(i8),
@@ -4452,117 +7448,184 @@ mod dll {
         Str(AzString),
         StrVec(AzStringVec),
     }
+
     /// Re-export of rust-allocated (stack based) `FmtArg` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFmtArg {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FmtArg")]
+    pub struct AzFmtArg {
         pub key: AzString,
         pub value: AzFmtValue,
     }
+
     /// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
-    #[repr(C)]     pub struct AzStyleFontFamilyVec {
+    #[repr(C)]
+#[pyclass(name = "StyleFontFamilyVec")]
+    pub struct AzStyleFontFamilyVec {
         pub(crate) ptr: *const AzStyleFontFamily,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyleFontFamilyVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<FmtArg>`
-    #[repr(C)]     pub struct AzFmtArgVec {
+    #[repr(C)]
+#[pyclass(name = "FmtArgVec")]
+    pub struct AzFmtArgVec {
         pub(crate) ptr: *const AzFmtArg,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzFmtArgVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<InlineWord>`
-    #[repr(C)]     pub struct AzInlineWordVec {
+    #[repr(C)]
+#[pyclass(name = "InlineWordVec")]
+    pub struct AzInlineWordVec {
         pub(crate) ptr: *const AzInlineWord,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzInlineWordVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<Monitor>`
-    #[repr(C)]     pub struct AzMonitorVec {
+    #[repr(C)]
+#[pyclass(name = "MonitorVec")]
+    pub struct AzMonitorVec {
         pub(crate) ptr: *const AzMonitor,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzMonitorVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
-    #[repr(C)]     pub struct AzIdOrClassVec {
+    #[repr(C)]
+#[pyclass(name = "IdOrClassVec")]
+    pub struct AzIdOrClassVec {
         pub(crate) ptr: *const AzIdOrClass,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzIdOrClassVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
-    #[repr(C)]     pub struct AzStyleBackgroundContentVec {
+    #[repr(C)]
+#[pyclass(name = "StyleBackgroundContentVec")]
+    pub struct AzStyleBackgroundContentVec {
         pub(crate) ptr: *const AzStyleBackgroundContent,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyleBackgroundContentVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<SvgPath>`
-    #[repr(C)]     pub struct AzSvgPathVec {
+    #[repr(C)]
+#[pyclass(name = "SvgPathVec")]
+    pub struct AzSvgPathVec {
         pub(crate) ptr: *const AzSvgPath,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzSvgPathVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
-    #[repr(C)]     pub struct AzVertexAttributeVec {
+    #[repr(C)]
+#[pyclass(name = "VertexAttributeVec")]
+    pub struct AzVertexAttributeVec {
         pub(crate) ptr: *const AzVertexAttribute,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzVertexAttributeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `CssPathSelector`
-    #[repr(C)]     pub struct AzCssPathSelectorVec {
+    #[repr(C)]
+#[pyclass(name = "CssPathSelectorVec")]
+    pub struct AzCssPathSelectorVec {
         pub(crate) ptr: *const AzCssPathSelector,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzCssPathSelectorVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `CallbackData`
-    #[repr(C)]     pub struct AzCallbackDataVec {
+    #[repr(C)]
+#[pyclass(name = "CallbackDataVec")]
+    pub struct AzCallbackDataVec {
         pub(crate) ptr: *const AzCallbackData,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzCallbackDataVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
-    #[repr(C)]     pub struct AzDebugMessageVec {
+    #[repr(C)]
+#[pyclass(name = "DebugMessageVec")]
+    pub struct AzDebugMessageVec {
         pub(crate) ptr: *const AzDebugMessage,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzDebugMessageVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `StringPairVec`
-    #[repr(C)]     pub struct AzStringPairVec {
+    #[repr(C)]
+#[pyclass(name = "StringPairVec")]
+    pub struct AzStringPairVec {
         pub(crate) ptr: *const AzStringPair,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStringPairVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `OptionFileTypeList` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionFileTypeList {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionFileTypeList {
         None,
         Some(AzFileTypeList),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionRawImage` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionRawImage {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionRawImage {
         None,
         Some(AzRawImage),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionWaylandTheme {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionWaylandTheme {
         None,
         Some(AzWaylandTheme),
     }
+
     /// Re-export of rust-allocated (stack based) `ResultRawImageDecodeImageError` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultRawImageDecodeImageError {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzResultRawImageDecodeImageError {
         Ok(AzRawImage),
         Err(AzDecodeImageError),
     }
+
     /// Re-export of rust-allocated (stack based) `XmlStreamError` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzXmlStreamError {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzXmlStreamError {
         UnexpectedEndOfStream,
         InvalidName,
         NonXmlChar(AzNonXmlCharError),
@@ -4577,8 +7640,14 @@ mod dll {
         InvalidCommentEnd,
         InvalidCharacterData,
     }
+
     /// Re-export of rust-allocated (stack based) `LinuxWindowOptions` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzLinuxWindowOptions {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LinuxWindowOptions")]
+    pub struct AzLinuxWindowOptions {
         pub x11_visual: AzOptionX11Visual,
         pub x11_screen: AzOptionI32,
         pub x11_wm_classes: AzStringPairVec,
@@ -4592,33 +7661,60 @@ mod dll {
         pub request_user_attention: bool,
         pub window_icon: AzOptionWindowIcon,
     }
+
     /// Re-export of rust-allocated (stack based) `InlineLine` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInlineLine {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InlineLine")]
+    pub struct AzInlineLine {
         pub words: AzInlineWordVec,
         pub bounds: AzLogicalRect,
     }
+
     /// Re-export of rust-allocated (stack based) `CssPath` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzCssPath {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssPath")]
+    pub struct AzCssPath {
         pub selectors: AzCssPathSelectorVec,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleBackgroundContentVecValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzStyleBackgroundContentVecValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBackgroundContentVec),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleFontFamilyVecValue` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzStyleFontFamilyVecValue {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzStyleFontFamilyVecValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleFontFamilyVec),
     }
+
     /// Parsed CSS key-value pair
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzCssProperty {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzCssProperty {
         TextColor(AzStyleTextColorValue),
         FontSize(AzStyleFontSizeValue),
         FontFamily(AzStyleFontFamilyVecValue),
@@ -4690,23 +7786,44 @@ mod dll {
         PerspectiveOrigin(AzStylePerspectiveOriginValue),
         BackfaceVisibility(AzStyleBackfaceVisibilityValue),
     }
+
     /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzCssPropertySource {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzCssPropertySource {
         Css(AzCssPath),
         Inline,
     }
+
     /// Re-export of rust-allocated (stack based) `VertexLayout` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzVertexLayout {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "VertexLayout")]
+    pub struct AzVertexLayout {
         pub fields: AzVertexAttributeVec,
     }
+
     /// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzVertexArrayObject {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "VertexArrayObject")]
+    pub struct AzVertexArrayObject {
         pub vertex_layout: AzVertexLayout,
         pub vao_id: u32,
         pub gl_context: AzGl,
     }
+
     /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzVertexBuffer {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "VertexBuffer")]
+    pub struct AzVertexBuffer {
         pub vertex_buffer_id: u32,
         pub vertex_buffer_len: usize,
         pub vao: AzVertexArrayObject,
@@ -4714,57 +7831,101 @@ mod dll {
         pub index_buffer_len: usize,
         pub index_buffer_format: AzIndexBufferFormat,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgMultiPolygon {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgMultiPolygon")]
+    pub struct AzSvgMultiPolygon {
         pub rings: AzSvgPathVec,
     }
+
     /// Re-export of rust-allocated (stack based) `XmlNode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzXmlNode {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "XmlNode")]
+    pub struct AzXmlNode {
         pub tag: AzString,
         pub attributes: AzStringPairVec,
         pub children: AzXmlNodeVec,
         pub text: AzOptionString,
     }
+
     /// Wrapper over a Rust-allocated `Vec<InlineLine>`
-    #[repr(C)]     pub struct AzInlineLineVec {
+    #[repr(C)]
+#[pyclass(name = "InlineLineVec")]
+    pub struct AzInlineLineVec {
         pub(crate) ptr: *const AzInlineLine,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzInlineLineVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`
-    #[repr(C)]     pub struct AzCssPropertyVec {
+    #[repr(C)]
+#[pyclass(name = "CssPropertyVec")]
+    pub struct AzCssPropertyVec {
         pub(crate) ptr: *const AzCssProperty,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzCssPropertyVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
-    #[repr(C)]     pub struct AzSvgMultiPolygonVec {
+    #[repr(C)]
+#[pyclass(name = "SvgMultiPolygonVec")]
+    pub struct AzSvgMultiPolygonVec {
         pub(crate) ptr: *const AzSvgMultiPolygon,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzSvgMultiPolygonVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `OptionCssProperty` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionCssProperty {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionCssProperty {
         None,
         Some(AzCssProperty),
     }
+
     /// Re-export of rust-allocated (stack based) `XmlTextError` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzXmlTextError {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "XmlTextError")]
+    pub struct AzXmlTextError {
         pub stream_error: AzXmlStreamError,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Platform-specific window configuration, i.e. WM options that are not cross-platform
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzPlatformSpecificOptions {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "PlatformSpecificOptions")]
+    pub struct AzPlatformSpecificOptions {
         pub windows_options: AzWindowsWindowOptions,
         pub linux_options: AzLinuxWindowOptions,
         pub mac_options: AzMacWindowOptions,
         pub wasm_options: AzWasmWindowOptions,
     }
+
     /// Re-export of rust-allocated (stack based) `WindowState` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzWindowState {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "WindowState")]
+    pub struct AzWindowState {
         pub title: AzString,
         pub theme: AzWindowTheme,
         pub size: AzWindowSize,
@@ -4782,8 +7943,13 @@ mod dll {
         pub layout_callback: AzLayoutCallback,
         pub close_callback: AzOptionCallback,
     }
+
     /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzCallbackInfo {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CallbackInfo")]
+    pub struct AzCallbackInfo {
         pub css_property_cache: *const c_void,
         pub styled_node_states: *const c_void,
         pub previous_window_state: *const c_void,
@@ -4817,21 +7983,39 @@ mod dll {
         pub _reserved_ref: *const c_void,
         pub _reserved_mut: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `InlineText` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzInlineText {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InlineText")]
+    pub struct AzInlineText {
         pub lines: AzInlineLineVec,
         pub content_size: AzLogicalSize,
         pub font_size_px: f32,
         pub last_word_index: usize,
         pub baseline_descender_px: f32,
     }
+
     /// CSS path to set the keyboard input focus
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzFocusTargetPath {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FocusTargetPath")]
+    pub struct AzFocusTargetPath {
         pub dom: AzDomId,
         pub css_path: AzCssPath,
     }
+
     /// Animation struct to start a new animation
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzAnimation {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Animation")]
+    pub struct AzAnimation {
         pub from: AzCssProperty,
         pub to: AzCssProperty,
         pub duration: AzDuration,
@@ -4840,8 +8024,13 @@ mod dll {
         pub easing: AzAnimationEasing,
         pub relayout_on_finish: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzTimerCallbackInfo {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "TimerCallbackInfo")]
+    pub struct AzTimerCallbackInfo {
         pub callback_info: AzCallbackInfo,
         pub node_id: AzOptionDomNodeId,
         pub frame_start: AzInstant,
@@ -4850,50 +8039,90 @@ mod dll {
         pub _reserved_ref: *const c_void,
         pub _reserved_mut: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `NodeDataInlineCssProperty` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzNodeDataInlineCssProperty {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzNodeDataInlineCssProperty {
         Normal(AzCssProperty),
         Active(AzCssProperty),
         Focus(AzCssProperty),
         Hover(AzCssProperty),
     }
+
     /// Re-export of rust-allocated (stack based) `DynamicCssProperty` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzDynamicCssProperty {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "DynamicCssProperty")]
+    pub struct AzDynamicCssProperty {
         pub dynamic_id: AzString,
         pub default_value: AzCssProperty,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgNode` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzSvgNode {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzSvgNode {
         MultiPolygonCollection(AzSvgMultiPolygonVec),
         MultiPolygon(AzSvgMultiPolygon),
         Path(AzSvgPath),
         Circle(AzSvgCircle),
         Rect(AzSvgRect),
     }
+
     /// Re-export of rust-allocated (stack based) `SvgStyledNode` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzSvgStyledNode {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgStyledNode")]
+    pub struct AzSvgStyledNode {
         pub geometry: AzSvgNode,
         pub style: AzSvgStyle,
     }
+
     /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
-    #[repr(C)]     pub struct AzNodeDataInlineCssPropertyVec {
+    #[repr(C)]
+#[pyclass(name = "NodeDataInlineCssPropertyVec")]
+    pub struct AzNodeDataInlineCssPropertyVec {
         pub(crate) ptr: *const AzNodeDataInlineCssProperty,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNodeDataInlineCssPropertyVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `OptionWindowState` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionWindowState {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionWindowState {
         None,
         Some(AzWindowState),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionInlineText` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzOptionInlineText {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionInlineText {
         None,
         Some(AzInlineText),
     }
+
     /// Re-export of rust-allocated (stack based) `XmlParseError` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzXmlParseError {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzXmlParseError {
         InvalidDeclaration(AzXmlTextError),
         InvalidComment(AzXmlTextError),
         InvalidPI(AzXmlTextError),
@@ -4905,16 +8134,27 @@ mod dll {
         InvalidCharData(AzXmlTextError),
         UnknownToken(AzSvgParseErrorPosition),
     }
+
     /// Options on how to initially create the window
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzWindowCreateOptions {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "WindowCreateOptions")]
+    pub struct AzWindowCreateOptions {
         pub state: AzWindowState,
         pub renderer_type: AzOptionRendererOptions,
         pub theme: AzOptionWindowTheme,
         pub create_callback: AzOptionCallback,
         pub hot_reload: bool,
     }
+
     /// Defines the keyboard input focus target
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzFocusTarget {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzFocusTarget {
         Id(AzDomNodeId),
         Path(AzFocusTargetPath),
         Previous,
@@ -4923,8 +8163,14 @@ mod dll {
         Last,
         NoFocus,
     }
+
     /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzNodeData {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "NodeData")]
+    pub struct AzNodeData {
         pub node_type: AzNodeType,
         pub dataset: AzOptionRefAny,
         pub ids_and_classes: AzIdOrClassVec,
@@ -4933,27 +8179,43 @@ mod dll {
         pub clip_mask: AzOptionImageMask,
         pub tab_index: AzOptionTabIndex,
     }
+
     /// Re-export of rust-allocated (stack based) `CssDeclaration` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzCssDeclaration {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzCssDeclaration {
         Static(AzCssProperty),
         Dynamic(AzDynamicCssProperty),
     }
+
     /// Wrapper over a Rust-allocated `CssDeclaration`
-    #[repr(C)]     pub struct AzCssDeclarationVec {
+    #[repr(C)]
+#[pyclass(name = "CssDeclarationVec")]
+    pub struct AzCssDeclarationVec {
         pub(crate) ptr: *const AzCssDeclaration,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzCssDeclarationVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `NodeDataVec`
-    #[repr(C)]     pub struct AzNodeDataVec {
+    #[repr(C)]
+#[pyclass(name = "NodeDataVec")]
+    pub struct AzNodeDataVec {
         pub(crate) ptr: *const AzNodeData,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNodeDataVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `XmlError` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzXmlError {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzXmlError {
         InvalidXmlPrefixUri(AzSvgParseErrorPosition),
         UnexpectedXmlUri(AzSvgParseErrorPosition),
         UnexpectedXmlnsUri(AzSvgParseErrorPosition),
@@ -4971,19 +8233,36 @@ mod dll {
         SizeLimit,
         ParserError(AzXmlParseError),
     }
+
     /// Re-export of rust-allocated (stack based) `Dom` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzDom {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Dom")]
+    pub struct AzDom {
         pub root: AzNodeData,
         pub children: AzDomVec,
         pub total_children: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzCssRuleBlock {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssRuleBlock")]
+    pub struct AzCssRuleBlock {
         pub path: AzCssPath,
         pub declarations: AzCssDeclarationVec,
     }
+
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzStyledDom {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyledDom")]
+    pub struct AzStyledDom {
         pub root: AzNodeId,
         pub node_hierarchy: AzNodeVec,
         pub node_data: AzNodeDataVec,
@@ -4996,25 +8275,42 @@ mod dll {
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub css_property_cache: AzCssPropertyCache,
     }
+
     /// Wrapper over a Rust-allocated `CssRuleBlock`
-    #[repr(C)]     pub struct AzCssRuleBlockVec {
+    #[repr(C)]
+#[pyclass(name = "CssRuleBlockVec")]
+    pub struct AzCssRuleBlockVec {
         pub(crate) ptr: *const AzCssRuleBlock,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzCssRuleBlockVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `OptionDom` struct
-    #[repr(C, u8)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub enum AzOptionDom {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionDom {
         None,
         Some(AzDom),
     }
+
     /// Re-export of rust-allocated (stack based) `ResultXmlXmlError` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultXmlXmlError {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzResultXmlXmlError {
         Ok(AzXml),
         Err(AzXmlError),
     }
+
     /// Re-export of rust-allocated (stack based) `SvgParseError` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzSvgParseError {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzSvgParseError {
         InvalidFileSuffix,
         FileOpenFailed,
         NotAnUtf8Str,
@@ -5022,39 +8318,2920 @@ mod dll {
         InvalidSize,
         ParsingFailed(AzXmlError),
     }
+
     /// <img src="../images/scrollbounds.png"/>
-    #[repr(C)] #[derive(Debug)]  #[derive(PartialEq, PartialOrd)]  pub struct AzIFrameCallbackReturn {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "IFrameCallbackReturn")]
+    pub struct AzIFrameCallbackReturn {
         pub dom: AzStyledDom,
         pub scroll_size: AzLogicalSize,
         pub scroll_offset: AzLogicalPosition,
         pub virtual_scroll_size: AzLogicalSize,
         pub virtual_scroll_offset: AzLogicalPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `Stylesheet` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzStylesheet {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Stylesheet")]
+    pub struct AzStylesheet {
         pub rules: AzCssRuleBlockVec,
     }
+
     /// Wrapper over a Rust-allocated `Stylesheet`
-    #[repr(C)]     pub struct AzStylesheetVec {
+    #[repr(C)]
+#[pyclass(name = "StylesheetVec")]
+    pub struct AzStylesheetVec {
         pub(crate) ptr: *const AzStylesheet,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStylesheetVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `ResultSvgXmlNodeSvgParseError` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultSvgXmlNodeSvgParseError {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzResultSvgXmlNodeSvgParseError {
         Ok(AzSvgXmlNode),
         Err(AzSvgParseError),
     }
+
     /// Re-export of rust-allocated (stack based) `ResultSvgSvgParseError` struct
-    #[repr(C, u8)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub enum AzResultSvgSvgParseError {
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzResultSvgSvgParseError {
         Ok(AzSvg),
         Err(AzSvgParseError),
     }
+
     /// Re-export of rust-allocated (stack based) `Css` struct
-    #[repr(C)] #[derive(Debug)] #[derive(Clone)] #[derive(PartialEq, PartialOrd)]  pub struct AzCss {
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Css")]
+    pub struct AzCss {
         pub stylesheets: AzStylesheetVec,
     }
+
+    /// `AzAppLogLevelEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "AppLogLevel")]
+    pub struct AzAppLogLevelEnumWrapper {
+        pub inner: AzAppLogLevel,
+    }
+
+    /// `AzLayoutSolverVersionEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutSolverVersion")]
+    pub struct AzLayoutSolverVersionEnumWrapper {
+        pub inner: AzLayoutSolverVersion,
+    }
+
+    /// `AzVsyncEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Vsync")]
+    pub struct AzVsyncEnumWrapper {
+        pub inner: AzVsync,
+    }
+
+    /// `AzSrgbEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Srgb")]
+    pub struct AzSrgbEnumWrapper {
+        pub inner: AzSrgb,
+    }
+
+    /// `AzHwAccelerationEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "HwAcceleration")]
+    pub struct AzHwAccelerationEnumWrapper {
+        pub inner: AzHwAcceleration,
+    }
+
+    /// `AzXWindowTypeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "XWindowType")]
+    pub struct AzXWindowTypeEnumWrapper {
+        pub inner: AzXWindowType,
+    }
+
+    /// `AzVirtualKeyCodeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "VirtualKeyCode")]
+    pub struct AzVirtualKeyCodeEnumWrapper {
+        pub inner: AzVirtualKeyCode,
+    }
+
+    /// `AzMouseCursorTypeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "MouseCursorType")]
+    pub struct AzMouseCursorTypeEnumWrapper {
+        pub inner: AzMouseCursorType,
+    }
+
+    /// `AzRendererTypeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "RendererType")]
+    pub struct AzRendererTypeEnumWrapper {
+        pub inner: AzRendererType,
+    }
+
+    /// `AzFullScreenModeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FullScreenMode")]
+    pub struct AzFullScreenModeEnumWrapper {
+        pub inner: AzFullScreenMode,
+    }
+
+    /// `AzWindowThemeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "WindowTheme")]
+    pub struct AzWindowThemeEnumWrapper {
+        pub inner: AzWindowTheme,
+    }
+
+    /// `AzUpdateScreenEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "UpdateScreen")]
+    pub struct AzUpdateScreenEnumWrapper {
+        pub inner: AzUpdateScreen,
+    }
+
+    /// `AzAnimationRepeatEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "AnimationRepeat")]
+    pub struct AzAnimationRepeatEnumWrapper {
+        pub inner: AzAnimationRepeat,
+    }
+
+    /// `AzAnimationRepeatCountEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "AnimationRepeatCount")]
+    pub struct AzAnimationRepeatCountEnumWrapper {
+        pub inner: AzAnimationRepeatCount,
+    }
+
+    /// `AzOnEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "On")]
+    pub struct AzOnEnumWrapper {
+        pub inner: AzOn,
+    }
+
+    /// `AzHoverEventFilterEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "HoverEventFilter")]
+    pub struct AzHoverEventFilterEnumWrapper {
+        pub inner: AzHoverEventFilter,
+    }
+
+    /// `AzFocusEventFilterEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FocusEventFilter")]
+    pub struct AzFocusEventFilterEnumWrapper {
+        pub inner: AzFocusEventFilter,
+    }
+
+    /// `AzWindowEventFilterEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "WindowEventFilter")]
+    pub struct AzWindowEventFilterEnumWrapper {
+        pub inner: AzWindowEventFilter,
+    }
+
+    /// `AzComponentEventFilterEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ComponentEventFilter")]
+    pub struct AzComponentEventFilterEnumWrapper {
+        pub inner: AzComponentEventFilter,
+    }
+
+    /// `AzApplicationEventFilterEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ApplicationEventFilter")]
+    pub struct AzApplicationEventFilterEnumWrapper {
+        pub inner: AzApplicationEventFilter,
+    }
+
+    /// `AzTabIndexEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "TabIndex")]
+    pub struct AzTabIndexEnumWrapper {
+        pub inner: AzTabIndex,
+    }
+
+    /// `AzNodeTypeKeyEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "NodeTypeKey")]
+    pub struct AzNodeTypeKeyEnumWrapper {
+        pub inner: AzNodeTypeKey,
+    }
+
+    /// `AzCssPropertyTypeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssPropertyType")]
+    pub struct AzCssPropertyTypeEnumWrapper {
+        pub inner: AzCssPropertyType,
+    }
+
+    /// `AzSizeMetricEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SizeMetric")]
+    pub struct AzSizeMetricEnumWrapper {
+        pub inner: AzSizeMetric,
+    }
+
+    /// `AzBoxShadowClipModeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "BoxShadowClipMode")]
+    pub struct AzBoxShadowClipModeEnumWrapper {
+        pub inner: AzBoxShadowClipMode,
+    }
+
+    /// `AzLayoutAlignContentEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutAlignContent")]
+    pub struct AzLayoutAlignContentEnumWrapper {
+        pub inner: AzLayoutAlignContent,
+    }
+
+    /// `AzLayoutAlignItemsEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutAlignItems")]
+    pub struct AzLayoutAlignItemsEnumWrapper {
+        pub inner: AzLayoutAlignItems,
+    }
+
+    /// `AzLayoutBoxSizingEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutBoxSizing")]
+    pub struct AzLayoutBoxSizingEnumWrapper {
+        pub inner: AzLayoutBoxSizing,
+    }
+
+    /// `AzLayoutFlexDirectionEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutFlexDirection")]
+    pub struct AzLayoutFlexDirectionEnumWrapper {
+        pub inner: AzLayoutFlexDirection,
+    }
+
+    /// `AzLayoutDisplayEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutDisplay")]
+    pub struct AzLayoutDisplayEnumWrapper {
+        pub inner: AzLayoutDisplay,
+    }
+
+    /// `AzLayoutFloatEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutFloat")]
+    pub struct AzLayoutFloatEnumWrapper {
+        pub inner: AzLayoutFloat,
+    }
+
+    /// `AzLayoutJustifyContentEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutJustifyContent")]
+    pub struct AzLayoutJustifyContentEnumWrapper {
+        pub inner: AzLayoutJustifyContent,
+    }
+
+    /// `AzLayoutPositionEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutPosition")]
+    pub struct AzLayoutPositionEnumWrapper {
+        pub inner: AzLayoutPosition,
+    }
+
+    /// `AzLayoutFlexWrapEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutFlexWrap")]
+    pub struct AzLayoutFlexWrapEnumWrapper {
+        pub inner: AzLayoutFlexWrap,
+    }
+
+    /// `AzLayoutOverflowEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutOverflow")]
+    pub struct AzLayoutOverflowEnumWrapper {
+        pub inner: AzLayoutOverflow,
+    }
+
+    /// `AzAngleMetricEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "AngleMetric")]
+    pub struct AzAngleMetricEnumWrapper {
+        pub inner: AzAngleMetric,
+    }
+
+    /// `AzDirectionCornerEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "DirectionCorner")]
+    pub struct AzDirectionCornerEnumWrapper {
+        pub inner: AzDirectionCorner,
+    }
+
+    /// `AzExtendModeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ExtendMode")]
+    pub struct AzExtendModeEnumWrapper {
+        pub inner: AzExtendMode,
+    }
+
+    /// `AzShapeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Shape")]
+    pub struct AzShapeEnumWrapper {
+        pub inner: AzShape,
+    }
+
+    /// `AzRadialGradientSizeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "RadialGradientSize")]
+    pub struct AzRadialGradientSizeEnumWrapper {
+        pub inner: AzRadialGradientSize,
+    }
+
+    /// `AzStyleBackgroundRepeatEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackgroundRepeat")]
+    pub struct AzStyleBackgroundRepeatEnumWrapper {
+        pub inner: AzStyleBackgroundRepeat,
+    }
+
+    /// `AzBorderStyleEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "BorderStyle")]
+    pub struct AzBorderStyleEnumWrapper {
+        pub inner: AzBorderStyle,
+    }
+
+    /// `AzStyleCursorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleCursor")]
+    pub struct AzStyleCursorEnumWrapper {
+        pub inner: AzStyleCursor,
+    }
+
+    /// `AzStyleBackfaceVisibilityEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackfaceVisibility")]
+    pub struct AzStyleBackfaceVisibilityEnumWrapper {
+        pub inner: AzStyleBackfaceVisibility,
+    }
+
+    /// `AzStyleTextAlignEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleTextAlign")]
+    pub struct AzStyleTextAlignEnumWrapper {
+        pub inner: AzStyleTextAlign,
+    }
+
+    /// `AzVertexAttributeTypeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "VertexAttributeType")]
+    pub struct AzVertexAttributeTypeEnumWrapper {
+        pub inner: AzVertexAttributeType,
+    }
+
+    /// `AzIndexBufferFormatEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "IndexBufferFormat")]
+    pub struct AzIndexBufferFormatEnumWrapper {
+        pub inner: AzIndexBufferFormat,
+    }
+
+    /// `AzGlTypeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GlType")]
+    pub struct AzGlTypeEnumWrapper {
+        pub inner: AzGlType,
+    }
+
+    /// `AzRawImageFormatEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "RawImageFormat")]
+    pub struct AzRawImageFormatEnumWrapper {
+        pub inner: AzRawImageFormat,
+    }
+
+    /// `AzEncodeImageErrorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "EncodeImageError")]
+    pub struct AzEncodeImageErrorEnumWrapper {
+        pub inner: AzEncodeImageError,
+    }
+
+    /// `AzDecodeImageErrorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "DecodeImageError")]
+    pub struct AzDecodeImageErrorEnumWrapper {
+        pub inner: AzDecodeImageError,
+    }
+
+    /// `AzShapeRenderingEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ShapeRendering")]
+    pub struct AzShapeRenderingEnumWrapper {
+        pub inner: AzShapeRendering,
+    }
+
+    /// `AzTextRenderingEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "TextRendering")]
+    pub struct AzTextRenderingEnumWrapper {
+        pub inner: AzTextRendering,
+    }
+
+    /// `AzImageRenderingEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ImageRendering")]
+    pub struct AzImageRenderingEnumWrapper {
+        pub inner: AzImageRendering,
+    }
+
+    /// `AzFontDatabaseEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FontDatabase")]
+    pub struct AzFontDatabaseEnumWrapper {
+        pub inner: AzFontDatabase,
+    }
+
+    /// `AzIndentEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Indent")]
+    pub struct AzIndentEnumWrapper {
+        pub inner: AzIndent,
+    }
+
+    /// `AzSvgFitToEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgFitTo")]
+    pub struct AzSvgFitToEnumWrapper {
+        pub inner: AzSvgFitTo,
+    }
+
+    /// `AzSvgFillRuleEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgFillRule")]
+    pub struct AzSvgFillRuleEnumWrapper {
+        pub inner: AzSvgFillRule,
+    }
+
+    /// `AzSvgLineJoinEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgLineJoin")]
+    pub struct AzSvgLineJoinEnumWrapper {
+        pub inner: AzSvgLineJoin,
+    }
+
+    /// `AzSvgLineCapEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgLineCap")]
+    pub struct AzSvgLineCapEnumWrapper {
+        pub inner: AzSvgLineCap,
+    }
+
+    /// `AzMsgBoxIconEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "MsgBoxIcon")]
+    pub struct AzMsgBoxIconEnumWrapper {
+        pub inner: AzMsgBoxIcon,
+    }
+
+    /// `AzMsgBoxYesNoEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "MsgBoxYesNo")]
+    pub struct AzMsgBoxYesNoEnumWrapper {
+        pub inner: AzMsgBoxYesNo,
+    }
+
+    /// `AzMsgBoxOkCancelEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "MsgBoxOkCancel")]
+    pub struct AzMsgBoxOkCancelEnumWrapper {
+        pub inner: AzMsgBoxOkCancel,
+    }
+
+    /// `AzTerminateTimerEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "TerminateTimer")]
+    pub struct AzTerminateTimerEnumWrapper {
+        pub inner: AzTerminateTimer,
+    }
+
+    /// `AzStyleFontFamilyVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleFontFamilyVecDestructor")]
+    pub struct AzStyleFontFamilyVecDestructorEnumWrapper {
+        pub inner: AzStyleFontFamilyVecDestructor,
+    }
+
+    /// `AzTesselatedSvgNodeVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "TesselatedSvgNodeVecDestructor")]
+    pub struct AzTesselatedSvgNodeVecDestructorEnumWrapper {
+        pub inner: AzTesselatedSvgNodeVecDestructor,
+    }
+
+    /// `AzXmlNodeVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "XmlNodeVecDestructor")]
+    pub struct AzXmlNodeVecDestructorEnumWrapper {
+        pub inner: AzXmlNodeVecDestructor,
+    }
+
+    /// `AzFmtArgVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FmtArgVecDestructor")]
+    pub struct AzFmtArgVecDestructorEnumWrapper {
+        pub inner: AzFmtArgVecDestructor,
+    }
+
+    /// `AzInlineLineVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InlineLineVecDestructor")]
+    pub struct AzInlineLineVecDestructorEnumWrapper {
+        pub inner: AzInlineLineVecDestructor,
+    }
+
+    /// `AzInlineWordVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InlineWordVecDestructor")]
+    pub struct AzInlineWordVecDestructorEnumWrapper {
+        pub inner: AzInlineWordVecDestructor,
+    }
+
+    /// `AzInlineGlyphVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InlineGlyphVecDestructor")]
+    pub struct AzInlineGlyphVecDestructorEnumWrapper {
+        pub inner: AzInlineGlyphVecDestructor,
+    }
+
+    /// `AzInlineTextHitVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InlineTextHitVecDestructor")]
+    pub struct AzInlineTextHitVecDestructorEnumWrapper {
+        pub inner: AzInlineTextHitVecDestructor,
+    }
+
+    /// `AzMonitorVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "MonitorVecDestructor")]
+    pub struct AzMonitorVecDestructorEnumWrapper {
+        pub inner: AzMonitorVecDestructor,
+    }
+
+    /// `AzVideoModeVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "VideoModeVecDestructor")]
+    pub struct AzVideoModeVecDestructorEnumWrapper {
+        pub inner: AzVideoModeVecDestructor,
+    }
+
+    /// `AzDomVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "DomVecDestructor")]
+    pub struct AzDomVecDestructorEnumWrapper {
+        pub inner: AzDomVecDestructor,
+    }
+
+    /// `AzIdOrClassVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "IdOrClassVecDestructor")]
+    pub struct AzIdOrClassVecDestructorEnumWrapper {
+        pub inner: AzIdOrClassVecDestructor,
+    }
+
+    /// `AzNodeDataInlineCssPropertyVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "NodeDataInlineCssPropertyVecDestructor")]
+    pub struct AzNodeDataInlineCssPropertyVecDestructorEnumWrapper {
+        pub inner: AzNodeDataInlineCssPropertyVecDestructor,
+    }
+
+    /// `AzStyleBackgroundContentVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackgroundContentVecDestructor")]
+    pub struct AzStyleBackgroundContentVecDestructorEnumWrapper {
+        pub inner: AzStyleBackgroundContentVecDestructor,
+    }
+
+    /// `AzStyleBackgroundPositionVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackgroundPositionVecDestructor")]
+    pub struct AzStyleBackgroundPositionVecDestructorEnumWrapper {
+        pub inner: AzStyleBackgroundPositionVecDestructor,
+    }
+
+    /// `AzStyleBackgroundRepeatVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackgroundRepeatVecDestructor")]
+    pub struct AzStyleBackgroundRepeatVecDestructorEnumWrapper {
+        pub inner: AzStyleBackgroundRepeatVecDestructor,
+    }
+
+    /// `AzStyleBackgroundSizeVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackgroundSizeVecDestructor")]
+    pub struct AzStyleBackgroundSizeVecDestructorEnumWrapper {
+        pub inner: AzStyleBackgroundSizeVecDestructor,
+    }
+
+    /// `AzStyleTransformVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleTransformVecDestructor")]
+    pub struct AzStyleTransformVecDestructorEnumWrapper {
+        pub inner: AzStyleTransformVecDestructor,
+    }
+
+    /// `AzCssPropertyVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssPropertyVecDestructor")]
+    pub struct AzCssPropertyVecDestructorEnumWrapper {
+        pub inner: AzCssPropertyVecDestructor,
+    }
+
+    /// `AzSvgMultiPolygonVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgMultiPolygonVecDestructor")]
+    pub struct AzSvgMultiPolygonVecDestructorEnumWrapper {
+        pub inner: AzSvgMultiPolygonVecDestructor,
+    }
+
+    /// `AzSvgPathVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgPathVecDestructor")]
+    pub struct AzSvgPathVecDestructorEnumWrapper {
+        pub inner: AzSvgPathVecDestructor,
+    }
+
+    /// `AzVertexAttributeVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "VertexAttributeVecDestructor")]
+    pub struct AzVertexAttributeVecDestructorEnumWrapper {
+        pub inner: AzVertexAttributeVecDestructor,
+    }
+
+    /// `AzSvgPathElementVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgPathElementVecDestructor")]
+    pub struct AzSvgPathElementVecDestructorEnumWrapper {
+        pub inner: AzSvgPathElementVecDestructor,
+    }
+
+    /// `AzSvgVertexVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgVertexVecDestructor")]
+    pub struct AzSvgVertexVecDestructorEnumWrapper {
+        pub inner: AzSvgVertexVecDestructor,
+    }
+
+    /// `AzU32VecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "U32VecDestructor")]
+    pub struct AzU32VecDestructorEnumWrapper {
+        pub inner: AzU32VecDestructor,
+    }
+
+    /// `AzXWindowTypeVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "XWindowTypeVecDestructor")]
+    pub struct AzXWindowTypeVecDestructorEnumWrapper {
+        pub inner: AzXWindowTypeVecDestructor,
+    }
+
+    /// `AzVirtualKeyCodeVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "VirtualKeyCodeVecDestructor")]
+    pub struct AzVirtualKeyCodeVecDestructorEnumWrapper {
+        pub inner: AzVirtualKeyCodeVecDestructor,
+    }
+
+    /// `AzCascadeInfoVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CascadeInfoVecDestructor")]
+    pub struct AzCascadeInfoVecDestructorEnumWrapper {
+        pub inner: AzCascadeInfoVecDestructor,
+    }
+
+    /// `AzScanCodeVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ScanCodeVecDestructor")]
+    pub struct AzScanCodeVecDestructorEnumWrapper {
+        pub inner: AzScanCodeVecDestructor,
+    }
+
+    /// `AzCssDeclarationVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssDeclarationVecDestructor")]
+    pub struct AzCssDeclarationVecDestructorEnumWrapper {
+        pub inner: AzCssDeclarationVecDestructor,
+    }
+
+    /// `AzCssPathSelectorVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssPathSelectorVecDestructor")]
+    pub struct AzCssPathSelectorVecDestructorEnumWrapper {
+        pub inner: AzCssPathSelectorVecDestructor,
+    }
+
+    /// `AzStylesheetVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StylesheetVecDestructor")]
+    pub struct AzStylesheetVecDestructorEnumWrapper {
+        pub inner: AzStylesheetVecDestructor,
+    }
+
+    /// `AzCssRuleBlockVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssRuleBlockVecDestructor")]
+    pub struct AzCssRuleBlockVecDestructorEnumWrapper {
+        pub inner: AzCssRuleBlockVecDestructor,
+    }
+
+    /// `AzF32VecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "F32VecDestructor")]
+    pub struct AzF32VecDestructorEnumWrapper {
+        pub inner: AzF32VecDestructor,
+    }
+
+    /// `AzU16VecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "U16VecDestructor")]
+    pub struct AzU16VecDestructorEnumWrapper {
+        pub inner: AzU16VecDestructor,
+    }
+
+    /// `AzU8VecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "U8VecDestructor")]
+    pub struct AzU8VecDestructorEnumWrapper {
+        pub inner: AzU8VecDestructor,
+    }
+
+    /// `AzCallbackDataVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CallbackDataVecDestructor")]
+    pub struct AzCallbackDataVecDestructorEnumWrapper {
+        pub inner: AzCallbackDataVecDestructor,
+    }
+
+    /// `AzDebugMessageVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "DebugMessageVecDestructor")]
+    pub struct AzDebugMessageVecDestructorEnumWrapper {
+        pub inner: AzDebugMessageVecDestructor,
+    }
+
+    /// `AzGLuintVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GLuintVecDestructor")]
+    pub struct AzGLuintVecDestructorEnumWrapper {
+        pub inner: AzGLuintVecDestructor,
+    }
+
+    /// `AzGLintVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "GLintVecDestructor")]
+    pub struct AzGLintVecDestructorEnumWrapper {
+        pub inner: AzGLintVecDestructor,
+    }
+
+    /// `AzStringVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StringVecDestructor")]
+    pub struct AzStringVecDestructorEnumWrapper {
+        pub inner: AzStringVecDestructor,
+    }
+
+    /// `AzStringPairVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StringPairVecDestructor")]
+    pub struct AzStringPairVecDestructorEnumWrapper {
+        pub inner: AzStringPairVecDestructor,
+    }
+
+    /// `AzNormalizedLinearColorStopVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "NormalizedLinearColorStopVecDestructor")]
+    pub struct AzNormalizedLinearColorStopVecDestructorEnumWrapper {
+        pub inner: AzNormalizedLinearColorStopVecDestructor,
+    }
+
+    /// `AzNormalizedRadialColorStopVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "NormalizedRadialColorStopVecDestructor")]
+    pub struct AzNormalizedRadialColorStopVecDestructorEnumWrapper {
+        pub inner: AzNormalizedRadialColorStopVecDestructor,
+    }
+
+    /// `AzNodeIdVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "NodeIdVecDestructor")]
+    pub struct AzNodeIdVecDestructorEnumWrapper {
+        pub inner: AzNodeIdVecDestructor,
+    }
+
+    /// `AzNodeVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "NodeVecDestructor")]
+    pub struct AzNodeVecDestructorEnumWrapper {
+        pub inner: AzNodeVecDestructor,
+    }
+
+    /// `AzStyledNodeVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyledNodeVecDestructor")]
+    pub struct AzStyledNodeVecDestructorEnumWrapper {
+        pub inner: AzStyledNodeVecDestructor,
+    }
+
+    /// `AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "TagIdsToNodeIdsMappingVecDestructor")]
+    pub struct AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper {
+        pub inner: AzTagIdsToNodeIdsMappingVecDestructor,
+    }
+
+    /// `AzParentWithNodeDepthVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ParentWithNodeDepthVecDestructor")]
+    pub struct AzParentWithNodeDepthVecDestructorEnumWrapper {
+        pub inner: AzParentWithNodeDepthVecDestructor,
+    }
+
+    /// `AzNodeDataVecDestructorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "NodeDataVecDestructor")]
+    pub struct AzNodeDataVecDestructorEnumWrapper {
+        pub inner: AzNodeDataVecDestructor,
+    }
+
+    /// `AzOptionI16EnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionI16")]
+    pub struct AzOptionI16EnumWrapper {
+        pub inner: AzOptionI16,
+    }
+
+    /// `AzOptionU16EnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionU16")]
+    pub struct AzOptionU16EnumWrapper {
+        pub inner: AzOptionU16,
+    }
+
+    /// `AzOptionU32EnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionU32")]
+    pub struct AzOptionU32EnumWrapper {
+        pub inner: AzOptionU32,
+    }
+
+    /// `AzOptionHwndHandleEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionHwndHandle")]
+    pub struct AzOptionHwndHandleEnumWrapper {
+        pub inner: AzOptionHwndHandle,
+    }
+
+    /// `AzOptionX11VisualEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionX11Visual")]
+    pub struct AzOptionX11VisualEnumWrapper {
+        pub inner: AzOptionX11Visual,
+    }
+
+    /// `AzOptionI32EnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionI32")]
+    pub struct AzOptionI32EnumWrapper {
+        pub inner: AzOptionI32,
+    }
+
+    /// `AzOptionF32EnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionF32")]
+    pub struct AzOptionF32EnumWrapper {
+        pub inner: AzOptionF32,
+    }
+
+    /// `AzOptionCharEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionChar")]
+    pub struct AzOptionCharEnumWrapper {
+        pub inner: AzOptionChar,
+    }
+
+    /// `AzOptionUsizeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionUsize")]
+    pub struct AzOptionUsizeEnumWrapper {
+        pub inner: AzOptionUsize,
+    }
+
+    /// `AzRawWindowHandleEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "RawWindowHandle")]
+    pub struct AzRawWindowHandleEnumWrapper {
+        pub inner: AzRawWindowHandle,
+    }
+
+    /// `AzAcceleratorKeyEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "AcceleratorKey")]
+    pub struct AzAcceleratorKeyEnumWrapper {
+        pub inner: AzAcceleratorKey,
+    }
+
+    /// `AzCursorPositionEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CursorPosition")]
+    pub struct AzCursorPositionEnumWrapper {
+        pub inner: AzCursorPosition,
+    }
+
+    /// `AzWindowPositionEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "WindowPosition")]
+    pub struct AzWindowPositionEnumWrapper {
+        pub inner: AzWindowPosition,
+    }
+
+    /// `AzImePositionEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ImePosition")]
+    pub struct AzImePositionEnumWrapper {
+        pub inner: AzImePosition,
+    }
+
+    /// `AzPositionInfoEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "PositionInfo")]
+    pub struct AzPositionInfoEnumWrapper {
+        pub inner: AzPositionInfo,
+    }
+
+    /// `AzNotEventFilterEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "NotEventFilter")]
+    pub struct AzNotEventFilterEnumWrapper {
+        pub inner: AzNotEventFilter,
+    }
+
+    /// `AzCssNthChildSelectorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssNthChildSelector")]
+    pub struct AzCssNthChildSelectorEnumWrapper {
+        pub inner: AzCssNthChildSelector,
+    }
+
+    /// `AzDirectionEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Direction")]
+    pub struct AzDirectionEnumWrapper {
+        pub inner: AzDirection,
+    }
+
+    /// `AzBackgroundPositionHorizontalEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "BackgroundPositionHorizontal")]
+    pub struct AzBackgroundPositionHorizontalEnumWrapper {
+        pub inner: AzBackgroundPositionHorizontal,
+    }
+
+    /// `AzBackgroundPositionVerticalEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "BackgroundPositionVertical")]
+    pub struct AzBackgroundPositionVerticalEnumWrapper {
+        pub inner: AzBackgroundPositionVertical,
+    }
+
+    /// `AzStyleBackgroundSizeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackgroundSize")]
+    pub struct AzStyleBackgroundSizeEnumWrapper {
+        pub inner: AzStyleBackgroundSize,
+    }
+
+    /// `AzStyleBoxShadowValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBoxShadowValue")]
+    pub struct AzStyleBoxShadowValueEnumWrapper {
+        pub inner: AzStyleBoxShadowValue,
+    }
+
+    /// `AzLayoutAlignContentValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutAlignContentValue")]
+    pub struct AzLayoutAlignContentValueEnumWrapper {
+        pub inner: AzLayoutAlignContentValue,
+    }
+
+    /// `AzLayoutAlignItemsValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutAlignItemsValue")]
+    pub struct AzLayoutAlignItemsValueEnumWrapper {
+        pub inner: AzLayoutAlignItemsValue,
+    }
+
+    /// `AzLayoutBottomValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutBottomValue")]
+    pub struct AzLayoutBottomValueEnumWrapper {
+        pub inner: AzLayoutBottomValue,
+    }
+
+    /// `AzLayoutBoxSizingValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutBoxSizingValue")]
+    pub struct AzLayoutBoxSizingValueEnumWrapper {
+        pub inner: AzLayoutBoxSizingValue,
+    }
+
+    /// `AzLayoutFlexDirectionValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutFlexDirectionValue")]
+    pub struct AzLayoutFlexDirectionValueEnumWrapper {
+        pub inner: AzLayoutFlexDirectionValue,
+    }
+
+    /// `AzLayoutDisplayValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutDisplayValue")]
+    pub struct AzLayoutDisplayValueEnumWrapper {
+        pub inner: AzLayoutDisplayValue,
+    }
+
+    /// `AzLayoutFlexGrowValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutFlexGrowValue")]
+    pub struct AzLayoutFlexGrowValueEnumWrapper {
+        pub inner: AzLayoutFlexGrowValue,
+    }
+
+    /// `AzLayoutFlexShrinkValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutFlexShrinkValue")]
+    pub struct AzLayoutFlexShrinkValueEnumWrapper {
+        pub inner: AzLayoutFlexShrinkValue,
+    }
+
+    /// `AzLayoutFloatValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutFloatValue")]
+    pub struct AzLayoutFloatValueEnumWrapper {
+        pub inner: AzLayoutFloatValue,
+    }
+
+    /// `AzLayoutHeightValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutHeightValue")]
+    pub struct AzLayoutHeightValueEnumWrapper {
+        pub inner: AzLayoutHeightValue,
+    }
+
+    /// `AzLayoutJustifyContentValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutJustifyContentValue")]
+    pub struct AzLayoutJustifyContentValueEnumWrapper {
+        pub inner: AzLayoutJustifyContentValue,
+    }
+
+    /// `AzLayoutLeftValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutLeftValue")]
+    pub struct AzLayoutLeftValueEnumWrapper {
+        pub inner: AzLayoutLeftValue,
+    }
+
+    /// `AzLayoutMarginBottomValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutMarginBottomValue")]
+    pub struct AzLayoutMarginBottomValueEnumWrapper {
+        pub inner: AzLayoutMarginBottomValue,
+    }
+
+    /// `AzLayoutMarginLeftValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutMarginLeftValue")]
+    pub struct AzLayoutMarginLeftValueEnumWrapper {
+        pub inner: AzLayoutMarginLeftValue,
+    }
+
+    /// `AzLayoutMarginRightValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutMarginRightValue")]
+    pub struct AzLayoutMarginRightValueEnumWrapper {
+        pub inner: AzLayoutMarginRightValue,
+    }
+
+    /// `AzLayoutMarginTopValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutMarginTopValue")]
+    pub struct AzLayoutMarginTopValueEnumWrapper {
+        pub inner: AzLayoutMarginTopValue,
+    }
+
+    /// `AzLayoutMaxHeightValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutMaxHeightValue")]
+    pub struct AzLayoutMaxHeightValueEnumWrapper {
+        pub inner: AzLayoutMaxHeightValue,
+    }
+
+    /// `AzLayoutMaxWidthValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutMaxWidthValue")]
+    pub struct AzLayoutMaxWidthValueEnumWrapper {
+        pub inner: AzLayoutMaxWidthValue,
+    }
+
+    /// `AzLayoutMinHeightValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutMinHeightValue")]
+    pub struct AzLayoutMinHeightValueEnumWrapper {
+        pub inner: AzLayoutMinHeightValue,
+    }
+
+    /// `AzLayoutMinWidthValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutMinWidthValue")]
+    pub struct AzLayoutMinWidthValueEnumWrapper {
+        pub inner: AzLayoutMinWidthValue,
+    }
+
+    /// `AzLayoutPaddingBottomValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutPaddingBottomValue")]
+    pub struct AzLayoutPaddingBottomValueEnumWrapper {
+        pub inner: AzLayoutPaddingBottomValue,
+    }
+
+    /// `AzLayoutPaddingLeftValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutPaddingLeftValue")]
+    pub struct AzLayoutPaddingLeftValueEnumWrapper {
+        pub inner: AzLayoutPaddingLeftValue,
+    }
+
+    /// `AzLayoutPaddingRightValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutPaddingRightValue")]
+    pub struct AzLayoutPaddingRightValueEnumWrapper {
+        pub inner: AzLayoutPaddingRightValue,
+    }
+
+    /// `AzLayoutPaddingTopValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutPaddingTopValue")]
+    pub struct AzLayoutPaddingTopValueEnumWrapper {
+        pub inner: AzLayoutPaddingTopValue,
+    }
+
+    /// `AzLayoutPositionValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutPositionValue")]
+    pub struct AzLayoutPositionValueEnumWrapper {
+        pub inner: AzLayoutPositionValue,
+    }
+
+    /// `AzLayoutRightValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutRightValue")]
+    pub struct AzLayoutRightValueEnumWrapper {
+        pub inner: AzLayoutRightValue,
+    }
+
+    /// `AzLayoutTopValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutTopValue")]
+    pub struct AzLayoutTopValueEnumWrapper {
+        pub inner: AzLayoutTopValue,
+    }
+
+    /// `AzLayoutWidthValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutWidthValue")]
+    pub struct AzLayoutWidthValueEnumWrapper {
+        pub inner: AzLayoutWidthValue,
+    }
+
+    /// `AzLayoutFlexWrapValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutFlexWrapValue")]
+    pub struct AzLayoutFlexWrapValueEnumWrapper {
+        pub inner: AzLayoutFlexWrapValue,
+    }
+
+    /// `AzLayoutOverflowValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutOverflowValue")]
+    pub struct AzLayoutOverflowValueEnumWrapper {
+        pub inner: AzLayoutOverflowValue,
+    }
+
+    /// `AzStyleBorderBottomColorValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBorderBottomColorValue")]
+    pub struct AzStyleBorderBottomColorValueEnumWrapper {
+        pub inner: AzStyleBorderBottomColorValue,
+    }
+
+    /// `AzStyleBorderBottomLeftRadiusValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBorderBottomLeftRadiusValue")]
+    pub struct AzStyleBorderBottomLeftRadiusValueEnumWrapper {
+        pub inner: AzStyleBorderBottomLeftRadiusValue,
+    }
+
+    /// `AzStyleBorderBottomRightRadiusValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBorderBottomRightRadiusValue")]
+    pub struct AzStyleBorderBottomRightRadiusValueEnumWrapper {
+        pub inner: AzStyleBorderBottomRightRadiusValue,
+    }
+
+    /// `AzStyleBorderBottomStyleValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBorderBottomStyleValue")]
+    pub struct AzStyleBorderBottomStyleValueEnumWrapper {
+        pub inner: AzStyleBorderBottomStyleValue,
+    }
+
+    /// `AzLayoutBorderBottomWidthValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutBorderBottomWidthValue")]
+    pub struct AzLayoutBorderBottomWidthValueEnumWrapper {
+        pub inner: AzLayoutBorderBottomWidthValue,
+    }
+
+    /// `AzStyleBorderLeftColorValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBorderLeftColorValue")]
+    pub struct AzStyleBorderLeftColorValueEnumWrapper {
+        pub inner: AzStyleBorderLeftColorValue,
+    }
+
+    /// `AzStyleBorderLeftStyleValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBorderLeftStyleValue")]
+    pub struct AzStyleBorderLeftStyleValueEnumWrapper {
+        pub inner: AzStyleBorderLeftStyleValue,
+    }
+
+    /// `AzLayoutBorderLeftWidthValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutBorderLeftWidthValue")]
+    pub struct AzLayoutBorderLeftWidthValueEnumWrapper {
+        pub inner: AzLayoutBorderLeftWidthValue,
+    }
+
+    /// `AzStyleBorderRightColorValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBorderRightColorValue")]
+    pub struct AzStyleBorderRightColorValueEnumWrapper {
+        pub inner: AzStyleBorderRightColorValue,
+    }
+
+    /// `AzStyleBorderRightStyleValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBorderRightStyleValue")]
+    pub struct AzStyleBorderRightStyleValueEnumWrapper {
+        pub inner: AzStyleBorderRightStyleValue,
+    }
+
+    /// `AzLayoutBorderRightWidthValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutBorderRightWidthValue")]
+    pub struct AzLayoutBorderRightWidthValueEnumWrapper {
+        pub inner: AzLayoutBorderRightWidthValue,
+    }
+
+    /// `AzStyleBorderTopColorValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBorderTopColorValue")]
+    pub struct AzStyleBorderTopColorValueEnumWrapper {
+        pub inner: AzStyleBorderTopColorValue,
+    }
+
+    /// `AzStyleBorderTopLeftRadiusValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBorderTopLeftRadiusValue")]
+    pub struct AzStyleBorderTopLeftRadiusValueEnumWrapper {
+        pub inner: AzStyleBorderTopLeftRadiusValue,
+    }
+
+    /// `AzStyleBorderTopRightRadiusValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBorderTopRightRadiusValue")]
+    pub struct AzStyleBorderTopRightRadiusValueEnumWrapper {
+        pub inner: AzStyleBorderTopRightRadiusValue,
+    }
+
+    /// `AzStyleBorderTopStyleValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBorderTopStyleValue")]
+    pub struct AzStyleBorderTopStyleValueEnumWrapper {
+        pub inner: AzStyleBorderTopStyleValue,
+    }
+
+    /// `AzLayoutBorderTopWidthValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "LayoutBorderTopWidthValue")]
+    pub struct AzLayoutBorderTopWidthValueEnumWrapper {
+        pub inner: AzLayoutBorderTopWidthValue,
+    }
+
+    /// `AzStyleCursorValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleCursorValue")]
+    pub struct AzStyleCursorValueEnumWrapper {
+        pub inner: AzStyleCursorValue,
+    }
+
+    /// `AzStyleFontSizeValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleFontSizeValue")]
+    pub struct AzStyleFontSizeValueEnumWrapper {
+        pub inner: AzStyleFontSizeValue,
+    }
+
+    /// `AzStyleLetterSpacingValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleLetterSpacingValue")]
+    pub struct AzStyleLetterSpacingValueEnumWrapper {
+        pub inner: AzStyleLetterSpacingValue,
+    }
+
+    /// `AzStyleLineHeightValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleLineHeightValue")]
+    pub struct AzStyleLineHeightValueEnumWrapper {
+        pub inner: AzStyleLineHeightValue,
+    }
+
+    /// `AzStyleTabWidthValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleTabWidthValue")]
+    pub struct AzStyleTabWidthValueEnumWrapper {
+        pub inner: AzStyleTabWidthValue,
+    }
+
+    /// `AzStyleTextAlignValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleTextAlignValue")]
+    pub struct AzStyleTextAlignValueEnumWrapper {
+        pub inner: AzStyleTextAlignValue,
+    }
+
+    /// `AzStyleTextColorValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleTextColorValue")]
+    pub struct AzStyleTextColorValueEnumWrapper {
+        pub inner: AzStyleTextColorValue,
+    }
+
+    /// `AzStyleWordSpacingValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleWordSpacingValue")]
+    pub struct AzStyleWordSpacingValueEnumWrapper {
+        pub inner: AzStyleWordSpacingValue,
+    }
+
+    /// `AzStyleOpacityValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleOpacityValue")]
+    pub struct AzStyleOpacityValueEnumWrapper {
+        pub inner: AzStyleOpacityValue,
+    }
+
+    /// `AzStyleTransformOriginValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleTransformOriginValue")]
+    pub struct AzStyleTransformOriginValueEnumWrapper {
+        pub inner: AzStyleTransformOriginValue,
+    }
+
+    /// `AzStylePerspectiveOriginValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StylePerspectiveOriginValue")]
+    pub struct AzStylePerspectiveOriginValueEnumWrapper {
+        pub inner: AzStylePerspectiveOriginValue,
+    }
+
+    /// `AzStyleBackfaceVisibilityValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackfaceVisibilityValue")]
+    pub struct AzStyleBackfaceVisibilityValueEnumWrapper {
+        pub inner: AzStyleBackfaceVisibilityValue,
+    }
+
+    /// `AzDurationEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Duration")]
+    pub struct AzDurationEnumWrapper {
+        pub inner: AzDuration,
+    }
+
+    /// `AzThreadSendMsgEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ThreadSendMsg")]
+    pub struct AzThreadSendMsgEnumWrapper {
+        pub inner: AzThreadSendMsg,
+    }
+
+    /// `AzOptionPositionInfoEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionPositionInfo")]
+    pub struct AzOptionPositionInfoEnumWrapper {
+        pub inner: AzOptionPositionInfo,
+    }
+
+    /// `AzOptionTimerIdEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionTimerId")]
+    pub struct AzOptionTimerIdEnumWrapper {
+        pub inner: AzOptionTimerId,
+    }
+
+    /// `AzOptionThreadIdEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionThreadId")]
+    pub struct AzOptionThreadIdEnumWrapper {
+        pub inner: AzOptionThreadId,
+    }
+
+    /// `AzOptionImageRefEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionImageRef")]
+    pub struct AzOptionImageRefEnumWrapper {
+        pub inner: AzOptionImageRef,
+    }
+
+    /// `AzOptionFontRefEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionFontRef")]
+    pub struct AzOptionFontRefEnumWrapper {
+        pub inner: AzOptionFontRef,
+    }
+
+    /// `AzOptionSystemClipboardEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionSystemClipboard")]
+    pub struct AzOptionSystemClipboardEnumWrapper {
+        pub inner: AzOptionSystemClipboard,
+    }
+
+    /// `AzOptionFileEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionFile")]
+    pub struct AzOptionFileEnumWrapper {
+        pub inner: AzOptionFile,
+    }
+
+    /// `AzOptionGlEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionGl")]
+    pub struct AzOptionGlEnumWrapper {
+        pub inner: AzOptionGl,
+    }
+
+    /// `AzOptionPercentageValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionPercentageValue")]
+    pub struct AzOptionPercentageValueEnumWrapper {
+        pub inner: AzOptionPercentageValue,
+    }
+
+    /// `AzOptionAngleValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionAngleValue")]
+    pub struct AzOptionAngleValueEnumWrapper {
+        pub inner: AzOptionAngleValue,
+    }
+
+    /// `AzOptionRendererOptionsEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionRendererOptions")]
+    pub struct AzOptionRendererOptionsEnumWrapper {
+        pub inner: AzOptionRendererOptions,
+    }
+
+    /// `AzOptionCallbackEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionCallback")]
+    pub struct AzOptionCallbackEnumWrapper {
+        pub inner: AzOptionCallback,
+    }
+
+    /// `AzOptionThreadSendMsgEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionThreadSendMsg")]
+    pub struct AzOptionThreadSendMsgEnumWrapper {
+        pub inner: AzOptionThreadSendMsg,
+    }
+
+    /// `AzOptionLayoutRectEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionLayoutRect")]
+    pub struct AzOptionLayoutRectEnumWrapper {
+        pub inner: AzOptionLayoutRect,
+    }
+
+    /// `AzOptionRefAnyEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionRefAny")]
+    pub struct AzOptionRefAnyEnumWrapper {
+        pub inner: AzOptionRefAny,
+    }
+
+    /// `AzOptionLayoutPointEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionLayoutPoint")]
+    pub struct AzOptionLayoutPointEnumWrapper {
+        pub inner: AzOptionLayoutPoint,
+    }
+
+    /// `AzOptionLayoutSizeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionLayoutSize")]
+    pub struct AzOptionLayoutSizeEnumWrapper {
+        pub inner: AzOptionLayoutSize,
+    }
+
+    /// `AzOptionWindowThemeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionWindowTheme")]
+    pub struct AzOptionWindowThemeEnumWrapper {
+        pub inner: AzOptionWindowTheme,
+    }
+
+    /// `AzOptionNodeIdEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionNodeId")]
+    pub struct AzOptionNodeIdEnumWrapper {
+        pub inner: AzOptionNodeId,
+    }
+
+    /// `AzOptionDomNodeIdEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionDomNodeId")]
+    pub struct AzOptionDomNodeIdEnumWrapper {
+        pub inner: AzOptionDomNodeId,
+    }
+
+    /// `AzOptionColorUEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionColorU")]
+    pub struct AzOptionColorUEnumWrapper {
+        pub inner: AzOptionColorU,
+    }
+
+    /// `AzOptionSvgDashPatternEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionSvgDashPattern")]
+    pub struct AzOptionSvgDashPatternEnumWrapper {
+        pub inner: AzOptionSvgDashPattern,
+    }
+
+    /// `AzOptionLogicalPositionEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionLogicalPosition")]
+    pub struct AzOptionLogicalPositionEnumWrapper {
+        pub inner: AzOptionLogicalPosition,
+    }
+
+    /// `AzOptionPhysicalPositionI32EnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionPhysicalPositionI32")]
+    pub struct AzOptionPhysicalPositionI32EnumWrapper {
+        pub inner: AzOptionPhysicalPositionI32,
+    }
+
+    /// `AzOptionMouseCursorTypeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionMouseCursorType")]
+    pub struct AzOptionMouseCursorTypeEnumWrapper {
+        pub inner: AzOptionMouseCursorType,
+    }
+
+    /// `AzOptionLogicalSizeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionLogicalSize")]
+    pub struct AzOptionLogicalSizeEnumWrapper {
+        pub inner: AzOptionLogicalSize,
+    }
+
+    /// `AzOptionVirtualKeyCodeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionVirtualKeyCode")]
+    pub struct AzOptionVirtualKeyCodeEnumWrapper {
+        pub inner: AzOptionVirtualKeyCode,
+    }
+
+    /// `AzOptionImageMaskEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionImageMask")]
+    pub struct AzOptionImageMaskEnumWrapper {
+        pub inner: AzOptionImageMask,
+    }
+
+    /// `AzOptionTabIndexEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionTabIndex")]
+    pub struct AzOptionTabIndexEnumWrapper {
+        pub inner: AzOptionTabIndex,
+    }
+
+    /// `AzOptionTagIdEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionTagId")]
+    pub struct AzOptionTagIdEnumWrapper {
+        pub inner: AzOptionTagId,
+    }
+
+    /// `AzOptionDurationEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionDuration")]
+    pub struct AzOptionDurationEnumWrapper {
+        pub inner: AzOptionDuration,
+    }
+
+    /// `AzOptionU8VecEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionU8Vec")]
+    pub struct AzOptionU8VecEnumWrapper {
+        pub inner: AzOptionU8Vec,
+    }
+
+    /// `AzOptionU8VecRefEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionU8VecRef")]
+    pub struct AzOptionU8VecRefEnumWrapper {
+        pub inner: AzOptionU8VecRef,
+    }
+
+    /// `AzResultU8VecEncodeImageErrorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ResultU8VecEncodeImageError")]
+    pub struct AzResultU8VecEncodeImageErrorEnumWrapper {
+        pub inner: AzResultU8VecEncodeImageError,
+    }
+
+    /// `AzWindowIconEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "WindowIcon")]
+    pub struct AzWindowIconEnumWrapper {
+        pub inner: AzWindowIcon,
+    }
+
+    /// `AzAnimationEasingEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "AnimationEasing")]
+    pub struct AzAnimationEasingEnumWrapper {
+        pub inner: AzAnimationEasing,
+    }
+
+    /// `AzEventFilterEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "EventFilter")]
+    pub struct AzEventFilterEnumWrapper {
+        pub inner: AzEventFilter,
+    }
+
+    /// `AzCssPathPseudoSelectorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssPathPseudoSelector")]
+    pub struct AzCssPathPseudoSelectorEnumWrapper {
+        pub inner: AzCssPathPseudoSelector,
+    }
+
+    /// `AzAnimationInterpolationFunctionEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "AnimationInterpolationFunction")]
+    pub struct AzAnimationInterpolationFunctionEnumWrapper {
+        pub inner: AzAnimationInterpolationFunction,
+    }
+
+    /// `AzStyleTransformEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleTransform")]
+    pub struct AzStyleTransformEnumWrapper {
+        pub inner: AzStyleTransform,
+    }
+
+    /// `AzStyleBackgroundPositionVecValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackgroundPositionVecValue")]
+    pub struct AzStyleBackgroundPositionVecValueEnumWrapper {
+        pub inner: AzStyleBackgroundPositionVecValue,
+    }
+
+    /// `AzStyleBackgroundRepeatVecValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackgroundRepeatVecValue")]
+    pub struct AzStyleBackgroundRepeatVecValueEnumWrapper {
+        pub inner: AzStyleBackgroundRepeatVecValue,
+    }
+
+    /// `AzStyleBackgroundSizeVecValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackgroundSizeVecValue")]
+    pub struct AzStyleBackgroundSizeVecValueEnumWrapper {
+        pub inner: AzStyleBackgroundSizeVecValue,
+    }
+
+    /// `AzRawImageDataEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "RawImageData")]
+    pub struct AzRawImageDataEnumWrapper {
+        pub inner: AzRawImageData,
+    }
+
+    /// `AzSvgPathElementEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgPathElement")]
+    pub struct AzSvgPathElementEnumWrapper {
+        pub inner: AzSvgPathElement,
+    }
+
+    /// `AzInstantEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "Instant")]
+    pub struct AzInstantEnumWrapper {
+        pub inner: AzInstant,
+    }
+
+    /// `AzThreadReceiveMsgEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ThreadReceiveMsg")]
+    pub struct AzThreadReceiveMsgEnumWrapper {
+        pub inner: AzThreadReceiveMsg,
+    }
+
+    /// `AzOptionMouseStateEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionMouseState")]
+    pub struct AzOptionMouseStateEnumWrapper {
+        pub inner: AzOptionMouseState,
+    }
+
+    /// `AzOptionKeyboardStateEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionKeyboardState")]
+    pub struct AzOptionKeyboardStateEnumWrapper {
+        pub inner: AzOptionKeyboardState,
+    }
+
+    /// `AzOptionStringVecEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionStringVec")]
+    pub struct AzOptionStringVecEnumWrapper {
+        pub inner: AzOptionStringVec,
+    }
+
+    /// `AzOptionThreadReceiveMsgEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionThreadReceiveMsg")]
+    pub struct AzOptionThreadReceiveMsgEnumWrapper {
+        pub inner: AzOptionThreadReceiveMsg,
+    }
+
+    /// `AzOptionTaskBarIconEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionTaskBarIcon")]
+    pub struct AzOptionTaskBarIconEnumWrapper {
+        pub inner: AzOptionTaskBarIcon,
+    }
+
+    /// `AzOptionWindowIconEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionWindowIcon")]
+    pub struct AzOptionWindowIconEnumWrapper {
+        pub inner: AzOptionWindowIcon,
+    }
+
+    /// `AzOptionStringEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionString")]
+    pub struct AzOptionStringEnumWrapper {
+        pub inner: AzOptionString,
+    }
+
+    /// `AzOptionTextureEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionTexture")]
+    pub struct AzOptionTextureEnumWrapper {
+        pub inner: AzOptionTexture,
+    }
+
+    /// `AzOptionInstantEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionInstant")]
+    pub struct AzOptionInstantEnumWrapper {
+        pub inner: AzOptionInstant,
+    }
+
+    /// `AzInlineWordEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "InlineWord")]
+    pub struct AzInlineWordEnumWrapper {
+        pub inner: AzInlineWord,
+    }
+
+    /// `AzNodeTypeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "NodeType")]
+    pub struct AzNodeTypeEnumWrapper {
+        pub inner: AzNodeType,
+    }
+
+    /// `AzIdOrClassEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "IdOrClass")]
+    pub struct AzIdOrClassEnumWrapper {
+        pub inner: AzIdOrClass,
+    }
+
+    /// `AzCssPathSelectorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssPathSelector")]
+    pub struct AzCssPathSelectorEnumWrapper {
+        pub inner: AzCssPathSelector,
+    }
+
+    /// `AzStyleBackgroundContentEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackgroundContent")]
+    pub struct AzStyleBackgroundContentEnumWrapper {
+        pub inner: AzStyleBackgroundContent,
+    }
+
+    /// `AzStyleFontFamilyEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleFontFamily")]
+    pub struct AzStyleFontFamilyEnumWrapper {
+        pub inner: AzStyleFontFamily,
+    }
+
+    /// `AzScrollbarStyleValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ScrollbarStyleValue")]
+    pub struct AzScrollbarStyleValueEnumWrapper {
+        pub inner: AzScrollbarStyleValue,
+    }
+
+    /// `AzStyleTransformVecValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleTransformVecValue")]
+    pub struct AzStyleTransformVecValueEnumWrapper {
+        pub inner: AzStyleTransformVecValue,
+    }
+
+    /// `AzSvgStyleEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgStyle")]
+    pub struct AzSvgStyleEnumWrapper {
+        pub inner: AzSvgStyle,
+    }
+
+    /// `AzFmtValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FmtValue")]
+    pub struct AzFmtValueEnumWrapper {
+        pub inner: AzFmtValue,
+    }
+
+    /// `AzOptionFileTypeListEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionFileTypeList")]
+    pub struct AzOptionFileTypeListEnumWrapper {
+        pub inner: AzOptionFileTypeList,
+    }
+
+    /// `AzOptionRawImageEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionRawImage")]
+    pub struct AzOptionRawImageEnumWrapper {
+        pub inner: AzOptionRawImage,
+    }
+
+    /// `AzOptionWaylandThemeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionWaylandTheme")]
+    pub struct AzOptionWaylandThemeEnumWrapper {
+        pub inner: AzOptionWaylandTheme,
+    }
+
+    /// `AzResultRawImageDecodeImageErrorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ResultRawImageDecodeImageError")]
+    pub struct AzResultRawImageDecodeImageErrorEnumWrapper {
+        pub inner: AzResultRawImageDecodeImageError,
+    }
+
+    /// `AzXmlStreamErrorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "XmlStreamError")]
+    pub struct AzXmlStreamErrorEnumWrapper {
+        pub inner: AzXmlStreamError,
+    }
+
+    /// `AzStyleBackgroundContentVecValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleBackgroundContentVecValue")]
+    pub struct AzStyleBackgroundContentVecValueEnumWrapper {
+        pub inner: AzStyleBackgroundContentVecValue,
+    }
+
+    /// `AzStyleFontFamilyVecValueEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "StyleFontFamilyVecValue")]
+    pub struct AzStyleFontFamilyVecValueEnumWrapper {
+        pub inner: AzStyleFontFamilyVecValue,
+    }
+
+    /// `AzCssPropertyEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssProperty")]
+    pub struct AzCssPropertyEnumWrapper {
+        pub inner: AzCssProperty,
+    }
+
+    /// `AzCssPropertySourceEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssPropertySource")]
+    pub struct AzCssPropertySourceEnumWrapper {
+        pub inner: AzCssPropertySource,
+    }
+
+    /// `AzOptionCssPropertyEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionCssProperty")]
+    pub struct AzOptionCssPropertyEnumWrapper {
+        pub inner: AzOptionCssProperty,
+    }
+
+    /// `AzNodeDataInlineCssPropertyEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "NodeDataInlineCssProperty")]
+    pub struct AzNodeDataInlineCssPropertyEnumWrapper {
+        pub inner: AzNodeDataInlineCssProperty,
+    }
+
+    /// `AzSvgNodeEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgNode")]
+    pub struct AzSvgNodeEnumWrapper {
+        pub inner: AzSvgNode,
+    }
+
+    /// `AzOptionWindowStateEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionWindowState")]
+    pub struct AzOptionWindowStateEnumWrapper {
+        pub inner: AzOptionWindowState,
+    }
+
+    /// `AzOptionInlineTextEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionInlineText")]
+    pub struct AzOptionInlineTextEnumWrapper {
+        pub inner: AzOptionInlineText,
+    }
+
+    /// `AzXmlParseErrorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "XmlParseError")]
+    pub struct AzXmlParseErrorEnumWrapper {
+        pub inner: AzXmlParseError,
+    }
+
+    /// `AzFocusTargetEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "FocusTarget")]
+    pub struct AzFocusTargetEnumWrapper {
+        pub inner: AzFocusTarget,
+    }
+
+    /// `AzCssDeclarationEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "CssDeclaration")]
+    pub struct AzCssDeclarationEnumWrapper {
+        pub inner: AzCssDeclaration,
+    }
+
+    /// `AzXmlErrorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "XmlError")]
+    pub struct AzXmlErrorEnumWrapper {
+        pub inner: AzXmlError,
+    }
+
+    /// `AzOptionDomEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "OptionDom")]
+    pub struct AzOptionDomEnumWrapper {
+        pub inner: AzOptionDom,
+    }
+
+    /// `AzResultXmlXmlErrorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ResultXmlXmlError")]
+    pub struct AzResultXmlXmlErrorEnumWrapper {
+        pub inner: AzResultXmlXmlError,
+    }
+
+    /// `AzSvgParseErrorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "SvgParseError")]
+    pub struct AzSvgParseErrorEnumWrapper {
+        pub inner: AzSvgParseError,
+    }
+
+    /// `AzResultSvgXmlNodeSvgParseErrorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ResultSvgXmlNodeSvgParseError")]
+    pub struct AzResultSvgXmlNodeSvgParseErrorEnumWrapper {
+        pub inner: AzResultSvgXmlNodeSvgParseError,
+    }
+
+    /// `AzResultSvgSvgParseErrorEnumWrapper` struct
+    #[repr(transparent)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+#[pyclass(name = "ResultSvgSvgParseError")]
+    pub struct AzResultSvgSvgParseErrorEnumWrapper {
+        pub inner: AzResultSvgSvgParseError,
+    }
+
     #[cfg_attr(target_os = "windows", link(name="azul.dll"))] // https://github.com/rust-lang/cargo/issues/9082
     #[cfg_attr(not(target_os = "windows"), link(name="azul"))] // https://github.com/rust-lang/cargo/issues/9082
     extern "C" {

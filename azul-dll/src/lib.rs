@@ -5,6 +5,9 @@
 #![cfg_attr(feature ="rlib", crate_type = "rlib")]
 #![deny(improper_ctypes_definitions)]
 
+#[cfg(all(feature = "python3", feature = "cdylib"))]
+pub mod python;
+
 extern crate azul_core;
 
 #[cfg(target_arch = "wasm32")]
@@ -3480,11 +3483,14 @@ mod test_sizes {
     impl ::std::fmt::Debug for AzParentWithNodeDepthVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzParentWithNodeDepthVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     impl ::std::fmt::Debug for AzNodeDataVecDestructor { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { use AzNodeDataVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     /// Main application class
-    #[repr(C)]     pub struct AzApp {
+    #[repr(C)]
+    pub struct AzApp {
         pub(crate) ptr: *const c_void,
     }
+
     /// Configuration to set which messages should be logged.
-    #[repr(C)]     pub enum AzAppLogLevel {
+    #[repr(C)]
+    pub enum AzAppLogLevel {
         Off,
         Error,
         Warn,
@@ -3492,76 +3498,106 @@ mod test_sizes {
         Debug,
         Trace,
     }
+
     /// Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.
-    #[repr(C)]     pub enum AzLayoutSolverVersion {
+    #[repr(C)]
+    pub enum AzLayoutSolverVersion {
         March2021,
     }
+
     /// Whether the renderer has VSync enabled
-    #[repr(C)]     pub enum AzVsync {
+    #[repr(C)]
+    pub enum AzVsync {
         Enabled,
         Disabled,
     }
+
     /// Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
-    #[repr(C)]     pub enum AzSrgb {
+    #[repr(C)]
+    pub enum AzSrgb {
         Enabled,
         Disabled,
     }
+
     /// Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
-    #[repr(C)]     pub enum AzHwAcceleration {
+    #[repr(C)]
+    pub enum AzHwAcceleration {
         Enabled,
         Disabled,
     }
+
     /// Offset in physical pixels (integer units)
-    #[repr(C)]     pub struct AzLayoutPoint {
+    #[repr(C)]
+    pub struct AzLayoutPoint {
         pub x: isize,
         pub y: isize,
     }
+
     /// Size in physical pixels (integer units)
-    #[repr(C)]     pub struct AzLayoutSize {
+    #[repr(C)]
+    pub struct AzLayoutSize {
         pub width: isize,
         pub height: isize,
     }
+
     /// Re-export of rust-allocated (stack based) `IOSHandle` struct
-    #[repr(C)]     pub struct AzIOSHandle {
+    #[repr(C)]
+    pub struct AzIOSHandle {
         pub ui_window: *mut c_void,
         pub ui_view: *mut c_void,
         pub ui_view_controller: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `MacOSHandle` struct
-    #[repr(C)]     pub struct AzMacOSHandle {
+    #[repr(C)]
+    pub struct AzMacOSHandle {
         pub ns_window: *mut c_void,
         pub ns_view: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `XlibHandle` struct
-    #[repr(C)]     pub struct AzXlibHandle {
+    #[repr(C)]
+    pub struct AzXlibHandle {
         pub window: u64,
         pub display: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `XcbHandle` struct
-    #[repr(C)]     pub struct AzXcbHandle {
+    #[repr(C)]
+    pub struct AzXcbHandle {
         pub window: u32,
         pub connection: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `WaylandHandle` struct
-    #[repr(C)]     pub struct AzWaylandHandle {
+    #[repr(C)]
+    pub struct AzWaylandHandle {
         pub surface: *mut c_void,
         pub display: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `WindowsHandle` struct
-    #[repr(C)]     pub struct AzWindowsHandle {
+    #[repr(C)]
+    pub struct AzWindowsHandle {
         pub hwnd: *mut c_void,
         pub hinstance: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `WebHandle` struct
-    #[repr(C)]     pub struct AzWebHandle {
+    #[repr(C)]
+    pub struct AzWebHandle {
         pub id: u32,
     }
+
     /// Re-export of rust-allocated (stack based) `AndroidHandle` struct
-    #[repr(C)]     pub struct AzAndroidHandle {
+    #[repr(C)]
+    pub struct AzAndroidHandle {
         pub a_native_window: *mut c_void,
     }
+
     /// X11 window hint: Type of window
-    #[repr(C)]     pub enum AzXWindowType {
+    #[repr(C)]
+    pub enum AzXWindowType {
         Desktop,
         Dock,
         Toolbar,
@@ -3577,32 +3613,44 @@ mod test_sizes {
         Dnd,
         Normal,
     }
+
     /// Same as `LayoutPoint`, but uses `i32` instead of `isize`
-    #[repr(C)]     pub struct AzPhysicalPositionI32 {
+    #[repr(C)]
+    pub struct AzPhysicalPositionI32 {
         pub x: i32,
         pub y: i32,
     }
+
     /// Same as `LayoutPoint`, but uses `u32` instead of `isize`
-    #[repr(C)]     pub struct AzPhysicalSizeU32 {
+    #[repr(C)]
+    pub struct AzPhysicalSizeU32 {
         pub width: u32,
         pub height: u32,
     }
+
     /// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
-    #[repr(C)]     pub struct AzLogicalPosition {
+    #[repr(C)]
+    pub struct AzLogicalPosition {
         pub x: f32,
         pub y: f32,
     }
+
     /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
-    #[repr(C)]     pub struct AzLogicalSize {
+    #[repr(C)]
+    pub struct AzLogicalSize {
         pub width: f32,
         pub height: f32,
     }
+
     /// Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.
-    #[repr(C)]     pub struct AzIconKey {
+    #[repr(C)]
+    pub struct AzIconKey {
         pub id: usize,
     }
+
     /// Symbolic name for a keyboard key, does **not** take the keyboard locale into account
-    #[repr(C)]     pub enum AzVirtualKeyCode {
+    #[repr(C)]
+    pub enum AzVirtualKeyCode {
         Key1,
         Key2,
         Key3,
@@ -3767,8 +3815,10 @@ mod test_sizes {
         Paste,
         Cut,
     }
+
     /// Boolean flags relating to the current window state
-    #[repr(C)]     pub struct AzWindowFlags {
+    #[repr(C)]
+    pub struct AzWindowFlags {
         pub is_maximized: bool,
         pub is_minimized: bool,
         pub is_about_to_close: bool,
@@ -3781,8 +3831,10 @@ mod test_sizes {
         pub has_extended_window_frame: bool,
         pub has_blur_behind_window: bool,
     }
+
     /// Debugging information, will be rendered as an overlay on top of the UI
-    #[repr(C)]     pub struct AzDebugState {
+    #[repr(C)]
+    pub struct AzDebugState {
         pub profiler_dbg: bool,
         pub render_target_dbg: bool,
         pub texture_cache_dbg: bool,
@@ -3811,8 +3863,10 @@ mod test_sizes {
         pub profiler_capture: bool,
         pub force_picture_invalidation: bool,
     }
+
     /// Current icon of the mouse cursor
-    #[repr(C)]     pub enum AzMouseCursorType {
+    #[repr(C)]
+    pub enum AzMouseCursorType {
         Default,
         Crosshair,
         Hand,
@@ -3849,117 +3903,167 @@ mod test_sizes {
         ColResize,
         RowResize,
     }
+
     /// Renderer type of the current windows OpenGL context
-    #[repr(C)]     pub enum AzRendererType {
+    #[repr(C)]
+    pub enum AzRendererType {
         Hardware,
         Software,
     }
+
     /// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
-    #[repr(C)]     pub struct AzMacWindowOptions {
+    #[repr(C)]
+    pub struct AzMacWindowOptions {
         pub _reserved: u8,
     }
+
     /// Re-export of rust-allocated (stack based) `WasmWindowOptions` struct
-    #[repr(C)]     pub struct AzWasmWindowOptions {
+    #[repr(C)]
+    pub struct AzWasmWindowOptions {
         pub _reserved: u8,
     }
+
     /// Re-export of rust-allocated (stack based) `FullScreenMode` struct
-    #[repr(C)]     pub enum AzFullScreenMode {
+    #[repr(C)]
+    pub enum AzFullScreenMode {
         SlowFullScreen,
         FastFullScreen,
         SlowWindowed,
         FastWindowed,
     }
+
     /// Window theme, set by the operating system or `WindowCreateOptions.theme` on startup
-    #[repr(C)]     pub enum AzWindowTheme {
+    #[repr(C)]
+    pub enum AzWindowTheme {
         DarkMode,
         LightMode,
     }
+
     /// Current state of touch devices / touch inputs
-    #[repr(C)]     pub struct AzTouchState {
+    #[repr(C)]
+    pub struct AzTouchState {
         pub unused: u8,
     }
+
     /// C-ABI stable wrapper over a `LayoutCallbackType`
-    #[repr(C)]     pub struct AzLayoutCallback {
+    #[repr(C)]
+    pub struct AzLayoutCallback {
         pub cb: AzLayoutCallbackType,
     }
+
     /// `AzLayoutCallbackType` struct
     pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutCallbackInfo) -> AzStyledDom;
+
     /// C-ABI stable wrapper over a `CallbackType`
-    #[repr(C)]     pub struct AzCallback {
+    #[repr(C)]
+    pub struct AzCallback {
         pub cb: AzCallbackType,
     }
+
     /// `AzCallbackType` struct
     pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
+
     /// Specifies if the screen should be updated after the callback function has returned
-    #[repr(C)]     pub enum AzUpdateScreen {
+    #[repr(C)]
+    pub enum AzUpdateScreen {
         DoNothing,
         RegenerateStyledDomForCurrentWindow,
         RegenerateStyledDomForAllWindows,
     }
+
     /// Index of a Node in the internal `NodeDataContainer`
-    #[repr(C)]     pub struct AzNodeId {
+    #[repr(C)]
+    pub struct AzNodeId {
         pub inner: usize,
     }
+
     /// ID of a DOM - one window can contain multiple, nested DOMs (such as iframes)
-    #[repr(C)]     pub struct AzDomId {
+    #[repr(C)]
+    pub struct AzDomId {
         pub inner: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `PositionInfoInner` struct
-    #[repr(C)]     pub struct AzPositionInfoInner {
+    #[repr(C)]
+    pub struct AzPositionInfoInner {
         pub x_offset: f32,
         pub y_offset: f32,
         pub static_x_offset: f32,
         pub static_y_offset: f32,
     }
+
     /// How should an animation repeat (loop, ping-pong, etc.)
-    #[repr(C)]     pub enum AzAnimationRepeat {
+    #[repr(C)]
+    pub enum AzAnimationRepeat {
         NoRepeat,
         Loop,
         PingPong,
     }
+
     /// How many times should an animation repeat
-    #[repr(C, u8)]     pub enum AzAnimationRepeatCount {
+    #[repr(C, u8)]
+    pub enum AzAnimationRepeatCount {
         Times(usize),
         Infinite,
     }
+
     /// C-ABI wrapper over an `IFrameCallbackType`
-    #[repr(C)]     pub struct AzIFrameCallback {
+    #[repr(C)]
+    pub struct AzIFrameCallback {
         pub cb: AzIFrameCallbackType,
     }
+
     /// `AzIFrameCallbackType` struct
     pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
+
     /// Re-export of rust-allocated (stack based) `RenderImageCallback` struct
-    #[repr(C)]     pub struct AzRenderImageCallback {
+    #[repr(C)]
+    pub struct AzRenderImageCallback {
         pub cb: AzRenderImageCallbackType,
     }
+
     /// `AzRenderImageCallbackType` struct
     pub type AzRenderImageCallbackType = extern "C" fn(&mut AzRefAny, AzRenderImageCallbackInfo) -> AzImageRef;
+
     /// Re-export of rust-allocated (stack based) `TimerCallback` struct
-    #[repr(C)]     pub struct AzTimerCallback {
+    #[repr(C)]
+    pub struct AzTimerCallback {
         pub cb: AzTimerCallbackType,
     }
+
     /// `AzTimerCallbackType` struct
     pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzTimerCallbackInfo) -> AzTimerCallbackReturn;
+
     /// `AzWriteBackCallbackType` struct
     pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
+
     /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
-    #[repr(C)]     pub struct AzWriteBackCallback {
+    #[repr(C)]
+    pub struct AzWriteBackCallback {
         pub cb: AzWriteBackCallbackType,
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadCallback` struct
-    #[repr(C)]     pub struct AzThreadCallback {
+    #[repr(C)]
+    pub struct AzThreadCallback {
         pub cb: AzThreadCallbackType,
     }
+
     /// `AzThreadCallbackType` struct
     pub type AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver);
+
     /// `AzRefAnyDestructorType` struct
     pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
+
     /// Re-export of rust-allocated (stack based) `RefCount` struct
-    #[repr(C)]     pub struct AzRefCount {
+    #[repr(C)]
+    pub struct AzRefCount {
         pub(crate) ptr: *const c_void,
     }
+
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
-    #[repr(C)]     pub enum AzOn {
+    #[repr(C)]
+    pub enum AzOn {
         MouseOver,
         MouseDown,
         LeftMouseDown,
@@ -3981,8 +4085,10 @@ mod test_sizes {
         FocusReceived,
         FocusLost,
     }
+
     /// Re-export of rust-allocated (stack based) `HoverEventFilter` struct
-    #[repr(C)]     pub enum AzHoverEventFilter {
+    #[repr(C)]
+    pub enum AzHoverEventFilter {
         MouseOver,
         MouseDown,
         LeftMouseDown,
@@ -4008,8 +4114,10 @@ mod test_sizes {
         TouchEnd,
         TouchCancel,
     }
+
     /// Re-export of rust-allocated (stack based) `FocusEventFilter` struct
-    #[repr(C)]     pub enum AzFocusEventFilter {
+    #[repr(C)]
+    pub enum AzFocusEventFilter {
         MouseOver,
         MouseDown,
         LeftMouseDown,
@@ -4030,8 +4138,10 @@ mod test_sizes {
         FocusReceived,
         FocusLost,
     }
+
     /// Re-export of rust-allocated (stack based) `WindowEventFilter` struct
-    #[repr(C)]     pub enum AzWindowEventFilter {
+    #[repr(C)]
+    pub enum AzWindowEventFilter {
         MouseOver,
         MouseDown,
         LeftMouseDown,
@@ -4063,25 +4173,33 @@ mod test_sizes {
         CloseRequested,
         ThemeChanged,
     }
+
     /// Re-export of rust-allocated (stack based) `ComponentEventFilter` struct
-    #[repr(C)]     pub enum AzComponentEventFilter {
+    #[repr(C)]
+    pub enum AzComponentEventFilter {
         AfterMount,
         BeforeUnmount,
         NodeResized,
     }
+
     /// Re-export of rust-allocated (stack based) `ApplicationEventFilter` struct
-    #[repr(C)]     pub enum AzApplicationEventFilter {
+    #[repr(C)]
+    pub enum AzApplicationEventFilter {
         DeviceConnected,
         DeviceDisconnected,
     }
+
     /// Re-export of rust-allocated (stack based) `TabIndex` struct
-    #[repr(C, u8)]     pub enum AzTabIndex {
+    #[repr(C, u8)]
+    pub enum AzTabIndex {
         Auto,
         OverrideInParent(u32),
         NoKeyboardFocus,
     }
+
     /// Re-export of rust-allocated (stack based) `NodeTypeKey` struct
-    #[repr(C)]     pub enum AzNodeTypeKey {
+    #[repr(C)]
+    pub enum AzNodeTypeKey {
         Body,
         Div,
         Br,
@@ -4089,13 +4207,17 @@ mod test_sizes {
         Img,
         IFrame,
     }
+
     /// Re-export of rust-allocated (stack based) `CssNthChildPattern` struct
-    #[repr(C)]     pub struct AzCssNthChildPattern {
+    #[repr(C)]
+    pub struct AzCssNthChildPattern {
         pub repeat: u32,
         pub offset: u32,
     }
+
     /// Re-export of rust-allocated (stack based) `CssPropertyType` struct
-    #[repr(C)]     pub enum AzCssPropertyType {
+    #[repr(C)]
+    pub enum AzCssPropertyType {
         TextColor,
         FontSize,
         FontFamily,
@@ -4169,31 +4291,41 @@ mod test_sizes {
         TransformOrigin,
         BackfaceVisibility,
     }
+
     /// Re-export of rust-allocated (stack based) `ColorU` struct
-    #[repr(C)]     pub struct AzColorU {
+    #[repr(C)]
+    pub struct AzColorU {
         pub r: u8,
         pub g: u8,
         pub b: u8,
         pub a: u8,
     }
+
     /// Re-export of rust-allocated (stack based) `SizeMetric` struct
-    #[repr(C)]     pub enum AzSizeMetric {
+    #[repr(C)]
+    pub enum AzSizeMetric {
         Px,
         Pt,
         Em,
         Percent,
     }
+
     /// Re-export of rust-allocated (stack based) `FloatValue` struct
-    #[repr(C)]     pub struct AzFloatValue {
+    #[repr(C)]
+    pub struct AzFloatValue {
         pub number: isize,
     }
+
     /// Re-export of rust-allocated (stack based) `BoxShadowClipMode` struct
-    #[repr(C)]     pub enum AzBoxShadowClipMode {
+    #[repr(C)]
+    pub enum AzBoxShadowClipMode {
         Outset,
         Inset,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutAlignContent` struct
-    #[repr(C)]     pub enum AzLayoutAlignContent {
+    #[repr(C)]
+    pub enum AzLayoutAlignContent {
         Stretch,
         Center,
         Start,
@@ -4201,39 +4333,51 @@ mod test_sizes {
         SpaceBetween,
         SpaceAround,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutAlignItems` struct
-    #[repr(C)]     pub enum AzLayoutAlignItems {
+    #[repr(C)]
+    pub enum AzLayoutAlignItems {
         Stretch,
         Center,
         FlexStart,
         FlexEnd,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBoxSizing` struct
-    #[repr(C)]     pub enum AzLayoutBoxSizing {
+    #[repr(C)]
+    pub enum AzLayoutBoxSizing {
         ContentBox,
         BorderBox,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexDirection` struct
-    #[repr(C)]     pub enum AzLayoutFlexDirection {
+    #[repr(C)]
+    pub enum AzLayoutFlexDirection {
         Row,
         RowReverse,
         Column,
         ColumnReverse,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutDisplay` struct
-    #[repr(C)]     pub enum AzLayoutDisplay {
+    #[repr(C)]
+    pub enum AzLayoutDisplay {
         None,
         Flex,
         Block,
         InlineBlock,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFloat` struct
-    #[repr(C)]     pub enum AzLayoutFloat {
+    #[repr(C)]
+    pub enum AzLayoutFloat {
         Left,
         Right,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutJustifyContent` struct
-    #[repr(C)]     pub enum AzLayoutJustifyContent {
+    #[repr(C)]
+    pub enum AzLayoutJustifyContent {
         Start,
         End,
         Center,
@@ -4241,35 +4385,45 @@ mod test_sizes {
         SpaceAround,
         SpaceEvenly,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPosition` struct
-    #[repr(C)]     pub enum AzLayoutPosition {
+    #[repr(C)]
+    pub enum AzLayoutPosition {
         Static,
         Relative,
         Absolute,
         Fixed,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexWrap` struct
-    #[repr(C)]     pub enum AzLayoutFlexWrap {
+    #[repr(C)]
+    pub enum AzLayoutFlexWrap {
         Wrap,
         NoWrap,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutOverflow` struct
-    #[repr(C)]     pub enum AzLayoutOverflow {
+    #[repr(C)]
+    pub enum AzLayoutOverflow {
         Scroll,
         Auto,
         Hidden,
         Visible,
     }
+
     /// Re-export of rust-allocated (stack based) `AngleMetric` struct
-    #[repr(C)]     pub enum AzAngleMetric {
+    #[repr(C)]
+    pub enum AzAngleMetric {
         Degree,
         Radians,
         Grad,
         Turn,
         Percent,
     }
+
     /// Re-export of rust-allocated (stack based) `DirectionCorner` struct
-    #[repr(C)]     pub enum AzDirectionCorner {
+    #[repr(C)]
+    pub enum AzDirectionCorner {
         Right,
         Left,
         Top,
@@ -4279,32 +4433,42 @@ mod test_sizes {
         BottomRight,
         BottomLeft,
     }
+
     /// Re-export of rust-allocated (stack based) `ExtendMode` struct
-    #[repr(C)]     pub enum AzExtendMode {
+    #[repr(C)]
+    pub enum AzExtendMode {
         Clamp,
         Repeat,
     }
+
     /// Re-export of rust-allocated (stack based) `Shape` struct
-    #[repr(C)]     pub enum AzShape {
+    #[repr(C)]
+    pub enum AzShape {
         Ellipse,
         Circle,
     }
+
     /// Re-export of rust-allocated (stack based) `RadialGradientSize` struct
-    #[repr(C)]     pub enum AzRadialGradientSize {
+    #[repr(C)]
+    pub enum AzRadialGradientSize {
         ClosestSide,
         ClosestCorner,
         FarthestSide,
         FarthestCorner,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeat` struct
-    #[repr(C)]     pub enum AzStyleBackgroundRepeat {
+    #[repr(C)]
+    pub enum AzStyleBackgroundRepeat {
         NoRepeat,
         Repeat,
         RepeatX,
         RepeatY,
     }
+
     /// Re-export of rust-allocated (stack based) `BorderStyle` struct
-    #[repr(C)]     pub enum AzBorderStyle {
+    #[repr(C)]
+    pub enum AzBorderStyle {
         None,
         Solid,
         Double,
@@ -4316,8 +4480,10 @@ mod test_sizes {
         Inset,
         Outset,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleCursor` struct
-    #[repr(C)]     pub enum AzStyleCursor {
+    #[repr(C)]
+    pub enum AzStyleCursor {
         Alias,
         AllScroll,
         Cell,
@@ -4349,60 +4515,80 @@ mod test_sizes {
         ZoomIn,
         ZoomOut,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackfaceVisibility` struct
-    #[repr(C)]     pub enum AzStyleBackfaceVisibility {
+    #[repr(C)]
+    pub enum AzStyleBackfaceVisibility {
         Hidden,
         Visible,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTextAlign` struct
-    #[repr(C)]     pub enum AzStyleTextAlign {
+    #[repr(C)]
+    pub enum AzStyleTextAlign {
         Left,
         Center,
         Right,
     }
+
     /// Re-export of rust-allocated (stack based) `Node` struct
-    #[repr(C)]     pub struct AzNode {
+    #[repr(C)]
+    pub struct AzNode {
         pub parent: usize,
         pub previous_sibling: usize,
         pub next_sibling: usize,
         pub last_child: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `CascadeInfo` struct
-    #[repr(C)]     pub struct AzCascadeInfo {
+    #[repr(C)]
+    pub struct AzCascadeInfo {
         pub index_in_parent: u32,
         pub is_last_child: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `StyledNodeState` struct
-    #[repr(C)]     pub struct AzStyledNodeState {
+    #[repr(C)]
+    pub struct AzStyledNodeState {
         pub normal: bool,
         pub hover: bool,
         pub active: bool,
         pub focused: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `TagId` struct
-    #[repr(C)]     pub struct AzTagId {
+    #[repr(C)]
+    pub struct AzTagId {
         pub inner: u64,
     }
+
     /// Re-export of rust-allocated (stack based) `CssPropertyCache` struct
-    #[repr(C)]     pub struct AzCssPropertyCache {
+    #[repr(C)]
+    pub struct AzCssPropertyCache {
         pub(crate) ptr: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
-    #[repr(C)]     pub struct AzGlShaderPrecisionFormatReturn {
+    #[repr(C)]
+    pub struct AzGlShaderPrecisionFormatReturn {
         pub _0: i32,
         pub _1: i32,
         pub _2: i32,
     }
+
     /// Re-export of rust-allocated (stack based) `VertexAttributeType` struct
-    #[repr(C)]     pub enum AzVertexAttributeType {
+    #[repr(C)]
+    pub enum AzVertexAttributeType {
         Float,
         Double,
         UnsignedByte,
         UnsignedShort,
         UnsignedInt,
     }
+
     /// Re-export of rust-allocated (stack based) `IndexBufferFormat` struct
-    #[repr(C)]     pub enum AzIndexBufferFormat {
+    #[repr(C)]
+    pub enum AzIndexBufferFormat {
         Points,
         Lines,
         LineStrip,
@@ -4410,82 +4596,114 @@ mod test_sizes {
         TriangleStrip,
         TriangleFan,
     }
+
     /// Re-export of rust-allocated (stack based) `GlType` struct
-    #[repr(C)]     pub enum AzGlType {
+    #[repr(C)]
+    pub enum AzGlType {
         Gl,
         Gles,
     }
+
     /// C-ABI stable reexport of `&[u8]`
-    #[repr(C)]     pub struct AzU8VecRef {
+    #[repr(C)]
+    pub struct AzU8VecRef {
         pub(crate) ptr: *const u8,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&mut [u8]`
-    #[repr(C)]     pub struct AzU8VecRefMut {
+    #[repr(C)]
+    pub struct AzU8VecRefMut {
         pub(crate) ptr: *mut u8,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&[f32]`
-    #[repr(C)]     pub struct AzF32VecRef {
+    #[repr(C)]
+    pub struct AzF32VecRef {
         pub(crate) ptr: *const f32,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&[i32]`
-    #[repr(C)]     pub struct AzI32VecRef {
+    #[repr(C)]
+    pub struct AzI32VecRef {
         pub(crate) ptr: *const i32,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
-    #[repr(C)]     pub struct AzGLuintVecRef {
+    #[repr(C)]
+    pub struct AzGLuintVecRef {
         pub(crate) ptr: *const u32,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
-    #[repr(C)]     pub struct AzGLenumVecRef {
+    #[repr(C)]
+    pub struct AzGLenumVecRef {
         pub(crate) ptr: *const u32,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
-    #[repr(C)]     pub struct AzGLintVecRefMut {
+    #[repr(C)]
+    pub struct AzGLintVecRefMut {
         pub(crate) ptr: *mut i32,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
-    #[repr(C)]     pub struct AzGLint64VecRefMut {
+    #[repr(C)]
+    pub struct AzGLint64VecRefMut {
         pub(crate) ptr: *mut i64,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
-    #[repr(C)]     pub struct AzGLbooleanVecRefMut {
+    #[repr(C)]
+    pub struct AzGLbooleanVecRefMut {
         pub(crate) ptr: *mut u8,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
-    #[repr(C)]     pub struct AzGLfloatVecRefMut {
+    #[repr(C)]
+    pub struct AzGLfloatVecRefMut {
         pub(crate) ptr: *mut f32,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `&str`
-    #[repr(C)]     pub struct AzRefstr {
+    #[repr(C)]
+    pub struct AzRefstr {
         pub(crate) ptr: *const u8,
         pub len: usize,
     }
+
     /// C-ABI stable reexport of `*const gleam::gl::GLsync`
-    #[repr(C)]     pub struct AzGLsyncPtr {
+    #[repr(C)]
+    pub struct AzGLsyncPtr {
         pub(crate) ptr: *const c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `TextureFlags` struct
-    #[repr(C)]     pub struct AzTextureFlags {
+    #[repr(C)]
+    pub struct AzTextureFlags {
         pub is_opaque: bool,
         pub is_video_texture: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `ImageRef` struct
-    #[repr(C)]     pub struct AzImageRef {
+    #[repr(C)]
+    pub struct AzImageRef {
         pub data: *const c_void,
         pub copies: *const c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
-    #[repr(C)]     pub enum AzRawImageFormat {
+    #[repr(C)]
+    pub enum AzRawImageFormat {
         R8,
         R16,
         RG16,
@@ -4495,48 +4713,65 @@ mod test_sizes {
         RGBAI32,
         RGBA8,
     }
+
     /// Re-export of rust-allocated (stack based) `EncodeImageError` struct
-    #[repr(C)]     pub enum AzEncodeImageError {
+    #[repr(C)]
+    pub enum AzEncodeImageError {
         InsufficientMemory,
         DimensionError,
         InvalidData,
         Unknown,
     }
+
     /// Re-export of rust-allocated (stack based) `DecodeImageError` struct
-    #[repr(C)]     pub enum AzDecodeImageError {
+    #[repr(C)]
+    pub enum AzDecodeImageError {
         InsufficientMemory,
         DimensionError,
         UnsupportedImageFormat,
         Unknown,
     }
+
     /// `AzParsedFontDestructorFnType` struct
     pub type AzParsedFontDestructorFnType = extern "C" fn(&mut c_void);
+
     /// Atomically reference-counted parsed font data
-    #[repr(C)]     pub struct AzFontRef {
+    #[repr(C)]
+    pub struct AzFontRef {
         pub data: *const c_void,
         pub copies: *const c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `Svg` struct
-    #[repr(C)]     pub struct AzSvg {
+    #[repr(C)]
+    pub struct AzSvg {
         pub(crate) ptr: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
-    #[repr(C)]     pub struct AzSvgXmlNode {
+    #[repr(C)]
+    pub struct AzSvgXmlNode {
         pub(crate) ptr: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgCircle` struct
-    #[repr(C)]     pub struct AzSvgCircle {
+    #[repr(C)]
+    pub struct AzSvgCircle {
         pub center_x: f32,
         pub center_y: f32,
         pub radius: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgPoint` struct
-    #[repr(C)]     pub struct AzSvgPoint {
+    #[repr(C)]
+    pub struct AzSvgPoint {
         pub x: f32,
         pub y: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgRect` struct
-    #[repr(C)]     pub struct AzSvgRect {
+    #[repr(C)]
+    pub struct AzSvgRect {
         pub width: f32,
         pub height: f32,
         pub x: f32,
@@ -4546,53 +4781,71 @@ mod test_sizes {
         pub radius_bottom_left: f32,
         pub radius_bottom_right: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgVertex` struct
-    #[repr(C)]     pub struct AzSvgVertex {
+    #[repr(C)]
+    pub struct AzSvgVertex {
         pub x: f32,
         pub y: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `ShapeRendering` struct
-    #[repr(C)]     pub enum AzShapeRendering {
+    #[repr(C)]
+    pub enum AzShapeRendering {
         OptimizeSpeed,
         CrispEdges,
         GeometricPrecision,
     }
+
     /// Re-export of rust-allocated (stack based) `TextRendering` struct
-    #[repr(C)]     pub enum AzTextRendering {
+    #[repr(C)]
+    pub enum AzTextRendering {
         OptimizeSpeed,
         OptimizeLegibility,
         GeometricPrecision,
     }
+
     /// Re-export of rust-allocated (stack based) `ImageRendering` struct
-    #[repr(C)]     pub enum AzImageRendering {
+    #[repr(C)]
+    pub enum AzImageRendering {
         OptimizeQuality,
         OptimizeSpeed,
     }
+
     /// Re-export of rust-allocated (stack based) `FontDatabase` struct
-    #[repr(C)]     pub enum AzFontDatabase {
+    #[repr(C)]
+    pub enum AzFontDatabase {
         Empty,
         System,
     }
+
     /// Re-export of rust-allocated (stack based) `Indent` struct
-    #[repr(C, u8)]     pub enum AzIndent {
+    #[repr(C, u8)]
+    pub enum AzIndent {
         None,
         Spaces(u8),
         Tabs,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgFitTo` struct
-    #[repr(C, u8)]     pub enum AzSvgFitTo {
+    #[repr(C, u8)]
+    pub enum AzSvgFitTo {
         Original,
         Width(u32),
         Height(u32),
         Zoom(f32),
     }
+
     /// Re-export of rust-allocated (stack based) `SvgFillRule` struct
-    #[repr(C)]     pub enum AzSvgFillRule {
+    #[repr(C)]
+    pub enum AzSvgFillRule {
         Winding,
         EvenOdd,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgTransform` struct
-    #[repr(C)]     pub struct AzSvgTransform {
+    #[repr(C)]
+    pub struct AzSvgTransform {
         pub sx: f32,
         pub kx: f32,
         pub ky: f32,
@@ -4600,21 +4853,27 @@ mod test_sizes {
         pub tx: f32,
         pub ty: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgLineJoin` struct
-    #[repr(C)]     pub enum AzSvgLineJoin {
+    #[repr(C)]
+    pub enum AzSvgLineJoin {
         Miter,
         MiterClip,
         Round,
         Bevel,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgLineCap` struct
-    #[repr(C)]     pub enum AzSvgLineCap {
+    #[repr(C)]
+    pub enum AzSvgLineCap {
         Butt,
         Square,
         Round,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgDashPattern` struct
-    #[repr(C)]     pub struct AzSvgDashPattern {
+    #[repr(C)]
+    pub struct AzSvgDashPattern {
         pub offset: f32,
         pub length_1: f32,
         pub gap_1: f32,
@@ -4623,609 +4882,851 @@ mod test_sizes {
         pub length_3: f32,
         pub gap_3: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `File` struct
-    #[repr(C)]     pub struct AzFile {
+    #[repr(C)]
+    pub struct AzFile {
         pub(crate) ptr: *const c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `MsgBox` struct
-    #[repr(C)]     pub struct AzMsgBox {
+    #[repr(C)]
+    pub struct AzMsgBox {
         pub _reserved: *mut c_void,
     }
+
     /// Type of message box icon
-    #[repr(C)]     pub enum AzMsgBoxIcon {
+    #[repr(C)]
+    pub enum AzMsgBoxIcon {
         Info,
         Warning,
         Error,
         Question,
     }
+
     /// Value returned from a yes / no message box
-    #[repr(C)]     pub enum AzMsgBoxYesNo {
+    #[repr(C)]
+    pub enum AzMsgBoxYesNo {
         Yes,
         No,
     }
+
     /// Value returned from an ok / cancel message box
-    #[repr(C)]     pub enum AzMsgBoxOkCancel {
+    #[repr(C)]
+    pub enum AzMsgBoxOkCancel {
         Ok,
         Cancel,
     }
+
     /// File picker dialog
-    #[repr(C)]     pub struct AzFileDialog {
+    #[repr(C)]
+    pub struct AzFileDialog {
         pub _reserved: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `ColorPickerDialog` struct
-    #[repr(C)]     pub struct AzColorPickerDialog {
+    #[repr(C)]
+    pub struct AzColorPickerDialog {
         pub _reserved: *mut c_void,
     }
+
     /// Connection to the system clipboard, on some systems this connection can be cached
-    #[repr(C)]     pub struct AzSystemClipboard {
+    #[repr(C)]
+    pub struct AzSystemClipboard {
         pub _native: *const c_void,
     }
+
     /// `AzInstantPtrCloneFnType` struct
     pub type AzInstantPtrCloneFnType = extern "C" fn(&AzInstantPtr) -> AzInstantPtr;
+
     /// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
-    #[repr(C)]     pub struct AzInstantPtrCloneFn {
+    #[repr(C)]
+    pub struct AzInstantPtrCloneFn {
         pub cb: AzInstantPtrCloneFnType,
     }
+
     /// `AzInstantPtrDestructorFnType` struct
     pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut AzInstantPtr);
+
     /// Re-export of rust-allocated (stack based) `InstantPtrDestructorFn` struct
-    #[repr(C)]     pub struct AzInstantPtrDestructorFn {
+    #[repr(C)]
+    pub struct AzInstantPtrDestructorFn {
         pub cb: AzInstantPtrDestructorFnType,
     }
+
     /// Re-export of rust-allocated (stack based) `SystemTick` struct
-    #[repr(C)]     pub struct AzSystemTick {
+    #[repr(C)]
+    pub struct AzSystemTick {
         pub tick_counter: u64,
     }
+
     /// Re-export of rust-allocated (stack based) `SystemTimeDiff` struct
-    #[repr(C)]     pub struct AzSystemTimeDiff {
+    #[repr(C)]
+    pub struct AzSystemTimeDiff {
         pub secs: u64,
         pub nanos: u32,
     }
+
     /// Re-export of rust-allocated (stack based) `SystemTickDiff` struct
-    #[repr(C)]     pub struct AzSystemTickDiff {
+    #[repr(C)]
+    pub struct AzSystemTickDiff {
         pub tick_diff: u64,
     }
+
     /// Re-export of rust-allocated (stack based) `TimerId` struct
-    #[repr(C)]     pub struct AzTimerId {
+    #[repr(C)]
+    pub struct AzTimerId {
         pub id: usize,
     }
+
     /// Should a timer terminate or not - used to remove active timers
-    #[repr(C)]     pub enum AzTerminateTimer {
+    #[repr(C)]
+    pub enum AzTerminateTimer {
         Terminate,
         Continue,
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadId` struct
-    #[repr(C)]     pub struct AzThreadId {
+    #[repr(C)]
+    pub struct AzThreadId {
         pub id: usize,
     }
+
     /// `AzCreateThreadFnType` struct
     pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallback) -> AzThread;
+
     /// Re-export of rust-allocated (stack based) `CreateThreadFn` struct
-    #[repr(C)]     pub struct AzCreateThreadFn {
+    #[repr(C)]
+    pub struct AzCreateThreadFn {
         pub cb: AzCreateThreadFnType,
     }
+
     /// `AzGetSystemTimeFnType` struct
     pub type AzGetSystemTimeFnType = extern "C" fn() -> AzInstant;
+
     /// Get the current system time, equivalent to `std::time::Instant::now()`, except it also works on systems that work with "ticks" instead of timers
-    #[repr(C)]     pub struct AzGetSystemTimeFn {
+    #[repr(C)]
+    pub struct AzGetSystemTimeFn {
         pub cb: AzGetSystemTimeFnType,
     }
+
     /// `AzCheckThreadFinishedFnType` struct
     pub type AzCheckThreadFinishedFnType = extern "C" fn(&c_void) -> bool;
+
     /// Function called to check if the thread has finished
-    #[repr(C)]     pub struct AzCheckThreadFinishedFn {
+    #[repr(C)]
+    pub struct AzCheckThreadFinishedFn {
         pub cb: AzCheckThreadFinishedFnType,
     }
+
     /// `AzLibrarySendThreadMsgFnType` struct
     pub type AzLibrarySendThreadMsgFnType = extern "C" fn(&c_void, AzThreadSendMsg) -> bool;
+
     /// Function to send a message to the thread
-    #[repr(C)]     pub struct AzLibrarySendThreadMsgFn {
+    #[repr(C)]
+    pub struct AzLibrarySendThreadMsgFn {
         pub cb: AzLibrarySendThreadMsgFnType,
     }
+
     /// `AzLibraryReceiveThreadMsgFnType` struct
     pub type AzLibraryReceiveThreadMsgFnType = extern "C" fn(&c_void) -> AzOptionThreadReceiveMsg;
+
     /// Function to receive a message from the thread
-    #[repr(C)]     pub struct AzLibraryReceiveThreadMsgFn {
+    #[repr(C)]
+    pub struct AzLibraryReceiveThreadMsgFn {
         pub cb: AzLibraryReceiveThreadMsgFnType,
     }
+
     /// `AzThreadRecvFnType` struct
     pub type AzThreadRecvFnType = extern "C" fn(&c_void) -> AzOptionThreadSendMsg;
+
     /// Function that the running `Thread` can call to receive messages from the main UI thread
-    #[repr(C)]     pub struct AzThreadRecvFn {
+    #[repr(C)]
+    pub struct AzThreadRecvFn {
         pub cb: AzThreadRecvFnType,
     }
+
     /// `AzThreadSendFnType` struct
     pub type AzThreadSendFnType = extern "C" fn(&c_void, AzThreadReceiveMsg) -> bool;
+
     /// Function that the running `Thread` can call to receive messages from the main UI thread
-    #[repr(C)]     pub struct AzThreadSendFn {
+    #[repr(C)]
+    pub struct AzThreadSendFn {
         pub cb: AzThreadSendFnType,
     }
+
     /// `AzThreadDestructorFnType` struct
     pub type AzThreadDestructorFnType = extern "C" fn(&mut AzThread);
+
     /// Destructor of the `Thread`
-    #[repr(C)]     pub struct AzThreadDestructorFn {
+    #[repr(C)]
+    pub struct AzThreadDestructorFn {
         pub cb: AzThreadDestructorFnType,
     }
+
     /// `AzThreadReceiverDestructorFnType` struct
     pub type AzThreadReceiverDestructorFnType = extern "C" fn(&mut AzThreadReceiver);
+
     /// Destructor of the `ThreadReceiver`
-    #[repr(C)]     pub struct AzThreadReceiverDestructorFn {
+    #[repr(C)]
+    pub struct AzThreadReceiverDestructorFn {
         pub cb: AzThreadReceiverDestructorFnType,
     }
+
     /// `AzThreadSenderDestructorFnType` struct
     pub type AzThreadSenderDestructorFnType = extern "C" fn(&mut AzThreadSender);
+
     /// Destructor of the `ThreadSender`
-    #[repr(C)]     pub struct AzThreadSenderDestructorFn {
+    #[repr(C)]
+    pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleFontFamilyVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyleFontFamilyVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzStyleFontFamilyVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleFontFamilyVecDestructorType),
     }
+
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
+
     /// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzTesselatedSvgNodeVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzTesselatedSvgNodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzTesselatedSvgNodeVecDestructorType),
     }
+
     /// `AzTesselatedSvgNodeVecDestructorType` struct
     pub type AzTesselatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTesselatedSvgNodeVec);
+
     /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzXmlNodeVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzXmlNodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzXmlNodeVecDestructorType),
     }
+
     /// `AzXmlNodeVecDestructorType` struct
     pub type AzXmlNodeVecDestructorType = extern "C" fn(&mut AzXmlNodeVec);
+
     /// Re-export of rust-allocated (stack based) `FmtArgVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzFmtArgVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzFmtArgVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzFmtArgVecDestructorType),
     }
+
     /// `AzFmtArgVecDestructorType` struct
     pub type AzFmtArgVecDestructorType = extern "C" fn(&mut AzFmtArgVec);
+
     /// Re-export of rust-allocated (stack based) `InlineLineVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzInlineLineVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzInlineLineVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzInlineLineVecDestructorType),
     }
+
     /// `AzInlineLineVecDestructorType` struct
     pub type AzInlineLineVecDestructorType = extern "C" fn(&mut AzInlineLineVec);
+
     /// Re-export of rust-allocated (stack based) `InlineWordVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzInlineWordVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzInlineWordVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzInlineWordVecDestructorType),
     }
+
     /// `AzInlineWordVecDestructorType` struct
     pub type AzInlineWordVecDestructorType = extern "C" fn(&mut AzInlineWordVec);
+
     /// Re-export of rust-allocated (stack based) `InlineGlyphVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzInlineGlyphVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzInlineGlyphVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzInlineGlyphVecDestructorType),
     }
+
     /// `AzInlineGlyphVecDestructorType` struct
     pub type AzInlineGlyphVecDestructorType = extern "C" fn(&mut AzInlineGlyphVec);
+
     /// Re-export of rust-allocated (stack based) `InlineTextHitVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzInlineTextHitVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzInlineTextHitVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzInlineTextHitVecDestructorType),
     }
+
     /// `AzInlineTextHitVecDestructorType` struct
     pub type AzInlineTextHitVecDestructorType = extern "C" fn(&mut AzInlineTextHitVec);
+
     /// Re-export of rust-allocated (stack based) `MonitorVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzMonitorVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzMonitorVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzMonitorVecDestructorType),
     }
+
     /// `AzMonitorVecDestructorType` struct
     pub type AzMonitorVecDestructorType = extern "C" fn(&mut AzMonitorVec);
+
     /// Re-export of rust-allocated (stack based) `VideoModeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzVideoModeVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzVideoModeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzVideoModeVecDestructorType),
     }
+
     /// `AzVideoModeVecDestructorType` struct
     pub type AzVideoModeVecDestructorType = extern "C" fn(&mut AzVideoModeVec);
+
     /// Re-export of rust-allocated (stack based) `DomVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzDomVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzDomVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzDomVecDestructorType),
     }
+
     /// `AzDomVecDestructorType` struct
     pub type AzDomVecDestructorType = extern "C" fn(&mut AzDomVec);
+
     /// Re-export of rust-allocated (stack based) `IdOrClassVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzIdOrClassVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzIdOrClassVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzIdOrClassVecDestructorType),
     }
+
     /// `AzIdOrClassVecDestructorType` struct
     pub type AzIdOrClassVecDestructorType = extern "C" fn(&mut AzIdOrClassVec);
+
     /// Re-export of rust-allocated (stack based) `NodeDataInlineCssPropertyVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzNodeDataInlineCssPropertyVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzNodeDataInlineCssPropertyVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNodeDataInlineCssPropertyVecDestructorType),
     }
+
     /// `AzNodeDataInlineCssPropertyVecDestructorType` struct
     pub type AzNodeDataInlineCssPropertyVecDestructorType = extern "C" fn(&mut AzNodeDataInlineCssPropertyVec);
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundContentVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzStyleBackgroundContentVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleBackgroundContentVecDestructorType),
     }
+
     /// `AzStyleBackgroundContentVecDestructorType` struct
     pub type AzStyleBackgroundContentVecDestructorType = extern "C" fn(&mut AzStyleBackgroundContentVec);
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundPositionVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzStyleBackgroundPositionVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleBackgroundPositionVecDestructorType),
     }
+
     /// `AzStyleBackgroundPositionVecDestructorType` struct
     pub type AzStyleBackgroundPositionVecDestructorType = extern "C" fn(&mut AzStyleBackgroundPositionVec);
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundRepeatVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzStyleBackgroundRepeatVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleBackgroundRepeatVecDestructorType),
     }
+
     /// `AzStyleBackgroundRepeatVecDestructorType` struct
     pub type AzStyleBackgroundRepeatVecDestructorType = extern "C" fn(&mut AzStyleBackgroundRepeatVec);
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundSizeVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzStyleBackgroundSizeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleBackgroundSizeVecDestructorType),
     }
+
     /// `AzStyleBackgroundSizeVecDestructorType` struct
     pub type AzStyleBackgroundSizeVecDestructorType = extern "C" fn(&mut AzStyleBackgroundSizeVec);
+
     /// Re-export of rust-allocated (stack based) `StyleTransformVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyleTransformVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzStyleTransformVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyleTransformVecDestructorType),
     }
+
     /// `AzStyleTransformVecDestructorType` struct
     pub type AzStyleTransformVecDestructorType = extern "C" fn(&mut AzStyleTransformVec);
+
     /// Re-export of rust-allocated (stack based) `CssPropertyVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzCssPropertyVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzCssPropertyVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCssPropertyVecDestructorType),
     }
+
     /// `AzCssPropertyVecDestructorType` struct
     pub type AzCssPropertyVecDestructorType = extern "C" fn(&mut AzCssPropertyVec);
+
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygonVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzSvgMultiPolygonVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzSvgMultiPolygonVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzSvgMultiPolygonVecDestructorType),
     }
+
     /// `AzSvgMultiPolygonVecDestructorType` struct
     pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
+
     /// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzSvgPathVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzSvgPathVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzSvgPathVecDestructorType),
     }
+
     /// `AzSvgPathVecDestructorType` struct
     pub type AzSvgPathVecDestructorType = extern "C" fn(&mut AzSvgPathVec);
+
     /// Re-export of rust-allocated (stack based) `VertexAttributeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzVertexAttributeVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzVertexAttributeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzVertexAttributeVecDestructorType),
     }
+
     /// `AzVertexAttributeVecDestructorType` struct
     pub type AzVertexAttributeVecDestructorType = extern "C" fn(&mut AzVertexAttributeVec);
+
     /// Re-export of rust-allocated (stack based) `SvgPathElementVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzSvgPathElementVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzSvgPathElementVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzSvgPathElementVecDestructorType),
     }
+
     /// `AzSvgPathElementVecDestructorType` struct
     pub type AzSvgPathElementVecDestructorType = extern "C" fn(&mut AzSvgPathElementVec);
+
     /// Re-export of rust-allocated (stack based) `SvgVertexVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzSvgVertexVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzSvgVertexVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzSvgVertexVecDestructorType),
     }
+
     /// `AzSvgVertexVecDestructorType` struct
     pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
+
     /// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
-    #[repr(C, u8)]     pub enum AzU32VecDestructor {
+    #[repr(C, u8)]
+    pub enum AzU32VecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzU32VecDestructorType),
     }
+
     /// `AzU32VecDestructorType` struct
     pub type AzU32VecDestructorType = extern "C" fn(&mut AzU32Vec);
+
     /// Re-export of rust-allocated (stack based) `XWindowTypeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzXWindowTypeVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzXWindowTypeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzXWindowTypeVecDestructorType),
     }
+
     /// `AzXWindowTypeVecDestructorType` struct
     pub type AzXWindowTypeVecDestructorType = extern "C" fn(&mut AzXWindowTypeVec);
+
     /// Re-export of rust-allocated (stack based) `VirtualKeyCodeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzVirtualKeyCodeVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzVirtualKeyCodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzVirtualKeyCodeVecDestructorType),
     }
+
     /// `AzVirtualKeyCodeVecDestructorType` struct
     pub type AzVirtualKeyCodeVecDestructorType = extern "C" fn(&mut AzVirtualKeyCodeVec);
+
     /// Re-export of rust-allocated (stack based) `CascadeInfoVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzCascadeInfoVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzCascadeInfoVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCascadeInfoVecDestructorType),
     }
+
     /// `AzCascadeInfoVecDestructorType` struct
     pub type AzCascadeInfoVecDestructorType = extern "C" fn(&mut AzCascadeInfoVec);
+
     /// Re-export of rust-allocated (stack based) `ScanCodeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzScanCodeVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzScanCodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzScanCodeVecDestructorType),
     }
+
     /// `AzScanCodeVecDestructorType` struct
     pub type AzScanCodeVecDestructorType = extern "C" fn(&mut AzScanCodeVec);
+
     /// Re-export of rust-allocated (stack based) `CssDeclarationVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzCssDeclarationVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzCssDeclarationVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCssDeclarationVecDestructorType),
     }
+
     /// `AzCssDeclarationVecDestructorType` struct
     pub type AzCssDeclarationVecDestructorType = extern "C" fn(&mut AzCssDeclarationVec);
+
     /// Re-export of rust-allocated (stack based) `CssPathSelectorVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzCssPathSelectorVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzCssPathSelectorVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCssPathSelectorVecDestructorType),
     }
+
     /// `AzCssPathSelectorVecDestructorType` struct
     pub type AzCssPathSelectorVecDestructorType = extern "C" fn(&mut AzCssPathSelectorVec);
+
     /// Re-export of rust-allocated (stack based) `StylesheetVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStylesheetVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzStylesheetVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStylesheetVecDestructorType),
     }
+
     /// `AzStylesheetVecDestructorType` struct
     pub type AzStylesheetVecDestructorType = extern "C" fn(&mut AzStylesheetVec);
+
     /// Re-export of rust-allocated (stack based) `CssRuleBlockVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzCssRuleBlockVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzCssRuleBlockVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCssRuleBlockVecDestructorType),
     }
+
     /// `AzCssRuleBlockVecDestructorType` struct
     pub type AzCssRuleBlockVecDestructorType = extern "C" fn(&mut AzCssRuleBlockVec);
+
     /// Re-export of rust-allocated (stack based) `F32VecDestructor` struct
-    #[repr(C, u8)]     pub enum AzF32VecDestructor {
+    #[repr(C, u8)]
+    pub enum AzF32VecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzF32VecDestructorType),
     }
+
     /// `AzF32VecDestructorType` struct
     pub type AzF32VecDestructorType = extern "C" fn(&mut AzF32Vec);
+
     /// Re-export of rust-allocated (stack based) `U16VecDestructor` struct
-    #[repr(C, u8)]     pub enum AzU16VecDestructor {
+    #[repr(C, u8)]
+    pub enum AzU16VecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzU16VecDestructorType),
     }
+
     /// `AzU16VecDestructorType` struct
     pub type AzU16VecDestructorType = extern "C" fn(&mut AzU16Vec);
+
     /// Re-export of rust-allocated (stack based) `U8VecDestructor` struct
-    #[repr(C, u8)]     pub enum AzU8VecDestructor {
+    #[repr(C, u8)]
+    pub enum AzU8VecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzU8VecDestructorType),
     }
+
     /// `AzU8VecDestructorType` struct
     pub type AzU8VecDestructorType = extern "C" fn(&mut AzU8Vec);
+
     /// Re-export of rust-allocated (stack based) `CallbackDataVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzCallbackDataVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzCallbackDataVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzCallbackDataVecDestructorType),
     }
+
     /// `AzCallbackDataVecDestructorType` struct
     pub type AzCallbackDataVecDestructorType = extern "C" fn(&mut AzCallbackDataVec);
+
     /// Re-export of rust-allocated (stack based) `DebugMessageVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzDebugMessageVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzDebugMessageVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzDebugMessageVecDestructorType),
     }
+
     /// `AzDebugMessageVecDestructorType` struct
     pub type AzDebugMessageVecDestructorType = extern "C" fn(&mut AzDebugMessageVec);
+
     /// Re-export of rust-allocated (stack based) `GLuintVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzGLuintVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzGLuintVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzGLuintVecDestructorType),
     }
+
     /// `AzGLuintVecDestructorType` struct
     pub type AzGLuintVecDestructorType = extern "C" fn(&mut AzGLuintVec);
+
     /// Re-export of rust-allocated (stack based) `GLintVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzGLintVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzGLintVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzGLintVecDestructorType),
     }
+
     /// `AzGLintVecDestructorType` struct
     pub type AzGLintVecDestructorType = extern "C" fn(&mut AzGLintVec);
+
     /// Re-export of rust-allocated (stack based) `StringVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStringVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzStringVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStringVecDestructorType),
     }
+
     /// `AzStringVecDestructorType` struct
     pub type AzStringVecDestructorType = extern "C" fn(&mut AzStringVec);
+
     /// Re-export of rust-allocated (stack based) `StringPairVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStringPairVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzStringPairVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStringPairVecDestructorType),
     }
+
     /// `AzStringPairVecDestructorType` struct
     pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
+
     /// Re-export of rust-allocated (stack based) `NormalizedLinearColorStopVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzNormalizedLinearColorStopVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzNormalizedLinearColorStopVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNormalizedLinearColorStopVecDestructorType),
     }
+
     /// `AzNormalizedLinearColorStopVecDestructorType` struct
     pub type AzNormalizedLinearColorStopVecDestructorType = extern "C" fn(&mut AzNormalizedLinearColorStopVec);
+
     /// Re-export of rust-allocated (stack based) `NormalizedRadialColorStopVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzNormalizedRadialColorStopVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzNormalizedRadialColorStopVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNormalizedRadialColorStopVecDestructorType),
     }
+
     /// `AzNormalizedRadialColorStopVecDestructorType` struct
     pub type AzNormalizedRadialColorStopVecDestructorType = extern "C" fn(&mut AzNormalizedRadialColorStopVec);
+
     /// Re-export of rust-allocated (stack based) `NodeIdVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzNodeIdVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzNodeIdVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNodeIdVecDestructorType),
     }
+
     /// `AzNodeIdVecDestructorType` struct
     pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
+
     /// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzNodeVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzNodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNodeVecDestructorType),
     }
+
     /// `AzNodeVecDestructorType` struct
     pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
+
     /// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzStyledNodeVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzStyledNodeVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzStyledNodeVecDestructorType),
     }
+
     /// `AzStyledNodeVecDestructorType` struct
     pub type AzStyledNodeVecDestructorType = extern "C" fn(&mut AzStyledNodeVec);
+
     /// Re-export of rust-allocated (stack based) `TagIdsToNodeIdsMappingVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzTagIdsToNodeIdsMappingVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzTagIdsToNodeIdsMappingVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzTagIdsToNodeIdsMappingVecDestructorType),
     }
+
     /// `AzTagIdsToNodeIdsMappingVecDestructorType` struct
     pub type AzTagIdsToNodeIdsMappingVecDestructorType = extern "C" fn(&mut AzTagIdsToNodeIdsMappingVec);
+
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepthVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzParentWithNodeDepthVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzParentWithNodeDepthVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzParentWithNodeDepthVecDestructorType),
     }
+
     /// `AzParentWithNodeDepthVecDestructorType` struct
     pub type AzParentWithNodeDepthVecDestructorType = extern "C" fn(&mut AzParentWithNodeDepthVec);
+
     /// Re-export of rust-allocated (stack based) `NodeDataVecDestructor` struct
-    #[repr(C, u8)]     pub enum AzNodeDataVecDestructor {
+    #[repr(C, u8)]
+    pub enum AzNodeDataVecDestructor {
         DefaultRust,
         NoDestructor,
         External(AzNodeDataVecDestructorType),
     }
+
     /// `AzNodeDataVecDestructorType` struct
     pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+
     /// Re-export of rust-allocated (stack based) `OptionI16` struct
-    #[repr(C, u8)]     pub enum AzOptionI16 {
+    #[repr(C, u8)]
+    pub enum AzOptionI16 {
         None,
         Some(i16),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionU16` struct
-    #[repr(C, u8)]     pub enum AzOptionU16 {
+    #[repr(C, u8)]
+    pub enum AzOptionU16 {
         None,
         Some(u16),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionU32` struct
-    #[repr(C, u8)]     pub enum AzOptionU32 {
+    #[repr(C, u8)]
+    pub enum AzOptionU32 {
         None,
         Some(u32),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionHwndHandle` struct
-    #[repr(C, u8)]     pub enum AzOptionHwndHandle {
+    #[repr(C, u8)]
+    pub enum AzOptionHwndHandle {
         None,
         Some(*mut c_void),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionX11Visual` struct
-    #[repr(C, u8)]     pub enum AzOptionX11Visual {
+    #[repr(C, u8)]
+    pub enum AzOptionX11Visual {
         None,
         Some(*const c_void),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionI32` struct
-    #[repr(C, u8)]     pub enum AzOptionI32 {
+    #[repr(C, u8)]
+    pub enum AzOptionI32 {
         None,
         Some(i32),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionF32` struct
-    #[repr(C, u8)]     pub enum AzOptionF32 {
+    #[repr(C, u8)]
+    pub enum AzOptionF32 {
         None,
         Some(f32),
     }
+
     /// Option<char> but the char is a u32, for C FFI stability reasons
-    #[repr(C, u8)]     pub enum AzOptionChar {
+    #[repr(C, u8)]
+    pub enum AzOptionChar {
         None,
         Some(u32),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionUsize` struct
-    #[repr(C, u8)]     pub enum AzOptionUsize {
+    #[repr(C, u8)]
+    pub enum AzOptionUsize {
         None,
         Some(usize),
     }
+
     /// Re-export of rust-allocated (stack based) `SvgParseErrorPosition` struct
-    #[repr(C)]     pub struct AzSvgParseErrorPosition {
+    #[repr(C)]
+    pub struct AzSvgParseErrorPosition {
         pub row: u32,
         pub col: u32,
     }
+
     /// External system callbacks to get the system time or create / manage threads
-    #[repr(C)]     pub struct AzSystemCallbacks {
+    #[repr(C)]
+    pub struct AzSystemCallbacks {
         pub create_thread_fn: AzCreateThreadFn,
         pub get_system_time_fn: AzGetSystemTimeFn,
     }
+
     /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
-    #[repr(C)]     pub struct AzRendererOptions {
+    #[repr(C)]
+    pub struct AzRendererOptions {
         pub vsync: AzVsync,
         pub srgb: AzSrgb,
         pub hw_accel: AzHwAcceleration,
     }
+
     /// Represents a rectangle in physical pixels (integer units)
-    #[repr(C)]     pub struct AzLayoutRect {
+    #[repr(C)]
+    pub struct AzLayoutRect {
         pub origin: AzLayoutPoint,
         pub size: AzLayoutSize,
     }
+
     /// Raw platform handle, for integration in / with other toolkits and custom non-azul window extensions
-    #[repr(C, u8)]     pub enum AzRawWindowHandle {
+    #[repr(C, u8)]
+    pub enum AzRawWindowHandle {
         IOS(AzIOSHandle),
         MacOS(AzMacOSHandle),
         Xlib(AzXlibHandle),
@@ -5236,65 +5737,87 @@ mod test_sizes {
         Android(AzAndroidHandle),
         Unsupported,
     }
+
     /// Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
-    #[repr(C)]     pub struct AzLogicalRect {
+    #[repr(C)]
+    pub struct AzLogicalRect {
         pub origin: AzLogicalPosition,
         pub size: AzLogicalSize,
     }
+
     /// Symbolic accelerator key (ctrl, alt, shift)
-    #[repr(C, u8)]     pub enum AzAcceleratorKey {
+    #[repr(C, u8)]
+    pub enum AzAcceleratorKey {
         Ctrl,
         Alt,
         Shift,
         Key(AzVirtualKeyCode),
     }
+
     /// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
-    #[repr(C, u8)]     pub enum AzCursorPosition {
+    #[repr(C, u8)]
+    pub enum AzCursorPosition {
         OutOfWindow,
         Uninitialized,
         InWindow(AzLogicalPosition),
     }
+
     /// Position of the top left corner of the window relative to the top left of the monitor
-    #[repr(C, u8)]     pub enum AzWindowPosition {
+    #[repr(C, u8)]
+    pub enum AzWindowPosition {
         Uninitialized,
         Initialized(AzPhysicalPositionI32),
     }
+
     /// Position of the virtual keyboard necessary to insert CJK characters
-    #[repr(C, u8)]     pub enum AzImePosition {
+    #[repr(C, u8)]
+    pub enum AzImePosition {
         Uninitialized,
         Initialized(AzLogicalPosition),
     }
+
     /// Describes a rendering configuration for a monitor
-    #[repr(C)]     pub struct AzVideoMode {
+    #[repr(C)]
+    pub struct AzVideoMode {
         pub size: AzLayoutSize,
         pub bit_depth: u16,
         pub refresh_rate: u16,
     }
+
     /// Combination of node ID + DOM ID, both together can identify a node
-    #[repr(C)]     pub struct AzDomNodeId {
+    #[repr(C)]
+    pub struct AzDomNodeId {
         pub dom: AzDomId,
         pub node: AzNodeId,
     }
+
     /// Re-export of rust-allocated (stack based) `PositionInfo` struct
-    #[repr(C, u8)]     pub enum AzPositionInfo {
+    #[repr(C, u8)]
+    pub enum AzPositionInfo {
         Static(AzPositionInfoInner),
         Fixed(AzPositionInfoInner),
         Absolute(AzPositionInfoInner),
         Relative(AzPositionInfoInner),
     }
+
     /// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
-    #[repr(C)]     pub struct AzHidpiAdjustedBounds {
+    #[repr(C)]
+    pub struct AzHidpiAdjustedBounds {
         pub logical_size: AzLogicalSize,
         pub hidpi_factor: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `InlineGlyph` struct
-    #[repr(C)]     pub struct AzInlineGlyph {
+    #[repr(C)]
+    pub struct AzInlineGlyph {
         pub bounds: AzLogicalRect,
         pub unicode_codepoint: AzOptionChar,
         pub glyph_index: u32,
     }
+
     /// Re-export of rust-allocated (stack based) `InlineTextHit` struct
-    #[repr(C)]     pub struct AzInlineTextHit {
+    #[repr(C)]
+    pub struct AzInlineTextHit {
         pub unicode_codepoint: AzOptionChar,
         pub hit_relative_to_inline_text: AzLogicalPosition,
         pub hit_relative_to_line: AzLogicalPosition,
@@ -5312,8 +5835,10 @@ mod test_sizes {
         pub glyph_index_relative_to_word: usize,
         pub char_index_relative_to_word: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
-    #[repr(C)]     pub struct AzIFrameCallbackInfo {
+    #[repr(C)]
+    pub struct AzIFrameCallbackInfo {
         pub system_fonts: *const c_void,
         pub image_cache: *const c_void,
         pub window_theme: AzWindowTheme,
@@ -5325,280 +5850,404 @@ mod test_sizes {
         pub _reserved_ref: *const c_void,
         pub _reserved_mut: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `TimerCallbackReturn` struct
-    #[repr(C)]     pub struct AzTimerCallbackReturn {
+    #[repr(C)]
+    pub struct AzTimerCallbackReturn {
         pub should_update: AzUpdateScreen,
         pub should_terminate: AzTerminateTimer,
     }
+
     /// RefAny is a reference-counted, opaque pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
-    #[repr(C)]     pub struct AzRefAny {
+    #[repr(C)]
+    pub struct AzRefAny {
         pub _internal_ptr: *const c_void,
         pub sharing_info: AzRefCount,
     }
+
     /// Re-export of rust-allocated (stack based) `IFrameNode` struct
-    #[repr(C)]     pub struct AzIFrameNode {
+    #[repr(C)]
+    pub struct AzIFrameNode {
         pub callback: AzIFrameCallback,
         pub data: AzRefAny,
     }
+
     /// Re-export of rust-allocated (stack based) `NotEventFilter` struct
-    #[repr(C, u8)]     pub enum AzNotEventFilter {
+    #[repr(C, u8)]
+    pub enum AzNotEventFilter {
         Hover(AzHoverEventFilter),
         Focus(AzFocusEventFilter),
     }
+
     /// Re-export of rust-allocated (stack based) `CssNthChildSelector` struct
-    #[repr(C, u8)]     pub enum AzCssNthChildSelector {
+    #[repr(C, u8)]
+    pub enum AzCssNthChildSelector {
         Number(u32),
         Even,
         Odd,
         Pattern(AzCssNthChildPattern),
     }
+
     /// Re-export of rust-allocated (stack based) `PixelValue` struct
-    #[repr(C)]     pub struct AzPixelValue {
+    #[repr(C)]
+    pub struct AzPixelValue {
         pub metric: AzSizeMetric,
         pub number: AzFloatValue,
     }
+
     /// Re-export of rust-allocated (stack based) `PixelValueNoPercent` struct
-    #[repr(C)]     pub struct AzPixelValueNoPercent {
+    #[repr(C)]
+    pub struct AzPixelValueNoPercent {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBoxShadow` struct
-    #[repr(C)]     pub struct AzStyleBoxShadow {
+    #[repr(C)]
+    pub struct AzStyleBoxShadow {
         pub offset: [AzPixelValueNoPercent;2],
         pub color: AzColorU,
         pub blur_radius: AzPixelValueNoPercent,
         pub spread_radius: AzPixelValueNoPercent,
         pub clip_mode: AzBoxShadowClipMode,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBottom` struct
-    #[repr(C)]     pub struct AzLayoutBottom {
+    #[repr(C)]
+    pub struct AzLayoutBottom {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexGrow` struct
-    #[repr(C)]     pub struct AzLayoutFlexGrow {
+    #[repr(C)]
+    pub struct AzLayoutFlexGrow {
         pub inner: AzFloatValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexShrink` struct
-    #[repr(C)]     pub struct AzLayoutFlexShrink {
+    #[repr(C)]
+    pub struct AzLayoutFlexShrink {
         pub inner: AzFloatValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutHeight` struct
-    #[repr(C)]     pub struct AzLayoutHeight {
+    #[repr(C)]
+    pub struct AzLayoutHeight {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutLeft` struct
-    #[repr(C)]     pub struct AzLayoutLeft {
+    #[repr(C)]
+    pub struct AzLayoutLeft {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginBottom` struct
-    #[repr(C)]     pub struct AzLayoutMarginBottom {
+    #[repr(C)]
+    pub struct AzLayoutMarginBottom {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginLeft` struct
-    #[repr(C)]     pub struct AzLayoutMarginLeft {
+    #[repr(C)]
+    pub struct AzLayoutMarginLeft {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginRight` struct
-    #[repr(C)]     pub struct AzLayoutMarginRight {
+    #[repr(C)]
+    pub struct AzLayoutMarginRight {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginTop` struct
-    #[repr(C)]     pub struct AzLayoutMarginTop {
+    #[repr(C)]
+    pub struct AzLayoutMarginTop {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMaxHeight` struct
-    #[repr(C)]     pub struct AzLayoutMaxHeight {
+    #[repr(C)]
+    pub struct AzLayoutMaxHeight {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMaxWidth` struct
-    #[repr(C)]     pub struct AzLayoutMaxWidth {
+    #[repr(C)]
+    pub struct AzLayoutMaxWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMinHeight` struct
-    #[repr(C)]     pub struct AzLayoutMinHeight {
+    #[repr(C)]
+    pub struct AzLayoutMinHeight {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMinWidth` struct
-    #[repr(C)]     pub struct AzLayoutMinWidth {
+    #[repr(C)]
+    pub struct AzLayoutMinWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingBottom` struct
-    #[repr(C)]     pub struct AzLayoutPaddingBottom {
+    #[repr(C)]
+    pub struct AzLayoutPaddingBottom {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingLeft` struct
-    #[repr(C)]     pub struct AzLayoutPaddingLeft {
+    #[repr(C)]
+    pub struct AzLayoutPaddingLeft {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingRight` struct
-    #[repr(C)]     pub struct AzLayoutPaddingRight {
+    #[repr(C)]
+    pub struct AzLayoutPaddingRight {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingTop` struct
-    #[repr(C)]     pub struct AzLayoutPaddingTop {
+    #[repr(C)]
+    pub struct AzLayoutPaddingTop {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutRight` struct
-    #[repr(C)]     pub struct AzLayoutRight {
+    #[repr(C)]
+    pub struct AzLayoutRight {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutTop` struct
-    #[repr(C)]     pub struct AzLayoutTop {
+    #[repr(C)]
+    pub struct AzLayoutTop {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutWidth` struct
-    #[repr(C)]     pub struct AzLayoutWidth {
+    #[repr(C)]
+    pub struct AzLayoutWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `PercentageValue` struct
-    #[repr(C)]     pub struct AzPercentageValue {
+    #[repr(C)]
+    pub struct AzPercentageValue {
         pub number: AzFloatValue,
     }
+
     /// Re-export of rust-allocated (stack based) `AngleValue` struct
-    #[repr(C)]     pub struct AzAngleValue {
+    #[repr(C)]
+    pub struct AzAngleValue {
         pub metric: AzAngleMetric,
         pub number: AzFloatValue,
     }
+
     /// Re-export of rust-allocated (stack based) `NormalizedLinearColorStop` struct
-    #[repr(C)]     pub struct AzNormalizedLinearColorStop {
+    #[repr(C)]
+    pub struct AzNormalizedLinearColorStop {
         pub offset: AzPercentageValue,
         pub color: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `NormalizedRadialColorStop` struct
-    #[repr(C)]     pub struct AzNormalizedRadialColorStop {
+    #[repr(C)]
+    pub struct AzNormalizedRadialColorStop {
         pub offset: AzAngleValue,
         pub color: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `DirectionCorners` struct
-    #[repr(C)]     pub struct AzDirectionCorners {
+    #[repr(C)]
+    pub struct AzDirectionCorners {
         pub from: AzDirectionCorner,
         pub to: AzDirectionCorner,
     }
+
     /// Re-export of rust-allocated (stack based) `Direction` struct
-    #[repr(C, u8)]     pub enum AzDirection {
+    #[repr(C, u8)]
+    pub enum AzDirection {
         Angle(AzAngleValue),
         FromTo(AzDirectionCorners),
     }
+
     /// Re-export of rust-allocated (stack based) `BackgroundPositionHorizontal` struct
-    #[repr(C, u8)]     pub enum AzBackgroundPositionHorizontal {
+    #[repr(C, u8)]
+    pub enum AzBackgroundPositionHorizontal {
         Left,
         Center,
         Right,
         Exact(AzPixelValue),
     }
+
     /// Re-export of rust-allocated (stack based) `BackgroundPositionVertical` struct
-    #[repr(C, u8)]     pub enum AzBackgroundPositionVertical {
+    #[repr(C, u8)]
+    pub enum AzBackgroundPositionVertical {
         Top,
         Center,
         Bottom,
         Exact(AzPixelValue),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundPosition` struct
-    #[repr(C)]     pub struct AzStyleBackgroundPosition {
+    #[repr(C)]
+    pub struct AzStyleBackgroundPosition {
         pub horizontal: AzBackgroundPositionHorizontal,
         pub vertical: AzBackgroundPositionVertical,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundSize` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundSize {
+    #[repr(C, u8)]
+    pub enum AzStyleBackgroundSize {
         ExactSize([AzPixelValue;2]),
         Contain,
         Cover,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomColor` struct
-    #[repr(C)]     pub struct AzStyleBorderBottomColor {
+    #[repr(C)]
+    pub struct AzStyleBorderBottomColor {
         pub inner: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomLeftRadius` struct
-    #[repr(C)]     pub struct AzStyleBorderBottomLeftRadius {
+    #[repr(C)]
+    pub struct AzStyleBorderBottomLeftRadius {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomRightRadius` struct
-    #[repr(C)]     pub struct AzStyleBorderBottomRightRadius {
+    #[repr(C)]
+    pub struct AzStyleBorderBottomRightRadius {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomStyle` struct
-    #[repr(C)]     pub struct AzStyleBorderBottomStyle {
+    #[repr(C)]
+    pub struct AzStyleBorderBottomStyle {
         pub inner: AzBorderStyle,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderBottomWidth` struct
-    #[repr(C)]     pub struct AzLayoutBorderBottomWidth {
+    #[repr(C)]
+    pub struct AzLayoutBorderBottomWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderLeftColor` struct
-    #[repr(C)]     pub struct AzStyleBorderLeftColor {
+    #[repr(C)]
+    pub struct AzStyleBorderLeftColor {
         pub inner: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderLeftStyle` struct
-    #[repr(C)]     pub struct AzStyleBorderLeftStyle {
+    #[repr(C)]
+    pub struct AzStyleBorderLeftStyle {
         pub inner: AzBorderStyle,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderLeftWidth` struct
-    #[repr(C)]     pub struct AzLayoutBorderLeftWidth {
+    #[repr(C)]
+    pub struct AzLayoutBorderLeftWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderRightColor` struct
-    #[repr(C)]     pub struct AzStyleBorderRightColor {
+    #[repr(C)]
+    pub struct AzStyleBorderRightColor {
         pub inner: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderRightStyle` struct
-    #[repr(C)]     pub struct AzStyleBorderRightStyle {
+    #[repr(C)]
+    pub struct AzStyleBorderRightStyle {
         pub inner: AzBorderStyle,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderRightWidth` struct
-    #[repr(C)]     pub struct AzLayoutBorderRightWidth {
+    #[repr(C)]
+    pub struct AzLayoutBorderRightWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopColor` struct
-    #[repr(C)]     pub struct AzStyleBorderTopColor {
+    #[repr(C)]
+    pub struct AzStyleBorderTopColor {
         pub inner: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopLeftRadius` struct
-    #[repr(C)]     pub struct AzStyleBorderTopLeftRadius {
+    #[repr(C)]
+    pub struct AzStyleBorderTopLeftRadius {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopRightRadius` struct
-    #[repr(C)]     pub struct AzStyleBorderTopRightRadius {
+    #[repr(C)]
+    pub struct AzStyleBorderTopRightRadius {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopStyle` struct
-    #[repr(C)]     pub struct AzStyleBorderTopStyle {
+    #[repr(C)]
+    pub struct AzStyleBorderTopStyle {
         pub inner: AzBorderStyle,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderTopWidth` struct
-    #[repr(C)]     pub struct AzLayoutBorderTopWidth {
+    #[repr(C)]
+    pub struct AzLayoutBorderTopWidth {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleFontSize` struct
-    #[repr(C)]     pub struct AzStyleFontSize {
+    #[repr(C)]
+    pub struct AzStyleFontSize {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleLetterSpacing` struct
-    #[repr(C)]     pub struct AzStyleLetterSpacing {
+    #[repr(C)]
+    pub struct AzStyleLetterSpacing {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleLineHeight` struct
-    #[repr(C)]     pub struct AzStyleLineHeight {
+    #[repr(C)]
+    pub struct AzStyleLineHeight {
         pub inner: AzPercentageValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTabWidth` struct
-    #[repr(C)]     pub struct AzStyleTabWidth {
+    #[repr(C)]
+    pub struct AzStyleTabWidth {
         pub inner: AzPercentageValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleOpacity` struct
-    #[repr(C)]     pub struct AzStyleOpacity {
+    #[repr(C)]
+    pub struct AzStyleOpacity {
         pub inner: AzPercentageValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformOrigin` struct
-    #[repr(C)]     pub struct AzStyleTransformOrigin {
+    #[repr(C)]
+    pub struct AzStyleTransformOrigin {
         pub x: AzPixelValue,
         pub y: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StylePerspectiveOrigin` struct
-    #[repr(C)]     pub struct AzStylePerspectiveOrigin {
+    #[repr(C)]
+    pub struct AzStylePerspectiveOrigin {
         pub x: AzPixelValue,
         pub y: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformMatrix2D` struct
-    #[repr(C)]     pub struct AzStyleTransformMatrix2D {
+    #[repr(C)]
+    pub struct AzStyleTransformMatrix2D {
         pub a: AzPixelValue,
         pub b: AzPixelValue,
         pub c: AzPixelValue,
@@ -5606,8 +6255,10 @@ mod test_sizes {
         pub tx: AzPixelValue,
         pub ty: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformMatrix3D` struct
-    #[repr(C)]     pub struct AzStyleTransformMatrix3D {
+    #[repr(C)]
+    pub struct AzStyleTransformMatrix3D {
         pub m11: AzPixelValue,
         pub m12: AzPixelValue,
         pub m13: AzPixelValue,
@@ -5625,545 +6276,689 @@ mod test_sizes {
         pub m43: AzPixelValue,
         pub m44: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformTranslate2D` struct
-    #[repr(C)]     pub struct AzStyleTransformTranslate2D {
+    #[repr(C)]
+    pub struct AzStyleTransformTranslate2D {
         pub x: AzPixelValue,
         pub y: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformTranslate3D` struct
-    #[repr(C)]     pub struct AzStyleTransformTranslate3D {
+    #[repr(C)]
+    pub struct AzStyleTransformTranslate3D {
         pub x: AzPixelValue,
         pub y: AzPixelValue,
         pub z: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformRotate3D` struct
-    #[repr(C)]     pub struct AzStyleTransformRotate3D {
+    #[repr(C)]
+    pub struct AzStyleTransformRotate3D {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
         pub z: AzPercentageValue,
         pub angle: AzAngleValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformScale2D` struct
-    #[repr(C)]     pub struct AzStyleTransformScale2D {
+    #[repr(C)]
+    pub struct AzStyleTransformScale2D {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformScale3D` struct
-    #[repr(C)]     pub struct AzStyleTransformScale3D {
+    #[repr(C)]
+    pub struct AzStyleTransformScale3D {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
         pub z: AzPercentageValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformSkew2D` struct
-    #[repr(C)]     pub struct AzStyleTransformSkew2D {
+    #[repr(C)]
+    pub struct AzStyleTransformSkew2D {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTextColor` struct
-    #[repr(C)]     pub struct AzStyleTextColor {
+    #[repr(C)]
+    pub struct AzStyleTextColor {
         pub inner: AzColorU,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleWordSpacing` struct
-    #[repr(C)]     pub struct AzStyleWordSpacing {
+    #[repr(C)]
+    pub struct AzStyleWordSpacing {
         pub inner: AzPixelValue,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBoxShadowValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBoxShadowValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBoxShadowValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBoxShadow),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutAlignContentValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutAlignContentValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutAlignContentValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutAlignContent),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutAlignItemsValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutAlignItemsValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutAlignItemsValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutAlignItems),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBottomValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutBottomValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutBottomValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutBottom),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBoxSizingValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutBoxSizingValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutBoxSizingValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutBoxSizing),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexDirectionValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutFlexDirectionValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutFlexDirectionValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutFlexDirection),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutDisplayValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutDisplayValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutDisplayValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutDisplay),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexGrowValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutFlexGrowValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutFlexGrowValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutFlexGrow),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexShrinkValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutFlexShrinkValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutFlexShrinkValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutFlexShrink),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFloatValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutFloatValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutFloatValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutFloat),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutHeightValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutHeightValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutHeightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutHeight),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutJustifyContentValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutJustifyContentValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutJustifyContentValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutJustifyContent),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutLeftValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutLeftValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutLeftValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutLeft),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginBottomValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutMarginBottomValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutMarginBottomValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMarginBottom),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginLeftValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutMarginLeftValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutMarginLeftValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMarginLeft),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginRightValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutMarginRightValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutMarginRightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMarginRight),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMarginTopValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutMarginTopValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutMarginTopValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMarginTop),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMaxHeightValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutMaxHeightValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutMaxHeightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMaxHeight),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMaxWidthValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutMaxWidthValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutMaxWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMaxWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMinHeightValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutMinHeightValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutMinHeightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMinHeight),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutMinWidthValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutMinWidthValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutMinWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutMinWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingBottomValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutPaddingBottomValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutPaddingBottomValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutPaddingBottom),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingLeftValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutPaddingLeftValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutPaddingLeftValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutPaddingLeft),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingRightValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutPaddingRightValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutPaddingRightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutPaddingRight),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPaddingTopValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutPaddingTopValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutPaddingTopValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutPaddingTop),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutPositionValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutPositionValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutPositionValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutPosition),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutRightValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutRightValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutRightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutRight),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutTopValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutTopValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutTopValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutTop),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutWidthValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutWidthValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutFlexWrapValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutFlexWrapValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutFlexWrapValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutFlexWrap),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutOverflowValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutOverflowValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutOverflowValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutOverflow),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomColorValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBorderBottomColorValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBorderBottomColorValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderBottomColor),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomLeftRadiusValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBorderBottomLeftRadiusValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBorderBottomLeftRadiusValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderBottomLeftRadius),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomRightRadiusValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBorderBottomRightRadiusValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBorderBottomRightRadiusValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderBottomRightRadius),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomStyleValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBorderBottomStyleValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBorderBottomStyleValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderBottomStyle),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderBottomWidthValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutBorderBottomWidthValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutBorderBottomWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutBorderBottomWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderLeftColorValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBorderLeftColorValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBorderLeftColorValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderLeftColor),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderLeftStyleValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBorderLeftStyleValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBorderLeftStyleValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderLeftStyle),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderLeftWidthValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutBorderLeftWidthValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutBorderLeftWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutBorderLeftWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderRightColorValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBorderRightColorValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBorderRightColorValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderRightColor),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderRightStyleValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBorderRightStyleValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBorderRightStyleValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderRightStyle),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderRightWidthValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutBorderRightWidthValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutBorderRightWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutBorderRightWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopColorValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBorderTopColorValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBorderTopColorValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderTopColor),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopLeftRadiusValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBorderTopLeftRadiusValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBorderTopLeftRadiusValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderTopLeftRadius),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopRightRadiusValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBorderTopRightRadiusValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBorderTopRightRadiusValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderTopRightRadius),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBorderTopStyleValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBorderTopStyleValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBorderTopStyleValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBorderTopStyle),
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutBorderTopWidthValue` struct
-    #[repr(C, u8)]     pub enum AzLayoutBorderTopWidthValue {
+    #[repr(C, u8)]
+    pub enum AzLayoutBorderTopWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzLayoutBorderTopWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleCursorValue` struct
-    #[repr(C, u8)]     pub enum AzStyleCursorValue {
+    #[repr(C, u8)]
+    pub enum AzStyleCursorValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleCursor),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleFontSizeValue` struct
-    #[repr(C, u8)]     pub enum AzStyleFontSizeValue {
+    #[repr(C, u8)]
+    pub enum AzStyleFontSizeValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleFontSize),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleLetterSpacingValue` struct
-    #[repr(C, u8)]     pub enum AzStyleLetterSpacingValue {
+    #[repr(C, u8)]
+    pub enum AzStyleLetterSpacingValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleLetterSpacing),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleLineHeightValue` struct
-    #[repr(C, u8)]     pub enum AzStyleLineHeightValue {
+    #[repr(C, u8)]
+    pub enum AzStyleLineHeightValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleLineHeight),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTabWidthValue` struct
-    #[repr(C, u8)]     pub enum AzStyleTabWidthValue {
+    #[repr(C, u8)]
+    pub enum AzStyleTabWidthValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleTabWidth),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTextAlignValue` struct
-    #[repr(C, u8)]     pub enum AzStyleTextAlignValue {
+    #[repr(C, u8)]
+    pub enum AzStyleTextAlignValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleTextAlign),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTextColorValue` struct
-    #[repr(C, u8)]     pub enum AzStyleTextColorValue {
+    #[repr(C, u8)]
+    pub enum AzStyleTextColorValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleTextColor),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleWordSpacingValue` struct
-    #[repr(C, u8)]     pub enum AzStyleWordSpacingValue {
+    #[repr(C, u8)]
+    pub enum AzStyleWordSpacingValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleWordSpacing),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleOpacityValue` struct
-    #[repr(C, u8)]     pub enum AzStyleOpacityValue {
+    #[repr(C, u8)]
+    pub enum AzStyleOpacityValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleOpacity),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformOriginValue` struct
-    #[repr(C, u8)]     pub enum AzStyleTransformOriginValue {
+    #[repr(C, u8)]
+    pub enum AzStyleTransformOriginValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleTransformOrigin),
     }
+
     /// Re-export of rust-allocated (stack based) `StylePerspectiveOriginValue` struct
-    #[repr(C, u8)]     pub enum AzStylePerspectiveOriginValue {
+    #[repr(C, u8)]
+    pub enum AzStylePerspectiveOriginValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStylePerspectiveOrigin),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackfaceVisibilityValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBackfaceVisibilityValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBackfaceVisibilityValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBackfaceVisibility),
     }
+
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
-    #[repr(C)]     pub struct AzParentWithNodeDepth {
+    #[repr(C)]
+    pub struct AzParentWithNodeDepth {
         pub depth: usize,
         pub node_id: AzNodeId,
     }
+
     /// Re-export of rust-allocated (stack based) `Gl` struct
-    #[repr(C)]     pub struct AzGl {
+    #[repr(C)]
+    pub struct AzGl {
         pub(crate) ptr: *const c_void,
         pub svg_shader: u32,
         pub fxaa_shader: u32,
         pub renderer_type: AzRendererType,
     }
+
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
-    #[repr(C)]     pub struct AzRefstrVecRef {
+    #[repr(C)]
+    pub struct AzRefstrVecRef {
         pub(crate) ptr: *const AzRefstr,
         pub len: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `ImageMask` struct
-    #[repr(C)]     pub struct AzImageMask {
+    #[repr(C)]
+    pub struct AzImageMask {
         pub image: AzImageRef,
         pub rect: AzLogicalRect,
         pub repeat: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `FontMetrics` struct
-    #[repr(C)]     pub struct AzFontMetrics {
+    #[repr(C)]
+    pub struct AzFontMetrics {
         pub units_per_em: u16,
         pub font_flags: u16,
         pub x_min: i16,
@@ -6220,32 +7015,42 @@ mod test_sizes {
         pub us_lower_optical_point_size: AzOptionU16,
         pub us_upper_optical_point_size: AzOptionU16,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgLine` struct
-    #[repr(C)]     pub struct AzSvgLine {
+    #[repr(C)]
+    pub struct AzSvgLine {
         pub start: AzSvgPoint,
         pub end: AzSvgPoint,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgQuadraticCurve` struct
-    #[repr(C)]     pub struct AzSvgQuadraticCurve {
+    #[repr(C)]
+    pub struct AzSvgQuadraticCurve {
         pub start: AzSvgPoint,
         pub ctrl: AzSvgPoint,
         pub end: AzSvgPoint,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgCubicCurve` struct
-    #[repr(C)]     pub struct AzSvgCubicCurve {
+    #[repr(C)]
+    pub struct AzSvgCubicCurve {
         pub start: AzSvgPoint,
         pub ctrl_1: AzSvgPoint,
         pub ctrl_2: AzSvgPoint,
         pub end: AzSvgPoint,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgStringFormatOptions` struct
-    #[repr(C)]     pub struct AzSvgStringFormatOptions {
+    #[repr(C)]
+    pub struct AzSvgStringFormatOptions {
         pub use_single_quote: bool,
         pub indent: AzIndent,
         pub attributes_indent: AzIndent,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgFillStyle` struct
-    #[repr(C)]     pub struct AzSvgFillStyle {
+    #[repr(C)]
+    pub struct AzSvgFillStyle {
         pub line_join: AzSvgLineJoin,
         pub miter_limit: f32,
         pub tolerance: f32,
@@ -6254,19 +7059,25 @@ mod test_sizes {
         pub anti_alias: bool,
         pub high_quality_aa: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `InstantPtr` struct
-    #[repr(C)]     pub struct AzInstantPtr {
+    #[repr(C)]
+    pub struct AzInstantPtr {
         pub(crate) ptr: *const c_void,
         pub clone_fn: AzInstantPtrCloneFn,
         pub destructor: AzInstantPtrDestructorFn,
     }
+
     /// Re-export of rust-allocated (stack based) `Duration` struct
-    #[repr(C, u8)]     pub enum AzDuration {
+    #[repr(C, u8)]
+    pub enum AzDuration {
         System(AzSystemTimeDiff),
         Tick(AzSystemTickDiff),
     }
+
     /// Re-export of rust-allocated (stack based) `Thread` struct
-    #[repr(C)]     pub struct AzThread {
+    #[repr(C)]
+    pub struct AzThread {
         pub thread_handle: *const c_void,
         pub sender: *const c_void,
         pub receiver: *const c_void,
@@ -6277,396 +7088,532 @@ mod test_sizes {
         pub receive_thread_msg_fn: AzLibraryReceiveThreadMsgFn,
         pub thread_destructor_fn: AzThreadDestructorFn,
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadSender` struct
-    #[repr(C)]     pub struct AzThreadSender {
+    #[repr(C)]
+    pub struct AzThreadSender {
         pub(crate) ptr: *const c_void,
         pub send_fn: AzThreadSendFn,
         pub destructor: AzThreadSenderDestructorFn,
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
-    #[repr(C)]     pub struct AzThreadReceiver {
+    #[repr(C)]
+    pub struct AzThreadReceiver {
         pub(crate) ptr: *const c_void,
         pub recv_fn: AzThreadRecvFn,
         pub destructor: AzThreadReceiverDestructorFn,
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadSendMsg` struct
-    #[repr(C, u8)]     pub enum AzThreadSendMsg {
+    #[repr(C, u8)]
+    pub enum AzThreadSendMsg {
         TerminateThread,
         Tick,
         Custom(AzRefAny),
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadWriteBackMsg` struct
-    #[repr(C)]     pub struct AzThreadWriteBackMsg {
+    #[repr(C)]
+    pub struct AzThreadWriteBackMsg {
         pub data: AzRefAny,
         pub callback: AzWriteBackCallback,
     }
+
     /// Wrapper over a Rust-allocated `Vec<XmlNode>`
-    #[repr(C)]     pub struct AzXmlNodeVec {
+    #[repr(C)]
+    pub struct AzXmlNodeVec {
         pub(crate) ptr: *const AzXmlNode,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzXmlNodeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<InlineGlyph>`
-    #[repr(C)]     pub struct AzInlineGlyphVec {
+    #[repr(C)]
+    pub struct AzInlineGlyphVec {
         pub(crate) ptr: *const AzInlineGlyph,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzInlineGlyphVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<InlineTextHit>`
-    #[repr(C)]     pub struct AzInlineTextHitVec {
+    #[repr(C)]
+    pub struct AzInlineTextHitVec {
         pub(crate) ptr: *const AzInlineTextHit,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzInlineTextHitVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<VideoMode>`
-    #[repr(C)]     pub struct AzVideoModeVec {
+    #[repr(C)]
+    pub struct AzVideoModeVec {
         pub(crate) ptr: *const AzVideoMode,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzVideoModeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<Dom>`
-    #[repr(C)]     pub struct AzDomVec {
+    #[repr(C)]
+    pub struct AzDomVec {
         pub(crate) ptr: *const AzDom,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzDomVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
-    #[repr(C)]     pub struct AzStyleBackgroundPositionVec {
+    #[repr(C)]
+    pub struct AzStyleBackgroundPositionVec {
         pub(crate) ptr: *const AzStyleBackgroundPosition,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyleBackgroundPositionVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
-    #[repr(C)]     pub struct AzStyleBackgroundRepeatVec {
+    #[repr(C)]
+    pub struct AzStyleBackgroundRepeatVec {
         pub(crate) ptr: *const AzStyleBackgroundRepeat,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyleBackgroundRepeatVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
-    #[repr(C)]     pub struct AzStyleBackgroundSizeVec {
+    #[repr(C)]
+    pub struct AzStyleBackgroundSizeVec {
         pub(crate) ptr: *const AzStyleBackgroundSize,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyleBackgroundSizeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `SvgVertex`
-    #[repr(C)]     pub struct AzSvgVertexVec {
+    #[repr(C)]
+    pub struct AzSvgVertexVec {
         pub(crate) ptr: *const AzSvgVertex,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzSvgVertexVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<u32>`
-    #[repr(C)]     pub struct AzU32Vec {
+    #[repr(C)]
+    pub struct AzU32Vec {
         pub(crate) ptr: *const u32,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzU32VecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `XWindowType`
-    #[repr(C)]     pub struct AzXWindowTypeVec {
+    #[repr(C)]
+    pub struct AzXWindowTypeVec {
         pub(crate) ptr: *const AzXWindowType,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzXWindowTypeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `VirtualKeyCode`
-    #[repr(C)]     pub struct AzVirtualKeyCodeVec {
+    #[repr(C)]
+    pub struct AzVirtualKeyCodeVec {
         pub(crate) ptr: *const AzVirtualKeyCode,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzVirtualKeyCodeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `CascadeInfo`
-    #[repr(C)]     pub struct AzCascadeInfoVec {
+    #[repr(C)]
+    pub struct AzCascadeInfoVec {
         pub(crate) ptr: *const AzCascadeInfo,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzCascadeInfoVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `ScanCode`
-    #[repr(C)]     pub struct AzScanCodeVec {
+    #[repr(C)]
+    pub struct AzScanCodeVec {
         pub(crate) ptr: *const u32,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzScanCodeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<u16>`
-    #[repr(C)]     pub struct AzU16Vec {
+    #[repr(C)]
+    pub struct AzU16Vec {
         pub(crate) ptr: *const u16,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzU16VecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<f32>`
-    #[repr(C)]     pub struct AzF32Vec {
+    #[repr(C)]
+    pub struct AzF32Vec {
         pub(crate) ptr: *const f32,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzF32VecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `U8Vec`
-    #[repr(C)]     pub struct AzU8Vec {
+    #[repr(C)]
+    pub struct AzU8Vec {
         pub(crate) ptr: *const u8,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzU8VecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `U32Vec`
-    #[repr(C)]     pub struct AzGLuintVec {
+    #[repr(C)]
+    pub struct AzGLuintVec {
         pub(crate) ptr: *const u32,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzGLuintVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `GLintVec`
-    #[repr(C)]     pub struct AzGLintVec {
+    #[repr(C)]
+    pub struct AzGLintVec {
         pub(crate) ptr: *const i32,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzGLintVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `NormalizedLinearColorStopVec`
-    #[repr(C)]     pub struct AzNormalizedLinearColorStopVec {
+    #[repr(C)]
+    pub struct AzNormalizedLinearColorStopVec {
         pub(crate) ptr: *const AzNormalizedLinearColorStop,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNormalizedLinearColorStopVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `NormalizedRadialColorStopVec`
-    #[repr(C)]     pub struct AzNormalizedRadialColorStopVec {
+    #[repr(C)]
+    pub struct AzNormalizedRadialColorStopVec {
         pub(crate) ptr: *const AzNormalizedRadialColorStop,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNormalizedRadialColorStopVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `NodeIdVec`
-    #[repr(C)]     pub struct AzNodeIdVec {
+    #[repr(C)]
+    pub struct AzNodeIdVec {
         pub(crate) ptr: *const AzNodeId,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNodeIdVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `NodeVec`
-    #[repr(C)]     pub struct AzNodeVec {
+    #[repr(C)]
+    pub struct AzNodeVec {
         pub(crate) ptr: *const AzNode,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNodeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
-    #[repr(C)]     pub struct AzParentWithNodeDepthVec {
+    #[repr(C)]
+    pub struct AzParentWithNodeDepthVec {
         pub(crate) ptr: *const AzParentWithNodeDepth,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `OptionPositionInfo` struct
-    #[repr(C, u8)]     pub enum AzOptionPositionInfo {
+    #[repr(C, u8)]
+    pub enum AzOptionPositionInfo {
         None,
         Some(AzPositionInfo),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionTimerId` struct
-    #[repr(C, u8)]     pub enum AzOptionTimerId {
+    #[repr(C, u8)]
+    pub enum AzOptionTimerId {
         None,
         Some(AzTimerId),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionThreadId` struct
-    #[repr(C, u8)]     pub enum AzOptionThreadId {
+    #[repr(C, u8)]
+    pub enum AzOptionThreadId {
         None,
         Some(AzThreadId),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionImageRef` struct
-    #[repr(C, u8)]     pub enum AzOptionImageRef {
+    #[repr(C, u8)]
+    pub enum AzOptionImageRef {
         None,
         Some(AzImageRef),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionFontRef` struct
-    #[repr(C, u8)]     pub enum AzOptionFontRef {
+    #[repr(C, u8)]
+    pub enum AzOptionFontRef {
         None,
         Some(AzFontRef),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionSystemClipboard` struct
-    #[repr(C, u8)]     pub enum AzOptionSystemClipboard {
+    #[repr(C, u8)]
+    pub enum AzOptionSystemClipboard {
         None,
         Some(AzSystemClipboard),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionFile` struct
-    #[repr(C, u8)]     pub enum AzOptionFile {
+    #[repr(C, u8)]
+    pub enum AzOptionFile {
         None,
         Some(AzFile),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionGl` struct
-    #[repr(C, u8)]     pub enum AzOptionGl {
+    #[repr(C, u8)]
+    pub enum AzOptionGl {
         None,
         Some(AzGl),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
-    #[repr(C, u8)]     pub enum AzOptionPercentageValue {
+    #[repr(C, u8)]
+    pub enum AzOptionPercentageValue {
         None,
         Some(AzPercentageValue),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionAngleValue` struct
-    #[repr(C, u8)]     pub enum AzOptionAngleValue {
+    #[repr(C, u8)]
+    pub enum AzOptionAngleValue {
         None,
         Some(AzAngleValue),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionRendererOptions` struct
-    #[repr(C, u8)]     pub enum AzOptionRendererOptions {
+    #[repr(C, u8)]
+    pub enum AzOptionRendererOptions {
         None,
         Some(AzRendererOptions),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionCallback` struct
-    #[repr(C, u8)]     pub enum AzOptionCallback {
+    #[repr(C, u8)]
+    pub enum AzOptionCallback {
         None,
         Some(AzCallback),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
-    #[repr(C, u8)]     pub enum AzOptionThreadSendMsg {
+    #[repr(C, u8)]
+    pub enum AzOptionThreadSendMsg {
         None,
         Some(AzThreadSendMsg),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionLayoutRect` struct
-    #[repr(C, u8)]     pub enum AzOptionLayoutRect {
+    #[repr(C, u8)]
+    pub enum AzOptionLayoutRect {
         None,
         Some(AzLayoutRect),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
-    #[repr(C, u8)]     pub enum AzOptionRefAny {
+    #[repr(C, u8)]
+    pub enum AzOptionRefAny {
         None,
         Some(AzRefAny),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionLayoutPoint` struct
-    #[repr(C, u8)]     pub enum AzOptionLayoutPoint {
+    #[repr(C, u8)]
+    pub enum AzOptionLayoutPoint {
         None,
         Some(AzLayoutPoint),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionLayoutSize` struct
-    #[repr(C, u8)]     pub enum AzOptionLayoutSize {
+    #[repr(C, u8)]
+    pub enum AzOptionLayoutSize {
         None,
         Some(AzLayoutSize),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
-    #[repr(C, u8)]     pub enum AzOptionWindowTheme {
+    #[repr(C, u8)]
+    pub enum AzOptionWindowTheme {
         None,
         Some(AzWindowTheme),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionNodeId` struct
-    #[repr(C, u8)]     pub enum AzOptionNodeId {
+    #[repr(C, u8)]
+    pub enum AzOptionNodeId {
         None,
         Some(AzNodeId),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionDomNodeId` struct
-    #[repr(C, u8)]     pub enum AzOptionDomNodeId {
+    #[repr(C, u8)]
+    pub enum AzOptionDomNodeId {
         None,
         Some(AzDomNodeId),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionColorU` struct
-    #[repr(C, u8)]     pub enum AzOptionColorU {
+    #[repr(C, u8)]
+    pub enum AzOptionColorU {
         None,
         Some(AzColorU),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionSvgDashPattern` struct
-    #[repr(C, u8)]     pub enum AzOptionSvgDashPattern {
+    #[repr(C, u8)]
+    pub enum AzOptionSvgDashPattern {
         None,
         Some(AzSvgDashPattern),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionLogicalPosition` struct
-    #[repr(C, u8)]     pub enum AzOptionLogicalPosition {
+    #[repr(C, u8)]
+    pub enum AzOptionLogicalPosition {
         None,
         Some(AzLogicalPosition),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionPhysicalPositionI32` struct
-    #[repr(C, u8)]     pub enum AzOptionPhysicalPositionI32 {
+    #[repr(C, u8)]
+    pub enum AzOptionPhysicalPositionI32 {
         None,
         Some(AzPhysicalPositionI32),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionMouseCursorType` struct
-    #[repr(C, u8)]     pub enum AzOptionMouseCursorType {
+    #[repr(C, u8)]
+    pub enum AzOptionMouseCursorType {
         None,
         Some(AzMouseCursorType),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionLogicalSize` struct
-    #[repr(C, u8)]     pub enum AzOptionLogicalSize {
+    #[repr(C, u8)]
+    pub enum AzOptionLogicalSize {
         None,
         Some(AzLogicalSize),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCode` struct
-    #[repr(C, u8)]     pub enum AzOptionVirtualKeyCode {
+    #[repr(C, u8)]
+    pub enum AzOptionVirtualKeyCode {
         None,
         Some(AzVirtualKeyCode),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionImageMask` struct
-    #[repr(C, u8)]     pub enum AzOptionImageMask {
+    #[repr(C, u8)]
+    pub enum AzOptionImageMask {
         None,
         Some(AzImageMask),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionTabIndex` struct
-    #[repr(C, u8)]     pub enum AzOptionTabIndex {
+    #[repr(C, u8)]
+    pub enum AzOptionTabIndex {
         None,
         Some(AzTabIndex),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionTagId` struct
-    #[repr(C, u8)]     pub enum AzOptionTagId {
+    #[repr(C, u8)]
+    pub enum AzOptionTagId {
         None,
         Some(AzTagId),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionDuration` struct
-    #[repr(C, u8)]     pub enum AzOptionDuration {
+    #[repr(C, u8)]
+    pub enum AzOptionDuration {
         None,
         Some(AzDuration),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionU8Vec` struct
-    #[repr(C, u8)]     pub enum AzOptionU8Vec {
+    #[repr(C, u8)]
+    pub enum AzOptionU8Vec {
         None,
         Some(AzU8Vec),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
-    #[repr(C, u8)]     pub enum AzOptionU8VecRef {
+    #[repr(C, u8)]
+    pub enum AzOptionU8VecRef {
         None,
         Some(AzU8VecRef),
     }
+
     /// Re-export of rust-allocated (stack based) `ResultU8VecEncodeImageError` struct
-    #[repr(C, u8)]     pub enum AzResultU8VecEncodeImageError {
+    #[repr(C, u8)]
+    pub enum AzResultU8VecEncodeImageError {
         Ok(AzU8Vec),
         Err(AzEncodeImageError),
     }
+
     /// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
-    #[repr(C)]     pub struct AzNonXmlCharError {
+    #[repr(C)]
+    pub struct AzNonXmlCharError {
         pub ch: u32,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `InvalidCharError` struct
-    #[repr(C)]     pub struct AzInvalidCharError {
+    #[repr(C)]
+    pub struct AzInvalidCharError {
         pub expected: u8,
         pub got: u8,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `InvalidCharMultipleError` struct
-    #[repr(C)]     pub struct AzInvalidCharMultipleError {
+    #[repr(C)]
+    pub struct AzInvalidCharMultipleError {
         pub expected: u8,
         pub got: AzU8Vec,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `InvalidQuoteError` struct
-    #[repr(C)]     pub struct AzInvalidQuoteError {
+    #[repr(C)]
+    pub struct AzInvalidQuoteError {
         pub got: u8,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `InvalidSpaceError` struct
-    #[repr(C)]     pub struct AzInvalidSpaceError {
+    #[repr(C)]
+    pub struct AzInvalidSpaceError {
         pub got: u8,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Configuration for optional features, such as whether to enable logging or panic hooks
-    #[repr(C)]     pub struct AzAppConfig {
+    #[repr(C)]
+    pub struct AzAppConfig {
         pub layout_solver: AzLayoutSolverVersion,
         pub log_level: AzAppLogLevel,
         pub enable_visual_panic_hook: bool,
@@ -6674,36 +7621,48 @@ mod test_sizes {
         pub enable_tab_navigation: bool,
         pub system_callbacks: AzSystemCallbacks,
     }
+
     /// Small (16x16x4) window icon, usually shown in the window titlebar
-    #[repr(C)]     pub struct AzSmallWindowIconBytes {
+    #[repr(C)]
+    pub struct AzSmallWindowIconBytes {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
     }
+
     /// Large (32x32x4) window icon, usually used on high-resolution displays (instead of `SmallWindowIcon`)
-    #[repr(C)]     pub struct AzLargeWindowIconBytes {
+    #[repr(C)]
+    pub struct AzLargeWindowIconBytes {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
     }
+
     /// Window "favicon", usually shown in the top left of the window on Windows
-    #[repr(C, u8)]     pub enum AzWindowIcon {
+    #[repr(C, u8)]
+    pub enum AzWindowIcon {
         Small(AzSmallWindowIconBytes),
         Large(AzLargeWindowIconBytes),
     }
+
     /// Application taskbar icon, 256x256x4 bytes in size
-    #[repr(C)]     pub struct AzTaskBarIcon {
+    #[repr(C)]
+    pub struct AzTaskBarIcon {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
     }
+
     /// Minimum / maximum / current size of the window in logical dimensions
-    #[repr(C)]     pub struct AzWindowSize {
+    #[repr(C)]
+    pub struct AzWindowSize {
         pub dimensions: AzLogicalSize,
         pub hidpi_factor: f32,
         pub system_hidpi_factor: f32,
         pub min_dimensions: AzOptionLogicalSize,
         pub max_dimensions: AzOptionLogicalSize,
     }
+
     /// Current keyboard state, stores what keys / characters have been pressed
-    #[repr(C)]     pub struct AzKeyboardState {
+    #[repr(C)]
+    pub struct AzKeyboardState {
         pub shift_down: bool,
         pub ctrl_down: bool,
         pub alt_down: bool,
@@ -6713,8 +7672,10 @@ mod test_sizes {
         pub pressed_virtual_keycodes: AzVirtualKeyCodeVec,
         pub pressed_scancodes: AzScanCodeVec,
     }
+
     /// Current mouse / cursor state
-    #[repr(C)]     pub struct AzMouseState {
+    #[repr(C)]
+    pub struct AzMouseState {
         pub mouse_cursor_type: AzOptionMouseCursorType,
         pub cursor_position: AzCursorPosition,
         pub is_cursor_locked: bool,
@@ -6724,13 +7685,17 @@ mod test_sizes {
         pub scroll_x: AzOptionF32,
         pub scroll_y: AzOptionF32,
     }
+
     /// Re-export of rust-allocated (stack based) `InlineTextContents` struct
-    #[repr(C)]     pub struct AzInlineTextContents {
+    #[repr(C)]
+    pub struct AzInlineTextContents {
         pub glyphs: AzInlineGlyphVec,
         pub bounds: AzLogicalRect,
     }
+
     /// Easing function of the animation (ease-in, ease-out, ease-in-out, custom)
-    #[repr(C, u8)]     pub enum AzAnimationEasing {
+    #[repr(C, u8)]
+    pub enum AzAnimationEasing {
         Ease,
         Linear,
         EaseIn,
@@ -6738,8 +7703,10 @@ mod test_sizes {
         EaseInOut,
         CubicBezier(AzSvgCubicCurve),
     }
+
     /// Re-export of rust-allocated (stack based) `RenderImageCallbackInfo` struct
-    #[repr(C)]     pub struct AzRenderImageCallbackInfo {
+    #[repr(C)]
+    pub struct AzRenderImageCallbackInfo {
         pub callback_node_id: AzDomNodeId,
         pub bounds: AzHidpiAdjustedBounds,
         pub gl_context: *const AzOptionGl,
@@ -6753,8 +7720,10 @@ mod test_sizes {
         pub _reserved_ref: *const c_void,
         pub _reserved_mut: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `LayoutCallbackInfo` struct
-    #[repr(C)]     pub struct AzLayoutCallbackInfo {
+    #[repr(C)]
+    pub struct AzLayoutCallbackInfo {
         pub window_size: AzWindowSize,
         pub theme: AzWindowTheme,
         pub image_cache: *const c_void,
@@ -6763,8 +7732,10 @@ mod test_sizes {
         pub _reserved_ref: *const c_void,
         pub _reserved_mut: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `EventFilter` struct
-    #[repr(C, u8)]     pub enum AzEventFilter {
+    #[repr(C, u8)]
+    pub enum AzEventFilter {
         Hover(AzHoverEventFilter),
         Not(AzNotEventFilter),
         Focus(AzFocusEventFilter),
@@ -6772,8 +7743,10 @@ mod test_sizes {
         Component(AzComponentEventFilter),
         Application(AzApplicationEventFilter),
     }
+
     /// Re-export of rust-allocated (stack based) `CssPathPseudoSelector` struct
-    #[repr(C, u8)]     pub enum AzCssPathPseudoSelector {
+    #[repr(C, u8)]
+    pub enum AzCssPathPseudoSelector {
         First,
         Last,
         NthChild(AzCssNthChildSelector),
@@ -6781,8 +7754,10 @@ mod test_sizes {
         Active,
         Focus,
     }
+
     /// Re-export of rust-allocated (stack based) `AnimationInterpolationFunction` struct
-    #[repr(C, u8)]     pub enum AzAnimationInterpolationFunction {
+    #[repr(C, u8)]
+    pub enum AzAnimationInterpolationFunction {
         Ease,
         Linear,
         EaseIn,
@@ -6790,37 +7765,47 @@ mod test_sizes {
         EaseInOut,
         CubicBezier(AzSvgCubicCurve),
     }
+
     /// Re-export of rust-allocated (stack based) `InterpolateContext` struct
-    #[repr(C)]     pub struct AzInterpolateContext {
+    #[repr(C)]
+    pub struct AzInterpolateContext {
         pub animation_func: AzAnimationInterpolationFunction,
         pub parent_rect_width: f32,
         pub parent_rect_height: f32,
         pub current_rect_width: f32,
         pub current_rect_height: f32,
     }
+
     /// Re-export of rust-allocated (stack based) `LinearGradient` struct
-    #[repr(C)]     pub struct AzLinearGradient {
+    #[repr(C)]
+    pub struct AzLinearGradient {
         pub direction: AzDirection,
         pub extend_mode: AzExtendMode,
         pub stops: AzNormalizedLinearColorStopVec,
     }
+
     /// Re-export of rust-allocated (stack based) `RadialGradient` struct
-    #[repr(C)]     pub struct AzRadialGradient {
+    #[repr(C)]
+    pub struct AzRadialGradient {
         pub shape: AzShape,
         pub size: AzRadialGradientSize,
         pub position: AzStyleBackgroundPosition,
         pub extend_mode: AzExtendMode,
         pub stops: AzNormalizedLinearColorStopVec,
     }
+
     /// Re-export of rust-allocated (stack based) `ConicGradient` struct
-    #[repr(C)]     pub struct AzConicGradient {
+    #[repr(C)]
+    pub struct AzConicGradient {
         pub extend_mode: AzExtendMode,
         pub center: AzStyleBackgroundPosition,
         pub angle: AzAngleValue,
         pub stops: AzNormalizedRadialColorStopVec,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransform` struct
-    #[repr(C, u8)]     pub enum AzStyleTransform {
+    #[repr(C, u8)]
+    pub enum AzStyleTransform {
         Matrix(AzStyleTransformMatrix2D),
         Matrix3D(AzStyleTransformMatrix3D),
         Translate(AzStyleTransformTranslate2D),
@@ -6843,91 +7828,119 @@ mod test_sizes {
         SkewY(AzPercentageValue),
         Perspective(AzPixelValue),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundPositionVecValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBackgroundPositionVecValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBackgroundPositionVec),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundRepeatVecValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBackgroundRepeatVecValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBackgroundRepeatVec),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundSizeVecValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBackgroundSizeVecValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBackgroundSizeVec),
     }
+
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
-    #[repr(C)]     pub struct AzStyledNode {
+    #[repr(C)]
+    pub struct AzStyledNode {
         pub state: AzStyledNodeState,
         pub tag_id: AzOptionTagId,
     }
+
     /// Re-export of rust-allocated (stack based) `TagIdToNodeIdMapping` struct
-    #[repr(C)]     pub struct AzTagIdToNodeIdMapping {
+    #[repr(C)]
+    pub struct AzTagIdToNodeIdMapping {
         pub tag_id: AzTagId,
         pub node_id: AzNodeId,
         pub tab_index: AzOptionTabIndex,
         pub parents: AzNodeIdVec,
     }
+
     /// Re-export of rust-allocated (stack based) `Texture` struct
-    #[repr(C)]     pub struct AzTexture {
+    #[repr(C)]
+    pub struct AzTexture {
         pub texture_id: u32,
         pub format: AzRawImageFormat,
         pub flags: AzTextureFlags,
         pub size: AzPhysicalSizeU32,
         pub gl_context: AzGl,
     }
+
     /// C-ABI stable reexport of `(U8Vec, u32)`
-    #[repr(C)]     pub struct AzGetProgramBinaryReturn {
+    #[repr(C)]
+    pub struct AzGetProgramBinaryReturn {
         pub _0: AzU8Vec,
         pub _1: u32,
     }
+
     /// Re-export of rust-allocated (stack based) `RawImageData` struct
-    #[repr(C, u8)]     pub enum AzRawImageData {
+    #[repr(C, u8)]
+    pub enum AzRawImageData {
         U8(AzU8Vec),
         U16(AzU16Vec),
         F32(AzF32Vec),
     }
+
     /// Source data of a font file (bytes)
-    #[repr(C)]     pub struct AzFontSource {
+    #[repr(C)]
+    pub struct AzFontSource {
         pub data: AzU8Vec,
         pub font_index: u32,
         pub parse_glyph_outlines: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
-    #[repr(C, u8)]     pub enum AzSvgPathElement {
+    #[repr(C, u8)]
+    pub enum AzSvgPathElement {
         Line(AzSvgLine),
         QuadraticCurve(AzSvgQuadraticCurve),
         CubicCurve(AzSvgCubicCurve),
     }
+
     /// Re-export of rust-allocated (stack based) `TesselatedSvgNode` struct
-    #[repr(C)]     pub struct AzTesselatedSvgNode {
+    #[repr(C)]
+    pub struct AzTesselatedSvgNode {
         pub vertices: AzSvgVertexVec,
         pub indices: AzU32Vec,
     }
+
     /// Rust wrapper over a `&[TesselatedSvgNode]` or `&Vec<TesselatedSvgNode>`
-    #[repr(C)]     pub struct AzTesselatedSvgNodeVecRef {
+    #[repr(C)]
+    pub struct AzTesselatedSvgNodeVecRef {
         pub(crate) ptr: *const AzTesselatedSvgNode,
         pub len: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgRenderOptions` struct
-    #[repr(C)]     pub struct AzSvgRenderOptions {
+    #[repr(C)]
+    pub struct AzSvgRenderOptions {
         pub target_size: AzOptionLayoutSize,
         pub background_color: AzOptionColorU,
         pub fit: AzSvgFitTo,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgStrokeStyle` struct
-    #[repr(C)]     pub struct AzSvgStrokeStyle {
+    #[repr(C)]
+    pub struct AzSvgStrokeStyle {
         pub start_cap: AzSvgLineCap,
         pub end_cap: AzSvgLineCap,
         pub line_join: AzSvgLineJoin,
@@ -6940,152 +7953,206 @@ mod test_sizes {
         pub anti_alias: bool,
         pub high_quality_aa: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `Xml` struct
-    #[repr(C)]     pub struct AzXml {
+    #[repr(C)]
+    pub struct AzXml {
         pub root: AzXmlNodeVec,
     }
+
     /// Re-export of rust-allocated (stack based) `Instant` struct
-    #[repr(C, u8)]     pub enum AzInstant {
+    #[repr(C, u8)]
+    pub enum AzInstant {
         System(AzInstantPtr),
         Tick(AzSystemTick),
     }
+
     /// Re-export of rust-allocated (stack based) `ThreadReceiveMsg` struct
-    #[repr(C, u8)]     pub enum AzThreadReceiveMsg {
+    #[repr(C, u8)]
+    pub enum AzThreadReceiveMsg {
         WriteBack(AzThreadWriteBackMsg),
         Update(AzUpdateScreen),
     }
+
     /// Re-export of rust-allocated (stack based) `String` struct
-    #[repr(C)]     pub struct AzString {
+    #[repr(C)]
+    pub struct AzString {
         pub vec: AzU8Vec,
     }
+
     /// Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`
-    #[repr(C)]     pub struct AzTesselatedSvgNodeVec {
+    #[repr(C)]
+    pub struct AzTesselatedSvgNodeVec {
         pub(crate) ptr: *const AzTesselatedSvgNode,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzTesselatedSvgNodeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
-    #[repr(C)]     pub struct AzStyleTransformVec {
+    #[repr(C)]
+    pub struct AzStyleTransformVec {
         pub(crate) ptr: *const AzStyleTransform,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyleTransformVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `VertexAttribute`
-    #[repr(C)]     pub struct AzSvgPathElementVec {
+    #[repr(C)]
+    pub struct AzSvgPathElementVec {
         pub(crate) ptr: *const AzSvgPathElement,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzSvgPathElementVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `StringVec`
-    #[repr(C)]     pub struct AzStringVec {
+    #[repr(C)]
+    pub struct AzStringVec {
         pub(crate) ptr: *const AzString,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStringVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `StyledNodeVec`
-    #[repr(C)]     pub struct AzStyledNodeVec {
+    #[repr(C)]
+    pub struct AzStyledNodeVec {
         pub(crate) ptr: *const AzStyledNode,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyledNodeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
-    #[repr(C)]     pub struct AzTagIdsToNodeIdsMappingVec {
+    #[repr(C)]
+    pub struct AzTagIdsToNodeIdsMappingVec {
         pub(crate) ptr: *const AzTagIdToNodeIdMapping,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `OptionMouseState` struct
-    #[repr(C, u8)]     pub enum AzOptionMouseState {
+    #[repr(C, u8)]
+    pub enum AzOptionMouseState {
         None,
         Some(AzMouseState),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionKeyboardState` struct
-    #[repr(C, u8)]     pub enum AzOptionKeyboardState {
+    #[repr(C, u8)]
+    pub enum AzOptionKeyboardState {
         None,
         Some(AzKeyboardState),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionStringVec` struct
-    #[repr(C, u8)]     pub enum AzOptionStringVec {
+    #[repr(C, u8)]
+    pub enum AzOptionStringVec {
         None,
         Some(AzStringVec),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
-    #[repr(C, u8)]     pub enum AzOptionThreadReceiveMsg {
+    #[repr(C, u8)]
+    pub enum AzOptionThreadReceiveMsg {
         None,
         Some(AzThreadReceiveMsg),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
-    #[repr(C, u8)]     pub enum AzOptionTaskBarIcon {
+    #[repr(C, u8)]
+    pub enum AzOptionTaskBarIcon {
         None,
         Some(AzTaskBarIcon),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionWindowIcon` struct
-    #[repr(C, u8)]     pub enum AzOptionWindowIcon {
+    #[repr(C, u8)]
+    pub enum AzOptionWindowIcon {
         None,
         Some(AzWindowIcon),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionString` struct
-    #[repr(C, u8)]     pub enum AzOptionString {
+    #[repr(C, u8)]
+    pub enum AzOptionString {
         None,
         Some(AzString),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionTexture` struct
-    #[repr(C, u8)]     pub enum AzOptionTexture {
+    #[repr(C, u8)]
+    pub enum AzOptionTexture {
         None,
         Some(AzTexture),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionInstant` struct
-    #[repr(C, u8)]     pub enum AzOptionInstant {
+    #[repr(C, u8)]
+    pub enum AzOptionInstant {
         None,
         Some(AzInstant),
     }
+
     /// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
-    #[repr(C)]     pub struct AzDuplicatedNamespaceError {
+    #[repr(C)]
+    pub struct AzDuplicatedNamespaceError {
         pub ns: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `UnknownNamespaceError` struct
-    #[repr(C)]     pub struct AzUnknownNamespaceError {
+    #[repr(C)]
+    pub struct AzUnknownNamespaceError {
         pub ns: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `UnexpectedCloseTagError` struct
-    #[repr(C)]     pub struct AzUnexpectedCloseTagError {
+    #[repr(C)]
+    pub struct AzUnexpectedCloseTagError {
         pub expected: AzString,
         pub actual: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `UnknownEntityReferenceError` struct
-    #[repr(C)]     pub struct AzUnknownEntityReferenceError {
+    #[repr(C)]
+    pub struct AzUnknownEntityReferenceError {
         pub entity: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `DuplicatedAttributeError` struct
-    #[repr(C)]     pub struct AzDuplicatedAttributeError {
+    #[repr(C)]
+    pub struct AzDuplicatedAttributeError {
         pub attribute: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `InvalidStringError` struct
-    #[repr(C)]     pub struct AzInvalidStringError {
+    #[repr(C)]
+    pub struct AzInvalidStringError {
         pub got: AzString,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Window configuration specific to Win32
-    #[repr(C)]     pub struct AzWindowsWindowOptions {
+    #[repr(C)]
+    pub struct AzWindowsWindowOptions {
         pub allow_drag_drop: bool,
         pub no_redirection_bitmap: bool,
         pub window_icon: AzOptionWindowIcon,
         pub taskbar_icon: AzOptionTaskBarIcon,
         pub parent_window: AzOptionHwndHandle,
     }
+
     /// CSD theme of the window title / button controls
-    #[repr(C)]     pub struct AzWaylandTheme {
+    #[repr(C)]
+    pub struct AzWaylandTheme {
         pub title_bar_active_background_color: [u8;4],
         pub title_bar_active_separator_color: [u8;4],
         pub title_bar_active_text_color: [u8;4],
@@ -7131,13 +8198,17 @@ mod test_sizes {
         pub title_bar_font: AzString,
         pub title_bar_font_size: f32,
     }
+
     /// Key-value pair, used for setting WM hints values specific to GNOME
-    #[repr(C)]     pub struct AzStringPair {
+    #[repr(C)]
+    pub struct AzStringPair {
         pub key: AzString,
         pub value: AzString,
     }
+
     /// Information about a single (or many) monitors, useful for dock widgets
-    #[repr(C)]     pub struct AzMonitor {
+    #[repr(C)]
+    pub struct AzMonitor {
         pub id: usize,
         pub name: AzOptionString,
         pub size: AzLayoutSize,
@@ -7146,21 +8217,27 @@ mod test_sizes {
         pub video_modes: AzVideoModeVec,
         pub is_primary_monitor: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `InlineWord` struct
-    #[repr(C, u8)]     pub enum AzInlineWord {
+    #[repr(C, u8)]
+    pub enum AzInlineWord {
         Tab,
         Return,
         Space,
         Word(AzInlineTextContents),
     }
+
     /// Re-export of rust-allocated (stack based) `CallbackData` struct
-    #[repr(C)]     pub struct AzCallbackData {
+    #[repr(C)]
+    pub struct AzCallbackData {
         pub event: AzEventFilter,
         pub callback: AzCallback,
         pub data: AzRefAny,
     }
+
     /// List of core DOM node types built-into by `azul`
-    #[repr(C, u8)]     pub enum AzNodeType {
+    #[repr(C, u8)]
+    pub enum AzNodeType {
         Body,
         Div,
         Br,
@@ -7168,13 +8245,17 @@ mod test_sizes {
         Image(AzImageRef),
         IFrame(AzIFrameNode),
     }
+
     /// Re-export of rust-allocated (stack based) `IdOrClass` struct
-    #[repr(C, u8)]     pub enum AzIdOrClass {
+    #[repr(C, u8)]
+    pub enum AzIdOrClass {
         Id(AzString),
         Class(AzString),
     }
+
     /// Re-export of rust-allocated (stack based) `CssPathSelector` struct
-    #[repr(C, u8)]     pub enum AzCssPathSelector {
+    #[repr(C, u8)]
+    pub enum AzCssPathSelector {
         Global,
         Type(AzNodeTypeKey),
         Class(AzString),
@@ -7183,16 +8264,20 @@ mod test_sizes {
         DirectChildren,
         Children,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundContent` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundContent {
+    #[repr(C, u8)]
+    pub enum AzStyleBackgroundContent {
         LinearGradient(AzLinearGradient),
         RadialGradient(AzRadialGradient),
         ConicGradient(AzConicGradient),
         Image(AzString),
         Color(AzColorU),
     }
+
     /// Re-export of rust-allocated (stack based) `ScrollbarInfo` struct
-    #[repr(C)]     pub struct AzScrollbarInfo {
+    #[repr(C)]
+    pub struct AzScrollbarInfo {
         pub width: AzLayoutWidth,
         pub padding_left: AzLayoutPaddingLeft,
         pub padding_right: AzLayoutPaddingRight,
@@ -7202,74 +8287,96 @@ mod test_sizes {
         pub corner: AzStyleBackgroundContent,
         pub resizer: AzStyleBackgroundContent,
     }
+
     /// Re-export of rust-allocated (stack based) `ScrollbarStyle` struct
-    #[repr(C)]     pub struct AzScrollbarStyle {
+    #[repr(C)]
+    pub struct AzScrollbarStyle {
         pub horizontal: AzScrollbarInfo,
         pub vertical: AzScrollbarInfo,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleFontFamily` struct
-    #[repr(C, u8)]     pub enum AzStyleFontFamily {
+    #[repr(C, u8)]
+    pub enum AzStyleFontFamily {
         System(AzString),
         File(AzString),
         Ref(AzFontRef),
     }
+
     /// Re-export of rust-allocated (stack based) `ScrollbarStyleValue` struct
-    #[repr(C, u8)]     pub enum AzScrollbarStyleValue {
+    #[repr(C, u8)]
+    pub enum AzScrollbarStyleValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzScrollbarStyle),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleTransformVecValue` struct
-    #[repr(C, u8)]     pub enum AzStyleTransformVecValue {
+    #[repr(C, u8)]
+    pub enum AzStyleTransformVecValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleTransformVec),
     }
+
     /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
-    #[repr(C)]     pub struct AzVertexAttribute {
+    #[repr(C)]
+    pub struct AzVertexAttribute {
         pub name: AzString,
         pub layout_location: AzOptionUsize,
         pub attribute_type: AzVertexAttributeType,
         pub item_count: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `DebugMessage` struct
-    #[repr(C)]     pub struct AzDebugMessage {
+    #[repr(C)]
+    pub struct AzDebugMessage {
         pub message: AzString,
         pub source: u32,
         pub ty: u32,
         pub id: u32,
         pub severity: u32,
     }
+
     /// C-ABI stable reexport of `(i32, u32, AzString)`
-    #[repr(C)]     pub struct AzGetActiveAttribReturn {
+    #[repr(C)]
+    pub struct AzGetActiveAttribReturn {
         pub _0: i32,
         pub _1: u32,
         pub _2: AzString,
     }
+
     /// C-ABI stable reexport of `(i32, u32, AzString)`
-    #[repr(C)]     pub struct AzGetActiveUniformReturn {
+    #[repr(C)]
+    pub struct AzGetActiveUniformReturn {
         pub _0: i32,
         pub _1: u32,
         pub _2: AzString,
     }
+
     /// Re-export of rust-allocated (stack based) `RawImage` struct
-    #[repr(C)]     pub struct AzRawImage {
+    #[repr(C)]
+    pub struct AzRawImage {
         pub pixels: AzRawImageData,
         pub width: usize,
         pub height: usize,
         pub alpha_premultiplied: bool,
         pub data_format: AzRawImageFormat,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgPath` struct
-    #[repr(C)]     pub struct AzSvgPath {
+    #[repr(C)]
+    pub struct AzSvgPath {
         pub items: AzSvgPathElementVec,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgParseOptions` struct
-    #[repr(C)]     pub struct AzSvgParseOptions {
+    #[repr(C)]
+    pub struct AzSvgParseOptions {
         pub relative_image_path: AzOptionString,
         pub dpi: f32,
         pub default_font_family: AzString,
@@ -7281,18 +8388,24 @@ mod test_sizes {
         pub keep_named_groups: bool,
         pub fontdb: AzFontDatabase,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgStyle` struct
-    #[repr(C, u8)]     pub enum AzSvgStyle {
+    #[repr(C, u8)]
+    pub enum AzSvgStyle {
         Fill(AzSvgFillStyle),
         Stroke(AzSvgStrokeStyle),
     }
+
     /// Re-export of rust-allocated (stack based) `FileTypeList` struct
-    #[repr(C)]     pub struct AzFileTypeList {
+    #[repr(C)]
+    pub struct AzFileTypeList {
         pub document_types: AzStringVec,
         pub document_descriptor: AzString,
     }
+
     /// Re-export of rust-allocated (stack based) `Timer` struct
-    #[repr(C)]     pub struct AzTimer {
+    #[repr(C)]
+    pub struct AzTimer {
         pub data: AzRefAny,
         pub node_id: AzOptionDomNodeId,
         pub created: AzInstant,
@@ -7303,8 +8416,10 @@ mod test_sizes {
         pub timeout: AzOptionDuration,
         pub callback: AzTimerCallback,
     }
+
     /// Re-export of rust-allocated (stack based) `FmtValue` struct
-    #[repr(C, u8)]     pub enum AzFmtValue {
+    #[repr(C, u8)]
+    pub enum AzFmtValue {
         Bool(bool),
         Uchar(u8),
         Schar(i8),
@@ -7321,117 +8436,153 @@ mod test_sizes {
         Str(AzString),
         StrVec(AzStringVec),
     }
+
     /// Re-export of rust-allocated (stack based) `FmtArg` struct
-    #[repr(C)]     pub struct AzFmtArg {
+    #[repr(C)]
+    pub struct AzFmtArg {
         pub key: AzString,
         pub value: AzFmtValue,
     }
+
     /// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
-    #[repr(C)]     pub struct AzStyleFontFamilyVec {
+    #[repr(C)]
+    pub struct AzStyleFontFamilyVec {
         pub(crate) ptr: *const AzStyleFontFamily,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyleFontFamilyVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<FmtArg>`
-    #[repr(C)]     pub struct AzFmtArgVec {
+    #[repr(C)]
+    pub struct AzFmtArgVec {
         pub(crate) ptr: *const AzFmtArg,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzFmtArgVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<InlineWord>`
-    #[repr(C)]     pub struct AzInlineWordVec {
+    #[repr(C)]
+    pub struct AzInlineWordVec {
         pub(crate) ptr: *const AzInlineWord,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzInlineWordVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<Monitor>`
-    #[repr(C)]     pub struct AzMonitorVec {
+    #[repr(C)]
+    pub struct AzMonitorVec {
         pub(crate) ptr: *const AzMonitor,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzMonitorVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
-    #[repr(C)]     pub struct AzIdOrClassVec {
+    #[repr(C)]
+    pub struct AzIdOrClassVec {
         pub(crate) ptr: *const AzIdOrClass,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzIdOrClassVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
-    #[repr(C)]     pub struct AzStyleBackgroundContentVec {
+    #[repr(C)]
+    pub struct AzStyleBackgroundContentVec {
         pub(crate) ptr: *const AzStyleBackgroundContent,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStyleBackgroundContentVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<SvgPath>`
-    #[repr(C)]     pub struct AzSvgPathVec {
+    #[repr(C)]
+    pub struct AzSvgPathVec {
         pub(crate) ptr: *const AzSvgPath,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzSvgPathVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
-    #[repr(C)]     pub struct AzVertexAttributeVec {
+    #[repr(C)]
+    pub struct AzVertexAttributeVec {
         pub(crate) ptr: *const AzVertexAttribute,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzVertexAttributeVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `CssPathSelector`
-    #[repr(C)]     pub struct AzCssPathSelectorVec {
+    #[repr(C)]
+    pub struct AzCssPathSelectorVec {
         pub(crate) ptr: *const AzCssPathSelector,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzCssPathSelectorVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `CallbackData`
-    #[repr(C)]     pub struct AzCallbackDataVec {
+    #[repr(C)]
+    pub struct AzCallbackDataVec {
         pub(crate) ptr: *const AzCallbackData,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzCallbackDataVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
-    #[repr(C)]     pub struct AzDebugMessageVec {
+    #[repr(C)]
+    pub struct AzDebugMessageVec {
         pub(crate) ptr: *const AzDebugMessage,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzDebugMessageVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `StringPairVec`
-    #[repr(C)]     pub struct AzStringPairVec {
+    #[repr(C)]
+    pub struct AzStringPairVec {
         pub(crate) ptr: *const AzStringPair,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStringPairVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `OptionFileTypeList` struct
-    #[repr(C, u8)]     pub enum AzOptionFileTypeList {
+    #[repr(C, u8)]
+    pub enum AzOptionFileTypeList {
         None,
         Some(AzFileTypeList),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionRawImage` struct
-    #[repr(C, u8)]     pub enum AzOptionRawImage {
+    #[repr(C, u8)]
+    pub enum AzOptionRawImage {
         None,
         Some(AzRawImage),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
-    #[repr(C, u8)]     pub enum AzOptionWaylandTheme {
+    #[repr(C, u8)]
+    pub enum AzOptionWaylandTheme {
         None,
         Some(AzWaylandTheme),
     }
+
     /// Re-export of rust-allocated (stack based) `ResultRawImageDecodeImageError` struct
-    #[repr(C, u8)]     pub enum AzResultRawImageDecodeImageError {
+    #[repr(C, u8)]
+    pub enum AzResultRawImageDecodeImageError {
         Ok(AzRawImage),
         Err(AzDecodeImageError),
     }
+
     /// Re-export of rust-allocated (stack based) `XmlStreamError` struct
-    #[repr(C, u8)]     pub enum AzXmlStreamError {
+    #[repr(C, u8)]
+    pub enum AzXmlStreamError {
         UnexpectedEndOfStream,
         InvalidName,
         NonXmlChar(AzNonXmlCharError),
@@ -7446,8 +8597,10 @@ mod test_sizes {
         InvalidCommentEnd,
         InvalidCharacterData,
     }
+
     /// Re-export of rust-allocated (stack based) `LinuxWindowOptions` struct
-    #[repr(C)]     pub struct AzLinuxWindowOptions {
+    #[repr(C)]
+    pub struct AzLinuxWindowOptions {
         pub x11_visual: AzOptionX11Visual,
         pub x11_screen: AzOptionI32,
         pub x11_wm_classes: AzStringPairVec,
@@ -7461,33 +8614,43 @@ mod test_sizes {
         pub request_user_attention: bool,
         pub window_icon: AzOptionWindowIcon,
     }
+
     /// Re-export of rust-allocated (stack based) `InlineLine` struct
-    #[repr(C)]     pub struct AzInlineLine {
+    #[repr(C)]
+    pub struct AzInlineLine {
         pub words: AzInlineWordVec,
         pub bounds: AzLogicalRect,
     }
+
     /// Re-export of rust-allocated (stack based) `CssPath` struct
-    #[repr(C)]     pub struct AzCssPath {
+    #[repr(C)]
+    pub struct AzCssPath {
         pub selectors: AzCssPathSelectorVec,
     }
+
     /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecValue` struct
-    #[repr(C, u8)]     pub enum AzStyleBackgroundContentVecValue {
+    #[repr(C, u8)]
+    pub enum AzStyleBackgroundContentVecValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleBackgroundContentVec),
     }
+
     /// Re-export of rust-allocated (stack based) `StyleFontFamilyVecValue` struct
-    #[repr(C, u8)]     pub enum AzStyleFontFamilyVecValue {
+    #[repr(C, u8)]
+    pub enum AzStyleFontFamilyVecValue {
         Auto,
         None,
         Inherit,
         Initial,
         Exact(AzStyleFontFamilyVec),
     }
+
     /// Parsed CSS key-value pair
-    #[repr(C, u8)]     pub enum AzCssProperty {
+    #[repr(C, u8)]
+    pub enum AzCssProperty {
         TextColor(AzStyleTextColorValue),
         FontSize(AzStyleFontSizeValue),
         FontFamily(AzStyleFontFamilyVecValue),
@@ -7559,23 +8722,31 @@ mod test_sizes {
         PerspectiveOrigin(AzStylePerspectiveOriginValue),
         BackfaceVisibility(AzStyleBackfaceVisibilityValue),
     }
+
     /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
-    #[repr(C, u8)]     pub enum AzCssPropertySource {
+    #[repr(C, u8)]
+    pub enum AzCssPropertySource {
         Css(AzCssPath),
         Inline,
     }
+
     /// Re-export of rust-allocated (stack based) `VertexLayout` struct
-    #[repr(C)]     pub struct AzVertexLayout {
+    #[repr(C)]
+    pub struct AzVertexLayout {
         pub fields: AzVertexAttributeVec,
     }
+
     /// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
-    #[repr(C)]     pub struct AzVertexArrayObject {
+    #[repr(C)]
+    pub struct AzVertexArrayObject {
         pub vertex_layout: AzVertexLayout,
         pub vao_id: u32,
         pub gl_context: AzGl,
     }
+
     /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
-    #[repr(C)]     pub struct AzVertexBuffer {
+    #[repr(C)]
+    pub struct AzVertexBuffer {
         pub vertex_buffer_id: u32,
         pub vertex_buffer_len: usize,
         pub vao: AzVertexArrayObject,
@@ -7583,57 +8754,75 @@ mod test_sizes {
         pub index_buffer_len: usize,
         pub index_buffer_format: AzIndexBufferFormat,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
-    #[repr(C)]     pub struct AzSvgMultiPolygon {
+    #[repr(C)]
+    pub struct AzSvgMultiPolygon {
         pub rings: AzSvgPathVec,
     }
+
     /// Re-export of rust-allocated (stack based) `XmlNode` struct
-    #[repr(C)]     pub struct AzXmlNode {
+    #[repr(C)]
+    pub struct AzXmlNode {
         pub tag: AzString,
         pub attributes: AzStringPairVec,
         pub children: AzXmlNodeVec,
         pub text: AzOptionString,
     }
+
     /// Wrapper over a Rust-allocated `Vec<InlineLine>`
-    #[repr(C)]     pub struct AzInlineLineVec {
+    #[repr(C)]
+    pub struct AzInlineLineVec {
         pub(crate) ptr: *const AzInlineLine,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzInlineLineVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`
-    #[repr(C)]     pub struct AzCssPropertyVec {
+    #[repr(C)]
+    pub struct AzCssPropertyVec {
         pub(crate) ptr: *const AzCssProperty,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzCssPropertyVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
-    #[repr(C)]     pub struct AzSvgMultiPolygonVec {
+    #[repr(C)]
+    pub struct AzSvgMultiPolygonVec {
         pub(crate) ptr: *const AzSvgMultiPolygon,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzSvgMultiPolygonVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `OptionCssProperty` struct
-    #[repr(C, u8)]     pub enum AzOptionCssProperty {
+    #[repr(C, u8)]
+    pub enum AzOptionCssProperty {
         None,
         Some(AzCssProperty),
     }
+
     /// Re-export of rust-allocated (stack based) `XmlTextError` struct
-    #[repr(C)]     pub struct AzXmlTextError {
+    #[repr(C)]
+    pub struct AzXmlTextError {
         pub stream_error: AzXmlStreamError,
         pub pos: AzSvgParseErrorPosition,
     }
+
     /// Platform-specific window configuration, i.e. WM options that are not cross-platform
-    #[repr(C)]     pub struct AzPlatformSpecificOptions {
+    #[repr(C)]
+    pub struct AzPlatformSpecificOptions {
         pub windows_options: AzWindowsWindowOptions,
         pub linux_options: AzLinuxWindowOptions,
         pub mac_options: AzMacWindowOptions,
         pub wasm_options: AzWasmWindowOptions,
     }
+
     /// Re-export of rust-allocated (stack based) `WindowState` struct
-    #[repr(C)]     pub struct AzWindowState {
+    #[repr(C)]
+    pub struct AzWindowState {
         pub title: AzString,
         pub theme: AzWindowTheme,
         pub size: AzWindowSize,
@@ -7651,8 +8840,10 @@ mod test_sizes {
         pub layout_callback: AzLayoutCallback,
         pub close_callback: AzOptionCallback,
     }
+
     /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
-    #[repr(C)]     pub struct AzCallbackInfo {
+    #[repr(C)]
+    pub struct AzCallbackInfo {
         pub css_property_cache: *const c_void,
         pub styled_node_states: *const c_void,
         pub previous_window_state: *const c_void,
@@ -7686,21 +8877,27 @@ mod test_sizes {
         pub _reserved_ref: *const c_void,
         pub _reserved_mut: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `InlineText` struct
-    #[repr(C)]     pub struct AzInlineText {
+    #[repr(C)]
+    pub struct AzInlineText {
         pub lines: AzInlineLineVec,
         pub content_size: AzLogicalSize,
         pub font_size_px: f32,
         pub last_word_index: usize,
         pub baseline_descender_px: f32,
     }
+
     /// CSS path to set the keyboard input focus
-    #[repr(C)]     pub struct AzFocusTargetPath {
+    #[repr(C)]
+    pub struct AzFocusTargetPath {
         pub dom: AzDomId,
         pub css_path: AzCssPath,
     }
+
     /// Animation struct to start a new animation
-    #[repr(C)]     pub struct AzAnimation {
+    #[repr(C)]
+    pub struct AzAnimation {
         pub from: AzCssProperty,
         pub to: AzCssProperty,
         pub duration: AzDuration,
@@ -7709,8 +8906,10 @@ mod test_sizes {
         pub easing: AzAnimationEasing,
         pub relayout_on_finish: bool,
     }
+
     /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
-    #[repr(C)]     pub struct AzTimerCallbackInfo {
+    #[repr(C)]
+    pub struct AzTimerCallbackInfo {
         pub callback_info: AzCallbackInfo,
         pub node_id: AzOptionDomNodeId,
         pub frame_start: AzInstant,
@@ -7719,50 +8918,66 @@ mod test_sizes {
         pub _reserved_ref: *const c_void,
         pub _reserved_mut: *mut c_void,
     }
+
     /// Re-export of rust-allocated (stack based) `NodeDataInlineCssProperty` struct
-    #[repr(C, u8)]     pub enum AzNodeDataInlineCssProperty {
+    #[repr(C, u8)]
+    pub enum AzNodeDataInlineCssProperty {
         Normal(AzCssProperty),
         Active(AzCssProperty),
         Focus(AzCssProperty),
         Hover(AzCssProperty),
     }
+
     /// Re-export of rust-allocated (stack based) `DynamicCssProperty` struct
-    #[repr(C)]     pub struct AzDynamicCssProperty {
+    #[repr(C)]
+    pub struct AzDynamicCssProperty {
         pub dynamic_id: AzString,
         pub default_value: AzCssProperty,
     }
+
     /// Re-export of rust-allocated (stack based) `SvgNode` struct
-    #[repr(C, u8)]     pub enum AzSvgNode {
+    #[repr(C, u8)]
+    pub enum AzSvgNode {
         MultiPolygonCollection(AzSvgMultiPolygonVec),
         MultiPolygon(AzSvgMultiPolygon),
         Path(AzSvgPath),
         Circle(AzSvgCircle),
         Rect(AzSvgRect),
     }
+
     /// Re-export of rust-allocated (stack based) `SvgStyledNode` struct
-    #[repr(C)]     pub struct AzSvgStyledNode {
+    #[repr(C)]
+    pub struct AzSvgStyledNode {
         pub geometry: AzSvgNode,
         pub style: AzSvgStyle,
     }
+
     /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
-    #[repr(C)]     pub struct AzNodeDataInlineCssPropertyVec {
+    #[repr(C)]
+    pub struct AzNodeDataInlineCssPropertyVec {
         pub(crate) ptr: *const AzNodeDataInlineCssProperty,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNodeDataInlineCssPropertyVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `OptionWindowState` struct
-    #[repr(C, u8)]     pub enum AzOptionWindowState {
+    #[repr(C, u8)]
+    pub enum AzOptionWindowState {
         None,
         Some(AzWindowState),
     }
+
     /// Re-export of rust-allocated (stack based) `OptionInlineText` struct
-    #[repr(C, u8)]     pub enum AzOptionInlineText {
+    #[repr(C, u8)]
+    pub enum AzOptionInlineText {
         None,
         Some(AzInlineText),
     }
+
     /// Re-export of rust-allocated (stack based) `XmlParseError` struct
-    #[repr(C, u8)]     pub enum AzXmlParseError {
+    #[repr(C, u8)]
+    pub enum AzXmlParseError {
         InvalidDeclaration(AzXmlTextError),
         InvalidComment(AzXmlTextError),
         InvalidPI(AzXmlTextError),
@@ -7774,16 +8989,20 @@ mod test_sizes {
         InvalidCharData(AzXmlTextError),
         UnknownToken(AzSvgParseErrorPosition),
     }
+
     /// Options on how to initially create the window
-    #[repr(C)]     pub struct AzWindowCreateOptions {
+    #[repr(C)]
+    pub struct AzWindowCreateOptions {
         pub state: AzWindowState,
         pub renderer_type: AzOptionRendererOptions,
         pub theme: AzOptionWindowTheme,
         pub create_callback: AzOptionCallback,
         pub hot_reload: bool,
     }
+
     /// Defines the keyboard input focus target
-    #[repr(C, u8)]     pub enum AzFocusTarget {
+    #[repr(C, u8)]
+    pub enum AzFocusTarget {
         Id(AzDomNodeId),
         Path(AzFocusTargetPath),
         Previous,
@@ -7792,8 +9011,10 @@ mod test_sizes {
         Last,
         NoFocus,
     }
+
     /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
-    #[repr(C)]     pub struct AzNodeData {
+    #[repr(C)]
+    pub struct AzNodeData {
         pub node_type: AzNodeType,
         pub dataset: AzOptionRefAny,
         pub ids_and_classes: AzIdOrClassVec,
@@ -7802,27 +9023,35 @@ mod test_sizes {
         pub clip_mask: AzOptionImageMask,
         pub tab_index: AzOptionTabIndex,
     }
+
     /// Re-export of rust-allocated (stack based) `CssDeclaration` struct
-    #[repr(C, u8)]     pub enum AzCssDeclaration {
+    #[repr(C, u8)]
+    pub enum AzCssDeclaration {
         Static(AzCssProperty),
         Dynamic(AzDynamicCssProperty),
     }
+
     /// Wrapper over a Rust-allocated `CssDeclaration`
-    #[repr(C)]     pub struct AzCssDeclarationVec {
+    #[repr(C)]
+    pub struct AzCssDeclarationVec {
         pub(crate) ptr: *const AzCssDeclaration,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzCssDeclarationVecDestructor,
     }
+
     /// Wrapper over a Rust-allocated `NodeDataVec`
-    #[repr(C)]     pub struct AzNodeDataVec {
+    #[repr(C)]
+    pub struct AzNodeDataVec {
         pub(crate) ptr: *const AzNodeData,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzNodeDataVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `XmlError` struct
-    #[repr(C, u8)]     pub enum AzXmlError {
+    #[repr(C, u8)]
+    pub enum AzXmlError {
         InvalidXmlPrefixUri(AzSvgParseErrorPosition),
         UnexpectedXmlUri(AzSvgParseErrorPosition),
         UnexpectedXmlnsUri(AzSvgParseErrorPosition),
@@ -7840,19 +9069,25 @@ mod test_sizes {
         SizeLimit,
         ParserError(AzXmlParseError),
     }
+
     /// Re-export of rust-allocated (stack based) `Dom` struct
-    #[repr(C)]     pub struct AzDom {
+    #[repr(C)]
+    pub struct AzDom {
         pub root: AzNodeData,
         pub children: AzDomVec,
         pub total_children: usize,
     }
+
     /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
-    #[repr(C)]     pub struct AzCssRuleBlock {
+    #[repr(C)]
+    pub struct AzCssRuleBlock {
         pub path: AzCssPath,
         pub declarations: AzCssDeclarationVec,
     }
+
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
-    #[repr(C)]     pub struct AzStyledDom {
+    #[repr(C)]
+    pub struct AzStyledDom {
         pub root: AzNodeId,
         pub node_hierarchy: AzNodeVec,
         pub node_data: AzNodeDataVec,
@@ -7865,25 +9100,33 @@ mod test_sizes {
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub css_property_cache: AzCssPropertyCache,
     }
+
     /// Wrapper over a Rust-allocated `CssRuleBlock`
-    #[repr(C)]     pub struct AzCssRuleBlockVec {
+    #[repr(C)]
+    pub struct AzCssRuleBlockVec {
         pub(crate) ptr: *const AzCssRuleBlock,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzCssRuleBlockVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `OptionDom` struct
-    #[repr(C, u8)]     pub enum AzOptionDom {
+    #[repr(C, u8)]
+    pub enum AzOptionDom {
         None,
         Some(AzDom),
     }
+
     /// Re-export of rust-allocated (stack based) `ResultXmlXmlError` struct
-    #[repr(C, u8)]     pub enum AzResultXmlXmlError {
+    #[repr(C, u8)]
+    pub enum AzResultXmlXmlError {
         Ok(AzXml),
         Err(AzXmlError),
     }
+
     /// Re-export of rust-allocated (stack based) `SvgParseError` struct
-    #[repr(C, u8)]     pub enum AzSvgParseError {
+    #[repr(C, u8)]
+    pub enum AzSvgParseError {
         InvalidFileSuffix,
         FileOpenFailed,
         NotAnUtf8Str,
@@ -7891,39 +9134,52 @@ mod test_sizes {
         InvalidSize,
         ParsingFailed(AzXmlError),
     }
+
     /// <img src="../images/scrollbounds.png"/>
-    #[repr(C)]     pub struct AzIFrameCallbackReturn {
+    #[repr(C)]
+    pub struct AzIFrameCallbackReturn {
         pub dom: AzStyledDom,
         pub scroll_size: AzLogicalSize,
         pub scroll_offset: AzLogicalPosition,
         pub virtual_scroll_size: AzLogicalSize,
         pub virtual_scroll_offset: AzLogicalPosition,
     }
+
     /// Re-export of rust-allocated (stack based) `Stylesheet` struct
-    #[repr(C)]     pub struct AzStylesheet {
+    #[repr(C)]
+    pub struct AzStylesheet {
         pub rules: AzCssRuleBlockVec,
     }
+
     /// Wrapper over a Rust-allocated `Stylesheet`
-    #[repr(C)]     pub struct AzStylesheetVec {
+    #[repr(C)]
+    pub struct AzStylesheetVec {
         pub(crate) ptr: *const AzStylesheet,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzStylesheetVecDestructor,
     }
+
     /// Re-export of rust-allocated (stack based) `ResultSvgXmlNodeSvgParseError` struct
-    #[repr(C, u8)]     pub enum AzResultSvgXmlNodeSvgParseError {
+    #[repr(C, u8)]
+    pub enum AzResultSvgXmlNodeSvgParseError {
         Ok(AzSvgXmlNode),
         Err(AzSvgParseError),
     }
+
     /// Re-export of rust-allocated (stack based) `ResultSvgSvgParseError` struct
-    #[repr(C, u8)]     pub enum AzResultSvgSvgParseError {
+    #[repr(C, u8)]
+    pub enum AzResultSvgSvgParseError {
         Ok(AzSvg),
         Err(AzSvgParseError),
     }
+
     /// Re-export of rust-allocated (stack based) `Css` struct
-    #[repr(C)]     pub struct AzCss {
+    #[repr(C)]
+    pub struct AzCss {
         pub stylesheets: AzStylesheetVec,
     }
+
     use core::ffi::c_void;
     use azul_impl::css::*;
 

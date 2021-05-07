@@ -85,6 +85,7 @@
                 "LayoutSolverVersion": {
                     "external": "azul_impl::resources::LayoutSolverVersion",
                     "doc": "Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.",
+                    "derive": ["Copy"],
                     "enum_fields": [
                         {"March2021": {"doc": "Default, current layout solver version"}}
                     ]

@@ -1004,16 +1004,16 @@ impl Window {
 
             let mut window_builder = GlutinWindowBuilder::new()
                 .with_transparent(true)
-                .with_override_redirect(platform_options.x11_override_redirect);
+                .with_override_redirect(options.state.platform_specific_options.linux_options.x11_override_redirect);
 
-            for AzStringPair { key, value } in platform_options.x11_wm_classes.iter() {
+            for AzStringPair { key, value } in options.state.platform_specific_options.linux_options.x11_wm_classes.iter() {
                 window_builder = window_builder.with_class(
                     key.clone().into_library_owned_string(),
                     value.clone().into_library_owned_string()
                 );
             }
 
-            if !platform_options.x11_window_types.is_empty() {
+            if !options.state.platform_specific_options.linux_options.x11_window_types.is_empty() {
                 let window_types = options.state.platform_specific_options.linux_options.x11_window_types
                 .iter().map(|e| translate_x_window_type(*e)).collect();
                 window_builder = window_builder.with_x11_window_type(window_types);

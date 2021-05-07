@@ -437,8 +437,10 @@ def generate_rust_dll(api_data):
     code += "#![cfg_attr(feature =\"cdylib\", crate_type = \"cdylib\")]\r\n"
     code += "#![cfg_attr(feature =\"staticlib\", crate_type = \"staticlib\")]\r\n"
     code += "#![cfg_attr(feature =\"rlib\", crate_type = \"rlib\")]\r\n"
-    code += "#![deny(improper_ctypes_definitions)]"
+    code += "#![deny(improper_ctypes_definitions)]\r\n"
     code += "\r\n"
+    code += "#[cfg(all(feature = \"python3\", feature = \"cdylib\"))]\r\n"
+    code += "pub mod python;\r\n"
     code += "\r\n"
 
     myapi_data = api_data[version]
@@ -776,17 +778,23 @@ def sort_structs_map(api_data, structs_map):
 # Generate the RUST code for the struct layout of the final API
 # This function has to be called twice in order to ensure that the layout of the struct
 # matches the layout in the binary
-def generate_structs(api_data, structs_map, autoderive):
+def generate_structs(api_data, structs_map, autoderive, indent = 4, private_pointers=True,no_derive=False,wrapper_postfix=""):
+
+    indent_str = " " * indent
 
     code = ""
 
     for struct_name in structs_map.keys():
         struct = structs_map[struct_name]
 
+        opt_extra_derive = ""
+        if "extra_derive" in struct.keys():
+            opt_extra_derive = struct["extra_derive"] + "\r\n"
+
         if "doc" in struct.keys():
-            code += "    /// " + struct["doc"] + "\r\n"
+            code += indent_str + "/// " + struct["doc"] + "\r\n"
         else:
-            code += "    /// `" + struct_name + "` struct\r\n"
+            code += indent_str + "/// `" + struct_name + "` struct\r\n"
 
         class_is_callback_typedef = "callback_typedef" in struct.keys() and (len(struct["callback_typedef"].keys()) > 0)
         class_can_be_copied = "derive" in struct.keys() and "Copy" in struct["derive"]
@@ -800,15 +808,22 @@ def generate_structs(api_data, structs_map, autoderive):
 
         if class_is_callback_typedef:
             fn_ptr = generate_rust_callback_fn_type(api_data, struct["callback_typedef"])
-            code += "    pub type " + struct_name + " = " + fn_ptr + ";\r\n"
+            code += indent_str + "pub type " + struct_name + " = " + fn_ptr + ";\r\n\r\n"
         elif "struct" in struct.keys():
             struct = struct["struct"]
 
             # for LayoutCallback and RefAny, etc. the #[derive(Debug)] has to be implemented manually
-            opt_derive_debug = "#[derive(Debug)]"
-            opt_derive_clone = "#[derive(Clone)]"
-            opt_derive_copy = "#[derive(Copy)]"
-            opt_derive_other = "#[derive(PartialEq, PartialOrd)]"
+
+            opt_derive_debug = indent_str + "#[derive(Debug)]\r\n"
+            opt_derive_clone = indent_str + "#[derive(Clone)]\r\n"
+            opt_derive_copy = indent_str + "#[derive(Copy)]\r\n"
+            opt_derive_other = indent_str + "#[derive(PartialEq, PartialOrd)]\r\n"
+
+            if no_derive:
+                opt_derive_debug = ""
+                opt_derive_clone = ""
+                opt_derive_copy = ""
+                opt_derive_other = ""
 
             if not(class_can_be_copied):
                 opt_derive_copy = ""
@@ -835,7 +850,11 @@ def generate_structs(api_data, structs_map, autoderive):
                             opt_derive_debug = ""
                             opt_derive_other = ""
 
-            code += "    #[repr(C)] "  + opt_derive_debug + " " + opt_derive_clone + " " + opt_derive_other + " " + opt_derive_copy + " pub struct " + struct_name + " {\r\n"
+            repr = "#[repr(C)]\r\n"
+            if "repr" in structs_map[struct_name].keys():
+                repr = "#[repr(" + structs_map[struct_name]["repr"] + ")]\r\n"
+
+            code += indent_str + repr + opt_derive_debug + opt_derive_clone + opt_derive_other + opt_derive_copy + opt_extra_derive + indent_str + "pub struct " + struct_name + " {\r\n"
 
             for field in struct:
                 if type(field) is str:
@@ -846,10 +865,10 @@ def generate_structs(api_data, structs_map, autoderive):
                     field_type = field_type["type"]
                     analyzed_arg_type = analyze_type(field_type)
                     if is_primitive_arg(analyzed_arg_type[1]):
-                        if field_name == "ptr":
-                            code += "        pub(crate) "
+                        if field_name == "ptr" and private_pointers:
+                            code += indent_str + "    " + "pub(crate) "
                         else:
-                            code += "        pub "
+                            code += indent_str + "    " + "pub "
                         code += field_name + ": " + field_type + ",\r\n"
                     else:
                         field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
@@ -858,28 +877,42 @@ def generate_structs(api_data, structs_map, autoderive):
 
                         found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
                         if field_name == "ptr":
-                            code += "        pub(crate) "
+                            code += indent_str + "    " + "pub(crate) "
                         else:
-                            code += "        pub "
-                        code += field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + ",\r\n"
+                            code += indent_str + "    " + "pub "
+                        field_postfix = wrapper_postfix
+                        found_c_is_enum = "enum" in found_c.keys()
+                        if not(found_c_is_enum):
+                            field_postfix = ""
+                        code += field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + field_postfix + analyzed_arg_type[2] + ",\r\n"
                 else:
                     print("struct " + struct_name + " does not have a type on field " + field_name)
                     raise Exception("error")
-            code += "    }\r\n"
+            code += indent_str + "}\r\n\r\n"
         elif "enum" in struct.keys():
             enum = struct["enum"]
-            repr = "#[repr(C)]"
+            repr = "#[repr(C)]\r\n"
+
             for variant in enum:
                 variant_name = list(variant.keys())[0]
                 variant = list(variant.values())[0]
                 if "type" in variant.keys():
-                    repr = "#[repr(C, u8)]"
+                    repr = "#[repr(C, u8)]\r\n"
+
+            if "repr" in structs_map[struct_name].keys():
+                repr = "#[repr(" + structs_map[struct_name]["repr"] + ")]\r\n"
 
             # don't derive(Debug) for enums with function pointers in their variants
-            opt_derive_debug = "#[derive(Debug)]"
-            opt_derive_clone = "#[derive(Clone)]"
-            opt_derive_copy = "#[derive(Copy)]"
-            opt_derive_other = "#[derive(PartialEq, PartialOrd)]"
+            opt_derive_debug = indent_str + "#[derive(Debug)]\r\n"
+            opt_derive_clone = indent_str + "#[derive(Clone)]\r\n"
+            opt_derive_copy = indent_str + "#[derive(Copy)]\r\n"
+            opt_derive_other = indent_str + "#[derive(PartialEq, PartialOrd)]\r\n"
+
+            if no_derive:
+                opt_derive_debug = ""
+                opt_derive_clone = ""
+                opt_derive_copy = ""
+                opt_derive_other = ""
 
             if not(class_can_be_copied):
                 opt_derive_copy = ""
@@ -908,24 +941,28 @@ def generate_structs(api_data, structs_map, autoderive):
                             opt_derive_debug = ""
                             opt_derive_other = ""
 
-            code += "    " + repr + " " + opt_derive_debug + " " + opt_derive_clone + " " + opt_derive_other + " " + opt_derive_copy + " pub enum " + struct_name + " {\r\n"
+            code += indent_str + repr + opt_derive_debug + opt_derive_clone + opt_derive_other + opt_derive_copy + opt_extra_derive + indent_str + "pub enum " + struct_name + " {\r\n"
             for variant in enum:
                 variant_name = list(variant.keys())[0]
                 variant = list(variant.values())[0]
                 if "type" in variant.keys():
                     variant_type = variant["type"]
                     if is_primitive_arg(variant_type):
-                        code += "        " + variant_name + "(" + variant_type + "),\r\n"
+                        code += indent_str + "    " + variant_name + "(" + variant_type + "),\r\n"
                     else:
                         analyzed_arg_type = analyze_type(variant_type)
                         field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
                         if field_type_class_path is None:
                             print("variant_type not found: " + variant_type + " in " + struct_name)
                         found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
-                        code += "        " + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + "),\r\n"
+                        found_c_is_enum = "enum" in found_c.keys()
+                        variant_postfix = wrapper_postfix
+                        if not(found_c_is_enum):
+                            variant_postfix = ""
+                        code += indent_str + "    "  + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + variant_postfix + analyzed_arg_type[2] + "),\r\n"
                 else:
-                    code += "        " + variant_name + ",\r\n"
-            code += "    }\r\n"
+                    code += indent_str + "    "  + variant_name + ",\r\n"
+            code += indent_str + "}\r\n\r\n"
 
     return code
 
@@ -974,6 +1011,120 @@ def generate_rust_dll_bindings(api_data, structs_map, functions_map):
     code += "    pub use self::static_link::*;\r\n"
 
     return code
+
+# Generates the azul-dll/python.rs file (pyo3 bindings)
+def generate_python_api(api_data, structs_map, functions_map):
+
+    version = list(api_data.keys())[-1]
+
+    pyo3_code = ""
+    pyo3_code += "\r\n"
+    pyo3_code += "use pyo3::prelude::*;\r\n"
+    pyo3_code += "use core::ffi::c_void;\r\n"
+    pyo3_code += "\r\n"
+
+    new_struct_map = structs_map
+    raw_pointer_structs = {}
+
+    # pyo3 does not know how to translate enums
+    # so we just create a "EnumWrapper" struct that
+    # contains the internal type in rust-representation
+    for struct_name in list(structs_map.keys()):
+        struct = structs_map[struct_name]
+        if "struct" in struct.keys():
+            new_struct_map[struct_name]["extra_derive"] = "#[pyclass(name = \"" + struct_name[len(prefix):] + "\")]"
+            for field in struct["struct"]:
+                field_name = list(field.keys())[0]
+                field_type = list(field.values())[0]["type"]
+                if len(analyze_type(field_type)[0]) > 0:
+                    raw_pointer_structs[struct_name] = {}
+        elif "enum" in struct.keys():
+            new_struct_map[struct_name + "EnumWrapper"] = {}
+            new_struct_map[struct_name + "EnumWrapper"]["struct"] = []
+            new_struct_map[struct_name + "EnumWrapper"]["struct"].append({})
+            new_struct_map[struct_name + "EnumWrapper"]["struct"][0]["inner"] = {}
+            new_struct_map[struct_name + "EnumWrapper"]["struct"][0]["inner"]["type"] = struct_name[len(prefix):]
+            new_struct_map[struct_name + "EnumWrapper"]["struct"][0]["inner"]["doc"] = struct_name[len(prefix):] + " wrapper"
+            new_struct_map[struct_name + "EnumWrapper"]["repr"] = "transparent"
+            new_struct_map[struct_name + "EnumWrapper"]["extra_derive"] = "#[pyclass(name = \"" + struct_name[len(prefix):] + "\")]"
+
+            for variant in struct["enum"]:
+                variant_name = list(field.keys())[0]
+                variant = list(variant.values())[0]
+                if "type" in variant.keys():
+                    variant_type = variant["type"]
+                    if len(analyze_type(variant_type)[0]) > 0:
+                        raw_pointer_structs[struct_name] = {}
+        elif "callback_typedef" in struct.keys():
+            pass
+
+    pyo3_code += generate_structs(
+        api_data[version],
+        new_struct_map,
+        functions_map,
+        indent=0,
+        private_pointers=False,
+        no_derive=True,
+        wrapper_postfix="EnumWrapper"
+    )
+
+    pyo3_code += "\r\n"
+    pyo3_code += "// Necessary because the Python interpreter may send structs across different threads"
+    pyo3_code += "\r\n"
+    for raw_pointer_struct in raw_pointer_structs.keys():
+        pyo3_code += "unsafe impl Send for " + raw_pointer_struct + " { }\r\n"
+
+    pyo3_code += "\r\n"
+
+    for module_name in api_data[version].keys():
+        module = api_data[version][module_name]
+        for class_name in module["classes"].keys():
+            struct = module["classes"][class_name]
+            if "struct_fields" in struct.keys():
+                should_emit_impl = "constructors" in struct.keys() or "functions" in struct.keys()
+                if should_emit_impl:
+                    pyo3_code += "\r\n"
+                    pyo3_code += "#[pymethods]\r\n"
+                    pyo3_code += "impl " + prefix + class_name + " {\r\n"
+
+                    if "constructors" in struct.keys():
+                        for constructor_name in struct["constructors"]:
+                            pyo3_code += "    #[staticmethod]\r\n"
+                            pyo3_code += "    fn " + constructor_name + "() -> PyResult<()> {\r\n"
+                            pyo3_code += "        Ok(())\r\n"
+                            pyo3_code += "    }\r\n"
+
+                    if "functions" in struct.keys():
+                        for function_name in struct["functions"]:
+                            pyo3_code += "    fn " + function_name + "(&self) -> PyResult<()> {\r\n"
+                            pyo3_code += "        Ok(())\r\n"
+                            pyo3_code += "    }\r\n"
+
+                    pyo3_code += "}\r\n"
+            elif "enum_fields" in struct.keys():
+                pass
+
+    pyo3_code += "\r\n"
+    pyo3_code += "#[pymodule]\r\n"
+    pyo3_code += "fn azul(py: Python, m: &PyModule) -> PyResult<()> {\r\n"
+    pyo3_code += "\r\n"
+
+    for module_name in api_data[version].keys():
+        module = api_data[version][module_name]
+        for class_name in module["classes"].keys():
+            struct = module["classes"][class_name]
+            if "struct_fields" in struct.keys():
+                pyo3_code += "    m.add_class::<" + prefix + class_name + ">()?;\r\n"
+            elif "enum_fields" in struct.keys():
+                pyo3_code += "    m.add_class::<" + prefix + class_name + "EnumWrapper>()?;\r\n"
+                pass
+            elif "callback_typedef" in struct.keys():
+                pass
+        pyo3_code += "\r\n"
+    pyo3_code += "    Ok(())\r\n"
+    pyo3_code += "}\r\n"
+    pyo3_code += "\r\n"
+    return pyo3_code
 
 # Generates the azul/rust/azul.rs file
 def generate_rust_api(api_data, structs_map, functions_map):
@@ -1720,6 +1871,7 @@ def generate_api():
     forward_declarations = rust_dll_result[3]
 
     write_file(rust_dll_code, root_folder + "/azul-dll/src/lib.rs")
+    write_file(generate_python_api(apiData, structs_map, functions_map), root_folder + "/azul-dll/src/python.rs")
     write_file(generate_rust_api(apiData, structs_map, functions_map), root_folder + "/api/rust/lib.rs")
     write_file(generate_c_api(apiData, structs_map), root_folder + "/api/c/azul.h")
     # write_file(generate_cpp_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/cpp/azul.h")
