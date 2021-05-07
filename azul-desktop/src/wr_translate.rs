@@ -720,9 +720,6 @@ pub(crate) fn fullhittest_new_webrender(
 
             let pipeline_id = PipelineId(dom_id.inner.min(core::u32::MAX as usize) as u32, document_id.id);
 
-            println!("doing hit test: cursor = {:?} (hidipi = {:?}), document = {:?}, pipeline = {:?}",
-                     cursor_location, hidpi_factor, document_id, pipeline_id);
-
             let layout_result = match layout_results.get(dom_id.inner) {
                 Some(s) => s,
                 None => break,
@@ -732,8 +729,6 @@ pub(crate) fn fullhittest_new_webrender(
                 Some(wr_translate_pipeline_id(pipeline_id)),
                 WrWorldPoint::new(cursor_relative_to_dom.x, cursor_relative_to_dom.y),
             );
-
-            println!("wr result: {:#?}", wr_result);
 
             let hit_items = wr_result.items.iter()
             .filter_map(|i| {
@@ -752,8 +747,6 @@ pub(crate) fn fullhittest_new_webrender(
                     is_focusable: layout_result.styled_dom.node_data.as_container().get(node_id)?.get_tab_index().into_option().is_some(),
                 }))
             }).collect::<Vec<_>>();
-
-            println!("hit_items: {:#?}", hit_items);
 
             for (node_id, item) in hit_items.into_iter() {
 
@@ -795,9 +788,6 @@ pub(crate) fn fullhittest_new_webrender(
             dom_ids = new_dom_ids;
         }
     }
-
-    println!("final result: {:#?}", ret);
-    println!("--------------------------");
 
     ret
 }
@@ -1644,6 +1634,19 @@ fn push_frame(
         None => WrClipId::root(builder.pipeline_id), // no clipping
     };
 
+    // push the hit-testing tag if any
+    if let Some(hit_tag) = frame.tag {
+        builder.push_hit_test(&WrCommonItemProperties {
+            clip_rect: WrLayoutRect::new(
+                WrLayoutPoint::new(0.0, 0.0),
+                WrLayoutSize::new(frame.size.width, frame.size.height),
+            ),
+            spatial_id: rect_spatial_id,
+            clip_id: parent_clip_id,
+            flags: WrPrimitiveFlags::empty(),
+        }, (hit_tag.0, 0));
+    }
+
     // if let Some(image_mask) -> define_image_mask_clip()
     for child in frame.children {
         push_display_list_msg(document_id, render_api, builder, child, rect_spatial_id, children_clip_id, positioned_items, current_hidpi_factor);
@@ -1711,6 +1714,30 @@ fn push_scroll_frame(
             scroll_frame.content_rect.origin.y - scroll_frame.parent_rect.origin.y,
         ),
     );
+
+    // push the scroll hit-testing tag if any
+    builder.push_hit_test(&WrCommonItemProperties {
+        clip_rect: WrLayoutRect::new(
+            WrLayoutPoint::new(0.0, 0.0),
+            WrLayoutSize::new(scroll_frame.content_rect.size.width, scroll_frame.content_rect.size.height),
+        ),
+        spatial_id: scroll_frame_clip_info.spatial_id,
+        clip_id: scroll_frame_clip_info.clip_id,
+        flags: WrPrimitiveFlags::empty(),
+    }, (scroll_frame.scroll_tag.0.0, 0));
+
+    // additionally push the hit tag of the frame if there is any
+    if let Some(hit_tag) = scroll_frame.frame.tag {
+        builder.push_hit_test(&WrCommonItemProperties {
+            clip_rect: WrLayoutRect::new(
+                WrLayoutPoint::new(0.0, 0.0),
+                WrLayoutSize::new(scroll_frame.frame.size.width, scroll_frame.frame.size.height),
+            ),
+            spatial_id: scroll_frame_clip_info.spatial_id,
+            clip_id: scroll_frame_clip_info.clip_id,
+            flags: WrPrimitiveFlags::empty(),
+        }, (hit_tag.0, 0));
+    }
 
     for child in scroll_frame.frame.children {
         push_display_list_msg(
