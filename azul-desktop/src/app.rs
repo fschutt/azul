@@ -442,12 +442,14 @@ fn run_inner(app: App) -> ! {
 
                             // re-layouts and re-styles the window.internal.layout_results
                             let changes = StyleAndLayoutChanges::new(
-                                &NodesToCheck::empty(window.internal.current_window_state.mouse_state.mouse_down()),
+                                &NodesToCheck::empty(
+                                    window.internal.current_window_state.mouse_state.mouse_down(),
+                                    window.internal.current_window_state.focused_node,
+                                ),
                                 &mut window.internal.layout_results,
                                 &image_cache,
                                 &mut window.internal.renderer_resources,
                                 window_size,
-                                &window.internal.pipeline_id,
                                 Some(&css_properties_changed_in_threads),
                                 Some(&words_changed_in_threads),
                                 &new_focus_node,
@@ -572,7 +574,10 @@ fn run_inner(app: App) -> ! {
 
                             // re-layouts and re-styles the window.internal.layout_results
                             let changes = StyleAndLayoutChanges::new(
-                                &NodesToCheck::empty(window.internal.current_window_state.mouse_state.mouse_down()),
+                                &NodesToCheck::empty(
+                                    window.internal.current_window_state.mouse_state.mouse_down(),
+                                    window.internal.current_window_state.focused_node,
+                                ),
                                 &mut window.internal.layout_results,
                                 &mut image_cache,
                                 &mut window.internal.renderer_resources,
@@ -736,12 +741,15 @@ fn run_inner(app: App) -> ! {
                     let events = Events::new(&window.internal.current_window_state, &window.internal.previous_window_state);
                     let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(&window.internal.previous_window_state);
                     let hit_test = if !events.needs_hit_test() {
-                        FullHitTest::empty()
+                        FullHitTest::empty(window.internal.current_window_state.focused_node)
                     } else {
-                        let ht = FullHitTest::new(
+                        let ht = crate::wr_translate::fullhittest_new_webrender(
+                            &window.render_api,
+                            window.internal.document_id,
+                            window.internal.current_window_state.focused_node,
+
                             &window.internal.layout_results,
                             &window.internal.current_window_state.mouse_state.cursor_position,
-                            &window.internal.scroll_states,
                             window.internal.current_window_state.size.hidpi_factor,
                         );
                         window.internal.current_window_state.hovered_nodes = ht.hovered_nodes.clone();
@@ -853,12 +861,14 @@ fn run_inner(app: App) -> ! {
                     // see if the callbacks modified the WindowState - if yes, re-determine the events
                     let current_window_save_state = window.internal.current_window_state.clone();
                     if !callbacks_changed_cursor {
+                        let ht = crate::wr_translate::fullhittest_new_webrender(
+                           &window.render_api,
+                           window.internal.document_id,
+                           window.internal.current_window_state.focused_node,
 
-                        let ht = FullHitTest::new(
-                            &window.internal.layout_results,
-                            &window.internal.current_window_state.mouse_state.cursor_position,
-                            &window.internal.scroll_states,
-                            window.internal.current_window_state.size.hidpi_factor,
+                           &window.internal.layout_results,
+                           &window.internal.current_window_state.mouse_state.cursor_position,
+                           window.internal.current_window_state.size.hidpi_factor,
                         );
 
 

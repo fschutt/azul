@@ -18,7 +18,7 @@ use crate::{
     ui_solver::{InlineTextLine, ResolvedTextLayoutOptions, InlineTextLayout},
     display_list::GlyphInstance,
     styled_dom::{StyledDom, StyleFontFamilyHash, StyleFontFamiliesHash},
-    callbacks::{PipelineId, InlineText},
+    callbacks::{DocumentId, InlineText},
     task::ExternalSystemCallbacks,
     gl::Texture,
     window::{LogicalPosition, LogicalSize, OptionChar, LogicalRect},
@@ -1558,7 +1558,7 @@ pub fn add_fonts_and_images(
     fc_cache: &FcFontCache,
     render_api_namespace: IdNamespace,
     epoch: Epoch,
-    pipeline_id: &PipelineId,
+    document_id: &DocumentId,
     all_resource_updates: &mut Vec<ResourceUpdate>,
     styled_dom: &StyledDom,
     load_font_fn: LoadFontFn,
@@ -1572,7 +1572,7 @@ pub fn add_fonts_and_images(
         renderer_resources,
         render_api_namespace,
         epoch,
-        pipeline_id,
+        document_id,
         &new_image_keys,
         insert_into_active_gl_textures
     );
@@ -2124,7 +2124,7 @@ pub fn build_add_image_resource_updates(
     renderer_resources: &RendererResources,
     id_namespace: IdNamespace,
     epoch: Epoch,
-    pipeline_id: &PipelineId,
+    document_id: &DocumentId,
     images_in_dom: &FastBTreeSet<ImageRef>,
     insert_into_active_gl_textures: GlStoreImageFn,
 ) -> Vec<(ImageRefHash, AddImageMsg)> {
@@ -2147,7 +2147,7 @@ pub fn build_add_image_resource_updates(
                 let descriptor = texture.get_descriptor();
                 let key = ImageKey::unique(id_namespace);
                 // NOTE: The texture is not really cloned here,
-                let external_image_id = (insert_into_active_gl_textures)(*pipeline_id, epoch, texture.library_internal_clone());
+                let external_image_id = (insert_into_active_gl_textures)(*document_id, epoch, texture.library_internal_clone());
                 Some((image_ref_hash, AddImageMsg(
                     AddImage {
                         key,

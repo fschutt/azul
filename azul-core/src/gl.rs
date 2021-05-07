@@ -13,7 +13,7 @@ use crate::{
     FastHashMap,
     window::{PhysicalSizeU32, RendererType},
     app_resources::{ImageDescriptor, ImageDescriptorFlags, Epoch, RawImageFormat, ExternalImageId},
-    callbacks::PipelineId,
+    callbacks::DocumentId,
     svg::TesselatedGPUSvgNode,
 };
 use azul_css::{AzString, StringVec, U8Vec, ColorU, ColorF};
@@ -488,13 +488,13 @@ pub(crate) type GlTextureStorage = FastHashMap<Epoch, FastHashMap<ExternalImageI
 /// See: https://github.com/servo/webrender/issues/2940
 ///
 /// WARNING: Not thread-safe (however, the Texture itself is thread-unsafe, so it's unlikely to ever be misused)
-static mut ACTIVE_GL_TEXTURES: Option<FastHashMap<PipelineId, GlTextureStorage>> = None;
+static mut ACTIVE_GL_TEXTURES: Option<FastHashMap<DocumentId, GlTextureStorage>> = None;
 
 /// Inserts a new texture into the OpenGL texture cache, returns a new image ID
 /// for the inserted texture
 ///
 /// This function exists so azul doesn't have to use `lazy_static` as a dependency
-pub fn insert_into_active_gl_textures(pipeline_id: PipelineId, epoch: Epoch, texture: Texture) -> ExternalImageId {
+pub fn insert_into_active_gl_textures(document_id: DocumentId, epoch: Epoch, texture: Texture) -> ExternalImageId {
 
     let external_image_id = ExternalImageId::new();
 
@@ -503,7 +503,7 @@ pub fn insert_into_active_gl_textures(pipeline_id: PipelineId, epoch: Epoch, tex
             ACTIVE_GL_TEXTURES = Some(FastHashMap::new());
         }
         let active_textures = ACTIVE_GL_TEXTURES.as_mut().unwrap();
-        let active_epochs = active_textures.entry(pipeline_id).or_insert_with(|| FastHashMap::new());
+        let active_epochs = active_textures.entry(document_id).or_insert_with(|| FastHashMap::new());
         let active_textures_for_epoch = active_epochs.entry(epoch).or_insert_with(|| FastHashMap::new());
         active_textures_for_epoch.insert(external_image_id, texture);
     }
@@ -524,31 +524,31 @@ pub fn insert_into_active_gl_textures(pipeline_id: PipelineId, epoch: Epoch, tex
 pub fn get_opengl_texture(image_key: &ExternalImageId) -> Option<(GLuint, (f32, f32))> {
     let active_textures = unsafe { ACTIVE_GL_TEXTURES.as_ref()? };
     active_textures.values()
-    .flat_map(|active_pipeline| active_pipeline.values())
+    .flat_map(|active_document| active_document.values())
     .find_map(|active_epoch| active_epoch.get(image_key))
     .map(|tex| (tex.texture_id, (tex.size.width as f32, tex.size.height as f32)))
 }
 
-pub fn gl_textures_remove_active_pipeline(pipeline_id: &PipelineId) {
+pub fn gl_textures_remove_active_pipeline(document_id: &DocumentId) {
     unsafe {
         let active_textures = match ACTIVE_GL_TEXTURES.as_mut() {
             Some(s) => s,
             None => return,
         };
-        active_textures.remove(pipeline_id);
+        active_textures.remove(document_id);
     }
 }
 
 /// Destroys all textures from the pipeline `pipeline_id` where the texture is
 /// **older** than the given `epoch`.
-pub fn gl_textures_remove_epochs_from_pipeline(pipeline_id: &PipelineId, epoch: Epoch) {
+pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: Epoch) {
     // TODO: Handle overflow of Epochs correctly (low priority)
     unsafe {
         let active_textures = match ACTIVE_GL_TEXTURES.as_mut() {
             Some(s) => s,
             None => return,
         };
-        let active_epochs = match active_textures.get_mut(pipeline_id) {
+        let active_epochs = match active_textures.get_mut(document_id) {
             Some(s) => s,
             None => return,
         };

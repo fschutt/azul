@@ -15,7 +15,7 @@ use azul_css::{
     StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
 };
 use crate::{
-    callbacks::{PipelineId, DomNodeId},
+    callbacks::{DocumentId, PipelineId, DomNodeId},
     ui_solver::{ExternalScrollId, LayoutResult, PositionInfo, ComputedTransform3D},
     window::{FullWindowState, LogicalRect, LogicalPosition, LogicalSize},
     app_resources::{
@@ -51,54 +51,22 @@ pub struct DisplayListImageMask {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct CachedDisplayList {
     pub root: DisplayListMsg,
+    pub root_size: LogicalSize,
 }
 
 impl CachedDisplayList {
-
-    #[cfg(feature = "multithreading")]
-    pub fn new(
-        epoch: Epoch,
-        full_window_state: &FullWindowState,
-        layout_results: &[LayoutResult],
-        gl_texture_cache: &GlTextureCache,
-        renderer_resources: &RendererResources,
-        image_cache: &ImageCache,
-    ) -> Self {
-
-        const DOM_ID: DomId = DomId::ROOT_ID;
-
-        let mut dl = CachedDisplayList {
-            root: push_rectangles_into_displaylist(
-                &layout_results[DOM_ID.inner].styled_dom.get_rects_in_rendering_order(),
-                &DisplayListParametersRef {
-                    dom_id: DOM_ID,
-                    epoch,
-                    full_window_state,
-                    layout_results: &layout_results,
-                    gl_texture_cache: &gl_texture_cache,
-                    renderer_resources,
-                    image_cache,
-                }
-            )
-        };
-
-        // push the window background color, if the root node doesn't
-        // have any content
-        if dl.root.is_content_empty() {
-            dl.root.push_content(LayoutRectContent::Background {
-                content: RectBackground::Color(full_window_state.background_color),
-                size: None,
-                offset: None,
-                repeat: None,
-            });
+    pub fn empty() -> Self {
+        Self {
+            root: DisplayListMsg::Frame(DisplayListFrame::root(LayoutSize::zero(), LayoutPoint::zero())),
+            root_size: LogicalSize::zero(),
         }
-
-        dl
     }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum DisplayListMsg {
+    // nested display list
+    IFrame(PipelineId, LogicalSize, Box<CachedDisplayList>),
     Frame(DisplayListFrame),
     ScrollFrame(DisplayListScrollFrame),
 }
@@ -110,6 +78,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => f.transform.as_ref(),
             ScrollFrame(sf) => sf.frame.transform.as_ref(),
+            IFrame(_, _, _) => None,
         }
     }
 
@@ -118,6 +87,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => f.opacity.as_ref(),
             ScrollFrame(sf) => sf.frame.opacity.as_ref(),
+            IFrame(_, _, _) => None,
         }
     }
 
@@ -126,14 +96,17 @@ impl DisplayListMsg {
         match self {
             Frame(f) => f.clip_mask.as_ref(),
             ScrollFrame(sf) => sf.frame.clip_mask.as_ref(),
+            IFrame(_, _, _) => None,
         }
     }
 
     pub fn get_position(&self) -> PositionInfo {
         use self::DisplayListMsg::*;
+        use crate::ui_solver::PositionInfoInner;
         match self {
             Frame(f) => f.position.clone(),
             ScrollFrame(sf) => sf.frame.position.clone(),
+            IFrame(_, _, _) => PositionInfo::Static(PositionInfoInner::zero()),
         }
     }
 
@@ -142,6 +115,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => { f.content.is_empty() },
             ScrollFrame(sf) => { sf.frame.content.is_empty() },
+            IFrame(_, _, _) => false,
         }
     }
 
@@ -150,6 +124,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => { f.children.is_empty() },
             ScrollFrame(sf) => { sf.frame.children.is_empty() },
+            IFrame(_, _, _) => false,
         }
     }
 
@@ -158,6 +133,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => { f.content.push(content); },
             ScrollFrame(sf) => { sf.frame.content.push(content); },
+            IFrame(_, _, _) => { } // invalid
         }
     }
 
@@ -166,6 +142,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => { f.children.push(child); },
             ScrollFrame(sf) => { sf.frame.children.push(child); },
+            IFrame(_, _, _) => { } // invalid
         }
     }
 
@@ -174,6 +151,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => { f.children.append(&mut children); },
             ScrollFrame(sf) => { sf.frame.children.append(&mut children); },
+            IFrame(_, _, _) => { } // invalid
         }
     }
 
@@ -182,6 +160,7 @@ impl DisplayListMsg {
         match self {
             Frame(f) => f.size,
             ScrollFrame(sf) => sf.frame.size,
+            IFrame(_, s, _) => *s,
         }
     }
 }
@@ -563,6 +542,8 @@ impl RectBackground {
 pub struct DisplayListParametersRef<'a> {
     /// ID of this Dom
     pub dom_id: DomId,
+    /// Document ID (window ID)
+    pub document_id: &'a DocumentId,
     /// Epoch of all the OpenGL textures
     pub epoch: Epoch,
     /// The CSS that should be applied to the DOM
@@ -585,9 +566,9 @@ pub struct GlTextureCache {
 unsafe impl Send for GlTextureCache { } // necessary so the display list can be built in parallel
 
 // todo: very unclean
-pub type LayoutFn = fn(StyledDom, &ImageCache, &FcFontCache, &mut RendererResources, &mut Vec<ResourceUpdate>, IdNamespace, &PipelineId, Epoch, &RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
+pub type LayoutFn = fn(StyledDom, &ImageCache, &FcFontCache, &mut RendererResources, &mut Vec<ResourceUpdate>, IdNamespace, &DocumentId, Epoch, &RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
 #[cfg(feature = "opengl")]
-pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
+pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture) -> ExternalImageId;
 
 #[derive(Debug, Default)]
 pub struct SolvedLayout {
@@ -616,7 +597,7 @@ impl GlTextureCache {
         layout_results: &mut [LayoutResult],
         gl_context: &OptionGlContextPtr,
         id_namespace: IdNamespace,
-        pipeline_id: &PipelineId,
+        document_id: &DocumentId,
         epoch: Epoch,
         hidpi_factor: f32,
         image_cache: &ImageCache,
@@ -723,7 +704,7 @@ impl GlTextureCache {
                     DecodedImage::Gl(texture) => {
                         let descriptor = texture.get_descriptor();
                         let key = ImageKey::unique(id_namespace);
-                        let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(*pipeline_id, epoch, texture);
+                        let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(*document_id, epoch, texture);
 
                         gl_texture_cache.solved_textures
                             .entry(dom_id.clone())
@@ -782,7 +763,7 @@ impl SolvedLayout {
     pub fn new(
         styled_dom: StyledDom,
         epoch: Epoch,
-        pipeline_id: &PipelineId,
+        document_id: &DocumentId,
         full_window_state: &FullWindowState,
         all_resource_updates: &mut Vec<ResourceUpdate>,
         id_namespace: IdNamespace,
@@ -799,7 +780,7 @@ impl SolvedLayout {
                 renderer_resources,
                 all_resource_updates,
                 id_namespace,
-                pipeline_id,
+                document_id,
                 epoch,
                 callbacks,
                 &full_window_state,
@@ -1086,16 +1067,20 @@ pub fn displaylist_handle_rect<'a>(
         IFrame(_) => {
             if let Some(iframe_dom_id) = layout_result.iframe_mapping.iter()
             .find_map(|(node_id, dom_id)| if *node_id == rect_idx { Some(*dom_id) } else { None }) {
-                frame.children.push(push_rectangles_into_displaylist(
-                    &layout_results[iframe_dom_id.inner].styled_dom.get_rects_in_rendering_order(),
-                    // layout_result.rects_in_rendering_order.root,
-                    &DisplayListParametersRef {
-                        // Important: Need to update the DOM ID,
-                        // otherwise this function would be endlessly recurse
-                        dom_id: iframe_dom_id.clone(),
-                        .. *referenced_content
-                    }
-                ));
+
+                let iframe_pipeline_id = PipelineId(iframe_dom_id.inner.max(core::u32::MAX as usize) as u32, referenced_content.document_id.id);
+                let cached_display_list = LayoutResult::get_cached_display_list(
+                    referenced_content.document_id,
+                    iframe_dom_id, // <- important, otherwise it would recurse infinitely
+                    referenced_content.epoch,
+                    referenced_content.layout_results,
+                    referenced_content.full_window_state,
+                    referenced_content.gl_texture_cache,
+                    referenced_content.renderer_resources,
+                    referenced_content.image_cache,
+                );
+                let iframe_clip_size = positioned_rect.size;
+                frame.children.push(DisplayListMsg::IFrame(iframe_pipeline_id, iframe_clip_size, Box::new(cached_display_list)));
             }
         },
     };

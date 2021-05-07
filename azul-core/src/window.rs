@@ -581,12 +581,6 @@ pub struct WindowInternal {
     pub current_window_state: FullWindowState,
     /// A "document" in WebRender usually corresponds to one tab (i.e. in Azuls case, the whole window).
     pub document_id: DocumentId,
-    /// One "document" (tab) can have multiple "pipelines" (important for hit-testing).
-    ///
-    /// A document can have multiple pipelines, for example in Firefox the tab / navigation bar,
-    /// the actual browser window and the inspector are seperate pipelines, but contained in one document.
-    /// In Azul, one pipeline = one document (this could be improved later on).
-    pub pipeline_id: PipelineId,
     /// ID namespace under which every font / image for this window is registered
     pub id_namespace: IdNamespace,
     /// The "epoch" is a frame counter, to remove outdated images, fonts and OpenGL textures
@@ -600,7 +594,7 @@ pub struct WindowInternal {
     pub scroll_states: ScrollStates,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FullHitTest {
     pub hovered_nodes: BTreeMap<DomId, HitTest>,
     pub focused_node: Option<(DomId, NodeId)>,
@@ -608,10 +602,10 @@ pub struct FullHitTest {
 
 impl FullHitTest {
 
-    pub fn empty() -> Self {
+    pub fn empty(focused_node: Option<DomNodeId>) -> Self {
         Self {
             hovered_nodes: BTreeMap::new(),
-            focused_node: None,
+            focused_node: focused_node.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))),
         }
     }
 
@@ -619,6 +613,7 @@ impl FullHitTest {
     ///
     /// NOTE: This is much faster than calling webrender
     pub fn new(
+        old_focus_node: Option<DomNodeId>,
         layout_results: &[LayoutResult],
         cursor_position: &CursorPosition,
         scroll_states: &ScrollStates,
@@ -626,15 +621,14 @@ impl FullHitTest {
     ) -> Self {
 
         let mut cursor_location = match cursor_position {
-            CursorPosition::OutOfWindow | CursorPosition::Uninitialized => return FullHitTest::default(),
+            CursorPosition::OutOfWindow | CursorPosition::Uninitialized => return FullHitTest::empty(old_focus_node),
             CursorPosition::InWindow(pos) => LogicalPosition::new(pos.x, pos.y),
         };
 
         cursor_location.x /= hidpi_factor;
         cursor_location.y /= hidpi_factor;
 
-        let mut map = BTreeMap::new();
-        let mut focused_node = None;
+        let mut ret = FullHitTest::empty(old_focus_node);
 
         // project the cursor relative to the DOM that is being hit-tested
         let mut dom_ids = vec![(DomId { inner: 0 }, cursor_location)];
@@ -656,13 +650,13 @@ impl FullHitTest {
                         new_dom_ids.push((iframe_dom_id, cursor_relative_to_iframe));
                     }
 
-                    if hit_item.is_focusable && focused_node.is_none(){
-                        focused_node = Some((*dom_id, *node_id));
+                    if hit_item.is_focusable && ret.focused_node.is_none(){
+                        ret.focused_node = Some((*dom_id, *node_id));
                     }
                 }
 
                 if !hit_test.is_empty() {
-                    map.insert(*dom_id, hit_test);
+                    ret.hovered_nodes.insert(*dom_id, hit_test);
                 }
             }
 
@@ -673,7 +667,7 @@ impl FullHitTest {
             }
         }
 
-        FullHitTest { hovered_nodes: map, focused_node }
+        ret
     }
 }
 
@@ -749,7 +743,6 @@ impl CursorTypeHitTest {
 pub struct WindowInternalInit {
     pub window_create_options: WindowCreateOptions,
     pub document_id: DocumentId,
-    pub pipeline_id: PipelineId,
     pub id_namespace: IdNamespace,
 }
 
@@ -795,7 +788,7 @@ impl WindowInternal {
         let SolvedLayout { mut layout_results } = SolvedLayout::new(
             styled_dom,
             epoch,
-            &init.pipeline_id,
+            &init.document_id,
             &current_window_state,
             all_resource_updates,
             init.id_namespace,
@@ -809,6 +802,7 @@ impl WindowInternal {
 
         // apply the changes for the first frame
         let ht = FullHitTest::new(
+            current_window_state.focused_node,
             &layout_results,
             &current_window_state.mouse_state.cursor_position,
             &scroll_states,
@@ -816,14 +810,18 @@ impl WindowInternal {
         );
         current_window_state.hovered_nodes = ht.hovered_nodes.clone();
 
-        let nodes_to_check = NodesToCheck::simulated_mouse_move(&ht, current_window_state.mouse_state.mouse_down());
+        let nodes_to_check = NodesToCheck::simulated_mouse_move(
+            &ht,
+            current_window_state.focused_node,
+            current_window_state.mouse_state.mouse_down()
+        );
         let _ = StyleAndLayoutChanges::new(
             &nodes_to_check,
             &mut layout_results,
             &image_cache,
             &mut inital_renderer_resources,
             current_window_state.size.get_layout_size(),
-            &init.pipeline_id,
+            &init.document_id,
             Some(&BTreeMap::new()),
             Some(&BTreeMap::new()),
             &None,
@@ -834,7 +832,7 @@ impl WindowInternal {
             &mut layout_results,
             gl_context,
             init.id_namespace,
-            &init.pipeline_id,
+            &init.document_id,
             epoch,
             current_window_state.size.hidpi_factor,
             image_cache,
@@ -851,7 +849,6 @@ impl WindowInternal {
             previous_window_state: None,
             current_window_state,
             document_id: init.document_id,
-            pipeline_id: init.pipeline_id,
             epoch, // = 0
             layout_results,
             gl_texture_cache,
@@ -896,7 +893,7 @@ impl WindowInternal {
         } = SolvedLayout::new(
             styled_dom,
             self.epoch,
-            &self.pipeline_id,
+            &self.document_id,
             &self.current_window_state,
             all_resource_updates,
             id_namespace,
@@ -908,6 +905,7 @@ impl WindowInternal {
 
         // apply the changes for the first frame
         let ht = FullHitTest::new(
+            self.current_window_state.focused_node,
             &layout_results,
             &self.current_window_state.mouse_state.cursor_position,
             &self.scroll_states,
@@ -917,7 +915,9 @@ impl WindowInternal {
 
         // hit_test
         let nodes_to_check = NodesToCheck::simulated_mouse_move(
-            &ht, self.current_window_state.mouse_state.mouse_down()
+            &ht,
+            self.current_window_state.focused_node,
+            self.current_window_state.mouse_state.mouse_down()
         );
 
         let _ = StyleAndLayoutChanges::new(
@@ -926,7 +926,7 @@ impl WindowInternal {
             &image_cache,
             &mut self.renderer_resources,
             self.current_window_state.size.get_layout_size(),
-            &self.pipeline_id,
+            &self.document_id,
             Some(&BTreeMap::new()),
             Some(&BTreeMap::new()),
             &None,
@@ -937,7 +937,7 @@ impl WindowInternal {
             &mut layout_results,
             gl_context,
             self.id_namespace,
-            &self.pipeline_id,
+            &self.document_id,
             self.epoch,
             self.current_window_state.size.hidpi_factor,
             image_cache,

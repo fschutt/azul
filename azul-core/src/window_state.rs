@@ -70,7 +70,7 @@ use crate::{
     FastHashMap,
     app_resources::{RendererResources, ImageCache},
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
-    callbacks:: {ScrollPosition, PipelineId, DomNodeId, HitTestItem, UpdateScreen},
+    callbacks:: {ScrollPosition, DocumentId, DomNodeId, HitTestItem, UpdateScreen},
     id_tree::NodeId,
     styled_dom::{DomId, ChangedCssProperty, AzNodeId},
     ui_solver::{LayoutResult, RelayoutChanges},
@@ -186,7 +186,7 @@ impl NodesToCheck {
 
     // Usually we need to perform a hit-test when the DOM is re-generated,
     // this function simulates that behaviour
-    pub fn simulated_mouse_move(hit_test: &FullHitTest, mouse_down: bool) -> Self {
+    pub fn simulated_mouse_move(hit_test: &FullHitTest, old_focus_node: Option<DomNodeId>, mouse_down: bool) -> Self {
 
         let new_hit_node_ids = hit_test.hovered_nodes
         .iter().map(|(k, v)| (k.clone(), v.regular_hit_test_nodes.clone()))
@@ -197,8 +197,8 @@ impl NodesToCheck {
             old_hit_node_ids: BTreeMap::new(),
             onmouseenter_nodes: new_hit_node_ids,
             onmouseleave_nodes: BTreeMap::new(),
-            old_focus_node: None,
-            new_focus_node: None,
+            old_focus_node: old_focus_node,
+            new_focus_node: old_focus_node,
             current_window_state_mouse_is_down: mouse_down,
         }
     }
@@ -254,14 +254,14 @@ impl NodesToCheck {
         }
     }
 
-    pub fn empty(mouse_down: bool) -> Self {
+    pub fn empty(mouse_down: bool, old_focus_node: Option<DomNodeId>) -> Self {
         Self {
             new_hit_node_ids: BTreeMap::new(),
             old_hit_node_ids: BTreeMap::new(),
             onmouseenter_nodes: BTreeMap::new(),
             onmouseleave_nodes: BTreeMap::new(),
-            old_focus_node: None,
-            new_focus_node: None,
+            old_focus_node: old_focus_node,
+            new_focus_node: old_focus_node,
             current_window_state_mouse_is_down: mouse_down,
         }
     }
@@ -306,7 +306,7 @@ pub type RelayoutFn = fn(
     &mut LayoutResult,
     &ImageCache,
     &mut RendererResources,
-    &PipelineId,
+    &DocumentId,
     Option<&RelayoutNodes>,
     Option<&RelayoutWords>,
 ) -> RelayoutChanges;
@@ -321,7 +321,7 @@ impl StyleAndLayoutChanges {
         image_cache: &ImageCache,
         renderer_resources: &mut RendererResources,
         window_size: LayoutSize,
-        pipeline_id: &PipelineId,
+        document_id: &DocumentId,
         css_changes: Option<&BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>>,
         word_changes: Option<&BTreeMap<DomId, BTreeMap<NodeId, AzString>>>,
         callbacks_new_focus: &Option<Option<DomNodeId>>,
@@ -463,7 +463,7 @@ impl StyleAndLayoutChanges {
                     &mut layout_results[dom_id.inner],
                     image_cache,
                     renderer_resources,
-                    pipeline_id,
+                    document_id,
                     layout_changes,
                     word_changes,
                 );

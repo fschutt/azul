@@ -5,6 +5,7 @@
 //! azul (not azul-core), you have to depend on webrender.
 
 use webrender::render_api::{
+    RenderApi as WrRenderApi,
     ResourceUpdate as WrResourceUpdate,
     AddFont as WrAddFont,
     AddImage as WrAddImage,
@@ -74,7 +75,7 @@ use webrender::api::{
 };
 
 use azul_core::{
-    callbacks::{PipelineId, DocumentId},
+    callbacks::{PipelineId, DocumentId, DomNodeId},
     app_resources::{
         FontKey, Au, FontInstanceKey, ImageKey,
         IdNamespace, RawImageFormat as ImageFormat, ImageDescriptor, ImageDescriptorFlags,
@@ -92,8 +93,8 @@ use azul_core::{
     },
     dom::TagId,
     display_list::DisplayListImageMask,
-    ui_solver::{ExternalScrollId, PositionInfo, ComputedTransform3D},
-    window::{LogicalSize, LogicalPosition, LogicalRect, DebugState},
+    ui_solver::{LayoutResult, ExternalScrollId, PositionInfo, ComputedTransform3D},
+    window::{LogicalSize, CursorPosition, LogicalPosition, FullHitTest, LogicalRect, DebugState},
 };
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use azul_core::app_resources::{FontLCDFilter, FontHinting};
@@ -676,6 +677,114 @@ pub(crate) mod winit_translate {
         }
     }
 }
+
+/// Same interface as azul-core: FullHitTest::new
+/// but uses webrender to compare the results of the two hit-testing implementations
+pub(crate) fn fullhittest_new_webrender(
+     render_api: &WrRenderApi,
+     document_id: DocumentId,
+     old_focus_node: Option<DomNodeId>,
+
+     layout_results: &[LayoutResult],
+     cursor_position: &CursorPosition,
+     hidpi_factor: f32,
+) -> FullHitTest {
+
+    use alloc::collections::BTreeMap;
+    use webrender::api::units::WorldPoint as WrWorldPoint;
+    use azul_core::callbacks::{HitTestItem, ScrollHitTestItem};
+    use azul_core::styled_dom::{DomId, AzNodeId};
+
+    let mut cursor_location = match cursor_position {
+        CursorPosition::OutOfWindow | CursorPosition::Uninitialized => return FullHitTest::empty(old_focus_node),
+        CursorPosition::InWindow(pos) => LogicalPosition::new(pos.x, pos.y),
+    };
+
+    let mut ret = FullHitTest::empty(old_focus_node);
+
+    // TODO: necessary?
+    cursor_location.x /= hidpi_factor;
+    cursor_location.y /= hidpi_factor;
+
+    let wr_document_id = wr_translate_document_id(document_id);
+
+    let mut dom_ids = vec![(DomId { inner: 0 }, cursor_location)];
+
+    loop {
+
+        let mut new_dom_ids = Vec::new();
+
+        for (dom_id, cursor_relative_to_dom) in dom_ids.iter() {
+            let pipeline_id = PipelineId(dom_id.inner, document_id.inner);
+            let layout_result = match layout_results.get(dom_id.inner) {
+                Some(s) => s,
+                None => break,
+            };
+
+            let wr_result = render_api.hit_test(
+                wr_document_id,
+                Some(wr_translate_pipeline_id(pipeline_id)),
+                WrWorldPoint::new(cursor_relative_to_dom.x, cursor_relative_to_dom.y),
+            );
+
+            let hit_items = wr_result.items.iter()
+            .filter_map(|i| {
+
+                let node_id = layout_result.styled_dom.tag_ids_to_node_ids
+                .iter().find(|q| q.tag_id.inner == i.tag.0)?
+                .node_id.into_crate_internal()?;
+
+                let relative_to_item = LogicalPosition::new(i.point_relative_to_item.x, i.point_relative_to_item.y);
+                Some(HitTestItem {
+                    point_in_viewport: LogicalPosition::new(i.point_in_viewport.x, i.point_in_viewport.y),
+                    point_relative_to_item: relative_to_item,
+                    is_iframe_hit: layout_result.iframe_mapping.get(&node_id).map(|iframe_dom_id| {
+                        (*iframe_dom_id, relative_to_item)
+                    }),
+                    is_focusable: layout_result.styled_dom.node_data.as_container().get(node_id)?.get_tab_index().into_option().is_some(),
+                })
+            }).collect();
+
+            for item in hit_items {
+
+                if let Some(i) = item.is_iframe_hit.as_ref() {
+                    new_dom_ids.push(i);
+                }
+
+                if item.is_focusable {
+                    ret.focused_node = Some((*dom_id, item.node_id));
+                }
+
+                if let Some(scroll_node) = layout_result.scrollable_nodes.overflowing_nodes.get(&AzNodeId::from_crate_internal(item.node_id)) {
+                    ret.hovered_nodes
+                    .entry(*dom_id)
+                    .or_insert_with(|| HitTest::empty())
+                    .scroll_hit_test_nodes
+                    .insert(item.node_id, ScrollHitTestItem {
+                        point_in_viewport: item.point_in_viewport,
+                        point_relative_to_item: item.point_relative_to_item,
+                        scroll_node: scroll_node.clone(),
+                    });
+                } else {
+                    ret.hovered_nodes
+                    .entry(*dom_id)
+                    .or_insert_with(|| HitTest::empty())
+                    .regular_hit_test_nodes
+                    .insert(item.node_id, item);
+                }
+            }
+        }
+
+        if new_dom_ids.is_empty() {
+            break;
+        } else {
+            dom_ids = new_dom_ids;
+        }
+    }
+
+    ret
+}
+
 
 #[inline]
 fn wr_translate_image_mask(input: &DisplayListImageMask) -> WrImageMask {
@@ -1306,6 +1415,7 @@ pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> Wr
 }
 
 pub(crate) fn wr_translate_display_list(
+    render_api: &mut WrRenderApi,
     input: CachedDisplayList,
     pipeline_id: PipelineId,
     current_hidpi_factor: f32,
@@ -1320,6 +1430,7 @@ pub(crate) fn wr_translate_display_list(
 
 #[inline]
 fn push_display_list_msg(
+    render_api: &mut WrRenderApi,
     builder: &mut WrDisplayListBuilder,
     msg: DisplayListMsg,
     parent_spatial_id: WrSpatialId,
@@ -1424,6 +1535,26 @@ fn push_display_list_msg(
     };
 
     match msg {
+        IFrame((iframe_pipeline_id, iframe_clip_size, cached_display_list)) => {
+            let built_display_list = wr_translate_display_list(
+                render_api,
+                cached_display_list,
+                iframe_pipeline_id,
+                current_hidpi_factor,
+            );
+            let iframe_root_size = built_display_list.root_size;
+            render_api.set_display_list(wr_translate_pipeline_id(iframe_pipeline_id), built_display_list);
+            builder.push_iframe(
+                wr_translate_layout_rect(LayoutRect::new(LayoutPoint::zero(), iframe_root_size)), // bounds
+                wr_translate_layout_rect(LayoutRect::new(LayoutPoint::zero(), iframe_clip_size)), // clip_bounds
+                &SpaceAndClipInfo {
+                    clip_id: parent_clip_id,
+                    spatial_id: rect_spatial_id,
+                },
+                pipeline_id: wr_translate_pipeline_id(iframe_pipeline_id),
+                ignore_missing_pipeline: false, // the iframe is already submitted into the render API
+            );
+        },
         Frame(f) => push_frame(builder, f, rect_spatial_id, parent_clip_id, positioned_items, current_hidpi_factor),
         ScrollFrame(sf) => push_scroll_frame(builder, sf, rect_spatial_id, parent_clip_id, positioned_items, current_hidpi_factor),
     }

@@ -29,7 +29,7 @@ use azul_core::{
         FontInstanceKey, Epoch, ShapedWords,
         WordPositions, Words, ImageCache,
     },
-    callbacks::PipelineId,
+    callbacks::DocumentId,
     display_list::RenderCallbacks,
     window::{
         FullWindowState, LogicalRect,
@@ -1465,7 +1465,7 @@ pub fn do_the_layout(
     renderer_resources: &mut RendererResources,
     all_resource_updates: &mut Vec<ResourceUpdate>,
     id_namespace: IdNamespace,
-    pipeline_id: &PipelineId,
+    document_id: &DocumentId,
     epoch: Epoch,
     callbacks: &RenderCallbacks,
     full_window_state: &FullWindowState,
@@ -1499,7 +1499,7 @@ pub fn do_the_layout(
                 fc_cache,
                 id_namespace,
                 epoch,
-                pipeline_id,
+                document_id,
                 all_resource_updates,
                 &styled_dom,
                 callbacks.load_font_fn,
@@ -1512,7 +1512,7 @@ pub fn do_the_layout(
                 parent_dom_id,
                 styled_dom,
                 renderer_resources,
-                pipeline_id,
+                document_id,
                 rect,
             );
 
@@ -1616,7 +1616,7 @@ pub fn do_the_layout_internal(
     parent_dom_id: Option<DomId>,
     mut styled_dom: StyledDom,
     renderer_resources: &mut RendererResources,
-    pipeline_id: &PipelineId,
+    document_id: &DocumentId,
     bounds: LogicalRect
 ) -> LayoutResult {
 
@@ -1820,7 +1820,7 @@ pub fn do_the_layout_internal(
             &word_cache,
             &shaped_words,
             &word_positions_with_max_width,
-            pipeline_id
+            document_id
         );
     }
 
@@ -1832,7 +1832,8 @@ pub fn do_the_layout_internal(
         &styled_dom.node_hierarchy.as_container(),
         &positioned_rects.as_ref(),
         styled_dom.non_leaf_nodes.as_ref(),
-        pipeline_id,
+        dom_id,
+        document_id,
     );
 
     let mut gpu_value_cache = GpuValueCache::empty();
@@ -1902,7 +1903,7 @@ fn position_nodes<'a>(
     word_cache: &BTreeMap<NodeId, Words>,
     shaped_words: &BTreeMap<NodeId, ShapedWords>,
     word_positions: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-    pipeline_id: &PipelineId,
+    document_id: &DocumentId,
 ) {
 
     use azul_core::ui_solver::PositionInfo;
@@ -2051,7 +2052,7 @@ fn position_nodes<'a>(
                         use azul_text_layout::InlineText;
 
                         let mut inline_text_layout = InlineText { words, shaped_words }
-                        .get_text_layout(pipeline_id, child_node_id, &word_positions.text_layout_options);
+                        .get_text_layout(document_id, child_node_id, &word_positions.text_layout_options);
 
                         let (horz_alignment, vert_alignment) = determine_text_alignment(
                             css_property_cache.get_align_items(child_node_data, &child_node_id, child_styled_node_state)
@@ -2328,7 +2329,8 @@ fn get_nodes_that_need_scroll_clip(
     node_hierarchy: &NodeDataContainerRef<AzNode>,
     layouted_rects: &NodeDataContainerRef<PositionedRectangle>,
     parents: &[ParentWithNodeDepth],
-    pipeline_id: &PipelineId,
+    dom_id: DomId,
+    document_id: &DocumentId,
 ) {
 
     use azul_core::ui_solver::{OverflowingScrollNode, ExternalScrollId};
@@ -2399,8 +2401,9 @@ fn get_nodes_that_need_scroll_clip(
 
     // Insert all rectangles that need to scroll
     for (parent_id, (parent_rect, children_sum_rect)) in all_direct_overflows {
+        use azul_core::callbacks::PipelineId;
         let parent_dom_hash = dom_rects[parent_id].calculate_node_data_hash();
-        let parent_external_scroll_id = ExternalScrollId(parent_dom_hash.0, *pipeline_id);
+        let parent_external_scroll_id = ExternalScrollId(parent_dom_hash.0, PipelineId(dom_id.inner as u32, document_id.id));
         let scroll_tag_id = match display_list_rects[parent_id].tag_id.as_ref() {
             Some(s) => ScrollTagId(s.into_crate_internal()),
             None => ScrollTagId(TagId::unique()),
@@ -2434,11 +2437,12 @@ fn get_nodes_that_need_scroll_clip(
 ///
 /// Returns a vec of node IDs that whose layout was changed
 pub fn do_the_relayout(
+    dom_id: DomId,
     root_bounds: LayoutRect,
     layout_result: &mut LayoutResult,
     _image_cache: &ImageCache,
     renderer_resources: &mut RendererResources,
-    pipeline_id: &PipelineId,
+    document_id: &DocumentId,
     nodes_to_relayout: Option<&BTreeMap<NodeId, Vec<ChangedCssProperty>>>,
     words_to_relayout: Option<&BTreeMap<NodeId, AzString>>
 ) -> RelayoutChanges {
@@ -3045,7 +3049,7 @@ pub fn do_the_relayout(
         &layout_result.words_cache,
         &layout_result.shaped_words_cache,
         &layout_result.positioned_words_cache,
-        pipeline_id,
+        document_id,
     );
 
     layout_result.root_size = root_bounds.size;
@@ -3060,7 +3064,8 @@ pub fn do_the_relayout(
             &layout_result.styled_dom.node_hierarchy.as_container(),
             &layout_result.rects.as_ref(),
             &layout_result.styled_dom.non_leaf_nodes.as_ref(),
-            pipeline_id,
+            dom_id,
+            document_id,
         );
     }
 

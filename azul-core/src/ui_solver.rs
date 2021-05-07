@@ -16,12 +16,17 @@ use azul_css::{
     LayoutBorderBottomWidth, StyleTransform, StyleTransformOrigin, StyleBoxShadow,
 };
 use crate::{
+    display_list::{CachedDisplayList, GlTextureCache},
     styled_dom::{StyledDom, AzNodeId, DomId},
-    app_resources::{Words, ShapedWords, TransformKey, OpacityKey, FontInstanceKey, WordPositions},
+    app_resources::{
+        Words, ShapedWords, TransformKey, OpacityKey,
+        FontInstanceKey, WordPositions, Epoch,
+        RendererResources, ImageCache,
+    },
     id_tree::{NodeId, NodeDataContainer, NodeDataContainerRef},
     dom::{DomNodeHash, ScrollTagId},
-    callbacks::{PipelineId, HitTestItem, ScrollHitTestItem},
-    window::{ScrollStates, LogicalPosition, LogicalRect, LogicalSize},
+    callbacks::{PipelineId, DocumentId, HitTestItem, ScrollHitTestItem},
+    window::{ScrollStates, FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
 };
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -267,6 +272,14 @@ pub struct WidthCalculatedRect {
 
 impl WidthCalculatedRect {
 
+    pub fn overflow_width(&self) -> f32 {
+        if !self.flex_grow_px.is_sign_positive() {
+            self.min_inner_size_px
+        } else {
+            self.min_inner_size_px + self.flex_grow_px
+        }
+    }
+
     pub fn get_border_left(&self, percent_resolve: f32) -> f32 {
         self.border_left.as_ref()
         .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
@@ -377,6 +390,14 @@ pub struct HeightCalculatedRect {
 }
 
 impl HeightCalculatedRect {
+
+    pub fn overflow_height(&self) -> f32 {
+        if !self.flex_grow_px.is_sign_positive() {
+            self.min_inner_size_px
+        } else {
+            self.min_inner_size_px + self.flex_grow_px
+        }
+    }
 
     pub fn get_border_top(&self, percent_resolve: f32) -> f32 {
         self.border_top.as_ref()
@@ -516,6 +537,82 @@ pub struct LayoutResult {
 
 impl LayoutResult {
     pub fn get_bounds(&self) -> LayoutRect { LayoutRect::new(self.root_position, self.root_size) }
+
+    #[cfg(feature = "multithreading")]
+    pub fn get_cached_display_list(
+        document_id: &DocumentId,
+        dom_id: DomId,
+        epoch: Epoch,
+        layout_results: &[LayoutResult],
+        full_window_state: &FullWindowState,
+        gl_texture_cache: &GlTextureCache,
+        renderer_resources: &RendererResources,
+        image_cache: &ImageCache,
+    ) -> CachedDisplayList {
+
+        use crate::display_list::{
+            LayoutRectContent, push_rectangles_into_displaylist,
+            RectBackground, DisplayListParametersRef, displaylist_handle_rect,
+        };
+        use rayon::prelude::*;
+
+        let layout_result = match layout_results.get(dom_id.inner) {
+            Some(s) => s,
+            None => return CachedDisplayList::empty(),
+        };
+
+        let rects_in_rendering_order = layout_result.styled_dom.get_rects_in_rendering_order();
+        let referenced_content = DisplayListParametersRef {
+            dom_id,
+            document_id,
+            epoch,
+            full_window_state,
+            layout_results,
+            gl_texture_cache,
+            renderer_resources,
+            image_cache,
+        };
+
+        let root_width = layout_result.width_calculated_rects.as_ref()[NodeId::ZERO].overflow_width();
+        let root_height = layout_result.height_calculated_rects.as_ref()[NodeId::ZERO].overflow_height();
+        let root_size = LogicalSize::new(root_width, root_height);
+
+        let mut root_content = displaylist_handle_rect(
+            rects_in_rendering_order.root.into_crate_internal().unwrap(),
+            &referenced_content,
+        );
+
+        let children = rects_in_rendering_order.children
+        .as_ref()
+        .par_iter()
+        .map(|child_content_group| {
+            push_rectangles_into_displaylist(
+                child_content_group,
+                &referenced_content,
+            )
+        })
+        .collect();
+
+        root_content.append_children(children);
+
+        let mut dl = CachedDisplayList {
+            root: root_content,
+            root_size,
+        };
+
+        // push the window background color, if the
+        // root node doesn't have any content
+        if dl.root.is_content_empty() {
+            dl.root.push_content(LayoutRectContent::Background {
+                content: RectBackground::Color(full_window_state.background_color),
+                size: None,
+                offset: None,
+                repeat: None,
+            });
+        }
+
+        dl
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
@@ -1160,6 +1257,18 @@ pub struct PositionInfoInner {
     pub y_offset: f32,
     pub static_x_offset: f32,
     pub static_y_offset: f32
+}
+
+impl PositionInfoInner {
+    #[inline]
+    pub const fn zero() -> Self {
+        Self {
+            x_offset: 0.0,
+            y_offset: 0.0,
+            static_x_offset: 0.0,
+            static_y_offset: 0.0,
+        }
+    }
 }
 
 impl PositionInfo {
