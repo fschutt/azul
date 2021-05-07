@@ -601,73 +601,11 @@ pub struct FullHitTest {
 }
 
 impl FullHitTest {
-
     pub fn empty(focused_node: Option<DomNodeId>) -> Self {
         Self {
             hovered_nodes: BTreeMap::new(),
             focused_node: focused_node.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))),
         }
-    }
-
-    /// Does the hit-test for all hovered nodes
-    ///
-    /// NOTE: This is much faster than calling webrender
-    pub fn new(
-        old_focus_node: Option<DomNodeId>,
-        layout_results: &[LayoutResult],
-        cursor_position: &CursorPosition,
-        scroll_states: &ScrollStates,
-        hidpi_factor: f32,
-    ) -> Self {
-
-        let mut cursor_location = match cursor_position {
-            CursorPosition::OutOfWindow | CursorPosition::Uninitialized => return FullHitTest::empty(old_focus_node),
-            CursorPosition::InWindow(pos) => LogicalPosition::new(pos.x, pos.y),
-        };
-
-        cursor_location.x /= hidpi_factor;
-        cursor_location.y /= hidpi_factor;
-
-        let mut ret = FullHitTest::empty(old_focus_node);
-
-        // project the cursor relative to the DOM that is being hit-tested
-        let mut dom_ids = vec![(DomId { inner: 0 }, cursor_location)];
-
-        loop {
-
-            let mut new_dom_ids = Vec::new();
-
-            for (dom_id, cursor_relative_to_dom) in dom_ids.iter() {
-
-                let layout_result = &layout_results[dom_id.inner];
-                let hit_test = layout_result.get_hits(cursor_relative_to_dom, scroll_states);
-
-                for (node_id, hit_item) in hit_test.regular_hit_test_nodes.iter() {
-
-                    // if the hit node is an IFrame node, translate the cursor so that
-                    // it is relative to the IFrame origin, then recurse
-                    if let Some((iframe_dom_id, cursor_relative_to_iframe)) = hit_item.is_iframe_hit {
-                        new_dom_ids.push((iframe_dom_id, cursor_relative_to_iframe));
-                    }
-
-                    if hit_item.is_focusable && ret.focused_node.is_none(){
-                        ret.focused_node = Some((*dom_id, *node_id));
-                    }
-                }
-
-                if !hit_test.is_empty() {
-                    ret.hovered_nodes.insert(*dom_id, hit_test);
-                }
-            }
-
-            if new_dom_ids.is_empty() {
-                break;
-            } else {
-                dom_ids = new_dom_ids;
-            }
-        }
-
-        ret
     }
 }
 
@@ -750,7 +688,7 @@ impl WindowInternal {
 
     /// Initializes the `WindowInternal` on window creation. Calls the layout() method once to initializes the layout
     #[cfg(all(feature = "opengl", feature = "multithreading", feature = "std"))]
-    pub fn new(
+    pub fn new<F>(
         init: WindowInternalInit,
         data: &mut RefAny,
         image_cache: &ImageCache,
@@ -759,7 +697,9 @@ impl WindowInternal {
         callbacks: &RenderCallbacks,
         fc_cache_real: &mut FcFontCache,
         relayout_fn: RelayoutFn,
-    ) -> Self {
+        hit_test_func: F,
+    ) -> Self
+    where F: Fn(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest {
 
         use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
@@ -801,13 +741,7 @@ impl WindowInternal {
         let scroll_states = ScrollStates::default();
 
         // apply the changes for the first frame
-        let ht = FullHitTest::new(
-            current_window_state.focused_node,
-            &layout_results,
-            &current_window_state.mouse_state.cursor_position,
-            &scroll_states,
-            current_window_state.size.hidpi_factor,
-        );
+        let ht = hit_test_func(&current_window_state, &scroll_states, &layout_results);
         current_window_state.hovered_nodes = ht.hovered_nodes.clone();
 
         let nodes_to_check = NodesToCheck::simulated_mouse_move(
@@ -858,7 +792,7 @@ impl WindowInternal {
 
     /// Calls the layout function again and updates the self.internal.gl_texture_cache field
     #[cfg(all(feature = "opengl", feature = "multithreading"))]
-    pub fn regenerate_styled_dom(
+    pub fn regenerate_styled_dom<F>(
         &mut self,
         data: &mut RefAny,
         image_cache: &ImageCache,
@@ -867,7 +801,8 @@ impl WindowInternal {
         callbacks: &RenderCallbacks,
         fc_cache_real: &mut FcFontCache,
         relayout_fn: RelayoutFn,
-    ) {
+        hit_test_func: F,
+    ) where F: Fn(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest {
         use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
         use crate::window_state::{NodesToCheck, StyleAndLayoutChanges};
@@ -904,13 +839,7 @@ impl WindowInternal {
         );
 
         // apply the changes for the first frame
-        let ht = FullHitTest::new(
-            self.current_window_state.focused_node,
-            &layout_results,
-            &self.current_window_state.mouse_state.cursor_position,
-            &self.scroll_states,
-            self.current_window_state.size.hidpi_factor,
-        );
+        let ht = hit_test_func(&self.current_window_state, &self.scroll_states, &layout_results);
         self.current_window_state.hovered_nodes = ht.hovered_nodes.clone();
 
         // hit_test

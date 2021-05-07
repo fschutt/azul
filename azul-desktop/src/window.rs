@@ -527,6 +527,9 @@ impl Window {
         };
         */
 
+        let hit_tester = hit_tester.resolve();
+        let hit_tester_ref = &*hit_tester;
+
         let internal = fc_cache.apply_closure(|fc_cache| {
             WindowInternal::new(
                 WindowInternalInit {
@@ -541,6 +544,9 @@ impl Window {
                 &Window::CALLBACKS,
                 fc_cache,
                 azul_layout::do_the_relayout,
+                |window_state, scroll_states, layout_results| {
+                    FullHitTest::empty(window_state.focused_node)
+                }
             )
         });
 
@@ -550,7 +556,7 @@ impl Window {
             display: window_context,
             window_handle,
             render_api,
-            hit_tester: hit_tester.resolve(),
+            hit_tester,
             renderer: Some(renderer),
             gl_context_ptr,
             // software_gl,
@@ -658,17 +664,27 @@ impl Window {
         resource_updates: &mut Vec<ResourceUpdate>,
         fc_cache: &mut LazyFcCache,
     ) {
+        let document_id = self.internal.document_id;
+        let hit_tester = &*self.hit_tester;
+        let internal = &mut self.internal;
+        let gl_context = &self.gl_context_ptr;
+
         fc_cache.apply_closure(|fc_cache| {
-            self.internal.regenerate_styled_dom(
+            internal.regenerate_styled_dom(
                 data,
                 image_cache,
-                &self.gl_context_ptr,
+                &gl_context,
                 resource_updates,
                 &Window::CALLBACKS,
                 fc_cache,
                 azul_layout::do_the_relayout,
+                |window_state, scroll_states, layout_results| {
+                    FullHitTest::empty(window_state.focused_node)
+                }
             );
         });
+
+
     }
 
     /// Only re-build the display list and send it to webrender

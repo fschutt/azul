@@ -296,11 +296,27 @@ pub struct StyleAndLayoutChanges {
 
 impl StyleAndLayoutChanges {
     pub fn did_resize_nodes(&self) -> bool {
+        use azul_css::CssPropertyType;
+
         if let Some(l) = self.nodes_that_changed_size.as_ref() {
             if !l.is_empty() { return true; }
         }
+
         if let Some(l) = self.nodes_that_changed_text_content.as_ref() {
             if !l.is_empty() { return true; }
+        }
+
+        // check if any changed node is a CSS transform
+        if let Some(s) = self.style_changes.as_ref() {
+            for restyle_nodes in s.values() {
+                for changed in restyle_nodes.values() {
+                    for changed in changed.iter() {
+                        if changed.current_prop.get_type() == CssPropertyType::Transform {
+                            return true;
+                        }
+                    }
+                }
+            }
         }
         false
     }

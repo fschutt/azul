@@ -459,12 +459,6 @@ fn run_inner(app: App) -> ! {
                                 azul_layout::do_the_relayout,
                             );
 
-                            if changes.did_resize_nodes() {
-                                hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
-                                    wr_translate_document_id(window.internal.document_id)))
-                                );
-                            }
-
                             let changes_need_regenerate_dl = changes.need_regenerate_display_list();
                             let mut transaction = WrTransaction::new();
 
@@ -477,6 +471,12 @@ fn run_inner(app: App) -> ! {
                                 window.render_async(transaction, changes_need_regenerate_dl);
                             }
 
+                            if changes.did_resize_nodes() {
+                                hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
+                                    wr_translate_document_id(window.internal.document_id)))
+                                );
+                            }
+
                             if let Some(focus_change) = changes.focus_change {
                                 window.internal.current_window_state.focused_node = focus_change.new;
                             }
@@ -487,6 +487,9 @@ fn run_inner(app: App) -> ! {
                             window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
                             window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
+                            hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
+                                wr_translate_document_id(window.internal.document_id)))
+                            );
                             window.internal.current_window_state.focused_node = None; // unset the focus
                         },
                         UpdateScreen::RegenerateStyledDomForAllWindows => {
@@ -595,12 +598,6 @@ fn run_inner(app: App) -> ! {
                                 azul_layout::do_the_relayout,
                             );
 
-                            if changes.did_resize_nodes() {
-                                hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
-                                    wr_translate_document_id(window.internal.document_id)))
-                                );
-                            }
-
                             let changes_need_regenerate_dl = changes.need_regenerate_display_list();
 
                             let mut transaction = WrTransaction::new();
@@ -614,6 +611,12 @@ fn run_inner(app: App) -> ! {
                                 window.render_async(transaction, changes_need_regenerate_dl);
                             }
 
+                            if changes.did_resize_nodes() {
+                                hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
+                                    wr_translate_document_id(window.internal.document_id)))
+                                );
+                            }
+
                             if let Some(focus_change) = changes.focus_change {
                                 window.internal.current_window_state.focused_node = focus_change.new;
                             }
@@ -624,6 +627,9 @@ fn run_inner(app: App) -> ! {
                             window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
                             window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
+                            hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
+                                wr_translate_document_id(window.internal.document_id)))
+                            );
                             window.internal.current_window_state.focused_node = None; // unset the focus
                         },
                         UpdateScreen::RegenerateStyledDomForAllWindows => {
@@ -683,6 +689,9 @@ fn run_inner(app: App) -> ! {
                         window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
                         window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                         window.render_async(transaction, /* display list was rebuilt */ true);
+                        hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
+                            wr_translate_document_id(window.internal.document_id)))
+                        );
                         window.internal.current_window_state.focused_node = None; // unset the focus
                     }
                 }
@@ -727,6 +736,7 @@ fn run_inner(app: App) -> ! {
                 process_window_event(is_first_frame, &mut window, &event_loop_target, &event);
 
                 let mut need_regenerate_display_list = false;
+                let mut need_refresh_hit_test = false;
                 let mut should_scroll_render = false;
                 let mut should_callback_render = false;
 
@@ -803,12 +813,14 @@ fn run_inner(app: App) -> ! {
                     if layout_callback_changed {
                         window.regenerate_styled_dom(&mut data, &image_cache, &mut updated_resources, &mut fc_cache);
                         need_regenerate_display_list = true;
+                        need_refresh_hit_test = true;
                         callback_results.update_focused_node = Some(None); // unset the focus
                     } else {
                         match callback_results.callbacks_update_screen {
                             UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                                 window.regenerate_styled_dom(&mut data, &image_cache, &mut updated_resources, &mut fc_cache);
                                 need_regenerate_display_list = true;
+                                need_refresh_hit_test = true;
                                 callback_results.update_focused_node = Some(None); // unset the focus
                             },
                             UpdateScreen::RegenerateStyledDomForAllWindows => {
@@ -833,9 +845,7 @@ fn run_inner(app: App) -> ! {
                                 );
 
                                 if changes.did_resize_nodes() {
-                                    hit_tester_request = Some((window_id, window.render_api.request_hit_tester(
-                                        wr_translate_document_id(window.internal.document_id)))
-                                    );
+                                    need_refresh_hit_test = true;
                                 }
 
                                 if changes.need_regenerate_display_list() ||
@@ -931,6 +941,12 @@ fn run_inner(app: App) -> ! {
                 } else if should_scroll_render || should_callback_render {
                     let transaction = WrTransaction::new();
                     window.render_async(transaction, need_regenerate_display_list);
+                }
+
+                if need_refresh_hit_test {
+                    hit_tester_request = Some((window_id, window.render_api.request_hit_tester(
+                        wr_translate_document_id(window.internal.document_id)))
+                    );
                 }
             },
             Event::UserEvent(UserEvent { window_id, composite_needed: _ }) => {
