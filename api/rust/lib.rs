@@ -614,7 +614,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "App")]
     pub struct AzApp {
         pub(crate) ptr: *const c_void,
     }
@@ -683,7 +682,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutPoint")]
     pub struct AzLayoutPoint {
         pub x: isize,
         pub y: isize,
@@ -695,7 +693,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutSize")]
     pub struct AzLayoutSize {
         pub width: isize,
         pub height: isize,
@@ -707,7 +704,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "IOSHandle")]
     pub struct AzIOSHandle {
         pub ui_window: *mut c_void,
         pub ui_view: *mut c_void,
@@ -720,7 +716,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "MacOSHandle")]
     pub struct AzMacOSHandle {
         pub ns_window: *mut c_void,
         pub ns_view: *mut c_void,
@@ -732,7 +727,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "XlibHandle")]
     pub struct AzXlibHandle {
         pub window: u64,
         pub display: *mut c_void,
@@ -744,7 +738,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "XcbHandle")]
     pub struct AzXcbHandle {
         pub window: u32,
         pub connection: *mut c_void,
@@ -756,7 +749,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "WaylandHandle")]
     pub struct AzWaylandHandle {
         pub surface: *mut c_void,
         pub display: *mut c_void,
@@ -768,7 +760,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "WindowsHandle")]
     pub struct AzWindowsHandle {
         pub hwnd: *mut c_void,
         pub hinstance: *mut c_void,
@@ -780,7 +771,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "WebHandle")]
     pub struct AzWebHandle {
         pub id: u32,
     }
@@ -791,7 +781,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "AndroidHandle")]
     pub struct AzAndroidHandle {
         pub a_native_window: *mut c_void,
     }
@@ -825,7 +814,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "PhysicalPositionI32")]
     pub struct AzPhysicalPositionI32 {
         pub x: i32,
         pub y: i32,
@@ -837,7 +825,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "PhysicalSizeU32")]
     pub struct AzPhysicalSizeU32 {
         pub width: u32,
         pub height: u32,
@@ -849,7 +836,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LogicalPosition")]
     pub struct AzLogicalPosition {
         pub x: f32,
         pub y: f32,
@@ -861,7 +847,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LogicalSize")]
     pub struct AzLogicalSize {
         pub width: f32,
         pub height: f32,
@@ -873,7 +858,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "IconKey")]
     pub struct AzIconKey {
         pub id: usize,
     }
@@ -1056,7 +1040,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "WindowFlags")]
     pub struct AzWindowFlags {
         pub is_maximized: bool,
         pub is_minimized: bool,
@@ -1076,7 +1059,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "DebugState")]
     pub struct AzDebugState {
         pub profiler_dbg: bool,
         pub render_target_dbg: bool,
@@ -1168,7 +1150,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "MacWindowOptions")]
     pub struct AzMacWindowOptions {
         pub _reserved: u8,
     }
@@ -1179,7 +1160,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "WasmWindowOptions")]
     pub struct AzWasmWindowOptions {
         pub _reserved: u8,
     }
@@ -1214,7 +1194,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "TouchState")]
     pub struct AzTouchState {
         pub unused: u8,
     }
@@ -1223,7 +1202,6 @@ mod dll {
     #[repr(C)]
     #[derive(Clone)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutCallback")]
     pub struct AzLayoutCallback {
         pub cb: AzLayoutCallbackType,
     }
@@ -1235,7 +1213,6 @@ mod dll {
     #[repr(C)]
     #[derive(Clone)]
     #[derive(Copy)]
-#[pyclass(name = "Callback")]
     pub struct AzCallback {
         pub cb: AzCallbackType,
     }
@@ -1261,7 +1238,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "NodeId")]
     pub struct AzNodeId {
         pub inner: usize,
     }
@@ -1272,7 +1248,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "DomId")]
     pub struct AzDomId {
         pub inner: usize,
     }
@@ -1282,7 +1257,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "PositionInfoInner")]
     pub struct AzPositionInfoInner {
         pub x_offset: f32,
         pub y_offset: f32,
@@ -1315,7 +1289,6 @@ mod dll {
     #[repr(C)]
     #[derive(Clone)]
     #[derive(Copy)]
-#[pyclass(name = "IFrameCallback")]
     pub struct AzIFrameCallback {
         pub cb: AzIFrameCallbackType,
     }
@@ -1327,7 +1300,6 @@ mod dll {
     #[repr(C)]
     #[derive(Clone)]
     #[derive(Copy)]
-#[pyclass(name = "RenderImageCallback")]
     pub struct AzRenderImageCallback {
         pub cb: AzRenderImageCallbackType,
     }
@@ -1339,7 +1311,6 @@ mod dll {
     #[repr(C)]
     #[derive(Clone)]
     #[derive(Copy)]
-#[pyclass(name = "TimerCallback")]
     pub struct AzTimerCallback {
         pub cb: AzTimerCallbackType,
     }
@@ -1353,7 +1324,6 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
     #[repr(C)]
     #[derive(Clone)]
-#[pyclass(name = "WriteBackCallback")]
     pub struct AzWriteBackCallback {
         pub cb: AzWriteBackCallbackType,
     }
@@ -1361,7 +1331,6 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `ThreadCallback` struct
     #[repr(C)]
     #[derive(Clone)]
-#[pyclass(name = "ThreadCallback")]
     pub struct AzThreadCallback {
         pub cb: AzThreadCallbackType,
     }
@@ -1376,7 +1345,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "RefCount")]
     pub struct AzRefCount {
         pub(crate) ptr: *const c_void,
     }
@@ -1566,7 +1534,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "CssNthChildPattern")]
     pub struct AzCssNthChildPattern {
         pub repeat: u32,
         pub offset: u32,
@@ -1659,7 +1626,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "ColorU")]
     pub struct AzColorU {
         pub r: u8,
         pub g: u8,
@@ -1686,7 +1652,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "FloatValue")]
     pub struct AzFloatValue {
         pub number: isize,
     }
@@ -1995,7 +1960,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "Node")]
     pub struct AzNode {
         pub parent: usize,
         pub previous_sibling: usize,
@@ -2009,7 +1973,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "CascadeInfo")]
     pub struct AzCascadeInfo {
         pub index_in_parent: u32,
         pub is_last_child: bool,
@@ -2021,7 +1984,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyledNodeState")]
     pub struct AzStyledNodeState {
         pub normal: bool,
         pub hover: bool,
@@ -2035,7 +1997,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "TagId")]
     pub struct AzTagId {
         pub inner: u64,
     }
@@ -2044,7 +2005,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssPropertyCache")]
     pub struct AzCssPropertyCache {
         pub(crate) ptr: *mut c_void,
     }
@@ -2055,7 +2015,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "GlShaderPrecisionFormatReturn")]
     pub struct AzGlShaderPrecisionFormatReturn {
         pub _0: i32,
         pub _1: i32,
@@ -2104,7 +2063,6 @@ mod dll {
 
     /// C-ABI stable reexport of `&[u8]`
     #[repr(C)]
-#[pyclass(name = "U8VecRef")]
     pub struct AzU8VecRef {
         pub(crate) ptr: *const u8,
         pub len: usize,
@@ -2114,7 +2072,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "U8VecRefMut")]
     pub struct AzU8VecRefMut {
         pub(crate) ptr: *mut u8,
         pub len: usize,
@@ -2124,7 +2081,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "F32VecRef")]
     pub struct AzF32VecRef {
         pub(crate) ptr: *const f32,
         pub len: usize,
@@ -2134,7 +2090,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "I32VecRef")]
     pub struct AzI32VecRef {
         pub(crate) ptr: *const i32,
         pub len: usize,
@@ -2144,7 +2099,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GLuintVecRef")]
     pub struct AzGLuintVecRef {
         pub(crate) ptr: *const u32,
         pub len: usize,
@@ -2154,7 +2108,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GLenumVecRef")]
     pub struct AzGLenumVecRef {
         pub(crate) ptr: *const u32,
         pub len: usize,
@@ -2164,7 +2117,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GLintVecRefMut")]
     pub struct AzGLintVecRefMut {
         pub(crate) ptr: *mut i32,
         pub len: usize,
@@ -2174,7 +2126,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GLint64VecRefMut")]
     pub struct AzGLint64VecRefMut {
         pub(crate) ptr: *mut i64,
         pub len: usize,
@@ -2184,7 +2135,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GLbooleanVecRefMut")]
     pub struct AzGLbooleanVecRefMut {
         pub(crate) ptr: *mut u8,
         pub len: usize,
@@ -2194,7 +2144,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GLfloatVecRefMut")]
     pub struct AzGLfloatVecRefMut {
         pub(crate) ptr: *mut f32,
         pub len: usize,
@@ -2204,7 +2153,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Refstr")]
     pub struct AzRefstr {
         pub(crate) ptr: *const u8,
         pub len: usize,
@@ -2214,7 +2162,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GLsyncPtr")]
     pub struct AzGLsyncPtr {
         pub(crate) ptr: *const c_void,
     }
@@ -2225,7 +2172,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "TextureFlags")]
     pub struct AzTextureFlags {
         pub is_opaque: bool,
         pub is_video_texture: bool,
@@ -2235,7 +2181,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ImageRef")]
     pub struct AzImageRef {
         pub data: *const c_void,
         pub copies: *const c_void,
@@ -2288,7 +2233,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FontRef")]
     pub struct AzFontRef {
         pub data: *const c_void,
         pub copies: *const c_void,
@@ -2298,7 +2242,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Svg")]
     pub struct AzSvg {
         pub(crate) ptr: *mut c_void,
     }
@@ -2307,7 +2250,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgXmlNode")]
     pub struct AzSvgXmlNode {
         pub(crate) ptr: *mut c_void,
     }
@@ -2318,7 +2260,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SvgCircle")]
     pub struct AzSvgCircle {
         pub center_x: f32,
         pub center_y: f32,
@@ -2331,7 +2272,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SvgPoint")]
     pub struct AzSvgPoint {
         pub x: f32,
         pub y: f32,
@@ -2343,7 +2283,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SvgRect")]
     pub struct AzSvgRect {
         pub width: f32,
         pub height: f32,
@@ -2361,7 +2300,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SvgVertex")]
     pub struct AzSvgVertex {
         pub x: f32,
         pub y: f32,
@@ -2454,7 +2392,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SvgTransform")]
     pub struct AzSvgTransform {
         pub sx: f32,
         pub kx: f32,
@@ -2495,7 +2432,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SvgDashPattern")]
     pub struct AzSvgDashPattern {
         pub offset: f32,
         pub length_1: f32,
@@ -2510,7 +2446,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "File")]
     pub struct AzFile {
         pub(crate) ptr: *const c_void,
     }
@@ -2519,7 +2454,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "MsgBox")]
     pub struct AzMsgBox {
         pub _reserved: *mut c_void,
     }
@@ -2563,7 +2497,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FileDialog")]
     pub struct AzFileDialog {
         pub _reserved: *mut c_void,
     }
@@ -2572,7 +2505,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ColorPickerDialog")]
     pub struct AzColorPickerDialog {
         pub _reserved: *mut c_void,
     }
@@ -2581,7 +2513,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SystemClipboard")]
     pub struct AzSystemClipboard {
         pub _native: *const c_void,
     }
@@ -2593,7 +2524,6 @@ mod dll {
     #[repr(C)]
     #[derive(Clone)]
     #[derive(Copy)]
-#[pyclass(name = "InstantPtrCloneFn")]
     pub struct AzInstantPtrCloneFn {
         pub cb: AzInstantPtrCloneFnType,
     }
@@ -2605,7 +2535,6 @@ mod dll {
     #[repr(C)]
     #[derive(Clone)]
     #[derive(Copy)]
-#[pyclass(name = "InstantPtrDestructorFn")]
     pub struct AzInstantPtrDestructorFn {
         pub cb: AzInstantPtrDestructorFnType,
     }
@@ -2616,7 +2545,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SystemTick")]
     pub struct AzSystemTick {
         pub tick_counter: u64,
     }
@@ -2627,7 +2555,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SystemTimeDiff")]
     pub struct AzSystemTimeDiff {
         pub secs: u64,
         pub nanos: u32,
@@ -2639,7 +2566,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SystemTickDiff")]
     pub struct AzSystemTickDiff {
         pub tick_diff: u64,
     }
@@ -2650,7 +2576,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "TimerId")]
     pub struct AzTimerId {
         pub id: usize,
     }
@@ -2672,7 +2597,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "ThreadId")]
     pub struct AzThreadId {
         pub id: usize,
     }
@@ -2683,7 +2607,6 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `CreateThreadFn` struct
     #[repr(C)]
     #[derive(Clone)]
-#[pyclass(name = "CreateThreadFn")]
     pub struct AzCreateThreadFn {
         pub cb: AzCreateThreadFnType,
     }
@@ -2694,7 +2617,6 @@ mod dll {
     /// Get the current system time, equivalent to `std::time::Instant::now()`, except it also works on systems that work with "ticks" instead of timers
     #[repr(C)]
     #[derive(Clone)]
-#[pyclass(name = "GetSystemTimeFn")]
     pub struct AzGetSystemTimeFn {
         pub cb: AzGetSystemTimeFnType,
     }
@@ -2705,7 +2627,6 @@ mod dll {
     /// Function called to check if the thread has finished
     #[repr(C)]
     #[derive(Clone)]
-#[pyclass(name = "CheckThreadFinishedFn")]
     pub struct AzCheckThreadFinishedFn {
         pub cb: AzCheckThreadFinishedFnType,
     }
@@ -2716,7 +2637,6 @@ mod dll {
     /// Function to send a message to the thread
     #[repr(C)]
     #[derive(Clone)]
-#[pyclass(name = "LibrarySendThreadMsgFn")]
     pub struct AzLibrarySendThreadMsgFn {
         pub cb: AzLibrarySendThreadMsgFnType,
     }
@@ -2727,7 +2647,6 @@ mod dll {
     /// Function to receive a message from the thread
     #[repr(C)]
     #[derive(Clone)]
-#[pyclass(name = "LibraryReceiveThreadMsgFn")]
     pub struct AzLibraryReceiveThreadMsgFn {
         pub cb: AzLibraryReceiveThreadMsgFnType,
     }
@@ -2738,7 +2657,6 @@ mod dll {
     /// Function that the running `Thread` can call to receive messages from the main UI thread
     #[repr(C)]
     #[derive(Clone)]
-#[pyclass(name = "ThreadRecvFn")]
     pub struct AzThreadRecvFn {
         pub cb: AzThreadRecvFnType,
     }
@@ -2749,7 +2667,6 @@ mod dll {
     /// Function that the running `Thread` can call to receive messages from the main UI thread
     #[repr(C)]
     #[derive(Clone)]
-#[pyclass(name = "ThreadSendFn")]
     pub struct AzThreadSendFn {
         pub cb: AzThreadSendFnType,
     }
@@ -2760,7 +2677,6 @@ mod dll {
     /// Destructor of the `Thread`
     #[repr(C)]
     #[derive(Clone)]
-#[pyclass(name = "ThreadDestructorFn")]
     pub struct AzThreadDestructorFn {
         pub cb: AzThreadDestructorFnType,
     }
@@ -2771,7 +2687,6 @@ mod dll {
     /// Destructor of the `ThreadReceiver`
     #[repr(C)]
     #[derive(Clone)]
-#[pyclass(name = "ThreadReceiverDestructorFn")]
     pub struct AzThreadReceiverDestructorFn {
         pub cb: AzThreadReceiverDestructorFnType,
     }
@@ -2782,7 +2697,6 @@ mod dll {
     /// Destructor of the `ThreadSender`
     #[repr(C)]
     #[derive(Clone)]
-#[pyclass(name = "ThreadSenderDestructorFn")]
     pub struct AzThreadSenderDestructorFn {
         pub cb: AzThreadSenderDestructorFnType,
     }
@@ -3539,7 +3453,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SvgParseErrorPosition")]
     pub struct AzSvgParseErrorPosition {
         pub row: u32,
         pub col: u32,
@@ -3550,7 +3463,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SystemCallbacks")]
     pub struct AzSystemCallbacks {
         pub create_thread_fn: AzCreateThreadFn,
         pub get_system_time_fn: AzGetSystemTimeFn,
@@ -3562,7 +3474,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "RendererOptions")]
     pub struct AzRendererOptions {
         pub vsync: AzVsync,
         pub srgb: AzSrgb,
@@ -3575,7 +3486,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutRect")]
     pub struct AzLayoutRect {
         pub origin: AzLayoutPoint,
         pub size: AzLayoutSize,
@@ -3605,7 +3515,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LogicalRect")]
     pub struct AzLogicalRect {
         pub origin: AzLogicalPosition,
         pub size: AzLogicalSize,
@@ -3663,7 +3572,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "VideoMode")]
     pub struct AzVideoMode {
         pub size: AzLayoutSize,
         pub bit_depth: u16,
@@ -3676,7 +3584,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "DomNodeId")]
     pub struct AzDomNodeId {
         pub dom: AzDomId,
         pub node: AzNodeId,
@@ -3700,7 +3607,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "HidpiAdjustedBounds")]
     pub struct AzHidpiAdjustedBounds {
         pub logical_size: AzLogicalSize,
         pub hidpi_factor: f32,
@@ -3711,7 +3617,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InlineGlyph")]
     pub struct AzInlineGlyph {
         pub bounds: AzLogicalRect,
         pub unicode_codepoint: AzOptionChar,
@@ -3723,7 +3628,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InlineTextHit")]
     pub struct AzInlineTextHit {
         pub unicode_codepoint: AzOptionChar,
         pub hit_relative_to_inline_text: AzLogicalPosition,
@@ -3747,7 +3651,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "IFrameCallbackInfo")]
     pub struct AzIFrameCallbackInfo {
         pub system_fonts: *const c_void,
         pub image_cache: *const c_void,
@@ -3766,7 +3669,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "TimerCallbackReturn")]
     pub struct AzTimerCallbackReturn {
         pub should_update: AzUpdateScreen,
         pub should_terminate: AzTerminateTimer,
@@ -3776,7 +3678,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "RefAny")]
     pub struct AzRefAny {
         pub _internal_ptr: *const c_void,
         pub sharing_info: AzRefCount,
@@ -3787,7 +3688,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "IFrameNode")]
     pub struct AzIFrameNode {
         pub callback: AzIFrameCallback,
         pub data: AzRefAny,
@@ -3823,7 +3723,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "PixelValue")]
     pub struct AzPixelValue {
         pub metric: AzSizeMetric,
         pub number: AzFloatValue,
@@ -3835,7 +3734,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "PixelValueNoPercent")]
     pub struct AzPixelValueNoPercent {
         pub inner: AzPixelValue,
     }
@@ -3846,7 +3744,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBoxShadow")]
     pub struct AzStyleBoxShadow {
         pub offset: [AzPixelValueNoPercent;2],
         pub color: AzColorU,
@@ -3861,7 +3758,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutBottom")]
     pub struct AzLayoutBottom {
         pub inner: AzPixelValue,
     }
@@ -3872,7 +3768,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutFlexGrow")]
     pub struct AzLayoutFlexGrow {
         pub inner: AzFloatValue,
     }
@@ -3883,7 +3778,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutFlexShrink")]
     pub struct AzLayoutFlexShrink {
         pub inner: AzFloatValue,
     }
@@ -3894,7 +3788,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutHeight")]
     pub struct AzLayoutHeight {
         pub inner: AzPixelValue,
     }
@@ -3905,7 +3798,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutLeft")]
     pub struct AzLayoutLeft {
         pub inner: AzPixelValue,
     }
@@ -3916,7 +3808,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutMarginBottom")]
     pub struct AzLayoutMarginBottom {
         pub inner: AzPixelValue,
     }
@@ -3927,7 +3818,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutMarginLeft")]
     pub struct AzLayoutMarginLeft {
         pub inner: AzPixelValue,
     }
@@ -3938,7 +3828,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutMarginRight")]
     pub struct AzLayoutMarginRight {
         pub inner: AzPixelValue,
     }
@@ -3949,7 +3838,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutMarginTop")]
     pub struct AzLayoutMarginTop {
         pub inner: AzPixelValue,
     }
@@ -3960,7 +3848,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutMaxHeight")]
     pub struct AzLayoutMaxHeight {
         pub inner: AzPixelValue,
     }
@@ -3971,7 +3858,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutMaxWidth")]
     pub struct AzLayoutMaxWidth {
         pub inner: AzPixelValue,
     }
@@ -3982,7 +3868,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutMinHeight")]
     pub struct AzLayoutMinHeight {
         pub inner: AzPixelValue,
     }
@@ -3993,7 +3878,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutMinWidth")]
     pub struct AzLayoutMinWidth {
         pub inner: AzPixelValue,
     }
@@ -4004,7 +3888,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutPaddingBottom")]
     pub struct AzLayoutPaddingBottom {
         pub inner: AzPixelValue,
     }
@@ -4015,7 +3898,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutPaddingLeft")]
     pub struct AzLayoutPaddingLeft {
         pub inner: AzPixelValue,
     }
@@ -4026,7 +3908,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutPaddingRight")]
     pub struct AzLayoutPaddingRight {
         pub inner: AzPixelValue,
     }
@@ -4037,7 +3918,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutPaddingTop")]
     pub struct AzLayoutPaddingTop {
         pub inner: AzPixelValue,
     }
@@ -4048,7 +3928,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutRight")]
     pub struct AzLayoutRight {
         pub inner: AzPixelValue,
     }
@@ -4059,7 +3938,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutTop")]
     pub struct AzLayoutTop {
         pub inner: AzPixelValue,
     }
@@ -4070,7 +3948,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutWidth")]
     pub struct AzLayoutWidth {
         pub inner: AzPixelValue,
     }
@@ -4081,7 +3958,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "PercentageValue")]
     pub struct AzPercentageValue {
         pub number: AzFloatValue,
     }
@@ -4092,7 +3968,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "AngleValue")]
     pub struct AzAngleValue {
         pub metric: AzAngleMetric,
         pub number: AzFloatValue,
@@ -4104,7 +3979,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "NormalizedLinearColorStop")]
     pub struct AzNormalizedLinearColorStop {
         pub offset: AzPercentageValue,
         pub color: AzColorU,
@@ -4116,7 +3990,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "NormalizedRadialColorStop")]
     pub struct AzNormalizedRadialColorStop {
         pub offset: AzAngleValue,
         pub color: AzColorU,
@@ -4128,7 +4001,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "DirectionCorners")]
     pub struct AzDirectionCorners {
         pub from: AzDirectionCorner,
         pub to: AzDirectionCorner,
@@ -4177,7 +4049,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBackgroundPosition")]
     pub struct AzStyleBackgroundPosition {
         pub horizontal: AzBackgroundPositionHorizontal,
         pub vertical: AzBackgroundPositionVertical,
@@ -4201,7 +4072,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBorderBottomColor")]
     pub struct AzStyleBorderBottomColor {
         pub inner: AzColorU,
     }
@@ -4212,7 +4082,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBorderBottomLeftRadius")]
     pub struct AzStyleBorderBottomLeftRadius {
         pub inner: AzPixelValue,
     }
@@ -4223,7 +4092,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBorderBottomRightRadius")]
     pub struct AzStyleBorderBottomRightRadius {
         pub inner: AzPixelValue,
     }
@@ -4234,7 +4102,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBorderBottomStyle")]
     pub struct AzStyleBorderBottomStyle {
         pub inner: AzBorderStyle,
     }
@@ -4245,7 +4112,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutBorderBottomWidth")]
     pub struct AzLayoutBorderBottomWidth {
         pub inner: AzPixelValue,
     }
@@ -4256,7 +4122,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBorderLeftColor")]
     pub struct AzStyleBorderLeftColor {
         pub inner: AzColorU,
     }
@@ -4267,7 +4132,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBorderLeftStyle")]
     pub struct AzStyleBorderLeftStyle {
         pub inner: AzBorderStyle,
     }
@@ -4278,7 +4142,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutBorderLeftWidth")]
     pub struct AzLayoutBorderLeftWidth {
         pub inner: AzPixelValue,
     }
@@ -4289,7 +4152,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBorderRightColor")]
     pub struct AzStyleBorderRightColor {
         pub inner: AzColorU,
     }
@@ -4300,7 +4162,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBorderRightStyle")]
     pub struct AzStyleBorderRightStyle {
         pub inner: AzBorderStyle,
     }
@@ -4311,7 +4172,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutBorderRightWidth")]
     pub struct AzLayoutBorderRightWidth {
         pub inner: AzPixelValue,
     }
@@ -4322,7 +4182,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBorderTopColor")]
     pub struct AzStyleBorderTopColor {
         pub inner: AzColorU,
     }
@@ -4333,7 +4192,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBorderTopLeftRadius")]
     pub struct AzStyleBorderTopLeftRadius {
         pub inner: AzPixelValue,
     }
@@ -4344,7 +4202,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBorderTopRightRadius")]
     pub struct AzStyleBorderTopRightRadius {
         pub inner: AzPixelValue,
     }
@@ -4355,7 +4212,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleBorderTopStyle")]
     pub struct AzStyleBorderTopStyle {
         pub inner: AzBorderStyle,
     }
@@ -4366,7 +4222,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "LayoutBorderTopWidth")]
     pub struct AzLayoutBorderTopWidth {
         pub inner: AzPixelValue,
     }
@@ -4377,7 +4232,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleFontSize")]
     pub struct AzStyleFontSize {
         pub inner: AzPixelValue,
     }
@@ -4388,7 +4242,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleLetterSpacing")]
     pub struct AzStyleLetterSpacing {
         pub inner: AzPixelValue,
     }
@@ -4399,7 +4252,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleLineHeight")]
     pub struct AzStyleLineHeight {
         pub inner: AzPercentageValue,
     }
@@ -4410,7 +4262,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleTabWidth")]
     pub struct AzStyleTabWidth {
         pub inner: AzPercentageValue,
     }
@@ -4421,7 +4272,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleOpacity")]
     pub struct AzStyleOpacity {
         pub inner: AzPercentageValue,
     }
@@ -4432,7 +4282,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleTransformOrigin")]
     pub struct AzStyleTransformOrigin {
         pub x: AzPixelValue,
         pub y: AzPixelValue,
@@ -4444,7 +4293,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StylePerspectiveOrigin")]
     pub struct AzStylePerspectiveOrigin {
         pub x: AzPixelValue,
         pub y: AzPixelValue,
@@ -4456,7 +4304,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleTransformMatrix2D")]
     pub struct AzStyleTransformMatrix2D {
         pub a: AzPixelValue,
         pub b: AzPixelValue,
@@ -4472,7 +4319,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleTransformMatrix3D")]
     pub struct AzStyleTransformMatrix3D {
         pub m11: AzPixelValue,
         pub m12: AzPixelValue,
@@ -4498,7 +4344,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleTransformTranslate2D")]
     pub struct AzStyleTransformTranslate2D {
         pub x: AzPixelValue,
         pub y: AzPixelValue,
@@ -4510,7 +4355,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleTransformTranslate3D")]
     pub struct AzStyleTransformTranslate3D {
         pub x: AzPixelValue,
         pub y: AzPixelValue,
@@ -4523,7 +4367,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleTransformRotate3D")]
     pub struct AzStyleTransformRotate3D {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
@@ -4537,7 +4380,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleTransformScale2D")]
     pub struct AzStyleTransformScale2D {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
@@ -4549,7 +4391,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleTransformScale3D")]
     pub struct AzStyleTransformScale3D {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
@@ -4562,7 +4403,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleTransformSkew2D")]
     pub struct AzStyleTransformSkew2D {
         pub x: AzPercentageValue,
         pub y: AzPercentageValue,
@@ -4574,7 +4414,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleTextColor")]
     pub struct AzStyleTextColor {
         pub inner: AzColorU,
     }
@@ -4585,7 +4424,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "StyleWordSpacing")]
     pub struct AzStyleWordSpacing {
         pub inner: AzPixelValue,
     }
@@ -5422,7 +5260,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "ParentWithNodeDepth")]
     pub struct AzParentWithNodeDepth {
         pub depth: usize,
         pub node_id: AzNodeId,
@@ -5432,7 +5269,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Gl")]
     pub struct AzGl {
         pub(crate) ptr: *const c_void,
         pub svg_shader: u32,
@@ -5444,7 +5280,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "RefstrVecRef")]
     pub struct AzRefstrVecRef {
         pub(crate) ptr: *const AzRefstr,
         pub len: usize,
@@ -5455,7 +5290,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ImageMask")]
     pub struct AzImageMask {
         pub image: AzImageRef,
         pub rect: AzLogicalRect,
@@ -5467,7 +5301,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FontMetrics")]
     pub struct AzFontMetrics {
         pub units_per_em: u16,
         pub font_flags: u16,
@@ -5532,7 +5365,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SvgLine")]
     pub struct AzSvgLine {
         pub start: AzSvgPoint,
         pub end: AzSvgPoint,
@@ -5544,7 +5376,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SvgQuadraticCurve")]
     pub struct AzSvgQuadraticCurve {
         pub start: AzSvgPoint,
         pub ctrl: AzSvgPoint,
@@ -5557,7 +5388,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SvgCubicCurve")]
     pub struct AzSvgCubicCurve {
         pub start: AzSvgPoint,
         pub ctrl_1: AzSvgPoint,
@@ -5570,7 +5400,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgStringFormatOptions")]
     pub struct AzSvgStringFormatOptions {
         pub use_single_quote: bool,
         pub indent: AzIndent,
@@ -5583,7 +5412,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SvgFillStyle")]
     pub struct AzSvgFillStyle {
         pub line_join: AzSvgLineJoin,
         pub miter_limit: f32,
@@ -5598,7 +5426,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InstantPtr")]
     pub struct AzInstantPtr {
         pub(crate) ptr: *const c_void,
         pub clone_fn: AzInstantPtrCloneFn,
@@ -5620,7 +5447,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Thread")]
     pub struct AzThread {
         pub thread_handle: *const c_void,
         pub sender: *const c_void,
@@ -5637,7 +5463,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ThreadSender")]
     pub struct AzThreadSender {
         pub(crate) ptr: *const c_void,
         pub send_fn: AzThreadSendFn,
@@ -5648,7 +5473,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ThreadReceiver")]
     pub struct AzThreadReceiver {
         pub(crate) ptr: *const c_void,
         pub recv_fn: AzThreadRecvFn,
@@ -5669,7 +5493,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ThreadWriteBackMsg")]
     pub struct AzThreadWriteBackMsg {
         pub data: AzRefAny,
         pub callback: AzWriteBackCallback,
@@ -5677,7 +5500,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<XmlNode>`
     #[repr(C)]
-#[pyclass(name = "XmlNodeVec")]
     pub struct AzXmlNodeVec {
         pub(crate) ptr: *const AzXmlNode,
         pub len: usize,
@@ -5687,7 +5509,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<InlineGlyph>`
     #[repr(C)]
-#[pyclass(name = "InlineGlyphVec")]
     pub struct AzInlineGlyphVec {
         pub(crate) ptr: *const AzInlineGlyph,
         pub len: usize,
@@ -5697,7 +5518,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<InlineTextHit>`
     #[repr(C)]
-#[pyclass(name = "InlineTextHitVec")]
     pub struct AzInlineTextHitVec {
         pub(crate) ptr: *const AzInlineTextHit,
         pub len: usize,
@@ -5707,7 +5527,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<VideoMode>`
     #[repr(C)]
-#[pyclass(name = "VideoModeVec")]
     pub struct AzVideoModeVec {
         pub(crate) ptr: *const AzVideoMode,
         pub len: usize,
@@ -5717,7 +5536,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<Dom>`
     #[repr(C)]
-#[pyclass(name = "DomVec")]
     pub struct AzDomVec {
         pub(crate) ptr: *const AzDom,
         pub len: usize,
@@ -5727,7 +5545,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
     #[repr(C)]
-#[pyclass(name = "StyleBackgroundPositionVec")]
     pub struct AzStyleBackgroundPositionVec {
         pub(crate) ptr: *const AzStyleBackgroundPosition,
         pub len: usize,
@@ -5737,7 +5554,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
     #[repr(C)]
-#[pyclass(name = "StyleBackgroundRepeatVec")]
     pub struct AzStyleBackgroundRepeatVec {
         pub(crate) ptr: *const AzStyleBackgroundRepeat,
         pub len: usize,
@@ -5747,7 +5563,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
     #[repr(C)]
-#[pyclass(name = "StyleBackgroundSizeVec")]
     pub struct AzStyleBackgroundSizeVec {
         pub(crate) ptr: *const AzStyleBackgroundSize,
         pub len: usize,
@@ -5757,7 +5572,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `SvgVertex`
     #[repr(C)]
-#[pyclass(name = "SvgVertexVec")]
     pub struct AzSvgVertexVec {
         pub(crate) ptr: *const AzSvgVertex,
         pub len: usize,
@@ -5767,7 +5581,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<u32>`
     #[repr(C)]
-#[pyclass(name = "U32Vec")]
     pub struct AzU32Vec {
         pub(crate) ptr: *const u32,
         pub len: usize,
@@ -5777,7 +5590,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `XWindowType`
     #[repr(C)]
-#[pyclass(name = "XWindowTypeVec")]
     pub struct AzXWindowTypeVec {
         pub(crate) ptr: *const AzXWindowType,
         pub len: usize,
@@ -5787,7 +5599,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `VirtualKeyCode`
     #[repr(C)]
-#[pyclass(name = "VirtualKeyCodeVec")]
     pub struct AzVirtualKeyCodeVec {
         pub(crate) ptr: *const AzVirtualKeyCode,
         pub len: usize,
@@ -5797,7 +5608,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `CascadeInfo`
     #[repr(C)]
-#[pyclass(name = "CascadeInfoVec")]
     pub struct AzCascadeInfoVec {
         pub(crate) ptr: *const AzCascadeInfo,
         pub len: usize,
@@ -5807,7 +5617,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `ScanCode`
     #[repr(C)]
-#[pyclass(name = "ScanCodeVec")]
     pub struct AzScanCodeVec {
         pub(crate) ptr: *const u32,
         pub len: usize,
@@ -5817,7 +5626,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<u16>`
     #[repr(C)]
-#[pyclass(name = "U16Vec")]
     pub struct AzU16Vec {
         pub(crate) ptr: *const u16,
         pub len: usize,
@@ -5827,7 +5635,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<f32>`
     #[repr(C)]
-#[pyclass(name = "F32Vec")]
     pub struct AzF32Vec {
         pub(crate) ptr: *const f32,
         pub len: usize,
@@ -5837,7 +5644,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `U8Vec`
     #[repr(C)]
-#[pyclass(name = "U8Vec")]
     pub struct AzU8Vec {
         pub(crate) ptr: *const u8,
         pub len: usize,
@@ -5847,7 +5653,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `U32Vec`
     #[repr(C)]
-#[pyclass(name = "GLuintVec")]
     pub struct AzGLuintVec {
         pub(crate) ptr: *const u32,
         pub len: usize,
@@ -5857,7 +5662,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `GLintVec`
     #[repr(C)]
-#[pyclass(name = "GLintVec")]
     pub struct AzGLintVec {
         pub(crate) ptr: *const i32,
         pub len: usize,
@@ -5867,7 +5671,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `NormalizedLinearColorStopVec`
     #[repr(C)]
-#[pyclass(name = "NormalizedLinearColorStopVec")]
     pub struct AzNormalizedLinearColorStopVec {
         pub(crate) ptr: *const AzNormalizedLinearColorStop,
         pub len: usize,
@@ -5877,7 +5680,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `NormalizedRadialColorStopVec`
     #[repr(C)]
-#[pyclass(name = "NormalizedRadialColorStopVec")]
     pub struct AzNormalizedRadialColorStopVec {
         pub(crate) ptr: *const AzNormalizedRadialColorStop,
         pub len: usize,
@@ -5887,7 +5689,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `NodeIdVec`
     #[repr(C)]
-#[pyclass(name = "NodeIdVec")]
     pub struct AzNodeIdVec {
         pub(crate) ptr: *const AzNodeId,
         pub len: usize,
@@ -5897,7 +5698,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `NodeVec`
     #[repr(C)]
-#[pyclass(name = "NodeVec")]
     pub struct AzNodeVec {
         pub(crate) ptr: *const AzNode,
         pub len: usize,
@@ -5907,7 +5707,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
     #[repr(C)]
-#[pyclass(name = "ParentWithNodeDepthVec")]
     pub struct AzParentWithNodeDepthVec {
         pub(crate) ptr: *const AzParentWithNodeDepth,
         pub len: usize,
@@ -6277,7 +6076,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "NonXmlCharError")]
     pub struct AzNonXmlCharError {
         pub ch: u32,
         pub pos: AzSvgParseErrorPosition,
@@ -6289,7 +6087,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "InvalidCharError")]
     pub struct AzInvalidCharError {
         pub expected: u8,
         pub got: u8,
@@ -6301,7 +6098,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InvalidCharMultipleError")]
     pub struct AzInvalidCharMultipleError {
         pub expected: u8,
         pub got: AzU8Vec,
@@ -6314,7 +6110,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "InvalidQuoteError")]
     pub struct AzInvalidQuoteError {
         pub got: u8,
         pub pos: AzSvgParseErrorPosition,
@@ -6326,7 +6121,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "InvalidSpaceError")]
     pub struct AzInvalidSpaceError {
         pub got: u8,
         pub pos: AzSvgParseErrorPosition,
@@ -6337,7 +6131,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "AppConfig")]
     pub struct AzAppConfig {
         pub layout_solver: AzLayoutSolverVersion,
         pub log_level: AzAppLogLevel,
@@ -6352,7 +6145,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SmallWindowIconBytes")]
     pub struct AzSmallWindowIconBytes {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
@@ -6363,7 +6155,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LargeWindowIconBytes")]
     pub struct AzLargeWindowIconBytes {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
@@ -6384,7 +6175,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "TaskBarIcon")]
     pub struct AzTaskBarIcon {
         pub key: AzIconKey,
         pub rgba_bytes: AzU8Vec,
@@ -6396,7 +6186,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "WindowSize")]
     pub struct AzWindowSize {
         pub dimensions: AzLogicalSize,
         pub hidpi_factor: f32,
@@ -6410,7 +6199,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "KeyboardState")]
     pub struct AzKeyboardState {
         pub shift_down: bool,
         pub ctrl_down: bool,
@@ -6427,7 +6215,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "MouseState")]
     pub struct AzMouseState {
         pub mouse_cursor_type: AzOptionMouseCursorType,
         pub cursor_position: AzCursorPosition,
@@ -6444,7 +6231,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InlineTextContents")]
     pub struct AzInlineTextContents {
         pub glyphs: AzInlineGlyphVec,
         pub bounds: AzLogicalRect,
@@ -6468,7 +6254,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "RenderImageCallbackInfo")]
     pub struct AzRenderImageCallbackInfo {
         pub callback_node_id: AzDomNodeId,
         pub bounds: AzHidpiAdjustedBounds,
@@ -6488,7 +6273,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutCallbackInfo")]
     pub struct AzLayoutCallbackInfo {
         pub window_size: AzWindowSize,
         pub theme: AzWindowTheme,
@@ -6550,7 +6334,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "InterpolateContext")]
     pub struct AzInterpolateContext {
         pub animation_func: AzAnimationInterpolationFunction,
         pub parent_rect_width: f32,
@@ -6564,7 +6347,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LinearGradient")]
     pub struct AzLinearGradient {
         pub direction: AzDirection,
         pub extend_mode: AzExtendMode,
@@ -6576,7 +6358,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "RadialGradient")]
     pub struct AzRadialGradient {
         pub shape: AzShape,
         pub size: AzRadialGradientSize,
@@ -6590,7 +6371,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ConicGradient")]
     pub struct AzConicGradient {
         pub extend_mode: AzExtendMode,
         pub center: AzStyleBackgroundPosition,
@@ -6672,7 +6452,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyledNode")]
     pub struct AzStyledNode {
         pub state: AzStyledNodeState,
         pub tag_id: AzOptionTagId,
@@ -6683,7 +6462,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "TagIdToNodeIdMapping")]
     pub struct AzTagIdToNodeIdMapping {
         pub tag_id: AzTagId,
         pub node_id: AzNodeId,
@@ -6695,7 +6473,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Texture")]
     pub struct AzTexture {
         pub texture_id: u32,
         pub format: AzRawImageFormat,
@@ -6709,7 +6486,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GetProgramBinaryReturn")]
     pub struct AzGetProgramBinaryReturn {
         pub _0: AzU8Vec,
         pub _1: u32,
@@ -6731,7 +6507,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FontSource")]
     pub struct AzFontSource {
         pub data: AzU8Vec,
         pub font_index: u32,
@@ -6755,7 +6530,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "TesselatedSvgNode")]
     pub struct AzTesselatedSvgNode {
         pub vertices: AzSvgVertexVec,
         pub indices: AzU32Vec,
@@ -6765,7 +6539,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "TesselatedSvgNodeVecRef")]
     pub struct AzTesselatedSvgNodeVecRef {
         pub(crate) ptr: *const AzTesselatedSvgNode,
         pub len: usize,
@@ -6776,7 +6549,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgRenderOptions")]
     pub struct AzSvgRenderOptions {
         pub target_size: AzOptionLayoutSize,
         pub background_color: AzOptionColorU,
@@ -6789,7 +6561,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-#[pyclass(name = "SvgStrokeStyle")]
     pub struct AzSvgStrokeStyle {
         pub start_cap: AzSvgLineCap,
         pub end_cap: AzSvgLineCap,
@@ -6809,7 +6580,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Xml")]
     pub struct AzXml {
         pub root: AzXmlNodeVec,
     }
@@ -6838,14 +6608,12 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "String")]
     pub struct AzString {
         pub vec: AzU8Vec,
     }
 
     /// Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`
     #[repr(C)]
-#[pyclass(name = "TesselatedSvgNodeVec")]
     pub struct AzTesselatedSvgNodeVec {
         pub(crate) ptr: *const AzTesselatedSvgNode,
         pub len: usize,
@@ -6855,7 +6623,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
     #[repr(C)]
-#[pyclass(name = "StyleTransformVec")]
     pub struct AzStyleTransformVec {
         pub(crate) ptr: *const AzStyleTransform,
         pub len: usize,
@@ -6865,7 +6632,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `VertexAttribute`
     #[repr(C)]
-#[pyclass(name = "SvgPathElementVec")]
     pub struct AzSvgPathElementVec {
         pub(crate) ptr: *const AzSvgPathElement,
         pub len: usize,
@@ -6875,7 +6641,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `StringVec`
     #[repr(C)]
-#[pyclass(name = "StringVec")]
     pub struct AzStringVec {
         pub(crate) ptr: *const AzString,
         pub len: usize,
@@ -6885,7 +6650,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `StyledNodeVec`
     #[repr(C)]
-#[pyclass(name = "StyledNodeVec")]
     pub struct AzStyledNodeVec {
         pub(crate) ptr: *const AzStyledNode,
         pub len: usize,
@@ -6895,7 +6659,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
     #[repr(C)]
-#[pyclass(name = "TagIdsToNodeIdsMappingVec")]
     pub struct AzTagIdsToNodeIdsMappingVec {
         pub(crate) ptr: *const AzTagIdToNodeIdMapping,
         pub len: usize,
@@ -6996,7 +6759,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "DuplicatedNamespaceError")]
     pub struct AzDuplicatedNamespaceError {
         pub ns: AzString,
         pub pos: AzSvgParseErrorPosition,
@@ -7007,7 +6769,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "UnknownNamespaceError")]
     pub struct AzUnknownNamespaceError {
         pub ns: AzString,
         pub pos: AzSvgParseErrorPosition,
@@ -7018,7 +6779,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "UnexpectedCloseTagError")]
     pub struct AzUnexpectedCloseTagError {
         pub expected: AzString,
         pub actual: AzString,
@@ -7030,7 +6790,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "UnknownEntityReferenceError")]
     pub struct AzUnknownEntityReferenceError {
         pub entity: AzString,
         pub pos: AzSvgParseErrorPosition,
@@ -7041,7 +6800,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "DuplicatedAttributeError")]
     pub struct AzDuplicatedAttributeError {
         pub attribute: AzString,
         pub pos: AzSvgParseErrorPosition,
@@ -7052,7 +6810,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InvalidStringError")]
     pub struct AzInvalidStringError {
         pub got: AzString,
         pub pos: AzSvgParseErrorPosition,
@@ -7063,7 +6820,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "WindowsWindowOptions")]
     pub struct AzWindowsWindowOptions {
         pub allow_drag_drop: bool,
         pub no_redirection_bitmap: bool,
@@ -7077,7 +6833,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "WaylandTheme")]
     pub struct AzWaylandTheme {
         pub title_bar_active_background_color: [u8;4],
         pub title_bar_active_separator_color: [u8;4],
@@ -7130,7 +6885,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StringPair")]
     pub struct AzStringPair {
         pub key: AzString,
         pub value: AzString,
@@ -7141,7 +6895,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Monitor")]
     pub struct AzMonitor {
         pub id: usize,
         pub name: AzOptionString,
@@ -7169,7 +6922,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CallbackData")]
     pub struct AzCallbackData {
         pub event: AzEventFilter,
         pub callback: AzCallback,
@@ -7233,7 +6985,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ScrollbarInfo")]
     pub struct AzScrollbarInfo {
         pub width: AzLayoutWidth,
         pub padding_left: AzLayoutPaddingLeft,
@@ -7250,7 +7001,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ScrollbarStyle")]
     pub struct AzScrollbarStyle {
         pub horizontal: AzScrollbarInfo,
         pub vertical: AzScrollbarInfo,
@@ -7298,7 +7048,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "VertexAttribute")]
     pub struct AzVertexAttribute {
         pub name: AzString,
         pub layout_location: AzOptionUsize,
@@ -7311,7 +7060,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "DebugMessage")]
     pub struct AzDebugMessage {
         pub message: AzString,
         pub source: u32,
@@ -7325,7 +7073,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GetActiveAttribReturn")]
     pub struct AzGetActiveAttribReturn {
         pub _0: i32,
         pub _1: u32,
@@ -7337,7 +7084,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GetActiveUniformReturn")]
     pub struct AzGetActiveUniformReturn {
         pub _0: i32,
         pub _1: u32,
@@ -7349,7 +7095,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "RawImage")]
     pub struct AzRawImage {
         pub pixels: AzRawImageData,
         pub width: usize,
@@ -7363,7 +7108,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgPath")]
     pub struct AzSvgPath {
         pub items: AzSvgPathElementVec,
     }
@@ -7373,7 +7117,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgParseOptions")]
     pub struct AzSvgParseOptions {
         pub relative_image_path: AzOptionString,
         pub dpi: f32,
@@ -7403,7 +7146,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FileTypeList")]
     pub struct AzFileTypeList {
         pub document_types: AzStringVec,
         pub document_descriptor: AzString,
@@ -7413,7 +7155,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Timer")]
     pub struct AzTimer {
         pub data: AzRefAny,
         pub node_id: AzOptionDomNodeId,
@@ -7454,7 +7195,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FmtArg")]
     pub struct AzFmtArg {
         pub key: AzString,
         pub value: AzFmtValue,
@@ -7462,7 +7202,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
     #[repr(C)]
-#[pyclass(name = "StyleFontFamilyVec")]
     pub struct AzStyleFontFamilyVec {
         pub(crate) ptr: *const AzStyleFontFamily,
         pub len: usize,
@@ -7472,7 +7211,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<FmtArg>`
     #[repr(C)]
-#[pyclass(name = "FmtArgVec")]
     pub struct AzFmtArgVec {
         pub(crate) ptr: *const AzFmtArg,
         pub len: usize,
@@ -7482,7 +7220,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<InlineWord>`
     #[repr(C)]
-#[pyclass(name = "InlineWordVec")]
     pub struct AzInlineWordVec {
         pub(crate) ptr: *const AzInlineWord,
         pub len: usize,
@@ -7492,7 +7229,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<Monitor>`
     #[repr(C)]
-#[pyclass(name = "MonitorVec")]
     pub struct AzMonitorVec {
         pub(crate) ptr: *const AzMonitor,
         pub len: usize,
@@ -7502,7 +7238,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
     #[repr(C)]
-#[pyclass(name = "IdOrClassVec")]
     pub struct AzIdOrClassVec {
         pub(crate) ptr: *const AzIdOrClass,
         pub len: usize,
@@ -7512,7 +7247,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
     #[repr(C)]
-#[pyclass(name = "StyleBackgroundContentVec")]
     pub struct AzStyleBackgroundContentVec {
         pub(crate) ptr: *const AzStyleBackgroundContent,
         pub len: usize,
@@ -7522,7 +7256,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<SvgPath>`
     #[repr(C)]
-#[pyclass(name = "SvgPathVec")]
     pub struct AzSvgPathVec {
         pub(crate) ptr: *const AzSvgPath,
         pub len: usize,
@@ -7532,7 +7265,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
     #[repr(C)]
-#[pyclass(name = "VertexAttributeVec")]
     pub struct AzVertexAttributeVec {
         pub(crate) ptr: *const AzVertexAttribute,
         pub len: usize,
@@ -7542,7 +7274,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `CssPathSelector`
     #[repr(C)]
-#[pyclass(name = "CssPathSelectorVec")]
     pub struct AzCssPathSelectorVec {
         pub(crate) ptr: *const AzCssPathSelector,
         pub len: usize,
@@ -7552,7 +7283,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `CallbackData`
     #[repr(C)]
-#[pyclass(name = "CallbackDataVec")]
     pub struct AzCallbackDataVec {
         pub(crate) ptr: *const AzCallbackData,
         pub len: usize,
@@ -7562,7 +7292,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
     #[repr(C)]
-#[pyclass(name = "DebugMessageVec")]
     pub struct AzDebugMessageVec {
         pub(crate) ptr: *const AzDebugMessage,
         pub len: usize,
@@ -7572,7 +7301,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `StringPairVec`
     #[repr(C)]
-#[pyclass(name = "StringPairVec")]
     pub struct AzStringPairVec {
         pub(crate) ptr: *const AzStringPair,
         pub len: usize,
@@ -7646,7 +7374,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LinuxWindowOptions")]
     pub struct AzLinuxWindowOptions {
         pub x11_visual: AzOptionX11Visual,
         pub x11_screen: AzOptionI32,
@@ -7667,7 +7394,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InlineLine")]
     pub struct AzInlineLine {
         pub words: AzInlineWordVec,
         pub bounds: AzLogicalRect,
@@ -7678,7 +7404,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssPath")]
     pub struct AzCssPath {
         pub selectors: AzCssPathSelectorVec,
     }
@@ -7802,7 +7527,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "VertexLayout")]
     pub struct AzVertexLayout {
         pub fields: AzVertexAttributeVec,
     }
@@ -7811,7 +7535,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "VertexArrayObject")]
     pub struct AzVertexArrayObject {
         pub vertex_layout: AzVertexLayout,
         pub vao_id: u32,
@@ -7822,7 +7545,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "VertexBuffer")]
     pub struct AzVertexBuffer {
         pub vertex_buffer_id: u32,
         pub vertex_buffer_len: usize,
@@ -7837,7 +7559,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgMultiPolygon")]
     pub struct AzSvgMultiPolygon {
         pub rings: AzSvgPathVec,
     }
@@ -7847,7 +7568,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "XmlNode")]
     pub struct AzXmlNode {
         pub tag: AzString,
         pub attributes: AzStringPairVec,
@@ -7857,7 +7577,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<InlineLine>`
     #[repr(C)]
-#[pyclass(name = "InlineLineVec")]
     pub struct AzInlineLineVec {
         pub(crate) ptr: *const AzInlineLine,
         pub len: usize,
@@ -7867,7 +7586,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`
     #[repr(C)]
-#[pyclass(name = "CssPropertyVec")]
     pub struct AzCssPropertyVec {
         pub(crate) ptr: *const AzCssProperty,
         pub len: usize,
@@ -7877,7 +7595,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
     #[repr(C)]
-#[pyclass(name = "SvgMultiPolygonVec")]
     pub struct AzSvgMultiPolygonVec {
         pub(crate) ptr: *const AzSvgMultiPolygon,
         pub len: usize,
@@ -7900,7 +7617,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "XmlTextError")]
     pub struct AzXmlTextError {
         pub stream_error: AzXmlStreamError,
         pub pos: AzSvgParseErrorPosition,
@@ -7911,7 +7627,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "PlatformSpecificOptions")]
     pub struct AzPlatformSpecificOptions {
         pub windows_options: AzWindowsWindowOptions,
         pub linux_options: AzLinuxWindowOptions,
@@ -7924,7 +7639,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "WindowState")]
     pub struct AzWindowState {
         pub title: AzString,
         pub theme: AzWindowTheme,
@@ -7948,7 +7662,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CallbackInfo")]
     pub struct AzCallbackInfo {
         pub css_property_cache: *const c_void,
         pub styled_node_states: *const c_void,
@@ -7989,7 +7702,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InlineText")]
     pub struct AzInlineText {
         pub lines: AzInlineLineVec,
         pub content_size: AzLogicalSize,
@@ -8003,7 +7715,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FocusTargetPath")]
     pub struct AzFocusTargetPath {
         pub dom: AzDomId,
         pub css_path: AzCssPath,
@@ -8014,7 +7725,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Animation")]
     pub struct AzAnimation {
         pub from: AzCssProperty,
         pub to: AzCssProperty,
@@ -8029,7 +7739,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "TimerCallbackInfo")]
     pub struct AzTimerCallbackInfo {
         pub callback_info: AzCallbackInfo,
         pub node_id: AzOptionDomNodeId,
@@ -8057,7 +7766,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "DynamicCssProperty")]
     pub struct AzDynamicCssProperty {
         pub dynamic_id: AzString,
         pub default_value: AzCssProperty,
@@ -8081,7 +7789,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgStyledNode")]
     pub struct AzSvgStyledNode {
         pub geometry: AzSvgNode,
         pub style: AzSvgStyle,
@@ -8089,7 +7796,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
     #[repr(C)]
-#[pyclass(name = "NodeDataInlineCssPropertyVec")]
     pub struct AzNodeDataInlineCssPropertyVec {
         pub(crate) ptr: *const AzNodeDataInlineCssProperty,
         pub len: usize,
@@ -8140,7 +7846,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "WindowCreateOptions")]
     pub struct AzWindowCreateOptions {
         pub state: AzWindowState,
         pub renderer_type: AzOptionRendererOptions,
@@ -8169,7 +7874,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "NodeData")]
     pub struct AzNodeData {
         pub node_type: AzNodeType,
         pub dataset: AzOptionRefAny,
@@ -8192,7 +7896,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `CssDeclaration`
     #[repr(C)]
-#[pyclass(name = "CssDeclarationVec")]
     pub struct AzCssDeclarationVec {
         pub(crate) ptr: *const AzCssDeclaration,
         pub len: usize,
@@ -8202,7 +7905,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `NodeDataVec`
     #[repr(C)]
-#[pyclass(name = "NodeDataVec")]
     pub struct AzNodeDataVec {
         pub(crate) ptr: *const AzNodeData,
         pub len: usize,
@@ -8239,7 +7941,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Dom")]
     pub struct AzDom {
         pub root: AzNodeData,
         pub children: AzDomVec,
@@ -8251,7 +7952,6 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssRuleBlock")]
     pub struct AzCssRuleBlock {
         pub path: AzCssPath,
         pub declarations: AzCssDeclarationVec,
@@ -8261,7 +7961,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyledDom")]
     pub struct AzStyledDom {
         pub root: AzNodeId,
         pub node_hierarchy: AzNodeVec,
@@ -8278,7 +7977,6 @@ mod dll {
 
     /// Wrapper over a Rust-allocated `CssRuleBlock`
     #[repr(C)]
-#[pyclass(name = "CssRuleBlockVec")]
     pub struct AzCssRuleBlockVec {
         pub(crate) ptr: *const AzCssRuleBlock,
         pub len: usize,
@@ -8323,7 +8021,6 @@ mod dll {
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "IFrameCallbackReturn")]
     pub struct AzIFrameCallbackReturn {
         pub dom: AzStyledDom,
         pub scroll_size: AzLogicalSize,
@@ -8337,14 +8034,12 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Stylesheet")]
     pub struct AzStylesheet {
         pub rules: AzCssRuleBlockVec,
     }
 
     /// Wrapper over a Rust-allocated `Stylesheet`
     #[repr(C)]
-#[pyclass(name = "StylesheetVec")]
     pub struct AzStylesheetVec {
         pub(crate) ptr: *const AzStylesheet,
         pub len: usize,
@@ -8377,2859 +8072,8 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Css")]
     pub struct AzCss {
         pub stylesheets: AzStylesheetVec,
-    }
-
-    /// `AzAppLogLevelEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "AppLogLevel")]
-    pub struct AzAppLogLevelEnumWrapper {
-        pub inner: AzAppLogLevel,
-    }
-
-    /// `AzLayoutSolverVersionEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutSolverVersion")]
-    pub struct AzLayoutSolverVersionEnumWrapper {
-        pub inner: AzLayoutSolverVersion,
-    }
-
-    /// `AzVsyncEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Vsync")]
-    pub struct AzVsyncEnumWrapper {
-        pub inner: AzVsync,
-    }
-
-    /// `AzSrgbEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Srgb")]
-    pub struct AzSrgbEnumWrapper {
-        pub inner: AzSrgb,
-    }
-
-    /// `AzHwAccelerationEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "HwAcceleration")]
-    pub struct AzHwAccelerationEnumWrapper {
-        pub inner: AzHwAcceleration,
-    }
-
-    /// `AzXWindowTypeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "XWindowType")]
-    pub struct AzXWindowTypeEnumWrapper {
-        pub inner: AzXWindowType,
-    }
-
-    /// `AzVirtualKeyCodeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "VirtualKeyCode")]
-    pub struct AzVirtualKeyCodeEnumWrapper {
-        pub inner: AzVirtualKeyCode,
-    }
-
-    /// `AzMouseCursorTypeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "MouseCursorType")]
-    pub struct AzMouseCursorTypeEnumWrapper {
-        pub inner: AzMouseCursorType,
-    }
-
-    /// `AzRendererTypeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "RendererType")]
-    pub struct AzRendererTypeEnumWrapper {
-        pub inner: AzRendererType,
-    }
-
-    /// `AzFullScreenModeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FullScreenMode")]
-    pub struct AzFullScreenModeEnumWrapper {
-        pub inner: AzFullScreenMode,
-    }
-
-    /// `AzWindowThemeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "WindowTheme")]
-    pub struct AzWindowThemeEnumWrapper {
-        pub inner: AzWindowTheme,
-    }
-
-    /// `AzUpdateScreenEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "UpdateScreen")]
-    pub struct AzUpdateScreenEnumWrapper {
-        pub inner: AzUpdateScreen,
-    }
-
-    /// `AzAnimationRepeatEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "AnimationRepeat")]
-    pub struct AzAnimationRepeatEnumWrapper {
-        pub inner: AzAnimationRepeat,
-    }
-
-    /// `AzAnimationRepeatCountEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "AnimationRepeatCount")]
-    pub struct AzAnimationRepeatCountEnumWrapper {
-        pub inner: AzAnimationRepeatCount,
-    }
-
-    /// `AzOnEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "On")]
-    pub struct AzOnEnumWrapper {
-        pub inner: AzOn,
-    }
-
-    /// `AzHoverEventFilterEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "HoverEventFilter")]
-    pub struct AzHoverEventFilterEnumWrapper {
-        pub inner: AzHoverEventFilter,
-    }
-
-    /// `AzFocusEventFilterEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FocusEventFilter")]
-    pub struct AzFocusEventFilterEnumWrapper {
-        pub inner: AzFocusEventFilter,
-    }
-
-    /// `AzWindowEventFilterEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "WindowEventFilter")]
-    pub struct AzWindowEventFilterEnumWrapper {
-        pub inner: AzWindowEventFilter,
-    }
-
-    /// `AzComponentEventFilterEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ComponentEventFilter")]
-    pub struct AzComponentEventFilterEnumWrapper {
-        pub inner: AzComponentEventFilter,
-    }
-
-    /// `AzApplicationEventFilterEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ApplicationEventFilter")]
-    pub struct AzApplicationEventFilterEnumWrapper {
-        pub inner: AzApplicationEventFilter,
-    }
-
-    /// `AzTabIndexEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "TabIndex")]
-    pub struct AzTabIndexEnumWrapper {
-        pub inner: AzTabIndex,
-    }
-
-    /// `AzNodeTypeKeyEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "NodeTypeKey")]
-    pub struct AzNodeTypeKeyEnumWrapper {
-        pub inner: AzNodeTypeKey,
-    }
-
-    /// `AzCssPropertyTypeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssPropertyType")]
-    pub struct AzCssPropertyTypeEnumWrapper {
-        pub inner: AzCssPropertyType,
-    }
-
-    /// `AzSizeMetricEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SizeMetric")]
-    pub struct AzSizeMetricEnumWrapper {
-        pub inner: AzSizeMetric,
-    }
-
-    /// `AzBoxShadowClipModeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "BoxShadowClipMode")]
-    pub struct AzBoxShadowClipModeEnumWrapper {
-        pub inner: AzBoxShadowClipMode,
-    }
-
-    /// `AzLayoutAlignContentEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutAlignContent")]
-    pub struct AzLayoutAlignContentEnumWrapper {
-        pub inner: AzLayoutAlignContent,
-    }
-
-    /// `AzLayoutAlignItemsEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutAlignItems")]
-    pub struct AzLayoutAlignItemsEnumWrapper {
-        pub inner: AzLayoutAlignItems,
-    }
-
-    /// `AzLayoutBoxSizingEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutBoxSizing")]
-    pub struct AzLayoutBoxSizingEnumWrapper {
-        pub inner: AzLayoutBoxSizing,
-    }
-
-    /// `AzLayoutFlexDirectionEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutFlexDirection")]
-    pub struct AzLayoutFlexDirectionEnumWrapper {
-        pub inner: AzLayoutFlexDirection,
-    }
-
-    /// `AzLayoutDisplayEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutDisplay")]
-    pub struct AzLayoutDisplayEnumWrapper {
-        pub inner: AzLayoutDisplay,
-    }
-
-    /// `AzLayoutFloatEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutFloat")]
-    pub struct AzLayoutFloatEnumWrapper {
-        pub inner: AzLayoutFloat,
-    }
-
-    /// `AzLayoutJustifyContentEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutJustifyContent")]
-    pub struct AzLayoutJustifyContentEnumWrapper {
-        pub inner: AzLayoutJustifyContent,
-    }
-
-    /// `AzLayoutPositionEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutPosition")]
-    pub struct AzLayoutPositionEnumWrapper {
-        pub inner: AzLayoutPosition,
-    }
-
-    /// `AzLayoutFlexWrapEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutFlexWrap")]
-    pub struct AzLayoutFlexWrapEnumWrapper {
-        pub inner: AzLayoutFlexWrap,
-    }
-
-    /// `AzLayoutOverflowEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutOverflow")]
-    pub struct AzLayoutOverflowEnumWrapper {
-        pub inner: AzLayoutOverflow,
-    }
-
-    /// `AzAngleMetricEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "AngleMetric")]
-    pub struct AzAngleMetricEnumWrapper {
-        pub inner: AzAngleMetric,
-    }
-
-    /// `AzDirectionCornerEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "DirectionCorner")]
-    pub struct AzDirectionCornerEnumWrapper {
-        pub inner: AzDirectionCorner,
-    }
-
-    /// `AzExtendModeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ExtendMode")]
-    pub struct AzExtendModeEnumWrapper {
-        pub inner: AzExtendMode,
-    }
-
-    /// `AzShapeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Shape")]
-    pub struct AzShapeEnumWrapper {
-        pub inner: AzShape,
-    }
-
-    /// `AzRadialGradientSizeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "RadialGradientSize")]
-    pub struct AzRadialGradientSizeEnumWrapper {
-        pub inner: AzRadialGradientSize,
-    }
-
-    /// `AzStyleBackgroundRepeatEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackgroundRepeat")]
-    pub struct AzStyleBackgroundRepeatEnumWrapper {
-        pub inner: AzStyleBackgroundRepeat,
-    }
-
-    /// `AzBorderStyleEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "BorderStyle")]
-    pub struct AzBorderStyleEnumWrapper {
-        pub inner: AzBorderStyle,
-    }
-
-    /// `AzStyleCursorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleCursor")]
-    pub struct AzStyleCursorEnumWrapper {
-        pub inner: AzStyleCursor,
-    }
-
-    /// `AzStyleBackfaceVisibilityEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackfaceVisibility")]
-    pub struct AzStyleBackfaceVisibilityEnumWrapper {
-        pub inner: AzStyleBackfaceVisibility,
-    }
-
-    /// `AzStyleTextAlignEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleTextAlign")]
-    pub struct AzStyleTextAlignEnumWrapper {
-        pub inner: AzStyleTextAlign,
-    }
-
-    /// `AzVertexAttributeTypeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "VertexAttributeType")]
-    pub struct AzVertexAttributeTypeEnumWrapper {
-        pub inner: AzVertexAttributeType,
-    }
-
-    /// `AzIndexBufferFormatEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "IndexBufferFormat")]
-    pub struct AzIndexBufferFormatEnumWrapper {
-        pub inner: AzIndexBufferFormat,
-    }
-
-    /// `AzGlTypeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GlType")]
-    pub struct AzGlTypeEnumWrapper {
-        pub inner: AzGlType,
-    }
-
-    /// `AzRawImageFormatEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "RawImageFormat")]
-    pub struct AzRawImageFormatEnumWrapper {
-        pub inner: AzRawImageFormat,
-    }
-
-    /// `AzEncodeImageErrorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "EncodeImageError")]
-    pub struct AzEncodeImageErrorEnumWrapper {
-        pub inner: AzEncodeImageError,
-    }
-
-    /// `AzDecodeImageErrorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "DecodeImageError")]
-    pub struct AzDecodeImageErrorEnumWrapper {
-        pub inner: AzDecodeImageError,
-    }
-
-    /// `AzShapeRenderingEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ShapeRendering")]
-    pub struct AzShapeRenderingEnumWrapper {
-        pub inner: AzShapeRendering,
-    }
-
-    /// `AzTextRenderingEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "TextRendering")]
-    pub struct AzTextRenderingEnumWrapper {
-        pub inner: AzTextRendering,
-    }
-
-    /// `AzImageRenderingEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ImageRendering")]
-    pub struct AzImageRenderingEnumWrapper {
-        pub inner: AzImageRendering,
-    }
-
-    /// `AzFontDatabaseEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FontDatabase")]
-    pub struct AzFontDatabaseEnumWrapper {
-        pub inner: AzFontDatabase,
-    }
-
-    /// `AzIndentEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Indent")]
-    pub struct AzIndentEnumWrapper {
-        pub inner: AzIndent,
-    }
-
-    /// `AzSvgFitToEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgFitTo")]
-    pub struct AzSvgFitToEnumWrapper {
-        pub inner: AzSvgFitTo,
-    }
-
-    /// `AzSvgFillRuleEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgFillRule")]
-    pub struct AzSvgFillRuleEnumWrapper {
-        pub inner: AzSvgFillRule,
-    }
-
-    /// `AzSvgLineJoinEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgLineJoin")]
-    pub struct AzSvgLineJoinEnumWrapper {
-        pub inner: AzSvgLineJoin,
-    }
-
-    /// `AzSvgLineCapEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgLineCap")]
-    pub struct AzSvgLineCapEnumWrapper {
-        pub inner: AzSvgLineCap,
-    }
-
-    /// `AzMsgBoxIconEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "MsgBoxIcon")]
-    pub struct AzMsgBoxIconEnumWrapper {
-        pub inner: AzMsgBoxIcon,
-    }
-
-    /// `AzMsgBoxYesNoEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "MsgBoxYesNo")]
-    pub struct AzMsgBoxYesNoEnumWrapper {
-        pub inner: AzMsgBoxYesNo,
-    }
-
-    /// `AzMsgBoxOkCancelEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "MsgBoxOkCancel")]
-    pub struct AzMsgBoxOkCancelEnumWrapper {
-        pub inner: AzMsgBoxOkCancel,
-    }
-
-    /// `AzTerminateTimerEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "TerminateTimer")]
-    pub struct AzTerminateTimerEnumWrapper {
-        pub inner: AzTerminateTimer,
-    }
-
-    /// `AzStyleFontFamilyVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleFontFamilyVecDestructor")]
-    pub struct AzStyleFontFamilyVecDestructorEnumWrapper {
-        pub inner: AzStyleFontFamilyVecDestructor,
-    }
-
-    /// `AzTesselatedSvgNodeVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "TesselatedSvgNodeVecDestructor")]
-    pub struct AzTesselatedSvgNodeVecDestructorEnumWrapper {
-        pub inner: AzTesselatedSvgNodeVecDestructor,
-    }
-
-    /// `AzXmlNodeVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "XmlNodeVecDestructor")]
-    pub struct AzXmlNodeVecDestructorEnumWrapper {
-        pub inner: AzXmlNodeVecDestructor,
-    }
-
-    /// `AzFmtArgVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FmtArgVecDestructor")]
-    pub struct AzFmtArgVecDestructorEnumWrapper {
-        pub inner: AzFmtArgVecDestructor,
-    }
-
-    /// `AzInlineLineVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InlineLineVecDestructor")]
-    pub struct AzInlineLineVecDestructorEnumWrapper {
-        pub inner: AzInlineLineVecDestructor,
-    }
-
-    /// `AzInlineWordVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InlineWordVecDestructor")]
-    pub struct AzInlineWordVecDestructorEnumWrapper {
-        pub inner: AzInlineWordVecDestructor,
-    }
-
-    /// `AzInlineGlyphVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InlineGlyphVecDestructor")]
-    pub struct AzInlineGlyphVecDestructorEnumWrapper {
-        pub inner: AzInlineGlyphVecDestructor,
-    }
-
-    /// `AzInlineTextHitVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InlineTextHitVecDestructor")]
-    pub struct AzInlineTextHitVecDestructorEnumWrapper {
-        pub inner: AzInlineTextHitVecDestructor,
-    }
-
-    /// `AzMonitorVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "MonitorVecDestructor")]
-    pub struct AzMonitorVecDestructorEnumWrapper {
-        pub inner: AzMonitorVecDestructor,
-    }
-
-    /// `AzVideoModeVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "VideoModeVecDestructor")]
-    pub struct AzVideoModeVecDestructorEnumWrapper {
-        pub inner: AzVideoModeVecDestructor,
-    }
-
-    /// `AzDomVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "DomVecDestructor")]
-    pub struct AzDomVecDestructorEnumWrapper {
-        pub inner: AzDomVecDestructor,
-    }
-
-    /// `AzIdOrClassVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "IdOrClassVecDestructor")]
-    pub struct AzIdOrClassVecDestructorEnumWrapper {
-        pub inner: AzIdOrClassVecDestructor,
-    }
-
-    /// `AzNodeDataInlineCssPropertyVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "NodeDataInlineCssPropertyVecDestructor")]
-    pub struct AzNodeDataInlineCssPropertyVecDestructorEnumWrapper {
-        pub inner: AzNodeDataInlineCssPropertyVecDestructor,
-    }
-
-    /// `AzStyleBackgroundContentVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackgroundContentVecDestructor")]
-    pub struct AzStyleBackgroundContentVecDestructorEnumWrapper {
-        pub inner: AzStyleBackgroundContentVecDestructor,
-    }
-
-    /// `AzStyleBackgroundPositionVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackgroundPositionVecDestructor")]
-    pub struct AzStyleBackgroundPositionVecDestructorEnumWrapper {
-        pub inner: AzStyleBackgroundPositionVecDestructor,
-    }
-
-    /// `AzStyleBackgroundRepeatVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackgroundRepeatVecDestructor")]
-    pub struct AzStyleBackgroundRepeatVecDestructorEnumWrapper {
-        pub inner: AzStyleBackgroundRepeatVecDestructor,
-    }
-
-    /// `AzStyleBackgroundSizeVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackgroundSizeVecDestructor")]
-    pub struct AzStyleBackgroundSizeVecDestructorEnumWrapper {
-        pub inner: AzStyleBackgroundSizeVecDestructor,
-    }
-
-    /// `AzStyleTransformVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleTransformVecDestructor")]
-    pub struct AzStyleTransformVecDestructorEnumWrapper {
-        pub inner: AzStyleTransformVecDestructor,
-    }
-
-    /// `AzCssPropertyVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssPropertyVecDestructor")]
-    pub struct AzCssPropertyVecDestructorEnumWrapper {
-        pub inner: AzCssPropertyVecDestructor,
-    }
-
-    /// `AzSvgMultiPolygonVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgMultiPolygonVecDestructor")]
-    pub struct AzSvgMultiPolygonVecDestructorEnumWrapper {
-        pub inner: AzSvgMultiPolygonVecDestructor,
-    }
-
-    /// `AzSvgPathVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgPathVecDestructor")]
-    pub struct AzSvgPathVecDestructorEnumWrapper {
-        pub inner: AzSvgPathVecDestructor,
-    }
-
-    /// `AzVertexAttributeVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "VertexAttributeVecDestructor")]
-    pub struct AzVertexAttributeVecDestructorEnumWrapper {
-        pub inner: AzVertexAttributeVecDestructor,
-    }
-
-    /// `AzSvgPathElementVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgPathElementVecDestructor")]
-    pub struct AzSvgPathElementVecDestructorEnumWrapper {
-        pub inner: AzSvgPathElementVecDestructor,
-    }
-
-    /// `AzSvgVertexVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgVertexVecDestructor")]
-    pub struct AzSvgVertexVecDestructorEnumWrapper {
-        pub inner: AzSvgVertexVecDestructor,
-    }
-
-    /// `AzU32VecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "U32VecDestructor")]
-    pub struct AzU32VecDestructorEnumWrapper {
-        pub inner: AzU32VecDestructor,
-    }
-
-    /// `AzXWindowTypeVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "XWindowTypeVecDestructor")]
-    pub struct AzXWindowTypeVecDestructorEnumWrapper {
-        pub inner: AzXWindowTypeVecDestructor,
-    }
-
-    /// `AzVirtualKeyCodeVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "VirtualKeyCodeVecDestructor")]
-    pub struct AzVirtualKeyCodeVecDestructorEnumWrapper {
-        pub inner: AzVirtualKeyCodeVecDestructor,
-    }
-
-    /// `AzCascadeInfoVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CascadeInfoVecDestructor")]
-    pub struct AzCascadeInfoVecDestructorEnumWrapper {
-        pub inner: AzCascadeInfoVecDestructor,
-    }
-
-    /// `AzScanCodeVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ScanCodeVecDestructor")]
-    pub struct AzScanCodeVecDestructorEnumWrapper {
-        pub inner: AzScanCodeVecDestructor,
-    }
-
-    /// `AzCssDeclarationVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssDeclarationVecDestructor")]
-    pub struct AzCssDeclarationVecDestructorEnumWrapper {
-        pub inner: AzCssDeclarationVecDestructor,
-    }
-
-    /// `AzCssPathSelectorVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssPathSelectorVecDestructor")]
-    pub struct AzCssPathSelectorVecDestructorEnumWrapper {
-        pub inner: AzCssPathSelectorVecDestructor,
-    }
-
-    /// `AzStylesheetVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StylesheetVecDestructor")]
-    pub struct AzStylesheetVecDestructorEnumWrapper {
-        pub inner: AzStylesheetVecDestructor,
-    }
-
-    /// `AzCssRuleBlockVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssRuleBlockVecDestructor")]
-    pub struct AzCssRuleBlockVecDestructorEnumWrapper {
-        pub inner: AzCssRuleBlockVecDestructor,
-    }
-
-    /// `AzF32VecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "F32VecDestructor")]
-    pub struct AzF32VecDestructorEnumWrapper {
-        pub inner: AzF32VecDestructor,
-    }
-
-    /// `AzU16VecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "U16VecDestructor")]
-    pub struct AzU16VecDestructorEnumWrapper {
-        pub inner: AzU16VecDestructor,
-    }
-
-    /// `AzU8VecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "U8VecDestructor")]
-    pub struct AzU8VecDestructorEnumWrapper {
-        pub inner: AzU8VecDestructor,
-    }
-
-    /// `AzCallbackDataVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CallbackDataVecDestructor")]
-    pub struct AzCallbackDataVecDestructorEnumWrapper {
-        pub inner: AzCallbackDataVecDestructor,
-    }
-
-    /// `AzDebugMessageVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "DebugMessageVecDestructor")]
-    pub struct AzDebugMessageVecDestructorEnumWrapper {
-        pub inner: AzDebugMessageVecDestructor,
-    }
-
-    /// `AzGLuintVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GLuintVecDestructor")]
-    pub struct AzGLuintVecDestructorEnumWrapper {
-        pub inner: AzGLuintVecDestructor,
-    }
-
-    /// `AzGLintVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "GLintVecDestructor")]
-    pub struct AzGLintVecDestructorEnumWrapper {
-        pub inner: AzGLintVecDestructor,
-    }
-
-    /// `AzStringVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StringVecDestructor")]
-    pub struct AzStringVecDestructorEnumWrapper {
-        pub inner: AzStringVecDestructor,
-    }
-
-    /// `AzStringPairVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StringPairVecDestructor")]
-    pub struct AzStringPairVecDestructorEnumWrapper {
-        pub inner: AzStringPairVecDestructor,
-    }
-
-    /// `AzNormalizedLinearColorStopVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "NormalizedLinearColorStopVecDestructor")]
-    pub struct AzNormalizedLinearColorStopVecDestructorEnumWrapper {
-        pub inner: AzNormalizedLinearColorStopVecDestructor,
-    }
-
-    /// `AzNormalizedRadialColorStopVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "NormalizedRadialColorStopVecDestructor")]
-    pub struct AzNormalizedRadialColorStopVecDestructorEnumWrapper {
-        pub inner: AzNormalizedRadialColorStopVecDestructor,
-    }
-
-    /// `AzNodeIdVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "NodeIdVecDestructor")]
-    pub struct AzNodeIdVecDestructorEnumWrapper {
-        pub inner: AzNodeIdVecDestructor,
-    }
-
-    /// `AzNodeVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "NodeVecDestructor")]
-    pub struct AzNodeVecDestructorEnumWrapper {
-        pub inner: AzNodeVecDestructor,
-    }
-
-    /// `AzStyledNodeVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyledNodeVecDestructor")]
-    pub struct AzStyledNodeVecDestructorEnumWrapper {
-        pub inner: AzStyledNodeVecDestructor,
-    }
-
-    /// `AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "TagIdsToNodeIdsMappingVecDestructor")]
-    pub struct AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper {
-        pub inner: AzTagIdsToNodeIdsMappingVecDestructor,
-    }
-
-    /// `AzParentWithNodeDepthVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ParentWithNodeDepthVecDestructor")]
-    pub struct AzParentWithNodeDepthVecDestructorEnumWrapper {
-        pub inner: AzParentWithNodeDepthVecDestructor,
-    }
-
-    /// `AzNodeDataVecDestructorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "NodeDataVecDestructor")]
-    pub struct AzNodeDataVecDestructorEnumWrapper {
-        pub inner: AzNodeDataVecDestructor,
-    }
-
-    /// `AzOptionI16EnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionI16")]
-    pub struct AzOptionI16EnumWrapper {
-        pub inner: AzOptionI16,
-    }
-
-    /// `AzOptionU16EnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionU16")]
-    pub struct AzOptionU16EnumWrapper {
-        pub inner: AzOptionU16,
-    }
-
-    /// `AzOptionU32EnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionU32")]
-    pub struct AzOptionU32EnumWrapper {
-        pub inner: AzOptionU32,
-    }
-
-    /// `AzOptionHwndHandleEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionHwndHandle")]
-    pub struct AzOptionHwndHandleEnumWrapper {
-        pub inner: AzOptionHwndHandle,
-    }
-
-    /// `AzOptionX11VisualEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionX11Visual")]
-    pub struct AzOptionX11VisualEnumWrapper {
-        pub inner: AzOptionX11Visual,
-    }
-
-    /// `AzOptionI32EnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionI32")]
-    pub struct AzOptionI32EnumWrapper {
-        pub inner: AzOptionI32,
-    }
-
-    /// `AzOptionF32EnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionF32")]
-    pub struct AzOptionF32EnumWrapper {
-        pub inner: AzOptionF32,
-    }
-
-    /// `AzOptionCharEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionChar")]
-    pub struct AzOptionCharEnumWrapper {
-        pub inner: AzOptionChar,
-    }
-
-    /// `AzOptionUsizeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionUsize")]
-    pub struct AzOptionUsizeEnumWrapper {
-        pub inner: AzOptionUsize,
-    }
-
-    /// `AzRawWindowHandleEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "RawWindowHandle")]
-    pub struct AzRawWindowHandleEnumWrapper {
-        pub inner: AzRawWindowHandle,
-    }
-
-    /// `AzAcceleratorKeyEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "AcceleratorKey")]
-    pub struct AzAcceleratorKeyEnumWrapper {
-        pub inner: AzAcceleratorKey,
-    }
-
-    /// `AzCursorPositionEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CursorPosition")]
-    pub struct AzCursorPositionEnumWrapper {
-        pub inner: AzCursorPosition,
-    }
-
-    /// `AzWindowPositionEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "WindowPosition")]
-    pub struct AzWindowPositionEnumWrapper {
-        pub inner: AzWindowPosition,
-    }
-
-    /// `AzImePositionEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ImePosition")]
-    pub struct AzImePositionEnumWrapper {
-        pub inner: AzImePosition,
-    }
-
-    /// `AzPositionInfoEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "PositionInfo")]
-    pub struct AzPositionInfoEnumWrapper {
-        pub inner: AzPositionInfo,
-    }
-
-    /// `AzNotEventFilterEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "NotEventFilter")]
-    pub struct AzNotEventFilterEnumWrapper {
-        pub inner: AzNotEventFilter,
-    }
-
-    /// `AzCssNthChildSelectorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssNthChildSelector")]
-    pub struct AzCssNthChildSelectorEnumWrapper {
-        pub inner: AzCssNthChildSelector,
-    }
-
-    /// `AzDirectionEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Direction")]
-    pub struct AzDirectionEnumWrapper {
-        pub inner: AzDirection,
-    }
-
-    /// `AzBackgroundPositionHorizontalEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "BackgroundPositionHorizontal")]
-    pub struct AzBackgroundPositionHorizontalEnumWrapper {
-        pub inner: AzBackgroundPositionHorizontal,
-    }
-
-    /// `AzBackgroundPositionVerticalEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "BackgroundPositionVertical")]
-    pub struct AzBackgroundPositionVerticalEnumWrapper {
-        pub inner: AzBackgroundPositionVertical,
-    }
-
-    /// `AzStyleBackgroundSizeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackgroundSize")]
-    pub struct AzStyleBackgroundSizeEnumWrapper {
-        pub inner: AzStyleBackgroundSize,
-    }
-
-    /// `AzStyleBoxShadowValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBoxShadowValue")]
-    pub struct AzStyleBoxShadowValueEnumWrapper {
-        pub inner: AzStyleBoxShadowValue,
-    }
-
-    /// `AzLayoutAlignContentValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutAlignContentValue")]
-    pub struct AzLayoutAlignContentValueEnumWrapper {
-        pub inner: AzLayoutAlignContentValue,
-    }
-
-    /// `AzLayoutAlignItemsValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutAlignItemsValue")]
-    pub struct AzLayoutAlignItemsValueEnumWrapper {
-        pub inner: AzLayoutAlignItemsValue,
-    }
-
-    /// `AzLayoutBottomValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutBottomValue")]
-    pub struct AzLayoutBottomValueEnumWrapper {
-        pub inner: AzLayoutBottomValue,
-    }
-
-    /// `AzLayoutBoxSizingValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutBoxSizingValue")]
-    pub struct AzLayoutBoxSizingValueEnumWrapper {
-        pub inner: AzLayoutBoxSizingValue,
-    }
-
-    /// `AzLayoutFlexDirectionValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutFlexDirectionValue")]
-    pub struct AzLayoutFlexDirectionValueEnumWrapper {
-        pub inner: AzLayoutFlexDirectionValue,
-    }
-
-    /// `AzLayoutDisplayValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutDisplayValue")]
-    pub struct AzLayoutDisplayValueEnumWrapper {
-        pub inner: AzLayoutDisplayValue,
-    }
-
-    /// `AzLayoutFlexGrowValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutFlexGrowValue")]
-    pub struct AzLayoutFlexGrowValueEnumWrapper {
-        pub inner: AzLayoutFlexGrowValue,
-    }
-
-    /// `AzLayoutFlexShrinkValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutFlexShrinkValue")]
-    pub struct AzLayoutFlexShrinkValueEnumWrapper {
-        pub inner: AzLayoutFlexShrinkValue,
-    }
-
-    /// `AzLayoutFloatValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutFloatValue")]
-    pub struct AzLayoutFloatValueEnumWrapper {
-        pub inner: AzLayoutFloatValue,
-    }
-
-    /// `AzLayoutHeightValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutHeightValue")]
-    pub struct AzLayoutHeightValueEnumWrapper {
-        pub inner: AzLayoutHeightValue,
-    }
-
-    /// `AzLayoutJustifyContentValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutJustifyContentValue")]
-    pub struct AzLayoutJustifyContentValueEnumWrapper {
-        pub inner: AzLayoutJustifyContentValue,
-    }
-
-    /// `AzLayoutLeftValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutLeftValue")]
-    pub struct AzLayoutLeftValueEnumWrapper {
-        pub inner: AzLayoutLeftValue,
-    }
-
-    /// `AzLayoutMarginBottomValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutMarginBottomValue")]
-    pub struct AzLayoutMarginBottomValueEnumWrapper {
-        pub inner: AzLayoutMarginBottomValue,
-    }
-
-    /// `AzLayoutMarginLeftValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutMarginLeftValue")]
-    pub struct AzLayoutMarginLeftValueEnumWrapper {
-        pub inner: AzLayoutMarginLeftValue,
-    }
-
-    /// `AzLayoutMarginRightValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutMarginRightValue")]
-    pub struct AzLayoutMarginRightValueEnumWrapper {
-        pub inner: AzLayoutMarginRightValue,
-    }
-
-    /// `AzLayoutMarginTopValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutMarginTopValue")]
-    pub struct AzLayoutMarginTopValueEnumWrapper {
-        pub inner: AzLayoutMarginTopValue,
-    }
-
-    /// `AzLayoutMaxHeightValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutMaxHeightValue")]
-    pub struct AzLayoutMaxHeightValueEnumWrapper {
-        pub inner: AzLayoutMaxHeightValue,
-    }
-
-    /// `AzLayoutMaxWidthValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutMaxWidthValue")]
-    pub struct AzLayoutMaxWidthValueEnumWrapper {
-        pub inner: AzLayoutMaxWidthValue,
-    }
-
-    /// `AzLayoutMinHeightValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutMinHeightValue")]
-    pub struct AzLayoutMinHeightValueEnumWrapper {
-        pub inner: AzLayoutMinHeightValue,
-    }
-
-    /// `AzLayoutMinWidthValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutMinWidthValue")]
-    pub struct AzLayoutMinWidthValueEnumWrapper {
-        pub inner: AzLayoutMinWidthValue,
-    }
-
-    /// `AzLayoutPaddingBottomValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutPaddingBottomValue")]
-    pub struct AzLayoutPaddingBottomValueEnumWrapper {
-        pub inner: AzLayoutPaddingBottomValue,
-    }
-
-    /// `AzLayoutPaddingLeftValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutPaddingLeftValue")]
-    pub struct AzLayoutPaddingLeftValueEnumWrapper {
-        pub inner: AzLayoutPaddingLeftValue,
-    }
-
-    /// `AzLayoutPaddingRightValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutPaddingRightValue")]
-    pub struct AzLayoutPaddingRightValueEnumWrapper {
-        pub inner: AzLayoutPaddingRightValue,
-    }
-
-    /// `AzLayoutPaddingTopValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutPaddingTopValue")]
-    pub struct AzLayoutPaddingTopValueEnumWrapper {
-        pub inner: AzLayoutPaddingTopValue,
-    }
-
-    /// `AzLayoutPositionValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutPositionValue")]
-    pub struct AzLayoutPositionValueEnumWrapper {
-        pub inner: AzLayoutPositionValue,
-    }
-
-    /// `AzLayoutRightValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutRightValue")]
-    pub struct AzLayoutRightValueEnumWrapper {
-        pub inner: AzLayoutRightValue,
-    }
-
-    /// `AzLayoutTopValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutTopValue")]
-    pub struct AzLayoutTopValueEnumWrapper {
-        pub inner: AzLayoutTopValue,
-    }
-
-    /// `AzLayoutWidthValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutWidthValue")]
-    pub struct AzLayoutWidthValueEnumWrapper {
-        pub inner: AzLayoutWidthValue,
-    }
-
-    /// `AzLayoutFlexWrapValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutFlexWrapValue")]
-    pub struct AzLayoutFlexWrapValueEnumWrapper {
-        pub inner: AzLayoutFlexWrapValue,
-    }
-
-    /// `AzLayoutOverflowValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutOverflowValue")]
-    pub struct AzLayoutOverflowValueEnumWrapper {
-        pub inner: AzLayoutOverflowValue,
-    }
-
-    /// `AzStyleBorderBottomColorValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBorderBottomColorValue")]
-    pub struct AzStyleBorderBottomColorValueEnumWrapper {
-        pub inner: AzStyleBorderBottomColorValue,
-    }
-
-    /// `AzStyleBorderBottomLeftRadiusValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBorderBottomLeftRadiusValue")]
-    pub struct AzStyleBorderBottomLeftRadiusValueEnumWrapper {
-        pub inner: AzStyleBorderBottomLeftRadiusValue,
-    }
-
-    /// `AzStyleBorderBottomRightRadiusValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBorderBottomRightRadiusValue")]
-    pub struct AzStyleBorderBottomRightRadiusValueEnumWrapper {
-        pub inner: AzStyleBorderBottomRightRadiusValue,
-    }
-
-    /// `AzStyleBorderBottomStyleValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBorderBottomStyleValue")]
-    pub struct AzStyleBorderBottomStyleValueEnumWrapper {
-        pub inner: AzStyleBorderBottomStyleValue,
-    }
-
-    /// `AzLayoutBorderBottomWidthValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutBorderBottomWidthValue")]
-    pub struct AzLayoutBorderBottomWidthValueEnumWrapper {
-        pub inner: AzLayoutBorderBottomWidthValue,
-    }
-
-    /// `AzStyleBorderLeftColorValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBorderLeftColorValue")]
-    pub struct AzStyleBorderLeftColorValueEnumWrapper {
-        pub inner: AzStyleBorderLeftColorValue,
-    }
-
-    /// `AzStyleBorderLeftStyleValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBorderLeftStyleValue")]
-    pub struct AzStyleBorderLeftStyleValueEnumWrapper {
-        pub inner: AzStyleBorderLeftStyleValue,
-    }
-
-    /// `AzLayoutBorderLeftWidthValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutBorderLeftWidthValue")]
-    pub struct AzLayoutBorderLeftWidthValueEnumWrapper {
-        pub inner: AzLayoutBorderLeftWidthValue,
-    }
-
-    /// `AzStyleBorderRightColorValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBorderRightColorValue")]
-    pub struct AzStyleBorderRightColorValueEnumWrapper {
-        pub inner: AzStyleBorderRightColorValue,
-    }
-
-    /// `AzStyleBorderRightStyleValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBorderRightStyleValue")]
-    pub struct AzStyleBorderRightStyleValueEnumWrapper {
-        pub inner: AzStyleBorderRightStyleValue,
-    }
-
-    /// `AzLayoutBorderRightWidthValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutBorderRightWidthValue")]
-    pub struct AzLayoutBorderRightWidthValueEnumWrapper {
-        pub inner: AzLayoutBorderRightWidthValue,
-    }
-
-    /// `AzStyleBorderTopColorValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBorderTopColorValue")]
-    pub struct AzStyleBorderTopColorValueEnumWrapper {
-        pub inner: AzStyleBorderTopColorValue,
-    }
-
-    /// `AzStyleBorderTopLeftRadiusValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBorderTopLeftRadiusValue")]
-    pub struct AzStyleBorderTopLeftRadiusValueEnumWrapper {
-        pub inner: AzStyleBorderTopLeftRadiusValue,
-    }
-
-    /// `AzStyleBorderTopRightRadiusValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBorderTopRightRadiusValue")]
-    pub struct AzStyleBorderTopRightRadiusValueEnumWrapper {
-        pub inner: AzStyleBorderTopRightRadiusValue,
-    }
-
-    /// `AzStyleBorderTopStyleValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBorderTopStyleValue")]
-    pub struct AzStyleBorderTopStyleValueEnumWrapper {
-        pub inner: AzStyleBorderTopStyleValue,
-    }
-
-    /// `AzLayoutBorderTopWidthValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "LayoutBorderTopWidthValue")]
-    pub struct AzLayoutBorderTopWidthValueEnumWrapper {
-        pub inner: AzLayoutBorderTopWidthValue,
-    }
-
-    /// `AzStyleCursorValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleCursorValue")]
-    pub struct AzStyleCursorValueEnumWrapper {
-        pub inner: AzStyleCursorValue,
-    }
-
-    /// `AzStyleFontSizeValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleFontSizeValue")]
-    pub struct AzStyleFontSizeValueEnumWrapper {
-        pub inner: AzStyleFontSizeValue,
-    }
-
-    /// `AzStyleLetterSpacingValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleLetterSpacingValue")]
-    pub struct AzStyleLetterSpacingValueEnumWrapper {
-        pub inner: AzStyleLetterSpacingValue,
-    }
-
-    /// `AzStyleLineHeightValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleLineHeightValue")]
-    pub struct AzStyleLineHeightValueEnumWrapper {
-        pub inner: AzStyleLineHeightValue,
-    }
-
-    /// `AzStyleTabWidthValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleTabWidthValue")]
-    pub struct AzStyleTabWidthValueEnumWrapper {
-        pub inner: AzStyleTabWidthValue,
-    }
-
-    /// `AzStyleTextAlignValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleTextAlignValue")]
-    pub struct AzStyleTextAlignValueEnumWrapper {
-        pub inner: AzStyleTextAlignValue,
-    }
-
-    /// `AzStyleTextColorValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleTextColorValue")]
-    pub struct AzStyleTextColorValueEnumWrapper {
-        pub inner: AzStyleTextColorValue,
-    }
-
-    /// `AzStyleWordSpacingValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleWordSpacingValue")]
-    pub struct AzStyleWordSpacingValueEnumWrapper {
-        pub inner: AzStyleWordSpacingValue,
-    }
-
-    /// `AzStyleOpacityValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleOpacityValue")]
-    pub struct AzStyleOpacityValueEnumWrapper {
-        pub inner: AzStyleOpacityValue,
-    }
-
-    /// `AzStyleTransformOriginValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleTransformOriginValue")]
-    pub struct AzStyleTransformOriginValueEnumWrapper {
-        pub inner: AzStyleTransformOriginValue,
-    }
-
-    /// `AzStylePerspectiveOriginValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StylePerspectiveOriginValue")]
-    pub struct AzStylePerspectiveOriginValueEnumWrapper {
-        pub inner: AzStylePerspectiveOriginValue,
-    }
-
-    /// `AzStyleBackfaceVisibilityValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackfaceVisibilityValue")]
-    pub struct AzStyleBackfaceVisibilityValueEnumWrapper {
-        pub inner: AzStyleBackfaceVisibilityValue,
-    }
-
-    /// `AzDurationEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Duration")]
-    pub struct AzDurationEnumWrapper {
-        pub inner: AzDuration,
-    }
-
-    /// `AzThreadSendMsgEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ThreadSendMsg")]
-    pub struct AzThreadSendMsgEnumWrapper {
-        pub inner: AzThreadSendMsg,
-    }
-
-    /// `AzOptionPositionInfoEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionPositionInfo")]
-    pub struct AzOptionPositionInfoEnumWrapper {
-        pub inner: AzOptionPositionInfo,
-    }
-
-    /// `AzOptionTimerIdEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionTimerId")]
-    pub struct AzOptionTimerIdEnumWrapper {
-        pub inner: AzOptionTimerId,
-    }
-
-    /// `AzOptionThreadIdEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionThreadId")]
-    pub struct AzOptionThreadIdEnumWrapper {
-        pub inner: AzOptionThreadId,
-    }
-
-    /// `AzOptionImageRefEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionImageRef")]
-    pub struct AzOptionImageRefEnumWrapper {
-        pub inner: AzOptionImageRef,
-    }
-
-    /// `AzOptionFontRefEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionFontRef")]
-    pub struct AzOptionFontRefEnumWrapper {
-        pub inner: AzOptionFontRef,
-    }
-
-    /// `AzOptionSystemClipboardEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionSystemClipboard")]
-    pub struct AzOptionSystemClipboardEnumWrapper {
-        pub inner: AzOptionSystemClipboard,
-    }
-
-    /// `AzOptionFileEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionFile")]
-    pub struct AzOptionFileEnumWrapper {
-        pub inner: AzOptionFile,
-    }
-
-    /// `AzOptionGlEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionGl")]
-    pub struct AzOptionGlEnumWrapper {
-        pub inner: AzOptionGl,
-    }
-
-    /// `AzOptionPercentageValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionPercentageValue")]
-    pub struct AzOptionPercentageValueEnumWrapper {
-        pub inner: AzOptionPercentageValue,
-    }
-
-    /// `AzOptionAngleValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionAngleValue")]
-    pub struct AzOptionAngleValueEnumWrapper {
-        pub inner: AzOptionAngleValue,
-    }
-
-    /// `AzOptionRendererOptionsEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionRendererOptions")]
-    pub struct AzOptionRendererOptionsEnumWrapper {
-        pub inner: AzOptionRendererOptions,
-    }
-
-    /// `AzOptionCallbackEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionCallback")]
-    pub struct AzOptionCallbackEnumWrapper {
-        pub inner: AzOptionCallback,
-    }
-
-    /// `AzOptionThreadSendMsgEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionThreadSendMsg")]
-    pub struct AzOptionThreadSendMsgEnumWrapper {
-        pub inner: AzOptionThreadSendMsg,
-    }
-
-    /// `AzOptionLayoutRectEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionLayoutRect")]
-    pub struct AzOptionLayoutRectEnumWrapper {
-        pub inner: AzOptionLayoutRect,
-    }
-
-    /// `AzOptionRefAnyEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionRefAny")]
-    pub struct AzOptionRefAnyEnumWrapper {
-        pub inner: AzOptionRefAny,
-    }
-
-    /// `AzOptionLayoutPointEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionLayoutPoint")]
-    pub struct AzOptionLayoutPointEnumWrapper {
-        pub inner: AzOptionLayoutPoint,
-    }
-
-    /// `AzOptionLayoutSizeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionLayoutSize")]
-    pub struct AzOptionLayoutSizeEnumWrapper {
-        pub inner: AzOptionLayoutSize,
-    }
-
-    /// `AzOptionWindowThemeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionWindowTheme")]
-    pub struct AzOptionWindowThemeEnumWrapper {
-        pub inner: AzOptionWindowTheme,
-    }
-
-    /// `AzOptionNodeIdEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionNodeId")]
-    pub struct AzOptionNodeIdEnumWrapper {
-        pub inner: AzOptionNodeId,
-    }
-
-    /// `AzOptionDomNodeIdEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionDomNodeId")]
-    pub struct AzOptionDomNodeIdEnumWrapper {
-        pub inner: AzOptionDomNodeId,
-    }
-
-    /// `AzOptionColorUEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionColorU")]
-    pub struct AzOptionColorUEnumWrapper {
-        pub inner: AzOptionColorU,
-    }
-
-    /// `AzOptionSvgDashPatternEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionSvgDashPattern")]
-    pub struct AzOptionSvgDashPatternEnumWrapper {
-        pub inner: AzOptionSvgDashPattern,
-    }
-
-    /// `AzOptionLogicalPositionEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionLogicalPosition")]
-    pub struct AzOptionLogicalPositionEnumWrapper {
-        pub inner: AzOptionLogicalPosition,
-    }
-
-    /// `AzOptionPhysicalPositionI32EnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionPhysicalPositionI32")]
-    pub struct AzOptionPhysicalPositionI32EnumWrapper {
-        pub inner: AzOptionPhysicalPositionI32,
-    }
-
-    /// `AzOptionMouseCursorTypeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionMouseCursorType")]
-    pub struct AzOptionMouseCursorTypeEnumWrapper {
-        pub inner: AzOptionMouseCursorType,
-    }
-
-    /// `AzOptionLogicalSizeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionLogicalSize")]
-    pub struct AzOptionLogicalSizeEnumWrapper {
-        pub inner: AzOptionLogicalSize,
-    }
-
-    /// `AzOptionVirtualKeyCodeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionVirtualKeyCode")]
-    pub struct AzOptionVirtualKeyCodeEnumWrapper {
-        pub inner: AzOptionVirtualKeyCode,
-    }
-
-    /// `AzOptionImageMaskEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionImageMask")]
-    pub struct AzOptionImageMaskEnumWrapper {
-        pub inner: AzOptionImageMask,
-    }
-
-    /// `AzOptionTabIndexEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionTabIndex")]
-    pub struct AzOptionTabIndexEnumWrapper {
-        pub inner: AzOptionTabIndex,
-    }
-
-    /// `AzOptionTagIdEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionTagId")]
-    pub struct AzOptionTagIdEnumWrapper {
-        pub inner: AzOptionTagId,
-    }
-
-    /// `AzOptionDurationEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionDuration")]
-    pub struct AzOptionDurationEnumWrapper {
-        pub inner: AzOptionDuration,
-    }
-
-    /// `AzOptionU8VecEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionU8Vec")]
-    pub struct AzOptionU8VecEnumWrapper {
-        pub inner: AzOptionU8Vec,
-    }
-
-    /// `AzOptionU8VecRefEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionU8VecRef")]
-    pub struct AzOptionU8VecRefEnumWrapper {
-        pub inner: AzOptionU8VecRef,
-    }
-
-    /// `AzResultU8VecEncodeImageErrorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ResultU8VecEncodeImageError")]
-    pub struct AzResultU8VecEncodeImageErrorEnumWrapper {
-        pub inner: AzResultU8VecEncodeImageError,
-    }
-
-    /// `AzWindowIconEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "WindowIcon")]
-    pub struct AzWindowIconEnumWrapper {
-        pub inner: AzWindowIcon,
-    }
-
-    /// `AzAnimationEasingEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "AnimationEasing")]
-    pub struct AzAnimationEasingEnumWrapper {
-        pub inner: AzAnimationEasing,
-    }
-
-    /// `AzEventFilterEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "EventFilter")]
-    pub struct AzEventFilterEnumWrapper {
-        pub inner: AzEventFilter,
-    }
-
-    /// `AzCssPathPseudoSelectorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssPathPseudoSelector")]
-    pub struct AzCssPathPseudoSelectorEnumWrapper {
-        pub inner: AzCssPathPseudoSelector,
-    }
-
-    /// `AzAnimationInterpolationFunctionEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "AnimationInterpolationFunction")]
-    pub struct AzAnimationInterpolationFunctionEnumWrapper {
-        pub inner: AzAnimationInterpolationFunction,
-    }
-
-    /// `AzStyleTransformEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleTransform")]
-    pub struct AzStyleTransformEnumWrapper {
-        pub inner: AzStyleTransform,
-    }
-
-    /// `AzStyleBackgroundPositionVecValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackgroundPositionVecValue")]
-    pub struct AzStyleBackgroundPositionVecValueEnumWrapper {
-        pub inner: AzStyleBackgroundPositionVecValue,
-    }
-
-    /// `AzStyleBackgroundRepeatVecValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackgroundRepeatVecValue")]
-    pub struct AzStyleBackgroundRepeatVecValueEnumWrapper {
-        pub inner: AzStyleBackgroundRepeatVecValue,
-    }
-
-    /// `AzStyleBackgroundSizeVecValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackgroundSizeVecValue")]
-    pub struct AzStyleBackgroundSizeVecValueEnumWrapper {
-        pub inner: AzStyleBackgroundSizeVecValue,
-    }
-
-    /// `AzRawImageDataEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "RawImageData")]
-    pub struct AzRawImageDataEnumWrapper {
-        pub inner: AzRawImageData,
-    }
-
-    /// `AzSvgPathElementEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgPathElement")]
-    pub struct AzSvgPathElementEnumWrapper {
-        pub inner: AzSvgPathElement,
-    }
-
-    /// `AzInstantEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "Instant")]
-    pub struct AzInstantEnumWrapper {
-        pub inner: AzInstant,
-    }
-
-    /// `AzThreadReceiveMsgEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ThreadReceiveMsg")]
-    pub struct AzThreadReceiveMsgEnumWrapper {
-        pub inner: AzThreadReceiveMsg,
-    }
-
-    /// `AzOptionMouseStateEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionMouseState")]
-    pub struct AzOptionMouseStateEnumWrapper {
-        pub inner: AzOptionMouseState,
-    }
-
-    /// `AzOptionKeyboardStateEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionKeyboardState")]
-    pub struct AzOptionKeyboardStateEnumWrapper {
-        pub inner: AzOptionKeyboardState,
-    }
-
-    /// `AzOptionStringVecEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionStringVec")]
-    pub struct AzOptionStringVecEnumWrapper {
-        pub inner: AzOptionStringVec,
-    }
-
-    /// `AzOptionThreadReceiveMsgEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionThreadReceiveMsg")]
-    pub struct AzOptionThreadReceiveMsgEnumWrapper {
-        pub inner: AzOptionThreadReceiveMsg,
-    }
-
-    /// `AzOptionTaskBarIconEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionTaskBarIcon")]
-    pub struct AzOptionTaskBarIconEnumWrapper {
-        pub inner: AzOptionTaskBarIcon,
-    }
-
-    /// `AzOptionWindowIconEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionWindowIcon")]
-    pub struct AzOptionWindowIconEnumWrapper {
-        pub inner: AzOptionWindowIcon,
-    }
-
-    /// `AzOptionStringEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionString")]
-    pub struct AzOptionStringEnumWrapper {
-        pub inner: AzOptionString,
-    }
-
-    /// `AzOptionTextureEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionTexture")]
-    pub struct AzOptionTextureEnumWrapper {
-        pub inner: AzOptionTexture,
-    }
-
-    /// `AzOptionInstantEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionInstant")]
-    pub struct AzOptionInstantEnumWrapper {
-        pub inner: AzOptionInstant,
-    }
-
-    /// `AzInlineWordEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "InlineWord")]
-    pub struct AzInlineWordEnumWrapper {
-        pub inner: AzInlineWord,
-    }
-
-    /// `AzNodeTypeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "NodeType")]
-    pub struct AzNodeTypeEnumWrapper {
-        pub inner: AzNodeType,
-    }
-
-    /// `AzIdOrClassEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "IdOrClass")]
-    pub struct AzIdOrClassEnumWrapper {
-        pub inner: AzIdOrClass,
-    }
-
-    /// `AzCssPathSelectorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssPathSelector")]
-    pub struct AzCssPathSelectorEnumWrapper {
-        pub inner: AzCssPathSelector,
-    }
-
-    /// `AzStyleBackgroundContentEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackgroundContent")]
-    pub struct AzStyleBackgroundContentEnumWrapper {
-        pub inner: AzStyleBackgroundContent,
-    }
-
-    /// `AzStyleFontFamilyEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleFontFamily")]
-    pub struct AzStyleFontFamilyEnumWrapper {
-        pub inner: AzStyleFontFamily,
-    }
-
-    /// `AzScrollbarStyleValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ScrollbarStyleValue")]
-    pub struct AzScrollbarStyleValueEnumWrapper {
-        pub inner: AzScrollbarStyleValue,
-    }
-
-    /// `AzStyleTransformVecValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleTransformVecValue")]
-    pub struct AzStyleTransformVecValueEnumWrapper {
-        pub inner: AzStyleTransformVecValue,
-    }
-
-    /// `AzSvgStyleEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgStyle")]
-    pub struct AzSvgStyleEnumWrapper {
-        pub inner: AzSvgStyle,
-    }
-
-    /// `AzFmtValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FmtValue")]
-    pub struct AzFmtValueEnumWrapper {
-        pub inner: AzFmtValue,
-    }
-
-    /// `AzOptionFileTypeListEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionFileTypeList")]
-    pub struct AzOptionFileTypeListEnumWrapper {
-        pub inner: AzOptionFileTypeList,
-    }
-
-    /// `AzOptionRawImageEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionRawImage")]
-    pub struct AzOptionRawImageEnumWrapper {
-        pub inner: AzOptionRawImage,
-    }
-
-    /// `AzOptionWaylandThemeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionWaylandTheme")]
-    pub struct AzOptionWaylandThemeEnumWrapper {
-        pub inner: AzOptionWaylandTheme,
-    }
-
-    /// `AzResultRawImageDecodeImageErrorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ResultRawImageDecodeImageError")]
-    pub struct AzResultRawImageDecodeImageErrorEnumWrapper {
-        pub inner: AzResultRawImageDecodeImageError,
-    }
-
-    /// `AzXmlStreamErrorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "XmlStreamError")]
-    pub struct AzXmlStreamErrorEnumWrapper {
-        pub inner: AzXmlStreamError,
-    }
-
-    /// `AzStyleBackgroundContentVecValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleBackgroundContentVecValue")]
-    pub struct AzStyleBackgroundContentVecValueEnumWrapper {
-        pub inner: AzStyleBackgroundContentVecValue,
-    }
-
-    /// `AzStyleFontFamilyVecValueEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "StyleFontFamilyVecValue")]
-    pub struct AzStyleFontFamilyVecValueEnumWrapper {
-        pub inner: AzStyleFontFamilyVecValue,
-    }
-
-    /// `AzCssPropertyEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssProperty")]
-    pub struct AzCssPropertyEnumWrapper {
-        pub inner: AzCssProperty,
-    }
-
-    /// `AzCssPropertySourceEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssPropertySource")]
-    pub struct AzCssPropertySourceEnumWrapper {
-        pub inner: AzCssPropertySource,
-    }
-
-    /// `AzOptionCssPropertyEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionCssProperty")]
-    pub struct AzOptionCssPropertyEnumWrapper {
-        pub inner: AzOptionCssProperty,
-    }
-
-    /// `AzNodeDataInlineCssPropertyEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "NodeDataInlineCssProperty")]
-    pub struct AzNodeDataInlineCssPropertyEnumWrapper {
-        pub inner: AzNodeDataInlineCssProperty,
-    }
-
-    /// `AzSvgNodeEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgNode")]
-    pub struct AzSvgNodeEnumWrapper {
-        pub inner: AzSvgNode,
-    }
-
-    /// `AzOptionWindowStateEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionWindowState")]
-    pub struct AzOptionWindowStateEnumWrapper {
-        pub inner: AzOptionWindowState,
-    }
-
-    /// `AzOptionInlineTextEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionInlineText")]
-    pub struct AzOptionInlineTextEnumWrapper {
-        pub inner: AzOptionInlineText,
-    }
-
-    /// `AzXmlParseErrorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "XmlParseError")]
-    pub struct AzXmlParseErrorEnumWrapper {
-        pub inner: AzXmlParseError,
-    }
-
-    /// `AzFocusTargetEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "FocusTarget")]
-    pub struct AzFocusTargetEnumWrapper {
-        pub inner: AzFocusTarget,
-    }
-
-    /// `AzCssDeclarationEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "CssDeclaration")]
-    pub struct AzCssDeclarationEnumWrapper {
-        pub inner: AzCssDeclaration,
-    }
-
-    /// `AzXmlErrorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "XmlError")]
-    pub struct AzXmlErrorEnumWrapper {
-        pub inner: AzXmlError,
-    }
-
-    /// `AzOptionDomEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "OptionDom")]
-    pub struct AzOptionDomEnumWrapper {
-        pub inner: AzOptionDom,
-    }
-
-    /// `AzResultXmlXmlErrorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ResultXmlXmlError")]
-    pub struct AzResultXmlXmlErrorEnumWrapper {
-        pub inner: AzResultXmlXmlError,
-    }
-
-    /// `AzSvgParseErrorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "SvgParseError")]
-    pub struct AzSvgParseErrorEnumWrapper {
-        pub inner: AzSvgParseError,
-    }
-
-    /// `AzResultSvgXmlNodeSvgParseErrorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ResultSvgXmlNodeSvgParseError")]
-    pub struct AzResultSvgXmlNodeSvgParseErrorEnumWrapper {
-        pub inner: AzResultSvgXmlNodeSvgParseError,
-    }
-
-    /// `AzResultSvgSvgParseErrorEnumWrapper` struct
-    #[repr(transparent)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-#[pyclass(name = "ResultSvgSvgParseError")]
-    pub struct AzResultSvgSvgParseErrorEnumWrapper {
-        pub inner: AzResultSvgSvgParseError,
     }
 
     #[cfg_attr(target_os = "windows", link(name="azul.dll"))] // https://github.com/rust-lang/cargo/issues/9082

@@ -1023,7 +1023,7 @@ def generate_python_api(api_data, structs_map, functions_map):
     pyo3_code += "use core::ffi::c_void;\r\n"
     pyo3_code += "\r\n"
 
-    new_struct_map = structs_map
+    new_struct_map = dict(structs_map)
     raw_pointer_structs = {}
 
     # pyo3 does not know how to translate enums
@@ -1060,7 +1060,7 @@ def generate_python_api(api_data, structs_map, functions_map):
 
     pyo3_code += generate_structs(
         api_data[version],
-        new_struct_map,
+        dict(new_struct_map),
         functions_map,
         indent=0,
         private_pointers=False,
@@ -1865,15 +1865,14 @@ def generate_api():
     apiData = read_api_file(root_folder + "/api.json")
     rust_dll_result = generate_rust_dll(apiData)
 
-    rust_dll_code = rust_dll_result[0]
-    structs_map = rust_dll_result[1]
+    structs_map = rust_dll_result[1].copy()
     functions_map = rust_dll_result[2]
     forward_declarations = rust_dll_result[3]
 
-    write_file(rust_dll_code, root_folder + "/azul-dll/src/lib.rs")
-    write_file(generate_python_api(apiData, structs_map, functions_map), root_folder + "/azul-dll/src/python.rs")
-    write_file(generate_rust_api(apiData, structs_map, functions_map), root_folder + "/api/rust/lib.rs")
+    write_file(rust_dll_result[0], root_folder + "/azul-dll/src/lib.rs")
+    write_file(generate_rust_api(apiData, structs_map, functions_map.copy()), root_folder + "/api/rust/lib.rs")
     write_file(generate_c_api(apiData, structs_map), root_folder + "/api/c/azul.h")
+    write_file(generate_python_api(apiData, structs_map, functions_map.copy()), root_folder + "/azul-dll/src/python.rs")
     # write_file(generate_cpp_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/cpp/azul.h")
     # write_file(generate_cpp_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/python/azul.py")
 
