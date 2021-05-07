@@ -294,6 +294,17 @@ pub struct StyleAndLayoutChanges {
     pub nodes_that_changed_text_content: Option<BTreeMap<DomId, Vec<NodeId>>>,
 }
 
+impl StyleAndLayoutChanges {
+    pub fn did_resize_nodes(&self) -> bool {
+        if let Some(l) = self.nodes_that_changed_size.as_ref() {
+            if !l.is_empty() { return true; }
+        }
+        if let Some(l) = self.nodes_that_changed_text_content.as_ref() {
+            if !l.is_empty() { return true; }
+        }
+        false
+    }
+}
 #[derive(Debug, Clone, PartialEq)]
 pub struct FocusChange {
     pub old: Option<DomNodeId>,

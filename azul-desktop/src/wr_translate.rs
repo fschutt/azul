@@ -23,6 +23,7 @@ use webrender::api::{
         LayoutVector2D as WrLayoutVector2D,
         LayoutTransform as WrLayoutTransform,
     },
+    ApiHitTester as WrApiHitTester,
     DebugFlags as WrDebugFlags,
     TransformStyle as WrTransformStyle,
     PropertyBinding as WrPropertyBinding,
@@ -682,7 +683,7 @@ pub(crate) mod winit_translate {
 /// Same interface as azul-core: FullHitTest::new
 /// but uses webrender to compare the results of the two hit-testing implementations
 pub(crate) fn fullhittest_new_webrender(
-     render_api: &WrRenderApi,
+     wr_hittester: &dyn WrApiHitTester,
      document_id: DocumentId,
      old_focus_node: Option<DomNodeId>,
 
@@ -719,16 +720,20 @@ pub(crate) fn fullhittest_new_webrender(
 
             let pipeline_id = PipelineId(dom_id.inner.min(core::u32::MAX as usize) as u32, document_id.id);
 
+            println!("doing hit test: cursor = {:?} (hidipi = {:?}), document = {:?}, pipeline = {:?}",
+                     cursor_location, hidpi_factor, document_id, pipeline_id);
+
             let layout_result = match layout_results.get(dom_id.inner) {
                 Some(s) => s,
                 None => break,
             };
 
-            let wr_result = render_api.hit_test(
-                wr_document_id,
+            let wr_result = wr_hittester.hit_test(
                 Some(wr_translate_pipeline_id(pipeline_id)),
                 WrWorldPoint::new(cursor_relative_to_dom.x, cursor_relative_to_dom.y),
             );
+
+            println!("wr result: {:#?}", wr_result);
 
             let hit_items = wr_result.items.iter()
             .filter_map(|i| {
@@ -747,6 +752,8 @@ pub(crate) fn fullhittest_new_webrender(
                     is_focusable: layout_result.styled_dom.node_data.as_container().get(node_id)?.get_tab_index().into_option().is_some(),
                 }))
             }).collect::<Vec<_>>();
+
+            println!("hit_items: {:#?}", hit_items);
 
             for (node_id, item) in hit_items.into_iter() {
 
@@ -788,6 +795,9 @@ pub(crate) fn fullhittest_new_webrender(
             dom_ids = new_dom_ids;
         }
     }
+
+    println!("final result: {:#?}", ret);
+    println!("--------------------------");
 
     ret
 }

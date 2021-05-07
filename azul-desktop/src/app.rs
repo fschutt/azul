@@ -348,6 +348,7 @@ fn run_inner(app: App) -> ! {
         use azul_core::window_state::StyleAndLayoutChanges;
         use azul_core::window_state::{Events, NodesToCheck};
         use azul_core::window::{FullHitTest, CursorTypeHitTest};
+        use crate::wr_translate::wr_translate_document_id;
 
         // Immediately return on DeviceEvent before doing anything else
         match &event {
@@ -359,6 +360,7 @@ fn run_inner(app: App) -> ! {
         }
 
         let mut windows_created = Vec::<WindowCreateOptions>::new();
+        let mut hit_tester_request = None;
 
         match event {
             Event::DeviceEvent { .. } => {
@@ -456,6 +458,12 @@ fn run_inner(app: App) -> ! {
                                 &new_focus_node,
                                 azul_layout::do_the_relayout,
                             );
+
+                            if changes.did_resize_nodes() {
+                                hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
+                                    wr_translate_document_id(window.internal.document_id)))
+                                );
+                            }
 
                             let changes_need_regenerate_dl = changes.need_regenerate_display_list();
                             let mut transaction = WrTransaction::new();
@@ -586,6 +594,12 @@ fn run_inner(app: App) -> ! {
                                 &new_focus_node,
                                 azul_layout::do_the_relayout,
                             );
+
+                            if changes.did_resize_nodes() {
+                                hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
+                                    wr_translate_document_id(window.internal.document_id)))
+                                );
+                            }
 
                             let changes_need_regenerate_dl = changes.need_regenerate_display_list();
 
@@ -742,7 +756,7 @@ fn run_inner(app: App) -> ! {
                         FullHitTest::empty(window.internal.current_window_state.focused_node)
                     } else {
                         let ht = crate::wr_translate::fullhittest_new_webrender(
-                            &window.render_api,
+                            &*window.hit_tester,
                             window.internal.document_id,
                             window.internal.current_window_state.focused_node,
 
@@ -818,6 +832,12 @@ fn run_inner(app: App) -> ! {
                                     azul_layout::do_the_relayout,
                                 );
 
+                                if changes.did_resize_nodes() {
+                                    hit_tester_request = Some((window_id, window.render_api.request_hit_tester(
+                                        wr_translate_document_id(window.internal.document_id)))
+                                    );
+                                }
+
                                 if changes.need_regenerate_display_list() ||
                                    (events.contains_resize_event() && window.internal.resized_area_increased())
                                 {
@@ -860,7 +880,7 @@ fn run_inner(app: App) -> ! {
                     let current_window_save_state = window.internal.current_window_state.clone();
                     if !callbacks_changed_cursor {
                         let ht = crate::wr_translate::fullhittest_new_webrender(
-                           &window.render_api,
+                           &*window.hit_tester,
                            window.internal.document_id,
                            window.internal.current_window_state.focused_node,
 
@@ -1154,7 +1174,12 @@ fn run_inner(app: App) -> ! {
             }
         }
 
-
+        // resolve the hit-testing scene
+        if let Some((window_id, new_hit_test_results)) = hit_tester_request {
+            if let Some(w) = active_windows.get_mut(&window_id) {
+                w.hit_tester = new_hit_test_results.resolve();
+            }
+        }
 
         // end: handle control flow and app shutdown
         let new_control_flow = if !active_windows.is_empty() {

@@ -4,12 +4,14 @@ use core::fmt;
 use core::cell::RefCell;
 use alloc::{
     rc::Rc,
+    sync::Arc,
 };
 use webrender::{
     render_api::{
         RenderApi as WrRenderApi,
     },
     api::{
+        ApiHitTester as WrApiHitTester,
         DocumentId as WrDocumentId,
         units::{
             LayoutSize as WrLayoutSize,
@@ -293,6 +295,8 @@ pub struct Window {
     pub(crate) display: ContextState,
     /// Main render API that can be used to register and un-register fonts and images
     pub(crate) render_api: WrRenderApi,
+    /// Hit-tester, lazily initialized and updated every time the display list changes layout
+    pub(crate) hit_tester: Arc<dyn WrApiHitTester>,
     // software_context: Option<Rc<swgl::Context>>
     hardware_gl: Rc<dyn Gl>,
     /// Cached gl context pointer that includes the compiled shaders for
@@ -362,7 +366,7 @@ impl Window {
 
         use crate::wr_translate::{
             translate_document_id_wr, wr_translate_debug_flags,
-            translate_id_namespace_wr
+            translate_id_namespace_wr, wr_translate_document_id,
         };
         use webrender::ProgramCache as WrProgramCache;
         use webrender::api::ColorF as WrColorF;
@@ -493,6 +497,9 @@ impl Window {
 
         let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
 
+        // hit test will be empty on startup
+        let hit_tester = render_api.request_hit_tester(wr_translate_document_id(document_id));
+
         // TODO: The PipelineId is what gets passed to the OutputImageHandler
         // (the code that coordinates displaying the rendered texture).
         //
@@ -543,6 +550,7 @@ impl Window {
             display: window_context,
             window_handle,
             render_api,
+            hit_tester: hit_tester.resolve(),
             renderer: Some(renderer),
             gl_context_ptr,
             // software_gl,
@@ -553,7 +561,9 @@ impl Window {
         let mut txn = WrTransaction::new();
 
         window.rebuild_display_list(&mut txn, image_cache, initial_resource_updates);
+        let hit_tester = window.render_api.request_hit_tester(wr_translate_document_id(window.internal.document_id));
         window.render_async(txn, /* display list was rebuilt */ true);
+        window.hit_tester = hit_tester.resolve();
 
         Ok(window)
     }
@@ -1161,7 +1171,6 @@ impl Window {
         }
 
         txn.generate_frame(0);
-
 
         // Update WR texture cache
         self.render_api.send_transaction(wr_translate::wr_translate_document_id(self.internal.document_id), txn);
