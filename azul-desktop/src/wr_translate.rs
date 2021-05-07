@@ -1460,6 +1460,7 @@ fn push_display_list_msg(
     use azul_core::display_list::DisplayListMsg::*;
     use azul_core::ui_solver::PositionInfo::*;
     use webrender::api::PropertyBindingKey as WrPropertyBindingKey;
+    use webrender::api::FillRule as WrFillRule;
 
     let msg_position = msg.get_position();
 
@@ -1542,10 +1543,15 @@ fn push_display_list_msg(
 
     // push the clip image mask before pushing the scroll frame
     let clip_mask_id = msg.get_image_mask().map(|im| {
-        builder.define_clip_image_mask(&WrSpaceAndClipInfo {
-            spatial_id: rect_spatial_id,
-            clip_id: parent_clip_id,
-        }, wr_translate_image_mask(im))
+        builder.define_clip_image_mask(
+            &WrSpaceAndClipInfo {
+                spatial_id: rect_spatial_id,
+                clip_id: parent_clip_id,
+            },
+            wr_translate_image_mask(im),
+            &Vec::new(),
+            WrFillRule::Nonzero
+        )
     });
 
     let parent_clip_id = match clip_mask_id {

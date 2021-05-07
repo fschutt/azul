@@ -31,10 +31,10 @@ strfmt                  = { version = "0.1.6", default-features = false }
 coarsetime              = { version = "0.1.19", default-features = false }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
-webrender = { git = "https://github.com/servo/webrender", rev = "a21e882682b20ef1ed048b502043cd4bb484b07d", default-features = false }
+webrender = { git = "https://github.com/servo/webrender", rev = "19aca39f3d520449f82f8b736b0f70358a1440d5", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-webrender = { git = "https://github.com/servo/webrender", rev = "a21e882682b20ef1ed048b502043cd4bb484b07d", default-features = false, features = ["freetype-lib"] }
+webrender = { git = "https://github.com/servo/webrender", rev = "19aca39f3d520449f82f8b736b0f70358a1440d5", default-features = false, features = ["freetype-lib"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = { version = "0.9.0",     default-features = false, features = ["mac_os_10_7_support"] }
