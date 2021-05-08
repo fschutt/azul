@@ -2010,7 +2010,7 @@ def render_example_code(jsex, replace=True):
         jsex = jsex.replace("\"", "&quot;")
         jsex = jsex.replace("\n", "<br/>")
         jsex = jsex.replace("\r\n", "<br/>")
-        # jsex = jsex.replace(" ", "&nbsp;")
+        jsex = jsex.replace(" ", "&nbsp;")
     jsex = jsex.strip()
     return jsex
 
@@ -2046,7 +2046,7 @@ def generate_docs():
     copy_file(root_folder + "/examples/assets/fonts/SourceSerifPro-Regular.ttf", root_folder + "/target/html/fonts/SourceSerifPro-Regular.ttf")
 
     index_template = read_file(root_folder + "/api/_patches/html/index.template.html")
-    index_partial = read_file(root_folder + "/api/_patches/html/index.partial.html")
+    index_template = index_template.replace("$$ROOT_RELATIVE$$", html_root)
     index_examples = [
         {
             "id": "helloworld",
