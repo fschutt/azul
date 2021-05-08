@@ -2176,6 +2176,7 @@ def generate_docs():
         entry_name = guide[0]
         html_path_name = entry_name.replace(" ", "")
         guide_content = guide[1]
+        guide_content = guide_content.replace("$$ROOT_RELATIVE$$", html_root)
         formatted_guide = html_template.replace("$$ROOT_RELATIVE$$", html_root)
         formatted_guide = formatted_guide.replace("$$SIDEBAR_GUIDE$$", guide_sidebar_nested)
         formatted_guide = formatted_guide.replace("$$SIDEBAR_RELEASES$$", "")
@@ -2517,19 +2518,20 @@ def debug_test_compile_c():
 
 def main():
     print("removing old azul.dll...")
-    cleanup_start()
+    # cleanup_start()
     # print("verifying that LLVM / clang-cl is installed...")
     # verify_clang_is_installed()
     print("generating API...")
-    generate_api()
+    # generate_api()
     print("generating documentation in /target/html...")
     generate_docs()
+
     print("building azulc (release mode)...")
     # build_azulc()
     print("building azul-dll (release mode)...")
-    build_dll()
+    # build_dll()
     print("checking azul-dll for struct size integrity...")
-    run_size_test()
+    # run_size_test()
     print("building examples...")
     # build_examples()
     print("building and linking C examples from /examples/c/...")

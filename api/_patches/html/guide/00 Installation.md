@@ -1,160 +1,233 @@
-<h2>Installing a supported Rust compiler</h2>
-
-<p>
-Azul (version 0.1.0) is supported on Rust 1.31 or newer. Please ensure that you have the right compiler
-version, by running <code>rustc -vV</code> after installation to check the version number.
-</p>
-
-<h3>Installation on Windows</h3>
-
-<div class="warning">
-  <h4>Note</h4>
-  <p>
-  If you get prompted to install the <strong>MSVC toolchain</strong>, please download both the
-  Visual C++ tools (available from
-  <a href="https://www.visualstudio.com/downloads/#build-tools-for-visual-studio-2017">here</a>)
-  and install the Windows 8 or 10 SDK (which contains the actual linker) from
-  the Visual Studio Tools installer.
-</p>
-</div>
-
-<div class="warning">
-  <h4>Note</h4>
-  <p>
-    If you choose the <strong>MinGW toolchain</strong> on windows, 32-bit support is missing,
-    due to problems with a C dependency. Because of this, we recommend you to use
-    the MSVC toolchain on Windows or use a 64-bit compiler.
-</p>
-</div>
-
-<code class="expand">DownloadFile https://win.rustup.rs/ -FileName rustup-init.exe
-rustup-init -yv --default-toolchain stable --default-host x86_64-pc-windows-msvc</code>
-
-<p>...or download the windows installer manually from
-  <a href="https://win.rustup.rs/">win.rustup.rs</a>
-</p>
-
-<h3>Installation on Linux / Mac</h3>
-
-<code class="expand"><pre>curl https://sh.rustup.rs -sSf | sh</pre></code>
-
-<p>
-If you do not trust executing a remote script, download
-the script seperately, review it and then execute it. You can
-also find the installation instructions for Rust on the
-<a href="https://www.rust-lang.org/en-US/install.html">main website</a>.
-</p>
-
-<div class="warning">
-<h4>Notes for NixOS</h4>
+<h2>Using a precompiled binary release</h2>
 
   <p>
-  In order to install the dependencies for NixOS, copy this into a `shell.nix`
-  in your directory of choice and run `nix-shell` to install the dependencies.
+    In order to use Azul from languages other than Rust you need to use a
+    pre-compiled binary release from
+    <a href="$$ROOT_RELATIVE$$/releases">$$ROOT_RELATIVE$$/releases</a>.
+    <br/>
+    <br/>
+    Even for Rust it is recommended to use the precompiled binary to avoid
+    compilation issues (missing build-dependencies, long compilation time).
+    The precompiled library is dependency-free, you do not need to install or
+    extra system libraries in order to get started.
   </p>
 
-  <code class="expand">with import &gt;nixpkgs&lt; {};
+  <br/>
 
-stdenv.mkDerivation {
-  name = "rust-env";
-  nativeBuildInputs = [
-    rustup
-    pkgconfig
-    python3
-  ];
+  <h3>Python</h3>
 
-  buildInputs = [
-    freetype
-    xorg.libxcb
-    # for dialogs
-    gnome3.zenity
-  ];
+  <p>
+    In order to use Azul from Python, download the <code>azul.pyd</code> file
+    (or <code>azul.so</code> on Linux / Mac) and put it in to the same directory as your
+    <code>main.py</code> file. Note that because of Python extension
+    conventions the name of the file must match the name of the library (i.e.
+    <code>azul.so</code> instead of <code>libazul.so</code>).
+  </p>
 
-  LD_LIBRARY_PATH = stdenv.lib.makeLibraryPath [
-    xorg.libX11
-    xorg.libXcursor
-    xorg.libXrandr
-    xorg.libXi
-    libglvnd
-  ];
-}</code>
-</div>
+  <p>Create a main.py file with the following contents:</p>
 
-## System dependencies
+  <code class="expand">from azul import *</code>
 
-You currently need to install [CMake](https://cmake.org/download/) before you can use azul.
-This applies to all platforms, since CMake is used during the build process to compile
-`servo-freetype` and `harfbuzz-sys`.
+  <p>Your project directory should now look like this:</p>
 
-### Linux
+  <code class="expand">/my-project:
+   azul.pyd (or: azul.so)
+   main.py</code>
 
-On Linux, you additionally need to install `libexpat-dev` and `libfreetype6-dev` in order
-to compile `servo-freetype-sys`(see [#42](https://github.com/maps4print/azul/issues/42)).
+  <p>Now you should be able to run the code with</p>
 
-For interfacing with the system clipboard, you also need `libxcb-xkb-dev`.
-Since azul uses the system-native fonts by default, you'll also need
-`libfontconfig1-dev` (which includes expat and freetype2).
+  <code class="expand">python ./main.py</code>
 
-Your users will need to install `libfontconfig` and
-`libxcb-xkb1` installed (remember this for packaging rpm or deb packages).
+  <br/>
+  <div class="warning">
+    <i><h4>"I received a weird Python error"</h4></i>
 
-Lastly, if there is no OpenGL available, azul will fallback and try to find
-`libEGL.so`. Especially when testing inside of a VM, it is important to install
-`libgles2-mesa-dev` - note that the software will compile if this library
-isn't present, it just won't run without it.
+    <p>Azul only supports <strong>Python 3</strong>.
+    Make sure you are using the correct Python version or explicitly use <code>python3 ./main.py</code>.</p>
+  </div>
 
-```
-sudo apt install \
-    cmake libxcb-xkb-dev libfontconfig1-dev libgles2-mesa-dev \
-    libfreetype6-dev libexpat-dev
-```
+  <br/>
+  <h3>C / C++</h3>
 
-**Note for Arch Linux:** On Arch, the package for `libfontconfig1-dev`
-seems to be called `fontconfig`.
+  <p>For C or C++ you will need to download the regular
+  library without Python support:</p>
 
-Other dependencies are statically linked in all binaries, you don't need to
-worry about managing them.
+  <br/>
 
-## Creating a new project
+  <ul>
+    <li><p>&nbsp;&nbsp;Windows:&nbsp;<code>azul.dll</code> and <code>azul.dll.lib</code></p></li>
+    <li><p>&nbsp;&nbsp;Linux:&nbsp;<code>libazul.so</code></p></li>
+    <li><p>&nbsp;&nbsp;Mac:&nbsp;<code>libazul.dylib</code></p></li>
+  </ul>
 
-Once you have Rust and Cargo installed, create a new project in the
-directory of your choice:
+  <p>Create a main.c or main.cpp file with the following contents:</p>
 
-```bash
-cargo new --bin my_first_azul_app
-cd my_first_azul_app
-cargo run
-```
+  <code class="expand">#include "azul.h"
 
-## Adding azul to your dependencies
-
-Open the /my_first_azul_app/Cargo.toml file and paste the following
-lines beneath the [dependencies] section:
-
-```toml
-[dependencies]
-azul = { git = "https://github.com/maps4print/azul" }
-```
-
-**WARNING: ** Azul has not yet been released on crates.io, therefore,
-there is no package available. This guide will be updated once the
-first stable version releases. It is recommended to version-lock your
-dependency with `{ git = "...", rev = "the_last_commit_hash" }`, so
-that you know which commit you are using.
-
-This will pull in the latest stable version of azul. Open the
-`/my_first_azul_app/src/main.rs` file and edit it to look like this:
-
-```rust
-extern crate azul;
-
-fn main() {
-    println!("Hello world!");
+int main() {
+  return 0;
 }
-```
+</code>
 
-Ensure that azul builds correctly by running cargo run again. Azul
-does not require third-party dependencies (dynamic libraries), it
-should build out-of-the-box. If that's the case, you are ready to
-move on to the next page, starting to actually build your first GUI
-app with azul. If not, please report this as a bug.
+  <p>Your project directory should now look like this:</p>
+
+  <code class="expand">/my-project:
+   azul.dll / libazul.so / libazul.dylib
+   azul.dll.lib // windows only!
+   azul.h / azul.hpp
+   main.c / main.cpp</code>
+
+  <p>Compile with:</p>
+
+  <code class="expand">gcc -O3 -lazul -L/path/to/my-project ./main.c</code>
+
+  <br/>
+  <div class="warning">
+    <i><h4>Compatibility</h4></i>
+    <p>Azul is compatible with either <strong>C99</strong> or <strong>C++11</strong> and newer.</p>
+  </div>
+
+  <p>Now you can run the example with </p>
+  <code class="expand">./main</code>
+
+  <br/>
+
+  <div class="warning">
+    <i><h4>Running on Linux: libazul not found</h4></i>
+    <p>
+      On Linux the binary won't immediately start because Linux expects the library
+      in the <code>LD_PRELOAD</code> path. To fix this, copy the <code>libazul.so</code>
+      either into <code>/usr/lib</code> or into <code>usr/x86_64-linux-gnu/lib</code>:
+      <code class="expand">sudo copy ./libazul.so /usr/lib</code>
+    </p>
+  </div>
+
+  <br/>
+  <h3>Rust</h3>
+
+  <p>
+    Initialize a new cargo project with <code>cargo new my-project</code> and edit your
+    <code>Cargo.toml</code> file:
+  </p>
+
+<code class="expand">[dependencies]
+azul = "1.0.0-alpha"</code>
+
+  <p>Run cargo with:</p>
+  <code class="expand">cargo build --release</code>
+  <p style="font-weight: bold;font-size:14px;">This will throw an error because the compiler doesn't know where the azul.dll file is:</p>
+  <code class="expand">Compiling azul v0.0.1
+error: environment variable `AZUL_LINK_PATH` not defined
+ --> [...]\api\rust\build.rs:4:48
+  |
+4 |         println!("cargo:rustc-link-search={}", env!("AZUL_LINK_PATH"));
+  |                                                ^^^^^^^^^^^^^^^^^^^^^^
+  |</code>
+
+  <p>
+    In order to tell rustc about the library, you will need to set the environment
+    variable <code>AZUL_LINK_PATH</code> to the path of the downloaded library.
+  </p>
+
+  <p>On Linux or Mac the operating system needs the library to be in the
+    <code>LD_PRELOAD</code> path, so you can just <code>AZUL_LINK_PATH</code>
+    to the same path:
+  </p>
+
+  <code class="expand">sudo cp ./libazul.so /usr/lib
+export AZUL_LINK_PATH=/usr/lib
+cargo run --release</code>
+
+  <p>
+    On Windows things are different: First, you will also need to put the
+    <code>azul.dll.lib</code> file into the same directory as the
+    <code>azul.dll</code>file and second,
+    in order to run the binary, the <code>azul.dll</code> file has
+    to be in the same directory as the .exe.
+  </p>
+  <p>
+    For Rust development it makes the most sense to put both files into the
+    <code>/target/release</code> directory:
+  </p>
+  <code class="expand">/my-project
+    /src
+        main.rs
+    /target
+        /release
+            my-project.exe
+            azul.dll
+            azul.dll.lib
+    Cargo.toml
+</code>
+<code class="expand">SET AZUL_LINK_PATH=/path/to/my-project/target/release
+cargo run --release
+</code>
+
+<p>Now your code should run (if it doesn't, file a bug).
+  You can now continue with the next tutorial which will teach you how to
+  <a href="$$ROOT_RELATIVE$$/guide">create a window.</a></p>
+
+<br/>
+<h2>Static linking</h2>
+
+  <h3>C / C++</h3>
+
+  <p>In order to link azul staticall from C or C++, apply the same procedure
+    as for the dynamically linked version, but use the <code>libazul.a</code>
+    file to link statically (as a single binary) instead of dynamically (as a
+    split binary + azul.dll).
+  </p>
+
+  <h3>Rust</h3>
+    <p>In order to link Rust as a regular crates.io dependency, you need to enable the
+      <code>link_static</code> feature:</p>
+    <code class="expand">[dependencies]
+azul = { version = "1.0.0-alpha", features = ["link_static", "rlib"]}</code>
+    <p>By default this feature is disabled because re-linking the application can
+    take a long time (even if compilation is fast). Usually you'd only want to do
+  this when you are finished with the development of your application.</p>
+
+  <br/>
+
+
+<h2>Building the library from source</h2>
+
+  <p>Azul is mostly self-contained and using a default Rust installation you should
+    be able to just compile it with:</p>
+    <code class="expand">git clone https://github.com/fschutt/azul
+cd azul-dll
+cargo build --release
+    # --features="python3": optional Python support
+    # --features="cdylib": compile as cdylib (.dll)
+    # --features="staticlib": compile as static library (.a)</code>
+
+    <br/>
+
+    <h3>Development</h3>
+  <p>Since Azul targets many languages, the bindings are auto-generated by a combination of a
+    Python script (<code>build.py</code>) and a <code>api.json</code> file describing every class
+    with the respective C field layout:
+  </p>
+
+  <code class="expand">{
+  "App": {
+    "external": "azul_impl::app::AzAppPtr",
+    "doc": "Main application class",
+    "struct_fields": [
+        {"ptr": {"type": "*const c_void"}}
+    ],
+    "constructors": {
+        "new": {
+            ...
+        }
+    },
+    ...
+}</code>
+
+  <p>The script then creates the proper API bindings. The API bindings only have
+  to be refreshed when they are changed - which should happen infrequently.</p>
+
+  <br/>
+  <br/>
+
+  <a href="$$ROOT_RELATIVE$$/guide">Back to overview</a>
