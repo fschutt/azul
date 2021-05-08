@@ -2011,6 +2011,7 @@ def render_example_code(jsex, replace=True):
         jsex = jsex.replace("\n", "<br/>")
         jsex = jsex.replace("\r\n", "<br/>")
         jsex = jsex.replace(" ", "&nbsp;")
+    jsex = jsex.strip()
     return jsex
 
 def generate_docs():
@@ -2051,14 +2052,17 @@ def generate_docs():
             "description": render_example_description("""
                 The UI structure is created via composition instead of inheritance.
                 Callbacks can modify the application data and then tell the framework to
-                reconstruct the entire UI again if necessary - not on every frame.
+                reconstruct the entire UI again - but only if it's necessary, not on every frame.
             """),
             "screenshot_path": root_folder + "/examples/assets/screenshots/helloworld.png",
             "screenshot_url": html_root + "/images/helloworld.png",
             "cpu": "CPU: 0%",
             "memory": "Memory: 23MB",
             "image_alt": "Rendering a simple UI using the Azul GUI toolkit",
-            "code": render_example_code(read_file(root_folder + "/examples/c/helloworld.c")),
+            "code:c": render_example_code(read_file(root_folder + "/examples/c/hello-world.c")),
+            "code:cpp": render_example_code(read_file(root_folder + "/examples/cpp/hello-world.cpp")),
+            "code:rust": render_example_code(read_file(root_folder + "/examples/rust/hello-world.rs")),
+            "code:python": render_example_code(read_file(root_folder + "/examples/python/hello-world.py")),
         },
         {
             "id": "table",
@@ -2073,7 +2077,10 @@ def generate_docs():
             "cpu": "CPU: 0%",
             "memory": "Memory: 23MB",
             "image_alt": "Rendering a table using the Azul GUI toolkit",
-            "code": render_example_code(read_file(root_folder + "/examples/c/table.c")),
+            "code:c": render_example_code(read_file(root_folder + "/examples/c/table.c")),
+            "code:cpp": render_example_code(read_file(root_folder + "/examples/cpp/table.cpp")),
+            "code:rust": render_example_code(read_file(root_folder + "/examples/rust/table.rs")),
+            "code:python": render_example_code(read_file(root_folder + "/examples/python/table.py")),
         },
         {
             "id": "svg",
@@ -2087,7 +2094,10 @@ def generate_docs():
             "cpu": "CPU: 0%",
             "memory": "Memory: 23MB",
             "image_alt": "Rendering a SVG file using the Azul GUI toolkit",
-            "code": render_example_code(read_file(root_folder + "/examples/c/svg.c")),
+            "code:c": render_example_code(read_file(root_folder + "/examples/c/svg.c")),
+            "code:cpp": render_example_code(read_file(root_folder + "/examples/cpp/svg.cpp")),
+            "code:rust": render_example_code(read_file(root_folder + "/examples/rust/svg.rs")),
+            "code:python": render_example_code(read_file(root_folder + "/examples/python/svg.py")),
         },
         {
             "id": "calculator",
@@ -2101,7 +2111,10 @@ def generate_docs():
             "cpu": "CPU: 0%",
             "memory": "Memory: 23MB",
             "image_alt": "Composing widgets via functions in the Azul GUI toolkit",
-            "code": render_example_code(read_file(root_folder + "/examples/c/calculator.c")),
+            "code:c": render_example_code(read_file(root_folder + "/examples/c/calculator.c")),
+            "code:cpp": render_example_code(read_file(root_folder + "/examples/cpp/calculator.cpp")),
+            "code:rust": render_example_code(read_file(root_folder + "/examples/rust/calculator.rs")),
+            "code:python": render_example_code(read_file(root_folder + "/examples/python/calculator.py")),
         },
         {
             "id": "xml",
@@ -2116,7 +2129,10 @@ def generate_docs():
             "cpu": "Memory: 0%",
             "memory": "Memory: 23MB",
             "image_alt": "XML UI hot-reloading for fast prototyping",
-            "code": render_example_code(read_file(root_folder + "/examples/c/xml.c")),
+            "code:c": render_example_code(read_file(root_folder + "/examples/c/xml.c")),
+            "code:cpp": render_example_code(read_file(root_folder + "/examples/cpp/xml.cpp")),
+            "code:rust": render_example_code(read_file(root_folder + "/examples/rust/xml.rs")),
+            "code:python": render_example_code(read_file(root_folder + "/examples/python/xml.py")),
         }
     ]
 
@@ -2124,7 +2140,7 @@ def generate_docs():
         copy_file(ex["screenshot_path"], root_folder + "/target/html/images/" + ex["id"] + ".png")
 
     first_example = index_examples[0]
-    index_html = index_template.replace("$$EXAMPLE_CODE$$", first_example["code"])
+    index_html = index_template.replace("$$EXAMPLE_CODE$$", first_example["code:python"])
     index_html = index_html.replace("$$EXAMPLE_IMAGE_SOURCE$$", first_example["screenshot_url"])
     index_html = index_html.replace("$$EXAMPLE_IMAGE_ALT$$", first_example["image_alt"])
     index_html = index_html.replace("$$EXAMPLE_STATS_MEMORY$$", first_example["memory"])

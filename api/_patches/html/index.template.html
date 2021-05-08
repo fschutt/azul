@@ -43,45 +43,11 @@
     }
     main section .col-1 {
       float: left;
-      margin-right: 25px;
+      padding-right: 25px;
     }
     body > .center > main > section > .col-1 code {
       display: block;
       max-width: 500px;
-    }
-    @media screen and (max-width: 720px) {
-      body > .center > main > code {
-        min-width: none;
-      }
-    }
-    @media screen and (min-width: 720px) {
-      body > .center > main > code {
-        min-width: 500px;
-      }
-    }
-    @media screen and (max-width: 720px) {
-      body > .center > main > section > .col-2 {
-        max-width: none;
-        float: none;
-        margin-bottom: 0px;
-      }
-      body > .center > main > section > .col-1 {
-        float: none;
-        margin-right: 0px;
-        margin-bottom: 20px;
-      }
-      body > .center > aside {
-        float: none;
-        position: static !important;
-      }
-      body main .col-1 header h2 {
-        font-size: 30px;
-        margin-bottom: 0px;
-      }
-      .feature {
-        float:none;
-        margin-bottom: 50px;
-      }
     }
 
     .stats {
@@ -143,10 +109,75 @@
       height: auto;
     }
 
-    body > .center > main > code {
+    body > .center > main > .code-container {
+      display: inline-block;
+      max-width: none;
+      margin-left: 0px;
+      width: 100%;
+    }
+
+    body > .center > main > .code-container > .select-language > button.active {
+      background: #0084ff;
+      color: white;
+    }
+    body > .center > main > .code-container > .select-language > button {
+      font-size: 16px;
+      border: none;
+      padding: 5px 15px;
+      margin-right: 5px;
+      cursor:pointer;
+      font-weight: bold;
+      font-family: monospace;
+    }
+
+    body > .center > main > .code-container > code {
       display: block;
-      padding: 20px;
-      max-width: 500px;
+      padding: 10px;
+    }
+    @media screen and (min-width: 720px) {
+      body > .center > main > .code-container > code {
+        min-width: 500px;
+      }
+    }
+    @media screen and (max-width: 1418px) {
+      body > .center > main > .code-container {
+        margin-top: 20px;
+      }
+    }
+    @media screen and (min-width: 1418px) {
+      body > .center > main > .code-container {
+        max-width: 560px;
+        margin-left: 40px;
+        margin-top: 0px;
+      }
+    }
+    @media screen and (max-width: 720px) {
+      body > .center > main > .code-container > code {
+        min-width: none;
+      }
+      body > .center > main > section > .col-2 {
+        max-width: none;
+        float: none;
+        margin-bottom: 0px;
+      }
+      body > .center > main > section > .col-1 {
+        float: none;
+        padding-right: 0px;
+        margin-right: 0px;
+        margin-bottom: 20px;
+      }
+      body > .center > aside {
+        float: none;
+        position: static !important;
+      }
+      body main .col-1 header h2 {
+        font-size: 30px;
+        margin-bottom: 0px;
+      }
+      .feature {
+        float:none;
+        margin-bottom: 50px;
+      }
     }
   </style>
 </head>
@@ -198,9 +229,15 @@
         </div>
       </section>
     </div>
-    <code class="language-c" id="code">
-      $$EXAMPLE_CODE$$
-    </code>
+    <div class="code-container">
+      <div class="select-language">
+        <button id="select-language-python" class="select-language-btn active" onclick="select_python_code()">Python</button>
+        <button id="select-language-cpp" class="select-language-btn" onclick="select_cpp_code()">C++</button>
+        <button id="select-language-rust" class="select-language-btn" onclick="select_rust_code()">Rust</button>
+        <button id="select-language-c" class="select-language-btn" onclick="select_c_code()">C</button>
+      </div>
+      <code class="language-c" id="code">$$EXAMPLE_CODE$$</code>
+    </div>
   </main>
   </div>
   <script async type="text/javascript" src="./prism_code_highlighter.js"></script>
@@ -208,16 +245,67 @@
     var examples = [
       $$JAVASCRIPT_EXAMPLES$$
     ];
+    var current_lang = "python";
     var current_example = 0;
     var max_len = examples[0].length;
 
     function render_example() {
-      document.getElementById("code").innerHTML = examples[0][current_example].code;
-      document.getElementById("showcase-image").src = examples[0][current_example].screenshot_url;
-      document.getElementById("showcase-image").alt = examples[0][current_example].image_alt;
-      document.getElementById("showcase-stats-memory").innerHTML = examples[0][current_example].memory;
-      document.getElementById("showcase-stats-cpu").innerHTML = examples[0][current_example].cpu;
-      document.getElementById("showcase-description").innerHTML = examples[0][current_example].description;
+      document.getElementById("showcase-image").src = examples[0][current_example]["screenshot_url"];
+      document.getElementById("showcase-image").alt = examples[0][current_example]["image_alt"];
+      document.getElementById("showcase-stats-memory").innerHTML = examples[0][current_example]["memory"];
+      document.getElementById("showcase-stats-cpu").innerHTML = examples[0][current_example]["cpu"];
+      document.getElementById("showcase-description").innerHTML = examples[0][current_example]["description"];
+
+      var language_buttons = document.getElementsByClassName("select-language-btn");
+      for (var i = language_buttons.length - 1; i >= 0; i--) {
+        language_buttons[i].classList.remove("active");
+      }
+
+      if (current_lang === "c") {
+        document.getElementById("code").innerHTML = examples[0][current_example]["code:c"];
+        document.getElementById("select-language-c").classList.add("active");
+      } else if (current_lang === "cpp") {
+        document.getElementById("code").innerHTML = examples[0][current_example]["code:cpp"];
+        document.getElementById("select-language-cpp").classList.add("active");
+      } else if (current_lang === "rust") {
+        document.getElementById("code").innerHTML = examples[0][current_example]["code:rust"];
+        document.getElementById("select-language-rust").classList.add("active");
+      } else {
+        document.getElementById("code").innerHTML = examples[0][current_example]["code:python"];
+        document.getElementById("select-language-python").classList.add("active");
+      }
+    }
+
+    function select_c_code() {
+      if (current_lang === "c") {
+        return;
+      }
+      current_lang = "c"
+      render_example();
+    }
+
+    function select_cpp_code() {
+      if (current_lang === "cpp") {
+        return;
+      }
+      current_lang = "cpp"
+      render_example();
+    }
+
+    function select_rust_code() {
+      if (current_lang === "rust") {
+        return;
+      }
+      current_lang = "rust"
+      render_example();
+    }
+
+    function select_python_code() {
+      if (current_lang === "python") {
+        return;
+      }
+      current_lang = "python"
+      render_example();
     }
 
     function next() {

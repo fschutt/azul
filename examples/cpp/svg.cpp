@@ -1,0 +1,5 @@
+#include <azul.h>
+
+int main() {
+    return 0;
+}

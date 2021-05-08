@@ -1,55 +1,43 @@
-#![windows_subsystem = "windows"]
-
-use azul::{
-    css::{Css, ColorU},
-    dom::Dom,
-    callbacks::{RefAny, UpdateScreen, CallbackInfo, LayoutCallbackInfo},
-    style::StyledDom,
-    app::{App, AppConfig},
-    window::WindowCreateOptions,
-};
-use azul_widgets::{
-    label::Label,
-    button::Button,
-    text_input::TextInput,
-    number_input::NumberInput,
-    color_input::ColorInput,
-    check_box::CheckBox,
-};
+use azul::*;
 
 struct DataModel {
     counter: usize,
 }
 
-extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom {
+static CSS: AzString = AzString::from_const_str("
+    .__azul-native-label { font-size: 50px; }
+");
 
-    let counter = match data.downcast_ref::<DataModel>() {
-        Some(s) => s.counter,
-        None => return Dom::body().style(Css::empty()),
+extern "C" fn myLayoutFunc(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
+
+    let data = match data.downcast_ref::<DataModel>() {
+        Some(s) => d,
+        None => return StyledDom::default(),
     };
 
+    let label = Label::new(format!("{}", data.counter));
+    let button = Button::new("Update counter")
+        .with_on_click(data.clone(), myOnClick);
+
     Dom::body()
-    .with_children(vec![
-        CheckBox::new(true).dom(),
-        CheckBox::new(false).dom(),
-        ColorInput::new(ColorU { r: 255, g: 0, b: 0, a: 255 }).dom(),
-        TextInput::new(String::new()).dom(),
-        NumberInput::new(0.0).dom(),
-        Label::new(format!("{}", counter)).dom(),
-        Button::text("Update counter")
-            .on_click(data.clone(), increment_counter).dom(),
-    ].into())
-    .style(Css::empty())
+    .with_child(label.dom())
+    .with_child(button.dom())
+    .style(Css::from_string(CSS))
 }
 
-extern "C" fn increment_counter(data: &mut RefAny, _: CallbackInfo) -> UpdateScreen {
-    match data.downcast_mut::<DataModel>() {
-        Some(mut s) => { s.counter += 1; UpdateScreen::RegenerateStyledDomForCurrentWindow },
-        None => UpdateScreen::DoNothing, // error
-    }
+extern "C" fn myOnClick(data: &mut RefAny, _: CallbackInfo) -> Update {
+    let data = match data.downcast_mut::<DataModel>() {
+        Some(s) => s,
+        None => return Update::DoNothing, // error
+    };
+
+    data.counter += 1;
+
+    Update::RefreshDom
 }
 
 fn main() {
-    let app = App::new(RefAny::new(DataModel { counter: 0 }), AppConfig::default());
-    app.run(WindowCreateOptions::new(layout));
+    let data = DataModel { counter: 0 };
+    let app = App::new(RefAny::new(data), AppConfig::default());
+    app.run(WindowCreateOptions::new(myLayoutFunc));
 }
