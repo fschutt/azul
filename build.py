@@ -2010,13 +2010,14 @@ def render_example_code(jsex, replace=True):
         jsex = jsex.replace("\"", "&quot;")
         jsex = jsex.replace("\n", "<br/>")
         jsex = jsex.replace("\r\n", "<br/>")
-        jsex = jsex.replace(" ", "&nbsp;")
+        # jsex = jsex.replace(" ", "&nbsp;")
     jsex = jsex.strip()
     return jsex
 
 def generate_docs():
     apiData = read_api_file(root_folder + "/api.json")
     html_template = read_file(root_folder + "/api/_patches/html/api.template.html")
+    html_template = html_template.replace("$$ROOT_RELATIVE$$", html_root)
 
     if os.path.exists(root_folder + "/target/html"):
         remove_path(root_folder + "/target/html")
