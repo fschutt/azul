@@ -875,6 +875,10 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
                 field_type = list(field.values())[0]
                 if "type" in field_type:
                     field_type = field_type["type"]
+                    field_extra_derive = ""
+                    if "extra_derive" in field[field_name].keys():
+                        field_extra_derive = field[field_name]["extra_derive"] + "\r\n"
+                    code += field_extra_derive
                     analyzed_arg_type = analyze_type(field_type)
                     if is_primitive_arg(analyzed_arg_type[1]):
                         if field_name == "ptr" and private_pointers:
@@ -1045,11 +1049,15 @@ def generate_python_api(api_data, structs_map, functions_map):
         struct = structs_map[struct_name]
         if "struct" in struct.keys():
             new_struct_map[struct_name]["extra_derive"] = "#[pyclass(name = \"" + struct_name[len(prefix):] + "\")]"
+            field_index = 0
             for field in struct["struct"]:
                 field_name = list(field.keys())[0]
                 field_type = list(field.values())[0]["type"]
                 if len(analyze_type(field_type)[0]) > 0:
                     raw_pointer_structs[struct_name] = {}
+                else:
+                    new_struct_map[struct_name]["struct"][field_index][field_name]["extra_derive"] = "    #[pyo3(get, set)]"
+                field_index = field_index + 1
         elif "enum" in struct.keys():
             new_struct_map[struct_name + "EnumWrapper"] = {}
             new_struct_map[struct_name + "EnumWrapper"]["struct"] = []
@@ -1090,11 +1098,15 @@ def generate_python_api(api_data, structs_map, functions_map):
 
     # Functions that have to be implemented manually
     manual_implementations = [
+        ("app", "App", "new"),
         ("callbacks", "RefAny", "new_c"),
         ("window", "WindowCreateOptions", "new"),
         ("window", "WindowState", "new"),
         ("task", "Timer", "new"),
     ]
+
+    # List of types that are returned as errors, have to implement py03::Error
+    errlist = []
 
     for module_name in api_data[version].keys():
         module = api_data[version][module_name]
@@ -1118,14 +1130,14 @@ def generate_python_api(api_data, structs_map, functions_map):
                             py_args = format_py_args(fn_args, api_data[version], constructor=True)
                             return_type = prefix + class_name
                             returns_option = False
-                            returns_error = False
+                            returns_error = ""
                             if "returns" in constructor.keys():
-                                return_type = format_py_return(constructor["returns"], api_data[version], constructor=True)
+                                return_type = format_py_return(constructor["returns"], api_data[version], errlist, constructor=True)
                                 return_type = r[0]
                                 returns_option = r[1]
                                 returns_error = r[2]
                             pyo3_code += "    #[staticmethod]\r\n"
-                            pyo3_code += "    fn " + constructor_name + "(" + py_args + ") -> PyResult<" + return_type + "> {\r\n"
+                            pyo3_code += "    fn " + constructor_name + "(" + py_args + ") -> " + return_type + " {\r\n"
                             pyo3_code += "        " + format_py_body(module_name, class_name, constructor_name, fn_args, api_data[version], returns_option, returns_error, constructor=True) + "\r\n"
                             pyo3_code += "    }\r\n"
 
@@ -1138,15 +1150,21 @@ def generate_python_api(api_data, structs_map, functions_map):
                                 print("wrong format: " + class_name + "::" + function_name)
                             fn_args = function["fn_args"]
                             self_arg = "&self" # TODO
+                            self_needs_clone = False
+                            if fn_args[0]["self"] == "refmut":
+                                self_arg = "&mut self"
+                            elif fn_args[0]["self"] == "value":
+                                self_arg = "self" # TODO: possible?
+
                             return_type = "()" # TODO
                             returns_option = False
-                            returns_error = False
+                            returns_error = ""
                             if "returns" in function.keys():
-                                r = format_py_return(function["returns"], api_data[version], constructor=False)
+                                r = format_py_return(function["returns"], api_data[version], errlist, constructor=False)
                                 return_type = r[0]
                                 returns_option = r[1]
                                 returns_error = r[2]
-                            pyo3_code += "    fn " + function_name + "(" + self_arg + format_py_args(fn_args, api_data[version], constructor=False) + ") -> PyResult<" + return_type + "> {\r\n"
+                            pyo3_code += "    fn " + function_name + "(" + self_arg + format_py_args(fn_args, api_data[version], constructor=False) + ") -> " + return_type + " {\r\n"
                             pyo3_code += "        " + format_py_body(module_name, class_name, function_name, fn_args, api_data[version], returns_option, returns_error, constructor=False) + "\r\n"
                             pyo3_code += "    }\r\n"
 
@@ -1165,7 +1183,10 @@ def generate_python_api(api_data, structs_map, functions_map):
                     if "type" in variant.keys():
                         enum_arg_type = "v: " + variant["type"]
                         enum_type = variant["type"]
-                    pyo3_code += "    #[staticmethod]\r\n    fn " + variant_name + "(" + enum_arg_type + ") -> "
+                    if not(len(enum_type) == 0):
+                        pyo3_code += "    #[staticmethod]\r\n    fn " + variant_name + "(" + enum_arg_type + ") -> "
+                    else:
+                        pyo3_code += "    #[classattr]\r\n    fn " + variant_name + "(" + enum_arg_type + ") -> "
                     pyo3_code += prefix + class_name + "EnumWrapper { "
                     pyo3_code += prefix + class_name + "EnumWrapper::" + variant_name
                     if not(len(enum_type) == 0):
@@ -1173,6 +1194,19 @@ def generate_python_api(api_data, structs_map, functions_map):
                     pyo3_code += " }\r\n"
 
                 pyo3_code += "}\r\n"
+
+    errlist_dict = {}
+    for err in errlist:
+        errlist_dict[err] = {}
+
+    pyo3_code += "\r\n"
+    for err in errlist_dict.keys():
+        pyo3_code += "\r\n"
+        pyo3_code += "impl core::convert::From<" + err + "> for PyErr {\r\n"
+        pyo3_code += "    fn from(err: " + err + ") -> PyErr {\r\n"
+        pyo3_code += "        PyOSError::new_err(format!(\"{}\", err))\r\n"
+        pyo3_code += "    }\r\n"
+        pyo3_code += "}\r\n"
 
     pyo3_code += "\r\n"
     pyo3_code += "#[pymodule]\r\n"
@@ -1235,27 +1269,34 @@ def format_py_args(fn_args, api_data, constructor=False):
     if not(len(fn_args_string) == 0):
         fn_args_string = fn_args_string[:-2]
 
-    if not(constructor):
+    if (not(constructor) and not(len(fn_args_string) == 0)):
         fn_args_string = ", " + fn_args_string
 
     return fn_args_string
 
 # Formats the return type for the python DLL
 # returns the (return type, class_is_option, class_throws)
-def format_py_return(return_type, api_data, constructor=False):
+def format_py_return(return_type, api_data, errlist, constructor=False):
     if return_type["type"].startswith("Result"):
         found_c = quick_get_class(api_data, return_type["type"])
-        return (prefix + found_c["enum_fields"][0]["Ok"]["type"], False, True)
+        return_type_ok = prefix + found_c["enum_fields"][0]["Ok"]["type"]
+        return_type_err = prefix + found_c["enum_fields"][1]["Err"]["type"]
+        errlist.append(return_type_err)
+        return ("Result<" + return_type_ok + ", PyErr>", False, return_type_err)
     elif return_type["type"].startswith("Option"):
         found_c = quick_get_class(api_data, return_type["type"])
-        return (prefix + found_c["enum_fields"][1]["Some"]["type"], True, False)
+        return_type_opt = prefix + found_c["enum_fields"][1]["Some"]["type"]
+        return ("Option<" + return_type_opt + ">", True, "")
     elif return_type["type"] == "String":
-        return ("String", False, False)
+        return ("String", False, "")
     else:
         # TODO: PyBuffer / Vec conversion
-        return (prefix + return_type["type"], False, False)
+        if is_primitive_arg(return_type["type"]):
+            return (return_type["type"], False, "")
+        else:
+            return (prefix + return_type["type"], False, "")
 
-def format_py_body(module_name, class_name, function_name, fn_args, api_data, returns_option=False, returns_error=False, constructor=False):
+def format_py_body(module_name, class_name, function_name, fn_args, api_data, returns_option=False, returns_error="", constructor=False):
 
     # convert input "String" into azul-internal AzStrings
     string_conversions = ""
@@ -1278,14 +1319,18 @@ def format_py_body(module_name, class_name, function_name, fn_args, api_data, re
         if returns_option:
             # function returns option: cannot transmute, use match None { ... }
             pass
-        elif returns_error:
+        elif (len(returns_error) > 0):
             # function throws an error: cannot transmute, use match Err { ... }
-            pass
+            fn_body += "let m: " + returns_error + " = unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) };\r\n"
+            fn_body += "        match m {\r\n"
+            fn_body += "            " + returns_error + "::Ok(o) => Ok(o),\r\n"
+            fn_body += "            " + returns_error + "::Err(e) => Err(e.into()),\r\n"
+            fn_body += "        }\r\n"
         else:
-            fn_body += "        Ok(unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) })"
+            fn_body += "unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) }"
         return fn_body
     else:
-        return "Ok(())"
+        return "()"
 
 # Generates the azul/rust/azul.rs file
 def generate_rust_api(api_data, structs_map, functions_map):
