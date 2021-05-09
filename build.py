@@ -1037,6 +1037,7 @@ def generate_python_api(api_data, structs_map, functions_map):
     pyo3_code += "\r\n"
     pyo3_code += "use pyo3::prelude::*;\r\n"
     pyo3_code += "use core::ffi::c_void;\r\n"
+    pyo3_code += "use core::mem;\r\n"
     pyo3_code += "\r\n"
 
     new_struct_map = dict(structs_map)
@@ -1128,19 +1129,22 @@ def generate_python_api(api_data, structs_map, functions_map):
                                 print("wrong format: constructor " + class_name + "::" + constructor_name)
                             fn_args = constructor["fn_args"]
                             py_args = format_py_args(fn_args, api_data[version], constructor=True)
-                            return_type = prefix + class_name
+                            return_type = None
                             return_type_match = ""
-                            returns_option = False
-                            returns_error = ""
+                            returns_option = None
+                            returns_error = None
                             if "returns" in constructor.keys():
                                 return_type_match = constructor["returns"]["type"]
                                 r = format_py_return(constructor["returns"], api_data[version], errlist, constructor=True)
                                 return_type = r[0]
                                 returns_option = r[1]
                                 returns_error = r[2]
+                            return_type_str = prefix + class_name
+                            if not(return_type is None):
+                                return_type_str = return_type
                             pyo3_code += "    #[staticmethod]\r\n"
-                            pyo3_code += "    fn " + constructor_name + "(" + py_args + ") -> " + return_type + " {\r\n"
-                            pyo3_code += "        " + format_py_body(module_name, class_name, constructor_name, fn_args, api_data[version], returns_option, return_type_match, constructor=True) + "\r\n"
+                            pyo3_code += "    fn " + constructor_name + "(" + py_args + ") -> " + return_type_str + " {\r\n"
+                            pyo3_code += "        " + format_py_body(module_name, class_name, constructor_name, fn_args, api_data[version], returns_option, returns_error, constructor=True) + "\r\n"
                             pyo3_code += "    }\r\n"
 
                     if "functions" in struct.keys():
@@ -1158,18 +1162,21 @@ def generate_python_api(api_data, structs_map, functions_map):
                             elif fn_args[0]["self"] == "value":
                                 self_arg = "self" # TODO: possible?
 
-                            return_type = "()" # TODO
+                            return_type = None # TODO
                             return_type_match = ""
-                            returns_option = False
-                            returns_error = ""
+                            returns_option = None
+                            returns_error = None
                             if "returns" in function.keys():
                                 return_type_match = function["returns"]["type"]
                                 r = format_py_return(function["returns"], api_data[version], errlist, constructor=False)
                                 return_type = r[0]
                                 returns_option = r[1]
                                 returns_error = r[2]
-                            pyo3_code += "    fn " + function_name + "(" + self_arg + format_py_args(fn_args, api_data[version], constructor=False) + ") -> " + return_type + " {\r\n"
-                            pyo3_code += "        " + format_py_body(module_name, class_name, function_name, fn_args, api_data[version], returns_option, return_type_match, constructor=False) + "\r\n"
+                            return_type_str = "()"
+                            if not(return_type is None):
+                                return_type_str = return_type
+                            pyo3_code += "    fn " + function_name + "(" + self_arg + format_py_args(fn_args, api_data[version], constructor=False) + ") -> " + return_type_str + " {\r\n"
+                            pyo3_code += "        " + format_py_body(module_name, class_name, function_name, fn_args, api_data[version], returns_option, returns_error, constructor=False) + "\r\n"
                             pyo3_code += "    }\r\n"
 
                     pyo3_code += "}\r\n"
@@ -1292,24 +1299,24 @@ def format_py_return(return_type, api_data, errlist, constructor=False):
         if ret_type_err != "String":
             return_type_err = prefix + ret_type_err
         errlist.append(return_type_err)
-        return ("Result<" + return_type_ok + ", PyErr>", False, return_type_err)
+        return ("Result<" + return_type_ok + ", PyErr>", None, return_type_err)
     elif return_type["type"].startswith("Option"):
         found_c = quick_get_class(api_data, return_type["type"])
         ret_type = found_c["enum_fields"][1]["Some"]["type"]
         return_type_opt = ret_type
         if ret_type != "String":
             return_type_opt = prefix + ret_type
-        return ("Option<" + return_type_opt + ">", True, "")
+        return ("Option<" + return_type_opt + ">", return_type["type"], None)
     elif return_type["type"] == "String":
-        return ("String", False, "")
+        return ("String", None, None)
     else:
         # TODO: PyBuffer / Vec conversion
         if is_primitive_arg(return_type["type"]):
-            return (return_type["type"], False, "")
+            return (return_type["type"], None, None)
         else:
-            return (prefix + return_type["type"], False, "")
+            return (prefix + return_type["type"], None, None)
 
-def format_py_body(module_name, class_name, function_name, fn_args, api_data, returns_option=False, returns_error="", constructor=False):
+def format_py_body(module_name, class_name, function_name, fn_args, api_data, returns_option=None, returns_error=None, constructor=False):
 
     # convert input "String" into azul-internal AzStrings
     string_conversions = ""
@@ -1319,31 +1326,34 @@ def format_py_body(module_name, class_name, function_name, fn_args, api_data, re
         if f_type == "String":
             string_conversions += "let " + f_name + ": AzString = " + f_name + ".into();\r\n        "
 
-    if constructor:
-        fn_args_invoke = ""
-        for f in fn_args:
-            fn_args_invoke += "            mem::transmute(" + list(f.keys())[0] + "),\r\n"
-        if not(len(fn_args_invoke) == 0):
-            fn_args_invoke = "\r\n" + fn_args_invoke
-            fn_args_invoke += "        "
-        fn_body = ""
-        fn_body += string_conversions
+    fn_args_invoke = ""
+    for f in fn_args:
+        fn_args_invoke += "            mem::transmute(" + list(f.keys())[0] + "),\r\n"
+    if not(len(fn_args_invoke) == 0):
+        fn_args_invoke = "\r\n" + fn_args_invoke
+        fn_args_invoke += "        "
+    fn_body = ""
+    fn_body += string_conversions
 
-        if returns_option:
-            # function returns option: cannot transmute, use match None { ... }
-            pass
-        elif (len(returns_error) > 0):
-            # function throws an error: cannot transmute, use match Err { ... }
-            fn_body += "let m: " + returns_error + " = unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) };\r\n"
-            fn_body += "        match m {\r\n"
-            fn_body += "            " + returns_error + "::Ok(o) => Ok(o),\r\n"
-            fn_body += "            " + returns_error + "::Err(e) => Err(e.into()),\r\n"
-            fn_body += "        }\r\n"
-        else:
-            fn_body += "unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) }"
-        return fn_body
+    if (not(returns_option is None)):
+        # function returns option: cannot transmute, use match None { ... }
+        # function throws an error: cannot transmute, use match Err { ... }
+        fn_body += "let m: " + prefix + returns_option + " = unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) };\r\n"
+        fn_body += "        match m {\r\n"
+        fn_body += "            " + prefix + returns_option + "::Some(s) => Some(o),\r\n"
+        fn_body += "            " + prefix + returns_option + "::None => None,\r\n"
+        fn_body += "        }\r\n"
+    elif not(returns_error is None):
+        # function throws an error: cannot transmute, use match Err { ... }
+        fn_body += "let m: " + prefix + returns_error + " = unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) };\r\n"
+        fn_body += "        match m {\r\n"
+        fn_body += "            " + prefix + returns_error + "::Ok(o) => Ok(o),\r\n"
+        fn_body += "            " + prefix + returns_error + "::Err(e) => Err(e.into()),\r\n"
+        fn_body += "        }\r\n"
     else:
-        return "()"
+        fn_body += "unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) }"
+    return fn_body
+
 
 # Generates the azul/rust/azul.rs file
 def generate_rust_api(api_data, structs_map, functions_map):
