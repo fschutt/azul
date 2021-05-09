@@ -547,7 +547,6 @@ pub struct AzTouchState {
 #[repr(C)]
 #[pyclass(name = "LayoutCallback")]
 pub struct AzLayoutCallback {
-    #[pyo3(get, set)]
     pub cb: AzLayoutCallbackType,
 }
 
@@ -558,7 +557,6 @@ pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutCallbackInf
 #[repr(C)]
 #[pyclass(name = "Callback")]
 pub struct AzCallback {
-    #[pyo3(get, set)]
     pub cb: AzCallbackType,
 }
 
@@ -622,7 +620,6 @@ pub enum AzAnimationRepeatCount {
 #[repr(C)]
 #[pyclass(name = "IFrameCallback")]
 pub struct AzIFrameCallback {
-    #[pyo3(get, set)]
     pub cb: AzIFrameCallbackType,
 }
 
@@ -633,7 +630,6 @@ pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, AzIFrameCallbackInf
 #[repr(C)]
 #[pyclass(name = "RenderImageCallback")]
 pub struct AzRenderImageCallback {
-    #[pyo3(get, set)]
     pub cb: AzRenderImageCallbackType,
 }
 
@@ -644,7 +640,6 @@ pub type AzRenderImageCallbackType = extern "C" fn(&mut AzRefAny, AzRenderImageC
 #[repr(C)]
 #[pyclass(name = "TimerCallback")]
 pub struct AzTimerCallback {
-    #[pyo3(get, set)]
     pub cb: AzTimerCallbackType,
 }
 
@@ -658,7 +653,6 @@ pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCall
 #[repr(C)]
 #[pyclass(name = "WriteBackCallback")]
 pub struct AzWriteBackCallback {
-    #[pyo3(get, set)]
     pub cb: AzWriteBackCallbackType,
 }
 
@@ -666,7 +660,6 @@ pub struct AzWriteBackCallback {
 #[repr(C)]
 #[pyclass(name = "ThreadCallback")]
 pub struct AzThreadCallback {
-    #[pyo3(get, set)]
     pub cb: AzThreadCallbackType,
 }
 
@@ -1664,7 +1657,6 @@ pub type AzInstantPtrCloneFnType = extern "C" fn(&AzInstantPtr) -> AzInstantPtr;
 #[repr(C)]
 #[pyclass(name = "InstantPtrCloneFn")]
 pub struct AzInstantPtrCloneFn {
-    #[pyo3(get, set)]
     pub cb: AzInstantPtrCloneFnType,
 }
 
@@ -1675,7 +1667,6 @@ pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut AzInstantPtr);
 #[repr(C)]
 #[pyclass(name = "InstantPtrDestructorFn")]
 pub struct AzInstantPtrDestructorFn {
-    #[pyo3(get, set)]
     pub cb: AzInstantPtrDestructorFnType,
 }
 
@@ -1735,7 +1726,6 @@ pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallba
 #[repr(C)]
 #[pyclass(name = "CreateThreadFn")]
 pub struct AzCreateThreadFn {
-    #[pyo3(get, set)]
     pub cb: AzCreateThreadFnType,
 }
 
@@ -1746,7 +1736,6 @@ pub type AzGetSystemTimeFnType = extern "C" fn() -> AzInstant;
 #[repr(C)]
 #[pyclass(name = "GetSystemTimeFn")]
 pub struct AzGetSystemTimeFn {
-    #[pyo3(get, set)]
     pub cb: AzGetSystemTimeFnType,
 }
 
@@ -1757,7 +1746,6 @@ pub type AzCheckThreadFinishedFnType = extern "C" fn(&c_void) -> bool;
 #[repr(C)]
 #[pyclass(name = "CheckThreadFinishedFn")]
 pub struct AzCheckThreadFinishedFn {
-    #[pyo3(get, set)]
     pub cb: AzCheckThreadFinishedFnType,
 }
 
@@ -1768,7 +1756,6 @@ pub type AzLibrarySendThreadMsgFnType = extern "C" fn(&c_void, AzThreadSendMsg) 
 #[repr(C)]
 #[pyclass(name = "LibrarySendThreadMsgFn")]
 pub struct AzLibrarySendThreadMsgFn {
-    #[pyo3(get, set)]
     pub cb: AzLibrarySendThreadMsgFnType,
 }
 
@@ -1779,7 +1766,6 @@ pub type AzLibraryReceiveThreadMsgFnType = extern "C" fn(&c_void) -> AzOptionThr
 #[repr(C)]
 #[pyclass(name = "LibraryReceiveThreadMsgFn")]
 pub struct AzLibraryReceiveThreadMsgFn {
-    #[pyo3(get, set)]
     pub cb: AzLibraryReceiveThreadMsgFnType,
 }
 
@@ -1790,7 +1776,6 @@ pub type AzThreadRecvFnType = extern "C" fn(&c_void) -> AzOptionThreadSendMsg;
 #[repr(C)]
 #[pyclass(name = "ThreadRecvFn")]
 pub struct AzThreadRecvFn {
-    #[pyo3(get, set)]
     pub cb: AzThreadRecvFnType,
 }
 
@@ -1801,7 +1786,6 @@ pub type AzThreadSendFnType = extern "C" fn(&c_void, AzThreadReceiveMsg) -> bool
 #[repr(C)]
 #[pyclass(name = "ThreadSendFn")]
 pub struct AzThreadSendFn {
-    #[pyo3(get, set)]
     pub cb: AzThreadSendFnType,
 }
 
@@ -1812,7 +1796,6 @@ pub type AzThreadDestructorFnType = extern "C" fn(&mut AzThread);
 #[repr(C)]
 #[pyclass(name = "ThreadDestructorFn")]
 pub struct AzThreadDestructorFn {
-    #[pyo3(get, set)]
     pub cb: AzThreadDestructorFnType,
 }
 
@@ -1823,7 +1806,6 @@ pub type AzThreadReceiverDestructorFnType = extern "C" fn(&mut AzThreadReceiver)
 #[repr(C)]
 #[pyclass(name = "ThreadReceiverDestructorFn")]
 pub struct AzThreadReceiverDestructorFn {
-    #[pyo3(get, set)]
     pub cb: AzThreadReceiverDestructorFnType,
 }
 
@@ -1834,7 +1816,6 @@ pub type AzThreadSenderDestructorFnType = extern "C" fn(&mut AzThreadSender);
 #[repr(C)]
 #[pyclass(name = "ThreadSenderDestructorFn")]
 pub struct AzThreadSenderDestructorFn {
-    #[pyo3(get, set)]
     pub cb: AzThreadSenderDestructorFnType,
 }
 
@@ -8972,23 +8953,23 @@ impl AzApp {
 #[pymethods]
 impl AzAppLogLevelEnumWrapper {
     #[classattr]
-    fn Off() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper::Off }
+    fn Off() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper { inner: AzAppLogLevel::Off } }
     #[classattr]
-    fn Error() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper::Error }
+    fn Error() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper { inner: AzAppLogLevel::Error } }
     #[classattr]
-    fn Warn() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper::Warn }
+    fn Warn() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper { inner: AzAppLogLevel::Warn } }
     #[classattr]
-    fn Info() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper::Info }
+    fn Info() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper { inner: AzAppLogLevel::Info } }
     #[classattr]
-    fn Debug() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper::Debug }
+    fn Debug() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper { inner: AzAppLogLevel::Debug } }
     #[classattr]
-    fn Trace() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper::Trace }
+    fn Trace() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper { inner: AzAppLogLevel::Trace } }
 }
 
 #[pymethods]
 impl AzLayoutSolverVersionEnumWrapper {
     #[classattr]
-    fn March2021() -> AzLayoutSolverVersionEnumWrapper { AzLayoutSolverVersionEnumWrapper::March2021 }
+    fn March2021() -> AzLayoutSolverVersionEnumWrapper { AzLayoutSolverVersionEnumWrapper { inner: AzLayoutSolverVersion::March2021 } }
 }
 
 #[pymethods]
@@ -9006,557 +8987,557 @@ impl AzWindowCreateOptions {
 #[pymethods]
 impl AzVsyncEnumWrapper {
     #[classattr]
-    fn Enabled() -> AzVsyncEnumWrapper { AzVsyncEnumWrapper::Enabled }
+    fn Enabled() -> AzVsyncEnumWrapper { AzVsyncEnumWrapper { inner: AzVsync::Enabled } }
     #[classattr]
-    fn Disabled() -> AzVsyncEnumWrapper { AzVsyncEnumWrapper::Disabled }
+    fn Disabled() -> AzVsyncEnumWrapper { AzVsyncEnumWrapper { inner: AzVsync::Disabled } }
 }
 
 #[pymethods]
 impl AzSrgbEnumWrapper {
     #[classattr]
-    fn Enabled() -> AzSrgbEnumWrapper { AzSrgbEnumWrapper::Enabled }
+    fn Enabled() -> AzSrgbEnumWrapper { AzSrgbEnumWrapper { inner: AzSrgb::Enabled } }
     #[classattr]
-    fn Disabled() -> AzSrgbEnumWrapper { AzSrgbEnumWrapper::Disabled }
+    fn Disabled() -> AzSrgbEnumWrapper { AzSrgbEnumWrapper { inner: AzSrgb::Disabled } }
 }
 
 #[pymethods]
 impl AzHwAccelerationEnumWrapper {
     #[classattr]
-    fn Enabled() -> AzHwAccelerationEnumWrapper { AzHwAccelerationEnumWrapper::Enabled }
+    fn Enabled() -> AzHwAccelerationEnumWrapper { AzHwAccelerationEnumWrapper { inner: AzHwAcceleration::Enabled } }
     #[classattr]
-    fn Disabled() -> AzHwAccelerationEnumWrapper { AzHwAccelerationEnumWrapper::Disabled }
+    fn Disabled() -> AzHwAccelerationEnumWrapper { AzHwAccelerationEnumWrapper { inner: AzHwAcceleration::Disabled } }
 }
 
 #[pymethods]
 impl AzRawWindowHandleEnumWrapper {
     #[staticmethod]
-    fn IOS(v: IOSHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper::IOS(v) }
+    fn IOS(v: IOSHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper { inner: AzRawWindowHandle::IOS(v) } }
     #[staticmethod]
-    fn MacOS(v: MacOSHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper::MacOS(v) }
+    fn MacOS(v: MacOSHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper { inner: AzRawWindowHandle::MacOS(v) } }
     #[staticmethod]
-    fn Xlib(v: XlibHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper::Xlib(v) }
+    fn Xlib(v: XlibHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper { inner: AzRawWindowHandle::Xlib(v) } }
     #[staticmethod]
-    fn Xcb(v: XcbHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper::Xcb(v) }
+    fn Xcb(v: XcbHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper { inner: AzRawWindowHandle::Xcb(v) } }
     #[staticmethod]
-    fn Wayland(v: WaylandHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper::Wayland(v) }
+    fn Wayland(v: WaylandHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper { inner: AzRawWindowHandle::Wayland(v) } }
     #[staticmethod]
-    fn Windows(v: WindowsHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper::Windows(v) }
+    fn Windows(v: WindowsHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper { inner: AzRawWindowHandle::Windows(v) } }
     #[staticmethod]
-    fn Web(v: WebHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper::Web(v) }
+    fn Web(v: WebHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper { inner: AzRawWindowHandle::Web(v) } }
     #[staticmethod]
-    fn Android(v: AndroidHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper::Android(v) }
+    fn Android(v: AndroidHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper { inner: AzRawWindowHandle::Android(v) } }
     #[classattr]
-    fn Unsupported() -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper::Unsupported }
+    fn Unsupported() -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper { inner: AzRawWindowHandle::Unsupported } }
 }
 
 #[pymethods]
 impl AzXWindowTypeEnumWrapper {
     #[classattr]
-    fn Desktop() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::Desktop }
+    fn Desktop() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::Desktop } }
     #[classattr]
-    fn Dock() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::Dock }
+    fn Dock() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::Dock } }
     #[classattr]
-    fn Toolbar() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::Toolbar }
+    fn Toolbar() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::Toolbar } }
     #[classattr]
-    fn Menu() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::Menu }
+    fn Menu() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::Menu } }
     #[classattr]
-    fn Utility() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::Utility }
+    fn Utility() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::Utility } }
     #[classattr]
-    fn Splash() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::Splash }
+    fn Splash() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::Splash } }
     #[classattr]
-    fn Dialog() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::Dialog }
+    fn Dialog() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::Dialog } }
     #[classattr]
-    fn DropdownMenu() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::DropdownMenu }
+    fn DropdownMenu() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::DropdownMenu } }
     #[classattr]
-    fn PopupMenu() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::PopupMenu }
+    fn PopupMenu() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::PopupMenu } }
     #[classattr]
-    fn Tooltip() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::Tooltip }
+    fn Tooltip() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::Tooltip } }
     #[classattr]
-    fn Notification() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::Notification }
+    fn Notification() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::Notification } }
     #[classattr]
-    fn Combo() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::Combo }
+    fn Combo() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::Combo } }
     #[classattr]
-    fn Dnd() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::Dnd }
+    fn Dnd() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::Dnd } }
     #[classattr]
-    fn Normal() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper::Normal }
+    fn Normal() -> AzXWindowTypeEnumWrapper { AzXWindowTypeEnumWrapper { inner: AzXWindowType::Normal } }
 }
 
 #[pymethods]
 impl AzWindowIconEnumWrapper {
     #[staticmethod]
-    fn Small(v: SmallWindowIconBytes) -> AzWindowIconEnumWrapper { AzWindowIconEnumWrapper::Small(v) }
+    fn Small(v: SmallWindowIconBytes) -> AzWindowIconEnumWrapper { AzWindowIconEnumWrapper { inner: AzWindowIcon::Small(v) } }
     #[staticmethod]
-    fn Large(v: LargeWindowIconBytes) -> AzWindowIconEnumWrapper { AzWindowIconEnumWrapper::Large(v) }
+    fn Large(v: LargeWindowIconBytes) -> AzWindowIconEnumWrapper { AzWindowIconEnumWrapper { inner: AzWindowIcon::Large(v) } }
 }
 
 #[pymethods]
 impl AzVirtualKeyCodeEnumWrapper {
     #[classattr]
-    fn Key1() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Key1 }
+    fn Key1() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Key1 } }
     #[classattr]
-    fn Key2() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Key2 }
+    fn Key2() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Key2 } }
     #[classattr]
-    fn Key3() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Key3 }
+    fn Key3() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Key3 } }
     #[classattr]
-    fn Key4() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Key4 }
+    fn Key4() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Key4 } }
     #[classattr]
-    fn Key5() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Key5 }
+    fn Key5() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Key5 } }
     #[classattr]
-    fn Key6() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Key6 }
+    fn Key6() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Key6 } }
     #[classattr]
-    fn Key7() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Key7 }
+    fn Key7() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Key7 } }
     #[classattr]
-    fn Key8() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Key8 }
+    fn Key8() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Key8 } }
     #[classattr]
-    fn Key9() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Key9 }
+    fn Key9() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Key9 } }
     #[classattr]
-    fn Key0() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Key0 }
+    fn Key0() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Key0 } }
     #[classattr]
-    fn A() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::A }
+    fn A() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::A } }
     #[classattr]
-    fn B() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::B }
+    fn B() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::B } }
     #[classattr]
-    fn C() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::C }
+    fn C() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::C } }
     #[classattr]
-    fn D() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::D }
+    fn D() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::D } }
     #[classattr]
-    fn E() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::E }
+    fn E() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::E } }
     #[classattr]
-    fn F() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F }
+    fn F() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F } }
     #[classattr]
-    fn G() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::G }
+    fn G() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::G } }
     #[classattr]
-    fn H() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::H }
+    fn H() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::H } }
     #[classattr]
-    fn I() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::I }
+    fn I() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::I } }
     #[classattr]
-    fn J() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::J }
+    fn J() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::J } }
     #[classattr]
-    fn K() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::K }
+    fn K() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::K } }
     #[classattr]
-    fn L() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::L }
+    fn L() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::L } }
     #[classattr]
-    fn M() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::M }
+    fn M() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::M } }
     #[classattr]
-    fn N() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::N }
+    fn N() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::N } }
     #[classattr]
-    fn O() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::O }
+    fn O() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::O } }
     #[classattr]
-    fn P() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::P }
+    fn P() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::P } }
     #[classattr]
-    fn Q() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Q }
+    fn Q() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Q } }
     #[classattr]
-    fn R() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::R }
+    fn R() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::R } }
     #[classattr]
-    fn S() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::S }
+    fn S() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::S } }
     #[classattr]
-    fn T() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::T }
+    fn T() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::T } }
     #[classattr]
-    fn U() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::U }
+    fn U() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::U } }
     #[classattr]
-    fn V() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::V }
+    fn V() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::V } }
     #[classattr]
-    fn W() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::W }
+    fn W() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::W } }
     #[classattr]
-    fn X() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::X }
+    fn X() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::X } }
     #[classattr]
-    fn Y() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Y }
+    fn Y() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Y } }
     #[classattr]
-    fn Z() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Z }
+    fn Z() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Z } }
     #[classattr]
-    fn Escape() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Escape }
+    fn Escape() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Escape } }
     #[classattr]
-    fn F1() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F1 }
+    fn F1() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F1 } }
     #[classattr]
-    fn F2() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F2 }
+    fn F2() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F2 } }
     #[classattr]
-    fn F3() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F3 }
+    fn F3() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F3 } }
     #[classattr]
-    fn F4() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F4 }
+    fn F4() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F4 } }
     #[classattr]
-    fn F5() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F5 }
+    fn F5() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F5 } }
     #[classattr]
-    fn F6() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F6 }
+    fn F6() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F6 } }
     #[classattr]
-    fn F7() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F7 }
+    fn F7() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F7 } }
     #[classattr]
-    fn F8() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F8 }
+    fn F8() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F8 } }
     #[classattr]
-    fn F9() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F9 }
+    fn F9() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F9 } }
     #[classattr]
-    fn F10() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F10 }
+    fn F10() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F10 } }
     #[classattr]
-    fn F11() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F11 }
+    fn F11() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F11 } }
     #[classattr]
-    fn F12() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F12 }
+    fn F12() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F12 } }
     #[classattr]
-    fn F13() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F13 }
+    fn F13() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F13 } }
     #[classattr]
-    fn F14() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F14 }
+    fn F14() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F14 } }
     #[classattr]
-    fn F15() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F15 }
+    fn F15() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F15 } }
     #[classattr]
-    fn F16() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F16 }
+    fn F16() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F16 } }
     #[classattr]
-    fn F17() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F17 }
+    fn F17() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F17 } }
     #[classattr]
-    fn F18() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F18 }
+    fn F18() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F18 } }
     #[classattr]
-    fn F19() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F19 }
+    fn F19() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F19 } }
     #[classattr]
-    fn F20() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F20 }
+    fn F20() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F20 } }
     #[classattr]
-    fn F21() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F21 }
+    fn F21() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F21 } }
     #[classattr]
-    fn F22() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F22 }
+    fn F22() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F22 } }
     #[classattr]
-    fn F23() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F23 }
+    fn F23() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F23 } }
     #[classattr]
-    fn F24() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::F24 }
+    fn F24() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::F24 } }
     #[classattr]
-    fn Snapshot() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Snapshot }
+    fn Snapshot() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Snapshot } }
     #[classattr]
-    fn Scroll() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Scroll }
+    fn Scroll() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Scroll } }
     #[classattr]
-    fn Pause() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Pause }
+    fn Pause() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Pause } }
     #[classattr]
-    fn Insert() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Insert }
+    fn Insert() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Insert } }
     #[classattr]
-    fn Home() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Home }
+    fn Home() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Home } }
     #[classattr]
-    fn Delete() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Delete }
+    fn Delete() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Delete } }
     #[classattr]
-    fn End() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::End }
+    fn End() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::End } }
     #[classattr]
-    fn PageDown() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::PageDown }
+    fn PageDown() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::PageDown } }
     #[classattr]
-    fn PageUp() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::PageUp }
+    fn PageUp() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::PageUp } }
     #[classattr]
-    fn Left() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Left }
+    fn Left() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Left } }
     #[classattr]
-    fn Up() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Up }
+    fn Up() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Up } }
     #[classattr]
-    fn Right() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Right }
+    fn Right() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Right } }
     #[classattr]
-    fn Down() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Down }
+    fn Down() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Down } }
     #[classattr]
-    fn Back() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Back }
+    fn Back() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Back } }
     #[classattr]
-    fn Return() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Return }
+    fn Return() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Return } }
     #[classattr]
-    fn Space() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Space }
+    fn Space() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Space } }
     #[classattr]
-    fn Compose() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Compose }
+    fn Compose() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Compose } }
     #[classattr]
-    fn Caret() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Caret }
+    fn Caret() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Caret } }
     #[classattr]
-    fn Numlock() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Numlock }
+    fn Numlock() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Numlock } }
     #[classattr]
-    fn Numpad0() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Numpad0 }
+    fn Numpad0() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Numpad0 } }
     #[classattr]
-    fn Numpad1() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Numpad1 }
+    fn Numpad1() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Numpad1 } }
     #[classattr]
-    fn Numpad2() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Numpad2 }
+    fn Numpad2() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Numpad2 } }
     #[classattr]
-    fn Numpad3() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Numpad3 }
+    fn Numpad3() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Numpad3 } }
     #[classattr]
-    fn Numpad4() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Numpad4 }
+    fn Numpad4() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Numpad4 } }
     #[classattr]
-    fn Numpad5() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Numpad5 }
+    fn Numpad5() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Numpad5 } }
     #[classattr]
-    fn Numpad6() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Numpad6 }
+    fn Numpad6() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Numpad6 } }
     #[classattr]
-    fn Numpad7() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Numpad7 }
+    fn Numpad7() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Numpad7 } }
     #[classattr]
-    fn Numpad8() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Numpad8 }
+    fn Numpad8() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Numpad8 } }
     #[classattr]
-    fn Numpad9() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Numpad9 }
+    fn Numpad9() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Numpad9 } }
     #[classattr]
-    fn NumpadAdd() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::NumpadAdd }
+    fn NumpadAdd() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::NumpadAdd } }
     #[classattr]
-    fn NumpadDivide() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::NumpadDivide }
+    fn NumpadDivide() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::NumpadDivide } }
     #[classattr]
-    fn NumpadDecimal() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::NumpadDecimal }
+    fn NumpadDecimal() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::NumpadDecimal } }
     #[classattr]
-    fn NumpadComma() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::NumpadComma }
+    fn NumpadComma() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::NumpadComma } }
     #[classattr]
-    fn NumpadEnter() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::NumpadEnter }
+    fn NumpadEnter() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::NumpadEnter } }
     #[classattr]
-    fn NumpadEquals() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::NumpadEquals }
+    fn NumpadEquals() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::NumpadEquals } }
     #[classattr]
-    fn NumpadMultiply() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::NumpadMultiply }
+    fn NumpadMultiply() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::NumpadMultiply } }
     #[classattr]
-    fn NumpadSubtract() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::NumpadSubtract }
+    fn NumpadSubtract() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::NumpadSubtract } }
     #[classattr]
-    fn AbntC1() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::AbntC1 }
+    fn AbntC1() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::AbntC1 } }
     #[classattr]
-    fn AbntC2() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::AbntC2 }
+    fn AbntC2() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::AbntC2 } }
     #[classattr]
-    fn Apostrophe() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Apostrophe }
+    fn Apostrophe() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Apostrophe } }
     #[classattr]
-    fn Apps() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Apps }
+    fn Apps() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Apps } }
     #[classattr]
-    fn Asterisk() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Asterisk }
+    fn Asterisk() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Asterisk } }
     #[classattr]
-    fn At() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::At }
+    fn At() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::At } }
     #[classattr]
-    fn Ax() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Ax }
+    fn Ax() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Ax } }
     #[classattr]
-    fn Backslash() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Backslash }
+    fn Backslash() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Backslash } }
     #[classattr]
-    fn Calculator() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Calculator }
+    fn Calculator() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Calculator } }
     #[classattr]
-    fn Capital() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Capital }
+    fn Capital() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Capital } }
     #[classattr]
-    fn Colon() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Colon }
+    fn Colon() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Colon } }
     #[classattr]
-    fn Comma() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Comma }
+    fn Comma() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Comma } }
     #[classattr]
-    fn Convert() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Convert }
+    fn Convert() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Convert } }
     #[classattr]
-    fn Equals() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Equals }
+    fn Equals() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Equals } }
     #[classattr]
-    fn Grave() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Grave }
+    fn Grave() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Grave } }
     #[classattr]
-    fn Kana() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Kana }
+    fn Kana() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Kana } }
     #[classattr]
-    fn Kanji() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Kanji }
+    fn Kanji() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Kanji } }
     #[classattr]
-    fn LAlt() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::LAlt }
+    fn LAlt() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::LAlt } }
     #[classattr]
-    fn LBracket() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::LBracket }
+    fn LBracket() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::LBracket } }
     #[classattr]
-    fn LControl() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::LControl }
+    fn LControl() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::LControl } }
     #[classattr]
-    fn LShift() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::LShift }
+    fn LShift() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::LShift } }
     #[classattr]
-    fn LWin() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::LWin }
+    fn LWin() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::LWin } }
     #[classattr]
-    fn Mail() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Mail }
+    fn Mail() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Mail } }
     #[classattr]
-    fn MediaSelect() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::MediaSelect }
+    fn MediaSelect() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::MediaSelect } }
     #[classattr]
-    fn MediaStop() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::MediaStop }
+    fn MediaStop() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::MediaStop } }
     #[classattr]
-    fn Minus() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Minus }
+    fn Minus() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Minus } }
     #[classattr]
-    fn Mute() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Mute }
+    fn Mute() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Mute } }
     #[classattr]
-    fn MyComputer() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::MyComputer }
+    fn MyComputer() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::MyComputer } }
     #[classattr]
-    fn NavigateForward() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::NavigateForward }
+    fn NavigateForward() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::NavigateForward } }
     #[classattr]
-    fn NavigateBackward() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::NavigateBackward }
+    fn NavigateBackward() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::NavigateBackward } }
     #[classattr]
-    fn NextTrack() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::NextTrack }
+    fn NextTrack() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::NextTrack } }
     #[classattr]
-    fn NoConvert() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::NoConvert }
+    fn NoConvert() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::NoConvert } }
     #[classattr]
-    fn OEM102() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::OEM102 }
+    fn OEM102() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::OEM102 } }
     #[classattr]
-    fn Period() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Period }
+    fn Period() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Period } }
     #[classattr]
-    fn PlayPause() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::PlayPause }
+    fn PlayPause() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::PlayPause } }
     #[classattr]
-    fn Plus() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Plus }
+    fn Plus() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Plus } }
     #[classattr]
-    fn Power() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Power }
+    fn Power() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Power } }
     #[classattr]
-    fn PrevTrack() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::PrevTrack }
+    fn PrevTrack() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::PrevTrack } }
     #[classattr]
-    fn RAlt() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::RAlt }
+    fn RAlt() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::RAlt } }
     #[classattr]
-    fn RBracket() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::RBracket }
+    fn RBracket() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::RBracket } }
     #[classattr]
-    fn RControl() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::RControl }
+    fn RControl() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::RControl } }
     #[classattr]
-    fn RShift() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::RShift }
+    fn RShift() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::RShift } }
     #[classattr]
-    fn RWin() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::RWin }
+    fn RWin() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::RWin } }
     #[classattr]
-    fn Semicolon() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Semicolon }
+    fn Semicolon() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Semicolon } }
     #[classattr]
-    fn Slash() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Slash }
+    fn Slash() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Slash } }
     #[classattr]
-    fn Sleep() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Sleep }
+    fn Sleep() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Sleep } }
     #[classattr]
-    fn Stop() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Stop }
+    fn Stop() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Stop } }
     #[classattr]
-    fn Sysrq() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Sysrq }
+    fn Sysrq() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Sysrq } }
     #[classattr]
-    fn Tab() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Tab }
+    fn Tab() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Tab } }
     #[classattr]
-    fn Underline() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Underline }
+    fn Underline() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Underline } }
     #[classattr]
-    fn Unlabeled() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Unlabeled }
+    fn Unlabeled() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Unlabeled } }
     #[classattr]
-    fn VolumeDown() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::VolumeDown }
+    fn VolumeDown() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::VolumeDown } }
     #[classattr]
-    fn VolumeUp() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::VolumeUp }
+    fn VolumeUp() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::VolumeUp } }
     #[classattr]
-    fn Wake() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Wake }
+    fn Wake() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Wake } }
     #[classattr]
-    fn WebBack() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::WebBack }
+    fn WebBack() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::WebBack } }
     #[classattr]
-    fn WebFavorites() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::WebFavorites }
+    fn WebFavorites() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::WebFavorites } }
     #[classattr]
-    fn WebForward() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::WebForward }
+    fn WebForward() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::WebForward } }
     #[classattr]
-    fn WebHome() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::WebHome }
+    fn WebHome() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::WebHome } }
     #[classattr]
-    fn WebRefresh() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::WebRefresh }
+    fn WebRefresh() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::WebRefresh } }
     #[classattr]
-    fn WebSearch() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::WebSearch }
+    fn WebSearch() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::WebSearch } }
     #[classattr]
-    fn WebStop() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::WebStop }
+    fn WebStop() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::WebStop } }
     #[classattr]
-    fn Yen() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Yen }
+    fn Yen() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Yen } }
     #[classattr]
-    fn Copy() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Copy }
+    fn Copy() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Copy } }
     #[classattr]
-    fn Paste() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Paste }
+    fn Paste() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Paste } }
     #[classattr]
-    fn Cut() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper::Cut }
+    fn Cut() -> AzVirtualKeyCodeEnumWrapper { AzVirtualKeyCodeEnumWrapper { inner: AzVirtualKeyCode::Cut } }
 }
 
 #[pymethods]
 impl AzAcceleratorKeyEnumWrapper {
     #[classattr]
-    fn Ctrl() -> AzAcceleratorKeyEnumWrapper { AzAcceleratorKeyEnumWrapper::Ctrl }
+    fn Ctrl() -> AzAcceleratorKeyEnumWrapper { AzAcceleratorKeyEnumWrapper { inner: AzAcceleratorKey::Ctrl } }
     #[classattr]
-    fn Alt() -> AzAcceleratorKeyEnumWrapper { AzAcceleratorKeyEnumWrapper::Alt }
+    fn Alt() -> AzAcceleratorKeyEnumWrapper { AzAcceleratorKeyEnumWrapper { inner: AzAcceleratorKey::Alt } }
     #[classattr]
-    fn Shift() -> AzAcceleratorKeyEnumWrapper { AzAcceleratorKeyEnumWrapper::Shift }
+    fn Shift() -> AzAcceleratorKeyEnumWrapper { AzAcceleratorKeyEnumWrapper { inner: AzAcceleratorKey::Shift } }
     #[staticmethod]
-    fn Key(v: VirtualKeyCode) -> AzAcceleratorKeyEnumWrapper { AzAcceleratorKeyEnumWrapper::Key(v) }
+    fn Key(v: VirtualKeyCode) -> AzAcceleratorKeyEnumWrapper { AzAcceleratorKeyEnumWrapper { inner: AzAcceleratorKey::Key(v) } }
 }
 
 #[pymethods]
 impl AzMouseCursorTypeEnumWrapper {
     #[classattr]
-    fn Default() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Default }
+    fn Default() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Default } }
     #[classattr]
-    fn Crosshair() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Crosshair }
+    fn Crosshair() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Crosshair } }
     #[classattr]
-    fn Hand() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Hand }
+    fn Hand() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Hand } }
     #[classattr]
-    fn Arrow() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Arrow }
+    fn Arrow() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Arrow } }
     #[classattr]
-    fn Move() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Move }
+    fn Move() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Move } }
     #[classattr]
-    fn Text() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Text }
+    fn Text() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Text } }
     #[classattr]
-    fn Wait() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Wait }
+    fn Wait() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Wait } }
     #[classattr]
-    fn Help() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Help }
+    fn Help() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Help } }
     #[classattr]
-    fn Progress() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Progress }
+    fn Progress() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Progress } }
     #[classattr]
-    fn NotAllowed() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::NotAllowed }
+    fn NotAllowed() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::NotAllowed } }
     #[classattr]
-    fn ContextMenu() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::ContextMenu }
+    fn ContextMenu() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::ContextMenu } }
     #[classattr]
-    fn Cell() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Cell }
+    fn Cell() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Cell } }
     #[classattr]
-    fn VerticalText() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::VerticalText }
+    fn VerticalText() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::VerticalText } }
     #[classattr]
-    fn Alias() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Alias }
+    fn Alias() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Alias } }
     #[classattr]
-    fn Copy() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Copy }
+    fn Copy() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Copy } }
     #[classattr]
-    fn NoDrop() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::NoDrop }
+    fn NoDrop() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::NoDrop } }
     #[classattr]
-    fn Grab() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Grab }
+    fn Grab() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Grab } }
     #[classattr]
-    fn Grabbing() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::Grabbing }
+    fn Grabbing() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::Grabbing } }
     #[classattr]
-    fn AllScroll() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::AllScroll }
+    fn AllScroll() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::AllScroll } }
     #[classattr]
-    fn ZoomIn() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::ZoomIn }
+    fn ZoomIn() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::ZoomIn } }
     #[classattr]
-    fn ZoomOut() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::ZoomOut }
+    fn ZoomOut() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::ZoomOut } }
     #[classattr]
-    fn EResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::EResize }
+    fn EResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::EResize } }
     #[classattr]
-    fn NResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::NResize }
+    fn NResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::NResize } }
     #[classattr]
-    fn NeResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::NeResize }
+    fn NeResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::NeResize } }
     #[classattr]
-    fn NwResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::NwResize }
+    fn NwResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::NwResize } }
     #[classattr]
-    fn SResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::SResize }
+    fn SResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::SResize } }
     #[classattr]
-    fn SeResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::SeResize }
+    fn SeResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::SeResize } }
     #[classattr]
-    fn SwResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::SwResize }
+    fn SwResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::SwResize } }
     #[classattr]
-    fn WResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::WResize }
+    fn WResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::WResize } }
     #[classattr]
-    fn EwResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::EwResize }
+    fn EwResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::EwResize } }
     #[classattr]
-    fn NsResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::NsResize }
+    fn NsResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::NsResize } }
     #[classattr]
-    fn NeswResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::NeswResize }
+    fn NeswResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::NeswResize } }
     #[classattr]
-    fn NwseResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::NwseResize }
+    fn NwseResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::NwseResize } }
     #[classattr]
-    fn ColResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::ColResize }
+    fn ColResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::ColResize } }
     #[classattr]
-    fn RowResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper::RowResize }
+    fn RowResize() -> AzMouseCursorTypeEnumWrapper { AzMouseCursorTypeEnumWrapper { inner: AzMouseCursorType::RowResize } }
 }
 
 #[pymethods]
 impl AzCursorPositionEnumWrapper {
     #[classattr]
-    fn OutOfWindow() -> AzCursorPositionEnumWrapper { AzCursorPositionEnumWrapper::OutOfWindow }
+    fn OutOfWindow() -> AzCursorPositionEnumWrapper { AzCursorPositionEnumWrapper { inner: AzCursorPosition::OutOfWindow } }
     #[classattr]
-    fn Uninitialized() -> AzCursorPositionEnumWrapper { AzCursorPositionEnumWrapper::Uninitialized }
+    fn Uninitialized() -> AzCursorPositionEnumWrapper { AzCursorPositionEnumWrapper { inner: AzCursorPosition::Uninitialized } }
     #[staticmethod]
-    fn InWindow(v: LogicalPosition) -> AzCursorPositionEnumWrapper { AzCursorPositionEnumWrapper::InWindow(v) }
+    fn InWindow(v: LogicalPosition) -> AzCursorPositionEnumWrapper { AzCursorPositionEnumWrapper { inner: AzCursorPosition::InWindow(v) } }
 }
 
 #[pymethods]
 impl AzRendererTypeEnumWrapper {
     #[classattr]
-    fn Hardware() -> AzRendererTypeEnumWrapper { AzRendererTypeEnumWrapper::Hardware }
+    fn Hardware() -> AzRendererTypeEnumWrapper { AzRendererTypeEnumWrapper { inner: AzRendererType::Hardware } }
     #[classattr]
-    fn Software() -> AzRendererTypeEnumWrapper { AzRendererTypeEnumWrapper::Software }
+    fn Software() -> AzRendererTypeEnumWrapper { AzRendererTypeEnumWrapper { inner: AzRendererType::Software } }
 }
 
 #[pymethods]
 impl AzFullScreenModeEnumWrapper {
     #[classattr]
-    fn SlowFullScreen() -> AzFullScreenModeEnumWrapper { AzFullScreenModeEnumWrapper::SlowFullScreen }
+    fn SlowFullScreen() -> AzFullScreenModeEnumWrapper { AzFullScreenModeEnumWrapper { inner: AzFullScreenMode::SlowFullScreen } }
     #[classattr]
-    fn FastFullScreen() -> AzFullScreenModeEnumWrapper { AzFullScreenModeEnumWrapper::FastFullScreen }
+    fn FastFullScreen() -> AzFullScreenModeEnumWrapper { AzFullScreenModeEnumWrapper { inner: AzFullScreenMode::FastFullScreen } }
     #[classattr]
-    fn SlowWindowed() -> AzFullScreenModeEnumWrapper { AzFullScreenModeEnumWrapper::SlowWindowed }
+    fn SlowWindowed() -> AzFullScreenModeEnumWrapper { AzFullScreenModeEnumWrapper { inner: AzFullScreenMode::SlowWindowed } }
     #[classattr]
-    fn FastWindowed() -> AzFullScreenModeEnumWrapper { AzFullScreenModeEnumWrapper::FastWindowed }
+    fn FastWindowed() -> AzFullScreenModeEnumWrapper { AzFullScreenModeEnumWrapper { inner: AzFullScreenMode::FastWindowed } }
 }
 
 #[pymethods]
 impl AzWindowThemeEnumWrapper {
     #[classattr]
-    fn DarkMode() -> AzWindowThemeEnumWrapper { AzWindowThemeEnumWrapper::DarkMode }
+    fn DarkMode() -> AzWindowThemeEnumWrapper { AzWindowThemeEnumWrapper { inner: AzWindowTheme::DarkMode } }
     #[classattr]
-    fn LightMode() -> AzWindowThemeEnumWrapper { AzWindowThemeEnumWrapper::LightMode }
+    fn LightMode() -> AzWindowThemeEnumWrapper { AzWindowThemeEnumWrapper { inner: AzWindowTheme::LightMode } }
 }
 
 #[pymethods]
 impl AzWindowPositionEnumWrapper {
     #[classattr]
-    fn Uninitialized() -> AzWindowPositionEnumWrapper { AzWindowPositionEnumWrapper::Uninitialized }
+    fn Uninitialized() -> AzWindowPositionEnumWrapper { AzWindowPositionEnumWrapper { inner: AzWindowPosition::Uninitialized } }
     #[staticmethod]
-    fn Initialized(v: PhysicalPositionI32) -> AzWindowPositionEnumWrapper { AzWindowPositionEnumWrapper::Initialized(v) }
+    fn Initialized(v: PhysicalPositionI32) -> AzWindowPositionEnumWrapper { AzWindowPositionEnumWrapper { inner: AzWindowPosition::Initialized(v) } }
 }
 
 #[pymethods]
 impl AzImePositionEnumWrapper {
     #[classattr]
-    fn Uninitialized() -> AzImePositionEnumWrapper { AzImePositionEnumWrapper::Uninitialized }
+    fn Uninitialized() -> AzImePositionEnumWrapper { AzImePositionEnumWrapper { inner: AzImePosition::Uninitialized } }
     #[staticmethod]
-    fn Initialized(v: LogicalPosition) -> AzImePositionEnumWrapper { AzImePositionEnumWrapper::Initialized(v) }
+    fn Initialized(v: LogicalPosition) -> AzImePositionEnumWrapper { AzImePositionEnumWrapper { inner: AzImePosition::Initialized(v) } }
 }
 
 #[pymethods]
@@ -9611,7 +9592,7 @@ impl AzCallbackInfo {
     fn get_dataset(&mut self, node_id: AzDomNodeId) -> Option<AzRefAny> {
         ()
     }
-    fn get_string_contents(&self, node_id: AzDomNodeId) -> Option<AzString> {
+    fn get_string_contents(&self, node_id: AzDomNodeId) -> Option<String> {
         ()
     }
     fn get_inline_text(&self, node_id: AzDomNodeId) -> Option<AzInlineText> {
@@ -9706,23 +9687,23 @@ impl AzCallbackInfo {
 #[pymethods]
 impl AzUpdateScreenEnumWrapper {
     #[classattr]
-    fn DoNothing() -> AzUpdateScreenEnumWrapper { AzUpdateScreenEnumWrapper::DoNothing }
+    fn DoNothing() -> AzUpdateScreenEnumWrapper { AzUpdateScreenEnumWrapper { inner: AzUpdateScreen::DoNothing } }
     #[classattr]
-    fn RegenerateStyledDomForCurrentWindow() -> AzUpdateScreenEnumWrapper { AzUpdateScreenEnumWrapper::RegenerateStyledDomForCurrentWindow }
+    fn RegenerateStyledDomForCurrentWindow() -> AzUpdateScreenEnumWrapper { AzUpdateScreenEnumWrapper { inner: AzUpdateScreen::RegenerateStyledDomForCurrentWindow } }
     #[classattr]
-    fn RegenerateStyledDomForAllWindows() -> AzUpdateScreenEnumWrapper { AzUpdateScreenEnumWrapper::RegenerateStyledDomForAllWindows }
+    fn RegenerateStyledDomForAllWindows() -> AzUpdateScreenEnumWrapper { AzUpdateScreenEnumWrapper { inner: AzUpdateScreen::RegenerateStyledDomForAllWindows } }
 }
 
 #[pymethods]
 impl AzPositionInfoEnumWrapper {
     #[staticmethod]
-    fn Static(v: PositionInfoInner) -> AzPositionInfoEnumWrapper { AzPositionInfoEnumWrapper::Static(v) }
+    fn Static(v: PositionInfoInner) -> AzPositionInfoEnumWrapper { AzPositionInfoEnumWrapper { inner: AzPositionInfo::Static(v) } }
     #[staticmethod]
-    fn Fixed(v: PositionInfoInner) -> AzPositionInfoEnumWrapper { AzPositionInfoEnumWrapper::Fixed(v) }
+    fn Fixed(v: PositionInfoInner) -> AzPositionInfoEnumWrapper { AzPositionInfoEnumWrapper { inner: AzPositionInfo::Fixed(v) } }
     #[staticmethod]
-    fn Absolute(v: PositionInfoInner) -> AzPositionInfoEnumWrapper { AzPositionInfoEnumWrapper::Absolute(v) }
+    fn Absolute(v: PositionInfoInner) -> AzPositionInfoEnumWrapper { AzPositionInfoEnumWrapper { inner: AzPositionInfo::Absolute(v) } }
     #[staticmethod]
-    fn Relative(v: PositionInfoInner) -> AzPositionInfoEnumWrapper { AzPositionInfoEnumWrapper::Relative(v) }
+    fn Relative(v: PositionInfoInner) -> AzPositionInfoEnumWrapper { AzPositionInfoEnumWrapper { inner: AzPositionInfo::Relative(v) } }
 }
 
 #[pymethods]
@@ -9748,65 +9729,65 @@ impl AzInlineText {
 #[pymethods]
 impl AzInlineWordEnumWrapper {
     #[classattr]
-    fn Tab() -> AzInlineWordEnumWrapper { AzInlineWordEnumWrapper::Tab }
+    fn Tab() -> AzInlineWordEnumWrapper { AzInlineWordEnumWrapper { inner: AzInlineWord::Tab } }
     #[classattr]
-    fn Return() -> AzInlineWordEnumWrapper { AzInlineWordEnumWrapper::Return }
+    fn Return() -> AzInlineWordEnumWrapper { AzInlineWordEnumWrapper { inner: AzInlineWord::Return } }
     #[classattr]
-    fn Space() -> AzInlineWordEnumWrapper { AzInlineWordEnumWrapper::Space }
+    fn Space() -> AzInlineWordEnumWrapper { AzInlineWordEnumWrapper { inner: AzInlineWord::Space } }
     #[staticmethod]
-    fn Word(v: InlineTextContents) -> AzInlineWordEnumWrapper { AzInlineWordEnumWrapper::Word(v) }
+    fn Word(v: InlineTextContents) -> AzInlineWordEnumWrapper { AzInlineWordEnumWrapper { inner: AzInlineWord::Word(v) } }
 }
 
 #[pymethods]
 impl AzFocusTargetEnumWrapper {
     #[staticmethod]
-    fn Id(v: DomNodeId) -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper::Id(v) }
+    fn Id(v: DomNodeId) -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper { inner: AzFocusTarget::Id(v) } }
     #[staticmethod]
-    fn Path(v: FocusTargetPath) -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper::Path(v) }
+    fn Path(v: FocusTargetPath) -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper { inner: AzFocusTarget::Path(v) } }
     #[classattr]
-    fn Previous() -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper::Previous }
+    fn Previous() -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper { inner: AzFocusTarget::Previous } }
     #[classattr]
-    fn Next() -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper::Next }
+    fn Next() -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper { inner: AzFocusTarget::Next } }
     #[classattr]
-    fn First() -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper::First }
+    fn First() -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper { inner: AzFocusTarget::First } }
     #[classattr]
-    fn Last() -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper::Last }
+    fn Last() -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper { inner: AzFocusTarget::Last } }
     #[classattr]
-    fn NoFocus() -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper::NoFocus }
+    fn NoFocus() -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper { inner: AzFocusTarget::NoFocus } }
 }
 
 #[pymethods]
 impl AzAnimationRepeatEnumWrapper {
     #[classattr]
-    fn NoRepeat() -> AzAnimationRepeatEnumWrapper { AzAnimationRepeatEnumWrapper::NoRepeat }
+    fn NoRepeat() -> AzAnimationRepeatEnumWrapper { AzAnimationRepeatEnumWrapper { inner: AzAnimationRepeat::NoRepeat } }
     #[classattr]
-    fn Loop() -> AzAnimationRepeatEnumWrapper { AzAnimationRepeatEnumWrapper::Loop }
+    fn Loop() -> AzAnimationRepeatEnumWrapper { AzAnimationRepeatEnumWrapper { inner: AzAnimationRepeat::Loop } }
     #[classattr]
-    fn PingPong() -> AzAnimationRepeatEnumWrapper { AzAnimationRepeatEnumWrapper::PingPong }
+    fn PingPong() -> AzAnimationRepeatEnumWrapper { AzAnimationRepeatEnumWrapper { inner: AzAnimationRepeat::PingPong } }
 }
 
 #[pymethods]
 impl AzAnimationRepeatCountEnumWrapper {
     #[staticmethod]
-    fn Times(v: usize) -> AzAnimationRepeatCountEnumWrapper { AzAnimationRepeatCountEnumWrapper::Times(v) }
+    fn Times(v: usize) -> AzAnimationRepeatCountEnumWrapper { AzAnimationRepeatCountEnumWrapper { inner: AzAnimationRepeatCount::Times(v) } }
     #[classattr]
-    fn Infinite() -> AzAnimationRepeatCountEnumWrapper { AzAnimationRepeatCountEnumWrapper::Infinite }
+    fn Infinite() -> AzAnimationRepeatCountEnumWrapper { AzAnimationRepeatCountEnumWrapper { inner: AzAnimationRepeatCount::Infinite } }
 }
 
 #[pymethods]
 impl AzAnimationEasingEnumWrapper {
     #[classattr]
-    fn Ease() -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper::Ease }
+    fn Ease() -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper { inner: AzAnimationEasing::Ease } }
     #[classattr]
-    fn Linear() -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper::Linear }
+    fn Linear() -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper { inner: AzAnimationEasing::Linear } }
     #[classattr]
-    fn EaseIn() -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper::EaseIn }
+    fn EaseIn() -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper { inner: AzAnimationEasing::EaseIn } }
     #[classattr]
-    fn EaseOut() -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper::EaseOut }
+    fn EaseOut() -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper { inner: AzAnimationEasing::EaseOut } }
     #[classattr]
-    fn EaseInOut() -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper::EaseInOut }
+    fn EaseInOut() -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper { inner: AzAnimationEasing::EaseInOut } }
     #[staticmethod]
-    fn CubicBezier(v: SvgCubicCurve) -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper::CubicBezier(v) }
+    fn CubicBezier(v: SvgCubicCurve) -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper { inner: AzAnimationEasing::CubicBezier(v) } }
 }
 
 #[pymethods]
@@ -9901,361 +9882,361 @@ impl AzDom {
 #[pymethods]
 impl AzNodeTypeEnumWrapper {
     #[classattr]
-    fn Body() -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper::Body }
+    fn Body() -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper { inner: AzNodeType::Body } }
     #[classattr]
-    fn Div() -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper::Div }
+    fn Div() -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper { inner: AzNodeType::Div } }
     #[classattr]
-    fn Br() -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper::Br }
+    fn Br() -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper { inner: AzNodeType::Br } }
     #[staticmethod]
-    fn Text(v: String) -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper::Text(v) }
+    fn Text(v: String) -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper { inner: AzNodeType::Text(v) } }
     #[staticmethod]
-    fn Image(v: ImageRef) -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper::Image(v) }
+    fn Image(v: ImageRef) -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper { inner: AzNodeType::Image(v) } }
     #[staticmethod]
-    fn IFrame(v: IFrameNode) -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper::IFrame(v) }
+    fn IFrame(v: IFrameNode) -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper { inner: AzNodeType::IFrame(v) } }
 }
 
 #[pymethods]
 impl AzOnEnumWrapper {
     #[classattr]
-    fn MouseOver() -> AzOnEnumWrapper { AzOnEnumWrapper::MouseOver }
+    fn MouseOver() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::MouseOver } }
     #[classattr]
-    fn MouseDown() -> AzOnEnumWrapper { AzOnEnumWrapper::MouseDown }
+    fn MouseDown() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::MouseDown } }
     #[classattr]
-    fn LeftMouseDown() -> AzOnEnumWrapper { AzOnEnumWrapper::LeftMouseDown }
+    fn LeftMouseDown() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::LeftMouseDown } }
     #[classattr]
-    fn MiddleMouseDown() -> AzOnEnumWrapper { AzOnEnumWrapper::MiddleMouseDown }
+    fn MiddleMouseDown() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::MiddleMouseDown } }
     #[classattr]
-    fn RightMouseDown() -> AzOnEnumWrapper { AzOnEnumWrapper::RightMouseDown }
+    fn RightMouseDown() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::RightMouseDown } }
     #[classattr]
-    fn MouseUp() -> AzOnEnumWrapper { AzOnEnumWrapper::MouseUp }
+    fn MouseUp() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::MouseUp } }
     #[classattr]
-    fn LeftMouseUp() -> AzOnEnumWrapper { AzOnEnumWrapper::LeftMouseUp }
+    fn LeftMouseUp() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::LeftMouseUp } }
     #[classattr]
-    fn MiddleMouseUp() -> AzOnEnumWrapper { AzOnEnumWrapper::MiddleMouseUp }
+    fn MiddleMouseUp() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::MiddleMouseUp } }
     #[classattr]
-    fn RightMouseUp() -> AzOnEnumWrapper { AzOnEnumWrapper::RightMouseUp }
+    fn RightMouseUp() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::RightMouseUp } }
     #[classattr]
-    fn MouseEnter() -> AzOnEnumWrapper { AzOnEnumWrapper::MouseEnter }
+    fn MouseEnter() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::MouseEnter } }
     #[classattr]
-    fn MouseLeave() -> AzOnEnumWrapper { AzOnEnumWrapper::MouseLeave }
+    fn MouseLeave() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::MouseLeave } }
     #[classattr]
-    fn Scroll() -> AzOnEnumWrapper { AzOnEnumWrapper::Scroll }
+    fn Scroll() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::Scroll } }
     #[classattr]
-    fn TextInput() -> AzOnEnumWrapper { AzOnEnumWrapper::TextInput }
+    fn TextInput() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::TextInput } }
     #[classattr]
-    fn VirtualKeyDown() -> AzOnEnumWrapper { AzOnEnumWrapper::VirtualKeyDown }
+    fn VirtualKeyDown() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::VirtualKeyDown } }
     #[classattr]
-    fn VirtualKeyUp() -> AzOnEnumWrapper { AzOnEnumWrapper::VirtualKeyUp }
+    fn VirtualKeyUp() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::VirtualKeyUp } }
     #[classattr]
-    fn HoveredFile() -> AzOnEnumWrapper { AzOnEnumWrapper::HoveredFile }
+    fn HoveredFile() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::HoveredFile } }
     #[classattr]
-    fn DroppedFile() -> AzOnEnumWrapper { AzOnEnumWrapper::DroppedFile }
+    fn DroppedFile() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::DroppedFile } }
     #[classattr]
-    fn HoveredFileCancelled() -> AzOnEnumWrapper { AzOnEnumWrapper::HoveredFileCancelled }
+    fn HoveredFileCancelled() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::HoveredFileCancelled } }
     #[classattr]
-    fn FocusReceived() -> AzOnEnumWrapper { AzOnEnumWrapper::FocusReceived }
+    fn FocusReceived() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::FocusReceived } }
     #[classattr]
-    fn FocusLost() -> AzOnEnumWrapper { AzOnEnumWrapper::FocusLost }
+    fn FocusLost() -> AzOnEnumWrapper { AzOnEnumWrapper { inner: AzOn::FocusLost } }
 }
 
 #[pymethods]
 impl AzEventFilterEnumWrapper {
     #[staticmethod]
-    fn Hover(v: HoverEventFilter) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper::Hover(v) }
+    fn Hover(v: HoverEventFilter) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper { inner: AzEventFilter::Hover(v) } }
     #[staticmethod]
-    fn Not(v: NotEventFilter) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper::Not(v) }
+    fn Not(v: NotEventFilter) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper { inner: AzEventFilter::Not(v) } }
     #[staticmethod]
-    fn Focus(v: FocusEventFilter) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper::Focus(v) }
+    fn Focus(v: FocusEventFilter) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper { inner: AzEventFilter::Focus(v) } }
     #[staticmethod]
-    fn Window(v: WindowEventFilter) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper::Window(v) }
+    fn Window(v: WindowEventFilter) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper { inner: AzEventFilter::Window(v) } }
     #[staticmethod]
-    fn Component(v: ComponentEventFilter) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper::Component(v) }
+    fn Component(v: ComponentEventFilter) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper { inner: AzEventFilter::Component(v) } }
     #[staticmethod]
-    fn Application(v: ApplicationEventFilter) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper::Application(v) }
+    fn Application(v: ApplicationEventFilter) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper { inner: AzEventFilter::Application(v) } }
 }
 
 #[pymethods]
 impl AzHoverEventFilterEnumWrapper {
     #[classattr]
-    fn MouseOver() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::MouseOver }
+    fn MouseOver() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::MouseOver } }
     #[classattr]
-    fn MouseDown() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::MouseDown }
+    fn MouseDown() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::MouseDown } }
     #[classattr]
-    fn LeftMouseDown() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::LeftMouseDown }
+    fn LeftMouseDown() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::LeftMouseDown } }
     #[classattr]
-    fn RightMouseDown() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::RightMouseDown }
+    fn RightMouseDown() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::RightMouseDown } }
     #[classattr]
-    fn MiddleMouseDown() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::MiddleMouseDown }
+    fn MiddleMouseDown() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::MiddleMouseDown } }
     #[classattr]
-    fn MouseUp() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::MouseUp }
+    fn MouseUp() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::MouseUp } }
     #[classattr]
-    fn LeftMouseUp() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::LeftMouseUp }
+    fn LeftMouseUp() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::LeftMouseUp } }
     #[classattr]
-    fn RightMouseUp() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::RightMouseUp }
+    fn RightMouseUp() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::RightMouseUp } }
     #[classattr]
-    fn MiddleMouseUp() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::MiddleMouseUp }
+    fn MiddleMouseUp() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::MiddleMouseUp } }
     #[classattr]
-    fn MouseEnter() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::MouseEnter }
+    fn MouseEnter() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::MouseEnter } }
     #[classattr]
-    fn MouseLeave() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::MouseLeave }
+    fn MouseLeave() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::MouseLeave } }
     #[classattr]
-    fn Scroll() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::Scroll }
+    fn Scroll() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::Scroll } }
     #[classattr]
-    fn ScrollStart() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::ScrollStart }
+    fn ScrollStart() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::ScrollStart } }
     #[classattr]
-    fn ScrollEnd() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::ScrollEnd }
+    fn ScrollEnd() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::ScrollEnd } }
     #[classattr]
-    fn TextInput() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::TextInput }
+    fn TextInput() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::TextInput } }
     #[classattr]
-    fn VirtualKeyDown() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::VirtualKeyDown }
+    fn VirtualKeyDown() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::VirtualKeyDown } }
     #[classattr]
-    fn VirtualKeyUp() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::VirtualKeyUp }
+    fn VirtualKeyUp() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::VirtualKeyUp } }
     #[classattr]
-    fn HoveredFile() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::HoveredFile }
+    fn HoveredFile() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::HoveredFile } }
     #[classattr]
-    fn DroppedFile() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::DroppedFile }
+    fn DroppedFile() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::DroppedFile } }
     #[classattr]
-    fn HoveredFileCancelled() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::HoveredFileCancelled }
+    fn HoveredFileCancelled() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::HoveredFileCancelled } }
     #[classattr]
-    fn TouchStart() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::TouchStart }
+    fn TouchStart() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::TouchStart } }
     #[classattr]
-    fn TouchMove() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::TouchMove }
+    fn TouchMove() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::TouchMove } }
     #[classattr]
-    fn TouchEnd() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::TouchEnd }
+    fn TouchEnd() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::TouchEnd } }
     #[classattr]
-    fn TouchCancel() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper::TouchCancel }
+    fn TouchCancel() -> AzHoverEventFilterEnumWrapper { AzHoverEventFilterEnumWrapper { inner: AzHoverEventFilter::TouchCancel } }
 }
 
 #[pymethods]
 impl AzFocusEventFilterEnumWrapper {
     #[classattr]
-    fn MouseOver() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::MouseOver }
+    fn MouseOver() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::MouseOver } }
     #[classattr]
-    fn MouseDown() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::MouseDown }
+    fn MouseDown() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::MouseDown } }
     #[classattr]
-    fn LeftMouseDown() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::LeftMouseDown }
+    fn LeftMouseDown() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::LeftMouseDown } }
     #[classattr]
-    fn RightMouseDown() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::RightMouseDown }
+    fn RightMouseDown() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::RightMouseDown } }
     #[classattr]
-    fn MiddleMouseDown() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::MiddleMouseDown }
+    fn MiddleMouseDown() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::MiddleMouseDown } }
     #[classattr]
-    fn MouseUp() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::MouseUp }
+    fn MouseUp() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::MouseUp } }
     #[classattr]
-    fn LeftMouseUp() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::LeftMouseUp }
+    fn LeftMouseUp() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::LeftMouseUp } }
     #[classattr]
-    fn RightMouseUp() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::RightMouseUp }
+    fn RightMouseUp() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::RightMouseUp } }
     #[classattr]
-    fn MiddleMouseUp() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::MiddleMouseUp }
+    fn MiddleMouseUp() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::MiddleMouseUp } }
     #[classattr]
-    fn MouseEnter() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::MouseEnter }
+    fn MouseEnter() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::MouseEnter } }
     #[classattr]
-    fn MouseLeave() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::MouseLeave }
+    fn MouseLeave() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::MouseLeave } }
     #[classattr]
-    fn Scroll() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::Scroll }
+    fn Scroll() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::Scroll } }
     #[classattr]
-    fn ScrollStart() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::ScrollStart }
+    fn ScrollStart() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::ScrollStart } }
     #[classattr]
-    fn ScrollEnd() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::ScrollEnd }
+    fn ScrollEnd() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::ScrollEnd } }
     #[classattr]
-    fn TextInput() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::TextInput }
+    fn TextInput() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::TextInput } }
     #[classattr]
-    fn VirtualKeyDown() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::VirtualKeyDown }
+    fn VirtualKeyDown() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::VirtualKeyDown } }
     #[classattr]
-    fn VirtualKeyUp() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::VirtualKeyUp }
+    fn VirtualKeyUp() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::VirtualKeyUp } }
     #[classattr]
-    fn FocusReceived() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::FocusReceived }
+    fn FocusReceived() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::FocusReceived } }
     #[classattr]
-    fn FocusLost() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper::FocusLost }
+    fn FocusLost() -> AzFocusEventFilterEnumWrapper { AzFocusEventFilterEnumWrapper { inner: AzFocusEventFilter::FocusLost } }
 }
 
 #[pymethods]
 impl AzNotEventFilterEnumWrapper {
     #[staticmethod]
-    fn Hover(v: HoverEventFilter) -> AzNotEventFilterEnumWrapper { AzNotEventFilterEnumWrapper::Hover(v) }
+    fn Hover(v: HoverEventFilter) -> AzNotEventFilterEnumWrapper { AzNotEventFilterEnumWrapper { inner: AzNotEventFilter::Hover(v) } }
     #[staticmethod]
-    fn Focus(v: FocusEventFilter) -> AzNotEventFilterEnumWrapper { AzNotEventFilterEnumWrapper::Focus(v) }
+    fn Focus(v: FocusEventFilter) -> AzNotEventFilterEnumWrapper { AzNotEventFilterEnumWrapper { inner: AzNotEventFilter::Focus(v) } }
 }
 
 #[pymethods]
 impl AzWindowEventFilterEnumWrapper {
     #[classattr]
-    fn MouseOver() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::MouseOver }
+    fn MouseOver() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::MouseOver } }
     #[classattr]
-    fn MouseDown() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::MouseDown }
+    fn MouseDown() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::MouseDown } }
     #[classattr]
-    fn LeftMouseDown() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::LeftMouseDown }
+    fn LeftMouseDown() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::LeftMouseDown } }
     #[classattr]
-    fn RightMouseDown() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::RightMouseDown }
+    fn RightMouseDown() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::RightMouseDown } }
     #[classattr]
-    fn MiddleMouseDown() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::MiddleMouseDown }
+    fn MiddleMouseDown() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::MiddleMouseDown } }
     #[classattr]
-    fn MouseUp() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::MouseUp }
+    fn MouseUp() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::MouseUp } }
     #[classattr]
-    fn LeftMouseUp() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::LeftMouseUp }
+    fn LeftMouseUp() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::LeftMouseUp } }
     #[classattr]
-    fn RightMouseUp() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::RightMouseUp }
+    fn RightMouseUp() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::RightMouseUp } }
     #[classattr]
-    fn MiddleMouseUp() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::MiddleMouseUp }
+    fn MiddleMouseUp() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::MiddleMouseUp } }
     #[classattr]
-    fn MouseEnter() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::MouseEnter }
+    fn MouseEnter() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::MouseEnter } }
     #[classattr]
-    fn MouseLeave() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::MouseLeave }
+    fn MouseLeave() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::MouseLeave } }
     #[classattr]
-    fn Scroll() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::Scroll }
+    fn Scroll() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::Scroll } }
     #[classattr]
-    fn ScrollStart() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::ScrollStart }
+    fn ScrollStart() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::ScrollStart } }
     #[classattr]
-    fn ScrollEnd() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::ScrollEnd }
+    fn ScrollEnd() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::ScrollEnd } }
     #[classattr]
-    fn TextInput() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::TextInput }
+    fn TextInput() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::TextInput } }
     #[classattr]
-    fn VirtualKeyDown() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::VirtualKeyDown }
+    fn VirtualKeyDown() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::VirtualKeyDown } }
     #[classattr]
-    fn VirtualKeyUp() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::VirtualKeyUp }
+    fn VirtualKeyUp() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::VirtualKeyUp } }
     #[classattr]
-    fn HoveredFile() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::HoveredFile }
+    fn HoveredFile() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::HoveredFile } }
     #[classattr]
-    fn DroppedFile() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::DroppedFile }
+    fn DroppedFile() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::DroppedFile } }
     #[classattr]
-    fn HoveredFileCancelled() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::HoveredFileCancelled }
+    fn HoveredFileCancelled() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::HoveredFileCancelled } }
     #[classattr]
-    fn Resized() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::Resized }
+    fn Resized() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::Resized } }
     #[classattr]
-    fn Moved() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::Moved }
+    fn Moved() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::Moved } }
     #[classattr]
-    fn TouchStart() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::TouchStart }
+    fn TouchStart() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::TouchStart } }
     #[classattr]
-    fn TouchMove() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::TouchMove }
+    fn TouchMove() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::TouchMove } }
     #[classattr]
-    fn TouchEnd() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::TouchEnd }
+    fn TouchEnd() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::TouchEnd } }
     #[classattr]
-    fn TouchCancel() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::TouchCancel }
+    fn TouchCancel() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::TouchCancel } }
     #[classattr]
-    fn FocusReceived() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::FocusReceived }
+    fn FocusReceived() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::FocusReceived } }
     #[classattr]
-    fn FocusLost() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::FocusLost }
+    fn FocusLost() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::FocusLost } }
     #[classattr]
-    fn CloseRequested() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::CloseRequested }
+    fn CloseRequested() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::CloseRequested } }
     #[classattr]
-    fn ThemeChanged() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper::ThemeChanged }
+    fn ThemeChanged() -> AzWindowEventFilterEnumWrapper { AzWindowEventFilterEnumWrapper { inner: AzWindowEventFilter::ThemeChanged } }
 }
 
 #[pymethods]
 impl AzComponentEventFilterEnumWrapper {
     #[classattr]
-    fn AfterMount() -> AzComponentEventFilterEnumWrapper { AzComponentEventFilterEnumWrapper::AfterMount }
+    fn AfterMount() -> AzComponentEventFilterEnumWrapper { AzComponentEventFilterEnumWrapper { inner: AzComponentEventFilter::AfterMount } }
     #[classattr]
-    fn BeforeUnmount() -> AzComponentEventFilterEnumWrapper { AzComponentEventFilterEnumWrapper::BeforeUnmount }
+    fn BeforeUnmount() -> AzComponentEventFilterEnumWrapper { AzComponentEventFilterEnumWrapper { inner: AzComponentEventFilter::BeforeUnmount } }
     #[classattr]
-    fn NodeResized() -> AzComponentEventFilterEnumWrapper { AzComponentEventFilterEnumWrapper::NodeResized }
+    fn NodeResized() -> AzComponentEventFilterEnumWrapper { AzComponentEventFilterEnumWrapper { inner: AzComponentEventFilter::NodeResized } }
 }
 
 #[pymethods]
 impl AzApplicationEventFilterEnumWrapper {
     #[classattr]
-    fn DeviceConnected() -> AzApplicationEventFilterEnumWrapper { AzApplicationEventFilterEnumWrapper::DeviceConnected }
+    fn DeviceConnected() -> AzApplicationEventFilterEnumWrapper { AzApplicationEventFilterEnumWrapper { inner: AzApplicationEventFilter::DeviceConnected } }
     #[classattr]
-    fn DeviceDisconnected() -> AzApplicationEventFilterEnumWrapper { AzApplicationEventFilterEnumWrapper::DeviceDisconnected }
+    fn DeviceDisconnected() -> AzApplicationEventFilterEnumWrapper { AzApplicationEventFilterEnumWrapper { inner: AzApplicationEventFilter::DeviceDisconnected } }
 }
 
 #[pymethods]
 impl AzTabIndexEnumWrapper {
     #[classattr]
-    fn Auto() -> AzTabIndexEnumWrapper { AzTabIndexEnumWrapper::Auto }
+    fn Auto() -> AzTabIndexEnumWrapper { AzTabIndexEnumWrapper { inner: AzTabIndex::Auto } }
     #[staticmethod]
-    fn OverrideInParent(v: u32) -> AzTabIndexEnumWrapper { AzTabIndexEnumWrapper::OverrideInParent(v) }
+    fn OverrideInParent(v: u32) -> AzTabIndexEnumWrapper { AzTabIndexEnumWrapper { inner: AzTabIndex::OverrideInParent(v) } }
     #[classattr]
-    fn NoKeyboardFocus() -> AzTabIndexEnumWrapper { AzTabIndexEnumWrapper::NoKeyboardFocus }
+    fn NoKeyboardFocus() -> AzTabIndexEnumWrapper { AzTabIndexEnumWrapper { inner: AzTabIndex::NoKeyboardFocus } }
 }
 
 #[pymethods]
 impl AzIdOrClassEnumWrapper {
     #[staticmethod]
-    fn Id(v: String) -> AzIdOrClassEnumWrapper { AzIdOrClassEnumWrapper::Id(v) }
+    fn Id(v: String) -> AzIdOrClassEnumWrapper { AzIdOrClassEnumWrapper { inner: AzIdOrClass::Id(v) } }
     #[staticmethod]
-    fn Class(v: String) -> AzIdOrClassEnumWrapper { AzIdOrClassEnumWrapper::Class(v) }
+    fn Class(v: String) -> AzIdOrClassEnumWrapper { AzIdOrClassEnumWrapper { inner: AzIdOrClass::Class(v) } }
 }
 
 #[pymethods]
 impl AzNodeDataInlineCssPropertyEnumWrapper {
     #[staticmethod]
-    fn Normal(v: CssProperty) -> AzNodeDataInlineCssPropertyEnumWrapper { AzNodeDataInlineCssPropertyEnumWrapper::Normal(v) }
+    fn Normal(v: CssProperty) -> AzNodeDataInlineCssPropertyEnumWrapper { AzNodeDataInlineCssPropertyEnumWrapper { inner: AzNodeDataInlineCssProperty::Normal(v) } }
     #[staticmethod]
-    fn Active(v: CssProperty) -> AzNodeDataInlineCssPropertyEnumWrapper { AzNodeDataInlineCssPropertyEnumWrapper::Active(v) }
+    fn Active(v: CssProperty) -> AzNodeDataInlineCssPropertyEnumWrapper { AzNodeDataInlineCssPropertyEnumWrapper { inner: AzNodeDataInlineCssProperty::Active(v) } }
     #[staticmethod]
-    fn Focus(v: CssProperty) -> AzNodeDataInlineCssPropertyEnumWrapper { AzNodeDataInlineCssPropertyEnumWrapper::Focus(v) }
+    fn Focus(v: CssProperty) -> AzNodeDataInlineCssPropertyEnumWrapper { AzNodeDataInlineCssPropertyEnumWrapper { inner: AzNodeDataInlineCssProperty::Focus(v) } }
     #[staticmethod]
-    fn Hover(v: CssProperty) -> AzNodeDataInlineCssPropertyEnumWrapper { AzNodeDataInlineCssPropertyEnumWrapper::Hover(v) }
+    fn Hover(v: CssProperty) -> AzNodeDataInlineCssPropertyEnumWrapper { AzNodeDataInlineCssPropertyEnumWrapper { inner: AzNodeDataInlineCssProperty::Hover(v) } }
 }
 
 #[pymethods]
 impl AzCssDeclarationEnumWrapper {
     #[staticmethod]
-    fn Static(v: CssProperty) -> AzCssDeclarationEnumWrapper { AzCssDeclarationEnumWrapper::Static(v) }
+    fn Static(v: CssProperty) -> AzCssDeclarationEnumWrapper { AzCssDeclarationEnumWrapper { inner: AzCssDeclaration::Static(v) } }
     #[staticmethod]
-    fn Dynamic(v: DynamicCssProperty) -> AzCssDeclarationEnumWrapper { AzCssDeclarationEnumWrapper::Dynamic(v) }
+    fn Dynamic(v: DynamicCssProperty) -> AzCssDeclarationEnumWrapper { AzCssDeclarationEnumWrapper { inner: AzCssDeclaration::Dynamic(v) } }
 }
 
 #[pymethods]
 impl AzCssPathSelectorEnumWrapper {
     #[classattr]
-    fn Global() -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper::Global }
+    fn Global() -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper { inner: AzCssPathSelector::Global } }
     #[staticmethod]
-    fn Type(v: NodeTypeKey) -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper::Type(v) }
+    fn Type(v: NodeTypeKey) -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper { inner: AzCssPathSelector::Type(v) } }
     #[staticmethod]
-    fn Class(v: String) -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper::Class(v) }
+    fn Class(v: String) -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper { inner: AzCssPathSelector::Class(v) } }
     #[staticmethod]
-    fn Id(v: String) -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper::Id(v) }
+    fn Id(v: String) -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper { inner: AzCssPathSelector::Id(v) } }
     #[staticmethod]
-    fn PseudoSelector(v: CssPathPseudoSelector) -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper::PseudoSelector(v) }
+    fn PseudoSelector(v: CssPathPseudoSelector) -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper { inner: AzCssPathSelector::PseudoSelector(v) } }
     #[classattr]
-    fn DirectChildren() -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper::DirectChildren }
+    fn DirectChildren() -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper { inner: AzCssPathSelector::DirectChildren } }
     #[classattr]
-    fn Children() -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper::Children }
+    fn Children() -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper { inner: AzCssPathSelector::Children } }
 }
 
 #[pymethods]
 impl AzNodeTypeKeyEnumWrapper {
     #[classattr]
-    fn Body() -> AzNodeTypeKeyEnumWrapper { AzNodeTypeKeyEnumWrapper::Body }
+    fn Body() -> AzNodeTypeKeyEnumWrapper { AzNodeTypeKeyEnumWrapper { inner: AzNodeTypeKey::Body } }
     #[classattr]
-    fn Div() -> AzNodeTypeKeyEnumWrapper { AzNodeTypeKeyEnumWrapper::Div }
+    fn Div() -> AzNodeTypeKeyEnumWrapper { AzNodeTypeKeyEnumWrapper { inner: AzNodeTypeKey::Div } }
     #[classattr]
-    fn Br() -> AzNodeTypeKeyEnumWrapper { AzNodeTypeKeyEnumWrapper::Br }
+    fn Br() -> AzNodeTypeKeyEnumWrapper { AzNodeTypeKeyEnumWrapper { inner: AzNodeTypeKey::Br } }
     #[classattr]
-    fn P() -> AzNodeTypeKeyEnumWrapper { AzNodeTypeKeyEnumWrapper::P }
+    fn P() -> AzNodeTypeKeyEnumWrapper { AzNodeTypeKeyEnumWrapper { inner: AzNodeTypeKey::P } }
     #[classattr]
-    fn Img() -> AzNodeTypeKeyEnumWrapper { AzNodeTypeKeyEnumWrapper::Img }
+    fn Img() -> AzNodeTypeKeyEnumWrapper { AzNodeTypeKeyEnumWrapper { inner: AzNodeTypeKey::Img } }
     #[classattr]
-    fn IFrame() -> AzNodeTypeKeyEnumWrapper { AzNodeTypeKeyEnumWrapper::IFrame }
+    fn IFrame() -> AzNodeTypeKeyEnumWrapper { AzNodeTypeKeyEnumWrapper { inner: AzNodeTypeKey::IFrame } }
 }
 
 #[pymethods]
 impl AzCssPathPseudoSelectorEnumWrapper {
     #[classattr]
-    fn First() -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper::First }
+    fn First() -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper { inner: AzCssPathPseudoSelector::First } }
     #[classattr]
-    fn Last() -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper::Last }
+    fn Last() -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper { inner: AzCssPathPseudoSelector::Last } }
     #[staticmethod]
-    fn NthChild(v: CssNthChildSelector) -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper::NthChild(v) }
+    fn NthChild(v: CssNthChildSelector) -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper { inner: AzCssPathPseudoSelector::NthChild(v) } }
     #[classattr]
-    fn Hover() -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper::Hover }
+    fn Hover() -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper { inner: AzCssPathPseudoSelector::Hover } }
     #[classattr]
-    fn Active() -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper::Active }
+    fn Active() -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper { inner: AzCssPathPseudoSelector::Active } }
     #[classattr]
-    fn Focus() -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper::Focus }
+    fn Focus() -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper { inner: AzCssPathPseudoSelector::Focus } }
 }
 
 #[pymethods]
 impl AzCssNthChildSelectorEnumWrapper {
     #[staticmethod]
-    fn Number(v: u32) -> AzCssNthChildSelectorEnumWrapper { AzCssNthChildSelectorEnumWrapper::Number(v) }
+    fn Number(v: u32) -> AzCssNthChildSelectorEnumWrapper { AzCssNthChildSelectorEnumWrapper { inner: AzCssNthChildSelector::Number(v) } }
     #[classattr]
-    fn Even() -> AzCssNthChildSelectorEnumWrapper { AzCssNthChildSelectorEnumWrapper::Even }
+    fn Even() -> AzCssNthChildSelectorEnumWrapper { AzCssNthChildSelectorEnumWrapper { inner: AzCssNthChildSelector::Even } }
     #[classattr]
-    fn Odd() -> AzCssNthChildSelectorEnumWrapper { AzCssNthChildSelectorEnumWrapper::Odd }
+    fn Odd() -> AzCssNthChildSelectorEnumWrapper { AzCssNthChildSelectorEnumWrapper { inner: AzCssNthChildSelector::Odd } }
     #[staticmethod]
-    fn Pattern(v: CssNthChildPattern) -> AzCssNthChildSelectorEnumWrapper { AzCssNthChildSelectorEnumWrapper::Pattern(v) }
+    fn Pattern(v: CssNthChildPattern) -> AzCssNthChildSelectorEnumWrapper { AzCssNthChildSelectorEnumWrapper { inner: AzCssNthChildSelector::Pattern(v) } }
 }
 
 #[pymethods]
@@ -10267,7 +10248,7 @@ impl AzCss {
     #[staticmethod]
     fn from_string(s: String) -> AzCss {
         let s: AzString = s.into();
-unsafe { mem::transmute(crate::AzCss_fromString(
+        unsafe { mem::transmute(crate::AzCss_fromString(
             mem::transmute(s),
         )) }
     }
@@ -10276,165 +10257,165 @@ unsafe { mem::transmute(crate::AzCss_fromString(
 #[pymethods]
 impl AzCssPropertyTypeEnumWrapper {
     #[classattr]
-    fn TextColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::TextColor }
+    fn TextColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::TextColor } }
     #[classattr]
-    fn FontSize() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::FontSize }
+    fn FontSize() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::FontSize } }
     #[classattr]
-    fn FontFamily() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::FontFamily }
+    fn FontFamily() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::FontFamily } }
     #[classattr]
-    fn TextAlign() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::TextAlign }
+    fn TextAlign() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::TextAlign } }
     #[classattr]
-    fn LetterSpacing() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::LetterSpacing }
+    fn LetterSpacing() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::LetterSpacing } }
     #[classattr]
-    fn LineHeight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::LineHeight }
+    fn LineHeight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::LineHeight } }
     #[classattr]
-    fn WordSpacing() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::WordSpacing }
+    fn WordSpacing() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::WordSpacing } }
     #[classattr]
-    fn TabWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::TabWidth }
+    fn TabWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::TabWidth } }
     #[classattr]
-    fn Cursor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Cursor }
+    fn Cursor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Cursor } }
     #[classattr]
-    fn Display() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Display }
+    fn Display() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Display } }
     #[classattr]
-    fn Float() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Float }
+    fn Float() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Float } }
     #[classattr]
-    fn BoxSizing() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BoxSizing }
+    fn BoxSizing() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BoxSizing } }
     #[classattr]
-    fn Width() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Width }
+    fn Width() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Width } }
     #[classattr]
-    fn Height() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Height }
+    fn Height() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Height } }
     #[classattr]
-    fn MinWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::MinWidth }
+    fn MinWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::MinWidth } }
     #[classattr]
-    fn MinHeight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::MinHeight }
+    fn MinHeight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::MinHeight } }
     #[classattr]
-    fn MaxWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::MaxWidth }
+    fn MaxWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::MaxWidth } }
     #[classattr]
-    fn MaxHeight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::MaxHeight }
+    fn MaxHeight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::MaxHeight } }
     #[classattr]
-    fn Position() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Position }
+    fn Position() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Position } }
     #[classattr]
-    fn Top() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Top }
+    fn Top() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Top } }
     #[classattr]
-    fn Right() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Right }
+    fn Right() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Right } }
     #[classattr]
-    fn Left() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Left }
+    fn Left() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Left } }
     #[classattr]
-    fn Bottom() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Bottom }
+    fn Bottom() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Bottom } }
     #[classattr]
-    fn FlexWrap() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::FlexWrap }
+    fn FlexWrap() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::FlexWrap } }
     #[classattr]
-    fn FlexDirection() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::FlexDirection }
+    fn FlexDirection() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::FlexDirection } }
     #[classattr]
-    fn FlexGrow() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::FlexGrow }
+    fn FlexGrow() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::FlexGrow } }
     #[classattr]
-    fn FlexShrink() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::FlexShrink }
+    fn FlexShrink() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::FlexShrink } }
     #[classattr]
-    fn JustifyContent() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::JustifyContent }
+    fn JustifyContent() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::JustifyContent } }
     #[classattr]
-    fn AlignItems() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::AlignItems }
+    fn AlignItems() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::AlignItems } }
     #[classattr]
-    fn AlignContent() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::AlignContent }
+    fn AlignContent() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::AlignContent } }
     #[classattr]
-    fn OverflowX() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::OverflowX }
+    fn OverflowX() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::OverflowX } }
     #[classattr]
-    fn OverflowY() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::OverflowY }
+    fn OverflowY() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::OverflowY } }
     #[classattr]
-    fn PaddingTop() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::PaddingTop }
+    fn PaddingTop() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::PaddingTop } }
     #[classattr]
-    fn PaddingLeft() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::PaddingLeft }
+    fn PaddingLeft() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::PaddingLeft } }
     #[classattr]
-    fn PaddingRight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::PaddingRight }
+    fn PaddingRight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::PaddingRight } }
     #[classattr]
-    fn PaddingBottom() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::PaddingBottom }
+    fn PaddingBottom() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::PaddingBottom } }
     #[classattr]
-    fn MarginTop() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::MarginTop }
+    fn MarginTop() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::MarginTop } }
     #[classattr]
-    fn MarginLeft() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::MarginLeft }
+    fn MarginLeft() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::MarginLeft } }
     #[classattr]
-    fn MarginRight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::MarginRight }
+    fn MarginRight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::MarginRight } }
     #[classattr]
-    fn MarginBottom() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::MarginBottom }
+    fn MarginBottom() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::MarginBottom } }
     #[classattr]
-    fn Background() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Background }
+    fn Background() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Background } }
     #[classattr]
-    fn BackgroundImage() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BackgroundImage }
+    fn BackgroundImage() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundImage } }
     #[classattr]
-    fn BackgroundColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BackgroundColor }
+    fn BackgroundColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundColor } }
     #[classattr]
-    fn BackgroundPosition() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BackgroundPosition }
+    fn BackgroundPosition() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundPosition } }
     #[classattr]
-    fn BackgroundSize() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BackgroundSize }
+    fn BackgroundSize() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundSize } }
     #[classattr]
-    fn BackgroundRepeat() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BackgroundRepeat }
+    fn BackgroundRepeat() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundRepeat } }
     #[classattr]
-    fn BorderTopLeftRadius() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderTopLeftRadius }
+    fn BorderTopLeftRadius() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderTopLeftRadius } }
     #[classattr]
-    fn BorderTopRightRadius() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderTopRightRadius }
+    fn BorderTopRightRadius() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderTopRightRadius } }
     #[classattr]
-    fn BorderBottomLeftRadius() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderBottomLeftRadius }
+    fn BorderBottomLeftRadius() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderBottomLeftRadius } }
     #[classattr]
-    fn BorderBottomRightRadius() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderBottomRightRadius }
+    fn BorderBottomRightRadius() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderBottomRightRadius } }
     #[classattr]
-    fn BorderTopColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderTopColor }
+    fn BorderTopColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderTopColor } }
     #[classattr]
-    fn BorderRightColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderRightColor }
+    fn BorderRightColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderRightColor } }
     #[classattr]
-    fn BorderLeftColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderLeftColor }
+    fn BorderLeftColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderLeftColor } }
     #[classattr]
-    fn BorderBottomColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderBottomColor }
+    fn BorderBottomColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderBottomColor } }
     #[classattr]
-    fn BorderTopStyle() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderTopStyle }
+    fn BorderTopStyle() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderTopStyle } }
     #[classattr]
-    fn BorderRightStyle() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderRightStyle }
+    fn BorderRightStyle() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderRightStyle } }
     #[classattr]
-    fn BorderLeftStyle() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderLeftStyle }
+    fn BorderLeftStyle() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderLeftStyle } }
     #[classattr]
-    fn BorderBottomStyle() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderBottomStyle }
+    fn BorderBottomStyle() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderBottomStyle } }
     #[classattr]
-    fn BorderTopWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderTopWidth }
+    fn BorderTopWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderTopWidth } }
     #[classattr]
-    fn BorderRightWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderRightWidth }
+    fn BorderRightWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderRightWidth } }
     #[classattr]
-    fn BorderLeftWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderLeftWidth }
+    fn BorderLeftWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderLeftWidth } }
     #[classattr]
-    fn BorderBottomWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BorderBottomWidth }
+    fn BorderBottomWidth() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderBottomWidth } }
     #[classattr]
-    fn BoxShadowLeft() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BoxShadowLeft }
+    fn BoxShadowLeft() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BoxShadowLeft } }
     #[classattr]
-    fn BoxShadowRight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BoxShadowRight }
+    fn BoxShadowRight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BoxShadowRight } }
     #[classattr]
-    fn BoxShadowTop() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BoxShadowTop }
+    fn BoxShadowTop() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BoxShadowTop } }
     #[classattr]
-    fn BoxShadowBottom() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BoxShadowBottom }
+    fn BoxShadowBottom() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BoxShadowBottom } }
     #[classattr]
-    fn ScrollbarStyle() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::ScrollbarStyle }
+    fn ScrollbarStyle() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::ScrollbarStyle } }
     #[classattr]
-    fn Opacity() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Opacity }
+    fn Opacity() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Opacity } }
     #[classattr]
-    fn Transform() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::Transform }
+    fn Transform() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Transform } }
     #[classattr]
-    fn PerspectiveOrigin() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::PerspectiveOrigin }
+    fn PerspectiveOrigin() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::PerspectiveOrigin } }
     #[classattr]
-    fn TransformOrigin() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::TransformOrigin }
+    fn TransformOrigin() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::TransformOrigin } }
     #[classattr]
-    fn BackfaceVisibility() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper::BackfaceVisibility }
+    fn BackfaceVisibility() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackfaceVisibility } }
 }
 
 #[pymethods]
 impl AzAnimationInterpolationFunctionEnumWrapper {
     #[classattr]
-    fn Ease() -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper::Ease }
+    fn Ease() -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper { inner: AzAnimationInterpolationFunction::Ease } }
     #[classattr]
-    fn Linear() -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper::Linear }
+    fn Linear() -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper { inner: AzAnimationInterpolationFunction::Linear } }
     #[classattr]
-    fn EaseIn() -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper::EaseIn }
+    fn EaseIn() -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper { inner: AzAnimationInterpolationFunction::EaseIn } }
     #[classattr]
-    fn EaseOut() -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper::EaseOut }
+    fn EaseOut() -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper { inner: AzAnimationInterpolationFunction::EaseOut } }
     #[classattr]
-    fn EaseInOut() -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper::EaseInOut }
+    fn EaseInOut() -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper { inner: AzAnimationInterpolationFunction::EaseInOut } }
     #[staticmethod]
-    fn CubicBezier(v: SvgCubicCurve) -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper::CubicBezier(v) }
+    fn CubicBezier(v: SvgCubicCurve) -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper { inner: AzAnimationInterpolationFunction::CubicBezier(v) } }
 }
 
 #[pymethods]
@@ -10442,7 +10423,7 @@ impl AzColorU {
     #[staticmethod]
     fn from_str(string: String) -> AzColorU {
         let string: AzString = string.into();
-unsafe { mem::transmute(crate::AzColorU_fromStr(
+        unsafe { mem::transmute(crate::AzColorU_fromStr(
             mem::transmute(string),
         )) }
     }
@@ -10454,1505 +10435,1505 @@ unsafe { mem::transmute(crate::AzColorU_fromStr(
 #[pymethods]
 impl AzSizeMetricEnumWrapper {
     #[classattr]
-    fn Px() -> AzSizeMetricEnumWrapper { AzSizeMetricEnumWrapper::Px }
+    fn Px() -> AzSizeMetricEnumWrapper { AzSizeMetricEnumWrapper { inner: AzSizeMetric::Px } }
     #[classattr]
-    fn Pt() -> AzSizeMetricEnumWrapper { AzSizeMetricEnumWrapper::Pt }
+    fn Pt() -> AzSizeMetricEnumWrapper { AzSizeMetricEnumWrapper { inner: AzSizeMetric::Pt } }
     #[classattr]
-    fn Em() -> AzSizeMetricEnumWrapper { AzSizeMetricEnumWrapper::Em }
+    fn Em() -> AzSizeMetricEnumWrapper { AzSizeMetricEnumWrapper { inner: AzSizeMetric::Em } }
     #[classattr]
-    fn Percent() -> AzSizeMetricEnumWrapper { AzSizeMetricEnumWrapper::Percent }
+    fn Percent() -> AzSizeMetricEnumWrapper { AzSizeMetricEnumWrapper { inner: AzSizeMetric::Percent } }
 }
 
 #[pymethods]
 impl AzBoxShadowClipModeEnumWrapper {
     #[classattr]
-    fn Outset() -> AzBoxShadowClipModeEnumWrapper { AzBoxShadowClipModeEnumWrapper::Outset }
+    fn Outset() -> AzBoxShadowClipModeEnumWrapper { AzBoxShadowClipModeEnumWrapper { inner: AzBoxShadowClipMode::Outset } }
     #[classattr]
-    fn Inset() -> AzBoxShadowClipModeEnumWrapper { AzBoxShadowClipModeEnumWrapper::Inset }
+    fn Inset() -> AzBoxShadowClipModeEnumWrapper { AzBoxShadowClipModeEnumWrapper { inner: AzBoxShadowClipMode::Inset } }
 }
 
 #[pymethods]
 impl AzLayoutAlignContentEnumWrapper {
     #[classattr]
-    fn Stretch() -> AzLayoutAlignContentEnumWrapper { AzLayoutAlignContentEnumWrapper::Stretch }
+    fn Stretch() -> AzLayoutAlignContentEnumWrapper { AzLayoutAlignContentEnumWrapper { inner: AzLayoutAlignContent::Stretch } }
     #[classattr]
-    fn Center() -> AzLayoutAlignContentEnumWrapper { AzLayoutAlignContentEnumWrapper::Center }
+    fn Center() -> AzLayoutAlignContentEnumWrapper { AzLayoutAlignContentEnumWrapper { inner: AzLayoutAlignContent::Center } }
     #[classattr]
-    fn Start() -> AzLayoutAlignContentEnumWrapper { AzLayoutAlignContentEnumWrapper::Start }
+    fn Start() -> AzLayoutAlignContentEnumWrapper { AzLayoutAlignContentEnumWrapper { inner: AzLayoutAlignContent::Start } }
     #[classattr]
-    fn End() -> AzLayoutAlignContentEnumWrapper { AzLayoutAlignContentEnumWrapper::End }
+    fn End() -> AzLayoutAlignContentEnumWrapper { AzLayoutAlignContentEnumWrapper { inner: AzLayoutAlignContent::End } }
     #[classattr]
-    fn SpaceBetween() -> AzLayoutAlignContentEnumWrapper { AzLayoutAlignContentEnumWrapper::SpaceBetween }
+    fn SpaceBetween() -> AzLayoutAlignContentEnumWrapper { AzLayoutAlignContentEnumWrapper { inner: AzLayoutAlignContent::SpaceBetween } }
     #[classattr]
-    fn SpaceAround() -> AzLayoutAlignContentEnumWrapper { AzLayoutAlignContentEnumWrapper::SpaceAround }
+    fn SpaceAround() -> AzLayoutAlignContentEnumWrapper { AzLayoutAlignContentEnumWrapper { inner: AzLayoutAlignContent::SpaceAround } }
 }
 
 #[pymethods]
 impl AzLayoutAlignItemsEnumWrapper {
     #[classattr]
-    fn Stretch() -> AzLayoutAlignItemsEnumWrapper { AzLayoutAlignItemsEnumWrapper::Stretch }
+    fn Stretch() -> AzLayoutAlignItemsEnumWrapper { AzLayoutAlignItemsEnumWrapper { inner: AzLayoutAlignItems::Stretch } }
     #[classattr]
-    fn Center() -> AzLayoutAlignItemsEnumWrapper { AzLayoutAlignItemsEnumWrapper::Center }
+    fn Center() -> AzLayoutAlignItemsEnumWrapper { AzLayoutAlignItemsEnumWrapper { inner: AzLayoutAlignItems::Center } }
     #[classattr]
-    fn FlexStart() -> AzLayoutAlignItemsEnumWrapper { AzLayoutAlignItemsEnumWrapper::FlexStart }
+    fn FlexStart() -> AzLayoutAlignItemsEnumWrapper { AzLayoutAlignItemsEnumWrapper { inner: AzLayoutAlignItems::FlexStart } }
     #[classattr]
-    fn FlexEnd() -> AzLayoutAlignItemsEnumWrapper { AzLayoutAlignItemsEnumWrapper::FlexEnd }
+    fn FlexEnd() -> AzLayoutAlignItemsEnumWrapper { AzLayoutAlignItemsEnumWrapper { inner: AzLayoutAlignItems::FlexEnd } }
 }
 
 #[pymethods]
 impl AzLayoutBoxSizingEnumWrapper {
     #[classattr]
-    fn ContentBox() -> AzLayoutBoxSizingEnumWrapper { AzLayoutBoxSizingEnumWrapper::ContentBox }
+    fn ContentBox() -> AzLayoutBoxSizingEnumWrapper { AzLayoutBoxSizingEnumWrapper { inner: AzLayoutBoxSizing::ContentBox } }
     #[classattr]
-    fn BorderBox() -> AzLayoutBoxSizingEnumWrapper { AzLayoutBoxSizingEnumWrapper::BorderBox }
+    fn BorderBox() -> AzLayoutBoxSizingEnumWrapper { AzLayoutBoxSizingEnumWrapper { inner: AzLayoutBoxSizing::BorderBox } }
 }
 
 #[pymethods]
 impl AzLayoutFlexDirectionEnumWrapper {
     #[classattr]
-    fn Row() -> AzLayoutFlexDirectionEnumWrapper { AzLayoutFlexDirectionEnumWrapper::Row }
+    fn Row() -> AzLayoutFlexDirectionEnumWrapper { AzLayoutFlexDirectionEnumWrapper { inner: AzLayoutFlexDirection::Row } }
     #[classattr]
-    fn RowReverse() -> AzLayoutFlexDirectionEnumWrapper { AzLayoutFlexDirectionEnumWrapper::RowReverse }
+    fn RowReverse() -> AzLayoutFlexDirectionEnumWrapper { AzLayoutFlexDirectionEnumWrapper { inner: AzLayoutFlexDirection::RowReverse } }
     #[classattr]
-    fn Column() -> AzLayoutFlexDirectionEnumWrapper { AzLayoutFlexDirectionEnumWrapper::Column }
+    fn Column() -> AzLayoutFlexDirectionEnumWrapper { AzLayoutFlexDirectionEnumWrapper { inner: AzLayoutFlexDirection::Column } }
     #[classattr]
-    fn ColumnReverse() -> AzLayoutFlexDirectionEnumWrapper { AzLayoutFlexDirectionEnumWrapper::ColumnReverse }
+    fn ColumnReverse() -> AzLayoutFlexDirectionEnumWrapper { AzLayoutFlexDirectionEnumWrapper { inner: AzLayoutFlexDirection::ColumnReverse } }
 }
 
 #[pymethods]
 impl AzLayoutDisplayEnumWrapper {
     #[classattr]
-    fn None() -> AzLayoutDisplayEnumWrapper { AzLayoutDisplayEnumWrapper::None }
+    fn None() -> AzLayoutDisplayEnumWrapper { AzLayoutDisplayEnumWrapper { inner: AzLayoutDisplay::None } }
     #[classattr]
-    fn Flex() -> AzLayoutDisplayEnumWrapper { AzLayoutDisplayEnumWrapper::Flex }
+    fn Flex() -> AzLayoutDisplayEnumWrapper { AzLayoutDisplayEnumWrapper { inner: AzLayoutDisplay::Flex } }
     #[classattr]
-    fn Block() -> AzLayoutDisplayEnumWrapper { AzLayoutDisplayEnumWrapper::Block }
+    fn Block() -> AzLayoutDisplayEnumWrapper { AzLayoutDisplayEnumWrapper { inner: AzLayoutDisplay::Block } }
     #[classattr]
-    fn InlineBlock() -> AzLayoutDisplayEnumWrapper { AzLayoutDisplayEnumWrapper::InlineBlock }
+    fn InlineBlock() -> AzLayoutDisplayEnumWrapper { AzLayoutDisplayEnumWrapper { inner: AzLayoutDisplay::InlineBlock } }
 }
 
 #[pymethods]
 impl AzLayoutFloatEnumWrapper {
     #[classattr]
-    fn Left() -> AzLayoutFloatEnumWrapper { AzLayoutFloatEnumWrapper::Left }
+    fn Left() -> AzLayoutFloatEnumWrapper { AzLayoutFloatEnumWrapper { inner: AzLayoutFloat::Left } }
     #[classattr]
-    fn Right() -> AzLayoutFloatEnumWrapper { AzLayoutFloatEnumWrapper::Right }
+    fn Right() -> AzLayoutFloatEnumWrapper { AzLayoutFloatEnumWrapper { inner: AzLayoutFloat::Right } }
 }
 
 #[pymethods]
 impl AzLayoutJustifyContentEnumWrapper {
     #[classattr]
-    fn Start() -> AzLayoutJustifyContentEnumWrapper { AzLayoutJustifyContentEnumWrapper::Start }
+    fn Start() -> AzLayoutJustifyContentEnumWrapper { AzLayoutJustifyContentEnumWrapper { inner: AzLayoutJustifyContent::Start } }
     #[classattr]
-    fn End() -> AzLayoutJustifyContentEnumWrapper { AzLayoutJustifyContentEnumWrapper::End }
+    fn End() -> AzLayoutJustifyContentEnumWrapper { AzLayoutJustifyContentEnumWrapper { inner: AzLayoutJustifyContent::End } }
     #[classattr]
-    fn Center() -> AzLayoutJustifyContentEnumWrapper { AzLayoutJustifyContentEnumWrapper::Center }
+    fn Center() -> AzLayoutJustifyContentEnumWrapper { AzLayoutJustifyContentEnumWrapper { inner: AzLayoutJustifyContent::Center } }
     #[classattr]
-    fn SpaceBetween() -> AzLayoutJustifyContentEnumWrapper { AzLayoutJustifyContentEnumWrapper::SpaceBetween }
+    fn SpaceBetween() -> AzLayoutJustifyContentEnumWrapper { AzLayoutJustifyContentEnumWrapper { inner: AzLayoutJustifyContent::SpaceBetween } }
     #[classattr]
-    fn SpaceAround() -> AzLayoutJustifyContentEnumWrapper { AzLayoutJustifyContentEnumWrapper::SpaceAround }
+    fn SpaceAround() -> AzLayoutJustifyContentEnumWrapper { AzLayoutJustifyContentEnumWrapper { inner: AzLayoutJustifyContent::SpaceAround } }
     #[classattr]
-    fn SpaceEvenly() -> AzLayoutJustifyContentEnumWrapper { AzLayoutJustifyContentEnumWrapper::SpaceEvenly }
+    fn SpaceEvenly() -> AzLayoutJustifyContentEnumWrapper { AzLayoutJustifyContentEnumWrapper { inner: AzLayoutJustifyContent::SpaceEvenly } }
 }
 
 #[pymethods]
 impl AzLayoutPositionEnumWrapper {
     #[classattr]
-    fn Static() -> AzLayoutPositionEnumWrapper { AzLayoutPositionEnumWrapper::Static }
+    fn Static() -> AzLayoutPositionEnumWrapper { AzLayoutPositionEnumWrapper { inner: AzLayoutPosition::Static } }
     #[classattr]
-    fn Relative() -> AzLayoutPositionEnumWrapper { AzLayoutPositionEnumWrapper::Relative }
+    fn Relative() -> AzLayoutPositionEnumWrapper { AzLayoutPositionEnumWrapper { inner: AzLayoutPosition::Relative } }
     #[classattr]
-    fn Absolute() -> AzLayoutPositionEnumWrapper { AzLayoutPositionEnumWrapper::Absolute }
+    fn Absolute() -> AzLayoutPositionEnumWrapper { AzLayoutPositionEnumWrapper { inner: AzLayoutPosition::Absolute } }
     #[classattr]
-    fn Fixed() -> AzLayoutPositionEnumWrapper { AzLayoutPositionEnumWrapper::Fixed }
+    fn Fixed() -> AzLayoutPositionEnumWrapper { AzLayoutPositionEnumWrapper { inner: AzLayoutPosition::Fixed } }
 }
 
 #[pymethods]
 impl AzLayoutFlexWrapEnumWrapper {
     #[classattr]
-    fn Wrap() -> AzLayoutFlexWrapEnumWrapper { AzLayoutFlexWrapEnumWrapper::Wrap }
+    fn Wrap() -> AzLayoutFlexWrapEnumWrapper { AzLayoutFlexWrapEnumWrapper { inner: AzLayoutFlexWrap::Wrap } }
     #[classattr]
-    fn NoWrap() -> AzLayoutFlexWrapEnumWrapper { AzLayoutFlexWrapEnumWrapper::NoWrap }
+    fn NoWrap() -> AzLayoutFlexWrapEnumWrapper { AzLayoutFlexWrapEnumWrapper { inner: AzLayoutFlexWrap::NoWrap } }
 }
 
 #[pymethods]
 impl AzLayoutOverflowEnumWrapper {
     #[classattr]
-    fn Scroll() -> AzLayoutOverflowEnumWrapper { AzLayoutOverflowEnumWrapper::Scroll }
+    fn Scroll() -> AzLayoutOverflowEnumWrapper { AzLayoutOverflowEnumWrapper { inner: AzLayoutOverflow::Scroll } }
     #[classattr]
-    fn Auto() -> AzLayoutOverflowEnumWrapper { AzLayoutOverflowEnumWrapper::Auto }
+    fn Auto() -> AzLayoutOverflowEnumWrapper { AzLayoutOverflowEnumWrapper { inner: AzLayoutOverflow::Auto } }
     #[classattr]
-    fn Hidden() -> AzLayoutOverflowEnumWrapper { AzLayoutOverflowEnumWrapper::Hidden }
+    fn Hidden() -> AzLayoutOverflowEnumWrapper { AzLayoutOverflowEnumWrapper { inner: AzLayoutOverflow::Hidden } }
     #[classattr]
-    fn Visible() -> AzLayoutOverflowEnumWrapper { AzLayoutOverflowEnumWrapper::Visible }
+    fn Visible() -> AzLayoutOverflowEnumWrapper { AzLayoutOverflowEnumWrapper { inner: AzLayoutOverflow::Visible } }
 }
 
 #[pymethods]
 impl AzAngleMetricEnumWrapper {
     #[classattr]
-    fn Degree() -> AzAngleMetricEnumWrapper { AzAngleMetricEnumWrapper::Degree }
+    fn Degree() -> AzAngleMetricEnumWrapper { AzAngleMetricEnumWrapper { inner: AzAngleMetric::Degree } }
     #[classattr]
-    fn Radians() -> AzAngleMetricEnumWrapper { AzAngleMetricEnumWrapper::Radians }
+    fn Radians() -> AzAngleMetricEnumWrapper { AzAngleMetricEnumWrapper { inner: AzAngleMetric::Radians } }
     #[classattr]
-    fn Grad() -> AzAngleMetricEnumWrapper { AzAngleMetricEnumWrapper::Grad }
+    fn Grad() -> AzAngleMetricEnumWrapper { AzAngleMetricEnumWrapper { inner: AzAngleMetric::Grad } }
     #[classattr]
-    fn Turn() -> AzAngleMetricEnumWrapper { AzAngleMetricEnumWrapper::Turn }
+    fn Turn() -> AzAngleMetricEnumWrapper { AzAngleMetricEnumWrapper { inner: AzAngleMetric::Turn } }
     #[classattr]
-    fn Percent() -> AzAngleMetricEnumWrapper { AzAngleMetricEnumWrapper::Percent }
+    fn Percent() -> AzAngleMetricEnumWrapper { AzAngleMetricEnumWrapper { inner: AzAngleMetric::Percent } }
 }
 
 #[pymethods]
 impl AzDirectionCornerEnumWrapper {
     #[classattr]
-    fn Right() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper::Right }
+    fn Right() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper { inner: AzDirectionCorner::Right } }
     #[classattr]
-    fn Left() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper::Left }
+    fn Left() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper { inner: AzDirectionCorner::Left } }
     #[classattr]
-    fn Top() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper::Top }
+    fn Top() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper { inner: AzDirectionCorner::Top } }
     #[classattr]
-    fn Bottom() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper::Bottom }
+    fn Bottom() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper { inner: AzDirectionCorner::Bottom } }
     #[classattr]
-    fn TopRight() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper::TopRight }
+    fn TopRight() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper { inner: AzDirectionCorner::TopRight } }
     #[classattr]
-    fn TopLeft() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper::TopLeft }
+    fn TopLeft() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper { inner: AzDirectionCorner::TopLeft } }
     #[classattr]
-    fn BottomRight() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper::BottomRight }
+    fn BottomRight() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper { inner: AzDirectionCorner::BottomRight } }
     #[classattr]
-    fn BottomLeft() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper::BottomLeft }
+    fn BottomLeft() -> AzDirectionCornerEnumWrapper { AzDirectionCornerEnumWrapper { inner: AzDirectionCorner::BottomLeft } }
 }
 
 #[pymethods]
 impl AzDirectionEnumWrapper {
     #[staticmethod]
-    fn Angle(v: AngleValue) -> AzDirectionEnumWrapper { AzDirectionEnumWrapper::Angle(v) }
+    fn Angle(v: AngleValue) -> AzDirectionEnumWrapper { AzDirectionEnumWrapper { inner: AzDirection::Angle(v) } }
     #[staticmethod]
-    fn FromTo(v: DirectionCorners) -> AzDirectionEnumWrapper { AzDirectionEnumWrapper::FromTo(v) }
+    fn FromTo(v: DirectionCorners) -> AzDirectionEnumWrapper { AzDirectionEnumWrapper { inner: AzDirection::FromTo(v) } }
 }
 
 #[pymethods]
 impl AzExtendModeEnumWrapper {
     #[classattr]
-    fn Clamp() -> AzExtendModeEnumWrapper { AzExtendModeEnumWrapper::Clamp }
+    fn Clamp() -> AzExtendModeEnumWrapper { AzExtendModeEnumWrapper { inner: AzExtendMode::Clamp } }
     #[classattr]
-    fn Repeat() -> AzExtendModeEnumWrapper { AzExtendModeEnumWrapper::Repeat }
+    fn Repeat() -> AzExtendModeEnumWrapper { AzExtendModeEnumWrapper { inner: AzExtendMode::Repeat } }
 }
 
 #[pymethods]
 impl AzShapeEnumWrapper {
     #[classattr]
-    fn Ellipse() -> AzShapeEnumWrapper { AzShapeEnumWrapper::Ellipse }
+    fn Ellipse() -> AzShapeEnumWrapper { AzShapeEnumWrapper { inner: AzShape::Ellipse } }
     #[classattr]
-    fn Circle() -> AzShapeEnumWrapper { AzShapeEnumWrapper::Circle }
+    fn Circle() -> AzShapeEnumWrapper { AzShapeEnumWrapper { inner: AzShape::Circle } }
 }
 
 #[pymethods]
 impl AzRadialGradientSizeEnumWrapper {
     #[classattr]
-    fn ClosestSide() -> AzRadialGradientSizeEnumWrapper { AzRadialGradientSizeEnumWrapper::ClosestSide }
+    fn ClosestSide() -> AzRadialGradientSizeEnumWrapper { AzRadialGradientSizeEnumWrapper { inner: AzRadialGradientSize::ClosestSide } }
     #[classattr]
-    fn ClosestCorner() -> AzRadialGradientSizeEnumWrapper { AzRadialGradientSizeEnumWrapper::ClosestCorner }
+    fn ClosestCorner() -> AzRadialGradientSizeEnumWrapper { AzRadialGradientSizeEnumWrapper { inner: AzRadialGradientSize::ClosestCorner } }
     #[classattr]
-    fn FarthestSide() -> AzRadialGradientSizeEnumWrapper { AzRadialGradientSizeEnumWrapper::FarthestSide }
+    fn FarthestSide() -> AzRadialGradientSizeEnumWrapper { AzRadialGradientSizeEnumWrapper { inner: AzRadialGradientSize::FarthestSide } }
     #[classattr]
-    fn FarthestCorner() -> AzRadialGradientSizeEnumWrapper { AzRadialGradientSizeEnumWrapper::FarthestCorner }
+    fn FarthestCorner() -> AzRadialGradientSizeEnumWrapper { AzRadialGradientSizeEnumWrapper { inner: AzRadialGradientSize::FarthestCorner } }
 }
 
 #[pymethods]
 impl AzStyleBackgroundContentEnumWrapper {
     #[staticmethod]
-    fn LinearGradient(v: LinearGradient) -> AzStyleBackgroundContentEnumWrapper { AzStyleBackgroundContentEnumWrapper::LinearGradient(v) }
+    fn LinearGradient(v: LinearGradient) -> AzStyleBackgroundContentEnumWrapper { AzStyleBackgroundContentEnumWrapper { inner: AzStyleBackgroundContent::LinearGradient(v) } }
     #[staticmethod]
-    fn RadialGradient(v: RadialGradient) -> AzStyleBackgroundContentEnumWrapper { AzStyleBackgroundContentEnumWrapper::RadialGradient(v) }
+    fn RadialGradient(v: RadialGradient) -> AzStyleBackgroundContentEnumWrapper { AzStyleBackgroundContentEnumWrapper { inner: AzStyleBackgroundContent::RadialGradient(v) } }
     #[staticmethod]
-    fn ConicGradient(v: ConicGradient) -> AzStyleBackgroundContentEnumWrapper { AzStyleBackgroundContentEnumWrapper::ConicGradient(v) }
+    fn ConicGradient(v: ConicGradient) -> AzStyleBackgroundContentEnumWrapper { AzStyleBackgroundContentEnumWrapper { inner: AzStyleBackgroundContent::ConicGradient(v) } }
     #[staticmethod]
-    fn Image(v: String) -> AzStyleBackgroundContentEnumWrapper { AzStyleBackgroundContentEnumWrapper::Image(v) }
+    fn Image(v: String) -> AzStyleBackgroundContentEnumWrapper { AzStyleBackgroundContentEnumWrapper { inner: AzStyleBackgroundContent::Image(v) } }
     #[staticmethod]
-    fn Color(v: ColorU) -> AzStyleBackgroundContentEnumWrapper { AzStyleBackgroundContentEnumWrapper::Color(v) }
+    fn Color(v: ColorU) -> AzStyleBackgroundContentEnumWrapper { AzStyleBackgroundContentEnumWrapper { inner: AzStyleBackgroundContent::Color(v) } }
 }
 
 #[pymethods]
 impl AzBackgroundPositionHorizontalEnumWrapper {
     #[classattr]
-    fn Left() -> AzBackgroundPositionHorizontalEnumWrapper { AzBackgroundPositionHorizontalEnumWrapper::Left }
+    fn Left() -> AzBackgroundPositionHorizontalEnumWrapper { AzBackgroundPositionHorizontalEnumWrapper { inner: AzBackgroundPositionHorizontal::Left } }
     #[classattr]
-    fn Center() -> AzBackgroundPositionHorizontalEnumWrapper { AzBackgroundPositionHorizontalEnumWrapper::Center }
+    fn Center() -> AzBackgroundPositionHorizontalEnumWrapper { AzBackgroundPositionHorizontalEnumWrapper { inner: AzBackgroundPositionHorizontal::Center } }
     #[classattr]
-    fn Right() -> AzBackgroundPositionHorizontalEnumWrapper { AzBackgroundPositionHorizontalEnumWrapper::Right }
+    fn Right() -> AzBackgroundPositionHorizontalEnumWrapper { AzBackgroundPositionHorizontalEnumWrapper { inner: AzBackgroundPositionHorizontal::Right } }
     #[staticmethod]
-    fn Exact(v: PixelValue) -> AzBackgroundPositionHorizontalEnumWrapper { AzBackgroundPositionHorizontalEnumWrapper::Exact(v) }
+    fn Exact(v: PixelValue) -> AzBackgroundPositionHorizontalEnumWrapper { AzBackgroundPositionHorizontalEnumWrapper { inner: AzBackgroundPositionHorizontal::Exact(v) } }
 }
 
 #[pymethods]
 impl AzBackgroundPositionVerticalEnumWrapper {
     #[classattr]
-    fn Top() -> AzBackgroundPositionVerticalEnumWrapper { AzBackgroundPositionVerticalEnumWrapper::Top }
+    fn Top() -> AzBackgroundPositionVerticalEnumWrapper { AzBackgroundPositionVerticalEnumWrapper { inner: AzBackgroundPositionVertical::Top } }
     #[classattr]
-    fn Center() -> AzBackgroundPositionVerticalEnumWrapper { AzBackgroundPositionVerticalEnumWrapper::Center }
+    fn Center() -> AzBackgroundPositionVerticalEnumWrapper { AzBackgroundPositionVerticalEnumWrapper { inner: AzBackgroundPositionVertical::Center } }
     #[classattr]
-    fn Bottom() -> AzBackgroundPositionVerticalEnumWrapper { AzBackgroundPositionVerticalEnumWrapper::Bottom }
+    fn Bottom() -> AzBackgroundPositionVerticalEnumWrapper { AzBackgroundPositionVerticalEnumWrapper { inner: AzBackgroundPositionVertical::Bottom } }
     #[staticmethod]
-    fn Exact(v: PixelValue) -> AzBackgroundPositionVerticalEnumWrapper { AzBackgroundPositionVerticalEnumWrapper::Exact(v) }
+    fn Exact(v: PixelValue) -> AzBackgroundPositionVerticalEnumWrapper { AzBackgroundPositionVerticalEnumWrapper { inner: AzBackgroundPositionVertical::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBackgroundRepeatEnumWrapper {
     #[classattr]
-    fn NoRepeat() -> AzStyleBackgroundRepeatEnumWrapper { AzStyleBackgroundRepeatEnumWrapper::NoRepeat }
+    fn NoRepeat() -> AzStyleBackgroundRepeatEnumWrapper { AzStyleBackgroundRepeatEnumWrapper { inner: AzStyleBackgroundRepeat::NoRepeat } }
     #[classattr]
-    fn Repeat() -> AzStyleBackgroundRepeatEnumWrapper { AzStyleBackgroundRepeatEnumWrapper::Repeat }
+    fn Repeat() -> AzStyleBackgroundRepeatEnumWrapper { AzStyleBackgroundRepeatEnumWrapper { inner: AzStyleBackgroundRepeat::Repeat } }
     #[classattr]
-    fn RepeatX() -> AzStyleBackgroundRepeatEnumWrapper { AzStyleBackgroundRepeatEnumWrapper::RepeatX }
+    fn RepeatX() -> AzStyleBackgroundRepeatEnumWrapper { AzStyleBackgroundRepeatEnumWrapper { inner: AzStyleBackgroundRepeat::RepeatX } }
     #[classattr]
-    fn RepeatY() -> AzStyleBackgroundRepeatEnumWrapper { AzStyleBackgroundRepeatEnumWrapper::RepeatY }
+    fn RepeatY() -> AzStyleBackgroundRepeatEnumWrapper { AzStyleBackgroundRepeatEnumWrapper { inner: AzStyleBackgroundRepeat::RepeatY } }
 }
 
 #[pymethods]
 impl AzStyleBackgroundSizeEnumWrapper {
     #[staticmethod]
-    fn ExactSize(v: [PixelValue;2]) -> AzStyleBackgroundSizeEnumWrapper { AzStyleBackgroundSizeEnumWrapper::ExactSize(v) }
+    fn ExactSize(v: [PixelValue;2]) -> AzStyleBackgroundSizeEnumWrapper { AzStyleBackgroundSizeEnumWrapper { inner: AzStyleBackgroundSize::ExactSize(v) } }
     #[classattr]
-    fn Contain() -> AzStyleBackgroundSizeEnumWrapper { AzStyleBackgroundSizeEnumWrapper::Contain }
+    fn Contain() -> AzStyleBackgroundSizeEnumWrapper { AzStyleBackgroundSizeEnumWrapper { inner: AzStyleBackgroundSize::Contain } }
     #[classattr]
-    fn Cover() -> AzStyleBackgroundSizeEnumWrapper { AzStyleBackgroundSizeEnumWrapper::Cover }
+    fn Cover() -> AzStyleBackgroundSizeEnumWrapper { AzStyleBackgroundSizeEnumWrapper { inner: AzStyleBackgroundSize::Cover } }
 }
 
 #[pymethods]
 impl AzBorderStyleEnumWrapper {
     #[classattr]
-    fn None() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper::None }
+    fn None() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper { inner: AzBorderStyle::None } }
     #[classattr]
-    fn Solid() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper::Solid }
+    fn Solid() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper { inner: AzBorderStyle::Solid } }
     #[classattr]
-    fn Double() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper::Double }
+    fn Double() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper { inner: AzBorderStyle::Double } }
     #[classattr]
-    fn Dotted() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper::Dotted }
+    fn Dotted() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper { inner: AzBorderStyle::Dotted } }
     #[classattr]
-    fn Dashed() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper::Dashed }
+    fn Dashed() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper { inner: AzBorderStyle::Dashed } }
     #[classattr]
-    fn Hidden() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper::Hidden }
+    fn Hidden() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper { inner: AzBorderStyle::Hidden } }
     #[classattr]
-    fn Groove() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper::Groove }
+    fn Groove() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper { inner: AzBorderStyle::Groove } }
     #[classattr]
-    fn Ridge() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper::Ridge }
+    fn Ridge() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper { inner: AzBorderStyle::Ridge } }
     #[classattr]
-    fn Inset() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper::Inset }
+    fn Inset() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper { inner: AzBorderStyle::Inset } }
     #[classattr]
-    fn Outset() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper::Outset }
+    fn Outset() -> AzBorderStyleEnumWrapper { AzBorderStyleEnumWrapper { inner: AzBorderStyle::Outset } }
 }
 
 #[pymethods]
 impl AzStyleCursorEnumWrapper {
     #[classattr]
-    fn Alias() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Alias }
+    fn Alias() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Alias } }
     #[classattr]
-    fn AllScroll() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::AllScroll }
+    fn AllScroll() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::AllScroll } }
     #[classattr]
-    fn Cell() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Cell }
+    fn Cell() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Cell } }
     #[classattr]
-    fn ColResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::ColResize }
+    fn ColResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::ColResize } }
     #[classattr]
-    fn ContextMenu() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::ContextMenu }
+    fn ContextMenu() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::ContextMenu } }
     #[classattr]
-    fn Copy() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Copy }
+    fn Copy() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Copy } }
     #[classattr]
-    fn Crosshair() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Crosshair }
+    fn Crosshair() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Crosshair } }
     #[classattr]
-    fn Default() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Default }
+    fn Default() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Default } }
     #[classattr]
-    fn EResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::EResize }
+    fn EResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::EResize } }
     #[classattr]
-    fn EwResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::EwResize }
+    fn EwResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::EwResize } }
     #[classattr]
-    fn Grab() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Grab }
+    fn Grab() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Grab } }
     #[classattr]
-    fn Grabbing() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Grabbing }
+    fn Grabbing() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Grabbing } }
     #[classattr]
-    fn Help() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Help }
+    fn Help() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Help } }
     #[classattr]
-    fn Move() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Move }
+    fn Move() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Move } }
     #[classattr]
-    fn NResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::NResize }
+    fn NResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::NResize } }
     #[classattr]
-    fn NsResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::NsResize }
+    fn NsResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::NsResize } }
     #[classattr]
-    fn NeswResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::NeswResize }
+    fn NeswResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::NeswResize } }
     #[classattr]
-    fn NwseResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::NwseResize }
+    fn NwseResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::NwseResize } }
     #[classattr]
-    fn Pointer() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Pointer }
+    fn Pointer() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Pointer } }
     #[classattr]
-    fn Progress() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Progress }
+    fn Progress() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Progress } }
     #[classattr]
-    fn RowResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::RowResize }
+    fn RowResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::RowResize } }
     #[classattr]
-    fn SResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::SResize }
+    fn SResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::SResize } }
     #[classattr]
-    fn SeResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::SeResize }
+    fn SeResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::SeResize } }
     #[classattr]
-    fn Text() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Text }
+    fn Text() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Text } }
     #[classattr]
-    fn Unset() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Unset }
+    fn Unset() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Unset } }
     #[classattr]
-    fn VerticalText() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::VerticalText }
+    fn VerticalText() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::VerticalText } }
     #[classattr]
-    fn WResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::WResize }
+    fn WResize() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::WResize } }
     #[classattr]
-    fn Wait() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::Wait }
+    fn Wait() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::Wait } }
     #[classattr]
-    fn ZoomIn() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::ZoomIn }
+    fn ZoomIn() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::ZoomIn } }
     #[classattr]
-    fn ZoomOut() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper::ZoomOut }
+    fn ZoomOut() -> AzStyleCursorEnumWrapper { AzStyleCursorEnumWrapper { inner: AzStyleCursor::ZoomOut } }
 }
 
 #[pymethods]
 impl AzStyleFontFamilyEnumWrapper {
     #[staticmethod]
-    fn System(v: String) -> AzStyleFontFamilyEnumWrapper { AzStyleFontFamilyEnumWrapper::System(v) }
+    fn System(v: String) -> AzStyleFontFamilyEnumWrapper { AzStyleFontFamilyEnumWrapper { inner: AzStyleFontFamily::System(v) } }
     #[staticmethod]
-    fn File(v: String) -> AzStyleFontFamilyEnumWrapper { AzStyleFontFamilyEnumWrapper::File(v) }
+    fn File(v: String) -> AzStyleFontFamilyEnumWrapper { AzStyleFontFamilyEnumWrapper { inner: AzStyleFontFamily::File(v) } }
     #[staticmethod]
-    fn Ref(v: FontRef) -> AzStyleFontFamilyEnumWrapper { AzStyleFontFamilyEnumWrapper::Ref(v) }
+    fn Ref(v: FontRef) -> AzStyleFontFamilyEnumWrapper { AzStyleFontFamilyEnumWrapper { inner: AzStyleFontFamily::Ref(v) } }
 }
 
 #[pymethods]
 impl AzStyleBackfaceVisibilityEnumWrapper {
     #[classattr]
-    fn Hidden() -> AzStyleBackfaceVisibilityEnumWrapper { AzStyleBackfaceVisibilityEnumWrapper::Hidden }
+    fn Hidden() -> AzStyleBackfaceVisibilityEnumWrapper { AzStyleBackfaceVisibilityEnumWrapper { inner: AzStyleBackfaceVisibility::Hidden } }
     #[classattr]
-    fn Visible() -> AzStyleBackfaceVisibilityEnumWrapper { AzStyleBackfaceVisibilityEnumWrapper::Visible }
+    fn Visible() -> AzStyleBackfaceVisibilityEnumWrapper { AzStyleBackfaceVisibilityEnumWrapper { inner: AzStyleBackfaceVisibility::Visible } }
 }
 
 #[pymethods]
 impl AzStyleTransformEnumWrapper {
     #[staticmethod]
-    fn Matrix(v: StyleTransformMatrix2D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::Matrix(v) }
+    fn Matrix(v: StyleTransformMatrix2D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::Matrix(v) } }
     #[staticmethod]
-    fn Matrix3D(v: StyleTransformMatrix3D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::Matrix3D(v) }
+    fn Matrix3D(v: StyleTransformMatrix3D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::Matrix3D(v) } }
     #[staticmethod]
-    fn Translate(v: StyleTransformTranslate2D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::Translate(v) }
+    fn Translate(v: StyleTransformTranslate2D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::Translate(v) } }
     #[staticmethod]
-    fn Translate3D(v: StyleTransformTranslate3D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::Translate3D(v) }
+    fn Translate3D(v: StyleTransformTranslate3D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::Translate3D(v) } }
     #[staticmethod]
-    fn TranslateX(v: PixelValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::TranslateX(v) }
+    fn TranslateX(v: PixelValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::TranslateX(v) } }
     #[staticmethod]
-    fn TranslateY(v: PixelValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::TranslateY(v) }
+    fn TranslateY(v: PixelValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::TranslateY(v) } }
     #[staticmethod]
-    fn TranslateZ(v: PixelValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::TranslateZ(v) }
+    fn TranslateZ(v: PixelValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::TranslateZ(v) } }
     #[staticmethod]
-    fn Rotate(v: AngleValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::Rotate(v) }
+    fn Rotate(v: AngleValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::Rotate(v) } }
     #[staticmethod]
-    fn Rotate3D(v: StyleTransformRotate3D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::Rotate3D(v) }
+    fn Rotate3D(v: StyleTransformRotate3D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::Rotate3D(v) } }
     #[staticmethod]
-    fn RotateX(v: AngleValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::RotateX(v) }
+    fn RotateX(v: AngleValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::RotateX(v) } }
     #[staticmethod]
-    fn RotateY(v: AngleValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::RotateY(v) }
+    fn RotateY(v: AngleValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::RotateY(v) } }
     #[staticmethod]
-    fn RotateZ(v: AngleValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::RotateZ(v) }
+    fn RotateZ(v: AngleValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::RotateZ(v) } }
     #[staticmethod]
-    fn Scale(v: StyleTransformScale2D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::Scale(v) }
+    fn Scale(v: StyleTransformScale2D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::Scale(v) } }
     #[staticmethod]
-    fn Scale3D(v: StyleTransformScale3D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::Scale3D(v) }
+    fn Scale3D(v: StyleTransformScale3D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::Scale3D(v) } }
     #[staticmethod]
-    fn ScaleX(v: PercentageValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::ScaleX(v) }
+    fn ScaleX(v: PercentageValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::ScaleX(v) } }
     #[staticmethod]
-    fn ScaleY(v: PercentageValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::ScaleY(v) }
+    fn ScaleY(v: PercentageValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::ScaleY(v) } }
     #[staticmethod]
-    fn ScaleZ(v: PercentageValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::ScaleZ(v) }
+    fn ScaleZ(v: PercentageValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::ScaleZ(v) } }
     #[staticmethod]
-    fn Skew(v: StyleTransformSkew2D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::Skew(v) }
+    fn Skew(v: StyleTransformSkew2D) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::Skew(v) } }
     #[staticmethod]
-    fn SkewX(v: PercentageValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::SkewX(v) }
+    fn SkewX(v: PercentageValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::SkewX(v) } }
     #[staticmethod]
-    fn SkewY(v: PercentageValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::SkewY(v) }
+    fn SkewY(v: PercentageValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::SkewY(v) } }
     #[staticmethod]
-    fn Perspective(v: PixelValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper::Perspective(v) }
+    fn Perspective(v: PixelValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::Perspective(v) } }
 }
 
 #[pymethods]
 impl AzStyleTextAlignEnumWrapper {
     #[classattr]
-    fn Left() -> AzStyleTextAlignEnumWrapper { AzStyleTextAlignEnumWrapper::Left }
+    fn Left() -> AzStyleTextAlignEnumWrapper { AzStyleTextAlignEnumWrapper { inner: AzStyleTextAlign::Left } }
     #[classattr]
-    fn Center() -> AzStyleTextAlignEnumWrapper { AzStyleTextAlignEnumWrapper::Center }
+    fn Center() -> AzStyleTextAlignEnumWrapper { AzStyleTextAlignEnumWrapper { inner: AzStyleTextAlign::Center } }
     #[classattr]
-    fn Right() -> AzStyleTextAlignEnumWrapper { AzStyleTextAlignEnumWrapper::Right }
+    fn Right() -> AzStyleTextAlignEnumWrapper { AzStyleTextAlignEnumWrapper { inner: AzStyleTextAlign::Right } }
 }
 
 #[pymethods]
 impl AzStyleBoxShadowValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBoxShadowValueEnumWrapper { AzStyleBoxShadowValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBoxShadowValueEnumWrapper { AzStyleBoxShadowValueEnumWrapper { inner: AzStyleBoxShadowValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBoxShadowValueEnumWrapper { AzStyleBoxShadowValueEnumWrapper::None }
+    fn None() -> AzStyleBoxShadowValueEnumWrapper { AzStyleBoxShadowValueEnumWrapper { inner: AzStyleBoxShadowValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBoxShadowValueEnumWrapper { AzStyleBoxShadowValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBoxShadowValueEnumWrapper { AzStyleBoxShadowValueEnumWrapper { inner: AzStyleBoxShadowValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBoxShadowValueEnumWrapper { AzStyleBoxShadowValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBoxShadowValueEnumWrapper { AzStyleBoxShadowValueEnumWrapper { inner: AzStyleBoxShadowValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBoxShadow) -> AzStyleBoxShadowValueEnumWrapper { AzStyleBoxShadowValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBoxShadow) -> AzStyleBoxShadowValueEnumWrapper { AzStyleBoxShadowValueEnumWrapper { inner: AzStyleBoxShadowValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutAlignContentValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutAlignContentValueEnumWrapper { AzLayoutAlignContentValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutAlignContentValueEnumWrapper { AzLayoutAlignContentValueEnumWrapper { inner: AzLayoutAlignContentValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutAlignContentValueEnumWrapper { AzLayoutAlignContentValueEnumWrapper::None }
+    fn None() -> AzLayoutAlignContentValueEnumWrapper { AzLayoutAlignContentValueEnumWrapper { inner: AzLayoutAlignContentValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutAlignContentValueEnumWrapper { AzLayoutAlignContentValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutAlignContentValueEnumWrapper { AzLayoutAlignContentValueEnumWrapper { inner: AzLayoutAlignContentValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutAlignContentValueEnumWrapper { AzLayoutAlignContentValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutAlignContentValueEnumWrapper { AzLayoutAlignContentValueEnumWrapper { inner: AzLayoutAlignContentValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutAlignContent) -> AzLayoutAlignContentValueEnumWrapper { AzLayoutAlignContentValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutAlignContent) -> AzLayoutAlignContentValueEnumWrapper { AzLayoutAlignContentValueEnumWrapper { inner: AzLayoutAlignContentValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutAlignItemsValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutAlignItemsValueEnumWrapper { AzLayoutAlignItemsValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutAlignItemsValueEnumWrapper { AzLayoutAlignItemsValueEnumWrapper { inner: AzLayoutAlignItemsValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutAlignItemsValueEnumWrapper { AzLayoutAlignItemsValueEnumWrapper::None }
+    fn None() -> AzLayoutAlignItemsValueEnumWrapper { AzLayoutAlignItemsValueEnumWrapper { inner: AzLayoutAlignItemsValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutAlignItemsValueEnumWrapper { AzLayoutAlignItemsValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutAlignItemsValueEnumWrapper { AzLayoutAlignItemsValueEnumWrapper { inner: AzLayoutAlignItemsValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutAlignItemsValueEnumWrapper { AzLayoutAlignItemsValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutAlignItemsValueEnumWrapper { AzLayoutAlignItemsValueEnumWrapper { inner: AzLayoutAlignItemsValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutAlignItems) -> AzLayoutAlignItemsValueEnumWrapper { AzLayoutAlignItemsValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutAlignItems) -> AzLayoutAlignItemsValueEnumWrapper { AzLayoutAlignItemsValueEnumWrapper { inner: AzLayoutAlignItemsValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutBottomValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutBottomValueEnumWrapper { AzLayoutBottomValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutBottomValueEnumWrapper { AzLayoutBottomValueEnumWrapper { inner: AzLayoutBottomValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutBottomValueEnumWrapper { AzLayoutBottomValueEnumWrapper::None }
+    fn None() -> AzLayoutBottomValueEnumWrapper { AzLayoutBottomValueEnumWrapper { inner: AzLayoutBottomValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutBottomValueEnumWrapper { AzLayoutBottomValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutBottomValueEnumWrapper { AzLayoutBottomValueEnumWrapper { inner: AzLayoutBottomValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutBottomValueEnumWrapper { AzLayoutBottomValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutBottomValueEnumWrapper { AzLayoutBottomValueEnumWrapper { inner: AzLayoutBottomValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutBottom) -> AzLayoutBottomValueEnumWrapper { AzLayoutBottomValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutBottom) -> AzLayoutBottomValueEnumWrapper { AzLayoutBottomValueEnumWrapper { inner: AzLayoutBottomValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutBoxSizingValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutBoxSizingValueEnumWrapper { AzLayoutBoxSizingValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutBoxSizingValueEnumWrapper { AzLayoutBoxSizingValueEnumWrapper { inner: AzLayoutBoxSizingValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutBoxSizingValueEnumWrapper { AzLayoutBoxSizingValueEnumWrapper::None }
+    fn None() -> AzLayoutBoxSizingValueEnumWrapper { AzLayoutBoxSizingValueEnumWrapper { inner: AzLayoutBoxSizingValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutBoxSizingValueEnumWrapper { AzLayoutBoxSizingValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutBoxSizingValueEnumWrapper { AzLayoutBoxSizingValueEnumWrapper { inner: AzLayoutBoxSizingValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutBoxSizingValueEnumWrapper { AzLayoutBoxSizingValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutBoxSizingValueEnumWrapper { AzLayoutBoxSizingValueEnumWrapper { inner: AzLayoutBoxSizingValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutBoxSizing) -> AzLayoutBoxSizingValueEnumWrapper { AzLayoutBoxSizingValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutBoxSizing) -> AzLayoutBoxSizingValueEnumWrapper { AzLayoutBoxSizingValueEnumWrapper { inner: AzLayoutBoxSizingValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutFlexDirectionValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutFlexDirectionValueEnumWrapper { AzLayoutFlexDirectionValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutFlexDirectionValueEnumWrapper { AzLayoutFlexDirectionValueEnumWrapper { inner: AzLayoutFlexDirectionValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutFlexDirectionValueEnumWrapper { AzLayoutFlexDirectionValueEnumWrapper::None }
+    fn None() -> AzLayoutFlexDirectionValueEnumWrapper { AzLayoutFlexDirectionValueEnumWrapper { inner: AzLayoutFlexDirectionValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutFlexDirectionValueEnumWrapper { AzLayoutFlexDirectionValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutFlexDirectionValueEnumWrapper { AzLayoutFlexDirectionValueEnumWrapper { inner: AzLayoutFlexDirectionValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutFlexDirectionValueEnumWrapper { AzLayoutFlexDirectionValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutFlexDirectionValueEnumWrapper { AzLayoutFlexDirectionValueEnumWrapper { inner: AzLayoutFlexDirectionValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutFlexDirection) -> AzLayoutFlexDirectionValueEnumWrapper { AzLayoutFlexDirectionValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutFlexDirection) -> AzLayoutFlexDirectionValueEnumWrapper { AzLayoutFlexDirectionValueEnumWrapper { inner: AzLayoutFlexDirectionValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutDisplayValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutDisplayValueEnumWrapper { AzLayoutDisplayValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutDisplayValueEnumWrapper { AzLayoutDisplayValueEnumWrapper { inner: AzLayoutDisplayValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutDisplayValueEnumWrapper { AzLayoutDisplayValueEnumWrapper::None }
+    fn None() -> AzLayoutDisplayValueEnumWrapper { AzLayoutDisplayValueEnumWrapper { inner: AzLayoutDisplayValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutDisplayValueEnumWrapper { AzLayoutDisplayValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutDisplayValueEnumWrapper { AzLayoutDisplayValueEnumWrapper { inner: AzLayoutDisplayValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutDisplayValueEnumWrapper { AzLayoutDisplayValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutDisplayValueEnumWrapper { AzLayoutDisplayValueEnumWrapper { inner: AzLayoutDisplayValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutDisplay) -> AzLayoutDisplayValueEnumWrapper { AzLayoutDisplayValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutDisplay) -> AzLayoutDisplayValueEnumWrapper { AzLayoutDisplayValueEnumWrapper { inner: AzLayoutDisplayValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutFlexGrowValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutFlexGrowValueEnumWrapper { AzLayoutFlexGrowValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutFlexGrowValueEnumWrapper { AzLayoutFlexGrowValueEnumWrapper { inner: AzLayoutFlexGrowValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutFlexGrowValueEnumWrapper { AzLayoutFlexGrowValueEnumWrapper::None }
+    fn None() -> AzLayoutFlexGrowValueEnumWrapper { AzLayoutFlexGrowValueEnumWrapper { inner: AzLayoutFlexGrowValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutFlexGrowValueEnumWrapper { AzLayoutFlexGrowValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutFlexGrowValueEnumWrapper { AzLayoutFlexGrowValueEnumWrapper { inner: AzLayoutFlexGrowValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutFlexGrowValueEnumWrapper { AzLayoutFlexGrowValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutFlexGrowValueEnumWrapper { AzLayoutFlexGrowValueEnumWrapper { inner: AzLayoutFlexGrowValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutFlexGrow) -> AzLayoutFlexGrowValueEnumWrapper { AzLayoutFlexGrowValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutFlexGrow) -> AzLayoutFlexGrowValueEnumWrapper { AzLayoutFlexGrowValueEnumWrapper { inner: AzLayoutFlexGrowValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutFlexShrinkValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutFlexShrinkValueEnumWrapper { AzLayoutFlexShrinkValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutFlexShrinkValueEnumWrapper { AzLayoutFlexShrinkValueEnumWrapper { inner: AzLayoutFlexShrinkValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutFlexShrinkValueEnumWrapper { AzLayoutFlexShrinkValueEnumWrapper::None }
+    fn None() -> AzLayoutFlexShrinkValueEnumWrapper { AzLayoutFlexShrinkValueEnumWrapper { inner: AzLayoutFlexShrinkValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutFlexShrinkValueEnumWrapper { AzLayoutFlexShrinkValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutFlexShrinkValueEnumWrapper { AzLayoutFlexShrinkValueEnumWrapper { inner: AzLayoutFlexShrinkValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutFlexShrinkValueEnumWrapper { AzLayoutFlexShrinkValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutFlexShrinkValueEnumWrapper { AzLayoutFlexShrinkValueEnumWrapper { inner: AzLayoutFlexShrinkValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutFlexShrink) -> AzLayoutFlexShrinkValueEnumWrapper { AzLayoutFlexShrinkValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutFlexShrink) -> AzLayoutFlexShrinkValueEnumWrapper { AzLayoutFlexShrinkValueEnumWrapper { inner: AzLayoutFlexShrinkValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutFloatValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutFloatValueEnumWrapper { AzLayoutFloatValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutFloatValueEnumWrapper { AzLayoutFloatValueEnumWrapper { inner: AzLayoutFloatValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutFloatValueEnumWrapper { AzLayoutFloatValueEnumWrapper::None }
+    fn None() -> AzLayoutFloatValueEnumWrapper { AzLayoutFloatValueEnumWrapper { inner: AzLayoutFloatValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutFloatValueEnumWrapper { AzLayoutFloatValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutFloatValueEnumWrapper { AzLayoutFloatValueEnumWrapper { inner: AzLayoutFloatValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutFloatValueEnumWrapper { AzLayoutFloatValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutFloatValueEnumWrapper { AzLayoutFloatValueEnumWrapper { inner: AzLayoutFloatValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutFloat) -> AzLayoutFloatValueEnumWrapper { AzLayoutFloatValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutFloat) -> AzLayoutFloatValueEnumWrapper { AzLayoutFloatValueEnumWrapper { inner: AzLayoutFloatValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutHeightValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutHeightValueEnumWrapper { AzLayoutHeightValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutHeightValueEnumWrapper { AzLayoutHeightValueEnumWrapper { inner: AzLayoutHeightValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutHeightValueEnumWrapper { AzLayoutHeightValueEnumWrapper::None }
+    fn None() -> AzLayoutHeightValueEnumWrapper { AzLayoutHeightValueEnumWrapper { inner: AzLayoutHeightValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutHeightValueEnumWrapper { AzLayoutHeightValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutHeightValueEnumWrapper { AzLayoutHeightValueEnumWrapper { inner: AzLayoutHeightValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutHeightValueEnumWrapper { AzLayoutHeightValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutHeightValueEnumWrapper { AzLayoutHeightValueEnumWrapper { inner: AzLayoutHeightValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutHeight) -> AzLayoutHeightValueEnumWrapper { AzLayoutHeightValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutHeight) -> AzLayoutHeightValueEnumWrapper { AzLayoutHeightValueEnumWrapper { inner: AzLayoutHeightValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutJustifyContentValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutJustifyContentValueEnumWrapper { AzLayoutJustifyContentValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutJustifyContentValueEnumWrapper { AzLayoutJustifyContentValueEnumWrapper { inner: AzLayoutJustifyContentValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutJustifyContentValueEnumWrapper { AzLayoutJustifyContentValueEnumWrapper::None }
+    fn None() -> AzLayoutJustifyContentValueEnumWrapper { AzLayoutJustifyContentValueEnumWrapper { inner: AzLayoutJustifyContentValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutJustifyContentValueEnumWrapper { AzLayoutJustifyContentValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutJustifyContentValueEnumWrapper { AzLayoutJustifyContentValueEnumWrapper { inner: AzLayoutJustifyContentValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutJustifyContentValueEnumWrapper { AzLayoutJustifyContentValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutJustifyContentValueEnumWrapper { AzLayoutJustifyContentValueEnumWrapper { inner: AzLayoutJustifyContentValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutJustifyContent) -> AzLayoutJustifyContentValueEnumWrapper { AzLayoutJustifyContentValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutJustifyContent) -> AzLayoutJustifyContentValueEnumWrapper { AzLayoutJustifyContentValueEnumWrapper { inner: AzLayoutJustifyContentValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutLeftValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutLeftValueEnumWrapper { AzLayoutLeftValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutLeftValueEnumWrapper { AzLayoutLeftValueEnumWrapper { inner: AzLayoutLeftValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutLeftValueEnumWrapper { AzLayoutLeftValueEnumWrapper::None }
+    fn None() -> AzLayoutLeftValueEnumWrapper { AzLayoutLeftValueEnumWrapper { inner: AzLayoutLeftValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutLeftValueEnumWrapper { AzLayoutLeftValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutLeftValueEnumWrapper { AzLayoutLeftValueEnumWrapper { inner: AzLayoutLeftValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutLeftValueEnumWrapper { AzLayoutLeftValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutLeftValueEnumWrapper { AzLayoutLeftValueEnumWrapper { inner: AzLayoutLeftValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutLeft) -> AzLayoutLeftValueEnumWrapper { AzLayoutLeftValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutLeft) -> AzLayoutLeftValueEnumWrapper { AzLayoutLeftValueEnumWrapper { inner: AzLayoutLeftValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutMarginBottomValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutMarginBottomValueEnumWrapper { AzLayoutMarginBottomValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutMarginBottomValueEnumWrapper { AzLayoutMarginBottomValueEnumWrapper { inner: AzLayoutMarginBottomValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutMarginBottomValueEnumWrapper { AzLayoutMarginBottomValueEnumWrapper::None }
+    fn None() -> AzLayoutMarginBottomValueEnumWrapper { AzLayoutMarginBottomValueEnumWrapper { inner: AzLayoutMarginBottomValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutMarginBottomValueEnumWrapper { AzLayoutMarginBottomValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutMarginBottomValueEnumWrapper { AzLayoutMarginBottomValueEnumWrapper { inner: AzLayoutMarginBottomValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutMarginBottomValueEnumWrapper { AzLayoutMarginBottomValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutMarginBottomValueEnumWrapper { AzLayoutMarginBottomValueEnumWrapper { inner: AzLayoutMarginBottomValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutMarginBottom) -> AzLayoutMarginBottomValueEnumWrapper { AzLayoutMarginBottomValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutMarginBottom) -> AzLayoutMarginBottomValueEnumWrapper { AzLayoutMarginBottomValueEnumWrapper { inner: AzLayoutMarginBottomValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutMarginLeftValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutMarginLeftValueEnumWrapper { AzLayoutMarginLeftValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutMarginLeftValueEnumWrapper { AzLayoutMarginLeftValueEnumWrapper { inner: AzLayoutMarginLeftValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutMarginLeftValueEnumWrapper { AzLayoutMarginLeftValueEnumWrapper::None }
+    fn None() -> AzLayoutMarginLeftValueEnumWrapper { AzLayoutMarginLeftValueEnumWrapper { inner: AzLayoutMarginLeftValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutMarginLeftValueEnumWrapper { AzLayoutMarginLeftValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutMarginLeftValueEnumWrapper { AzLayoutMarginLeftValueEnumWrapper { inner: AzLayoutMarginLeftValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutMarginLeftValueEnumWrapper { AzLayoutMarginLeftValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutMarginLeftValueEnumWrapper { AzLayoutMarginLeftValueEnumWrapper { inner: AzLayoutMarginLeftValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutMarginLeft) -> AzLayoutMarginLeftValueEnumWrapper { AzLayoutMarginLeftValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutMarginLeft) -> AzLayoutMarginLeftValueEnumWrapper { AzLayoutMarginLeftValueEnumWrapper { inner: AzLayoutMarginLeftValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutMarginRightValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutMarginRightValueEnumWrapper { AzLayoutMarginRightValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutMarginRightValueEnumWrapper { AzLayoutMarginRightValueEnumWrapper { inner: AzLayoutMarginRightValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutMarginRightValueEnumWrapper { AzLayoutMarginRightValueEnumWrapper::None }
+    fn None() -> AzLayoutMarginRightValueEnumWrapper { AzLayoutMarginRightValueEnumWrapper { inner: AzLayoutMarginRightValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutMarginRightValueEnumWrapper { AzLayoutMarginRightValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutMarginRightValueEnumWrapper { AzLayoutMarginRightValueEnumWrapper { inner: AzLayoutMarginRightValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutMarginRightValueEnumWrapper { AzLayoutMarginRightValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutMarginRightValueEnumWrapper { AzLayoutMarginRightValueEnumWrapper { inner: AzLayoutMarginRightValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutMarginRight) -> AzLayoutMarginRightValueEnumWrapper { AzLayoutMarginRightValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutMarginRight) -> AzLayoutMarginRightValueEnumWrapper { AzLayoutMarginRightValueEnumWrapper { inner: AzLayoutMarginRightValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutMarginTopValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutMarginTopValueEnumWrapper { AzLayoutMarginTopValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutMarginTopValueEnumWrapper { AzLayoutMarginTopValueEnumWrapper { inner: AzLayoutMarginTopValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutMarginTopValueEnumWrapper { AzLayoutMarginTopValueEnumWrapper::None }
+    fn None() -> AzLayoutMarginTopValueEnumWrapper { AzLayoutMarginTopValueEnumWrapper { inner: AzLayoutMarginTopValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutMarginTopValueEnumWrapper { AzLayoutMarginTopValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutMarginTopValueEnumWrapper { AzLayoutMarginTopValueEnumWrapper { inner: AzLayoutMarginTopValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutMarginTopValueEnumWrapper { AzLayoutMarginTopValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutMarginTopValueEnumWrapper { AzLayoutMarginTopValueEnumWrapper { inner: AzLayoutMarginTopValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutMarginTop) -> AzLayoutMarginTopValueEnumWrapper { AzLayoutMarginTopValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutMarginTop) -> AzLayoutMarginTopValueEnumWrapper { AzLayoutMarginTopValueEnumWrapper { inner: AzLayoutMarginTopValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutMaxHeightValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutMaxHeightValueEnumWrapper { AzLayoutMaxHeightValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutMaxHeightValueEnumWrapper { AzLayoutMaxHeightValueEnumWrapper { inner: AzLayoutMaxHeightValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutMaxHeightValueEnumWrapper { AzLayoutMaxHeightValueEnumWrapper::None }
+    fn None() -> AzLayoutMaxHeightValueEnumWrapper { AzLayoutMaxHeightValueEnumWrapper { inner: AzLayoutMaxHeightValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutMaxHeightValueEnumWrapper { AzLayoutMaxHeightValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutMaxHeightValueEnumWrapper { AzLayoutMaxHeightValueEnumWrapper { inner: AzLayoutMaxHeightValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutMaxHeightValueEnumWrapper { AzLayoutMaxHeightValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutMaxHeightValueEnumWrapper { AzLayoutMaxHeightValueEnumWrapper { inner: AzLayoutMaxHeightValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutMaxHeight) -> AzLayoutMaxHeightValueEnumWrapper { AzLayoutMaxHeightValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutMaxHeight) -> AzLayoutMaxHeightValueEnumWrapper { AzLayoutMaxHeightValueEnumWrapper { inner: AzLayoutMaxHeightValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutMaxWidthValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutMaxWidthValueEnumWrapper { AzLayoutMaxWidthValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutMaxWidthValueEnumWrapper { AzLayoutMaxWidthValueEnumWrapper { inner: AzLayoutMaxWidthValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutMaxWidthValueEnumWrapper { AzLayoutMaxWidthValueEnumWrapper::None }
+    fn None() -> AzLayoutMaxWidthValueEnumWrapper { AzLayoutMaxWidthValueEnumWrapper { inner: AzLayoutMaxWidthValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutMaxWidthValueEnumWrapper { AzLayoutMaxWidthValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutMaxWidthValueEnumWrapper { AzLayoutMaxWidthValueEnumWrapper { inner: AzLayoutMaxWidthValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutMaxWidthValueEnumWrapper { AzLayoutMaxWidthValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutMaxWidthValueEnumWrapper { AzLayoutMaxWidthValueEnumWrapper { inner: AzLayoutMaxWidthValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutMaxWidth) -> AzLayoutMaxWidthValueEnumWrapper { AzLayoutMaxWidthValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutMaxWidth) -> AzLayoutMaxWidthValueEnumWrapper { AzLayoutMaxWidthValueEnumWrapper { inner: AzLayoutMaxWidthValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutMinHeightValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutMinHeightValueEnumWrapper { AzLayoutMinHeightValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutMinHeightValueEnumWrapper { AzLayoutMinHeightValueEnumWrapper { inner: AzLayoutMinHeightValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutMinHeightValueEnumWrapper { AzLayoutMinHeightValueEnumWrapper::None }
+    fn None() -> AzLayoutMinHeightValueEnumWrapper { AzLayoutMinHeightValueEnumWrapper { inner: AzLayoutMinHeightValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutMinHeightValueEnumWrapper { AzLayoutMinHeightValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutMinHeightValueEnumWrapper { AzLayoutMinHeightValueEnumWrapper { inner: AzLayoutMinHeightValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutMinHeightValueEnumWrapper { AzLayoutMinHeightValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutMinHeightValueEnumWrapper { AzLayoutMinHeightValueEnumWrapper { inner: AzLayoutMinHeightValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutMinHeight) -> AzLayoutMinHeightValueEnumWrapper { AzLayoutMinHeightValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutMinHeight) -> AzLayoutMinHeightValueEnumWrapper { AzLayoutMinHeightValueEnumWrapper { inner: AzLayoutMinHeightValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutMinWidthValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutMinWidthValueEnumWrapper { AzLayoutMinWidthValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutMinWidthValueEnumWrapper { AzLayoutMinWidthValueEnumWrapper { inner: AzLayoutMinWidthValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutMinWidthValueEnumWrapper { AzLayoutMinWidthValueEnumWrapper::None }
+    fn None() -> AzLayoutMinWidthValueEnumWrapper { AzLayoutMinWidthValueEnumWrapper { inner: AzLayoutMinWidthValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutMinWidthValueEnumWrapper { AzLayoutMinWidthValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutMinWidthValueEnumWrapper { AzLayoutMinWidthValueEnumWrapper { inner: AzLayoutMinWidthValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutMinWidthValueEnumWrapper { AzLayoutMinWidthValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutMinWidthValueEnumWrapper { AzLayoutMinWidthValueEnumWrapper { inner: AzLayoutMinWidthValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutMinWidth) -> AzLayoutMinWidthValueEnumWrapper { AzLayoutMinWidthValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutMinWidth) -> AzLayoutMinWidthValueEnumWrapper { AzLayoutMinWidthValueEnumWrapper { inner: AzLayoutMinWidthValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutPaddingBottomValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutPaddingBottomValueEnumWrapper { AzLayoutPaddingBottomValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutPaddingBottomValueEnumWrapper { AzLayoutPaddingBottomValueEnumWrapper { inner: AzLayoutPaddingBottomValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutPaddingBottomValueEnumWrapper { AzLayoutPaddingBottomValueEnumWrapper::None }
+    fn None() -> AzLayoutPaddingBottomValueEnumWrapper { AzLayoutPaddingBottomValueEnumWrapper { inner: AzLayoutPaddingBottomValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutPaddingBottomValueEnumWrapper { AzLayoutPaddingBottomValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutPaddingBottomValueEnumWrapper { AzLayoutPaddingBottomValueEnumWrapper { inner: AzLayoutPaddingBottomValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutPaddingBottomValueEnumWrapper { AzLayoutPaddingBottomValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutPaddingBottomValueEnumWrapper { AzLayoutPaddingBottomValueEnumWrapper { inner: AzLayoutPaddingBottomValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutPaddingBottom) -> AzLayoutPaddingBottomValueEnumWrapper { AzLayoutPaddingBottomValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutPaddingBottom) -> AzLayoutPaddingBottomValueEnumWrapper { AzLayoutPaddingBottomValueEnumWrapper { inner: AzLayoutPaddingBottomValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutPaddingLeftValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutPaddingLeftValueEnumWrapper { AzLayoutPaddingLeftValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutPaddingLeftValueEnumWrapper { AzLayoutPaddingLeftValueEnumWrapper { inner: AzLayoutPaddingLeftValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutPaddingLeftValueEnumWrapper { AzLayoutPaddingLeftValueEnumWrapper::None }
+    fn None() -> AzLayoutPaddingLeftValueEnumWrapper { AzLayoutPaddingLeftValueEnumWrapper { inner: AzLayoutPaddingLeftValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutPaddingLeftValueEnumWrapper { AzLayoutPaddingLeftValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutPaddingLeftValueEnumWrapper { AzLayoutPaddingLeftValueEnumWrapper { inner: AzLayoutPaddingLeftValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutPaddingLeftValueEnumWrapper { AzLayoutPaddingLeftValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutPaddingLeftValueEnumWrapper { AzLayoutPaddingLeftValueEnumWrapper { inner: AzLayoutPaddingLeftValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutPaddingLeft) -> AzLayoutPaddingLeftValueEnumWrapper { AzLayoutPaddingLeftValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutPaddingLeft) -> AzLayoutPaddingLeftValueEnumWrapper { AzLayoutPaddingLeftValueEnumWrapper { inner: AzLayoutPaddingLeftValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutPaddingRightValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutPaddingRightValueEnumWrapper { AzLayoutPaddingRightValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutPaddingRightValueEnumWrapper { AzLayoutPaddingRightValueEnumWrapper { inner: AzLayoutPaddingRightValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutPaddingRightValueEnumWrapper { AzLayoutPaddingRightValueEnumWrapper::None }
+    fn None() -> AzLayoutPaddingRightValueEnumWrapper { AzLayoutPaddingRightValueEnumWrapper { inner: AzLayoutPaddingRightValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutPaddingRightValueEnumWrapper { AzLayoutPaddingRightValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutPaddingRightValueEnumWrapper { AzLayoutPaddingRightValueEnumWrapper { inner: AzLayoutPaddingRightValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutPaddingRightValueEnumWrapper { AzLayoutPaddingRightValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutPaddingRightValueEnumWrapper { AzLayoutPaddingRightValueEnumWrapper { inner: AzLayoutPaddingRightValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutPaddingRight) -> AzLayoutPaddingRightValueEnumWrapper { AzLayoutPaddingRightValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutPaddingRight) -> AzLayoutPaddingRightValueEnumWrapper { AzLayoutPaddingRightValueEnumWrapper { inner: AzLayoutPaddingRightValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutPaddingTopValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutPaddingTopValueEnumWrapper { AzLayoutPaddingTopValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutPaddingTopValueEnumWrapper { AzLayoutPaddingTopValueEnumWrapper { inner: AzLayoutPaddingTopValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutPaddingTopValueEnumWrapper { AzLayoutPaddingTopValueEnumWrapper::None }
+    fn None() -> AzLayoutPaddingTopValueEnumWrapper { AzLayoutPaddingTopValueEnumWrapper { inner: AzLayoutPaddingTopValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutPaddingTopValueEnumWrapper { AzLayoutPaddingTopValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutPaddingTopValueEnumWrapper { AzLayoutPaddingTopValueEnumWrapper { inner: AzLayoutPaddingTopValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutPaddingTopValueEnumWrapper { AzLayoutPaddingTopValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutPaddingTopValueEnumWrapper { AzLayoutPaddingTopValueEnumWrapper { inner: AzLayoutPaddingTopValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutPaddingTop) -> AzLayoutPaddingTopValueEnumWrapper { AzLayoutPaddingTopValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutPaddingTop) -> AzLayoutPaddingTopValueEnumWrapper { AzLayoutPaddingTopValueEnumWrapper { inner: AzLayoutPaddingTopValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutPositionValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutPositionValueEnumWrapper { AzLayoutPositionValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutPositionValueEnumWrapper { AzLayoutPositionValueEnumWrapper { inner: AzLayoutPositionValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutPositionValueEnumWrapper { AzLayoutPositionValueEnumWrapper::None }
+    fn None() -> AzLayoutPositionValueEnumWrapper { AzLayoutPositionValueEnumWrapper { inner: AzLayoutPositionValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutPositionValueEnumWrapper { AzLayoutPositionValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutPositionValueEnumWrapper { AzLayoutPositionValueEnumWrapper { inner: AzLayoutPositionValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutPositionValueEnumWrapper { AzLayoutPositionValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutPositionValueEnumWrapper { AzLayoutPositionValueEnumWrapper { inner: AzLayoutPositionValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutPosition) -> AzLayoutPositionValueEnumWrapper { AzLayoutPositionValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutPosition) -> AzLayoutPositionValueEnumWrapper { AzLayoutPositionValueEnumWrapper { inner: AzLayoutPositionValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutRightValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutRightValueEnumWrapper { AzLayoutRightValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutRightValueEnumWrapper { AzLayoutRightValueEnumWrapper { inner: AzLayoutRightValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutRightValueEnumWrapper { AzLayoutRightValueEnumWrapper::None }
+    fn None() -> AzLayoutRightValueEnumWrapper { AzLayoutRightValueEnumWrapper { inner: AzLayoutRightValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutRightValueEnumWrapper { AzLayoutRightValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutRightValueEnumWrapper { AzLayoutRightValueEnumWrapper { inner: AzLayoutRightValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutRightValueEnumWrapper { AzLayoutRightValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutRightValueEnumWrapper { AzLayoutRightValueEnumWrapper { inner: AzLayoutRightValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutRight) -> AzLayoutRightValueEnumWrapper { AzLayoutRightValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutRight) -> AzLayoutRightValueEnumWrapper { AzLayoutRightValueEnumWrapper { inner: AzLayoutRightValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutTopValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutTopValueEnumWrapper { AzLayoutTopValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutTopValueEnumWrapper { AzLayoutTopValueEnumWrapper { inner: AzLayoutTopValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutTopValueEnumWrapper { AzLayoutTopValueEnumWrapper::None }
+    fn None() -> AzLayoutTopValueEnumWrapper { AzLayoutTopValueEnumWrapper { inner: AzLayoutTopValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutTopValueEnumWrapper { AzLayoutTopValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutTopValueEnumWrapper { AzLayoutTopValueEnumWrapper { inner: AzLayoutTopValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutTopValueEnumWrapper { AzLayoutTopValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutTopValueEnumWrapper { AzLayoutTopValueEnumWrapper { inner: AzLayoutTopValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutTop) -> AzLayoutTopValueEnumWrapper { AzLayoutTopValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutTop) -> AzLayoutTopValueEnumWrapper { AzLayoutTopValueEnumWrapper { inner: AzLayoutTopValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutWidthValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutWidthValueEnumWrapper { AzLayoutWidthValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutWidthValueEnumWrapper { AzLayoutWidthValueEnumWrapper { inner: AzLayoutWidthValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutWidthValueEnumWrapper { AzLayoutWidthValueEnumWrapper::None }
+    fn None() -> AzLayoutWidthValueEnumWrapper { AzLayoutWidthValueEnumWrapper { inner: AzLayoutWidthValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutWidthValueEnumWrapper { AzLayoutWidthValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutWidthValueEnumWrapper { AzLayoutWidthValueEnumWrapper { inner: AzLayoutWidthValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutWidthValueEnumWrapper { AzLayoutWidthValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutWidthValueEnumWrapper { AzLayoutWidthValueEnumWrapper { inner: AzLayoutWidthValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutWidth) -> AzLayoutWidthValueEnumWrapper { AzLayoutWidthValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutWidth) -> AzLayoutWidthValueEnumWrapper { AzLayoutWidthValueEnumWrapper { inner: AzLayoutWidthValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutFlexWrapValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutFlexWrapValueEnumWrapper { AzLayoutFlexWrapValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutFlexWrapValueEnumWrapper { AzLayoutFlexWrapValueEnumWrapper { inner: AzLayoutFlexWrapValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutFlexWrapValueEnumWrapper { AzLayoutFlexWrapValueEnumWrapper::None }
+    fn None() -> AzLayoutFlexWrapValueEnumWrapper { AzLayoutFlexWrapValueEnumWrapper { inner: AzLayoutFlexWrapValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutFlexWrapValueEnumWrapper { AzLayoutFlexWrapValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutFlexWrapValueEnumWrapper { AzLayoutFlexWrapValueEnumWrapper { inner: AzLayoutFlexWrapValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutFlexWrapValueEnumWrapper { AzLayoutFlexWrapValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutFlexWrapValueEnumWrapper { AzLayoutFlexWrapValueEnumWrapper { inner: AzLayoutFlexWrapValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutFlexWrap) -> AzLayoutFlexWrapValueEnumWrapper { AzLayoutFlexWrapValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutFlexWrap) -> AzLayoutFlexWrapValueEnumWrapper { AzLayoutFlexWrapValueEnumWrapper { inner: AzLayoutFlexWrapValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutOverflowValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutOverflowValueEnumWrapper { AzLayoutOverflowValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutOverflowValueEnumWrapper { AzLayoutOverflowValueEnumWrapper { inner: AzLayoutOverflowValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutOverflowValueEnumWrapper { AzLayoutOverflowValueEnumWrapper::None }
+    fn None() -> AzLayoutOverflowValueEnumWrapper { AzLayoutOverflowValueEnumWrapper { inner: AzLayoutOverflowValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutOverflowValueEnumWrapper { AzLayoutOverflowValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutOverflowValueEnumWrapper { AzLayoutOverflowValueEnumWrapper { inner: AzLayoutOverflowValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutOverflowValueEnumWrapper { AzLayoutOverflowValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutOverflowValueEnumWrapper { AzLayoutOverflowValueEnumWrapper { inner: AzLayoutOverflowValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutOverflow) -> AzLayoutOverflowValueEnumWrapper { AzLayoutOverflowValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutOverflow) -> AzLayoutOverflowValueEnumWrapper { AzLayoutOverflowValueEnumWrapper { inner: AzLayoutOverflowValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzScrollbarStyleValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzScrollbarStyleValueEnumWrapper { AzScrollbarStyleValueEnumWrapper::Auto }
+    fn Auto() -> AzScrollbarStyleValueEnumWrapper { AzScrollbarStyleValueEnumWrapper { inner: AzScrollbarStyleValue::Auto } }
     #[classattr]
-    fn None() -> AzScrollbarStyleValueEnumWrapper { AzScrollbarStyleValueEnumWrapper::None }
+    fn None() -> AzScrollbarStyleValueEnumWrapper { AzScrollbarStyleValueEnumWrapper { inner: AzScrollbarStyleValue::None } }
     #[classattr]
-    fn Inherit() -> AzScrollbarStyleValueEnumWrapper { AzScrollbarStyleValueEnumWrapper::Inherit }
+    fn Inherit() -> AzScrollbarStyleValueEnumWrapper { AzScrollbarStyleValueEnumWrapper { inner: AzScrollbarStyleValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzScrollbarStyleValueEnumWrapper { AzScrollbarStyleValueEnumWrapper::Initial }
+    fn Initial() -> AzScrollbarStyleValueEnumWrapper { AzScrollbarStyleValueEnumWrapper { inner: AzScrollbarStyleValue::Initial } }
     #[staticmethod]
-    fn Exact(v: ScrollbarStyle) -> AzScrollbarStyleValueEnumWrapper { AzScrollbarStyleValueEnumWrapper::Exact(v) }
+    fn Exact(v: ScrollbarStyle) -> AzScrollbarStyleValueEnumWrapper { AzScrollbarStyleValueEnumWrapper { inner: AzScrollbarStyleValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBackgroundContentVecValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBackgroundContentVecValueEnumWrapper { AzStyleBackgroundContentVecValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBackgroundContentVecValueEnumWrapper { AzStyleBackgroundContentVecValueEnumWrapper { inner: AzStyleBackgroundContentVecValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBackgroundContentVecValueEnumWrapper { AzStyleBackgroundContentVecValueEnumWrapper::None }
+    fn None() -> AzStyleBackgroundContentVecValueEnumWrapper { AzStyleBackgroundContentVecValueEnumWrapper { inner: AzStyleBackgroundContentVecValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBackgroundContentVecValueEnumWrapper { AzStyleBackgroundContentVecValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBackgroundContentVecValueEnumWrapper { AzStyleBackgroundContentVecValueEnumWrapper { inner: AzStyleBackgroundContentVecValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBackgroundContentVecValueEnumWrapper { AzStyleBackgroundContentVecValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBackgroundContentVecValueEnumWrapper { AzStyleBackgroundContentVecValueEnumWrapper { inner: AzStyleBackgroundContentVecValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBackgroundContentVec) -> AzStyleBackgroundContentVecValueEnumWrapper { AzStyleBackgroundContentVecValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBackgroundContentVec) -> AzStyleBackgroundContentVecValueEnumWrapper { AzStyleBackgroundContentVecValueEnumWrapper { inner: AzStyleBackgroundContentVecValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBackgroundPositionVecValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBackgroundPositionVecValueEnumWrapper { AzStyleBackgroundPositionVecValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBackgroundPositionVecValueEnumWrapper { AzStyleBackgroundPositionVecValueEnumWrapper { inner: AzStyleBackgroundPositionVecValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBackgroundPositionVecValueEnumWrapper { AzStyleBackgroundPositionVecValueEnumWrapper::None }
+    fn None() -> AzStyleBackgroundPositionVecValueEnumWrapper { AzStyleBackgroundPositionVecValueEnumWrapper { inner: AzStyleBackgroundPositionVecValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBackgroundPositionVecValueEnumWrapper { AzStyleBackgroundPositionVecValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBackgroundPositionVecValueEnumWrapper { AzStyleBackgroundPositionVecValueEnumWrapper { inner: AzStyleBackgroundPositionVecValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBackgroundPositionVecValueEnumWrapper { AzStyleBackgroundPositionVecValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBackgroundPositionVecValueEnumWrapper { AzStyleBackgroundPositionVecValueEnumWrapper { inner: AzStyleBackgroundPositionVecValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBackgroundPositionVec) -> AzStyleBackgroundPositionVecValueEnumWrapper { AzStyleBackgroundPositionVecValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBackgroundPositionVec) -> AzStyleBackgroundPositionVecValueEnumWrapper { AzStyleBackgroundPositionVecValueEnumWrapper { inner: AzStyleBackgroundPositionVecValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBackgroundRepeatVecValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBackgroundRepeatVecValueEnumWrapper { AzStyleBackgroundRepeatVecValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBackgroundRepeatVecValueEnumWrapper { AzStyleBackgroundRepeatVecValueEnumWrapper { inner: AzStyleBackgroundRepeatVecValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBackgroundRepeatVecValueEnumWrapper { AzStyleBackgroundRepeatVecValueEnumWrapper::None }
+    fn None() -> AzStyleBackgroundRepeatVecValueEnumWrapper { AzStyleBackgroundRepeatVecValueEnumWrapper { inner: AzStyleBackgroundRepeatVecValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBackgroundRepeatVecValueEnumWrapper { AzStyleBackgroundRepeatVecValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBackgroundRepeatVecValueEnumWrapper { AzStyleBackgroundRepeatVecValueEnumWrapper { inner: AzStyleBackgroundRepeatVecValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBackgroundRepeatVecValueEnumWrapper { AzStyleBackgroundRepeatVecValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBackgroundRepeatVecValueEnumWrapper { AzStyleBackgroundRepeatVecValueEnumWrapper { inner: AzStyleBackgroundRepeatVecValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBackgroundRepeatVec) -> AzStyleBackgroundRepeatVecValueEnumWrapper { AzStyleBackgroundRepeatVecValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBackgroundRepeatVec) -> AzStyleBackgroundRepeatVecValueEnumWrapper { AzStyleBackgroundRepeatVecValueEnumWrapper { inner: AzStyleBackgroundRepeatVecValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBackgroundSizeVecValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBackgroundSizeVecValueEnumWrapper { AzStyleBackgroundSizeVecValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBackgroundSizeVecValueEnumWrapper { AzStyleBackgroundSizeVecValueEnumWrapper { inner: AzStyleBackgroundSizeVecValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBackgroundSizeVecValueEnumWrapper { AzStyleBackgroundSizeVecValueEnumWrapper::None }
+    fn None() -> AzStyleBackgroundSizeVecValueEnumWrapper { AzStyleBackgroundSizeVecValueEnumWrapper { inner: AzStyleBackgroundSizeVecValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBackgroundSizeVecValueEnumWrapper { AzStyleBackgroundSizeVecValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBackgroundSizeVecValueEnumWrapper { AzStyleBackgroundSizeVecValueEnumWrapper { inner: AzStyleBackgroundSizeVecValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBackgroundSizeVecValueEnumWrapper { AzStyleBackgroundSizeVecValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBackgroundSizeVecValueEnumWrapper { AzStyleBackgroundSizeVecValueEnumWrapper { inner: AzStyleBackgroundSizeVecValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBackgroundSizeVec) -> AzStyleBackgroundSizeVecValueEnumWrapper { AzStyleBackgroundSizeVecValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBackgroundSizeVec) -> AzStyleBackgroundSizeVecValueEnumWrapper { AzStyleBackgroundSizeVecValueEnumWrapper { inner: AzStyleBackgroundSizeVecValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBorderBottomColorValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBorderBottomColorValueEnumWrapper { AzStyleBorderBottomColorValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBorderBottomColorValueEnumWrapper { AzStyleBorderBottomColorValueEnumWrapper { inner: AzStyleBorderBottomColorValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBorderBottomColorValueEnumWrapper { AzStyleBorderBottomColorValueEnumWrapper::None }
+    fn None() -> AzStyleBorderBottomColorValueEnumWrapper { AzStyleBorderBottomColorValueEnumWrapper { inner: AzStyleBorderBottomColorValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBorderBottomColorValueEnumWrapper { AzStyleBorderBottomColorValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBorderBottomColorValueEnumWrapper { AzStyleBorderBottomColorValueEnumWrapper { inner: AzStyleBorderBottomColorValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBorderBottomColorValueEnumWrapper { AzStyleBorderBottomColorValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBorderBottomColorValueEnumWrapper { AzStyleBorderBottomColorValueEnumWrapper { inner: AzStyleBorderBottomColorValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBorderBottomColor) -> AzStyleBorderBottomColorValueEnumWrapper { AzStyleBorderBottomColorValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBorderBottomColor) -> AzStyleBorderBottomColorValueEnumWrapper { AzStyleBorderBottomColorValueEnumWrapper { inner: AzStyleBorderBottomColorValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBorderBottomLeftRadiusValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBorderBottomLeftRadiusValueEnumWrapper { AzStyleBorderBottomLeftRadiusValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBorderBottomLeftRadiusValueEnumWrapper { AzStyleBorderBottomLeftRadiusValueEnumWrapper { inner: AzStyleBorderBottomLeftRadiusValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBorderBottomLeftRadiusValueEnumWrapper { AzStyleBorderBottomLeftRadiusValueEnumWrapper::None }
+    fn None() -> AzStyleBorderBottomLeftRadiusValueEnumWrapper { AzStyleBorderBottomLeftRadiusValueEnumWrapper { inner: AzStyleBorderBottomLeftRadiusValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBorderBottomLeftRadiusValueEnumWrapper { AzStyleBorderBottomLeftRadiusValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBorderBottomLeftRadiusValueEnumWrapper { AzStyleBorderBottomLeftRadiusValueEnumWrapper { inner: AzStyleBorderBottomLeftRadiusValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBorderBottomLeftRadiusValueEnumWrapper { AzStyleBorderBottomLeftRadiusValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBorderBottomLeftRadiusValueEnumWrapper { AzStyleBorderBottomLeftRadiusValueEnumWrapper { inner: AzStyleBorderBottomLeftRadiusValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBorderBottomLeftRadius) -> AzStyleBorderBottomLeftRadiusValueEnumWrapper { AzStyleBorderBottomLeftRadiusValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBorderBottomLeftRadius) -> AzStyleBorderBottomLeftRadiusValueEnumWrapper { AzStyleBorderBottomLeftRadiusValueEnumWrapper { inner: AzStyleBorderBottomLeftRadiusValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBorderBottomRightRadiusValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBorderBottomRightRadiusValueEnumWrapper { AzStyleBorderBottomRightRadiusValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBorderBottomRightRadiusValueEnumWrapper { AzStyleBorderBottomRightRadiusValueEnumWrapper { inner: AzStyleBorderBottomRightRadiusValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBorderBottomRightRadiusValueEnumWrapper { AzStyleBorderBottomRightRadiusValueEnumWrapper::None }
+    fn None() -> AzStyleBorderBottomRightRadiusValueEnumWrapper { AzStyleBorderBottomRightRadiusValueEnumWrapper { inner: AzStyleBorderBottomRightRadiusValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBorderBottomRightRadiusValueEnumWrapper { AzStyleBorderBottomRightRadiusValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBorderBottomRightRadiusValueEnumWrapper { AzStyleBorderBottomRightRadiusValueEnumWrapper { inner: AzStyleBorderBottomRightRadiusValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBorderBottomRightRadiusValueEnumWrapper { AzStyleBorderBottomRightRadiusValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBorderBottomRightRadiusValueEnumWrapper { AzStyleBorderBottomRightRadiusValueEnumWrapper { inner: AzStyleBorderBottomRightRadiusValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBorderBottomRightRadius) -> AzStyleBorderBottomRightRadiusValueEnumWrapper { AzStyleBorderBottomRightRadiusValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBorderBottomRightRadius) -> AzStyleBorderBottomRightRadiusValueEnumWrapper { AzStyleBorderBottomRightRadiusValueEnumWrapper { inner: AzStyleBorderBottomRightRadiusValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBorderBottomStyleValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBorderBottomStyleValueEnumWrapper { AzStyleBorderBottomStyleValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBorderBottomStyleValueEnumWrapper { AzStyleBorderBottomStyleValueEnumWrapper { inner: AzStyleBorderBottomStyleValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBorderBottomStyleValueEnumWrapper { AzStyleBorderBottomStyleValueEnumWrapper::None }
+    fn None() -> AzStyleBorderBottomStyleValueEnumWrapper { AzStyleBorderBottomStyleValueEnumWrapper { inner: AzStyleBorderBottomStyleValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBorderBottomStyleValueEnumWrapper { AzStyleBorderBottomStyleValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBorderBottomStyleValueEnumWrapper { AzStyleBorderBottomStyleValueEnumWrapper { inner: AzStyleBorderBottomStyleValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBorderBottomStyleValueEnumWrapper { AzStyleBorderBottomStyleValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBorderBottomStyleValueEnumWrapper { AzStyleBorderBottomStyleValueEnumWrapper { inner: AzStyleBorderBottomStyleValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBorderBottomStyle) -> AzStyleBorderBottomStyleValueEnumWrapper { AzStyleBorderBottomStyleValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBorderBottomStyle) -> AzStyleBorderBottomStyleValueEnumWrapper { AzStyleBorderBottomStyleValueEnumWrapper { inner: AzStyleBorderBottomStyleValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutBorderBottomWidthValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutBorderBottomWidthValueEnumWrapper { AzLayoutBorderBottomWidthValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutBorderBottomWidthValueEnumWrapper { AzLayoutBorderBottomWidthValueEnumWrapper { inner: AzLayoutBorderBottomWidthValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutBorderBottomWidthValueEnumWrapper { AzLayoutBorderBottomWidthValueEnumWrapper::None }
+    fn None() -> AzLayoutBorderBottomWidthValueEnumWrapper { AzLayoutBorderBottomWidthValueEnumWrapper { inner: AzLayoutBorderBottomWidthValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutBorderBottomWidthValueEnumWrapper { AzLayoutBorderBottomWidthValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutBorderBottomWidthValueEnumWrapper { AzLayoutBorderBottomWidthValueEnumWrapper { inner: AzLayoutBorderBottomWidthValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutBorderBottomWidthValueEnumWrapper { AzLayoutBorderBottomWidthValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutBorderBottomWidthValueEnumWrapper { AzLayoutBorderBottomWidthValueEnumWrapper { inner: AzLayoutBorderBottomWidthValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutBorderBottomWidth) -> AzLayoutBorderBottomWidthValueEnumWrapper { AzLayoutBorderBottomWidthValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutBorderBottomWidth) -> AzLayoutBorderBottomWidthValueEnumWrapper { AzLayoutBorderBottomWidthValueEnumWrapper { inner: AzLayoutBorderBottomWidthValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBorderLeftColorValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBorderLeftColorValueEnumWrapper { AzStyleBorderLeftColorValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBorderLeftColorValueEnumWrapper { AzStyleBorderLeftColorValueEnumWrapper { inner: AzStyleBorderLeftColorValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBorderLeftColorValueEnumWrapper { AzStyleBorderLeftColorValueEnumWrapper::None }
+    fn None() -> AzStyleBorderLeftColorValueEnumWrapper { AzStyleBorderLeftColorValueEnumWrapper { inner: AzStyleBorderLeftColorValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBorderLeftColorValueEnumWrapper { AzStyleBorderLeftColorValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBorderLeftColorValueEnumWrapper { AzStyleBorderLeftColorValueEnumWrapper { inner: AzStyleBorderLeftColorValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBorderLeftColorValueEnumWrapper { AzStyleBorderLeftColorValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBorderLeftColorValueEnumWrapper { AzStyleBorderLeftColorValueEnumWrapper { inner: AzStyleBorderLeftColorValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBorderLeftColor) -> AzStyleBorderLeftColorValueEnumWrapper { AzStyleBorderLeftColorValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBorderLeftColor) -> AzStyleBorderLeftColorValueEnumWrapper { AzStyleBorderLeftColorValueEnumWrapper { inner: AzStyleBorderLeftColorValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBorderLeftStyleValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBorderLeftStyleValueEnumWrapper { AzStyleBorderLeftStyleValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBorderLeftStyleValueEnumWrapper { AzStyleBorderLeftStyleValueEnumWrapper { inner: AzStyleBorderLeftStyleValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBorderLeftStyleValueEnumWrapper { AzStyleBorderLeftStyleValueEnumWrapper::None }
+    fn None() -> AzStyleBorderLeftStyleValueEnumWrapper { AzStyleBorderLeftStyleValueEnumWrapper { inner: AzStyleBorderLeftStyleValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBorderLeftStyleValueEnumWrapper { AzStyleBorderLeftStyleValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBorderLeftStyleValueEnumWrapper { AzStyleBorderLeftStyleValueEnumWrapper { inner: AzStyleBorderLeftStyleValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBorderLeftStyleValueEnumWrapper { AzStyleBorderLeftStyleValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBorderLeftStyleValueEnumWrapper { AzStyleBorderLeftStyleValueEnumWrapper { inner: AzStyleBorderLeftStyleValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBorderLeftStyle) -> AzStyleBorderLeftStyleValueEnumWrapper { AzStyleBorderLeftStyleValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBorderLeftStyle) -> AzStyleBorderLeftStyleValueEnumWrapper { AzStyleBorderLeftStyleValueEnumWrapper { inner: AzStyleBorderLeftStyleValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutBorderLeftWidthValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutBorderLeftWidthValueEnumWrapper { AzLayoutBorderLeftWidthValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutBorderLeftWidthValueEnumWrapper { AzLayoutBorderLeftWidthValueEnumWrapper { inner: AzLayoutBorderLeftWidthValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutBorderLeftWidthValueEnumWrapper { AzLayoutBorderLeftWidthValueEnumWrapper::None }
+    fn None() -> AzLayoutBorderLeftWidthValueEnumWrapper { AzLayoutBorderLeftWidthValueEnumWrapper { inner: AzLayoutBorderLeftWidthValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutBorderLeftWidthValueEnumWrapper { AzLayoutBorderLeftWidthValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutBorderLeftWidthValueEnumWrapper { AzLayoutBorderLeftWidthValueEnumWrapper { inner: AzLayoutBorderLeftWidthValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutBorderLeftWidthValueEnumWrapper { AzLayoutBorderLeftWidthValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutBorderLeftWidthValueEnumWrapper { AzLayoutBorderLeftWidthValueEnumWrapper { inner: AzLayoutBorderLeftWidthValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutBorderLeftWidth) -> AzLayoutBorderLeftWidthValueEnumWrapper { AzLayoutBorderLeftWidthValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutBorderLeftWidth) -> AzLayoutBorderLeftWidthValueEnumWrapper { AzLayoutBorderLeftWidthValueEnumWrapper { inner: AzLayoutBorderLeftWidthValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBorderRightColorValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBorderRightColorValueEnumWrapper { AzStyleBorderRightColorValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBorderRightColorValueEnumWrapper { AzStyleBorderRightColorValueEnumWrapper { inner: AzStyleBorderRightColorValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBorderRightColorValueEnumWrapper { AzStyleBorderRightColorValueEnumWrapper::None }
+    fn None() -> AzStyleBorderRightColorValueEnumWrapper { AzStyleBorderRightColorValueEnumWrapper { inner: AzStyleBorderRightColorValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBorderRightColorValueEnumWrapper { AzStyleBorderRightColorValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBorderRightColorValueEnumWrapper { AzStyleBorderRightColorValueEnumWrapper { inner: AzStyleBorderRightColorValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBorderRightColorValueEnumWrapper { AzStyleBorderRightColorValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBorderRightColorValueEnumWrapper { AzStyleBorderRightColorValueEnumWrapper { inner: AzStyleBorderRightColorValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBorderRightColor) -> AzStyleBorderRightColorValueEnumWrapper { AzStyleBorderRightColorValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBorderRightColor) -> AzStyleBorderRightColorValueEnumWrapper { AzStyleBorderRightColorValueEnumWrapper { inner: AzStyleBorderRightColorValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBorderRightStyleValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBorderRightStyleValueEnumWrapper { AzStyleBorderRightStyleValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBorderRightStyleValueEnumWrapper { AzStyleBorderRightStyleValueEnumWrapper { inner: AzStyleBorderRightStyleValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBorderRightStyleValueEnumWrapper { AzStyleBorderRightStyleValueEnumWrapper::None }
+    fn None() -> AzStyleBorderRightStyleValueEnumWrapper { AzStyleBorderRightStyleValueEnumWrapper { inner: AzStyleBorderRightStyleValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBorderRightStyleValueEnumWrapper { AzStyleBorderRightStyleValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBorderRightStyleValueEnumWrapper { AzStyleBorderRightStyleValueEnumWrapper { inner: AzStyleBorderRightStyleValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBorderRightStyleValueEnumWrapper { AzStyleBorderRightStyleValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBorderRightStyleValueEnumWrapper { AzStyleBorderRightStyleValueEnumWrapper { inner: AzStyleBorderRightStyleValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBorderRightStyle) -> AzStyleBorderRightStyleValueEnumWrapper { AzStyleBorderRightStyleValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBorderRightStyle) -> AzStyleBorderRightStyleValueEnumWrapper { AzStyleBorderRightStyleValueEnumWrapper { inner: AzStyleBorderRightStyleValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutBorderRightWidthValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutBorderRightWidthValueEnumWrapper { AzLayoutBorderRightWidthValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutBorderRightWidthValueEnumWrapper { AzLayoutBorderRightWidthValueEnumWrapper { inner: AzLayoutBorderRightWidthValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutBorderRightWidthValueEnumWrapper { AzLayoutBorderRightWidthValueEnumWrapper::None }
+    fn None() -> AzLayoutBorderRightWidthValueEnumWrapper { AzLayoutBorderRightWidthValueEnumWrapper { inner: AzLayoutBorderRightWidthValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutBorderRightWidthValueEnumWrapper { AzLayoutBorderRightWidthValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutBorderRightWidthValueEnumWrapper { AzLayoutBorderRightWidthValueEnumWrapper { inner: AzLayoutBorderRightWidthValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutBorderRightWidthValueEnumWrapper { AzLayoutBorderRightWidthValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutBorderRightWidthValueEnumWrapper { AzLayoutBorderRightWidthValueEnumWrapper { inner: AzLayoutBorderRightWidthValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutBorderRightWidth) -> AzLayoutBorderRightWidthValueEnumWrapper { AzLayoutBorderRightWidthValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutBorderRightWidth) -> AzLayoutBorderRightWidthValueEnumWrapper { AzLayoutBorderRightWidthValueEnumWrapper { inner: AzLayoutBorderRightWidthValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBorderTopColorValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBorderTopColorValueEnumWrapper { AzStyleBorderTopColorValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBorderTopColorValueEnumWrapper { AzStyleBorderTopColorValueEnumWrapper { inner: AzStyleBorderTopColorValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBorderTopColorValueEnumWrapper { AzStyleBorderTopColorValueEnumWrapper::None }
+    fn None() -> AzStyleBorderTopColorValueEnumWrapper { AzStyleBorderTopColorValueEnumWrapper { inner: AzStyleBorderTopColorValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBorderTopColorValueEnumWrapper { AzStyleBorderTopColorValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBorderTopColorValueEnumWrapper { AzStyleBorderTopColorValueEnumWrapper { inner: AzStyleBorderTopColorValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBorderTopColorValueEnumWrapper { AzStyleBorderTopColorValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBorderTopColorValueEnumWrapper { AzStyleBorderTopColorValueEnumWrapper { inner: AzStyleBorderTopColorValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBorderTopColor) -> AzStyleBorderTopColorValueEnumWrapper { AzStyleBorderTopColorValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBorderTopColor) -> AzStyleBorderTopColorValueEnumWrapper { AzStyleBorderTopColorValueEnumWrapper { inner: AzStyleBorderTopColorValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBorderTopLeftRadiusValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBorderTopLeftRadiusValueEnumWrapper { AzStyleBorderTopLeftRadiusValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBorderTopLeftRadiusValueEnumWrapper { AzStyleBorderTopLeftRadiusValueEnumWrapper { inner: AzStyleBorderTopLeftRadiusValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBorderTopLeftRadiusValueEnumWrapper { AzStyleBorderTopLeftRadiusValueEnumWrapper::None }
+    fn None() -> AzStyleBorderTopLeftRadiusValueEnumWrapper { AzStyleBorderTopLeftRadiusValueEnumWrapper { inner: AzStyleBorderTopLeftRadiusValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBorderTopLeftRadiusValueEnumWrapper { AzStyleBorderTopLeftRadiusValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBorderTopLeftRadiusValueEnumWrapper { AzStyleBorderTopLeftRadiusValueEnumWrapper { inner: AzStyleBorderTopLeftRadiusValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBorderTopLeftRadiusValueEnumWrapper { AzStyleBorderTopLeftRadiusValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBorderTopLeftRadiusValueEnumWrapper { AzStyleBorderTopLeftRadiusValueEnumWrapper { inner: AzStyleBorderTopLeftRadiusValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBorderTopLeftRadius) -> AzStyleBorderTopLeftRadiusValueEnumWrapper { AzStyleBorderTopLeftRadiusValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBorderTopLeftRadius) -> AzStyleBorderTopLeftRadiusValueEnumWrapper { AzStyleBorderTopLeftRadiusValueEnumWrapper { inner: AzStyleBorderTopLeftRadiusValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBorderTopRightRadiusValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBorderTopRightRadiusValueEnumWrapper { AzStyleBorderTopRightRadiusValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBorderTopRightRadiusValueEnumWrapper { AzStyleBorderTopRightRadiusValueEnumWrapper { inner: AzStyleBorderTopRightRadiusValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBorderTopRightRadiusValueEnumWrapper { AzStyleBorderTopRightRadiusValueEnumWrapper::None }
+    fn None() -> AzStyleBorderTopRightRadiusValueEnumWrapper { AzStyleBorderTopRightRadiusValueEnumWrapper { inner: AzStyleBorderTopRightRadiusValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBorderTopRightRadiusValueEnumWrapper { AzStyleBorderTopRightRadiusValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBorderTopRightRadiusValueEnumWrapper { AzStyleBorderTopRightRadiusValueEnumWrapper { inner: AzStyleBorderTopRightRadiusValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBorderTopRightRadiusValueEnumWrapper { AzStyleBorderTopRightRadiusValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBorderTopRightRadiusValueEnumWrapper { AzStyleBorderTopRightRadiusValueEnumWrapper { inner: AzStyleBorderTopRightRadiusValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBorderTopRightRadius) -> AzStyleBorderTopRightRadiusValueEnumWrapper { AzStyleBorderTopRightRadiusValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBorderTopRightRadius) -> AzStyleBorderTopRightRadiusValueEnumWrapper { AzStyleBorderTopRightRadiusValueEnumWrapper { inner: AzStyleBorderTopRightRadiusValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBorderTopStyleValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBorderTopStyleValueEnumWrapper { AzStyleBorderTopStyleValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBorderTopStyleValueEnumWrapper { AzStyleBorderTopStyleValueEnumWrapper { inner: AzStyleBorderTopStyleValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBorderTopStyleValueEnumWrapper { AzStyleBorderTopStyleValueEnumWrapper::None }
+    fn None() -> AzStyleBorderTopStyleValueEnumWrapper { AzStyleBorderTopStyleValueEnumWrapper { inner: AzStyleBorderTopStyleValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBorderTopStyleValueEnumWrapper { AzStyleBorderTopStyleValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBorderTopStyleValueEnumWrapper { AzStyleBorderTopStyleValueEnumWrapper { inner: AzStyleBorderTopStyleValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBorderTopStyleValueEnumWrapper { AzStyleBorderTopStyleValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBorderTopStyleValueEnumWrapper { AzStyleBorderTopStyleValueEnumWrapper { inner: AzStyleBorderTopStyleValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBorderTopStyle) -> AzStyleBorderTopStyleValueEnumWrapper { AzStyleBorderTopStyleValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBorderTopStyle) -> AzStyleBorderTopStyleValueEnumWrapper { AzStyleBorderTopStyleValueEnumWrapper { inner: AzStyleBorderTopStyleValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzLayoutBorderTopWidthValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzLayoutBorderTopWidthValueEnumWrapper { AzLayoutBorderTopWidthValueEnumWrapper::Auto }
+    fn Auto() -> AzLayoutBorderTopWidthValueEnumWrapper { AzLayoutBorderTopWidthValueEnumWrapper { inner: AzLayoutBorderTopWidthValue::Auto } }
     #[classattr]
-    fn None() -> AzLayoutBorderTopWidthValueEnumWrapper { AzLayoutBorderTopWidthValueEnumWrapper::None }
+    fn None() -> AzLayoutBorderTopWidthValueEnumWrapper { AzLayoutBorderTopWidthValueEnumWrapper { inner: AzLayoutBorderTopWidthValue::None } }
     #[classattr]
-    fn Inherit() -> AzLayoutBorderTopWidthValueEnumWrapper { AzLayoutBorderTopWidthValueEnumWrapper::Inherit }
+    fn Inherit() -> AzLayoutBorderTopWidthValueEnumWrapper { AzLayoutBorderTopWidthValueEnumWrapper { inner: AzLayoutBorderTopWidthValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzLayoutBorderTopWidthValueEnumWrapper { AzLayoutBorderTopWidthValueEnumWrapper::Initial }
+    fn Initial() -> AzLayoutBorderTopWidthValueEnumWrapper { AzLayoutBorderTopWidthValueEnumWrapper { inner: AzLayoutBorderTopWidthValue::Initial } }
     #[staticmethod]
-    fn Exact(v: LayoutBorderTopWidth) -> AzLayoutBorderTopWidthValueEnumWrapper { AzLayoutBorderTopWidthValueEnumWrapper::Exact(v) }
+    fn Exact(v: LayoutBorderTopWidth) -> AzLayoutBorderTopWidthValueEnumWrapper { AzLayoutBorderTopWidthValueEnumWrapper { inner: AzLayoutBorderTopWidthValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleCursorValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleCursorValueEnumWrapper { AzStyleCursorValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleCursorValueEnumWrapper { AzStyleCursorValueEnumWrapper { inner: AzStyleCursorValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleCursorValueEnumWrapper { AzStyleCursorValueEnumWrapper::None }
+    fn None() -> AzStyleCursorValueEnumWrapper { AzStyleCursorValueEnumWrapper { inner: AzStyleCursorValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleCursorValueEnumWrapper { AzStyleCursorValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleCursorValueEnumWrapper { AzStyleCursorValueEnumWrapper { inner: AzStyleCursorValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleCursorValueEnumWrapper { AzStyleCursorValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleCursorValueEnumWrapper { AzStyleCursorValueEnumWrapper { inner: AzStyleCursorValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleCursor) -> AzStyleCursorValueEnumWrapper { AzStyleCursorValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleCursor) -> AzStyleCursorValueEnumWrapper { AzStyleCursorValueEnumWrapper { inner: AzStyleCursorValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleFontFamilyVecValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleFontFamilyVecValueEnumWrapper { AzStyleFontFamilyVecValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleFontFamilyVecValueEnumWrapper { AzStyleFontFamilyVecValueEnumWrapper { inner: AzStyleFontFamilyVecValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleFontFamilyVecValueEnumWrapper { AzStyleFontFamilyVecValueEnumWrapper::None }
+    fn None() -> AzStyleFontFamilyVecValueEnumWrapper { AzStyleFontFamilyVecValueEnumWrapper { inner: AzStyleFontFamilyVecValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleFontFamilyVecValueEnumWrapper { AzStyleFontFamilyVecValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleFontFamilyVecValueEnumWrapper { AzStyleFontFamilyVecValueEnumWrapper { inner: AzStyleFontFamilyVecValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleFontFamilyVecValueEnumWrapper { AzStyleFontFamilyVecValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleFontFamilyVecValueEnumWrapper { AzStyleFontFamilyVecValueEnumWrapper { inner: AzStyleFontFamilyVecValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleFontFamilyVec) -> AzStyleFontFamilyVecValueEnumWrapper { AzStyleFontFamilyVecValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleFontFamilyVec) -> AzStyleFontFamilyVecValueEnumWrapper { AzStyleFontFamilyVecValueEnumWrapper { inner: AzStyleFontFamilyVecValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleFontSizeValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleFontSizeValueEnumWrapper { AzStyleFontSizeValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleFontSizeValueEnumWrapper { AzStyleFontSizeValueEnumWrapper { inner: AzStyleFontSizeValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleFontSizeValueEnumWrapper { AzStyleFontSizeValueEnumWrapper::None }
+    fn None() -> AzStyleFontSizeValueEnumWrapper { AzStyleFontSizeValueEnumWrapper { inner: AzStyleFontSizeValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleFontSizeValueEnumWrapper { AzStyleFontSizeValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleFontSizeValueEnumWrapper { AzStyleFontSizeValueEnumWrapper { inner: AzStyleFontSizeValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleFontSizeValueEnumWrapper { AzStyleFontSizeValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleFontSizeValueEnumWrapper { AzStyleFontSizeValueEnumWrapper { inner: AzStyleFontSizeValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleFontSize) -> AzStyleFontSizeValueEnumWrapper { AzStyleFontSizeValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleFontSize) -> AzStyleFontSizeValueEnumWrapper { AzStyleFontSizeValueEnumWrapper { inner: AzStyleFontSizeValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleLetterSpacingValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleLetterSpacingValueEnumWrapper { AzStyleLetterSpacingValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleLetterSpacingValueEnumWrapper { AzStyleLetterSpacingValueEnumWrapper { inner: AzStyleLetterSpacingValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleLetterSpacingValueEnumWrapper { AzStyleLetterSpacingValueEnumWrapper::None }
+    fn None() -> AzStyleLetterSpacingValueEnumWrapper { AzStyleLetterSpacingValueEnumWrapper { inner: AzStyleLetterSpacingValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleLetterSpacingValueEnumWrapper { AzStyleLetterSpacingValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleLetterSpacingValueEnumWrapper { AzStyleLetterSpacingValueEnumWrapper { inner: AzStyleLetterSpacingValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleLetterSpacingValueEnumWrapper { AzStyleLetterSpacingValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleLetterSpacingValueEnumWrapper { AzStyleLetterSpacingValueEnumWrapper { inner: AzStyleLetterSpacingValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleLetterSpacing) -> AzStyleLetterSpacingValueEnumWrapper { AzStyleLetterSpacingValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleLetterSpacing) -> AzStyleLetterSpacingValueEnumWrapper { AzStyleLetterSpacingValueEnumWrapper { inner: AzStyleLetterSpacingValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleLineHeightValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleLineHeightValueEnumWrapper { AzStyleLineHeightValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleLineHeightValueEnumWrapper { AzStyleLineHeightValueEnumWrapper { inner: AzStyleLineHeightValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleLineHeightValueEnumWrapper { AzStyleLineHeightValueEnumWrapper::None }
+    fn None() -> AzStyleLineHeightValueEnumWrapper { AzStyleLineHeightValueEnumWrapper { inner: AzStyleLineHeightValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleLineHeightValueEnumWrapper { AzStyleLineHeightValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleLineHeightValueEnumWrapper { AzStyleLineHeightValueEnumWrapper { inner: AzStyleLineHeightValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleLineHeightValueEnumWrapper { AzStyleLineHeightValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleLineHeightValueEnumWrapper { AzStyleLineHeightValueEnumWrapper { inner: AzStyleLineHeightValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleLineHeight) -> AzStyleLineHeightValueEnumWrapper { AzStyleLineHeightValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleLineHeight) -> AzStyleLineHeightValueEnumWrapper { AzStyleLineHeightValueEnumWrapper { inner: AzStyleLineHeightValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleTabWidthValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleTabWidthValueEnumWrapper { AzStyleTabWidthValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleTabWidthValueEnumWrapper { AzStyleTabWidthValueEnumWrapper { inner: AzStyleTabWidthValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleTabWidthValueEnumWrapper { AzStyleTabWidthValueEnumWrapper::None }
+    fn None() -> AzStyleTabWidthValueEnumWrapper { AzStyleTabWidthValueEnumWrapper { inner: AzStyleTabWidthValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleTabWidthValueEnumWrapper { AzStyleTabWidthValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleTabWidthValueEnumWrapper { AzStyleTabWidthValueEnumWrapper { inner: AzStyleTabWidthValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleTabWidthValueEnumWrapper { AzStyleTabWidthValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleTabWidthValueEnumWrapper { AzStyleTabWidthValueEnumWrapper { inner: AzStyleTabWidthValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleTabWidth) -> AzStyleTabWidthValueEnumWrapper { AzStyleTabWidthValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleTabWidth) -> AzStyleTabWidthValueEnumWrapper { AzStyleTabWidthValueEnumWrapper { inner: AzStyleTabWidthValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleTextAlignValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleTextAlignValueEnumWrapper { AzStyleTextAlignValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleTextAlignValueEnumWrapper { AzStyleTextAlignValueEnumWrapper { inner: AzStyleTextAlignValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleTextAlignValueEnumWrapper { AzStyleTextAlignValueEnumWrapper::None }
+    fn None() -> AzStyleTextAlignValueEnumWrapper { AzStyleTextAlignValueEnumWrapper { inner: AzStyleTextAlignValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleTextAlignValueEnumWrapper { AzStyleTextAlignValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleTextAlignValueEnumWrapper { AzStyleTextAlignValueEnumWrapper { inner: AzStyleTextAlignValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleTextAlignValueEnumWrapper { AzStyleTextAlignValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleTextAlignValueEnumWrapper { AzStyleTextAlignValueEnumWrapper { inner: AzStyleTextAlignValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleTextAlign) -> AzStyleTextAlignValueEnumWrapper { AzStyleTextAlignValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleTextAlign) -> AzStyleTextAlignValueEnumWrapper { AzStyleTextAlignValueEnumWrapper { inner: AzStyleTextAlignValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleTextColorValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleTextColorValueEnumWrapper { AzStyleTextColorValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleTextColorValueEnumWrapper { AzStyleTextColorValueEnumWrapper { inner: AzStyleTextColorValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleTextColorValueEnumWrapper { AzStyleTextColorValueEnumWrapper::None }
+    fn None() -> AzStyleTextColorValueEnumWrapper { AzStyleTextColorValueEnumWrapper { inner: AzStyleTextColorValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleTextColorValueEnumWrapper { AzStyleTextColorValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleTextColorValueEnumWrapper { AzStyleTextColorValueEnumWrapper { inner: AzStyleTextColorValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleTextColorValueEnumWrapper { AzStyleTextColorValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleTextColorValueEnumWrapper { AzStyleTextColorValueEnumWrapper { inner: AzStyleTextColorValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleTextColor) -> AzStyleTextColorValueEnumWrapper { AzStyleTextColorValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleTextColor) -> AzStyleTextColorValueEnumWrapper { AzStyleTextColorValueEnumWrapper { inner: AzStyleTextColorValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleWordSpacingValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleWordSpacingValueEnumWrapper { AzStyleWordSpacingValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleWordSpacingValueEnumWrapper { AzStyleWordSpacingValueEnumWrapper { inner: AzStyleWordSpacingValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleWordSpacingValueEnumWrapper { AzStyleWordSpacingValueEnumWrapper::None }
+    fn None() -> AzStyleWordSpacingValueEnumWrapper { AzStyleWordSpacingValueEnumWrapper { inner: AzStyleWordSpacingValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleWordSpacingValueEnumWrapper { AzStyleWordSpacingValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleWordSpacingValueEnumWrapper { AzStyleWordSpacingValueEnumWrapper { inner: AzStyleWordSpacingValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleWordSpacingValueEnumWrapper { AzStyleWordSpacingValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleWordSpacingValueEnumWrapper { AzStyleWordSpacingValueEnumWrapper { inner: AzStyleWordSpacingValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleWordSpacing) -> AzStyleWordSpacingValueEnumWrapper { AzStyleWordSpacingValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleWordSpacing) -> AzStyleWordSpacingValueEnumWrapper { AzStyleWordSpacingValueEnumWrapper { inner: AzStyleWordSpacingValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleOpacityValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleOpacityValueEnumWrapper { AzStyleOpacityValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleOpacityValueEnumWrapper { AzStyleOpacityValueEnumWrapper { inner: AzStyleOpacityValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleOpacityValueEnumWrapper { AzStyleOpacityValueEnumWrapper::None }
+    fn None() -> AzStyleOpacityValueEnumWrapper { AzStyleOpacityValueEnumWrapper { inner: AzStyleOpacityValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleOpacityValueEnumWrapper { AzStyleOpacityValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleOpacityValueEnumWrapper { AzStyleOpacityValueEnumWrapper { inner: AzStyleOpacityValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleOpacityValueEnumWrapper { AzStyleOpacityValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleOpacityValueEnumWrapper { AzStyleOpacityValueEnumWrapper { inner: AzStyleOpacityValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleOpacity) -> AzStyleOpacityValueEnumWrapper { AzStyleOpacityValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleOpacity) -> AzStyleOpacityValueEnumWrapper { AzStyleOpacityValueEnumWrapper { inner: AzStyleOpacityValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleTransformVecValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleTransformVecValueEnumWrapper { AzStyleTransformVecValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleTransformVecValueEnumWrapper { AzStyleTransformVecValueEnumWrapper { inner: AzStyleTransformVecValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleTransformVecValueEnumWrapper { AzStyleTransformVecValueEnumWrapper::None }
+    fn None() -> AzStyleTransformVecValueEnumWrapper { AzStyleTransformVecValueEnumWrapper { inner: AzStyleTransformVecValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleTransformVecValueEnumWrapper { AzStyleTransformVecValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleTransformVecValueEnumWrapper { AzStyleTransformVecValueEnumWrapper { inner: AzStyleTransformVecValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleTransformVecValueEnumWrapper { AzStyleTransformVecValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleTransformVecValueEnumWrapper { AzStyleTransformVecValueEnumWrapper { inner: AzStyleTransformVecValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleTransformVec) -> AzStyleTransformVecValueEnumWrapper { AzStyleTransformVecValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleTransformVec) -> AzStyleTransformVecValueEnumWrapper { AzStyleTransformVecValueEnumWrapper { inner: AzStyleTransformVecValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleTransformOriginValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleTransformOriginValueEnumWrapper { AzStyleTransformOriginValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleTransformOriginValueEnumWrapper { AzStyleTransformOriginValueEnumWrapper { inner: AzStyleTransformOriginValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleTransformOriginValueEnumWrapper { AzStyleTransformOriginValueEnumWrapper::None }
+    fn None() -> AzStyleTransformOriginValueEnumWrapper { AzStyleTransformOriginValueEnumWrapper { inner: AzStyleTransformOriginValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleTransformOriginValueEnumWrapper { AzStyleTransformOriginValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleTransformOriginValueEnumWrapper { AzStyleTransformOriginValueEnumWrapper { inner: AzStyleTransformOriginValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleTransformOriginValueEnumWrapper { AzStyleTransformOriginValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleTransformOriginValueEnumWrapper { AzStyleTransformOriginValueEnumWrapper { inner: AzStyleTransformOriginValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleTransformOrigin) -> AzStyleTransformOriginValueEnumWrapper { AzStyleTransformOriginValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleTransformOrigin) -> AzStyleTransformOriginValueEnumWrapper { AzStyleTransformOriginValueEnumWrapper { inner: AzStyleTransformOriginValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStylePerspectiveOriginValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStylePerspectiveOriginValueEnumWrapper { AzStylePerspectiveOriginValueEnumWrapper::Auto }
+    fn Auto() -> AzStylePerspectiveOriginValueEnumWrapper { AzStylePerspectiveOriginValueEnumWrapper { inner: AzStylePerspectiveOriginValue::Auto } }
     #[classattr]
-    fn None() -> AzStylePerspectiveOriginValueEnumWrapper { AzStylePerspectiveOriginValueEnumWrapper::None }
+    fn None() -> AzStylePerspectiveOriginValueEnumWrapper { AzStylePerspectiveOriginValueEnumWrapper { inner: AzStylePerspectiveOriginValue::None } }
     #[classattr]
-    fn Inherit() -> AzStylePerspectiveOriginValueEnumWrapper { AzStylePerspectiveOriginValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStylePerspectiveOriginValueEnumWrapper { AzStylePerspectiveOriginValueEnumWrapper { inner: AzStylePerspectiveOriginValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStylePerspectiveOriginValueEnumWrapper { AzStylePerspectiveOriginValueEnumWrapper::Initial }
+    fn Initial() -> AzStylePerspectiveOriginValueEnumWrapper { AzStylePerspectiveOriginValueEnumWrapper { inner: AzStylePerspectiveOriginValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StylePerspectiveOrigin) -> AzStylePerspectiveOriginValueEnumWrapper { AzStylePerspectiveOriginValueEnumWrapper::Exact(v) }
+    fn Exact(v: StylePerspectiveOrigin) -> AzStylePerspectiveOriginValueEnumWrapper { AzStylePerspectiveOriginValueEnumWrapper { inner: AzStylePerspectiveOriginValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzStyleBackfaceVisibilityValueEnumWrapper {
     #[classattr]
-    fn Auto() -> AzStyleBackfaceVisibilityValueEnumWrapper { AzStyleBackfaceVisibilityValueEnumWrapper::Auto }
+    fn Auto() -> AzStyleBackfaceVisibilityValueEnumWrapper { AzStyleBackfaceVisibilityValueEnumWrapper { inner: AzStyleBackfaceVisibilityValue::Auto } }
     #[classattr]
-    fn None() -> AzStyleBackfaceVisibilityValueEnumWrapper { AzStyleBackfaceVisibilityValueEnumWrapper::None }
+    fn None() -> AzStyleBackfaceVisibilityValueEnumWrapper { AzStyleBackfaceVisibilityValueEnumWrapper { inner: AzStyleBackfaceVisibilityValue::None } }
     #[classattr]
-    fn Inherit() -> AzStyleBackfaceVisibilityValueEnumWrapper { AzStyleBackfaceVisibilityValueEnumWrapper::Inherit }
+    fn Inherit() -> AzStyleBackfaceVisibilityValueEnumWrapper { AzStyleBackfaceVisibilityValueEnumWrapper { inner: AzStyleBackfaceVisibilityValue::Inherit } }
     #[classattr]
-    fn Initial() -> AzStyleBackfaceVisibilityValueEnumWrapper { AzStyleBackfaceVisibilityValueEnumWrapper::Initial }
+    fn Initial() -> AzStyleBackfaceVisibilityValueEnumWrapper { AzStyleBackfaceVisibilityValueEnumWrapper { inner: AzStyleBackfaceVisibilityValue::Initial } }
     #[staticmethod]
-    fn Exact(v: StyleBackfaceVisibility) -> AzStyleBackfaceVisibilityValueEnumWrapper { AzStyleBackfaceVisibilityValueEnumWrapper::Exact(v) }
+    fn Exact(v: StyleBackfaceVisibility) -> AzStyleBackfaceVisibilityValueEnumWrapper { AzStyleBackfaceVisibilityValueEnumWrapper { inner: AzStyleBackfaceVisibilityValue::Exact(v) } }
 }
 
 #[pymethods]
 impl AzCssPropertyEnumWrapper {
     #[staticmethod]
-    fn TextColor(v: StyleTextColorValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::TextColor(v) }
+    fn TextColor(v: StyleTextColorValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::TextColor(v) } }
     #[staticmethod]
-    fn FontSize(v: StyleFontSizeValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::FontSize(v) }
+    fn FontSize(v: StyleFontSizeValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::FontSize(v) } }
     #[staticmethod]
-    fn FontFamily(v: StyleFontFamilyVecValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::FontFamily(v) }
+    fn FontFamily(v: StyleFontFamilyVecValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::FontFamily(v) } }
     #[staticmethod]
-    fn TextAlign(v: StyleTextAlignValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::TextAlign(v) }
+    fn TextAlign(v: StyleTextAlignValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::TextAlign(v) } }
     #[staticmethod]
-    fn LetterSpacing(v: StyleLetterSpacingValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::LetterSpacing(v) }
+    fn LetterSpacing(v: StyleLetterSpacingValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::LetterSpacing(v) } }
     #[staticmethod]
-    fn LineHeight(v: StyleLineHeightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::LineHeight(v) }
+    fn LineHeight(v: StyleLineHeightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::LineHeight(v) } }
     #[staticmethod]
-    fn WordSpacing(v: StyleWordSpacingValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::WordSpacing(v) }
+    fn WordSpacing(v: StyleWordSpacingValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::WordSpacing(v) } }
     #[staticmethod]
-    fn TabWidth(v: StyleTabWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::TabWidth(v) }
+    fn TabWidth(v: StyleTabWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::TabWidth(v) } }
     #[staticmethod]
-    fn Cursor(v: StyleCursorValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::Cursor(v) }
+    fn Cursor(v: StyleCursorValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Cursor(v) } }
     #[staticmethod]
-    fn Display(v: LayoutDisplayValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::Display(v) }
+    fn Display(v: LayoutDisplayValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Display(v) } }
     #[staticmethod]
-    fn Float(v: LayoutFloatValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::Float(v) }
+    fn Float(v: LayoutFloatValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Float(v) } }
     #[staticmethod]
-    fn BoxSizing(v: LayoutBoxSizingValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BoxSizing(v) }
+    fn BoxSizing(v: LayoutBoxSizingValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BoxSizing(v) } }
     #[staticmethod]
-    fn Width(v: LayoutWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::Width(v) }
+    fn Width(v: LayoutWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Width(v) } }
     #[staticmethod]
-    fn Height(v: LayoutHeightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::Height(v) }
+    fn Height(v: LayoutHeightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Height(v) } }
     #[staticmethod]
-    fn MinWidth(v: LayoutMinWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::MinWidth(v) }
+    fn MinWidth(v: LayoutMinWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::MinWidth(v) } }
     #[staticmethod]
-    fn MinHeight(v: LayoutMinHeightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::MinHeight(v) }
+    fn MinHeight(v: LayoutMinHeightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::MinHeight(v) } }
     #[staticmethod]
-    fn MaxWidth(v: LayoutMaxWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::MaxWidth(v) }
+    fn MaxWidth(v: LayoutMaxWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::MaxWidth(v) } }
     #[staticmethod]
-    fn MaxHeight(v: LayoutMaxHeightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::MaxHeight(v) }
+    fn MaxHeight(v: LayoutMaxHeightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::MaxHeight(v) } }
     #[staticmethod]
-    fn Position(v: LayoutPositionValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::Position(v) }
+    fn Position(v: LayoutPositionValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Position(v) } }
     #[staticmethod]
-    fn Top(v: LayoutTopValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::Top(v) }
+    fn Top(v: LayoutTopValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Top(v) } }
     #[staticmethod]
-    fn Right(v: LayoutRightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::Right(v) }
+    fn Right(v: LayoutRightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Right(v) } }
     #[staticmethod]
-    fn Left(v: LayoutLeftValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::Left(v) }
+    fn Left(v: LayoutLeftValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Left(v) } }
     #[staticmethod]
-    fn Bottom(v: LayoutBottomValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::Bottom(v) }
+    fn Bottom(v: LayoutBottomValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Bottom(v) } }
     #[staticmethod]
-    fn FlexWrap(v: LayoutFlexWrapValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::FlexWrap(v) }
+    fn FlexWrap(v: LayoutFlexWrapValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::FlexWrap(v) } }
     #[staticmethod]
-    fn FlexDirection(v: LayoutFlexDirectionValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::FlexDirection(v) }
+    fn FlexDirection(v: LayoutFlexDirectionValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::FlexDirection(v) } }
     #[staticmethod]
-    fn FlexGrow(v: LayoutFlexGrowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::FlexGrow(v) }
+    fn FlexGrow(v: LayoutFlexGrowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::FlexGrow(v) } }
     #[staticmethod]
-    fn FlexShrink(v: LayoutFlexShrinkValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::FlexShrink(v) }
+    fn FlexShrink(v: LayoutFlexShrinkValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::FlexShrink(v) } }
     #[staticmethod]
-    fn JustifyContent(v: LayoutJustifyContentValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::JustifyContent(v) }
+    fn JustifyContent(v: LayoutJustifyContentValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::JustifyContent(v) } }
     #[staticmethod]
-    fn AlignItems(v: LayoutAlignItemsValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::AlignItems(v) }
+    fn AlignItems(v: LayoutAlignItemsValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::AlignItems(v) } }
     #[staticmethod]
-    fn AlignContent(v: LayoutAlignContentValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::AlignContent(v) }
+    fn AlignContent(v: LayoutAlignContentValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::AlignContent(v) } }
     #[staticmethod]
-    fn BackgroundContent(v: StyleBackgroundContentVecValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BackgroundContent(v) }
+    fn BackgroundContent(v: StyleBackgroundContentVecValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BackgroundContent(v) } }
     #[staticmethod]
-    fn BackgroundPosition(v: StyleBackgroundPositionVecValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BackgroundPosition(v) }
+    fn BackgroundPosition(v: StyleBackgroundPositionVecValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BackgroundPosition(v) } }
     #[staticmethod]
-    fn BackgroundSize(v: StyleBackgroundSizeVecValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BackgroundSize(v) }
+    fn BackgroundSize(v: StyleBackgroundSizeVecValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BackgroundSize(v) } }
     #[staticmethod]
-    fn BackgroundRepeat(v: StyleBackgroundRepeatVecValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BackgroundRepeat(v) }
+    fn BackgroundRepeat(v: StyleBackgroundRepeatVecValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BackgroundRepeat(v) } }
     #[staticmethod]
-    fn OverflowX(v: LayoutOverflowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::OverflowX(v) }
+    fn OverflowX(v: LayoutOverflowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::OverflowX(v) } }
     #[staticmethod]
-    fn OverflowY(v: LayoutOverflowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::OverflowY(v) }
+    fn OverflowY(v: LayoutOverflowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::OverflowY(v) } }
     #[staticmethod]
-    fn PaddingTop(v: LayoutPaddingTopValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::PaddingTop(v) }
+    fn PaddingTop(v: LayoutPaddingTopValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::PaddingTop(v) } }
     #[staticmethod]
-    fn PaddingLeft(v: LayoutPaddingLeftValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::PaddingLeft(v) }
+    fn PaddingLeft(v: LayoutPaddingLeftValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::PaddingLeft(v) } }
     #[staticmethod]
-    fn PaddingRight(v: LayoutPaddingRightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::PaddingRight(v) }
+    fn PaddingRight(v: LayoutPaddingRightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::PaddingRight(v) } }
     #[staticmethod]
-    fn PaddingBottom(v: LayoutPaddingBottomValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::PaddingBottom(v) }
+    fn PaddingBottom(v: LayoutPaddingBottomValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::PaddingBottom(v) } }
     #[staticmethod]
-    fn MarginTop(v: LayoutMarginTopValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::MarginTop(v) }
+    fn MarginTop(v: LayoutMarginTopValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::MarginTop(v) } }
     #[staticmethod]
-    fn MarginLeft(v: LayoutMarginLeftValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::MarginLeft(v) }
+    fn MarginLeft(v: LayoutMarginLeftValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::MarginLeft(v) } }
     #[staticmethod]
-    fn MarginRight(v: LayoutMarginRightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::MarginRight(v) }
+    fn MarginRight(v: LayoutMarginRightValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::MarginRight(v) } }
     #[staticmethod]
-    fn MarginBottom(v: LayoutMarginBottomValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::MarginBottom(v) }
+    fn MarginBottom(v: LayoutMarginBottomValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::MarginBottom(v) } }
     #[staticmethod]
-    fn BorderTopLeftRadius(v: StyleBorderTopLeftRadiusValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderTopLeftRadius(v) }
+    fn BorderTopLeftRadius(v: StyleBorderTopLeftRadiusValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderTopLeftRadius(v) } }
     #[staticmethod]
-    fn BorderTopRightRadius(v: StyleBorderTopRightRadiusValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderTopRightRadius(v) }
+    fn BorderTopRightRadius(v: StyleBorderTopRightRadiusValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderTopRightRadius(v) } }
     #[staticmethod]
-    fn BorderBottomLeftRadius(v: StyleBorderBottomLeftRadiusValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderBottomLeftRadius(v) }
+    fn BorderBottomLeftRadius(v: StyleBorderBottomLeftRadiusValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderBottomLeftRadius(v) } }
     #[staticmethod]
-    fn BorderBottomRightRadius(v: StyleBorderBottomRightRadiusValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderBottomRightRadius(v) }
+    fn BorderBottomRightRadius(v: StyleBorderBottomRightRadiusValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderBottomRightRadius(v) } }
     #[staticmethod]
-    fn BorderTopColor(v: StyleBorderTopColorValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderTopColor(v) }
+    fn BorderTopColor(v: StyleBorderTopColorValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderTopColor(v) } }
     #[staticmethod]
-    fn BorderRightColor(v: StyleBorderRightColorValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderRightColor(v) }
+    fn BorderRightColor(v: StyleBorderRightColorValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderRightColor(v) } }
     #[staticmethod]
-    fn BorderLeftColor(v: StyleBorderLeftColorValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderLeftColor(v) }
+    fn BorderLeftColor(v: StyleBorderLeftColorValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderLeftColor(v) } }
     #[staticmethod]
-    fn BorderBottomColor(v: StyleBorderBottomColorValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderBottomColor(v) }
+    fn BorderBottomColor(v: StyleBorderBottomColorValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderBottomColor(v) } }
     #[staticmethod]
-    fn BorderTopStyle(v: StyleBorderTopStyleValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderTopStyle(v) }
+    fn BorderTopStyle(v: StyleBorderTopStyleValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderTopStyle(v) } }
     #[staticmethod]
-    fn BorderRightStyle(v: StyleBorderRightStyleValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderRightStyle(v) }
+    fn BorderRightStyle(v: StyleBorderRightStyleValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderRightStyle(v) } }
     #[staticmethod]
-    fn BorderLeftStyle(v: StyleBorderLeftStyleValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderLeftStyle(v) }
+    fn BorderLeftStyle(v: StyleBorderLeftStyleValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderLeftStyle(v) } }
     #[staticmethod]
-    fn BorderBottomStyle(v: StyleBorderBottomStyleValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderBottomStyle(v) }
+    fn BorderBottomStyle(v: StyleBorderBottomStyleValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderBottomStyle(v) } }
     #[staticmethod]
-    fn BorderTopWidth(v: LayoutBorderTopWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderTopWidth(v) }
+    fn BorderTopWidth(v: LayoutBorderTopWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderTopWidth(v) } }
     #[staticmethod]
-    fn BorderRightWidth(v: LayoutBorderRightWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderRightWidth(v) }
+    fn BorderRightWidth(v: LayoutBorderRightWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderRightWidth(v) } }
     #[staticmethod]
-    fn BorderLeftWidth(v: LayoutBorderLeftWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderLeftWidth(v) }
+    fn BorderLeftWidth(v: LayoutBorderLeftWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderLeftWidth(v) } }
     #[staticmethod]
-    fn BorderBottomWidth(v: LayoutBorderBottomWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BorderBottomWidth(v) }
+    fn BorderBottomWidth(v: LayoutBorderBottomWidthValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BorderBottomWidth(v) } }
     #[staticmethod]
-    fn BoxShadowLeft(v: StyleBoxShadowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BoxShadowLeft(v) }
+    fn BoxShadowLeft(v: StyleBoxShadowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BoxShadowLeft(v) } }
     #[staticmethod]
-    fn BoxShadowRight(v: StyleBoxShadowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BoxShadowRight(v) }
+    fn BoxShadowRight(v: StyleBoxShadowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BoxShadowRight(v) } }
     #[staticmethod]
-    fn BoxShadowTop(v: StyleBoxShadowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BoxShadowTop(v) }
+    fn BoxShadowTop(v: StyleBoxShadowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BoxShadowTop(v) } }
     #[staticmethod]
-    fn BoxShadowBottom(v: StyleBoxShadowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BoxShadowBottom(v) }
+    fn BoxShadowBottom(v: StyleBoxShadowValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BoxShadowBottom(v) } }
     #[staticmethod]
-    fn ScrollbarStyle(v: ScrollbarStyleValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::ScrollbarStyle(v) }
+    fn ScrollbarStyle(v: ScrollbarStyleValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::ScrollbarStyle(v) } }
     #[staticmethod]
-    fn Opacity(v: StyleOpacityValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::Opacity(v) }
+    fn Opacity(v: StyleOpacityValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Opacity(v) } }
     #[staticmethod]
-    fn Transform(v: StyleTransformVecValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::Transform(v) }
+    fn Transform(v: StyleTransformVecValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Transform(v) } }
     #[staticmethod]
-    fn TransformOrigin(v: StyleTransformOriginValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::TransformOrigin(v) }
+    fn TransformOrigin(v: StyleTransformOriginValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::TransformOrigin(v) } }
     #[staticmethod]
-    fn PerspectiveOrigin(v: StylePerspectiveOriginValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::PerspectiveOrigin(v) }
+    fn PerspectiveOrigin(v: StylePerspectiveOriginValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::PerspectiveOrigin(v) } }
     #[staticmethod]
-    fn BackfaceVisibility(v: StyleBackfaceVisibilityValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper::BackfaceVisibility(v) }
+    fn BackfaceVisibility(v: StyleBackfaceVisibilityValue) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BackfaceVisibility(v) } }
 }
 
 #[pymethods]
 impl AzCssPropertySourceEnumWrapper {
     #[staticmethod]
-    fn Css(v: CssPath) -> AzCssPropertySourceEnumWrapper { AzCssPropertySourceEnumWrapper::Css(v) }
+    fn Css(v: CssPath) -> AzCssPropertySourceEnumWrapper { AzCssPropertySourceEnumWrapper { inner: AzCssPropertySource::Css(v) } }
     #[classattr]
-    fn Inline() -> AzCssPropertySourceEnumWrapper { AzCssPropertySourceEnumWrapper::Inline }
+    fn Inline() -> AzCssPropertySourceEnumWrapper { AzCssPropertySourceEnumWrapper { inner: AzCssPropertySource::Inline } }
 }
 
 #[pymethods]
@@ -11967,14 +11948,14 @@ impl AzStyledDom {
     #[staticmethod]
     fn from_xml(xml_string: String) -> AzStyledDom {
         let xml_string: AzString = xml_string.into();
-unsafe { mem::transmute(crate::AzStyledDom_fromXml(
+        unsafe { mem::transmute(crate::AzStyledDom_fromXml(
             mem::transmute(xml_string),
         )) }
     }
     #[staticmethod]
     fn from_file(xml_file_path: String) -> AzStyledDom {
         let xml_file_path: AzString = xml_file_path.into();
-unsafe { mem::transmute(crate::AzStyledDom_fromFile(
+        unsafe { mem::transmute(crate::AzStyledDom_fromFile(
             mem::transmute(xml_file_path),
         )) }
     }
@@ -12679,39 +12660,39 @@ impl AzGl {
 #[pymethods]
 impl AzVertexAttributeTypeEnumWrapper {
     #[classattr]
-    fn Float() -> AzVertexAttributeTypeEnumWrapper { AzVertexAttributeTypeEnumWrapper::Float }
+    fn Float() -> AzVertexAttributeTypeEnumWrapper { AzVertexAttributeTypeEnumWrapper { inner: AzVertexAttributeType::Float } }
     #[classattr]
-    fn Double() -> AzVertexAttributeTypeEnumWrapper { AzVertexAttributeTypeEnumWrapper::Double }
+    fn Double() -> AzVertexAttributeTypeEnumWrapper { AzVertexAttributeTypeEnumWrapper { inner: AzVertexAttributeType::Double } }
     #[classattr]
-    fn UnsignedByte() -> AzVertexAttributeTypeEnumWrapper { AzVertexAttributeTypeEnumWrapper::UnsignedByte }
+    fn UnsignedByte() -> AzVertexAttributeTypeEnumWrapper { AzVertexAttributeTypeEnumWrapper { inner: AzVertexAttributeType::UnsignedByte } }
     #[classattr]
-    fn UnsignedShort() -> AzVertexAttributeTypeEnumWrapper { AzVertexAttributeTypeEnumWrapper::UnsignedShort }
+    fn UnsignedShort() -> AzVertexAttributeTypeEnumWrapper { AzVertexAttributeTypeEnumWrapper { inner: AzVertexAttributeType::UnsignedShort } }
     #[classattr]
-    fn UnsignedInt() -> AzVertexAttributeTypeEnumWrapper { AzVertexAttributeTypeEnumWrapper::UnsignedInt }
+    fn UnsignedInt() -> AzVertexAttributeTypeEnumWrapper { AzVertexAttributeTypeEnumWrapper { inner: AzVertexAttributeType::UnsignedInt } }
 }
 
 #[pymethods]
 impl AzIndexBufferFormatEnumWrapper {
     #[classattr]
-    fn Points() -> AzIndexBufferFormatEnumWrapper { AzIndexBufferFormatEnumWrapper::Points }
+    fn Points() -> AzIndexBufferFormatEnumWrapper { AzIndexBufferFormatEnumWrapper { inner: AzIndexBufferFormat::Points } }
     #[classattr]
-    fn Lines() -> AzIndexBufferFormatEnumWrapper { AzIndexBufferFormatEnumWrapper::Lines }
+    fn Lines() -> AzIndexBufferFormatEnumWrapper { AzIndexBufferFormatEnumWrapper { inner: AzIndexBufferFormat::Lines } }
     #[classattr]
-    fn LineStrip() -> AzIndexBufferFormatEnumWrapper { AzIndexBufferFormatEnumWrapper::LineStrip }
+    fn LineStrip() -> AzIndexBufferFormatEnumWrapper { AzIndexBufferFormatEnumWrapper { inner: AzIndexBufferFormat::LineStrip } }
     #[classattr]
-    fn Triangles() -> AzIndexBufferFormatEnumWrapper { AzIndexBufferFormatEnumWrapper::Triangles }
+    fn Triangles() -> AzIndexBufferFormatEnumWrapper { AzIndexBufferFormatEnumWrapper { inner: AzIndexBufferFormat::Triangles } }
     #[classattr]
-    fn TriangleStrip() -> AzIndexBufferFormatEnumWrapper { AzIndexBufferFormatEnumWrapper::TriangleStrip }
+    fn TriangleStrip() -> AzIndexBufferFormatEnumWrapper { AzIndexBufferFormatEnumWrapper { inner: AzIndexBufferFormat::TriangleStrip } }
     #[classattr]
-    fn TriangleFan() -> AzIndexBufferFormatEnumWrapper { AzIndexBufferFormatEnumWrapper::TriangleFan }
+    fn TriangleFan() -> AzIndexBufferFormatEnumWrapper { AzIndexBufferFormatEnumWrapper { inner: AzIndexBufferFormat::TriangleFan } }
 }
 
 #[pymethods]
 impl AzGlTypeEnumWrapper {
     #[classattr]
-    fn Gl() -> AzGlTypeEnumWrapper { AzGlTypeEnumWrapper::Gl }
+    fn Gl() -> AzGlTypeEnumWrapper { AzGlTypeEnumWrapper { inner: AzGlType::Gl } }
     #[classattr]
-    fn Gles() -> AzGlTypeEnumWrapper { AzGlTypeEnumWrapper::Gles }
+    fn Gles() -> AzGlTypeEnumWrapper { AzGlTypeEnumWrapper { inner: AzGlType::Gles } }
 }
 
 #[pymethods]
@@ -12733,10 +12714,8 @@ impl AzImageRef {
         )) }
     }
     #[staticmethod]
-    fn raw_image(data: AzRawImage) -> AzGLuintVec {
-        unsafe { mem::transmute(crate::AzImageRef_rawImage(
-            mem::transmute(data),
-        )) }
+    fn raw_image(data: AzRawImage) -> Option<AzImageRef> {
+        
     }
     #[staticmethod]
     fn gl_texture(texture: AzTexture) -> AzImageRef {
@@ -12781,10 +12760,15 @@ impl AzRawImage {
         )) }
     }
     #[staticmethod]
-    fn decode_image_bytes_any(bytes: AzU8VecRef) -> bool {
-        unsafe { mem::transmute(crate::AzRawImage_decodeImageBytesAny(
+    fn decode_image_bytes_any(bytes: AzU8VecRef) -> Result<AzRawImage, PyErr> {
+        let m: ResultRawImageDecodeImageError = unsafe { mem::transmute(crate::AzRawImage_decodeImageBytesAny(
             mem::transmute(bytes),
-        )) }
+        )) };
+        match m {
+            ResultRawImageDecodeImageError::Ok(o) => Ok(o),
+            ResultRawImageDecodeImageError::Err(e) => Err(e.into()),
+        }
+
     }
     fn draw_clip_mask(&mut self, node: AzSvgNodeEnumWrapper, style: AzSvgStyleEnumWrapper) -> bool {
         ()
@@ -12815,69 +12799,62 @@ impl AzRawImage {
 #[pymethods]
 impl AzRawImageFormatEnumWrapper {
     #[classattr]
-    fn R8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper::R8 }
+    fn R8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::R8 } }
     #[classattr]
-    fn R16() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper::R16 }
+    fn R16() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::R16 } }
     #[classattr]
-    fn RG16() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper::RG16 }
+    fn RG16() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RG16 } }
     #[classattr]
-    fn BGRA8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper::BGRA8 }
+    fn BGRA8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::BGRA8 } }
     #[classattr]
-    fn RGBAF32() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper::RGBAF32 }
+    fn RGBAF32() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RGBAF32 } }
     #[classattr]
-    fn RG8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper::RG8 }
+    fn RG8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RG8 } }
     #[classattr]
-    fn RGBAI32() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper::RGBAI32 }
+    fn RGBAI32() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RGBAI32 } }
     #[classattr]
-    fn RGBA8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper::RGBA8 }
+    fn RGBA8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RGBA8 } }
 }
 
 #[pymethods]
 impl AzEncodeImageErrorEnumWrapper {
     #[classattr]
-    fn InsufficientMemory() -> AzEncodeImageErrorEnumWrapper { AzEncodeImageErrorEnumWrapper::InsufficientMemory }
+    fn InsufficientMemory() -> AzEncodeImageErrorEnumWrapper { AzEncodeImageErrorEnumWrapper { inner: AzEncodeImageError::InsufficientMemory } }
     #[classattr]
-    fn DimensionError() -> AzEncodeImageErrorEnumWrapper { AzEncodeImageErrorEnumWrapper::DimensionError }
+    fn DimensionError() -> AzEncodeImageErrorEnumWrapper { AzEncodeImageErrorEnumWrapper { inner: AzEncodeImageError::DimensionError } }
     #[classattr]
-    fn InvalidData() -> AzEncodeImageErrorEnumWrapper { AzEncodeImageErrorEnumWrapper::InvalidData }
+    fn InvalidData() -> AzEncodeImageErrorEnumWrapper { AzEncodeImageErrorEnumWrapper { inner: AzEncodeImageError::InvalidData } }
     #[classattr]
-    fn Unknown() -> AzEncodeImageErrorEnumWrapper { AzEncodeImageErrorEnumWrapper::Unknown }
+    fn Unknown() -> AzEncodeImageErrorEnumWrapper { AzEncodeImageErrorEnumWrapper { inner: AzEncodeImageError::Unknown } }
 }
 
 #[pymethods]
 impl AzDecodeImageErrorEnumWrapper {
     #[classattr]
-    fn InsufficientMemory() -> AzDecodeImageErrorEnumWrapper { AzDecodeImageErrorEnumWrapper::InsufficientMemory }
+    fn InsufficientMemory() -> AzDecodeImageErrorEnumWrapper { AzDecodeImageErrorEnumWrapper { inner: AzDecodeImageError::InsufficientMemory } }
     #[classattr]
-    fn DimensionError() -> AzDecodeImageErrorEnumWrapper { AzDecodeImageErrorEnumWrapper::DimensionError }
+    fn DimensionError() -> AzDecodeImageErrorEnumWrapper { AzDecodeImageErrorEnumWrapper { inner: AzDecodeImageError::DimensionError } }
     #[classattr]
-    fn UnsupportedImageFormat() -> AzDecodeImageErrorEnumWrapper { AzDecodeImageErrorEnumWrapper::UnsupportedImageFormat }
+    fn UnsupportedImageFormat() -> AzDecodeImageErrorEnumWrapper { AzDecodeImageErrorEnumWrapper { inner: AzDecodeImageError::UnsupportedImageFormat } }
     #[classattr]
-    fn Unknown() -> AzDecodeImageErrorEnumWrapper { AzDecodeImageErrorEnumWrapper::Unknown }
+    fn Unknown() -> AzDecodeImageErrorEnumWrapper { AzDecodeImageErrorEnumWrapper { inner: AzDecodeImageError::Unknown } }
 }
 
 #[pymethods]
 impl AzRawImageDataEnumWrapper {
     #[staticmethod]
-    fn U8(v: U8Vec) -> AzRawImageDataEnumWrapper { AzRawImageDataEnumWrapper::U8(v) }
+    fn U8(v: U8Vec) -> AzRawImageDataEnumWrapper { AzRawImageDataEnumWrapper { inner: AzRawImageData::U8(v) } }
     #[staticmethod]
-    fn U16(v: U16Vec) -> AzRawImageDataEnumWrapper { AzRawImageDataEnumWrapper::U16(v) }
+    fn U16(v: U16Vec) -> AzRawImageDataEnumWrapper { AzRawImageDataEnumWrapper { inner: AzRawImageData::U16(v) } }
     #[staticmethod]
-    fn F32(v: F32Vec) -> AzRawImageDataEnumWrapper { AzRawImageDataEnumWrapper::F32(v) }
+    fn F32(v: F32Vec) -> AzRawImageDataEnumWrapper { AzRawImageDataEnumWrapper { inner: AzRawImageData::F32(v) } }
 }
 
 #[pymethods]
 impl AzFontRef {
     #[staticmethod]
-    fn parse(source: AzFontSource) -> Result<AzU8Vec, PyErr> {
-        let m: AzEncodeImageError = unsafe { mem::transmute(crate::AzFontRef_parse(
-            mem::transmute(source),
-        )) };
-        match m {
-            AzEncodeImageError::Ok(o) => Ok(o),
-            AzEncodeImageError::Err(e) => Err(e.into()),
-        }
-
+    fn parse(source: AzFontSource) -> Option<AzFontRef> {
+        
     }
     fn get_font_metrics(&self) -> AzFontMetrics {
         ()
@@ -12887,19 +12864,29 @@ impl AzFontRef {
 #[pymethods]
 impl AzSvg {
     #[staticmethod]
-    fn from_string(svg_string: String, parse_options: AzSvgParseOptions) -> AzFontMetrics {
+    fn from_string(svg_string: String, parse_options: AzSvgParseOptions) -> Result<AzSvg, PyErr> {
         let svg_string: AzString = svg_string.into();
-unsafe { mem::transmute(crate::AzSvg_fromString(
+        let m: ResultSvgSvgParseError = unsafe { mem::transmute(crate::AzSvg_fromString(
             mem::transmute(svg_string),
             mem::transmute(parse_options),
-        )) }
+        )) };
+        match m {
+            ResultSvgSvgParseError::Ok(o) => Ok(o),
+            ResultSvgSvgParseError::Err(e) => Err(e.into()),
+        }
+
     }
     #[staticmethod]
-    fn from_bytes(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzFontMetrics {
-        unsafe { mem::transmute(crate::AzSvg_fromBytes(
+    fn from_bytes(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> Result<AzSvg, PyErr> {
+        let m: ResultSvgSvgParseError = unsafe { mem::transmute(crate::AzSvg_fromBytes(
             mem::transmute(svg_bytes),
             mem::transmute(parse_options),
-        )) }
+        )) };
+        match m {
+            ResultSvgSvgParseError::Ok(o) => Ok(o),
+            ResultSvgSvgParseError::Err(e) => Err(e.into()),
+        }
+
     }
     fn get_root(&self) -> AzSvgXmlNode {
         ()
@@ -12915,11 +12902,16 @@ unsafe { mem::transmute(crate::AzSvg_fromString(
 #[pymethods]
 impl AzSvgXmlNode {
     #[staticmethod]
-    fn parse_from(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> String {
-        unsafe { mem::transmute(crate::AzSvgXmlNode_parseFrom(
+    fn parse_from(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> Result<AzSvgXmlNode, PyErr> {
+        let m: ResultSvgXmlNodeSvgParseError = unsafe { mem::transmute(crate::AzSvgXmlNode_parseFrom(
             mem::transmute(svg_bytes),
             mem::transmute(parse_options),
-        )) }
+        )) };
+        match m {
+            ResultSvgXmlNodeSvgParseError::Ok(o) => Ok(o),
+            ResultSvgXmlNodeSvgParseError::Err(e) => Err(e.into()),
+        }
+
     }
     fn render(&self, options: AzSvgRenderOptions) -> Option<AzRawImage> {
         ()
@@ -12942,15 +12934,15 @@ impl AzSvgMultiPolygon {
 #[pymethods]
 impl AzSvgNodeEnumWrapper {
     #[staticmethod]
-    fn MultiPolygonCollection(v: SvgMultiPolygonVec) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper::MultiPolygonCollection(v) }
+    fn MultiPolygonCollection(v: SvgMultiPolygonVec) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper { inner: AzSvgNode::MultiPolygonCollection(v) } }
     #[staticmethod]
-    fn MultiPolygon(v: SvgMultiPolygon) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper::MultiPolygon(v) }
+    fn MultiPolygon(v: SvgMultiPolygon) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper { inner: AzSvgNode::MultiPolygon(v) } }
     #[staticmethod]
-    fn Path(v: SvgPath) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper::Path(v) }
+    fn Path(v: SvgPath) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper { inner: AzSvgNode::Path(v) } }
     #[staticmethod]
-    fn Circle(v: SvgCircle) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper::Circle(v) }
+    fn Circle(v: SvgCircle) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper { inner: AzSvgNode::Circle(v) } }
     #[staticmethod]
-    fn Rect(v: SvgRect) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper::Rect(v) }
+    fn Rect(v: SvgRect) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper { inner: AzSvgNode::Rect(v) } }
 }
 
 #[pymethods]
@@ -12983,11 +12975,11 @@ impl AzSvgPath {
 #[pymethods]
 impl AzSvgPathElementEnumWrapper {
     #[staticmethod]
-    fn Line(v: SvgLine) -> AzSvgPathElementEnumWrapper { AzSvgPathElementEnumWrapper::Line(v) }
+    fn Line(v: SvgLine) -> AzSvgPathElementEnumWrapper { AzSvgPathElementEnumWrapper { inner: AzSvgPathElement::Line(v) } }
     #[staticmethod]
-    fn QuadraticCurve(v: SvgQuadraticCurve) -> AzSvgPathElementEnumWrapper { AzSvgPathElementEnumWrapper::QuadraticCurve(v) }
+    fn QuadraticCurve(v: SvgQuadraticCurve) -> AzSvgPathElementEnumWrapper { AzSvgPathElementEnumWrapper { inner: AzSvgPathElement::QuadraticCurve(v) } }
     #[staticmethod]
-    fn CubicCurve(v: SvgCubicCurve) -> AzSvgPathElementEnumWrapper { AzSvgPathElementEnumWrapper::CubicCurve(v) }
+    fn CubicCurve(v: SvgCubicCurve) -> AzSvgPathElementEnumWrapper { AzSvgPathElementEnumWrapper { inner: AzSvgPathElement::CubicCurve(v) } }
 }
 
 #[pymethods]
@@ -13025,37 +13017,37 @@ impl AzSvgParseOptions {
 #[pymethods]
 impl AzShapeRenderingEnumWrapper {
     #[classattr]
-    fn OptimizeSpeed() -> AzShapeRenderingEnumWrapper { AzShapeRenderingEnumWrapper::OptimizeSpeed }
+    fn OptimizeSpeed() -> AzShapeRenderingEnumWrapper { AzShapeRenderingEnumWrapper { inner: AzShapeRendering::OptimizeSpeed } }
     #[classattr]
-    fn CrispEdges() -> AzShapeRenderingEnumWrapper { AzShapeRenderingEnumWrapper::CrispEdges }
+    fn CrispEdges() -> AzShapeRenderingEnumWrapper { AzShapeRenderingEnumWrapper { inner: AzShapeRendering::CrispEdges } }
     #[classattr]
-    fn GeometricPrecision() -> AzShapeRenderingEnumWrapper { AzShapeRenderingEnumWrapper::GeometricPrecision }
+    fn GeometricPrecision() -> AzShapeRenderingEnumWrapper { AzShapeRenderingEnumWrapper { inner: AzShapeRendering::GeometricPrecision } }
 }
 
 #[pymethods]
 impl AzTextRenderingEnumWrapper {
     #[classattr]
-    fn OptimizeSpeed() -> AzTextRenderingEnumWrapper { AzTextRenderingEnumWrapper::OptimizeSpeed }
+    fn OptimizeSpeed() -> AzTextRenderingEnumWrapper { AzTextRenderingEnumWrapper { inner: AzTextRendering::OptimizeSpeed } }
     #[classattr]
-    fn OptimizeLegibility() -> AzTextRenderingEnumWrapper { AzTextRenderingEnumWrapper::OptimizeLegibility }
+    fn OptimizeLegibility() -> AzTextRenderingEnumWrapper { AzTextRenderingEnumWrapper { inner: AzTextRendering::OptimizeLegibility } }
     #[classattr]
-    fn GeometricPrecision() -> AzTextRenderingEnumWrapper { AzTextRenderingEnumWrapper::GeometricPrecision }
+    fn GeometricPrecision() -> AzTextRenderingEnumWrapper { AzTextRenderingEnumWrapper { inner: AzTextRendering::GeometricPrecision } }
 }
 
 #[pymethods]
 impl AzImageRenderingEnumWrapper {
     #[classattr]
-    fn OptimizeQuality() -> AzImageRenderingEnumWrapper { AzImageRenderingEnumWrapper::OptimizeQuality }
+    fn OptimizeQuality() -> AzImageRenderingEnumWrapper { AzImageRenderingEnumWrapper { inner: AzImageRendering::OptimizeQuality } }
     #[classattr]
-    fn OptimizeSpeed() -> AzImageRenderingEnumWrapper { AzImageRenderingEnumWrapper::OptimizeSpeed }
+    fn OptimizeSpeed() -> AzImageRenderingEnumWrapper { AzImageRenderingEnumWrapper { inner: AzImageRendering::OptimizeSpeed } }
 }
 
 #[pymethods]
 impl AzFontDatabaseEnumWrapper {
     #[classattr]
-    fn Empty() -> AzFontDatabaseEnumWrapper { AzFontDatabaseEnumWrapper::Empty }
+    fn Empty() -> AzFontDatabaseEnumWrapper { AzFontDatabaseEnumWrapper { inner: AzFontDatabase::Empty } }
     #[classattr]
-    fn System() -> AzFontDatabaseEnumWrapper { AzFontDatabaseEnumWrapper::System }
+    fn System() -> AzFontDatabaseEnumWrapper { AzFontDatabaseEnumWrapper { inner: AzFontDatabase::System } }
 }
 
 #[pymethods]
@@ -13069,90 +13061,91 @@ impl AzSvgRenderOptions {
 #[pymethods]
 impl AzIndentEnumWrapper {
     #[classattr]
-    fn None() -> AzIndentEnumWrapper { AzIndentEnumWrapper::None }
+    fn None() -> AzIndentEnumWrapper { AzIndentEnumWrapper { inner: AzIndent::None } }
     #[staticmethod]
-    fn Spaces(v: u8) -> AzIndentEnumWrapper { AzIndentEnumWrapper::Spaces(v) }
+    fn Spaces(v: u8) -> AzIndentEnumWrapper { AzIndentEnumWrapper { inner: AzIndent::Spaces(v) } }
     #[classattr]
-    fn Tabs() -> AzIndentEnumWrapper { AzIndentEnumWrapper::Tabs }
+    fn Tabs() -> AzIndentEnumWrapper { AzIndentEnumWrapper { inner: AzIndent::Tabs } }
 }
 
 #[pymethods]
 impl AzSvgFitToEnumWrapper {
     #[classattr]
-    fn Original() -> AzSvgFitToEnumWrapper { AzSvgFitToEnumWrapper::Original }
+    fn Original() -> AzSvgFitToEnumWrapper { AzSvgFitToEnumWrapper { inner: AzSvgFitTo::Original } }
     #[staticmethod]
-    fn Width(v: u32) -> AzSvgFitToEnumWrapper { AzSvgFitToEnumWrapper::Width(v) }
+    fn Width(v: u32) -> AzSvgFitToEnumWrapper { AzSvgFitToEnumWrapper { inner: AzSvgFitTo::Width(v) } }
     #[staticmethod]
-    fn Height(v: u32) -> AzSvgFitToEnumWrapper { AzSvgFitToEnumWrapper::Height(v) }
+    fn Height(v: u32) -> AzSvgFitToEnumWrapper { AzSvgFitToEnumWrapper { inner: AzSvgFitTo::Height(v) } }
     #[staticmethod]
-    fn Zoom(v: f32) -> AzSvgFitToEnumWrapper { AzSvgFitToEnumWrapper::Zoom(v) }
+    fn Zoom(v: f32) -> AzSvgFitToEnumWrapper { AzSvgFitToEnumWrapper { inner: AzSvgFitTo::Zoom(v) } }
 }
 
 #[pymethods]
 impl AzSvgStyleEnumWrapper {
     #[staticmethod]
-    fn Fill(v: SvgFillStyle) -> AzSvgStyleEnumWrapper { AzSvgStyleEnumWrapper::Fill(v) }
+    fn Fill(v: SvgFillStyle) -> AzSvgStyleEnumWrapper { AzSvgStyleEnumWrapper { inner: AzSvgStyle::Fill(v) } }
     #[staticmethod]
-    fn Stroke(v: SvgStrokeStyle) -> AzSvgStyleEnumWrapper { AzSvgStyleEnumWrapper::Stroke(v) }
+    fn Stroke(v: SvgStrokeStyle) -> AzSvgStyleEnumWrapper { AzSvgStyleEnumWrapper { inner: AzSvgStyle::Stroke(v) } }
 }
 
 #[pymethods]
 impl AzSvgFillRuleEnumWrapper {
     #[classattr]
-    fn Winding() -> AzSvgFillRuleEnumWrapper { AzSvgFillRuleEnumWrapper::Winding }
+    fn Winding() -> AzSvgFillRuleEnumWrapper { AzSvgFillRuleEnumWrapper { inner: AzSvgFillRule::Winding } }
     #[classattr]
-    fn EvenOdd() -> AzSvgFillRuleEnumWrapper { AzSvgFillRuleEnumWrapper::EvenOdd }
+    fn EvenOdd() -> AzSvgFillRuleEnumWrapper { AzSvgFillRuleEnumWrapper { inner: AzSvgFillRule::EvenOdd } }
 }
 
 #[pymethods]
 impl AzSvgLineJoinEnumWrapper {
     #[classattr]
-    fn Miter() -> AzSvgLineJoinEnumWrapper { AzSvgLineJoinEnumWrapper::Miter }
+    fn Miter() -> AzSvgLineJoinEnumWrapper { AzSvgLineJoinEnumWrapper { inner: AzSvgLineJoin::Miter } }
     #[classattr]
-    fn MiterClip() -> AzSvgLineJoinEnumWrapper { AzSvgLineJoinEnumWrapper::MiterClip }
+    fn MiterClip() -> AzSvgLineJoinEnumWrapper { AzSvgLineJoinEnumWrapper { inner: AzSvgLineJoin::MiterClip } }
     #[classattr]
-    fn Round() -> AzSvgLineJoinEnumWrapper { AzSvgLineJoinEnumWrapper::Round }
+    fn Round() -> AzSvgLineJoinEnumWrapper { AzSvgLineJoinEnumWrapper { inner: AzSvgLineJoin::Round } }
     #[classattr]
-    fn Bevel() -> AzSvgLineJoinEnumWrapper { AzSvgLineJoinEnumWrapper::Bevel }
+    fn Bevel() -> AzSvgLineJoinEnumWrapper { AzSvgLineJoinEnumWrapper { inner: AzSvgLineJoin::Bevel } }
 }
 
 #[pymethods]
 impl AzSvgLineCapEnumWrapper {
     #[classattr]
-    fn Butt() -> AzSvgLineCapEnumWrapper { AzSvgLineCapEnumWrapper::Butt }
+    fn Butt() -> AzSvgLineCapEnumWrapper { AzSvgLineCapEnumWrapper { inner: AzSvgLineCap::Butt } }
     #[classattr]
-    fn Square() -> AzSvgLineCapEnumWrapper { AzSvgLineCapEnumWrapper::Square }
+    fn Square() -> AzSvgLineCapEnumWrapper { AzSvgLineCapEnumWrapper { inner: AzSvgLineCap::Square } }
     #[classattr]
-    fn Round() -> AzSvgLineCapEnumWrapper { AzSvgLineCapEnumWrapper::Round }
+    fn Round() -> AzSvgLineCapEnumWrapper { AzSvgLineCapEnumWrapper { inner: AzSvgLineCap::Round } }
 }
 
 #[pymethods]
 impl AzXml {
     #[staticmethod]
-    fn from_str(xml_string: AzRefstr) -> AzTesselatedSvgNode {
-        unsafe { mem::transmute(crate::AzXml_fromStr(
+    fn from_str(xml_string: AzRefstr) -> Result<AzXml, PyErr> {
+        let m: ResultXmlXmlError = unsafe { mem::transmute(crate::AzXml_fromStr(
             mem::transmute(xml_string),
-        )) }
+        )) };
+        match m {
+            ResultXmlXmlError::Ok(o) => Ok(o),
+            ResultXmlXmlError::Err(e) => Err(e.into()),
+        }
+
     }
 }
 
 #[pymethods]
 impl AzFile {
     #[staticmethod]
-    fn open(path: String) -> AzTesselatedSvgNode {
+    fn open(path: String) -> Option<AzFile> {
         let path: AzString = path.into();
-unsafe { mem::transmute(crate::AzFile_open(
-            mem::transmute(path),
-        )) }
+        
     }
     #[staticmethod]
-    fn create(path: String) -> AzTesselatedSvgNode {
+    fn create(path: String) -> Option<AzFile> {
         let path: AzString = path.into();
-unsafe { mem::transmute(crate::AzFile_create(
-            mem::transmute(path),
-        )) }
+        
     }
-    fn read_to_string(&mut self) -> Option<AzString> {
+    fn read_to_string(&mut self) -> Option<String> {
         ()
     }
     fn read_to_bytes(&mut self) -> Option<AzU8Vec> {
@@ -13174,122 +13167,120 @@ impl AzMsgBox {
     #[staticmethod]
     fn ok(icon: AzMsgBoxIconEnumWrapper, title: String, message: String) -> bool {
         let title: AzString = title.into();
-let message: AzString = message.into();
-unsafe { mem::transmute(crate::AzMsgBox_ok(
+        let message: AzString = message.into();
+        let m: bool = unsafe { mem::transmute(crate::AzMsgBox_ok(
             mem::transmute(icon),
             mem::transmute(title),
             mem::transmute(message),
-        )) }
+        )) };
+        match m {
+            bool::Ok(o) => Ok(o),
+            bool::Err(e) => Err(e.into()),
+        }
+
     }
     #[staticmethod]
-    fn ok_cancel(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxOkCancelEnumWrapper) -> bool {
+    fn ok_cancel(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxOkCancelEnumWrapper) -> AzMsgBoxOkCancel {
         let title: AzString = title.into();
-let message: AzString = message.into();
-unsafe { mem::transmute(crate::AzMsgBox_okCancel(
+        let message: AzString = message.into();
+        let m: MsgBoxOkCancel = unsafe { mem::transmute(crate::AzMsgBox_okCancel(
             mem::transmute(icon),
             mem::transmute(title),
             mem::transmute(message),
             mem::transmute(default_value),
-        )) }
+        )) };
+        match m {
+            MsgBoxOkCancel::Ok(o) => Ok(o),
+            MsgBoxOkCancel::Err(e) => Err(e.into()),
+        }
+
     }
     #[staticmethod]
-    fn yes_no(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxYesNoEnumWrapper) -> bool {
+    fn yes_no(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxYesNoEnumWrapper) -> AzMsgBoxYesNo {
         let title: AzString = title.into();
-let message: AzString = message.into();
-unsafe { mem::transmute(crate::AzMsgBox_yesNo(
+        let message: AzString = message.into();
+        let m: MsgBoxYesNo = unsafe { mem::transmute(crate::AzMsgBox_yesNo(
             mem::transmute(icon),
             mem::transmute(title),
             mem::transmute(message),
             mem::transmute(default_value),
-        )) }
+        )) };
+        match m {
+            MsgBoxYesNo::Ok(o) => Ok(o),
+            MsgBoxYesNo::Err(e) => Err(e.into()),
+        }
+
     }
 }
 
 #[pymethods]
 impl AzMsgBoxIconEnumWrapper {
     #[classattr]
-    fn Info() -> AzMsgBoxIconEnumWrapper { AzMsgBoxIconEnumWrapper::Info }
+    fn Info() -> AzMsgBoxIconEnumWrapper { AzMsgBoxIconEnumWrapper { inner: AzMsgBoxIcon::Info } }
     #[classattr]
-    fn Warning() -> AzMsgBoxIconEnumWrapper { AzMsgBoxIconEnumWrapper::Warning }
+    fn Warning() -> AzMsgBoxIconEnumWrapper { AzMsgBoxIconEnumWrapper { inner: AzMsgBoxIcon::Warning } }
     #[classattr]
-    fn Error() -> AzMsgBoxIconEnumWrapper { AzMsgBoxIconEnumWrapper::Error }
+    fn Error() -> AzMsgBoxIconEnumWrapper { AzMsgBoxIconEnumWrapper { inner: AzMsgBoxIcon::Error } }
     #[classattr]
-    fn Question() -> AzMsgBoxIconEnumWrapper { AzMsgBoxIconEnumWrapper::Question }
+    fn Question() -> AzMsgBoxIconEnumWrapper { AzMsgBoxIconEnumWrapper { inner: AzMsgBoxIcon::Question } }
 }
 
 #[pymethods]
 impl AzMsgBoxYesNoEnumWrapper {
     #[classattr]
-    fn Yes() -> AzMsgBoxYesNoEnumWrapper { AzMsgBoxYesNoEnumWrapper::Yes }
+    fn Yes() -> AzMsgBoxYesNoEnumWrapper { AzMsgBoxYesNoEnumWrapper { inner: AzMsgBoxYesNo::Yes } }
     #[classattr]
-    fn No() -> AzMsgBoxYesNoEnumWrapper { AzMsgBoxYesNoEnumWrapper::No }
+    fn No() -> AzMsgBoxYesNoEnumWrapper { AzMsgBoxYesNoEnumWrapper { inner: AzMsgBoxYesNo::No } }
 }
 
 #[pymethods]
 impl AzMsgBoxOkCancelEnumWrapper {
     #[classattr]
-    fn Ok() -> AzMsgBoxOkCancelEnumWrapper { AzMsgBoxOkCancelEnumWrapper::Ok }
+    fn Ok() -> AzMsgBoxOkCancelEnumWrapper { AzMsgBoxOkCancelEnumWrapper { inner: AzMsgBoxOkCancel::Ok } }
     #[classattr]
-    fn Cancel() -> AzMsgBoxOkCancelEnumWrapper { AzMsgBoxOkCancelEnumWrapper::Cancel }
+    fn Cancel() -> AzMsgBoxOkCancelEnumWrapper { AzMsgBoxOkCancelEnumWrapper { inner: AzMsgBoxOkCancel::Cancel } }
 }
 
 #[pymethods]
 impl AzFileDialog {
     #[staticmethod]
-    fn select_file(title: String, default_path: AzOptionStringEnumWrapper, filter_list: AzOptionFileTypeListEnumWrapper) -> bool {
+    fn select_file(title: String, default_path: AzOptionStringEnumWrapper, filter_list: AzOptionFileTypeListEnumWrapper) -> Option<String> {
         let title: AzString = title.into();
-unsafe { mem::transmute(crate::AzFileDialog_selectFile(
-            mem::transmute(title),
-            mem::transmute(default_path),
-            mem::transmute(filter_list),
-        )) }
+        
     }
     #[staticmethod]
-    fn select_multiple_files(title: String, default_path: AzOptionStringEnumWrapper, filter_list: AzOptionFileTypeListEnumWrapper) -> bool {
+    fn select_multiple_files(title: String, default_path: AzOptionStringEnumWrapper, filter_list: AzOptionFileTypeListEnumWrapper) -> Option<AzStringVec> {
         let title: AzString = title.into();
-unsafe { mem::transmute(crate::AzFileDialog_selectMultipleFiles(
-            mem::transmute(title),
-            mem::transmute(default_path),
-            mem::transmute(filter_list),
-        )) }
+        
     }
     #[staticmethod]
-    fn select_folder(title: String, default_path: AzOptionStringEnumWrapper) -> bool {
+    fn select_folder(title: String, default_path: AzOptionStringEnumWrapper) -> Option<String> {
         let title: AzString = title.into();
-unsafe { mem::transmute(crate::AzFileDialog_selectFolder(
-            mem::transmute(title),
-            mem::transmute(default_path),
-        )) }
+        
     }
     #[staticmethod]
-    fn save_file(title: String, default_path: AzOptionStringEnumWrapper) -> bool {
+    fn save_file(title: String, default_path: AzOptionStringEnumWrapper) -> Option<String> {
         let title: AzString = title.into();
-unsafe { mem::transmute(crate::AzFileDialog_saveFile(
-            mem::transmute(title),
-            mem::transmute(default_path),
-        )) }
+        
     }
 }
 
 #[pymethods]
 impl AzColorPickerDialog {
     #[staticmethod]
-    fn open(title: String, default_color: AzOptionColorUEnumWrapper) -> bool {
+    fn open(title: String, default_color: AzOptionColorUEnumWrapper) -> Option<AzColorU> {
         let title: AzString = title.into();
-unsafe { mem::transmute(crate::AzColorPickerDialog_open(
-            mem::transmute(title),
-            mem::transmute(default_color),
-        )) }
+        
     }
 }
 
 #[pymethods]
 impl AzSystemClipboard {
     #[staticmethod]
-    fn new() -> bool {
-        unsafe { mem::transmute(crate::AzSystemClipboard_new()) }
+    fn new() -> Option<AzSystemClipboard> {
+        
     }
-    fn get_string_contents(&self) -> Option<AzString> {
+    fn get_string_contents(&self) -> Option<String> {
         ()
     }
     fn set_string_contents(&mut self, contents: String) -> bool {
@@ -13300,17 +13291,17 @@ impl AzSystemClipboard {
 #[pymethods]
 impl AzInstantEnumWrapper {
     #[staticmethod]
-    fn System(v: InstantPtr) -> AzInstantEnumWrapper { AzInstantEnumWrapper::System(v) }
+    fn System(v: InstantPtr) -> AzInstantEnumWrapper { AzInstantEnumWrapper { inner: AzInstant::System(v) } }
     #[staticmethod]
-    fn Tick(v: SystemTick) -> AzInstantEnumWrapper { AzInstantEnumWrapper::Tick(v) }
+    fn Tick(v: SystemTick) -> AzInstantEnumWrapper { AzInstantEnumWrapper { inner: AzInstant::Tick(v) } }
 }
 
 #[pymethods]
 impl AzDurationEnumWrapper {
     #[staticmethod]
-    fn System(v: SystemTimeDiff) -> AzDurationEnumWrapper { AzDurationEnumWrapper::System(v) }
+    fn System(v: SystemTimeDiff) -> AzDurationEnumWrapper { AzDurationEnumWrapper { inner: AzDuration::System(v) } }
     #[staticmethod]
-    fn Tick(v: SystemTickDiff) -> AzDurationEnumWrapper { AzDurationEnumWrapper::Tick(v) }
+    fn Tick(v: SystemTickDiff) -> AzDurationEnumWrapper { AzDurationEnumWrapper { inner: AzDuration::Tick(v) } }
 }
 
 #[pymethods]
@@ -13329,9 +13320,9 @@ impl AzTimer {
 #[pymethods]
 impl AzTerminateTimerEnumWrapper {
     #[classattr]
-    fn Terminate() -> AzTerminateTimerEnumWrapper { AzTerminateTimerEnumWrapper::Terminate }
+    fn Terminate() -> AzTerminateTimerEnumWrapper { AzTerminateTimerEnumWrapper { inner: AzTerminateTimer::Terminate } }
     #[classattr]
-    fn Continue() -> AzTerminateTimerEnumWrapper { AzTerminateTimerEnumWrapper::Continue }
+    fn Continue() -> AzTerminateTimerEnumWrapper { AzTerminateTimerEnumWrapper { inner: AzTerminateTimer::Continue } }
 }
 
 #[pymethods]
@@ -13351,53 +13342,53 @@ impl AzThreadReceiver {
 #[pymethods]
 impl AzThreadSendMsgEnumWrapper {
     #[classattr]
-    fn TerminateThread() -> AzThreadSendMsgEnumWrapper { AzThreadSendMsgEnumWrapper::TerminateThread }
+    fn TerminateThread() -> AzThreadSendMsgEnumWrapper { AzThreadSendMsgEnumWrapper { inner: AzThreadSendMsg::TerminateThread } }
     #[classattr]
-    fn Tick() -> AzThreadSendMsgEnumWrapper { AzThreadSendMsgEnumWrapper::Tick }
+    fn Tick() -> AzThreadSendMsgEnumWrapper { AzThreadSendMsgEnumWrapper { inner: AzThreadSendMsg::Tick } }
     #[staticmethod]
-    fn Custom(v: RefAny) -> AzThreadSendMsgEnumWrapper { AzThreadSendMsgEnumWrapper::Custom(v) }
+    fn Custom(v: RefAny) -> AzThreadSendMsgEnumWrapper { AzThreadSendMsgEnumWrapper { inner: AzThreadSendMsg::Custom(v) } }
 }
 
 #[pymethods]
 impl AzThreadReceiveMsgEnumWrapper {
     #[staticmethod]
-    fn WriteBack(v: ThreadWriteBackMsg) -> AzThreadReceiveMsgEnumWrapper { AzThreadReceiveMsgEnumWrapper::WriteBack(v) }
+    fn WriteBack(v: ThreadWriteBackMsg) -> AzThreadReceiveMsgEnumWrapper { AzThreadReceiveMsgEnumWrapper { inner: AzThreadReceiveMsg::WriteBack(v) } }
     #[staticmethod]
-    fn Update(v: UpdateScreen) -> AzThreadReceiveMsgEnumWrapper { AzThreadReceiveMsgEnumWrapper::Update(v) }
+    fn Update(v: UpdateScreen) -> AzThreadReceiveMsgEnumWrapper { AzThreadReceiveMsgEnumWrapper { inner: AzThreadReceiveMsg::Update(v) } }
 }
 
 #[pymethods]
 impl AzFmtValueEnumWrapper {
     #[staticmethod]
-    fn Bool(v: bool) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Bool(v) }
+    fn Bool(v: bool) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Bool(v) } }
     #[staticmethod]
-    fn Uchar(v: u8) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Uchar(v) }
+    fn Uchar(v: u8) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Uchar(v) } }
     #[staticmethod]
-    fn Schar(v: i8) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Schar(v) }
+    fn Schar(v: i8) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Schar(v) } }
     #[staticmethod]
-    fn Ushort(v: u16) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Ushort(v) }
+    fn Ushort(v: u16) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Ushort(v) } }
     #[staticmethod]
-    fn Sshort(v: i16) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Sshort(v) }
+    fn Sshort(v: i16) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Sshort(v) } }
     #[staticmethod]
-    fn Uint(v: u32) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Uint(v) }
+    fn Uint(v: u32) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Uint(v) } }
     #[staticmethod]
-    fn Sint(v: i32) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Sint(v) }
+    fn Sint(v: i32) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Sint(v) } }
     #[staticmethod]
-    fn Ulong(v: u64) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Ulong(v) }
+    fn Ulong(v: u64) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Ulong(v) } }
     #[staticmethod]
-    fn Slong(v: i64) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Slong(v) }
+    fn Slong(v: i64) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Slong(v) } }
     #[staticmethod]
-    fn Isize(v: isize) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Isize(v) }
+    fn Isize(v: isize) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Isize(v) } }
     #[staticmethod]
-    fn Usize(v: usize) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Usize(v) }
+    fn Usize(v: usize) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Usize(v) } }
     #[staticmethod]
-    fn Float(v: f32) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Float(v) }
+    fn Float(v: f32) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Float(v) } }
     #[staticmethod]
-    fn Double(v: f64) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Double(v) }
+    fn Double(v: f64) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Double(v) } }
     #[staticmethod]
-    fn Str(v: String) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::Str(v) }
+    fn Str(v: String) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Str(v) } }
     #[staticmethod]
-    fn StrVec(v: StringVec) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper::StrVec(v) }
+    fn StrVec(v: StringVec) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::StrVec(v) } }
 }
 
 #[pymethods]
@@ -13405,7 +13396,7 @@ impl AzString {
     #[staticmethod]
     fn format(format: String, args: AzFmtArgVec) -> AzString {
         let format: AzString = format.into();
-unsafe { mem::transmute(crate::AzString_format(
+        unsafe { mem::transmute(crate::AzString_format(
             mem::transmute(format),
             mem::transmute(args),
         )) }
@@ -13435,1111 +13426,1111 @@ impl AzU8Vec {
 #[pymethods]
 impl AzStyleFontFamilyVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzStyleFontFamilyVecDestructorEnumWrapper { AzStyleFontFamilyVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzStyleFontFamilyVecDestructorEnumWrapper { AzStyleFontFamilyVecDestructorEnumWrapper { inner: AzStyleFontFamilyVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzStyleFontFamilyVecDestructorEnumWrapper { AzStyleFontFamilyVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzStyleFontFamilyVecDestructorEnumWrapper { AzStyleFontFamilyVecDestructorEnumWrapper { inner: AzStyleFontFamilyVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: StyleFontFamilyVecDestructorType) -> AzStyleFontFamilyVecDestructorEnumWrapper { AzStyleFontFamilyVecDestructorEnumWrapper::External(v) }
+    fn External(v: StyleFontFamilyVecDestructorType) -> AzStyleFontFamilyVecDestructorEnumWrapper { AzStyleFontFamilyVecDestructorEnumWrapper { inner: AzStyleFontFamilyVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzTesselatedSvgNodeVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzTesselatedSvgNodeVecDestructorEnumWrapper { AzTesselatedSvgNodeVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzTesselatedSvgNodeVecDestructorEnumWrapper { AzTesselatedSvgNodeVecDestructorEnumWrapper { inner: AzTesselatedSvgNodeVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzTesselatedSvgNodeVecDestructorEnumWrapper { AzTesselatedSvgNodeVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzTesselatedSvgNodeVecDestructorEnumWrapper { AzTesselatedSvgNodeVecDestructorEnumWrapper { inner: AzTesselatedSvgNodeVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: TesselatedSvgNodeVecDestructorType) -> AzTesselatedSvgNodeVecDestructorEnumWrapper { AzTesselatedSvgNodeVecDestructorEnumWrapper::External(v) }
+    fn External(v: TesselatedSvgNodeVecDestructorType) -> AzTesselatedSvgNodeVecDestructorEnumWrapper { AzTesselatedSvgNodeVecDestructorEnumWrapper { inner: AzTesselatedSvgNodeVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzXmlNodeVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzXmlNodeVecDestructorEnumWrapper { AzXmlNodeVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzXmlNodeVecDestructorEnumWrapper { AzXmlNodeVecDestructorEnumWrapper { inner: AzXmlNodeVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzXmlNodeVecDestructorEnumWrapper { AzXmlNodeVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzXmlNodeVecDestructorEnumWrapper { AzXmlNodeVecDestructorEnumWrapper { inner: AzXmlNodeVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: XmlNodeVecDestructorType) -> AzXmlNodeVecDestructorEnumWrapper { AzXmlNodeVecDestructorEnumWrapper::External(v) }
+    fn External(v: XmlNodeVecDestructorType) -> AzXmlNodeVecDestructorEnumWrapper { AzXmlNodeVecDestructorEnumWrapper { inner: AzXmlNodeVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzFmtArgVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzFmtArgVecDestructorEnumWrapper { AzFmtArgVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzFmtArgVecDestructorEnumWrapper { AzFmtArgVecDestructorEnumWrapper { inner: AzFmtArgVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzFmtArgVecDestructorEnumWrapper { AzFmtArgVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzFmtArgVecDestructorEnumWrapper { AzFmtArgVecDestructorEnumWrapper { inner: AzFmtArgVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: FmtArgVecDestructorType) -> AzFmtArgVecDestructorEnumWrapper { AzFmtArgVecDestructorEnumWrapper::External(v) }
+    fn External(v: FmtArgVecDestructorType) -> AzFmtArgVecDestructorEnumWrapper { AzFmtArgVecDestructorEnumWrapper { inner: AzFmtArgVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzInlineLineVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzInlineLineVecDestructorEnumWrapper { AzInlineLineVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzInlineLineVecDestructorEnumWrapper { AzInlineLineVecDestructorEnumWrapper { inner: AzInlineLineVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzInlineLineVecDestructorEnumWrapper { AzInlineLineVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzInlineLineVecDestructorEnumWrapper { AzInlineLineVecDestructorEnumWrapper { inner: AzInlineLineVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: InlineLineVecDestructorType) -> AzInlineLineVecDestructorEnumWrapper { AzInlineLineVecDestructorEnumWrapper::External(v) }
+    fn External(v: InlineLineVecDestructorType) -> AzInlineLineVecDestructorEnumWrapper { AzInlineLineVecDestructorEnumWrapper { inner: AzInlineLineVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzInlineWordVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzInlineWordVecDestructorEnumWrapper { AzInlineWordVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzInlineWordVecDestructorEnumWrapper { AzInlineWordVecDestructorEnumWrapper { inner: AzInlineWordVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzInlineWordVecDestructorEnumWrapper { AzInlineWordVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzInlineWordVecDestructorEnumWrapper { AzInlineWordVecDestructorEnumWrapper { inner: AzInlineWordVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: InlineWordVecDestructorType) -> AzInlineWordVecDestructorEnumWrapper { AzInlineWordVecDestructorEnumWrapper::External(v) }
+    fn External(v: InlineWordVecDestructorType) -> AzInlineWordVecDestructorEnumWrapper { AzInlineWordVecDestructorEnumWrapper { inner: AzInlineWordVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzInlineGlyphVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzInlineGlyphVecDestructorEnumWrapper { AzInlineGlyphVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzInlineGlyphVecDestructorEnumWrapper { AzInlineGlyphVecDestructorEnumWrapper { inner: AzInlineGlyphVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzInlineGlyphVecDestructorEnumWrapper { AzInlineGlyphVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzInlineGlyphVecDestructorEnumWrapper { AzInlineGlyphVecDestructorEnumWrapper { inner: AzInlineGlyphVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: InlineGlyphVecDestructorType) -> AzInlineGlyphVecDestructorEnumWrapper { AzInlineGlyphVecDestructorEnumWrapper::External(v) }
+    fn External(v: InlineGlyphVecDestructorType) -> AzInlineGlyphVecDestructorEnumWrapper { AzInlineGlyphVecDestructorEnumWrapper { inner: AzInlineGlyphVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzInlineTextHitVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzInlineTextHitVecDestructorEnumWrapper { AzInlineTextHitVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzInlineTextHitVecDestructorEnumWrapper { AzInlineTextHitVecDestructorEnumWrapper { inner: AzInlineTextHitVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzInlineTextHitVecDestructorEnumWrapper { AzInlineTextHitVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzInlineTextHitVecDestructorEnumWrapper { AzInlineTextHitVecDestructorEnumWrapper { inner: AzInlineTextHitVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: InlineTextHitVecDestructorType) -> AzInlineTextHitVecDestructorEnumWrapper { AzInlineTextHitVecDestructorEnumWrapper::External(v) }
+    fn External(v: InlineTextHitVecDestructorType) -> AzInlineTextHitVecDestructorEnumWrapper { AzInlineTextHitVecDestructorEnumWrapper { inner: AzInlineTextHitVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzMonitorVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzMonitorVecDestructorEnumWrapper { AzMonitorVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzMonitorVecDestructorEnumWrapper { AzMonitorVecDestructorEnumWrapper { inner: AzMonitorVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzMonitorVecDestructorEnumWrapper { AzMonitorVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzMonitorVecDestructorEnumWrapper { AzMonitorVecDestructorEnumWrapper { inner: AzMonitorVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: MonitorVecDestructorType) -> AzMonitorVecDestructorEnumWrapper { AzMonitorVecDestructorEnumWrapper::External(v) }
+    fn External(v: MonitorVecDestructorType) -> AzMonitorVecDestructorEnumWrapper { AzMonitorVecDestructorEnumWrapper { inner: AzMonitorVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzVideoModeVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzVideoModeVecDestructorEnumWrapper { AzVideoModeVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzVideoModeVecDestructorEnumWrapper { AzVideoModeVecDestructorEnumWrapper { inner: AzVideoModeVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzVideoModeVecDestructorEnumWrapper { AzVideoModeVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzVideoModeVecDestructorEnumWrapper { AzVideoModeVecDestructorEnumWrapper { inner: AzVideoModeVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: VideoModeVecDestructorType) -> AzVideoModeVecDestructorEnumWrapper { AzVideoModeVecDestructorEnumWrapper::External(v) }
+    fn External(v: VideoModeVecDestructorType) -> AzVideoModeVecDestructorEnumWrapper { AzVideoModeVecDestructorEnumWrapper { inner: AzVideoModeVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzDomVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzDomVecDestructorEnumWrapper { AzDomVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzDomVecDestructorEnumWrapper { AzDomVecDestructorEnumWrapper { inner: AzDomVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzDomVecDestructorEnumWrapper { AzDomVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzDomVecDestructorEnumWrapper { AzDomVecDestructorEnumWrapper { inner: AzDomVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: DomVecDestructorType) -> AzDomVecDestructorEnumWrapper { AzDomVecDestructorEnumWrapper::External(v) }
+    fn External(v: DomVecDestructorType) -> AzDomVecDestructorEnumWrapper { AzDomVecDestructorEnumWrapper { inner: AzDomVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzIdOrClassVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzIdOrClassVecDestructorEnumWrapper { AzIdOrClassVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzIdOrClassVecDestructorEnumWrapper { AzIdOrClassVecDestructorEnumWrapper { inner: AzIdOrClassVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzIdOrClassVecDestructorEnumWrapper { AzIdOrClassVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzIdOrClassVecDestructorEnumWrapper { AzIdOrClassVecDestructorEnumWrapper { inner: AzIdOrClassVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: IdOrClassVecDestructorType) -> AzIdOrClassVecDestructorEnumWrapper { AzIdOrClassVecDestructorEnumWrapper::External(v) }
+    fn External(v: IdOrClassVecDestructorType) -> AzIdOrClassVecDestructorEnumWrapper { AzIdOrClassVecDestructorEnumWrapper { inner: AzIdOrClassVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzNodeDataInlineCssPropertyVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { AzNodeDataInlineCssPropertyVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { inner: AzNodeDataInlineCssPropertyVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { AzNodeDataInlineCssPropertyVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { inner: AzNodeDataInlineCssPropertyVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: NodeDataInlineCssPropertyVecDestructorType) -> AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { AzNodeDataInlineCssPropertyVecDestructorEnumWrapper::External(v) }
+    fn External(v: NodeDataInlineCssPropertyVecDestructorType) -> AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { inner: AzNodeDataInlineCssPropertyVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzStyleBackgroundContentVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzStyleBackgroundContentVecDestructorEnumWrapper { AzStyleBackgroundContentVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzStyleBackgroundContentVecDestructorEnumWrapper { AzStyleBackgroundContentVecDestructorEnumWrapper { inner: AzStyleBackgroundContentVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzStyleBackgroundContentVecDestructorEnumWrapper { AzStyleBackgroundContentVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzStyleBackgroundContentVecDestructorEnumWrapper { AzStyleBackgroundContentVecDestructorEnumWrapper { inner: AzStyleBackgroundContentVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: StyleBackgroundContentVecDestructorType) -> AzStyleBackgroundContentVecDestructorEnumWrapper { AzStyleBackgroundContentVecDestructorEnumWrapper::External(v) }
+    fn External(v: StyleBackgroundContentVecDestructorType) -> AzStyleBackgroundContentVecDestructorEnumWrapper { AzStyleBackgroundContentVecDestructorEnumWrapper { inner: AzStyleBackgroundContentVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzStyleBackgroundPositionVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzStyleBackgroundPositionVecDestructorEnumWrapper { AzStyleBackgroundPositionVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzStyleBackgroundPositionVecDestructorEnumWrapper { AzStyleBackgroundPositionVecDestructorEnumWrapper { inner: AzStyleBackgroundPositionVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzStyleBackgroundPositionVecDestructorEnumWrapper { AzStyleBackgroundPositionVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzStyleBackgroundPositionVecDestructorEnumWrapper { AzStyleBackgroundPositionVecDestructorEnumWrapper { inner: AzStyleBackgroundPositionVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: StyleBackgroundPositionVecDestructorType) -> AzStyleBackgroundPositionVecDestructorEnumWrapper { AzStyleBackgroundPositionVecDestructorEnumWrapper::External(v) }
+    fn External(v: StyleBackgroundPositionVecDestructorType) -> AzStyleBackgroundPositionVecDestructorEnumWrapper { AzStyleBackgroundPositionVecDestructorEnumWrapper { inner: AzStyleBackgroundPositionVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzStyleBackgroundRepeatVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzStyleBackgroundRepeatVecDestructorEnumWrapper { AzStyleBackgroundRepeatVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzStyleBackgroundRepeatVecDestructorEnumWrapper { AzStyleBackgroundRepeatVecDestructorEnumWrapper { inner: AzStyleBackgroundRepeatVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzStyleBackgroundRepeatVecDestructorEnumWrapper { AzStyleBackgroundRepeatVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzStyleBackgroundRepeatVecDestructorEnumWrapper { AzStyleBackgroundRepeatVecDestructorEnumWrapper { inner: AzStyleBackgroundRepeatVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: StyleBackgroundRepeatVecDestructorType) -> AzStyleBackgroundRepeatVecDestructorEnumWrapper { AzStyleBackgroundRepeatVecDestructorEnumWrapper::External(v) }
+    fn External(v: StyleBackgroundRepeatVecDestructorType) -> AzStyleBackgroundRepeatVecDestructorEnumWrapper { AzStyleBackgroundRepeatVecDestructorEnumWrapper { inner: AzStyleBackgroundRepeatVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzStyleBackgroundSizeVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzStyleBackgroundSizeVecDestructorEnumWrapper { AzStyleBackgroundSizeVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzStyleBackgroundSizeVecDestructorEnumWrapper { AzStyleBackgroundSizeVecDestructorEnumWrapper { inner: AzStyleBackgroundSizeVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzStyleBackgroundSizeVecDestructorEnumWrapper { AzStyleBackgroundSizeVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzStyleBackgroundSizeVecDestructorEnumWrapper { AzStyleBackgroundSizeVecDestructorEnumWrapper { inner: AzStyleBackgroundSizeVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: StyleBackgroundSizeVecDestructorType) -> AzStyleBackgroundSizeVecDestructorEnumWrapper { AzStyleBackgroundSizeVecDestructorEnumWrapper::External(v) }
+    fn External(v: StyleBackgroundSizeVecDestructorType) -> AzStyleBackgroundSizeVecDestructorEnumWrapper { AzStyleBackgroundSizeVecDestructorEnumWrapper { inner: AzStyleBackgroundSizeVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzStyleTransformVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzStyleTransformVecDestructorEnumWrapper { AzStyleTransformVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzStyleTransformVecDestructorEnumWrapper { AzStyleTransformVecDestructorEnumWrapper { inner: AzStyleTransformVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzStyleTransformVecDestructorEnumWrapper { AzStyleTransformVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzStyleTransformVecDestructorEnumWrapper { AzStyleTransformVecDestructorEnumWrapper { inner: AzStyleTransformVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: StyleTransformVecDestructorType) -> AzStyleTransformVecDestructorEnumWrapper { AzStyleTransformVecDestructorEnumWrapper::External(v) }
+    fn External(v: StyleTransformVecDestructorType) -> AzStyleTransformVecDestructorEnumWrapper { AzStyleTransformVecDestructorEnumWrapper { inner: AzStyleTransformVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzCssPropertyVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzCssPropertyVecDestructorEnumWrapper { AzCssPropertyVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzCssPropertyVecDestructorEnumWrapper { AzCssPropertyVecDestructorEnumWrapper { inner: AzCssPropertyVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzCssPropertyVecDestructorEnumWrapper { AzCssPropertyVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzCssPropertyVecDestructorEnumWrapper { AzCssPropertyVecDestructorEnumWrapper { inner: AzCssPropertyVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: CssPropertyVecDestructorType) -> AzCssPropertyVecDestructorEnumWrapper { AzCssPropertyVecDestructorEnumWrapper::External(v) }
+    fn External(v: CssPropertyVecDestructorType) -> AzCssPropertyVecDestructorEnumWrapper { AzCssPropertyVecDestructorEnumWrapper { inner: AzCssPropertyVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzSvgMultiPolygonVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzSvgMultiPolygonVecDestructorEnumWrapper { AzSvgMultiPolygonVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzSvgMultiPolygonVecDestructorEnumWrapper { AzSvgMultiPolygonVecDestructorEnumWrapper { inner: AzSvgMultiPolygonVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzSvgMultiPolygonVecDestructorEnumWrapper { AzSvgMultiPolygonVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzSvgMultiPolygonVecDestructorEnumWrapper { AzSvgMultiPolygonVecDestructorEnumWrapper { inner: AzSvgMultiPolygonVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: SvgMultiPolygonVecDestructorType) -> AzSvgMultiPolygonVecDestructorEnumWrapper { AzSvgMultiPolygonVecDestructorEnumWrapper::External(v) }
+    fn External(v: SvgMultiPolygonVecDestructorType) -> AzSvgMultiPolygonVecDestructorEnumWrapper { AzSvgMultiPolygonVecDestructorEnumWrapper { inner: AzSvgMultiPolygonVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzSvgPathVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzSvgPathVecDestructorEnumWrapper { AzSvgPathVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzSvgPathVecDestructorEnumWrapper { AzSvgPathVecDestructorEnumWrapper { inner: AzSvgPathVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzSvgPathVecDestructorEnumWrapper { AzSvgPathVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzSvgPathVecDestructorEnumWrapper { AzSvgPathVecDestructorEnumWrapper { inner: AzSvgPathVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: SvgPathVecDestructorType) -> AzSvgPathVecDestructorEnumWrapper { AzSvgPathVecDestructorEnumWrapper::External(v) }
+    fn External(v: SvgPathVecDestructorType) -> AzSvgPathVecDestructorEnumWrapper { AzSvgPathVecDestructorEnumWrapper { inner: AzSvgPathVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzVertexAttributeVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzVertexAttributeVecDestructorEnumWrapper { AzVertexAttributeVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzVertexAttributeVecDestructorEnumWrapper { AzVertexAttributeVecDestructorEnumWrapper { inner: AzVertexAttributeVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzVertexAttributeVecDestructorEnumWrapper { AzVertexAttributeVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzVertexAttributeVecDestructorEnumWrapper { AzVertexAttributeVecDestructorEnumWrapper { inner: AzVertexAttributeVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: VertexAttributeVecDestructorType) -> AzVertexAttributeVecDestructorEnumWrapper { AzVertexAttributeVecDestructorEnumWrapper::External(v) }
+    fn External(v: VertexAttributeVecDestructorType) -> AzVertexAttributeVecDestructorEnumWrapper { AzVertexAttributeVecDestructorEnumWrapper { inner: AzVertexAttributeVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzSvgPathElementVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzSvgPathElementVecDestructorEnumWrapper { AzSvgPathElementVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzSvgPathElementVecDestructorEnumWrapper { AzSvgPathElementVecDestructorEnumWrapper { inner: AzSvgPathElementVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzSvgPathElementVecDestructorEnumWrapper { AzSvgPathElementVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzSvgPathElementVecDestructorEnumWrapper { AzSvgPathElementVecDestructorEnumWrapper { inner: AzSvgPathElementVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: SvgPathElementVecDestructorType) -> AzSvgPathElementVecDestructorEnumWrapper { AzSvgPathElementVecDestructorEnumWrapper::External(v) }
+    fn External(v: SvgPathElementVecDestructorType) -> AzSvgPathElementVecDestructorEnumWrapper { AzSvgPathElementVecDestructorEnumWrapper { inner: AzSvgPathElementVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzSvgVertexVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzSvgVertexVecDestructorEnumWrapper { AzSvgVertexVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzSvgVertexVecDestructorEnumWrapper { AzSvgVertexVecDestructorEnumWrapper { inner: AzSvgVertexVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzSvgVertexVecDestructorEnumWrapper { AzSvgVertexVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzSvgVertexVecDestructorEnumWrapper { AzSvgVertexVecDestructorEnumWrapper { inner: AzSvgVertexVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: SvgVertexVecDestructorType) -> AzSvgVertexVecDestructorEnumWrapper { AzSvgVertexVecDestructorEnumWrapper::External(v) }
+    fn External(v: SvgVertexVecDestructorType) -> AzSvgVertexVecDestructorEnumWrapper { AzSvgVertexVecDestructorEnumWrapper { inner: AzSvgVertexVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzU32VecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzU32VecDestructorEnumWrapper { AzU32VecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzU32VecDestructorEnumWrapper { AzU32VecDestructorEnumWrapper { inner: AzU32VecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzU32VecDestructorEnumWrapper { AzU32VecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzU32VecDestructorEnumWrapper { AzU32VecDestructorEnumWrapper { inner: AzU32VecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: U32VecDestructorType) -> AzU32VecDestructorEnumWrapper { AzU32VecDestructorEnumWrapper::External(v) }
+    fn External(v: U32VecDestructorType) -> AzU32VecDestructorEnumWrapper { AzU32VecDestructorEnumWrapper { inner: AzU32VecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzXWindowTypeVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzXWindowTypeVecDestructorEnumWrapper { AzXWindowTypeVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzXWindowTypeVecDestructorEnumWrapper { AzXWindowTypeVecDestructorEnumWrapper { inner: AzXWindowTypeVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzXWindowTypeVecDestructorEnumWrapper { AzXWindowTypeVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzXWindowTypeVecDestructorEnumWrapper { AzXWindowTypeVecDestructorEnumWrapper { inner: AzXWindowTypeVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: XWindowTypeVecDestructorType) -> AzXWindowTypeVecDestructorEnumWrapper { AzXWindowTypeVecDestructorEnumWrapper::External(v) }
+    fn External(v: XWindowTypeVecDestructorType) -> AzXWindowTypeVecDestructorEnumWrapper { AzXWindowTypeVecDestructorEnumWrapper { inner: AzXWindowTypeVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzVirtualKeyCodeVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzVirtualKeyCodeVecDestructorEnumWrapper { AzVirtualKeyCodeVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzVirtualKeyCodeVecDestructorEnumWrapper { AzVirtualKeyCodeVecDestructorEnumWrapper { inner: AzVirtualKeyCodeVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzVirtualKeyCodeVecDestructorEnumWrapper { AzVirtualKeyCodeVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzVirtualKeyCodeVecDestructorEnumWrapper { AzVirtualKeyCodeVecDestructorEnumWrapper { inner: AzVirtualKeyCodeVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: VirtualKeyCodeVecDestructorType) -> AzVirtualKeyCodeVecDestructorEnumWrapper { AzVirtualKeyCodeVecDestructorEnumWrapper::External(v) }
+    fn External(v: VirtualKeyCodeVecDestructorType) -> AzVirtualKeyCodeVecDestructorEnumWrapper { AzVirtualKeyCodeVecDestructorEnumWrapper { inner: AzVirtualKeyCodeVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzCascadeInfoVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzCascadeInfoVecDestructorEnumWrapper { AzCascadeInfoVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzCascadeInfoVecDestructorEnumWrapper { AzCascadeInfoVecDestructorEnumWrapper { inner: AzCascadeInfoVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzCascadeInfoVecDestructorEnumWrapper { AzCascadeInfoVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzCascadeInfoVecDestructorEnumWrapper { AzCascadeInfoVecDestructorEnumWrapper { inner: AzCascadeInfoVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: CascadeInfoVecDestructorType) -> AzCascadeInfoVecDestructorEnumWrapper { AzCascadeInfoVecDestructorEnumWrapper::External(v) }
+    fn External(v: CascadeInfoVecDestructorType) -> AzCascadeInfoVecDestructorEnumWrapper { AzCascadeInfoVecDestructorEnumWrapper { inner: AzCascadeInfoVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzScanCodeVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzScanCodeVecDestructorEnumWrapper { AzScanCodeVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzScanCodeVecDestructorEnumWrapper { AzScanCodeVecDestructorEnumWrapper { inner: AzScanCodeVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzScanCodeVecDestructorEnumWrapper { AzScanCodeVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzScanCodeVecDestructorEnumWrapper { AzScanCodeVecDestructorEnumWrapper { inner: AzScanCodeVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: ScanCodeVecDestructorType) -> AzScanCodeVecDestructorEnumWrapper { AzScanCodeVecDestructorEnumWrapper::External(v) }
+    fn External(v: ScanCodeVecDestructorType) -> AzScanCodeVecDestructorEnumWrapper { AzScanCodeVecDestructorEnumWrapper { inner: AzScanCodeVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzCssDeclarationVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzCssDeclarationVecDestructorEnumWrapper { AzCssDeclarationVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzCssDeclarationVecDestructorEnumWrapper { AzCssDeclarationVecDestructorEnumWrapper { inner: AzCssDeclarationVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzCssDeclarationVecDestructorEnumWrapper { AzCssDeclarationVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzCssDeclarationVecDestructorEnumWrapper { AzCssDeclarationVecDestructorEnumWrapper { inner: AzCssDeclarationVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: CssDeclarationVecDestructorType) -> AzCssDeclarationVecDestructorEnumWrapper { AzCssDeclarationVecDestructorEnumWrapper::External(v) }
+    fn External(v: CssDeclarationVecDestructorType) -> AzCssDeclarationVecDestructorEnumWrapper { AzCssDeclarationVecDestructorEnumWrapper { inner: AzCssDeclarationVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzCssPathSelectorVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzCssPathSelectorVecDestructorEnumWrapper { AzCssPathSelectorVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzCssPathSelectorVecDestructorEnumWrapper { AzCssPathSelectorVecDestructorEnumWrapper { inner: AzCssPathSelectorVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzCssPathSelectorVecDestructorEnumWrapper { AzCssPathSelectorVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzCssPathSelectorVecDestructorEnumWrapper { AzCssPathSelectorVecDestructorEnumWrapper { inner: AzCssPathSelectorVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: CssPathSelectorVecDestructorType) -> AzCssPathSelectorVecDestructorEnumWrapper { AzCssPathSelectorVecDestructorEnumWrapper::External(v) }
+    fn External(v: CssPathSelectorVecDestructorType) -> AzCssPathSelectorVecDestructorEnumWrapper { AzCssPathSelectorVecDestructorEnumWrapper { inner: AzCssPathSelectorVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzStylesheetVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzStylesheetVecDestructorEnumWrapper { AzStylesheetVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzStylesheetVecDestructorEnumWrapper { AzStylesheetVecDestructorEnumWrapper { inner: AzStylesheetVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzStylesheetVecDestructorEnumWrapper { AzStylesheetVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzStylesheetVecDestructorEnumWrapper { AzStylesheetVecDestructorEnumWrapper { inner: AzStylesheetVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: StylesheetVecDestructorType) -> AzStylesheetVecDestructorEnumWrapper { AzStylesheetVecDestructorEnumWrapper::External(v) }
+    fn External(v: StylesheetVecDestructorType) -> AzStylesheetVecDestructorEnumWrapper { AzStylesheetVecDestructorEnumWrapper { inner: AzStylesheetVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzCssRuleBlockVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzCssRuleBlockVecDestructorEnumWrapper { AzCssRuleBlockVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzCssRuleBlockVecDestructorEnumWrapper { AzCssRuleBlockVecDestructorEnumWrapper { inner: AzCssRuleBlockVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzCssRuleBlockVecDestructorEnumWrapper { AzCssRuleBlockVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzCssRuleBlockVecDestructorEnumWrapper { AzCssRuleBlockVecDestructorEnumWrapper { inner: AzCssRuleBlockVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: CssRuleBlockVecDestructorType) -> AzCssRuleBlockVecDestructorEnumWrapper { AzCssRuleBlockVecDestructorEnumWrapper::External(v) }
+    fn External(v: CssRuleBlockVecDestructorType) -> AzCssRuleBlockVecDestructorEnumWrapper { AzCssRuleBlockVecDestructorEnumWrapper { inner: AzCssRuleBlockVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzF32VecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzF32VecDestructorEnumWrapper { AzF32VecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzF32VecDestructorEnumWrapper { AzF32VecDestructorEnumWrapper { inner: AzF32VecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzF32VecDestructorEnumWrapper { AzF32VecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzF32VecDestructorEnumWrapper { AzF32VecDestructorEnumWrapper { inner: AzF32VecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: F32VecDestructorType) -> AzF32VecDestructorEnumWrapper { AzF32VecDestructorEnumWrapper::External(v) }
+    fn External(v: F32VecDestructorType) -> AzF32VecDestructorEnumWrapper { AzF32VecDestructorEnumWrapper { inner: AzF32VecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzU16VecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzU16VecDestructorEnumWrapper { AzU16VecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzU16VecDestructorEnumWrapper { AzU16VecDestructorEnumWrapper { inner: AzU16VecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzU16VecDestructorEnumWrapper { AzU16VecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzU16VecDestructorEnumWrapper { AzU16VecDestructorEnumWrapper { inner: AzU16VecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: U16VecDestructorType) -> AzU16VecDestructorEnumWrapper { AzU16VecDestructorEnumWrapper::External(v) }
+    fn External(v: U16VecDestructorType) -> AzU16VecDestructorEnumWrapper { AzU16VecDestructorEnumWrapper { inner: AzU16VecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzU8VecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzU8VecDestructorEnumWrapper { AzU8VecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzU8VecDestructorEnumWrapper { AzU8VecDestructorEnumWrapper { inner: AzU8VecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzU8VecDestructorEnumWrapper { AzU8VecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzU8VecDestructorEnumWrapper { AzU8VecDestructorEnumWrapper { inner: AzU8VecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: U8VecDestructorType) -> AzU8VecDestructorEnumWrapper { AzU8VecDestructorEnumWrapper::External(v) }
+    fn External(v: U8VecDestructorType) -> AzU8VecDestructorEnumWrapper { AzU8VecDestructorEnumWrapper { inner: AzU8VecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzCallbackDataVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzCallbackDataVecDestructorEnumWrapper { AzCallbackDataVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzCallbackDataVecDestructorEnumWrapper { AzCallbackDataVecDestructorEnumWrapper { inner: AzCallbackDataVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzCallbackDataVecDestructorEnumWrapper { AzCallbackDataVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzCallbackDataVecDestructorEnumWrapper { AzCallbackDataVecDestructorEnumWrapper { inner: AzCallbackDataVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: CallbackDataVecDestructorType) -> AzCallbackDataVecDestructorEnumWrapper { AzCallbackDataVecDestructorEnumWrapper::External(v) }
+    fn External(v: CallbackDataVecDestructorType) -> AzCallbackDataVecDestructorEnumWrapper { AzCallbackDataVecDestructorEnumWrapper { inner: AzCallbackDataVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzDebugMessageVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzDebugMessageVecDestructorEnumWrapper { AzDebugMessageVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzDebugMessageVecDestructorEnumWrapper { AzDebugMessageVecDestructorEnumWrapper { inner: AzDebugMessageVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzDebugMessageVecDestructorEnumWrapper { AzDebugMessageVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzDebugMessageVecDestructorEnumWrapper { AzDebugMessageVecDestructorEnumWrapper { inner: AzDebugMessageVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: DebugMessageVecDestructorType) -> AzDebugMessageVecDestructorEnumWrapper { AzDebugMessageVecDestructorEnumWrapper::External(v) }
+    fn External(v: DebugMessageVecDestructorType) -> AzDebugMessageVecDestructorEnumWrapper { AzDebugMessageVecDestructorEnumWrapper { inner: AzDebugMessageVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzGLuintVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzGLuintVecDestructorEnumWrapper { AzGLuintVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzGLuintVecDestructorEnumWrapper { AzGLuintVecDestructorEnumWrapper { inner: AzGLuintVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzGLuintVecDestructorEnumWrapper { AzGLuintVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzGLuintVecDestructorEnumWrapper { AzGLuintVecDestructorEnumWrapper { inner: AzGLuintVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: GLuintVecDestructorType) -> AzGLuintVecDestructorEnumWrapper { AzGLuintVecDestructorEnumWrapper::External(v) }
+    fn External(v: GLuintVecDestructorType) -> AzGLuintVecDestructorEnumWrapper { AzGLuintVecDestructorEnumWrapper { inner: AzGLuintVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzGLintVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzGLintVecDestructorEnumWrapper { AzGLintVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzGLintVecDestructorEnumWrapper { AzGLintVecDestructorEnumWrapper { inner: AzGLintVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzGLintVecDestructorEnumWrapper { AzGLintVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzGLintVecDestructorEnumWrapper { AzGLintVecDestructorEnumWrapper { inner: AzGLintVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: GLintVecDestructorType) -> AzGLintVecDestructorEnumWrapper { AzGLintVecDestructorEnumWrapper::External(v) }
+    fn External(v: GLintVecDestructorType) -> AzGLintVecDestructorEnumWrapper { AzGLintVecDestructorEnumWrapper { inner: AzGLintVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzStringVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzStringVecDestructorEnumWrapper { AzStringVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzStringVecDestructorEnumWrapper { AzStringVecDestructorEnumWrapper { inner: AzStringVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzStringVecDestructorEnumWrapper { AzStringVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzStringVecDestructorEnumWrapper { AzStringVecDestructorEnumWrapper { inner: AzStringVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: StringVecDestructorType) -> AzStringVecDestructorEnumWrapper { AzStringVecDestructorEnumWrapper::External(v) }
+    fn External(v: StringVecDestructorType) -> AzStringVecDestructorEnumWrapper { AzStringVecDestructorEnumWrapper { inner: AzStringVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzStringPairVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzStringPairVecDestructorEnumWrapper { AzStringPairVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzStringPairVecDestructorEnumWrapper { AzStringPairVecDestructorEnumWrapper { inner: AzStringPairVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzStringPairVecDestructorEnumWrapper { AzStringPairVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzStringPairVecDestructorEnumWrapper { AzStringPairVecDestructorEnumWrapper { inner: AzStringPairVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: StringPairVecDestructorType) -> AzStringPairVecDestructorEnumWrapper { AzStringPairVecDestructorEnumWrapper::External(v) }
+    fn External(v: StringPairVecDestructorType) -> AzStringPairVecDestructorEnumWrapper { AzStringPairVecDestructorEnumWrapper { inner: AzStringPairVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzNormalizedLinearColorStopVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzNormalizedLinearColorStopVecDestructorEnumWrapper { AzNormalizedLinearColorStopVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzNormalizedLinearColorStopVecDestructorEnumWrapper { AzNormalizedLinearColorStopVecDestructorEnumWrapper { inner: AzNormalizedLinearColorStopVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzNormalizedLinearColorStopVecDestructorEnumWrapper { AzNormalizedLinearColorStopVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzNormalizedLinearColorStopVecDestructorEnumWrapper { AzNormalizedLinearColorStopVecDestructorEnumWrapper { inner: AzNormalizedLinearColorStopVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: NormalizedLinearColorStopVecDestructorType) -> AzNormalizedLinearColorStopVecDestructorEnumWrapper { AzNormalizedLinearColorStopVecDestructorEnumWrapper::External(v) }
+    fn External(v: NormalizedLinearColorStopVecDestructorType) -> AzNormalizedLinearColorStopVecDestructorEnumWrapper { AzNormalizedLinearColorStopVecDestructorEnumWrapper { inner: AzNormalizedLinearColorStopVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzNormalizedRadialColorStopVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzNormalizedRadialColorStopVecDestructorEnumWrapper { AzNormalizedRadialColorStopVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzNormalizedRadialColorStopVecDestructorEnumWrapper { AzNormalizedRadialColorStopVecDestructorEnumWrapper { inner: AzNormalizedRadialColorStopVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzNormalizedRadialColorStopVecDestructorEnumWrapper { AzNormalizedRadialColorStopVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzNormalizedRadialColorStopVecDestructorEnumWrapper { AzNormalizedRadialColorStopVecDestructorEnumWrapper { inner: AzNormalizedRadialColorStopVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: NormalizedRadialColorStopVecDestructorType) -> AzNormalizedRadialColorStopVecDestructorEnumWrapper { AzNormalizedRadialColorStopVecDestructorEnumWrapper::External(v) }
+    fn External(v: NormalizedRadialColorStopVecDestructorType) -> AzNormalizedRadialColorStopVecDestructorEnumWrapper { AzNormalizedRadialColorStopVecDestructorEnumWrapper { inner: AzNormalizedRadialColorStopVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzNodeIdVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzNodeIdVecDestructorEnumWrapper { AzNodeIdVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzNodeIdVecDestructorEnumWrapper { AzNodeIdVecDestructorEnumWrapper { inner: AzNodeIdVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzNodeIdVecDestructorEnumWrapper { AzNodeIdVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzNodeIdVecDestructorEnumWrapper { AzNodeIdVecDestructorEnumWrapper { inner: AzNodeIdVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: NodeIdVecDestructorType) -> AzNodeIdVecDestructorEnumWrapper { AzNodeIdVecDestructorEnumWrapper::External(v) }
+    fn External(v: NodeIdVecDestructorType) -> AzNodeIdVecDestructorEnumWrapper { AzNodeIdVecDestructorEnumWrapper { inner: AzNodeIdVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzNodeVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzNodeVecDestructorEnumWrapper { AzNodeVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzNodeVecDestructorEnumWrapper { AzNodeVecDestructorEnumWrapper { inner: AzNodeVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzNodeVecDestructorEnumWrapper { AzNodeVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzNodeVecDestructorEnumWrapper { AzNodeVecDestructorEnumWrapper { inner: AzNodeVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: NodeVecDestructorType) -> AzNodeVecDestructorEnumWrapper { AzNodeVecDestructorEnumWrapper::External(v) }
+    fn External(v: NodeVecDestructorType) -> AzNodeVecDestructorEnumWrapper { AzNodeVecDestructorEnumWrapper { inner: AzNodeVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzStyledNodeVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzStyledNodeVecDestructorEnumWrapper { AzStyledNodeVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzStyledNodeVecDestructorEnumWrapper { AzStyledNodeVecDestructorEnumWrapper { inner: AzStyledNodeVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzStyledNodeVecDestructorEnumWrapper { AzStyledNodeVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzStyledNodeVecDestructorEnumWrapper { AzStyledNodeVecDestructorEnumWrapper { inner: AzStyledNodeVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: StyledNodeVecDestructorType) -> AzStyledNodeVecDestructorEnumWrapper { AzStyledNodeVecDestructorEnumWrapper::External(v) }
+    fn External(v: StyledNodeVecDestructorType) -> AzStyledNodeVecDestructorEnumWrapper { AzStyledNodeVecDestructorEnumWrapper { inner: AzStyledNodeVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper { AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper { AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper { inner: AzTagIdsToNodeIdsMappingVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper { AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper { AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper { inner: AzTagIdsToNodeIdsMappingVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: TagIdsToNodeIdsMappingVecDestructorType) -> AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper { AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper::External(v) }
+    fn External(v: TagIdsToNodeIdsMappingVecDestructorType) -> AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper { AzTagIdsToNodeIdsMappingVecDestructorEnumWrapper { inner: AzTagIdsToNodeIdsMappingVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzParentWithNodeDepthVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzParentWithNodeDepthVecDestructorEnumWrapper { AzParentWithNodeDepthVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzParentWithNodeDepthVecDestructorEnumWrapper { AzParentWithNodeDepthVecDestructorEnumWrapper { inner: AzParentWithNodeDepthVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzParentWithNodeDepthVecDestructorEnumWrapper { AzParentWithNodeDepthVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzParentWithNodeDepthVecDestructorEnumWrapper { AzParentWithNodeDepthVecDestructorEnumWrapper { inner: AzParentWithNodeDepthVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: ParentWithNodeDepthVecDestructorType) -> AzParentWithNodeDepthVecDestructorEnumWrapper { AzParentWithNodeDepthVecDestructorEnumWrapper::External(v) }
+    fn External(v: ParentWithNodeDepthVecDestructorType) -> AzParentWithNodeDepthVecDestructorEnumWrapper { AzParentWithNodeDepthVecDestructorEnumWrapper { inner: AzParentWithNodeDepthVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzNodeDataVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzNodeDataVecDestructorEnumWrapper { AzNodeDataVecDestructorEnumWrapper::DefaultRust }
+    fn DefaultRust() -> AzNodeDataVecDestructorEnumWrapper { AzNodeDataVecDestructorEnumWrapper { inner: AzNodeDataVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzNodeDataVecDestructorEnumWrapper { AzNodeDataVecDestructorEnumWrapper::NoDestructor }
+    fn NoDestructor() -> AzNodeDataVecDestructorEnumWrapper { AzNodeDataVecDestructorEnumWrapper { inner: AzNodeDataVecDestructor::NoDestructor } }
     #[staticmethod]
-    fn External(v: NodeDataVecDestructorType) -> AzNodeDataVecDestructorEnumWrapper { AzNodeDataVecDestructorEnumWrapper::External(v) }
+    fn External(v: NodeDataVecDestructorType) -> AzNodeDataVecDestructorEnumWrapper { AzNodeDataVecDestructorEnumWrapper { inner: AzNodeDataVecDestructor::External(v) } }
 }
 
 #[pymethods]
 impl AzOptionCssPropertyEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionCssPropertyEnumWrapper { AzOptionCssPropertyEnumWrapper::None }
+    fn None() -> AzOptionCssPropertyEnumWrapper { AzOptionCssPropertyEnumWrapper { inner: AzOptionCssProperty::None } }
     #[staticmethod]
-    fn Some(v: CssProperty) -> AzOptionCssPropertyEnumWrapper { AzOptionCssPropertyEnumWrapper::Some(v) }
+    fn Some(v: CssProperty) -> AzOptionCssPropertyEnumWrapper { AzOptionCssPropertyEnumWrapper { inner: AzOptionCssProperty::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionPositionInfoEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionPositionInfoEnumWrapper { AzOptionPositionInfoEnumWrapper::None }
+    fn None() -> AzOptionPositionInfoEnumWrapper { AzOptionPositionInfoEnumWrapper { inner: AzOptionPositionInfo::None } }
     #[staticmethod]
-    fn Some(v: PositionInfo) -> AzOptionPositionInfoEnumWrapper { AzOptionPositionInfoEnumWrapper::Some(v) }
+    fn Some(v: PositionInfo) -> AzOptionPositionInfoEnumWrapper { AzOptionPositionInfoEnumWrapper { inner: AzOptionPositionInfo::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionTimerIdEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionTimerIdEnumWrapper { AzOptionTimerIdEnumWrapper::None }
+    fn None() -> AzOptionTimerIdEnumWrapper { AzOptionTimerIdEnumWrapper { inner: AzOptionTimerId::None } }
     #[staticmethod]
-    fn Some(v: TimerId) -> AzOptionTimerIdEnumWrapper { AzOptionTimerIdEnumWrapper::Some(v) }
+    fn Some(v: TimerId) -> AzOptionTimerIdEnumWrapper { AzOptionTimerIdEnumWrapper { inner: AzOptionTimerId::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionThreadIdEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionThreadIdEnumWrapper { AzOptionThreadIdEnumWrapper::None }
+    fn None() -> AzOptionThreadIdEnumWrapper { AzOptionThreadIdEnumWrapper { inner: AzOptionThreadId::None } }
     #[staticmethod]
-    fn Some(v: ThreadId) -> AzOptionThreadIdEnumWrapper { AzOptionThreadIdEnumWrapper::Some(v) }
+    fn Some(v: ThreadId) -> AzOptionThreadIdEnumWrapper { AzOptionThreadIdEnumWrapper { inner: AzOptionThreadId::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionI16EnumWrapper {
     #[classattr]
-    fn None() -> AzOptionI16EnumWrapper { AzOptionI16EnumWrapper::None }
+    fn None() -> AzOptionI16EnumWrapper { AzOptionI16EnumWrapper { inner: AzOptionI16::None } }
     #[staticmethod]
-    fn Some(v: i16) -> AzOptionI16EnumWrapper { AzOptionI16EnumWrapper::Some(v) }
+    fn Some(v: i16) -> AzOptionI16EnumWrapper { AzOptionI16EnumWrapper { inner: AzOptionI16::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionU16EnumWrapper {
     #[classattr]
-    fn None() -> AzOptionU16EnumWrapper { AzOptionU16EnumWrapper::None }
+    fn None() -> AzOptionU16EnumWrapper { AzOptionU16EnumWrapper { inner: AzOptionU16::None } }
     #[staticmethod]
-    fn Some(v: u16) -> AzOptionU16EnumWrapper { AzOptionU16EnumWrapper::Some(v) }
+    fn Some(v: u16) -> AzOptionU16EnumWrapper { AzOptionU16EnumWrapper { inner: AzOptionU16::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionU32EnumWrapper {
     #[classattr]
-    fn None() -> AzOptionU32EnumWrapper { AzOptionU32EnumWrapper::None }
+    fn None() -> AzOptionU32EnumWrapper { AzOptionU32EnumWrapper { inner: AzOptionU32::None } }
     #[staticmethod]
-    fn Some(v: u32) -> AzOptionU32EnumWrapper { AzOptionU32EnumWrapper::Some(v) }
+    fn Some(v: u32) -> AzOptionU32EnumWrapper { AzOptionU32EnumWrapper { inner: AzOptionU32::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionImageRefEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionImageRefEnumWrapper { AzOptionImageRefEnumWrapper::None }
+    fn None() -> AzOptionImageRefEnumWrapper { AzOptionImageRefEnumWrapper { inner: AzOptionImageRef::None } }
     #[staticmethod]
-    fn Some(v: ImageRef) -> AzOptionImageRefEnumWrapper { AzOptionImageRefEnumWrapper::Some(v) }
+    fn Some(v: ImageRef) -> AzOptionImageRefEnumWrapper { AzOptionImageRefEnumWrapper { inner: AzOptionImageRef::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionFontRefEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionFontRefEnumWrapper { AzOptionFontRefEnumWrapper::None }
+    fn None() -> AzOptionFontRefEnumWrapper { AzOptionFontRefEnumWrapper { inner: AzOptionFontRef::None } }
     #[staticmethod]
-    fn Some(v: FontRef) -> AzOptionFontRefEnumWrapper { AzOptionFontRefEnumWrapper::Some(v) }
+    fn Some(v: FontRef) -> AzOptionFontRefEnumWrapper { AzOptionFontRefEnumWrapper { inner: AzOptionFontRef::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionSystemClipboardEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionSystemClipboardEnumWrapper { AzOptionSystemClipboardEnumWrapper::None }
+    fn None() -> AzOptionSystemClipboardEnumWrapper { AzOptionSystemClipboardEnumWrapper { inner: AzOptionSystemClipboard::None } }
     #[staticmethod]
-    fn Some(v: SystemClipboard) -> AzOptionSystemClipboardEnumWrapper { AzOptionSystemClipboardEnumWrapper::Some(v) }
+    fn Some(v: SystemClipboard) -> AzOptionSystemClipboardEnumWrapper { AzOptionSystemClipboardEnumWrapper { inner: AzOptionSystemClipboard::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionFileTypeListEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionFileTypeListEnumWrapper { AzOptionFileTypeListEnumWrapper::None }
+    fn None() -> AzOptionFileTypeListEnumWrapper { AzOptionFileTypeListEnumWrapper { inner: AzOptionFileTypeList::None } }
     #[staticmethod]
-    fn Some(v: FileTypeList) -> AzOptionFileTypeListEnumWrapper { AzOptionFileTypeListEnumWrapper::Some(v) }
+    fn Some(v: FileTypeList) -> AzOptionFileTypeListEnumWrapper { AzOptionFileTypeListEnumWrapper { inner: AzOptionFileTypeList::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionWindowStateEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionWindowStateEnumWrapper { AzOptionWindowStateEnumWrapper::None }
+    fn None() -> AzOptionWindowStateEnumWrapper { AzOptionWindowStateEnumWrapper { inner: AzOptionWindowState::None } }
     #[staticmethod]
-    fn Some(v: WindowState) -> AzOptionWindowStateEnumWrapper { AzOptionWindowStateEnumWrapper::Some(v) }
+    fn Some(v: WindowState) -> AzOptionWindowStateEnumWrapper { AzOptionWindowStateEnumWrapper { inner: AzOptionWindowState::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionMouseStateEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionMouseStateEnumWrapper { AzOptionMouseStateEnumWrapper::None }
+    fn None() -> AzOptionMouseStateEnumWrapper { AzOptionMouseStateEnumWrapper { inner: AzOptionMouseState::None } }
     #[staticmethod]
-    fn Some(v: MouseState) -> AzOptionMouseStateEnumWrapper { AzOptionMouseStateEnumWrapper::Some(v) }
+    fn Some(v: MouseState) -> AzOptionMouseStateEnumWrapper { AzOptionMouseStateEnumWrapper { inner: AzOptionMouseState::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionKeyboardStateEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionKeyboardStateEnumWrapper { AzOptionKeyboardStateEnumWrapper::None }
+    fn None() -> AzOptionKeyboardStateEnumWrapper { AzOptionKeyboardStateEnumWrapper { inner: AzOptionKeyboardState::None } }
     #[staticmethod]
-    fn Some(v: KeyboardState) -> AzOptionKeyboardStateEnumWrapper { AzOptionKeyboardStateEnumWrapper::Some(v) }
+    fn Some(v: KeyboardState) -> AzOptionKeyboardStateEnumWrapper { AzOptionKeyboardStateEnumWrapper { inner: AzOptionKeyboardState::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionStringVecEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionStringVecEnumWrapper { AzOptionStringVecEnumWrapper::None }
+    fn None() -> AzOptionStringVecEnumWrapper { AzOptionStringVecEnumWrapper { inner: AzOptionStringVec::None } }
     #[staticmethod]
-    fn Some(v: StringVec) -> AzOptionStringVecEnumWrapper { AzOptionStringVecEnumWrapper::Some(v) }
+    fn Some(v: StringVec) -> AzOptionStringVecEnumWrapper { AzOptionStringVecEnumWrapper { inner: AzOptionStringVec::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionFileEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionFileEnumWrapper { AzOptionFileEnumWrapper::None }
+    fn None() -> AzOptionFileEnumWrapper { AzOptionFileEnumWrapper { inner: AzOptionFile::None } }
     #[staticmethod]
-    fn Some(v: File) -> AzOptionFileEnumWrapper { AzOptionFileEnumWrapper::Some(v) }
+    fn Some(v: File) -> AzOptionFileEnumWrapper { AzOptionFileEnumWrapper { inner: AzOptionFile::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionGlEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionGlEnumWrapper { AzOptionGlEnumWrapper::None }
+    fn None() -> AzOptionGlEnumWrapper { AzOptionGlEnumWrapper { inner: AzOptionGl::None } }
     #[staticmethod]
-    fn Some(v: Gl) -> AzOptionGlEnumWrapper { AzOptionGlEnumWrapper::Some(v) }
+    fn Some(v: Gl) -> AzOptionGlEnumWrapper { AzOptionGlEnumWrapper { inner: AzOptionGl::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionThreadReceiveMsgEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionThreadReceiveMsgEnumWrapper { AzOptionThreadReceiveMsgEnumWrapper::None }
+    fn None() -> AzOptionThreadReceiveMsgEnumWrapper { AzOptionThreadReceiveMsgEnumWrapper { inner: AzOptionThreadReceiveMsg::None } }
     #[staticmethod]
-    fn Some(v: ThreadReceiveMsg) -> AzOptionThreadReceiveMsgEnumWrapper { AzOptionThreadReceiveMsgEnumWrapper::Some(v) }
+    fn Some(v: ThreadReceiveMsg) -> AzOptionThreadReceiveMsgEnumWrapper { AzOptionThreadReceiveMsgEnumWrapper { inner: AzOptionThreadReceiveMsg::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionPercentageValueEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionPercentageValueEnumWrapper { AzOptionPercentageValueEnumWrapper::None }
+    fn None() -> AzOptionPercentageValueEnumWrapper { AzOptionPercentageValueEnumWrapper { inner: AzOptionPercentageValue::None } }
     #[staticmethod]
-    fn Some(v: PercentageValue) -> AzOptionPercentageValueEnumWrapper { AzOptionPercentageValueEnumWrapper::Some(v) }
+    fn Some(v: PercentageValue) -> AzOptionPercentageValueEnumWrapper { AzOptionPercentageValueEnumWrapper { inner: AzOptionPercentageValue::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionAngleValueEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionAngleValueEnumWrapper { AzOptionAngleValueEnumWrapper::None }
+    fn None() -> AzOptionAngleValueEnumWrapper { AzOptionAngleValueEnumWrapper { inner: AzOptionAngleValue::None } }
     #[staticmethod]
-    fn Some(v: AngleValue) -> AzOptionAngleValueEnumWrapper { AzOptionAngleValueEnumWrapper::Some(v) }
+    fn Some(v: AngleValue) -> AzOptionAngleValueEnumWrapper { AzOptionAngleValueEnumWrapper { inner: AzOptionAngleValue::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionRendererOptionsEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionRendererOptionsEnumWrapper { AzOptionRendererOptionsEnumWrapper::None }
+    fn None() -> AzOptionRendererOptionsEnumWrapper { AzOptionRendererOptionsEnumWrapper { inner: AzOptionRendererOptions::None } }
     #[staticmethod]
-    fn Some(v: RendererOptions) -> AzOptionRendererOptionsEnumWrapper { AzOptionRendererOptionsEnumWrapper::Some(v) }
+    fn Some(v: RendererOptions) -> AzOptionRendererOptionsEnumWrapper { AzOptionRendererOptionsEnumWrapper { inner: AzOptionRendererOptions::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionCallbackEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionCallbackEnumWrapper { AzOptionCallbackEnumWrapper::None }
+    fn None() -> AzOptionCallbackEnumWrapper { AzOptionCallbackEnumWrapper { inner: AzOptionCallback::None } }
     #[staticmethod]
-    fn Some(v: Callback) -> AzOptionCallbackEnumWrapper { AzOptionCallbackEnumWrapper::Some(v) }
+    fn Some(v: Callback) -> AzOptionCallbackEnumWrapper { AzOptionCallbackEnumWrapper { inner: AzOptionCallback::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionThreadSendMsgEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionThreadSendMsgEnumWrapper { AzOptionThreadSendMsgEnumWrapper::None }
+    fn None() -> AzOptionThreadSendMsgEnumWrapper { AzOptionThreadSendMsgEnumWrapper { inner: AzOptionThreadSendMsg::None } }
     #[staticmethod]
-    fn Some(v: ThreadSendMsg) -> AzOptionThreadSendMsgEnumWrapper { AzOptionThreadSendMsgEnumWrapper::Some(v) }
+    fn Some(v: ThreadSendMsg) -> AzOptionThreadSendMsgEnumWrapper { AzOptionThreadSendMsgEnumWrapper { inner: AzOptionThreadSendMsg::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionLayoutRectEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionLayoutRectEnumWrapper { AzOptionLayoutRectEnumWrapper::None }
+    fn None() -> AzOptionLayoutRectEnumWrapper { AzOptionLayoutRectEnumWrapper { inner: AzOptionLayoutRect::None } }
     #[staticmethod]
-    fn Some(v: LayoutRect) -> AzOptionLayoutRectEnumWrapper { AzOptionLayoutRectEnumWrapper::Some(v) }
+    fn Some(v: LayoutRect) -> AzOptionLayoutRectEnumWrapper { AzOptionLayoutRectEnumWrapper { inner: AzOptionLayoutRect::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionRefAnyEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionRefAnyEnumWrapper { AzOptionRefAnyEnumWrapper::None }
+    fn None() -> AzOptionRefAnyEnumWrapper { AzOptionRefAnyEnumWrapper { inner: AzOptionRefAny::None } }
     #[staticmethod]
-    fn Some(v: RefAny) -> AzOptionRefAnyEnumWrapper { AzOptionRefAnyEnumWrapper::Some(v) }
+    fn Some(v: RefAny) -> AzOptionRefAnyEnumWrapper { AzOptionRefAnyEnumWrapper { inner: AzOptionRefAny::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionInlineTextEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionInlineTextEnumWrapper { AzOptionInlineTextEnumWrapper::None }
+    fn None() -> AzOptionInlineTextEnumWrapper { AzOptionInlineTextEnumWrapper { inner: AzOptionInlineText::None } }
     #[staticmethod]
-    fn Some(v: InlineText) -> AzOptionInlineTextEnumWrapper { AzOptionInlineTextEnumWrapper::Some(v) }
+    fn Some(v: InlineText) -> AzOptionInlineTextEnumWrapper { AzOptionInlineTextEnumWrapper { inner: AzOptionInlineText::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionLayoutPointEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionLayoutPointEnumWrapper { AzOptionLayoutPointEnumWrapper::None }
+    fn None() -> AzOptionLayoutPointEnumWrapper { AzOptionLayoutPointEnumWrapper { inner: AzOptionLayoutPoint::None } }
     #[staticmethod]
-    fn Some(v: LayoutPoint) -> AzOptionLayoutPointEnumWrapper { AzOptionLayoutPointEnumWrapper::Some(v) }
+    fn Some(v: LayoutPoint) -> AzOptionLayoutPointEnumWrapper { AzOptionLayoutPointEnumWrapper { inner: AzOptionLayoutPoint::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionLayoutSizeEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionLayoutSizeEnumWrapper { AzOptionLayoutSizeEnumWrapper::None }
+    fn None() -> AzOptionLayoutSizeEnumWrapper { AzOptionLayoutSizeEnumWrapper { inner: AzOptionLayoutSize::None } }
     #[staticmethod]
-    fn Some(v: LayoutSize) -> AzOptionLayoutSizeEnumWrapper { AzOptionLayoutSizeEnumWrapper::Some(v) }
+    fn Some(v: LayoutSize) -> AzOptionLayoutSizeEnumWrapper { AzOptionLayoutSizeEnumWrapper { inner: AzOptionLayoutSize::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionWindowThemeEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionWindowThemeEnumWrapper { AzOptionWindowThemeEnumWrapper::None }
+    fn None() -> AzOptionWindowThemeEnumWrapper { AzOptionWindowThemeEnumWrapper { inner: AzOptionWindowTheme::None } }
     #[staticmethod]
-    fn Some(v: WindowTheme) -> AzOptionWindowThemeEnumWrapper { AzOptionWindowThemeEnumWrapper::Some(v) }
+    fn Some(v: WindowTheme) -> AzOptionWindowThemeEnumWrapper { AzOptionWindowThemeEnumWrapper { inner: AzOptionWindowTheme::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionNodeIdEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionNodeIdEnumWrapper { AzOptionNodeIdEnumWrapper::None }
+    fn None() -> AzOptionNodeIdEnumWrapper { AzOptionNodeIdEnumWrapper { inner: AzOptionNodeId::None } }
     #[staticmethod]
-    fn Some(v: NodeId) -> AzOptionNodeIdEnumWrapper { AzOptionNodeIdEnumWrapper::Some(v) }
+    fn Some(v: NodeId) -> AzOptionNodeIdEnumWrapper { AzOptionNodeIdEnumWrapper { inner: AzOptionNodeId::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionDomNodeIdEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionDomNodeIdEnumWrapper { AzOptionDomNodeIdEnumWrapper::None }
+    fn None() -> AzOptionDomNodeIdEnumWrapper { AzOptionDomNodeIdEnumWrapper { inner: AzOptionDomNodeId::None } }
     #[staticmethod]
-    fn Some(v: DomNodeId) -> AzOptionDomNodeIdEnumWrapper { AzOptionDomNodeIdEnumWrapper::Some(v) }
+    fn Some(v: DomNodeId) -> AzOptionDomNodeIdEnumWrapper { AzOptionDomNodeIdEnumWrapper { inner: AzOptionDomNodeId::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionColorUEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionColorUEnumWrapper { AzOptionColorUEnumWrapper::None }
+    fn None() -> AzOptionColorUEnumWrapper { AzOptionColorUEnumWrapper { inner: AzOptionColorU::None } }
     #[staticmethod]
-    fn Some(v: ColorU) -> AzOptionColorUEnumWrapper { AzOptionColorUEnumWrapper::Some(v) }
+    fn Some(v: ColorU) -> AzOptionColorUEnumWrapper { AzOptionColorUEnumWrapper { inner: AzOptionColorU::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionRawImageEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionRawImageEnumWrapper { AzOptionRawImageEnumWrapper::None }
+    fn None() -> AzOptionRawImageEnumWrapper { AzOptionRawImageEnumWrapper { inner: AzOptionRawImage::None } }
     #[staticmethod]
-    fn Some(v: RawImage) -> AzOptionRawImageEnumWrapper { AzOptionRawImageEnumWrapper::Some(v) }
+    fn Some(v: RawImage) -> AzOptionRawImageEnumWrapper { AzOptionRawImageEnumWrapper { inner: AzOptionRawImage::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionSvgDashPatternEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionSvgDashPatternEnumWrapper { AzOptionSvgDashPatternEnumWrapper::None }
+    fn None() -> AzOptionSvgDashPatternEnumWrapper { AzOptionSvgDashPatternEnumWrapper { inner: AzOptionSvgDashPattern::None } }
     #[staticmethod]
-    fn Some(v: SvgDashPattern) -> AzOptionSvgDashPatternEnumWrapper { AzOptionSvgDashPatternEnumWrapper::Some(v) }
+    fn Some(v: SvgDashPattern) -> AzOptionSvgDashPatternEnumWrapper { AzOptionSvgDashPatternEnumWrapper { inner: AzOptionSvgDashPattern::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionWaylandThemeEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionWaylandThemeEnumWrapper { AzOptionWaylandThemeEnumWrapper::None }
+    fn None() -> AzOptionWaylandThemeEnumWrapper { AzOptionWaylandThemeEnumWrapper { inner: AzOptionWaylandTheme::None } }
     #[staticmethod]
-    fn Some(v: WaylandTheme) -> AzOptionWaylandThemeEnumWrapper { AzOptionWaylandThemeEnumWrapper::Some(v) }
+    fn Some(v: WaylandTheme) -> AzOptionWaylandThemeEnumWrapper { AzOptionWaylandThemeEnumWrapper { inner: AzOptionWaylandTheme::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionTaskBarIconEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionTaskBarIconEnumWrapper { AzOptionTaskBarIconEnumWrapper::None }
+    fn None() -> AzOptionTaskBarIconEnumWrapper { AzOptionTaskBarIconEnumWrapper { inner: AzOptionTaskBarIcon::None } }
     #[staticmethod]
-    fn Some(v: TaskBarIcon) -> AzOptionTaskBarIconEnumWrapper { AzOptionTaskBarIconEnumWrapper::Some(v) }
+    fn Some(v: TaskBarIcon) -> AzOptionTaskBarIconEnumWrapper { AzOptionTaskBarIconEnumWrapper { inner: AzOptionTaskBarIcon::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionHwndHandleEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionHwndHandleEnumWrapper { AzOptionHwndHandleEnumWrapper::None }
+    fn None() -> AzOptionHwndHandleEnumWrapper { AzOptionHwndHandleEnumWrapper { inner: AzOptionHwndHandle::None } }
     #[staticmethod]
-    fn Some(v: *mut c_void) -> AzOptionHwndHandleEnumWrapper { AzOptionHwndHandleEnumWrapper::Some(v) }
+    fn Some(v: *mut c_void) -> AzOptionHwndHandleEnumWrapper { AzOptionHwndHandleEnumWrapper { inner: AzOptionHwndHandle::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionLogicalPositionEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionLogicalPositionEnumWrapper { AzOptionLogicalPositionEnumWrapper::None }
+    fn None() -> AzOptionLogicalPositionEnumWrapper { AzOptionLogicalPositionEnumWrapper { inner: AzOptionLogicalPosition::None } }
     #[staticmethod]
-    fn Some(v: LogicalPosition) -> AzOptionLogicalPositionEnumWrapper { AzOptionLogicalPositionEnumWrapper::Some(v) }
+    fn Some(v: LogicalPosition) -> AzOptionLogicalPositionEnumWrapper { AzOptionLogicalPositionEnumWrapper { inner: AzOptionLogicalPosition::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionPhysicalPositionI32EnumWrapper {
     #[classattr]
-    fn None() -> AzOptionPhysicalPositionI32EnumWrapper { AzOptionPhysicalPositionI32EnumWrapper::None }
+    fn None() -> AzOptionPhysicalPositionI32EnumWrapper { AzOptionPhysicalPositionI32EnumWrapper { inner: AzOptionPhysicalPositionI32::None } }
     #[staticmethod]
-    fn Some(v: PhysicalPositionI32) -> AzOptionPhysicalPositionI32EnumWrapper { AzOptionPhysicalPositionI32EnumWrapper::Some(v) }
+    fn Some(v: PhysicalPositionI32) -> AzOptionPhysicalPositionI32EnumWrapper { AzOptionPhysicalPositionI32EnumWrapper { inner: AzOptionPhysicalPositionI32::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionWindowIconEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionWindowIconEnumWrapper { AzOptionWindowIconEnumWrapper::None }
+    fn None() -> AzOptionWindowIconEnumWrapper { AzOptionWindowIconEnumWrapper { inner: AzOptionWindowIcon::None } }
     #[staticmethod]
-    fn Some(v: WindowIcon) -> AzOptionWindowIconEnumWrapper { AzOptionWindowIconEnumWrapper::Some(v) }
+    fn Some(v: WindowIcon) -> AzOptionWindowIconEnumWrapper { AzOptionWindowIconEnumWrapper { inner: AzOptionWindowIcon::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionStringEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionStringEnumWrapper { AzOptionStringEnumWrapper::None }
+    fn None() -> AzOptionStringEnumWrapper { AzOptionStringEnumWrapper { inner: AzOptionString::None } }
     #[staticmethod]
-    fn Some(v: String) -> AzOptionStringEnumWrapper { AzOptionStringEnumWrapper::Some(v) }
+    fn Some(v: String) -> AzOptionStringEnumWrapper { AzOptionStringEnumWrapper { inner: AzOptionString::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionX11VisualEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionX11VisualEnumWrapper { AzOptionX11VisualEnumWrapper::None }
+    fn None() -> AzOptionX11VisualEnumWrapper { AzOptionX11VisualEnumWrapper { inner: AzOptionX11Visual::None } }
     #[staticmethod]
-    fn Some(v: *const c_void) -> AzOptionX11VisualEnumWrapper { AzOptionX11VisualEnumWrapper::Some(v) }
+    fn Some(v: *const c_void) -> AzOptionX11VisualEnumWrapper { AzOptionX11VisualEnumWrapper { inner: AzOptionX11Visual::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionI32EnumWrapper {
     #[classattr]
-    fn None() -> AzOptionI32EnumWrapper { AzOptionI32EnumWrapper::None }
+    fn None() -> AzOptionI32EnumWrapper { AzOptionI32EnumWrapper { inner: AzOptionI32::None } }
     #[staticmethod]
-    fn Some(v: i32) -> AzOptionI32EnumWrapper { AzOptionI32EnumWrapper::Some(v) }
+    fn Some(v: i32) -> AzOptionI32EnumWrapper { AzOptionI32EnumWrapper { inner: AzOptionI32::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionF32EnumWrapper {
     #[classattr]
-    fn None() -> AzOptionF32EnumWrapper { AzOptionF32EnumWrapper::None }
+    fn None() -> AzOptionF32EnumWrapper { AzOptionF32EnumWrapper { inner: AzOptionF32::None } }
     #[staticmethod]
-    fn Some(v: f32) -> AzOptionF32EnumWrapper { AzOptionF32EnumWrapper::Some(v) }
+    fn Some(v: f32) -> AzOptionF32EnumWrapper { AzOptionF32EnumWrapper { inner: AzOptionF32::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionMouseCursorTypeEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionMouseCursorTypeEnumWrapper { AzOptionMouseCursorTypeEnumWrapper::None }
+    fn None() -> AzOptionMouseCursorTypeEnumWrapper { AzOptionMouseCursorTypeEnumWrapper { inner: AzOptionMouseCursorType::None } }
     #[staticmethod]
-    fn Some(v: MouseCursorType) -> AzOptionMouseCursorTypeEnumWrapper { AzOptionMouseCursorTypeEnumWrapper::Some(v) }
+    fn Some(v: MouseCursorType) -> AzOptionMouseCursorTypeEnumWrapper { AzOptionMouseCursorTypeEnumWrapper { inner: AzOptionMouseCursorType::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionLogicalSizeEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionLogicalSizeEnumWrapper { AzOptionLogicalSizeEnumWrapper::None }
+    fn None() -> AzOptionLogicalSizeEnumWrapper { AzOptionLogicalSizeEnumWrapper { inner: AzOptionLogicalSize::None } }
     #[staticmethod]
-    fn Some(v: LogicalSize) -> AzOptionLogicalSizeEnumWrapper { AzOptionLogicalSizeEnumWrapper::Some(v) }
+    fn Some(v: LogicalSize) -> AzOptionLogicalSizeEnumWrapper { AzOptionLogicalSizeEnumWrapper { inner: AzOptionLogicalSize::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionCharEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionCharEnumWrapper { AzOptionCharEnumWrapper::None }
+    fn None() -> AzOptionCharEnumWrapper { AzOptionCharEnumWrapper { inner: AzOptionChar::None } }
     #[staticmethod]
-    fn Some(v: u32) -> AzOptionCharEnumWrapper { AzOptionCharEnumWrapper::Some(v) }
+    fn Some(v: u32) -> AzOptionCharEnumWrapper { AzOptionCharEnumWrapper { inner: AzOptionChar::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionVirtualKeyCodeEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionVirtualKeyCodeEnumWrapper { AzOptionVirtualKeyCodeEnumWrapper::None }
+    fn None() -> AzOptionVirtualKeyCodeEnumWrapper { AzOptionVirtualKeyCodeEnumWrapper { inner: AzOptionVirtualKeyCode::None } }
     #[staticmethod]
-    fn Some(v: VirtualKeyCode) -> AzOptionVirtualKeyCodeEnumWrapper { AzOptionVirtualKeyCodeEnumWrapper::Some(v) }
+    fn Some(v: VirtualKeyCode) -> AzOptionVirtualKeyCodeEnumWrapper { AzOptionVirtualKeyCodeEnumWrapper { inner: AzOptionVirtualKeyCode::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionDomEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionDomEnumWrapper { AzOptionDomEnumWrapper::None }
+    fn None() -> AzOptionDomEnumWrapper { AzOptionDomEnumWrapper { inner: AzOptionDom::None } }
     #[staticmethod]
-    fn Some(v: Dom) -> AzOptionDomEnumWrapper { AzOptionDomEnumWrapper::Some(v) }
+    fn Some(v: Dom) -> AzOptionDomEnumWrapper { AzOptionDomEnumWrapper { inner: AzOptionDom::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionTextureEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionTextureEnumWrapper { AzOptionTextureEnumWrapper::None }
+    fn None() -> AzOptionTextureEnumWrapper { AzOptionTextureEnumWrapper { inner: AzOptionTexture::None } }
     #[staticmethod]
-    fn Some(v: Texture) -> AzOptionTextureEnumWrapper { AzOptionTextureEnumWrapper::Some(v) }
+    fn Some(v: Texture) -> AzOptionTextureEnumWrapper { AzOptionTextureEnumWrapper { inner: AzOptionTexture::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionImageMaskEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionImageMaskEnumWrapper { AzOptionImageMaskEnumWrapper::None }
+    fn None() -> AzOptionImageMaskEnumWrapper { AzOptionImageMaskEnumWrapper { inner: AzOptionImageMask::None } }
     #[staticmethod]
-    fn Some(v: ImageMask) -> AzOptionImageMaskEnumWrapper { AzOptionImageMaskEnumWrapper::Some(v) }
+    fn Some(v: ImageMask) -> AzOptionImageMaskEnumWrapper { AzOptionImageMaskEnumWrapper { inner: AzOptionImageMask::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionTabIndexEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionTabIndexEnumWrapper { AzOptionTabIndexEnumWrapper::None }
+    fn None() -> AzOptionTabIndexEnumWrapper { AzOptionTabIndexEnumWrapper { inner: AzOptionTabIndex::None } }
     #[staticmethod]
-    fn Some(v: TabIndex) -> AzOptionTabIndexEnumWrapper { AzOptionTabIndexEnumWrapper::Some(v) }
+    fn Some(v: TabIndex) -> AzOptionTabIndexEnumWrapper { AzOptionTabIndexEnumWrapper { inner: AzOptionTabIndex::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionTagIdEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionTagIdEnumWrapper { AzOptionTagIdEnumWrapper::None }
+    fn None() -> AzOptionTagIdEnumWrapper { AzOptionTagIdEnumWrapper { inner: AzOptionTagId::None } }
     #[staticmethod]
-    fn Some(v: TagId) -> AzOptionTagIdEnumWrapper { AzOptionTagIdEnumWrapper::Some(v) }
+    fn Some(v: TagId) -> AzOptionTagIdEnumWrapper { AzOptionTagIdEnumWrapper { inner: AzOptionTagId::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionDurationEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionDurationEnumWrapper { AzOptionDurationEnumWrapper::None }
+    fn None() -> AzOptionDurationEnumWrapper { AzOptionDurationEnumWrapper { inner: AzOptionDuration::None } }
     #[staticmethod]
-    fn Some(v: Duration) -> AzOptionDurationEnumWrapper { AzOptionDurationEnumWrapper::Some(v) }
+    fn Some(v: Duration) -> AzOptionDurationEnumWrapper { AzOptionDurationEnumWrapper { inner: AzOptionDuration::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionInstantEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionInstantEnumWrapper { AzOptionInstantEnumWrapper::None }
+    fn None() -> AzOptionInstantEnumWrapper { AzOptionInstantEnumWrapper { inner: AzOptionInstant::None } }
     #[staticmethod]
-    fn Some(v: Instant) -> AzOptionInstantEnumWrapper { AzOptionInstantEnumWrapper::Some(v) }
+    fn Some(v: Instant) -> AzOptionInstantEnumWrapper { AzOptionInstantEnumWrapper { inner: AzOptionInstant::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionUsizeEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionUsizeEnumWrapper { AzOptionUsizeEnumWrapper::None }
+    fn None() -> AzOptionUsizeEnumWrapper { AzOptionUsizeEnumWrapper { inner: AzOptionUsize::None } }
     #[staticmethod]
-    fn Some(v: usize) -> AzOptionUsizeEnumWrapper { AzOptionUsizeEnumWrapper::Some(v) }
+    fn Some(v: usize) -> AzOptionUsizeEnumWrapper { AzOptionUsizeEnumWrapper { inner: AzOptionUsize::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionU8VecEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionU8VecEnumWrapper { AzOptionU8VecEnumWrapper::None }
+    fn None() -> AzOptionU8VecEnumWrapper { AzOptionU8VecEnumWrapper { inner: AzOptionU8Vec::None } }
     #[staticmethod]
-    fn Some(v: U8Vec) -> AzOptionU8VecEnumWrapper { AzOptionU8VecEnumWrapper::Some(v) }
+    fn Some(v: U8Vec) -> AzOptionU8VecEnumWrapper { AzOptionU8VecEnumWrapper { inner: AzOptionU8Vec::Some(v) } }
 }
 
 #[pymethods]
 impl AzOptionU8VecRefEnumWrapper {
     #[classattr]
-    fn None() -> AzOptionU8VecRefEnumWrapper { AzOptionU8VecRefEnumWrapper::None }
+    fn None() -> AzOptionU8VecRefEnumWrapper { AzOptionU8VecRefEnumWrapper { inner: AzOptionU8VecRef::None } }
     #[staticmethod]
-    fn Some(v: U8VecRef) -> AzOptionU8VecRefEnumWrapper { AzOptionU8VecRefEnumWrapper::Some(v) }
+    fn Some(v: U8VecRef) -> AzOptionU8VecRefEnumWrapper { AzOptionU8VecRefEnumWrapper { inner: AzOptionU8VecRef::Some(v) } }
 }
 
 #[pymethods]
 impl AzResultXmlXmlErrorEnumWrapper {
     #[staticmethod]
-    fn Ok(v: Xml) -> AzResultXmlXmlErrorEnumWrapper { AzResultXmlXmlErrorEnumWrapper::Ok(v) }
+    fn Ok(v: Xml) -> AzResultXmlXmlErrorEnumWrapper { AzResultXmlXmlErrorEnumWrapper { inner: AzResultXmlXmlError::Ok(v) } }
     #[staticmethod]
-    fn Err(v: XmlError) -> AzResultXmlXmlErrorEnumWrapper { AzResultXmlXmlErrorEnumWrapper::Err(v) }
+    fn Err(v: XmlError) -> AzResultXmlXmlErrorEnumWrapper { AzResultXmlXmlErrorEnumWrapper { inner: AzResultXmlXmlError::Err(v) } }
 }
 
 #[pymethods]
 impl AzResultRawImageDecodeImageErrorEnumWrapper {
     #[staticmethod]
-    fn Ok(v: RawImage) -> AzResultRawImageDecodeImageErrorEnumWrapper { AzResultRawImageDecodeImageErrorEnumWrapper::Ok(v) }
+    fn Ok(v: RawImage) -> AzResultRawImageDecodeImageErrorEnumWrapper { AzResultRawImageDecodeImageErrorEnumWrapper { inner: AzResultRawImageDecodeImageError::Ok(v) } }
     #[staticmethod]
-    fn Err(v: DecodeImageError) -> AzResultRawImageDecodeImageErrorEnumWrapper { AzResultRawImageDecodeImageErrorEnumWrapper::Err(v) }
+    fn Err(v: DecodeImageError) -> AzResultRawImageDecodeImageErrorEnumWrapper { AzResultRawImageDecodeImageErrorEnumWrapper { inner: AzResultRawImageDecodeImageError::Err(v) } }
 }
 
 #[pymethods]
 impl AzResultU8VecEncodeImageErrorEnumWrapper {
     #[staticmethod]
-    fn Ok(v: U8Vec) -> AzResultU8VecEncodeImageErrorEnumWrapper { AzResultU8VecEncodeImageErrorEnumWrapper::Ok(v) }
+    fn Ok(v: U8Vec) -> AzResultU8VecEncodeImageErrorEnumWrapper { AzResultU8VecEncodeImageErrorEnumWrapper { inner: AzResultU8VecEncodeImageError::Ok(v) } }
     #[staticmethod]
-    fn Err(v: EncodeImageError) -> AzResultU8VecEncodeImageErrorEnumWrapper { AzResultU8VecEncodeImageErrorEnumWrapper::Err(v) }
+    fn Err(v: EncodeImageError) -> AzResultU8VecEncodeImageErrorEnumWrapper { AzResultU8VecEncodeImageErrorEnumWrapper { inner: AzResultU8VecEncodeImageError::Err(v) } }
 }
 
 #[pymethods]
 impl AzResultSvgXmlNodeSvgParseErrorEnumWrapper {
     #[staticmethod]
-    fn Ok(v: SvgXmlNode) -> AzResultSvgXmlNodeSvgParseErrorEnumWrapper { AzResultSvgXmlNodeSvgParseErrorEnumWrapper::Ok(v) }
+    fn Ok(v: SvgXmlNode) -> AzResultSvgXmlNodeSvgParseErrorEnumWrapper { AzResultSvgXmlNodeSvgParseErrorEnumWrapper { inner: AzResultSvgXmlNodeSvgParseError::Ok(v) } }
     #[staticmethod]
-    fn Err(v: SvgParseError) -> AzResultSvgXmlNodeSvgParseErrorEnumWrapper { AzResultSvgXmlNodeSvgParseErrorEnumWrapper::Err(v) }
+    fn Err(v: SvgParseError) -> AzResultSvgXmlNodeSvgParseErrorEnumWrapper { AzResultSvgXmlNodeSvgParseErrorEnumWrapper { inner: AzResultSvgXmlNodeSvgParseError::Err(v) } }
 }
 
 #[pymethods]
 impl AzResultSvgSvgParseErrorEnumWrapper {
     #[staticmethod]
-    fn Ok(v: Svg) -> AzResultSvgSvgParseErrorEnumWrapper { AzResultSvgSvgParseErrorEnumWrapper::Ok(v) }
+    fn Ok(v: Svg) -> AzResultSvgSvgParseErrorEnumWrapper { AzResultSvgSvgParseErrorEnumWrapper { inner: AzResultSvgSvgParseError::Ok(v) } }
     #[staticmethod]
-    fn Err(v: SvgParseError) -> AzResultSvgSvgParseErrorEnumWrapper { AzResultSvgSvgParseErrorEnumWrapper::Err(v) }
+    fn Err(v: SvgParseError) -> AzResultSvgSvgParseErrorEnumWrapper { AzResultSvgSvgParseErrorEnumWrapper { inner: AzResultSvgSvgParseError::Err(v) } }
 }
 
 #[pymethods]
 impl AzSvgParseErrorEnumWrapper {
     #[classattr]
-    fn InvalidFileSuffix() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper::InvalidFileSuffix }
+    fn InvalidFileSuffix() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::InvalidFileSuffix } }
     #[classattr]
-    fn FileOpenFailed() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper::FileOpenFailed }
+    fn FileOpenFailed() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::FileOpenFailed } }
     #[classattr]
-    fn NotAnUtf8Str() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper::NotAnUtf8Str }
+    fn NotAnUtf8Str() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::NotAnUtf8Str } }
     #[classattr]
-    fn MalformedGZip() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper::MalformedGZip }
+    fn MalformedGZip() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::MalformedGZip } }
     #[classattr]
-    fn InvalidSize() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper::InvalidSize }
+    fn InvalidSize() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::InvalidSize } }
     #[staticmethod]
-    fn ParsingFailed(v: XmlError) -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper::ParsingFailed(v) }
+    fn ParsingFailed(v: XmlError) -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::ParsingFailed(v) } }
 }
 
 #[pymethods]
 impl AzXmlErrorEnumWrapper {
     #[staticmethod]
-    fn InvalidXmlPrefixUri(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::InvalidXmlPrefixUri(v) }
+    fn InvalidXmlPrefixUri(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::InvalidXmlPrefixUri(v) } }
     #[staticmethod]
-    fn UnexpectedXmlUri(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::UnexpectedXmlUri(v) }
+    fn UnexpectedXmlUri(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::UnexpectedXmlUri(v) } }
     #[staticmethod]
-    fn UnexpectedXmlnsUri(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::UnexpectedXmlnsUri(v) }
+    fn UnexpectedXmlnsUri(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::UnexpectedXmlnsUri(v) } }
     #[staticmethod]
-    fn InvalidElementNamePrefix(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::InvalidElementNamePrefix(v) }
+    fn InvalidElementNamePrefix(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::InvalidElementNamePrefix(v) } }
     #[staticmethod]
-    fn DuplicatedNamespace(v: DuplicatedNamespaceError) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::DuplicatedNamespace(v) }
+    fn DuplicatedNamespace(v: DuplicatedNamespaceError) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::DuplicatedNamespace(v) } }
     #[staticmethod]
-    fn UnknownNamespace(v: UnknownNamespaceError) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::UnknownNamespace(v) }
+    fn UnknownNamespace(v: UnknownNamespaceError) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::UnknownNamespace(v) } }
     #[staticmethod]
-    fn UnexpectedCloseTag(v: UnexpectedCloseTagError) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::UnexpectedCloseTag(v) }
+    fn UnexpectedCloseTag(v: UnexpectedCloseTagError) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::UnexpectedCloseTag(v) } }
     #[staticmethod]
-    fn UnexpectedEntityCloseTag(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::UnexpectedEntityCloseTag(v) }
+    fn UnexpectedEntityCloseTag(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::UnexpectedEntityCloseTag(v) } }
     #[staticmethod]
-    fn UnknownEntityReference(v: UnknownEntityReferenceError) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::UnknownEntityReference(v) }
+    fn UnknownEntityReference(v: UnknownEntityReferenceError) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::UnknownEntityReference(v) } }
     #[staticmethod]
-    fn MalformedEntityReference(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::MalformedEntityReference(v) }
+    fn MalformedEntityReference(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::MalformedEntityReference(v) } }
     #[staticmethod]
-    fn EntityReferenceLoop(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::EntityReferenceLoop(v) }
+    fn EntityReferenceLoop(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::EntityReferenceLoop(v) } }
     #[staticmethod]
-    fn InvalidAttributeValue(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::InvalidAttributeValue(v) }
+    fn InvalidAttributeValue(v: SvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::InvalidAttributeValue(v) } }
     #[staticmethod]
-    fn DuplicatedAttribute(v: DuplicatedAttributeError) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::DuplicatedAttribute(v) }
+    fn DuplicatedAttribute(v: DuplicatedAttributeError) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::DuplicatedAttribute(v) } }
     #[classattr]
-    fn NoRootNode() -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::NoRootNode }
+    fn NoRootNode() -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::NoRootNode } }
     #[classattr]
-    fn SizeLimit() -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::SizeLimit }
+    fn SizeLimit() -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::SizeLimit } }
     #[staticmethod]
-    fn ParserError(v: XmlParseError) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper::ParserError(v) }
+    fn ParserError(v: XmlParseError) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::ParserError(v) } }
 }
 
 #[pymethods]
 impl AzXmlParseErrorEnumWrapper {
     #[staticmethod]
-    fn InvalidDeclaration(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper::InvalidDeclaration(v) }
+    fn InvalidDeclaration(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper { inner: AzXmlParseError::InvalidDeclaration(v) } }
     #[staticmethod]
-    fn InvalidComment(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper::InvalidComment(v) }
+    fn InvalidComment(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper { inner: AzXmlParseError::InvalidComment(v) } }
     #[staticmethod]
-    fn InvalidPI(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper::InvalidPI(v) }
+    fn InvalidPI(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper { inner: AzXmlParseError::InvalidPI(v) } }
     #[staticmethod]
-    fn InvalidDoctype(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper::InvalidDoctype(v) }
+    fn InvalidDoctype(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper { inner: AzXmlParseError::InvalidDoctype(v) } }
     #[staticmethod]
-    fn InvalidEntity(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper::InvalidEntity(v) }
+    fn InvalidEntity(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper { inner: AzXmlParseError::InvalidEntity(v) } }
     #[staticmethod]
-    fn InvalidElement(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper::InvalidElement(v) }
+    fn InvalidElement(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper { inner: AzXmlParseError::InvalidElement(v) } }
     #[staticmethod]
-    fn InvalidAttribute(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper::InvalidAttribute(v) }
+    fn InvalidAttribute(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper { inner: AzXmlParseError::InvalidAttribute(v) } }
     #[staticmethod]
-    fn InvalidCdata(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper::InvalidCdata(v) }
+    fn InvalidCdata(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper { inner: AzXmlParseError::InvalidCdata(v) } }
     #[staticmethod]
-    fn InvalidCharData(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper::InvalidCharData(v) }
+    fn InvalidCharData(v: XmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper { inner: AzXmlParseError::InvalidCharData(v) } }
     #[staticmethod]
-    fn UnknownToken(v: SvgParseErrorPosition) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper::UnknownToken(v) }
+    fn UnknownToken(v: SvgParseErrorPosition) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper { inner: AzXmlParseError::UnknownToken(v) } }
 }
 
 #[pymethods]
 impl AzXmlStreamErrorEnumWrapper {
     #[classattr]
-    fn UnexpectedEndOfStream() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::UnexpectedEndOfStream }
+    fn UnexpectedEndOfStream() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::UnexpectedEndOfStream } }
     #[classattr]
-    fn InvalidName() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::InvalidName }
+    fn InvalidName() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidName } }
     #[staticmethod]
-    fn NonXmlChar(v: NonXmlCharError) -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::NonXmlChar(v) }
+    fn NonXmlChar(v: NonXmlCharError) -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::NonXmlChar(v) } }
     #[staticmethod]
-    fn InvalidChar(v: InvalidCharError) -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::InvalidChar(v) }
+    fn InvalidChar(v: InvalidCharError) -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidChar(v) } }
     #[staticmethod]
-    fn InvalidCharMultiple(v: InvalidCharMultipleError) -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::InvalidCharMultiple(v) }
+    fn InvalidCharMultiple(v: InvalidCharMultipleError) -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidCharMultiple(v) } }
     #[staticmethod]
-    fn InvalidQuote(v: InvalidQuoteError) -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::InvalidQuote(v) }
+    fn InvalidQuote(v: InvalidQuoteError) -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidQuote(v) } }
     #[staticmethod]
-    fn InvalidSpace(v: InvalidSpaceError) -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::InvalidSpace(v) }
+    fn InvalidSpace(v: InvalidSpaceError) -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidSpace(v) } }
     #[staticmethod]
-    fn InvalidString(v: InvalidStringError) -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::InvalidString(v) }
+    fn InvalidString(v: InvalidStringError) -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidString(v) } }
     #[classattr]
-    fn InvalidReference() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::InvalidReference }
+    fn InvalidReference() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidReference } }
     #[classattr]
-    fn InvalidExternalID() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::InvalidExternalID }
+    fn InvalidExternalID() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidExternalID } }
     #[classattr]
-    fn InvalidCommentData() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::InvalidCommentData }
+    fn InvalidCommentData() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidCommentData } }
     #[classattr]
-    fn InvalidCommentEnd() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::InvalidCommentEnd }
+    fn InvalidCommentEnd() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidCommentEnd } }
     #[classattr]
-    fn InvalidCharacterData() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper::InvalidCharacterData }
+    fn InvalidCharacterData() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidCharacterData } }
 }
 
 

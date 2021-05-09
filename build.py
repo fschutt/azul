@@ -1055,7 +1055,7 @@ def generate_python_api(api_data, structs_map, functions_map):
                 field_type = list(field.values())[0]["type"]
                 if len(analyze_type(field_type)[0]) > 0:
                     raw_pointer_structs[struct_name] = {}
-                else:
+                elif (not(field_name == "cb")):
                     new_struct_map[struct_name]["struct"][field_index][field_name]["extra_derive"] = "    #[pyo3(get, set)]"
                 field_index = field_index + 1
         elif "enum" in struct.keys():
@@ -1129,16 +1129,18 @@ def generate_python_api(api_data, structs_map, functions_map):
                             fn_args = constructor["fn_args"]
                             py_args = format_py_args(fn_args, api_data[version], constructor=True)
                             return_type = prefix + class_name
+                            return_type_match = ""
                             returns_option = False
                             returns_error = ""
                             if "returns" in constructor.keys():
-                                return_type = format_py_return(constructor["returns"], api_data[version], errlist, constructor=True)
+                                return_type_match = constructor["returns"]["type"]
+                                r = format_py_return(constructor["returns"], api_data[version], errlist, constructor=True)
                                 return_type = r[0]
                                 returns_option = r[1]
                                 returns_error = r[2]
                             pyo3_code += "    #[staticmethod]\r\n"
                             pyo3_code += "    fn " + constructor_name + "(" + py_args + ") -> " + return_type + " {\r\n"
-                            pyo3_code += "        " + format_py_body(module_name, class_name, constructor_name, fn_args, api_data[version], returns_option, returns_error, constructor=True) + "\r\n"
+                            pyo3_code += "        " + format_py_body(module_name, class_name, constructor_name, fn_args, api_data[version], returns_option, return_type_match, constructor=True) + "\r\n"
                             pyo3_code += "    }\r\n"
 
                     if "functions" in struct.keys():
@@ -1157,15 +1159,17 @@ def generate_python_api(api_data, structs_map, functions_map):
                                 self_arg = "self" # TODO: possible?
 
                             return_type = "()" # TODO
+                            return_type_match = ""
                             returns_option = False
                             returns_error = ""
                             if "returns" in function.keys():
+                                return_type_match = function["returns"]["type"]
                                 r = format_py_return(function["returns"], api_data[version], errlist, constructor=False)
                                 return_type = r[0]
                                 returns_option = r[1]
                                 returns_error = r[2]
                             pyo3_code += "    fn " + function_name + "(" + self_arg + format_py_args(fn_args, api_data[version], constructor=False) + ") -> " + return_type + " {\r\n"
-                            pyo3_code += "        " + format_py_body(module_name, class_name, function_name, fn_args, api_data[version], returns_option, returns_error, constructor=False) + "\r\n"
+                            pyo3_code += "        " + format_py_body(module_name, class_name, function_name, fn_args, api_data[version], returns_option, return_type_match, constructor=False) + "\r\n"
                             pyo3_code += "    }\r\n"
 
                     pyo3_code += "}\r\n"
@@ -1188,10 +1192,10 @@ def generate_python_api(api_data, structs_map, functions_map):
                     else:
                         pyo3_code += "    #[classattr]\r\n    fn " + variant_name + "(" + enum_arg_type + ") -> "
                     pyo3_code += prefix + class_name + "EnumWrapper { "
-                    pyo3_code += prefix + class_name + "EnumWrapper::" + variant_name
+                    pyo3_code += prefix + class_name + "EnumWrapper { inner: " + prefix + class_name + "::" + variant_name
                     if not(len(enum_type) == 0):
                         pyo3_code += "(v)"
-                    pyo3_code += " }\r\n"
+                    pyo3_code += " } }\r\n"
 
                 pyo3_code += "}\r\n"
 
@@ -1279,13 +1283,22 @@ def format_py_args(fn_args, api_data, constructor=False):
 def format_py_return(return_type, api_data, errlist, constructor=False):
     if return_type["type"].startswith("Result"):
         found_c = quick_get_class(api_data, return_type["type"])
-        return_type_ok = prefix + found_c["enum_fields"][0]["Ok"]["type"]
-        return_type_err = prefix + found_c["enum_fields"][1]["Err"]["type"]
+        ret_type_ok = found_c["enum_fields"][0]["Ok"]["type"]
+        return_type_ok = ret_type_ok
+        if ret_type_ok != "String":
+            return_type_ok = prefix + ret_type_ok
+        ret_type_err = found_c["enum_fields"][1]["Err"]["type"]
+        return_type_err = ret_type_err
+        if ret_type_err != "String":
+            return_type_err = prefix + ret_type_err
         errlist.append(return_type_err)
         return ("Result<" + return_type_ok + ", PyErr>", False, return_type_err)
     elif return_type["type"].startswith("Option"):
         found_c = quick_get_class(api_data, return_type["type"])
-        return_type_opt = prefix + found_c["enum_fields"][1]["Some"]["type"]
+        ret_type = found_c["enum_fields"][1]["Some"]["type"]
+        return_type_opt = ret_type
+        if ret_type != "String":
+            return_type_opt = prefix + ret_type
         return ("Option<" + return_type_opt + ">", True, "")
     elif return_type["type"] == "String":
         return ("String", False, "")
@@ -1304,7 +1317,7 @@ def format_py_body(module_name, class_name, function_name, fn_args, api_data, re
         f_name = list(f.keys())[0]
         f_type = f[f_name]
         if f_type == "String":
-            string_conversions += "let " + f_name + ": AzString = " + f_name + ".into();\r\n"
+            string_conversions += "let " + f_name + ": AzString = " + f_name + ".into();\r\n        "
 
     if constructor:
         fn_args_invoke = ""
