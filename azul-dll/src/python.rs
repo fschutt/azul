@@ -1634,7 +1634,7 @@ pub struct AzSvgDashPattern {
     pub gap_3: f32,
 }
 
-/// Re-export of rust-allocated (stack based) `File` struct
+/// **Reference-counted** file handle
 #[repr(C)]
 #[pyclass(name = "File")]
 pub struct AzFile {
@@ -15425,7 +15425,7 @@ impl AzFile {
             mem::transmute(bytes),
         )) }
     }
-    fn close(self) -> () {
+    fn close(&mut self) -> () {
         unsafe { mem::transmute(crate::AzFile_close(
             mem::transmute(self),
         )) }
@@ -15619,19 +15619,19 @@ impl AzDurationEnumWrapper {
 
 #[pymethods]
 impl AzTimer {
-    fn with_delay(self, delay: AzDurationEnumWrapper) -> AzTimer {
+    fn with_delay(&self, delay: AzDurationEnumWrapper) -> AzTimer {
         unsafe { mem::transmute(crate::AzTimer_withDelay(
             mem::transmute(self),
             mem::transmute(delay),
         )) }
     }
-    fn with_interval(self, interval: AzDurationEnumWrapper) -> AzTimer {
+    fn with_interval(&self, interval: AzDurationEnumWrapper) -> AzTimer {
         unsafe { mem::transmute(crate::AzTimer_withInterval(
             mem::transmute(self),
             mem::transmute(interval),
         )) }
     }
-    fn with_timeout(self, timeout: AzDurationEnumWrapper) -> AzTimer {
+    fn with_timeout(&self, timeout: AzDurationEnumWrapper) -> AzTimer {
         unsafe { mem::transmute(crate::AzTimer_withTimeout(
             mem::transmute(self),
             mem::transmute(timeout),

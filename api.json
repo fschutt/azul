@@ -8740,9 +8740,9 @@
             "doc": "Filesystem / file input and output module",
             "classes": {
                 "File": {
+                    "doc": "**Reference-counted** file handle",
                     "external": "azul_impl::file::File",
                     "is_boxed_object": true,
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*const c_void"}}
                     ],
@@ -8802,9 +8802,9 @@
                         "close": {
                             "doc": "Destructor, closes the file handle",
                             "fn_args": [
-                                {"self": "value"}
+                                {"self": "refmut"}
                             ],
-                            "fn_body": "file.close()"
+                            "fn_body": "file.clone().close()"
                         }
                     }
                 }
@@ -9119,7 +9119,6 @@
                 },
                 "Timer": {
                     "external": "azul_impl::task::Timer",
-                    "clone": false,
                     "struct_fields": [
                         {"data": {"type": "RefAny", "doc": "Stores some timer-specific data (usually animation data)"}},
                         {"node_id": {"type": "OptionDomNodeId", "doc": "Whether to attach the timer to a specific DOM node. Timers attached to DOM nodes are removed when the UI is reconstructed."}},
@@ -9144,27 +9143,27 @@
                     "functions": {
                         "with_delay": {
                             "fn_args": [
-                                {"self": "value"},
+                                {"self": "ref"},
                                 {"delay": "Duration"}
                             ],
                             "returns": {"type": "Timer"},
-                            "fn_body": "timer.with_delay(delay)"
+                            "fn_body": "timer.clone().with_delay(delay)"
                         },
                         "with_interval": {
                             "fn_args": [
-                                {"self": "value"},
+                                {"self": "ref"},
                                 {"interval": "Duration"}
                             ],
                             "returns": {"type": "Timer"},
-                            "fn_body": "timer.with_interval(interval)"
+                            "fn_body": "timer.clone().with_interval(interval)"
                         },
                         "with_timeout": {
                             "fn_args": [
-                                {"self": "value"},
+                                {"self": "ref"},
                                 {"timeout": "Duration"}
                             ],
                             "returns": {"type": "Timer"},
-                            "fn_body": "timer.with_timeout(timeout)"
+                            "fn_body": "timer.clone().with_timeout(timeout)"
                         }
                     }
                 },
@@ -10966,7 +10965,6 @@
                 },
                 "OptionFile": {
                     "external": "azul_impl::file::OptionFile",
-                    "clone": false,
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "File" }}

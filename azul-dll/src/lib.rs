@@ -2293,7 +2293,7 @@ pub use AzXmlTT as AzXml;
 pub type AzXmlNodeTT = azul_impl::xml::XmlNode;
 pub use AzXmlNodeTT as AzXmlNode;
 
-/// Re-export of rust-allocated (stack based) `File` struct
+/// **Reference-counted** file handle
 pub type AzFileTT = azul_impl::file::File;
 pub use AzFileTT as AzFile;
 /// Opens a file at the given path. If the file exists, replaces it with a new file
@@ -2309,9 +2309,11 @@ pub use AzFileTT as AzFile;
 /// Writes some bytes to the file, synchronizes the results before returning
 #[no_mangle] pub extern "C" fn AzFile_writeBytes(file: &mut AzFile, bytes: AzU8VecRef) -> bool { file.write_bytes(bytes.as_slice()).is_some() }
 /// Destructor, closes the file handle
-#[no_mangle] pub extern "C" fn AzFile_close(file: AzFile) { file.close() }
+#[no_mangle] pub extern "C" fn AzFile_close(file: &mut AzFile) { file.clone().close() }
 /// Destructor: Takes ownership of the `File` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzFile_delete(object: &mut AzFile) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn AzFile_deepCopy(object: &AzFile) -> AzFile { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `MsgBox` struct
 pub type AzMsgBoxTT = azul_impl::dialogs::MsgBox;
@@ -2424,11 +2426,11 @@ pub use AzTimerTT as AzTimer;
 /// Equivalent to the Rust `Timer::new()` constructor.
 #[no_mangle] pub extern "C" fn AzTimer_new(timer_data: AzRefAny, callback: AzTimerCallbackType, get_system_time_fn: AzGetSystemTimeFn) -> AzTimer { AzTimer::new(timer_data, callback, get_system_time_fn) }
 /// Equivalent to the Rust `Timer::with_delay()` function.
-#[no_mangle] pub extern "C" fn AzTimer_withDelay(timer: AzTimer, delay: AzDuration) -> AzTimer { timer.with_delay(delay) }
+#[no_mangle] pub extern "C" fn AzTimer_withDelay(timer: &AzTimer, delay: AzDuration) -> AzTimer { timer.clone().with_delay(delay) }
 /// Equivalent to the Rust `Timer::with_interval()` function.
-#[no_mangle] pub extern "C" fn AzTimer_withInterval(timer: AzTimer, interval: AzDuration) -> AzTimer { timer.with_interval(interval) }
+#[no_mangle] pub extern "C" fn AzTimer_withInterval(timer: &AzTimer, interval: AzDuration) -> AzTimer { timer.clone().with_interval(interval) }
 /// Equivalent to the Rust `Timer::with_timeout()` function.
-#[no_mangle] pub extern "C" fn AzTimer_withTimeout(timer: AzTimer, timeout: AzDuration) -> AzTimer { timer.with_timeout(timeout) }
+#[no_mangle] pub extern "C" fn AzTimer_withTimeout(timer: &AzTimer, timeout: AzDuration) -> AzTimer { timer.clone().with_timeout(timeout) }
 
 /// Should a timer terminate or not - used to remove active timers
 pub type AzTerminateTimerTT = azul_impl::task::TerminateTimer;
@@ -4885,7 +4887,7 @@ mod test_sizes {
         pub gap_3: f32,
     }
 
-    /// Re-export of rust-allocated (stack based) `File` struct
+    /// **Reference-counted** file handle
     #[repr(C)]
     pub struct AzFile {
         pub(crate) ptr: *const c_void,

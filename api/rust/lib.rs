@@ -2442,7 +2442,7 @@ mod dll {
         pub gap_3: f32,
     }
 
-    /// Re-export of rust-allocated (stack based) `File` struct
+    /// **Reference-counted** file handle
     #[repr(C)]
     #[derive(Debug)]
     #[derive(PartialEq, PartialOrd)]
@@ -5776,6 +5776,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `OptionFile` struct
     #[repr(C, u8)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzOptionFile {
         None,
@@ -7154,6 +7155,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `Timer` struct
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzTimer {
         pub data: AzRefAny,
@@ -8474,8 +8476,9 @@ mod dll {
         pub(crate) fn AzFile_readToBytes(_:  &mut AzFile) -> AzOptionU8Vec;
         pub(crate) fn AzFile_writeString(_:  &mut AzFile, _:  AzRefstr) -> bool;
         pub(crate) fn AzFile_writeBytes(_:  &mut AzFile, _:  AzU8VecRef) -> bool;
-        pub(crate) fn AzFile_close(_:  AzFile);
+        pub(crate) fn AzFile_close(_:  &mut AzFile);
         pub(crate) fn AzFile_delete(_:  &mut AzFile);
+        pub(crate) fn AzFile_deepCopy(_:  &AzFile) -> AzFile;
         pub(crate) fn AzMsgBox_ok(_:  AzMsgBoxIcon, _:  AzString, _:  AzString) -> bool;
         pub(crate) fn AzMsgBox_okCancel(_:  AzMsgBoxIcon, _:  AzString, _:  AzString, _:  AzMsgBoxOkCancel) -> AzMsgBoxOkCancel;
         pub(crate) fn AzMsgBox_yesNo(_:  AzMsgBoxIcon, _:  AzString, _:  AzString, _:  AzMsgBoxYesNo) -> AzMsgBoxYesNo;
@@ -8494,9 +8497,9 @@ mod dll {
         pub(crate) fn AzInstantPtr_delete(_:  &mut AzInstantPtr);
         pub(crate) fn AzInstantPtr_deepCopy(_:  &AzInstantPtr) -> AzInstantPtr;
         pub(crate) fn AzTimer_new(_:  AzRefAny, _:  AzTimerCallbackType, _:  AzGetSystemTimeFn) -> AzTimer;
-        pub(crate) fn AzTimer_withDelay(_:  AzTimer, _:  AzDuration) -> AzTimer;
-        pub(crate) fn AzTimer_withInterval(_:  AzTimer, _:  AzDuration) -> AzTimer;
-        pub(crate) fn AzTimer_withTimeout(_:  AzTimer, _:  AzDuration) -> AzTimer;
+        pub(crate) fn AzTimer_withDelay(_:  &AzTimer, _:  AzDuration) -> AzTimer;
+        pub(crate) fn AzTimer_withInterval(_:  &AzTimer, _:  AzDuration) -> AzTimer;
+        pub(crate) fn AzTimer_withTimeout(_:  &AzTimer, _:  AzDuration) -> AzTimer;
         pub(crate) fn AzThreadSender_send(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool;
         pub(crate) fn AzThreadSender_delete(_:  &mut AzThreadSender);
         pub(crate) fn AzThreadReceiver_receive(_:  &mut AzThreadReceiver) -> AzOptionThreadSendMsg;
@@ -12105,7 +12108,7 @@ pub mod fs {
     use core::ffi::c_void;
     use crate::str::String;
     use crate::gl::{Refstr, U8VecRef};
-    /// `File` struct
+    /// **Reference-counted** file handle
     
 #[doc(inline)] pub use crate::dll::AzFile as File;
     impl File {
@@ -12122,9 +12125,10 @@ pub mod fs {
         /// Writes some bytes to the file, synchronizes the results before returning
         pub fn write_bytes(&mut self, bytes: U8VecRef)  -> bool { unsafe { crate::dll::AzFile_writeBytes(self, bytes) } }
         /// Destructor, closes the file handle
-        pub fn close(self)  { unsafe { crate::dll::AzFile_close(self) } }
+        pub fn close(&mut self)  { unsafe { crate::dll::AzFile_close(self) } }
     }
 
+    impl Clone for File { fn clone(&self) -> Self { unsafe { crate::dll::AzFile_deepCopy(self) } } }
     impl Drop for File { fn drop(&mut self) { unsafe { crate::dll::AzFile_delete(self) } } }
 }
 
@@ -12269,11 +12273,11 @@ pub mod task {
         /// Creates a new `Timer` instance.
         pub fn new(timer_data: RefAny, callback: TimerCallbackType, get_system_time_fn: GetSystemTimeFn) -> Self { unsafe { crate::dll::AzTimer_new(timer_data, callback, get_system_time_fn) } }
         /// Calls the `Timer::with_delay` function.
-        pub fn with_delay(self, delay: Duration)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_withDelay(self, delay) } }
+        pub fn with_delay(&self, delay: Duration)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_withDelay(self, delay) } }
         /// Calls the `Timer::with_interval` function.
-        pub fn with_interval(self, interval: Duration)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_withInterval(self, interval) } }
+        pub fn with_interval(&self, interval: Duration)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_withInterval(self, interval) } }
         /// Calls the `Timer::with_timeout` function.
-        pub fn with_timeout(self, timeout: Duration)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_withTimeout(self, timeout) } }
+        pub fn with_timeout(&self, timeout: Duration)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_withTimeout(self, timeout) } }
     }
 
     /// Should a timer terminate or not - used to remove active timers
