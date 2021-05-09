@@ -100,6 +100,8 @@
                     "constructors": {
                         "library_internal": {
                             "doc": "Use the default, library-internal callbacks instead of providing your own",
+                            "fn_args": [
+                            ],
                             "fn_body": "AzSystemCallbacks::rust_internal()"
                         }
                     }
@@ -2340,6 +2342,7 @@
                     "constructors": {
                         "empty": {
                             "doc": "Returns an empty CSS style",
+                            "fn_args": [],
                             "fn_body":"AzCss::empty()"
                         },
                         "from_string": {
@@ -7823,6 +7826,7 @@
                     "constructors": {
                         "default": {
                             "doc": "Default texture flags (not opaque, not a video texture)",
+                            "fn_args": [],
                             "fn_body": "AzTextureFlags::default()"
                         }
                     }
@@ -7928,6 +7932,7 @@
                     "constructors": {
                         "empty": {
                             "doc": "Returns a zero-sized image",
+                            "fn_args": [],
                             "fn_body": "AzRawImage::null_image()"
                         },
                         "allocate_clip_mask": {
@@ -8489,6 +8494,7 @@
                     "constructors": {
                         "empty": {
                             "doc": "Returns an empty buffer vertices / indices",
+                            "fn_args": [],
                             "fn_body": "AzTesselatedSvgNode::empty()"
                         },
                         "from_nodes": {
@@ -8525,6 +8531,7 @@
                     ],
                     "constructors": {
                         "default": {
+                            "fn_args": [],
                             "fn_body": "AzSvgParseOptions::default()"
                         }
                     }
@@ -8572,6 +8579,7 @@
                     ],
                     "constructors": {
                         "default": {
+                            "fn_args": [],
                             "fn_body": "AzSvgRenderOptions::default()"
                         }
                     }
