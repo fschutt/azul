@@ -172,20 +172,20 @@ pub struct DomXml {
 impl DomXml {
 
     pub fn from_str(xml: &str, component_map: &mut XmlComponentMap) -> Self {
-        let error_css = Css::empty();
+        let mut error_css = Css::empty();
         // azul_css_parser::new_from_str("* { font-family: monospace; }").unwrap_or_default();
 
         let parsed = match parse_xml_string(&xml) {
             Ok(parsed) => parsed,
             Err(e) => return Self {
-                parsed_dom: Dom::text(format!("{}", e)).style(error_css),
+                parsed_dom: Dom::text(format!("{}", e)).style(&mut error_css),
             },
         };
 
         let parsed_dom = match str_to_dom(parsed.as_ref(), component_map) {
             Ok(o) => o,
             Err(e) => return Self {
-                parsed_dom: Dom::text(format!("{}", e)).style(error_css),
+                parsed_dom: Dom::text(format!("{}", e)).style(&mut error_css),
             },
         };
 
@@ -202,13 +202,13 @@ impl DomXml {
 
         use std::fs;
 
-        let error_css = Css::empty();
+        let mut error_css = Css::empty();
 
         let xml = match fs::read_to_string(file_path.as_ref()) {
             Ok(xml) => xml,
             Err(e) => return Self {
                 parsed_dom: Dom::text(format!("Error reading: \"{}\": {}", file_path.as_ref().to_string_lossy(), e))
-                .style(error_css),
+                .style(&mut error_css),
             },
         };
 
@@ -305,7 +305,7 @@ impl XmlComponent for DynamicXmlComponent {
         content: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError<'a>> {
 
-        let component_css = match find_node_by_type(self.root.children.as_ref(), "style") {
+        let mut component_css = match find_node_by_type(self.root.children.as_ref(), "style") {
             Some(style_node) => {
                 if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
                     let parsed_css = azul_css_parser::new_from_str(&text)?;
@@ -317,13 +317,13 @@ impl XmlComponent for DynamicXmlComponent {
             None => None,
         };
 
-        let mut dom = Dom::div().style(Css::empty());
+        let mut dom = StyledDom::default();
 
         for child_node in self.root.children.as_ref() {
             dom.append_child(render_dom_from_body_node_inner(child_node, components, arguments)?);
         }
 
-        if let Some(css) = component_css {
+        if let Some(css) = component_css.as_mut() {
             dom.restyle(css);
         }
 
@@ -976,18 +976,18 @@ pub fn compile_component(
 
 pub fn render_dom_from_body_node<'a>(
     body_node: &'a XmlNode,
-    global_css: Option<Css>,
+    mut global_css: Option<Css>,
     component_map: &'a XmlComponentMap
 ) -> Result<StyledDom, RenderDomError<'a>> {
 
     // Don't actually render the <body></body> node itself
-    let mut dom = Dom::body().style(Css::empty());
+    let mut dom = StyledDom::default();
 
     for child_node in body_node.children.as_ref() {
         dom.append_child(render_dom_from_body_node_inner(child_node, component_map, &FilteredComponentArguments::default())?);
     }
 
-    if let Some(global_css) = global_css {
+    if let Some(global_css) = global_css.as_mut() {
         dom.restyle(global_css); // apply the CSS again
     }
 
@@ -1559,7 +1559,7 @@ impl XmlComponent for DivRenderer {
     }
 
     fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::div().style(Css::empty()))
+        Ok(StyledDom::default())
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
@@ -1588,7 +1588,7 @@ impl XmlComponent for BodyRenderer {
     }
 
     fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::body().style(Css::empty()))
+        Ok(StyledDom::default())
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
@@ -1621,7 +1621,7 @@ impl XmlComponent for TextRenderer {
 
     fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
         let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
-        Ok(Dom::text(content).style(Css::empty()))
+        Ok(StyledDom::default())
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, args: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {

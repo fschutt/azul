@@ -1107,6 +1107,20 @@ pub enum SvgParseError {
     ParsingFailed(XmlError),
 }
 
+impl fmt::Display for SvgParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::SvgParseError::*;
+        match self {
+            InvalidFileSuffix => write!(f, "Error parsing SVG: Invalid file suffix"),
+            FileOpenFailed => write!(f, "Error parsing SVG: Failed to open file"),
+            NotAnUtf8Str => write!(f, "Error parsing SVG: Not an UTF-8 String"),
+            MalformedGZip => write!(f, "Error parsing SVG: SVG is compressed with a malformed GZIP compression"),
+            InvalidSize => write!(f, "Error parsing SVG: Invalid size"),
+            ParsingFailed(e) => write!(f, "Error parsing SVG: Parsing SVG as XML failed: {}", e),
+        }
+    }
+}
+
 impl_result!(SvgXmlNode, SvgParseError, ResultSvgXmlNodeSvgParseError, copy = false, [Debug, Clone]);
 impl_result!(Svg, SvgParseError, ResultSvgSvgParseError, copy = false, [Debug, Clone]);
 

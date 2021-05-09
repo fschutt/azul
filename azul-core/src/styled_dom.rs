@@ -195,7 +195,7 @@ impl CssPropertyCache {
     #[must_use]
     pub fn restyle(
         &mut self,
-        css: Css,
+        css: &mut Css,
         node_data: &NodeDataContainerRef<NodeData>,
         node_hierarchy: &AzNodeVec,
         non_leaf_nodes: &ParentWithNodeDepthVec,
@@ -211,7 +211,7 @@ impl CssPropertyCache {
 
         if !css_is_empty {
 
-            let css = css.sort_by_specificity();
+            css.sort_by_specificity();
 
             macro_rules! filter_rules {($expected_pseudo_selector:expr, $node_id:expr) => {{
                 css
@@ -1212,7 +1212,7 @@ impl_vec_partialeq!(ContentGroup, ContentGroupVec);
 
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
 pub struct StyledDom {
     pub root: AzNodeId,
@@ -1256,13 +1256,22 @@ impl Default for StyledDom {
 
 impl StyledDom {
 
+    // NOTE: After calling this function, the DOM will be reset to an empty DOM.
+    // This is for memory optimization, so that the DOM does not need to be cloned.
+    //
+    // The CSS will be left in-place, but will be re-ordered
     #[cfg(feature = "multithreading")]
-    pub fn new(dom: Dom, css: Css) -> Self {
+    pub fn new(dom: &mut Dom, css: &mut Css) -> Self {
 
         use rayon::prelude::*;
         use crate::dom::EventFilter;
+        use core::mem;
 
-        let compact_dom: CompactDom = dom.into();
+        let mut swap_dom = Dom::body();
+
+        mem::swap(dom, &mut swap_dom);
+
+        let compact_dom: CompactDom = swap_dom.into();
         let non_leaf_nodes = compact_dom.node_hierarchy.as_ref().get_parents_sorted_by_depth();
         let node_hierarchy: AzNodeVec = compact_dom.node_hierarchy
             .as_ref().internal
@@ -1445,7 +1454,7 @@ impl StyledDom {
 
     }
 
-    pub fn restyle(&mut self, css: Css) {
+    pub fn restyle(&mut self, css: &mut Css) {
 
         use rayon::prelude::*;
 

@@ -7960,6 +7960,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzStyledDom {
         pub root: AzNodeId,
@@ -8164,7 +8165,7 @@ mod dll {
         pub(crate) fn AzLayoutCallbackInfo_getSystemFonts(_:  &AzLayoutCallbackInfo) -> AzStringPairVec;
         pub(crate) fn AzLayoutCallbackInfo_getImage(_:  &AzLayoutCallbackInfo, _:  AzString) -> AzOptionImageRef;
         pub(crate) fn AzDom_nodeCount(_:  &AzDom) -> usize;
-        pub(crate) fn AzDom_style(_:  AzDom, _:  AzCss) -> AzStyledDom;
+        pub(crate) fn AzDom_style(_:  &mut AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn AzOn_intoEventFilter(_:  AzOn) -> AzEventFilter;
         pub(crate) fn AzCss_empty() -> AzCss;
         pub(crate) fn AzCss_fromString(_:  AzString) -> AzCss;
@@ -8177,6 +8178,7 @@ mod dll {
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
+        pub(crate) fn AzStyledDom_default() -> AzStyledDom;
         pub(crate) fn AzStyledDom_fromXml(_:  AzString) -> AzStyledDom;
         pub(crate) fn AzStyledDom_fromFile(_:  AzString) -> AzStyledDom;
         pub(crate) fn AzStyledDom_appendChild(_:  &mut AzStyledDom, _:  AzStyledDom);
@@ -9581,8 +9583,8 @@ pub mod dom {
     impl Dom {
         /// Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)
         pub fn node_count(&self)  -> usize { unsafe { crate::dll::AzDom_nodeCount(self) } }
-        /// Same as `StyledDom::new(dom, css)`
-        pub fn style(self, css: Css)  -> crate::style::StyledDom { unsafe { crate::dll::AzDom_style(self, css) } }
+        /// Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely
+        pub fn style(&mut self, css: Css)  -> crate::style::StyledDom { unsafe { crate::dll::AzDom_style(self, css) } }
     }
 
     /// `IFrameNode` struct
@@ -10964,6 +10966,8 @@ pub mod style {
     impl StyledDom {
         /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
         pub fn new(dom: Dom, css: Css) -> Self { unsafe { crate::dll::AzStyledDom_new(dom, css) } }
+        /// Returns a default, empty `Dom`, usually returned if you don't want to crash in an error case.
+        pub fn default() -> Self { unsafe { crate::dll::AzStyledDom_default() } }
         /// Returns a DOM loaded from an XML file
         pub fn from_xml(xml_string: String) -> Self { unsafe { crate::dll::AzStyledDom_fromXml(xml_string) } }
         /// Same as `from_xml`, but loads the file relative to the current directory

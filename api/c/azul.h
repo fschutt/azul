@@ -10014,7 +10014,7 @@ extern DLLIMPORT AzOptionGl AzLayoutCallbackInfo_getGlContext(AzLayoutCallbackIn
 extern DLLIMPORT AzStringPairVec AzLayoutCallbackInfo_getSystemFonts(AzLayoutCallbackInfo* const layoutcallbackinfo);
 extern DLLIMPORT AzOptionImageRef AzLayoutCallbackInfo_getImage(AzLayoutCallbackInfo* const layoutcallbackinfo, AzString  id);
 extern DLLIMPORT size_t AzDom_nodeCount(AzDom* const dom);
-extern DLLIMPORT AzStyledDom AzDom_style(const AzDom dom, AzCss  css);
+extern DLLIMPORT AzStyledDom AzDom_style(AzDom* restrict dom, AzCss  css);
 extern DLLIMPORT AzEventFilter AzOn_intoEventFilter(const AzOn on);
 extern DLLIMPORT AzCss AzCss_empty();
 extern DLLIMPORT AzCss AzCss_fromString(AzString  s);
@@ -10027,6 +10027,7 @@ extern DLLIMPORT AzCssProperty AzCssProperty_interpolate(AzCssProperty* const cs
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);
 extern DLLIMPORT AzCssPropertyCache AzCssPropertyCache_deepCopy(AzCssPropertyCache* const instance);
 extern DLLIMPORT AzStyledDom AzStyledDom_new(AzDom  dom, AzCss  css);
+extern DLLIMPORT AzStyledDom AzStyledDom_default();
 extern DLLIMPORT AzStyledDom AzStyledDom_fromXml(AzString  xml_string);
 extern DLLIMPORT AzStyledDom AzStyledDom_fromFile(AzString  xml_file_path);
 extern DLLIMPORT void AzStyledDom_appendChild(AzStyledDom* restrict styleddom, AzStyledDom  dom);

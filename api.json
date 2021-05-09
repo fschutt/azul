@@ -2002,13 +2002,13 @@
                             "fn_body": "dom.node_count()"
                         },
                         "style": {
-                            "doc": "Same as `StyledDom::new(dom, css)`",
+                            "doc": "Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely",
                             "fn_args": [
-                                {"self": "value"},
+                                {"self": "refmut"},
                                 {"css": "Css"}
                             ],
                             "returns": {"type": "StyledDom"},
-                            "fn_body": "dom.style(css)"
+                            "fn_body": "let mut css = css; dom.style(&mut css)"
                         }
                     }
                 },
@@ -4272,7 +4272,6 @@
                 },
                 "StyledDom": {
                     "external": "azul_impl::styled_dom::StyledDom",
-                    "clone": false,
                     "struct_fields": [
                         {"root": {"type": "NodeId" }},
                         {"node_hierarchy": {"type": "NodeVec" }},
@@ -4293,7 +4292,12 @@
                                 {"dom": "Dom"},
                                 {"css": "Css"}
                             ],
-                            "fn_body":"AzStyledDom::new(dom, css)"
+                            "fn_body":"let mut dom = dom; let mut css = css; AzStyledDom::new(&mut dom, &mut css)"
+                        },
+                        "default": {
+                            "doc": "Returns a default, empty `Dom`, usually returned if you don't want to crash in an error case.",
+                            "fn_args": [],
+                            "fn_body":"AzStyledDom::default()"
                         },
                         "from_xml": {
                             "doc": "Returns a DOM loaded from an XML file",
@@ -4325,7 +4329,7 @@
                                 {"self": "refmut"},
                                 {"css": "Css"}
                             ],
-                            "fn_body": "styleddom.restyle(css);"
+                            "fn_body": "let mut css = css; styleddom.restyle(&mut css);"
                         },
                         "node_count": {
                             "doc": "Returns the number of nodes in the styled DOM",

@@ -690,6 +690,7 @@ impl NodeData {
 
 // Clone, PartialEq, Eq, Hash, PartialOrd, Ord
 impl_vec!(NodeData, NodeDataVec, NodeDataVecDestructor);
+impl_vec_clone!(NodeData, NodeDataVec, NodeDataVecDestructor);
 impl_vec_mut!(NodeData, NodeDataVec);
 impl_vec_debug!(NodeData, NodeDataVec);
 impl_vec_partialord!(NodeData, NodeDataVec);
@@ -706,14 +707,6 @@ impl NodeDataVec {
     #[inline]
     pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, NodeData> {
         NodeDataContainerRefMut { internal: self.as_mut() }
-    }
-    #[inline]
-    pub fn into_library_owned_vec(&mut self) -> Vec<NodeData> {
-        let mut vec = Vec::with_capacity(self.as_ref().len());
-        for item in self.as_mut().iter_mut() {
-            vec.push(item.copy_special());
-        }
-        vec
     }
 
     // necessary so that the callbacks have mutable access to the NodeType while
@@ -1094,7 +1087,7 @@ impl Dom {
     pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.root.set_tab_index(tab_index); }
 
     #[cfg(feature = "multithreading")]
-    pub fn style(self, css: Css) -> StyledDom {
+    pub fn style(&mut self, css: &mut Css) -> StyledDom {
         StyledDom::new(self, css)
     }
 }

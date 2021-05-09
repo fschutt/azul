@@ -9,6 +9,7 @@ pub mod decode {
     use image_crate::error::LimitErrorKind;
     use image_crate::DynamicImage;
     use azul_core::app_resources::{RawImage, RawImageFormat};
+    use core::fmt;
 
     #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
     #[repr(C)]
@@ -17,6 +18,18 @@ pub mod decode {
         DimensionError,
         UnsupportedImageFormat,
         Unknown,
+    }
+
+    impl fmt::Display for DecodeImageError {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            use self::DecodeImageError::*;
+            match self {
+                InsufficientMemory => write!(f, "Error decoding image: Not enough memory available to perform encoding operation"),
+                DimensionError => write!(f, "Error decoding image: Wrong dimensions"),
+                InvalidData => write!(f, "Error decoding image: Invalid data format"),
+                Unknown => write!(f, "Error decoding image: Unknown error"),
+            }
+        }
     }
 
     fn translate_image_error_decode(i: ImageError) -> DecodeImageError {
@@ -94,6 +107,7 @@ pub mod encode {
 
     use alloc::vec::Vec;
     use azul_core::app_resources::RawImageFormat;
+    use core::fmt;
 
     #[cfg(feature = "bmp")]
     use image_crate::codecs::bmp::BmpEncoder;
@@ -128,6 +142,18 @@ pub mod encode {
         DimensionError,
         InvalidData,
         Unknown,
+    }
+
+    impl fmt::Display for EncodeImageError {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            use self::EncodeImageError::*;
+            match self {
+                InsufficientMemory => write!(f, "Error encoding image: Not enough memory available to perform encoding operation"),
+                DimensionError => write!(f, "Error encoding image: Wrong dimensions"),
+                InvalidData => write!(f, "Error encoding image: Invalid data format"),
+                Unknown => write!(f, "Error encoding image: Unknown error"),
+            }
+        }
     }
 
     const fn translate_rawimage_colortype(i: RawImageFormat) -> image_crate::ColorType {

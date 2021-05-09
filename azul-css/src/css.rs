@@ -17,6 +17,7 @@ pub struct Css {
 }
 
 impl_vec!(Stylesheet, StylesheetVec, StylesheetVecDestructor);
+impl_vec_mut!(Stylesheet, StylesheetVec);
 impl_vec_debug!(Stylesheet, StylesheetVec);
 impl_vec_partialord!(Stylesheet, StylesheetVec);
 impl_vec_clone!(Stylesheet, StylesheetVec, StylesheetVecDestructor);
@@ -41,6 +42,7 @@ pub struct Stylesheet {
 }
 
 impl_vec!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor);
+impl_vec_mut!(CssRuleBlock, CssRuleBlockVec);
 impl_vec_debug!(CssRuleBlock, CssRuleBlockVec);
 impl_vec_partialord!(CssRuleBlock, CssRuleBlockVec);
 impl_vec_clone!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor);
@@ -308,6 +310,7 @@ pub struct CssRuleBlock {
 }
 
 impl_vec!(CssDeclaration, CssDeclarationVec, CssDeclarationVecDestructor);
+impl_vec_mut!(CssDeclaration, CssDeclarationVec);
 impl_vec_debug!(CssDeclaration, CssDeclarationVec);
 impl_vec_partialord!(CssDeclaration, CssDeclarationVec);
 impl_vec_ord!(CssDeclaration, CssDeclarationVec);
@@ -532,10 +535,9 @@ impl Css {
         Default::default()
     }
 
-    pub fn sort_by_specificity(self) -> Self {
-        let stylesheet_vec: Vec<Stylesheet> = self.stylesheets.into_library_owned_vec();
-        let new_vec = stylesheet_vec.into_iter().map(|s| s.sort_by_specificity()).collect::<Vec<Stylesheet>>();
-        Self { stylesheets: new_vec.into() }
+    pub fn sort_by_specificity(&mut self) {
+        self.stylesheets.as_mut().iter_mut()
+        .for_each(|s| s.sort_by_specificity());
     }
 
     pub fn rules<'a>(&'a self) -> RuleIterator<'a> {
@@ -581,10 +583,11 @@ impl Stylesheet {
 
     /// Sort the style rules by their weight, so that the rules are applied in the correct order.
     /// Should always be called when a new style is loaded from an external source.
-    pub fn sort_by_specificity(self) -> Self {
-        let mut rule_vec: Vec<CssRuleBlock> = self.rules.into_library_owned_vec();
-        rule_vec.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
-        Self { rules: rule_vec.into() }
+    pub fn sort_by_specificity(&mut self) {
+        self.rules.as_mut().sort_by(|a, b| {
+            get_specificity(&a.path)
+            .cmp(&get_specificity(&b.path))
+        });
     }
 }
 

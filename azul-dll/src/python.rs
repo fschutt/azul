@@ -10875,7 +10875,7 @@ impl AzDom {
             mem::transmute(self),
         )) }
     }
-    fn style(self, css: AzCss) -> AzStyledDom {
+    fn style(&mut self, css: AzCss) -> AzStyledDom {
         unsafe { mem::transmute(crate::AzDom_style(
             mem::transmute(self),
             mem::transmute(css),
@@ -12948,6 +12948,10 @@ impl AzStyledDom {
             mem::transmute(dom),
             mem::transmute(css),
         )) }
+    }
+    #[staticmethod]
+    fn default() -> AzStyledDom {
+        unsafe { mem::transmute(crate::AzStyledDom_default()) }
     }
     #[staticmethod]
     fn from_xml(xml_string: String) -> AzStyledDom {

@@ -508,7 +508,7 @@ impl SystemTimeDiff {
     pub fn get(&self) -> StdDuration { (*self).into() }
 }
 
-impl_option!(Instant, OptionInstant, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(Instant, OptionInstant, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 impl_option!(Duration, OptionDuration, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 /// A `Timer` is a function that is run on every frame.
@@ -520,7 +520,7 @@ impl_option!(Duration, OptionDuration, [Debug, Copy, Clone, PartialEq, Eq, Parti
 ///
 /// The callback of a `Timer` should be fast enough to run under 16ms,
 /// otherwise running timers will block the main UI thread.
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct Timer {
     /// Data that is internal to the timer
