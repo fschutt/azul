@@ -1042,6 +1042,40 @@ def generate_python_api(api_data, structs_map, functions_map):
     pyo3_code += "use pyo3::exceptions::PyException;\r\n"
     pyo3_code += "\r\n"
     pyo3_code += "\r\n"
+    pyo3_code += """
+        impl From<String> for AzString {
+            fn from(s: String) -> AzString {
+                Self { vec: s.into_bytes().into() }
+            }
+        }
+
+        impl From<AzString> for String {
+            fn from(s: AzString) -> String {
+                let s: azul_impl::css::AzString = unsafe { mem::transmute(s) };
+                s.into_library_owned_string()
+            }
+        }
+
+        impl From<Vec<u8>> for AzU8Vec {
+            fn from(input: Vec<u8>) -> AzU8Vec {
+
+                let ptr = input.as_ptr();
+                let len = input.len();
+                let cap = input.capacity();
+
+                let _ = ::core::mem::ManuallyDrop::new(input);
+
+                Self {
+                    ptr,
+                    len,
+                    cap,
+                    destructor: AzU8VecDestructorEnumWrapper::DefaultRust(),
+                }
+
+            }
+        }
+    """
+    pyo3_code += "\r\n"
 
     new_struct_map = dict(structs_map)
     raw_pointer_structs = {}
@@ -1340,6 +1374,9 @@ def format_py_return(return_type, api_data, errlist, constructor=False):
         return_type_opt = ret_type
         if ret_type != "String":
             return_type_opt = prefix + ret_type
+            ret_type_c = quick_get_class(api_data, ret_type)
+            if "enum_fields" in ret_type_c.keys():
+                return_type_opt = return_type_opt + "EnumWrapper"
         return ("Option<" + return_type_opt + ">", return_type["type"], None)
     elif return_type["type"] == "String":
         return ("String", None, None)
@@ -1348,7 +1385,11 @@ def format_py_return(return_type, api_data, errlist, constructor=False):
         if is_primitive_arg(return_type["type"]):
             return (return_type["type"], None, None)
         else:
-            return (prefix + return_type["type"], None, None)
+            return_type_str = prefix + return_type["type"]
+            ret_type_c = quick_get_class(api_data, return_type["type"])
+            if "enum_fields" in ret_type_c.keys():
+                return_type_str = return_type_str + "EnumWrapper"
+            return (return_type_str, None, None)
 
 def format_py_body(module_name, class_name, function_name, fn_args, api_data, returns_option=None, returns_error=None, constructor=False):
 
@@ -1374,14 +1415,14 @@ def format_py_body(module_name, class_name, function_name, fn_args, api_data, re
         # function throws an error: cannot transmute, use match Err { ... }
         fn_body += "let m: " + prefix + returns_option + " = unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) };\r\n"
         fn_body += "        match m {\r\n"
-        fn_body += "            " + prefix + returns_option + "::Some(s) => Some(s.into()),\r\n"
+        fn_body += "            " + prefix + returns_option + "::Some(s) => Some(unsafe { mem::transmute(s) }),\r\n"
         fn_body += "            " + prefix + returns_option + "::None => None,\r\n"
         fn_body += "        }\r\n"
     elif not(returns_error is None):
         # function throws an error: cannot transmute, use match Err { ... }
         fn_body += "let m: " + prefix + returns_error + " = unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) };\r\n"
         fn_body += "        match m {\r\n"
-        fn_body += "            " + prefix + returns_error + "::Ok(o) => Ok(o.into()),\r\n"
+        fn_body += "            " + prefix + returns_error + "::Ok(o) => Ok(o),\r\n"
         fn_body += "            " + prefix + returns_error + "::Err(e) => Err(e.into()),\r\n"
         fn_body += "        }\r\n"
     else:

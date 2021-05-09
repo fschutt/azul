@@ -11,6 +11,39 @@ use pyo3::prelude::*;
 use pyo3::exceptions::PyException;
 
 
+
+        impl From<String> for AzString {
+            fn from(s: String) -> AzString {
+                Self { vec: s.into_bytes().into() }
+            }
+        }
+
+        impl From<AzString> for String {
+            fn from(s: AzString) -> String {
+                let s: azul_impl::css::AzString = unsafe { mem::transmute(s) };
+                s.into_library_owned_string()
+            }
+        }
+
+        impl From<Vec<u8>> for AzU8Vec {
+            fn from(input: Vec<u8>) -> AzU8Vec {
+
+                let ptr = input.as_ptr();
+                let len = input.len();
+                let cap = input.capacity();
+
+                let _ = ::core::mem::ManuallyDrop::new(input);
+
+                Self {
+                    ptr,
+                    len,
+                    cap,
+                    destructor: AzU8VecDestructorEnumWrapper::DefaultRust(),
+                }
+
+            }
+        }
+    
 /// Main application class
 #[repr(C)]
 #[pyclass(name = "App")]
@@ -10181,7 +10214,7 @@ impl AzCallbackInfo {
             mem::transmute(self),
         )) };
         match m {
-            AzOptionLogicalPosition::Some(s) => Some(s.into()),
+            AzOptionLogicalPosition::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionLogicalPosition::None => None,
         }
 
@@ -10191,7 +10224,7 @@ impl AzCallbackInfo {
             mem::transmute(self),
         )) };
         match m {
-            AzOptionLogicalPosition::Some(s) => Some(s.into()),
+            AzOptionLogicalPosition::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionLogicalPosition::None => None,
         }
 
@@ -10216,7 +10249,7 @@ impl AzCallbackInfo {
             mem::transmute(self),
         )) };
         match m {
-            AzOptionWindowState::Some(s) => Some(s.into()),
+            AzOptionWindowState::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionWindowState::None => None,
         }
 
@@ -10226,7 +10259,7 @@ impl AzCallbackInfo {
             mem::transmute(self),
         )) };
         match m {
-            AzOptionKeyboardState::Some(s) => Some(s.into()),
+            AzOptionKeyboardState::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionKeyboardState::None => None,
         }
 
@@ -10236,12 +10269,12 @@ impl AzCallbackInfo {
             mem::transmute(self),
         )) };
         match m {
-            AzOptionMouseState::Some(s) => Some(s.into()),
+            AzOptionMouseState::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionMouseState::None => None,
         }
 
     }
-    fn get_current_window_handle(&self) -> AzRawWindowHandle {
+    fn get_current_window_handle(&self) -> AzRawWindowHandleEnumWrapper {
         unsafe { mem::transmute(crate::AzCallbackInfo_getCurrentWindowHandle(
             mem::transmute(self),
         )) }
@@ -10251,7 +10284,7 @@ impl AzCallbackInfo {
             mem::transmute(self),
         )) };
         match m {
-            AzOptionGl::Some(s) => Some(s.into()),
+            AzOptionGl::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionGl::None => None,
         }
 
@@ -10262,7 +10295,7 @@ impl AzCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionLogicalPosition::Some(s) => Some(s.into()),
+            AzOptionLogicalPosition::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionLogicalPosition::None => None,
         }
 
@@ -10273,7 +10306,7 @@ impl AzCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionRefAny::Some(s) => Some(s.into()),
+            AzOptionRefAny::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionRefAny::None => None,
         }
 
@@ -10284,7 +10317,7 @@ impl AzCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionString::Some(s) => Some(s.into()),
+            AzOptionString::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionString::None => None,
         }
 
@@ -10295,7 +10328,7 @@ impl AzCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionInlineText::Some(s) => Some(s.into()),
+            AzOptionInlineText::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionInlineText::None => None,
         }
 
@@ -10312,7 +10345,7 @@ impl AzCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionDomNodeId::Some(s) => Some(s.into()),
+            AzOptionDomNodeId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionDomNodeId::None => None,
         }
 
@@ -10323,7 +10356,7 @@ impl AzCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionDomNodeId::Some(s) => Some(s.into()),
+            AzOptionDomNodeId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionDomNodeId::None => None,
         }
 
@@ -10334,7 +10367,7 @@ impl AzCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionDomNodeId::Some(s) => Some(s.into()),
+            AzOptionDomNodeId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionDomNodeId::None => None,
         }
 
@@ -10345,7 +10378,7 @@ impl AzCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionDomNodeId::Some(s) => Some(s.into()),
+            AzOptionDomNodeId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionDomNodeId::None => None,
         }
 
@@ -10356,18 +10389,18 @@ impl AzCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionDomNodeId::Some(s) => Some(s.into()),
+            AzOptionDomNodeId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionDomNodeId::None => None,
         }
 
     }
-    fn get_node_position(&mut self, node_id: AzDomNodeId) -> Option<AzPositionInfo> {
+    fn get_node_position(&mut self, node_id: AzDomNodeId) -> Option<AzPositionInfoEnumWrapper> {
         let m: AzOptionPositionInfo = unsafe { mem::transmute(crate::AzCallbackInfo_getNodePosition(
             mem::transmute(self),
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionPositionInfo::Some(s) => Some(s.into()),
+            AzOptionPositionInfo::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionPositionInfo::None => None,
         }
 
@@ -10378,19 +10411,19 @@ impl AzCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionLogicalSize::Some(s) => Some(s.into()),
+            AzOptionLogicalSize::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionLogicalSize::None => None,
         }
 
     }
-    fn get_computed_css_property(&mut self, node_id: AzDomNodeId, property_type: AzCssPropertyTypeEnumWrapper) -> Option<AzCssProperty> {
+    fn get_computed_css_property(&mut self, node_id: AzDomNodeId, property_type: AzCssPropertyTypeEnumWrapper) -> Option<AzCssPropertyEnumWrapper> {
         let m: AzOptionCssProperty = unsafe { mem::transmute(crate::AzCallbackInfo_getComputedCssProperty(
             mem::transmute(self),
             mem::transmute(node_id),
             mem::transmute(property_type),
         )) };
         match m {
-            AzOptionCssProperty::Some(s) => Some(s.into()),
+            AzOptionCssProperty::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionCssProperty::None => None,
         }
 
@@ -10451,7 +10484,7 @@ impl AzCallbackInfo {
             mem::transmute(id),
         )) };
         match m {
-            AzOptionImageRef::Some(s) => Some(s.into()),
+            AzOptionImageRef::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionImageRef::None => None,
         }
 
@@ -10494,7 +10527,7 @@ impl AzCallbackInfo {
             mem::transmute(timer),
         )) };
         match m {
-            AzOptionTimerId::Some(s) => Some(s.into()),
+            AzOptionTimerId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionTimerId::None => None,
         }
 
@@ -10506,7 +10539,7 @@ impl AzCallbackInfo {
             mem::transmute(animation),
         )) };
         match m {
-            AzOptionTimerId::Some(s) => Some(s.into()),
+            AzOptionTimerId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionTimerId::None => None,
         }
 
@@ -10525,7 +10558,7 @@ impl AzCallbackInfo {
             mem::transmute(callback),
         )) };
         match m {
-            AzOptionThreadId::Some(s) => Some(s.into()),
+            AzOptionThreadId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionThreadId::None => None,
         }
 
@@ -10667,7 +10700,7 @@ impl AzRenderImageCallbackInfo {
             mem::transmute(self),
         )) };
         match m {
-            AzOptionGl::Some(s) => Some(s.into()),
+            AzOptionGl::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionGl::None => None,
         }
 
@@ -10688,7 +10721,7 @@ impl AzRenderImageCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionInlineText::Some(s) => Some(s.into()),
+            AzOptionInlineText::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionInlineText::None => None,
         }
 
@@ -10705,7 +10738,7 @@ impl AzRenderImageCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionDomNodeId::Some(s) => Some(s.into()),
+            AzOptionDomNodeId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionDomNodeId::None => None,
         }
 
@@ -10716,7 +10749,7 @@ impl AzRenderImageCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionDomNodeId::Some(s) => Some(s.into()),
+            AzOptionDomNodeId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionDomNodeId::None => None,
         }
 
@@ -10727,7 +10760,7 @@ impl AzRenderImageCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionDomNodeId::Some(s) => Some(s.into()),
+            AzOptionDomNodeId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionDomNodeId::None => None,
         }
 
@@ -10738,7 +10771,7 @@ impl AzRenderImageCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionDomNodeId::Some(s) => Some(s.into()),
+            AzOptionDomNodeId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionDomNodeId::None => None,
         }
 
@@ -10749,7 +10782,7 @@ impl AzRenderImageCallbackInfo {
             mem::transmute(node_id),
         )) };
         match m {
-            AzOptionDomNodeId::Some(s) => Some(s.into()),
+            AzOptionDomNodeId::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionDomNodeId::None => None,
         }
 
@@ -10811,7 +10844,7 @@ impl AzLayoutCallbackInfo {
             mem::transmute(self),
         )) };
         match m {
-            AzOptionGl::Some(s) => Some(s.into()),
+            AzOptionGl::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionGl::None => None,
         }
 
@@ -10828,7 +10861,7 @@ impl AzLayoutCallbackInfo {
             mem::transmute(id),
         )) };
         match m {
-            AzOptionImageRef::Some(s) => Some(s.into()),
+            AzOptionImageRef::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionImageRef::None => None,
         }
 
@@ -12978,7 +13011,7 @@ impl AzTexture {
 
 #[pymethods]
 impl AzGl {
-    fn get_type(&self) -> AzGlType {
+    fn get_type(&self) -> AzGlTypeEnumWrapper {
         unsafe { mem::transmute(crate::AzGl_getType(
             mem::transmute(self),
         )) }
@@ -14787,7 +14820,7 @@ impl AzImageRef {
             mem::transmute(data),
         )) };
         match m {
-            AzOptionImageRef::Some(s) => Some(s.into()),
+            AzOptionImageRef::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionImageRef::None => None,
         }
 
@@ -14850,7 +14883,7 @@ impl AzRawImage {
             mem::transmute(bytes),
         )) };
         match m {
-            AzResultRawImageDecodeImageError::Ok(o) => Ok(o.into()),
+            AzResultRawImageDecodeImageError::Ok(o) => Ok(o),
             AzResultRawImageDecodeImageError::Err(e) => Err(e.into()),
         }
 
@@ -14867,7 +14900,7 @@ impl AzRawImage {
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
@@ -14877,7 +14910,7 @@ impl AzRawImage {
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
@@ -14887,7 +14920,7 @@ impl AzRawImage {
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
@@ -14897,7 +14930,7 @@ impl AzRawImage {
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
@@ -14907,7 +14940,7 @@ impl AzRawImage {
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
@@ -14917,7 +14950,7 @@ impl AzRawImage {
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
@@ -14927,7 +14960,7 @@ impl AzRawImage {
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
@@ -14996,7 +15029,7 @@ impl AzFontRef {
             mem::transmute(source),
         )) };
         match m {
-            AzOptionFontRef::Some(s) => Some(s.into()),
+            AzOptionFontRef::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionFontRef::None => None,
         }
 
@@ -15018,7 +15051,7 @@ impl AzSvg {
             mem::transmute(parse_options),
         )) };
         match m {
-            AzResultSvgSvgParseError::Ok(o) => Ok(o.into()),
+            AzResultSvgSvgParseError::Ok(o) => Ok(o),
             AzResultSvgSvgParseError::Err(e) => Err(e.into()),
         }
 
@@ -15030,7 +15063,7 @@ impl AzSvg {
             mem::transmute(parse_options),
         )) };
         match m {
-            AzResultSvgSvgParseError::Ok(o) => Ok(o.into()),
+            AzResultSvgSvgParseError::Ok(o) => Ok(o),
             AzResultSvgSvgParseError::Err(e) => Err(e.into()),
         }
 
@@ -15046,7 +15079,7 @@ impl AzSvg {
             mem::transmute(options),
         )) };
         match m {
-            AzOptionRawImage::Some(s) => Some(s.into()),
+            AzOptionRawImage::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionRawImage::None => None,
         }
 
@@ -15068,7 +15101,7 @@ impl AzSvgXmlNode {
             mem::transmute(parse_options),
         )) };
         match m {
-            AzResultSvgXmlNodeSvgParseError::Ok(o) => Ok(o.into()),
+            AzResultSvgXmlNodeSvgParseError::Ok(o) => Ok(o),
             AzResultSvgXmlNodeSvgParseError::Err(e) => Err(e.into()),
         }
 
@@ -15079,7 +15112,7 @@ impl AzSvgXmlNode {
             mem::transmute(options),
         )) };
         match m {
-            AzOptionRawImage::Some(s) => Some(s.into()),
+            AzOptionRawImage::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionRawImage::None => None,
         }
 
@@ -15323,7 +15356,7 @@ impl AzXml {
             mem::transmute(xml_string),
         )) };
         match m {
-            AzResultXmlXmlError::Ok(o) => Ok(o.into()),
+            AzResultXmlXmlError::Ok(o) => Ok(o),
             AzResultXmlXmlError::Err(e) => Err(e.into()),
         }
 
@@ -15339,7 +15372,7 @@ impl AzFile {
             mem::transmute(path),
         )) };
         match m {
-            AzOptionFile::Some(s) => Some(s.into()),
+            AzOptionFile::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionFile::None => None,
         }
 
@@ -15351,7 +15384,7 @@ impl AzFile {
             mem::transmute(path),
         )) };
         match m {
-            AzOptionFile::Some(s) => Some(s.into()),
+            AzOptionFile::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionFile::None => None,
         }
 
@@ -15361,7 +15394,7 @@ impl AzFile {
             mem::transmute(self),
         )) };
         match m {
-            AzOptionString::Some(s) => Some(s.into()),
+            AzOptionString::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionString::None => None,
         }
 
@@ -15371,7 +15404,7 @@ impl AzFile {
             mem::transmute(self),
         )) };
         match m {
-            AzOptionU8Vec::Some(s) => Some(s.into()),
+            AzOptionU8Vec::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionU8Vec::None => None,
         }
 
@@ -15408,7 +15441,7 @@ impl AzMsgBox {
         )) }
     }
     #[staticmethod]
-    fn ok_cancel(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxOkCancelEnumWrapper) -> AzMsgBoxOkCancel {
+    fn ok_cancel(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxOkCancelEnumWrapper) -> AzMsgBoxOkCancelEnumWrapper {
         let title: AzString = title.into();
         let message: AzString = message.into();
         unsafe { mem::transmute(crate::AzMsgBox_okCancel(
@@ -15419,7 +15452,7 @@ impl AzMsgBox {
         )) }
     }
     #[staticmethod]
-    fn yes_no(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxYesNoEnumWrapper) -> AzMsgBoxYesNo {
+    fn yes_no(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxYesNoEnumWrapper) -> AzMsgBoxYesNoEnumWrapper {
         let title: AzString = title.into();
         let message: AzString = message.into();
         unsafe { mem::transmute(crate::AzMsgBox_yesNo(
@@ -15470,7 +15503,7 @@ impl AzFileDialog {
             mem::transmute(filter_list),
         )) };
         match m {
-            AzOptionString::Some(s) => Some(s.into()),
+            AzOptionString::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionString::None => None,
         }
 
@@ -15484,7 +15517,7 @@ impl AzFileDialog {
             mem::transmute(filter_list),
         )) };
         match m {
-            AzOptionStringVec::Some(s) => Some(s.into()),
+            AzOptionStringVec::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionStringVec::None => None,
         }
 
@@ -15497,7 +15530,7 @@ impl AzFileDialog {
             mem::transmute(default_path),
         )) };
         match m {
-            AzOptionString::Some(s) => Some(s.into()),
+            AzOptionString::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionString::None => None,
         }
 
@@ -15510,7 +15543,7 @@ impl AzFileDialog {
             mem::transmute(default_path),
         )) };
         match m {
-            AzOptionString::Some(s) => Some(s.into()),
+            AzOptionString::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionString::None => None,
         }
 
@@ -15527,7 +15560,7 @@ impl AzColorPickerDialog {
             mem::transmute(default_color),
         )) };
         match m {
-            AzOptionColorU::Some(s) => Some(s.into()),
+            AzOptionColorU::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionColorU::None => None,
         }
 
@@ -15540,7 +15573,7 @@ impl AzSystemClipboard {
     fn new() -> Option<AzSystemClipboard> {
         let m: AzOptionSystemClipboard = unsafe { mem::transmute(crate::AzSystemClipboard_new()) };
         match m {
-            AzOptionSystemClipboard::Some(s) => Some(s.into()),
+            AzOptionSystemClipboard::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionSystemClipboard::None => None,
         }
 
@@ -15550,7 +15583,7 @@ impl AzSystemClipboard {
             mem::transmute(self),
         )) };
         match m {
-            AzOptionString::Some(s) => Some(s.into()),
+            AzOptionString::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionString::None => None,
         }
 
@@ -15622,12 +15655,12 @@ impl AzThreadSender {
 
 #[pymethods]
 impl AzThreadReceiver {
-    fn receive(&mut self) -> Option<AzThreadSendMsg> {
+    fn receive(&mut self) -> Option<AzThreadSendMsgEnumWrapper> {
         let m: AzOptionThreadSendMsg = unsafe { mem::transmute(crate::AzThreadReceiver_receive(
             mem::transmute(self),
         )) };
         match m {
-            AzOptionThreadSendMsg::Some(s) => Some(s.into()),
+            AzOptionThreadSendMsg::Some(s) => Some(unsafe { mem::transmute(s) }),
             AzOptionThreadSendMsg::None => None,
         }
 
