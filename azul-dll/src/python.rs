@@ -1645,7 +1645,8 @@ pub struct AzFile {
 #[repr(C)]
 #[pyclass(name = "MsgBox")]
 pub struct AzMsgBox {
-    pub _reserved: *mut c_void,
+    #[pyo3(get, set)]
+    pub _reserved: usize,
 }
 
 /// Type of message box icon
@@ -1675,14 +1676,16 @@ pub enum AzMsgBoxOkCancel {
 #[repr(C)]
 #[pyclass(name = "FileDialog")]
 pub struct AzFileDialog {
-    pub _reserved: *mut c_void,
+    #[pyo3(get, set)]
+    pub _reserved: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `ColorPickerDialog` struct
 #[repr(C)]
 #[pyclass(name = "ColorPickerDialog")]
 pub struct AzColorPickerDialog {
-    pub _reserved: *mut c_void,
+    #[pyo3(get, set)]
+    pub _reserved: usize,
 }
 
 /// Connection to the system clipboard, on some systems this connection can be cached
@@ -8901,9 +8904,6 @@ unsafe impl Send for AzFontRef { }
 unsafe impl Send for AzSvg { }
 unsafe impl Send for AzSvgXmlNode { }
 unsafe impl Send for AzFile { }
-unsafe impl Send for AzMsgBox { }
-unsafe impl Send for AzFileDialog { }
-unsafe impl Send for AzColorPickerDialog { }
 unsafe impl Send for AzSystemClipboard { }
 unsafe impl Send for AzOptionHwndHandle { }
 unsafe impl Send for AzOptionX11Visual { }

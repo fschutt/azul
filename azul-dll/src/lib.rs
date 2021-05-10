@@ -32,6 +32,8 @@ pub use AzAppTT as AzApp;
 #[no_mangle] pub extern "C" fn AzApp_run(app: AzApp, window: AzWindowCreateOptions) { app.get().run(window) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzApp_delete(object: &mut AzApp) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn AzApp_deepCopy(object: &AzApp) -> AzApp { object.clone() }
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 pub type AzAppConfigTT = azul_impl::resources::AppConfig;
@@ -2363,13 +2365,15 @@ pub use AzColorPickerDialogTT as AzColorPickerDialog;
 pub type AzSystemClipboardTT = azul_impl::window::Clipboard;
 pub use AzSystemClipboardTT as AzSystemClipboard;
 /// Creates a new connection to the system clipboard manager
-#[no_mangle] pub extern "C" fn AzSystemClipboard_new() -> AzOptionSystemClipboard { AzSystemClipboard::new_c() }
+#[no_mangle] pub extern "C" fn AzSystemClipboard_new() -> AzOptionSystemClipboard { AzSystemClipboard::new().into() }
 /// Returns the system clipboard contents or `None` if the clipboard is empty or there was an error
-#[no_mangle] pub extern "C" fn AzSystemClipboard_getStringContents(systemclipboard: &AzSystemClipboard) -> AzOptionString { systemclipboard.get_clipboard_string().ok().into() }
+#[no_mangle] pub extern "C" fn AzSystemClipboard_getStringContents(systemclipboard: &AzSystemClipboard) -> AzOptionString { systemclipboard.get_clipboard_string().into() }
 /// Sets the system clipboard contents to the new string, returns true if the system clipboard was updated
-#[no_mangle] pub extern "C" fn AzSystemClipboard_setStringContents(systemclipboard: &mut AzSystemClipboard, contents: AzString) -> bool { systemclipboard.set_clipboard_string(contents).is_ok() }
+#[no_mangle] pub extern "C" fn AzSystemClipboard_setStringContents(systemclipboard: &mut AzSystemClipboard, contents: AzString) -> bool { systemclipboard.set_clipboard_string(contents).is_some() }
 /// Destructor: Takes ownership of the `SystemClipboard` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzSystemClipboard_delete(object: &mut AzSystemClipboard) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn AzSystemClipboard_deepCopy(object: &AzSystemClipboard) -> AzSystemClipboard { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `Instant` struct
 pub type AzInstantTT = azul_impl::task::Instant;
@@ -4896,7 +4900,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `MsgBox` struct
     #[repr(C)]
     pub struct AzMsgBox {
-        pub _reserved: *mut c_void,
+        pub _reserved: usize,
     }
 
     /// Type of message box icon
@@ -4925,13 +4929,13 @@ mod test_sizes {
     /// File picker dialog
     #[repr(C)]
     pub struct AzFileDialog {
-        pub _reserved: *mut c_void,
+        pub _reserved: usize,
     }
 
     /// Re-export of rust-allocated (stack based) `ColorPickerDialog` struct
     #[repr(C)]
     pub struct AzColorPickerDialog {
-        pub _reserved: *mut c_void,
+        pub _reserved: usize,
     }
 
     /// Connection to the system clipboard, on some systems this connection can be cached

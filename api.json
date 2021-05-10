@@ -6,7 +6,6 @@
                 "App": {
                     "external": "azul_impl::app::AzAppPtr",
                     "is_boxed_object": true,
-                    "clone": false,
                     "doc": "Main application class",
                     "struct_fields": [
                         {"ptr": {"type": "*const c_void"}}
@@ -8815,9 +8814,8 @@
             "classes": {
                 "MsgBox": {
                     "external": "azul_impl::dialogs::MsgBox",
-                    "clone": false,
                     "struct_fields": [
-                        {"_reserved": {"type": "*mut c_void"}}
+                        {"_reserved": {"type": "usize"}}
                     ],
                     "constructors": {
                         "ok": {
@@ -8886,9 +8884,8 @@
                 "FileDialog": {
                     "doc": "File picker dialog",
                     "external": "azul_impl::dialogs::FileDialog",
-                    "clone": false,
                     "struct_fields": [
-                        {"_reserved": {"type": "*mut c_void", "doc": "Non-existent field for ABI stability. Do not use."}}
+                        {"_reserved": {"type": "usize", "doc": "Non-existent field for ABI stability. Do not use."}}
                     ],
                     "constructors": {
                         "select_file": {
@@ -8940,9 +8937,8 @@
                 },
                 "ColorPickerDialog": {
                     "external": "azul_impl::dialogs::ColorPickerDialog",
-                    "clone": false,
                     "struct_fields": [
-                        {"_reserved": {"type": "*mut c_void"}}
+                        {"_reserved": {"type": "usize", "doc": "Non-existent ABI-compatibility field"}}
                     ],
                     "constructors": {
                         "open": {
@@ -8965,7 +8961,6 @@
                     "doc": "Connection to the system clipboard, on some systems this connection can be cached",
                     "external": "azul_impl::window::Clipboard",
                     "is_boxed_object": true,
-                    "clone": false,
                     "struct_fields": [
                         {"_native": {"type": "*const c_void", "doc": "Native clipboard handle"}}
                     ],
@@ -8974,7 +8969,7 @@
                             "doc": "Creates a new connection to the system clipboard manager",
                             "fn_args": [],
                             "returns": {"type": "OptionSystemClipboard"},
-                            "fn_body": "AzSystemClipboard::new_c()"
+                            "fn_body": "AzSystemClipboard::new().into()"
                         }
                     },
                     "functions": {
@@ -8982,7 +8977,7 @@
                             "doc": "Returns the system clipboard contents or `None` if the clipboard is empty or there was an error",
                             "fn_args": [{"self": "ref"}],
                             "returns": {"type": "OptionString"},
-                            "fn_body": "systemclipboard.get_clipboard_string().ok().into()"
+                            "fn_body": "systemclipboard.get_clipboard_string().into()"
                         },
                         "set_string_contents": {
                             "doc": "Sets the system clipboard contents to the new string, returns true if the system clipboard was updated",
@@ -8991,7 +8986,7 @@
                                 {"contents": "String"}
                             ],
                             "returns": {"type": "bool"},
-                            "fn_body": "systemclipboard.set_clipboard_string(contents).is_ok()"
+                            "fn_body": "systemclipboard.set_clipboard_string(contents).is_some()"
                         }
                     }
                 }

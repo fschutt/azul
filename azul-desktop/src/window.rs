@@ -1,5 +1,6 @@
 use std::time::Duration as StdDuration;
 use std::thread::JoinHandle;
+use std::sync::Mutex;
 use core::fmt;
 use core::cell::RefCell;
 use alloc::{
@@ -1315,34 +1316,29 @@ impl Drop for Window {
 /// Clipboard is an empty class with only static methods,
 /// which is why it doesn't have any #[derive] markers.
 #[repr(C)]
+#[derive(Clone)]
 pub struct Clipboard {
-    pub _native: Box<SystemClipboard>,
+    pub _native: Arc<Mutex<SystemClipboard>>,
 }
 
-impl_option!(Clipboard, OptionClipboard, copy = false, clone = false, []);
+impl_option!(Clipboard, OptionClipboard, copy = false, [Clone]);
 
 impl Clipboard {
 
-    pub fn new() -> Result<Self, ClipboardError> {
-        let clipboard = SystemClipboard::new()?;
-        Ok(Self { _native: Box::new(clipboard) })
-    }
-
-    pub fn new_c() -> OptionClipboard {
-        match Self::new() {
-            Ok(o) => OptionClipboard::Some(o),
-            Err(_) => OptionClipboard::None,
-        }
+    pub fn new() -> Option<Self> {
+        let clipboard = SystemClipboard::new().ok()?;
+        Some(Self { _native: Arc::new(Mutex::new(clipboard)) })
     }
 
     /// Returns the contents of the system clipboard
-    pub fn get_clipboard_string(&self) -> Result<AzString, ClipboardError> {
-        self._native.get_string_contents().map(|o| o.into())
+    pub fn get_clipboard_string(&self) -> Option<AzString> {
+        self._native.try_lock().ok()?.get_string_contents().map(|o| o.into()).ok()
     }
 
     /// Sets the contents of the system clipboard
-    pub fn set_clipboard_string(&self, contents: AzString) -> Result<(), ClipboardError> {
-        self._native.set_string_contents(contents.into_library_owned_string())
+    pub fn set_clipboard_string(&mut self, contents: AzString) -> Option<()> {
+        Arc::get_mut(&mut self._native)?.get_mut().ok()?.set_string_contents(contents.into_library_owned_string()).ok()?;
+        Some(())
     }
 }
 

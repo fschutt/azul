@@ -1641,7 +1641,7 @@ struct AzFile {
 typedef struct AzFile AzFile;
 
 struct AzMsgBox {
-    void* restrict _reserved;
+    size_t _reserved;
 };
 typedef struct AzMsgBox AzMsgBox;
 
@@ -1666,12 +1666,12 @@ enum AzMsgBoxOkCancel {
 typedef enum AzMsgBoxOkCancel AzMsgBoxOkCancel;
 
 struct AzFileDialog {
-    void* restrict _reserved;
+    size_t _reserved;
 };
 typedef struct AzFileDialog AzFileDialog;
 
 struct AzColorPickerDialog {
-    void* restrict _reserved;
+    size_t _reserved;
 };
 typedef struct AzColorPickerDialog AzColorPickerDialog;
 
@@ -9935,6 +9935,7 @@ extern DLLIMPORT void AzApp_addImage(AzApp* restrict app, AzString  id, AzImageR
 extern DLLIMPORT AzMonitorVec AzApp_getMonitors(AzApp* const app);
 extern DLLIMPORT void AzApp_run(const AzApp app, AzWindowCreateOptions  window);
 extern DLLIMPORT void AzApp_delete(AzApp* restrict instance);
+extern DLLIMPORT AzApp AzApp_deepCopy(AzApp* const instance);
 extern DLLIMPORT AzSystemCallbacks AzSystemCallbacks_libraryInternal();
 extern DLLIMPORT AzWindowCreateOptions AzWindowCreateOptions_new(AzLayoutCallbackType  layout_callback);
 extern DLLIMPORT AzWindowState AzWindowState_new(AzLayoutCallbackType  layout_callback);
@@ -10338,6 +10339,7 @@ extern DLLIMPORT AzSystemClipboard AzSystemClipboard_new();
 extern DLLIMPORT AzOptionString AzSystemClipboard_getStringContents(AzSystemClipboard* const systemclipboard);
 extern DLLIMPORT bool  AzSystemClipboard_setStringContents(AzSystemClipboard* restrict systemclipboard, AzString  contents);
 extern DLLIMPORT void AzSystemClipboard_delete(AzSystemClipboard* restrict instance);
+extern DLLIMPORT AzSystemClipboard AzSystemClipboard_deepCopy(AzSystemClipboard* const instance);
 extern DLLIMPORT AzOptionDuration AzInstant_durationSince(AzInstant* const instant, AzInstant  earlier);
 extern DLLIMPORT AzInstant AzInstant_addDuration(AzInstant* restrict instant, AzDuration  duration);
 extern DLLIMPORT float AzInstant_linearInterpolate(AzInstant* const instant, AzInstant  start, AzInstant  end);

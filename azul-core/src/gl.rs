@@ -1500,7 +1500,7 @@ fn unimplemented() -> ! {
 #[repr(C)]
 #[derive(Clone)]
 pub struct GlContextPtr {
-    pub ptr: Box<Rc<dyn Gl>>,
+    pub ptr: Rc<dyn Gl>,
     /// SVG shader program (library-internal use)
     pub svg_shader: GLuint,
     /// FXAA shader program (library-internal use)
@@ -1768,11 +1768,11 @@ impl GlContextPtr {
             renderer_type,
             svg_shader: svg_program_id,
             fxaa_shader: fxaa_program_id,
-            ptr: Box::new(gl_context),
+            ptr: gl_context,
         }
     }
 
-    pub fn get<'a>(&'a self) -> &'a Rc<dyn Gl> { &*self.ptr }
+    pub fn get<'a>(&'a self) -> &'a Rc<dyn Gl> { &self.ptr }
     fn as_usize(&self) -> usize { (Rc::as_ptr(&self.ptr) as *const c_void) as usize }
 }
 

@@ -24,6 +24,8 @@ use azul_core::{
     app_resources::{AppConfig, ImageRef, ImageCache},
 };
 use rust_fontconfig::FcFontCache;
+use std::sync::Mutex;
+use alloc::sync::Arc;
 
 /// Graphical application that maintains some kind of application state
 #[derive(Debug)]
@@ -44,28 +46,15 @@ pub struct App {
     pub fc_cache: LazyFcCache,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct AzAppPtr {
-    pub ptr: Box<App>
+    pub ptr: Arc<Mutex<App>>
 }
 
 impl AzAppPtr {
-    pub fn new(app: App) -> Self { Self { ptr: Box::new(app) } }
-    pub fn get(self) -> App { *self.ptr }
-}
-
-impl core::ops::Deref for AzAppPtr {
-    type Target = App;
-    fn deref(&self) -> &Self::Target {
-        &*self.ptr
-    }
-}
-
-impl core::ops::DerefMut for AzAppPtr {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut *self.ptr
-    }
+    pub fn new(app: App) -> Self { Self { ptr: Arc::new(Mutex::new(app)) } }
+    pub fn get(self) -> Option<App> { Arc::try_unwrap(self.ptr).ok()?.into_inner().ok() }
 }
 
 impl App {

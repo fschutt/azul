@@ -2453,9 +2453,10 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `MsgBox` struct
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzMsgBox {
-        pub _reserved: *mut c_void,
+        pub _reserved: usize,
     }
 
     /// Type of message box icon
@@ -2496,17 +2497,19 @@ mod dll {
     /// File picker dialog
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzFileDialog {
-        pub _reserved: *mut c_void,
+        pub _reserved: usize,
     }
 
     /// Re-export of rust-allocated (stack based) `ColorPickerDialog` struct
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzColorPickerDialog {
-        pub _reserved: *mut c_void,
+        pub _reserved: usize,
     }
 
     /// Connection to the system clipboard, on some systems this connection can be cached
@@ -8088,6 +8091,7 @@ mod dll {
         pub(crate) fn AzApp_getMonitors(_:  &AzApp) -> AzMonitorVec;
         pub(crate) fn AzApp_run(_:  AzApp, _:  AzWindowCreateOptions);
         pub(crate) fn AzApp_delete(_:  &mut AzApp);
+        pub(crate) fn AzApp_deepCopy(_:  &AzApp) -> AzApp;
         pub(crate) fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks;
         pub(crate) fn AzWindowCreateOptions_new(_:  AzLayoutCallbackType) -> AzWindowCreateOptions;
         pub(crate) fn AzWindowState_new(_:  AzLayoutCallbackType) -> AzWindowState;
@@ -8491,6 +8495,7 @@ mod dll {
         pub(crate) fn AzSystemClipboard_getStringContents(_:  &AzSystemClipboard) -> AzOptionString;
         pub(crate) fn AzSystemClipboard_setStringContents(_:  &mut AzSystemClipboard, _:  AzString) -> bool;
         pub(crate) fn AzSystemClipboard_delete(_:  &mut AzSystemClipboard);
+        pub(crate) fn AzSystemClipboard_deepCopy(_:  &AzSystemClipboard) -> AzSystemClipboard;
         pub(crate) fn AzInstant_durationSince(_:  &AzInstant, _:  AzInstant) -> AzOptionDuration;
         pub(crate) fn AzInstant_addDuration(_:  &mut AzInstant, _:  AzDuration) -> AzInstant;
         pub(crate) fn AzInstant_linearInterpolate(_:  &AzInstant, _:  AzInstant, _:  AzInstant) -> f32;
@@ -8618,6 +8623,7 @@ pub mod app {
         pub fn run(self, window: WindowCreateOptions)  { unsafe { crate::dll::AzApp_run(self, window) } }
     }
 
+    impl Clone for App { fn clone(&self) -> Self { unsafe { crate::dll::AzApp_deepCopy(self) } } }
     impl Drop for App { fn drop(&mut self) { unsafe { crate::dll::AzApp_delete(self) } } }
     /// Configuration for optional features, such as whether to enable logging or panic hooks
     
@@ -12205,6 +12211,7 @@ pub mod clipboard {
         pub fn set_string_contents(&mut self, contents: String)  -> bool { unsafe { crate::dll::AzSystemClipboard_setStringContents(self, contents) } }
     }
 
+    impl Clone for SystemClipboard { fn clone(&self) -> Self { unsafe { crate::dll::AzSystemClipboard_deepCopy(self) } } }
     impl Drop for SystemClipboard { fn drop(&mut self) { unsafe { crate::dll::AzSystemClipboard_delete(self) } } }
 }
 
