@@ -53,8 +53,32 @@ pub struct AzAppPtr {
 }
 
 impl AzAppPtr {
-    pub fn new(app: App) -> Self { Self { ptr: Arc::new(Mutex::new(app)) } }
-    pub fn get(self) -> Option<App> { Arc::try_unwrap(self.ptr).ok()?.into_inner().ok() }
+    pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
+        Self { ptr: Arc::new(Mutex::new(App::new(initial_data, app_config))) }
+    }
+
+    pub fn add_window(&mut self, create_options: WindowCreateOptions) {
+        if let Ok(mut l) = (&*self.ptr).try_lock() { l.add_window(create_options); }
+    }
+
+    pub fn add_image(&mut self, css_id: AzString, image: ImageRef) {
+        if let Ok(mut l) = (&*self.ptr).try_lock() { l.add_image(css_id, image); }
+    }
+
+    pub fn get_monitors(&self) -> MonitorVec {
+        self.ptr.lock().map(|m| m.get_monitors())
+        .unwrap_or(MonitorVec::from_const_slice(&[]))
+    }
+
+    pub fn run(&self, root_window: WindowCreateOptions) -> ! {
+        if let Ok(mut l) = self.ptr.try_lock() {
+            let mut app = App::new(l.data.clone(), l.config.clone());
+            core::mem::swap(&mut *l, &mut app);
+            app.run(root_window)
+        } else {
+            loop { }
+        }
+    }
 }
 
 impl App {

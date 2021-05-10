@@ -476,7 +476,7 @@ pub fn render_tesselated_node_gpu(
 
     use std::mem;
     use gleam::gl;
-    use azul_core::gl::{GLuint, VertexAttributeType};
+    use azul_core::gl::{GLuint, GlVoidPtrConst, VertexAttributeType};
 
     const INDEX_TYPE: GLuint = gl::UNSIGNED_INT;
 
@@ -486,8 +486,8 @@ pub fn render_tesselated_node_gpu(
 
     let texture_size = texture.size;
     let gl_context = &texture.gl_context;
-    let fxaa_shader = gl_context.fxaa_shader;
-    let svg_shader = gl_context.svg_shader;
+    let fxaa_shader = gl_context.get_fxaa_shader();
+    let svg_shader = gl_context.get_svg_shader();
 
     // start: save the OpenGL state
     let mut current_multisample = [0_u8];
@@ -526,7 +526,7 @@ pub fn render_tesselated_node_gpu(
     gl_context.buffer_data_untyped(
         gl::ARRAY_BUFFER,
         (mem::size_of::<SvgVertex>() * node.vertices.len()) as isize,
-        &node.vertices as *const _ as *const std::ffi::c_void,
+        GlVoidPtrConst { ptr: &node.vertices as *const _ as *const std::ffi::c_void },
         gl::STATIC_DRAW
     );
 
@@ -534,7 +534,7 @@ pub fn render_tesselated_node_gpu(
     gl_context.buffer_data_untyped(
         gl::ELEMENT_ARRAY_BUFFER,
         (mem::size_of::<u32>() * node.indices.len()) as isize,
-        &node.indices as *const _ as *const std::ffi::c_void,
+        GlVoidPtrConst { ptr: &node.indices as *const _ as *const std::ffi::c_void },
         gl::STATIC_DRAW
     );
 
@@ -1070,6 +1070,7 @@ impl From<SvgParseOptions> for usvg::Options {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgXmlOptions {
     pub use_single_quote: bool,
@@ -1137,6 +1138,7 @@ impl From<usvg::Error> for SvgParseError {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
 pub enum Indent {
     None,

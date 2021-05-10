@@ -2009,6 +2009,24 @@ mod dll {
         pub(crate) ptr: *mut c_void,
     }
 
+    /// Re-export of rust-allocated (stack based) `GlVoidPtrConst` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzGlVoidPtrConst {
+        pub(crate) ptr: *const c_void,
+    }
+
+    /// Re-export of rust-allocated (stack based) `GlVoidPtrMut` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzGlVoidPtrMut {
+        pub(crate) ptr: *mut c_void,
+    }
+
     /// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -5274,8 +5292,6 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzGl {
         pub(crate) ptr: *const c_void,
-        pub svg_shader: u32,
-        pub fxaa_shader: u32,
         pub renderer_type: AzRendererType,
     }
 
@@ -8089,7 +8105,7 @@ mod dll {
         pub(crate) fn AzApp_addWindow(_:  &mut AzApp, _:  AzWindowCreateOptions);
         pub(crate) fn AzApp_addImage(_:  &mut AzApp, _:  AzString, _:  AzImageRef);
         pub(crate) fn AzApp_getMonitors(_:  &AzApp) -> AzMonitorVec;
-        pub(crate) fn AzApp_run(_:  AzApp, _:  AzWindowCreateOptions);
+        pub(crate) fn AzApp_run(_:  &AzApp, _:  AzWindowCreateOptions);
         pub(crate) fn AzApp_delete(_:  &mut AzApp);
         pub(crate) fn AzApp_deepCopy(_:  &AzApp) -> AzApp;
         pub(crate) fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks;
@@ -8196,10 +8212,10 @@ mod dll {
         pub(crate) fn AzTexture_applyFxaa(_:  &mut AzTexture) -> bool;
         pub(crate) fn AzTexture_delete(_:  &mut AzTexture);
         pub(crate) fn AzGl_getType(_:  &AzGl) -> AzGlType;
-        pub(crate) fn AzGl_bufferDataUntyped(_:  &AzGl, _:  u32, _:  isize, _:  *const c_void, _:  u32);
-        pub(crate) fn AzGl_bufferSubDataUntyped(_:  &AzGl, _:  u32, _:  isize, _:  isize, _:  *const c_void);
-        pub(crate) fn AzGl_mapBuffer(_:  &AzGl, _:  u32, _:  u32) -> *mut c_void;
-        pub(crate) fn AzGl_mapBufferRange(_:  &AzGl, _:  u32, _:  isize, _:  isize, _:  u32) -> *mut c_void;
+        pub(crate) fn AzGl_bufferDataUntyped(_:  &AzGl, _:  u32, _:  isize, _:  AzGlVoidPtrConst, _:  u32);
+        pub(crate) fn AzGl_bufferSubDataUntyped(_:  &AzGl, _:  u32, _:  isize, _:  isize, _:  AzGlVoidPtrConst);
+        pub(crate) fn AzGl_mapBuffer(_:  &AzGl, _:  u32, _:  u32) -> AzGlVoidPtrMut;
+        pub(crate) fn AzGl_mapBufferRange(_:  &AzGl, _:  u32, _:  isize, _:  isize, _:  u32) -> AzGlVoidPtrMut;
         pub(crate) fn AzGl_unmapBuffer(_:  &AzGl, _:  u32) -> u8;
         pub(crate) fn AzGl_texBuffer(_:  &AzGl, _:  u32, _:  u32, _:  u32);
         pub(crate) fn AzGl_shaderSource(_:  &AzGl, _:  u32, _:  AzStringVec);
@@ -8381,7 +8397,7 @@ mod dll {
         pub(crate) fn AzGl_stencilFuncSeparate(_:  &AzGl, _:  u32, _:  u32, _:  i32, _:  u32);
         pub(crate) fn AzGl_stencilOp(_:  &AzGl, _:  u32, _:  u32, _:  u32);
         pub(crate) fn AzGl_stencilOpSeparate(_:  &AzGl, _:  u32, _:  u32, _:  u32, _:  u32);
-        pub(crate) fn AzGl_eglImageTargetTexture2DOes(_:  &AzGl, _:  u32, _:  *const c_void);
+        pub(crate) fn AzGl_eglImageTargetTexture2DOes(_:  &AzGl, _:  u32, _:  AzGlVoidPtrConst);
         pub(crate) fn AzGl_generateMipmap(_:  &AzGl, _:  u32);
         pub(crate) fn AzGl_insertEventMarkerExt(_:  &AzGl, _:  AzRefstr);
         pub(crate) fn AzGl_pushGroupMarkerExt(_:  &AzGl, _:  AzRefstr);
@@ -8411,10 +8427,10 @@ mod dll {
         pub(crate) fn AzGl_deleteVertexArraysApple(_:  &AzGl, _:  AzGLuintVecRef);
         pub(crate) fn AzGl_copyTextureChromium(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8);
         pub(crate) fn AzGl_copySubTextureChromium(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8);
-        pub(crate) fn AzGl_eglImageTargetRenderbufferStorageOes(_:  &AzGl, _:  u32, _:  *const c_void);
+        pub(crate) fn AzGl_eglImageTargetRenderbufferStorageOes(_:  &AzGl, _:  u32, _:  AzGlVoidPtrConst);
         pub(crate) fn AzGl_copyTexture3DAngle(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8);
         pub(crate) fn AzGl_copySubTexture3DAngle(_:  &AzGl, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8);
-        pub(crate) fn AzGl_bufferStorage(_:  &AzGl, _:  u32, _:  isize, _:  *const c_void, _:  u32);
+        pub(crate) fn AzGl_bufferStorage(_:  &AzGl, _:  u32, _:  isize, _:  AzGlVoidPtrConst, _:  u32);
         pub(crate) fn AzGl_flushMappedBufferRange(_:  &AzGl, _:  u32, _:  isize, _:  isize);
         pub(crate) fn AzGl_delete(_:  &mut AzGl);
         pub(crate) fn AzGl_deepCopy(_:  &AzGl) -> AzGl;
@@ -8620,7 +8636,7 @@ pub mod app {
         /// Returns a list of monitors - useful for setting the monitor that a window should spawn on.
         pub fn get_monitors(&self)  -> crate::vec::MonitorVec { unsafe { crate::dll::AzApp_getMonitors(self) } }
         /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-        pub fn run(self, window: WindowCreateOptions)  { unsafe { crate::dll::AzApp_run(self, window) } }
+        pub fn run(&self, window: WindowCreateOptions)  { unsafe { crate::dll::AzApp_run(self, window) } }
     }
 
     impl Clone for App { fn clone(&self) -> Self { unsafe { crate::dll::AzApp_deepCopy(self) } } }
@@ -11253,6 +11269,12 @@ pub mod gl {
     }
 
     impl Drop for Texture { fn drop(&mut self) { unsafe { crate::dll::AzTexture_delete(self) } } }
+    /// `GlVoidPtrConst` struct
+    
+#[doc(inline)] pub use crate::dll::AzGlVoidPtrConst as GlVoidPtrConst;
+    /// `GlVoidPtrMut` struct
+    
+#[doc(inline)] pub use crate::dll::AzGlVoidPtrMut as GlVoidPtrMut;
     /// `Gl` struct
     
 #[doc(inline)] pub use crate::dll::AzGl as Gl;
@@ -11260,13 +11282,13 @@ pub mod gl {
         /// Calls the `Gl::get_type` function.
         pub fn get_type(&self)  -> crate::gl::GlType { unsafe { crate::dll::AzGl_getType(self) } }
         /// Calls the `Gl::buffer_data_untyped` function.
-        pub fn buffer_data_untyped(&self, target: u32, size: isize, data: *const c_void, usage: u32)  { unsafe { crate::dll::AzGl_bufferDataUntyped(self, target, size, data, usage) } }
+        pub fn buffer_data_untyped(&self, target: u32, size: isize, data: GlVoidPtrConst, usage: u32)  { unsafe { crate::dll::AzGl_bufferDataUntyped(self, target, size, data, usage) } }
         /// Calls the `Gl::buffer_sub_data_untyped` function.
-        pub fn buffer_sub_data_untyped(&self, target: u32, offset: isize, size: isize, data: *const c_void)  { unsafe { crate::dll::AzGl_bufferSubDataUntyped(self, target, offset, size, data) } }
+        pub fn buffer_sub_data_untyped(&self, target: u32, offset: isize, size: isize, data: GlVoidPtrConst)  { unsafe { crate::dll::AzGl_bufferSubDataUntyped(self, target, offset, size, data) } }
         /// Calls the `Gl::map_buffer` function.
-        pub fn map_buffer(&self, target: u32, access: u32)  -> *mut c_void { unsafe { crate::dll::AzGl_mapBuffer(self, target, access) } }
+        pub fn map_buffer(&self, target: u32, access: u32)  -> crate::gl::GlVoidPtrMut { unsafe { crate::dll::AzGl_mapBuffer(self, target, access) } }
         /// Calls the `Gl::map_buffer_range` function.
-        pub fn map_buffer_range(&self, target: u32, offset: isize, length: isize, access: u32)  -> *mut c_void { unsafe { crate::dll::AzGl_mapBufferRange(self, target, offset, length, access) } }
+        pub fn map_buffer_range(&self, target: u32, offset: isize, length: isize, access: u32)  -> crate::gl::GlVoidPtrMut { unsafe { crate::dll::AzGl_mapBufferRange(self, target, offset, length, access) } }
         /// Calls the `Gl::unmap_buffer` function.
         pub fn unmap_buffer(&self, target: u32)  -> u8 { unsafe { crate::dll::AzGl_unmapBuffer(self, target) } }
         /// Calls the `Gl::tex_buffer` function.
@@ -11630,7 +11652,7 @@ pub mod gl {
         /// Calls the `Gl::stencil_op_separate` function.
         pub fn stencil_op_separate(&self, face: u32, sfail: u32, dpfail: u32, dppass: u32)  { unsafe { crate::dll::AzGl_stencilOpSeparate(self, face, sfail, dpfail, dppass) } }
         /// Calls the `Gl::egl_image_target_texture2d_oes` function.
-        pub fn egl_image_target_texture2d_oes(&self, target: u32, image: *const c_void)  { unsafe { crate::dll::AzGl_eglImageTargetTexture2DOes(self, target, image) } }
+        pub fn egl_image_target_texture2d_oes(&self, target: u32, image: GlVoidPtrConst)  { unsafe { crate::dll::AzGl_eglImageTargetTexture2DOes(self, target, image) } }
         /// Calls the `Gl::generate_mipmap` function.
         pub fn generate_mipmap(&self, target: u32)  { unsafe { crate::dll::AzGl_generateMipmap(self, target) } }
         /// Calls the `Gl::insert_event_marker_ext` function.
@@ -11690,13 +11712,13 @@ pub mod gl {
         /// Calls the `Gl::copy_sub_texture_chromium` function.
         pub fn copy_sub_texture_chromium(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, x: i32, y: i32, width: i32, height: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::AzGl_copySubTextureChromium(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
         /// Calls the `Gl::egl_image_target_renderbuffer_storage_oes` function.
-        pub fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: *const c_void)  { unsafe { crate::dll::AzGl_eglImageTargetRenderbufferStorageOes(self, target, image) } }
+        pub fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: GlVoidPtrConst)  { unsafe { crate::dll::AzGl_eglImageTargetRenderbufferStorageOes(self, target, image) } }
         /// Calls the `Gl::copy_texture_3d_angle` function.
         pub fn copy_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::AzGl_copyTexture3DAngle(self, source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
         /// Calls the `Gl::copy_sub_texture_3d_angle` function.
         pub fn copy_sub_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::AzGl_copySubTexture3DAngle(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
         /// Calls the `Gl::buffer_storage` function.
-        pub fn buffer_storage(&self, target: u32, size: isize, data: *const c_void, flags: u32)  { unsafe { crate::dll::AzGl_bufferStorage(self, target, size, data, flags) } }
+        pub fn buffer_storage(&self, target: u32, size: isize, data: GlVoidPtrConst, flags: u32)  { unsafe { crate::dll::AzGl_bufferStorage(self, target, size, data, flags) } }
         /// Calls the `Gl::flush_mapped_buffer_range` function.
         pub fn flush_mapped_buffer_range(&self, target: u32, offset: isize, length: isize)  { unsafe { crate::dll::AzGl_flushMappedBufferRange(self, target, offset, length) } }
     }

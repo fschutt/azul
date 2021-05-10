@@ -1326,6 +1326,16 @@ struct AzCssPropertyCache {
 };
 typedef struct AzCssPropertyCache AzCssPropertyCache;
 
+struct AzGlVoidPtrConst {
+    void* ptr;
+};
+typedef struct AzGlVoidPtrConst AzGlVoidPtrConst;
+
+struct AzGlVoidPtrMut {
+    void* restrict ptr;
+};
+typedef struct AzGlVoidPtrMut AzGlVoidPtrMut;
+
 struct AzGlShaderPrecisionFormatReturn {
     int32_t _0;
     int32_t _1;
@@ -5811,8 +5821,6 @@ typedef struct AzParentWithNodeDepth AzParentWithNodeDepth;
 
 struct AzGl {
     void* ptr;
-    uint32_t svg_shader;
-    uint32_t fxaa_shader;
     AzRendererType renderer_type;
 };
 typedef struct AzGl AzGl;
@@ -9933,7 +9941,7 @@ extern DLLIMPORT AzApp AzApp_new(AzRefAny  data, AzAppConfig  config);
 extern DLLIMPORT void AzApp_addWindow(AzApp* restrict app, AzWindowCreateOptions  window);
 extern DLLIMPORT void AzApp_addImage(AzApp* restrict app, AzString  id, AzImageRef  image);
 extern DLLIMPORT AzMonitorVec AzApp_getMonitors(AzApp* const app);
-extern DLLIMPORT void AzApp_run(const AzApp app, AzWindowCreateOptions  window);
+extern DLLIMPORT void AzApp_run(AzApp* const app, AzWindowCreateOptions  window);
 extern DLLIMPORT void AzApp_delete(AzApp* restrict instance);
 extern DLLIMPORT AzApp AzApp_deepCopy(AzApp* const instance);
 extern DLLIMPORT AzSystemCallbacks AzSystemCallbacks_libraryInternal();
@@ -10040,10 +10048,10 @@ extern DLLIMPORT bool  AzTexture_drawClipMask(AzTexture* restrict texture, AzTes
 extern DLLIMPORT bool  AzTexture_applyFxaa(AzTexture* restrict texture);
 extern DLLIMPORT void AzTexture_delete(AzTexture* restrict instance);
 extern DLLIMPORT AzGlType AzGl_getType(AzGl* const gl);
-extern DLLIMPORT void AzGl_bufferDataUntyped(AzGl* const gl, uint32_t target, ssize_t size, void* data, uint32_t usage);
-extern DLLIMPORT void AzGl_bufferSubDataUntyped(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t size, void* data);
-extern DLLIMPORT void AzGl_mapBuffer(AzGl* const gl, uint32_t target, uint32_t access);
-extern DLLIMPORT void AzGl_mapBufferRange(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t length, uint32_t access);
+extern DLLIMPORT void AzGl_bufferDataUntyped(AzGl* const gl, uint32_t target, ssize_t size, AzGlVoidPtrConst  data, uint32_t usage);
+extern DLLIMPORT void AzGl_bufferSubDataUntyped(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t size, AzGlVoidPtrConst  data);
+extern DLLIMPORT AzGlVoidPtrMut AzGl_mapBuffer(AzGl* const gl, uint32_t target, uint32_t access);
+extern DLLIMPORT AzGlVoidPtrMut AzGl_mapBufferRange(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t length, uint32_t access);
 extern DLLIMPORT uint8_t AzGl_unmapBuffer(AzGl* const gl, uint32_t target);
 extern DLLIMPORT void AzGl_texBuffer(AzGl* const gl, uint32_t target, uint32_t internal_format, uint32_t buffer);
 extern DLLIMPORT void AzGl_shaderSource(AzGl* const gl, uint32_t shader, AzStringVec  strings);
@@ -10225,7 +10233,7 @@ extern DLLIMPORT void AzGl_stencilFunc(AzGl* const gl, uint32_t func, int32_t re
 extern DLLIMPORT void AzGl_stencilFuncSeparate(AzGl* const gl, uint32_t face, uint32_t func, int32_t ref_, uint32_t mask);
 extern DLLIMPORT void AzGl_stencilOp(AzGl* const gl, uint32_t sfail, uint32_t dpfail, uint32_t dppass);
 extern DLLIMPORT void AzGl_stencilOpSeparate(AzGl* const gl, uint32_t face, uint32_t sfail, uint32_t dpfail, uint32_t dppass);
-extern DLLIMPORT void AzGl_eglImageTargetTexture2DOes(AzGl* const gl, uint32_t target, void* image);
+extern DLLIMPORT void AzGl_eglImageTargetTexture2DOes(AzGl* const gl, uint32_t target, AzGlVoidPtrConst  image);
 extern DLLIMPORT void AzGl_generateMipmap(AzGl* const gl, uint32_t target);
 extern DLLIMPORT void AzGl_insertEventMarkerExt(AzGl* const gl, AzRefstr  message);
 extern DLLIMPORT void AzGl_pushGroupMarkerExt(AzGl* const gl, AzRefstr  message);
@@ -10255,10 +10263,10 @@ extern DLLIMPORT void AzGl_bindVertexArrayApple(AzGl* const gl, uint32_t vao);
 extern DLLIMPORT void AzGl_deleteVertexArraysApple(AzGl* const gl, AzGLuintVecRef  vertex_arrays);
 extern DLLIMPORT void AzGl_copyTextureChromium(AzGl* const gl, uint32_t source_id, int32_t source_level, uint32_t dest_target, uint32_t dest_id, int32_t dest_level, int32_t internal_format, uint32_t dest_type, uint8_t unpack_flip_y, uint8_t unpack_premultiply_alpha, uint8_t unpack_unmultiply_alpha);
 extern DLLIMPORT void AzGl_copySubTextureChromium(AzGl* const gl, uint32_t source_id, int32_t source_level, uint32_t dest_target, uint32_t dest_id, int32_t dest_level, int32_t x_offset, int32_t y_offset, int32_t x, int32_t y, int32_t width, int32_t height, uint8_t unpack_flip_y, uint8_t unpack_premultiply_alpha, uint8_t unpack_unmultiply_alpha);
-extern DLLIMPORT void AzGl_eglImageTargetRenderbufferStorageOes(AzGl* const gl, uint32_t target, void* image);
+extern DLLIMPORT void AzGl_eglImageTargetRenderbufferStorageOes(AzGl* const gl, uint32_t target, AzGlVoidPtrConst  image);
 extern DLLIMPORT void AzGl_copyTexture3DAngle(AzGl* const gl, uint32_t source_id, int32_t source_level, uint32_t dest_target, uint32_t dest_id, int32_t dest_level, int32_t internal_format, uint32_t dest_type, uint8_t unpack_flip_y, uint8_t unpack_premultiply_alpha, uint8_t unpack_unmultiply_alpha);
 extern DLLIMPORT void AzGl_copySubTexture3DAngle(AzGl* const gl, uint32_t source_id, int32_t source_level, uint32_t dest_target, uint32_t dest_id, int32_t dest_level, int32_t x_offset, int32_t y_offset, int32_t z_offset, int32_t x, int32_t y, int32_t z, int32_t width, int32_t height, int32_t depth, uint8_t unpack_flip_y, uint8_t unpack_premultiply_alpha, uint8_t unpack_unmultiply_alpha);
-extern DLLIMPORT void AzGl_bufferStorage(AzGl* const gl, uint32_t target, ssize_t size, void* data, uint32_t flags);
+extern DLLIMPORT void AzGl_bufferStorage(AzGl* const gl, uint32_t target, ssize_t size, AzGlVoidPtrConst  data, uint32_t flags);
 extern DLLIMPORT void AzGl_flushMappedBufferRange(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t length);
 extern DLLIMPORT void AzGl_delete(AzGl* restrict instance);
 extern DLLIMPORT AzGl AzGl_deepCopy(AzGl* const instance);

@@ -1011,7 +1011,7 @@ impl Dom {
     }
 }
 
-impl_option!(Dom, OptionDom, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(Dom, OptionDom, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl_vec!(Dom, DomVec, DomVecDestructor);
 impl_vec_clone!(Dom, DomVec, DomVecDestructor);

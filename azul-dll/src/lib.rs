@@ -21,7 +21,7 @@ use core::ffi::c_void;
 pub type AzAppTT = azul_impl::app::AzAppPtr;
 pub use AzAppTT as AzApp;
 /// Creates a new App instance from the given `AppConfig`
-#[no_mangle] pub extern "C" fn AzApp_new(data: AzRefAny, config: AzAppConfig) -> AzApp { azul_impl::app::AzAppPtr::new(azul_impl::app::App::new(data, config)) }
+#[no_mangle] pub extern "C" fn AzApp_new(data: AzRefAny, config: AzAppConfig) -> AzApp { azul_impl::app::AzAppPtr::new(data, config) }
 /// Spawn a new window on the screen when the app is run.
 #[no_mangle] pub extern "C" fn AzApp_addWindow(app: &mut AzApp, window: AzWindowCreateOptions) { app.add_window(window) }
 /// Adds a new image identified by an ID to the image cache
@@ -29,7 +29,7 @@ pub use AzAppTT as AzApp;
 /// Returns a list of monitors - useful for setting the monitor that a window should spawn on.
 #[no_mangle] pub extern "C" fn AzApp_getMonitors(app: &AzApp) -> AzMonitorVec { app.get_monitors() }
 /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-#[no_mangle] pub extern "C" fn AzApp_run(app: AzApp, window: AzWindowCreateOptions) { app.get().run(window) }
+#[no_mangle] pub extern "C" fn AzApp_run(app: &AzApp, window: AzWindowCreateOptions) { app.run(window) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzApp_delete(object: &mut AzApp) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
@@ -1443,19 +1443,27 @@ pub use AzTextureTT as AzTexture;
 /// Destructor: Takes ownership of the `Texture` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzTexture_delete(object: &mut AzTexture) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `GlVoidPtrConst` struct
+pub type AzGlVoidPtrConstTT = azul_impl::gl::GlVoidPtrConst;
+pub use AzGlVoidPtrConstTT as AzGlVoidPtrConst;
+
+/// Re-export of rust-allocated (stack based) `GlVoidPtrMut` struct
+pub type AzGlVoidPtrMutTT = azul_impl::gl::GlVoidPtrMut;
+pub use AzGlVoidPtrMutTT as AzGlVoidPtrMut;
+
 /// Re-export of rust-allocated (stack based) `Gl` struct
 pub type AzGlTT = azul_impl::gl::GlContextPtr;
 pub use AzGlTT as AzGl;
 /// Equivalent to the Rust `Gl::get_type()` function.
 #[no_mangle] pub extern "C" fn AzGl_getType(gl: &AzGl) -> AzGlType { gl.get_type() }
 /// Equivalent to the Rust `Gl::buffer_data_untyped()` function.
-#[no_mangle] pub extern "C" fn AzGl_bufferDataUntyped(gl: &AzGl, target: u32, size: isize, data: *const c_void, usage: u32) { gl.buffer_data_untyped(target, size, data, usage) }
+#[no_mangle] pub extern "C" fn AzGl_bufferDataUntyped(gl: &AzGl, target: u32, size: isize, data: AzGlVoidPtrConst, usage: u32) { gl.buffer_data_untyped(target, size, data, usage) }
 /// Equivalent to the Rust `Gl::buffer_sub_data_untyped()` function.
-#[no_mangle] pub extern "C" fn AzGl_bufferSubDataUntyped(gl: &AzGl, target: u32, offset: isize, size: isize, data: *const c_void) { gl.buffer_sub_data_untyped(target, offset, size, data) }
+#[no_mangle] pub extern "C" fn AzGl_bufferSubDataUntyped(gl: &AzGl, target: u32, offset: isize, size: isize, data: AzGlVoidPtrConst) { gl.buffer_sub_data_untyped(target, offset, size, data) }
 /// Equivalent to the Rust `Gl::map_buffer()` function.
-#[no_mangle] pub extern "C" fn AzGl_mapBuffer(gl: &AzGl, target: u32, access: u32) -> *mut c_void { gl.map_buffer(target, access) }
+#[no_mangle] pub extern "C" fn AzGl_mapBuffer(gl: &AzGl, target: u32, access: u32) -> AzGlVoidPtrMut { gl.map_buffer(target, access) }
 /// Equivalent to the Rust `Gl::map_buffer_range()` function.
-#[no_mangle] pub extern "C" fn AzGl_mapBufferRange(gl: &AzGl, target: u32, offset: isize, length: isize, access: u32) -> *mut c_void { gl.map_buffer_range(target, offset, length, access) }
+#[no_mangle] pub extern "C" fn AzGl_mapBufferRange(gl: &AzGl, target: u32, offset: isize, length: isize, access: u32) -> AzGlVoidPtrMut { gl.map_buffer_range(target, offset, length, access) }
 /// Equivalent to the Rust `Gl::unmap_buffer()` function.
 #[no_mangle] pub extern "C" fn AzGl_unmapBuffer(gl: &AzGl, target: u32) -> u8 { gl.unmap_buffer(target) }
 /// Equivalent to the Rust `Gl::tex_buffer()` function.
@@ -1819,7 +1827,7 @@ pub use AzGlTT as AzGl;
 /// Equivalent to the Rust `Gl::stencil_op_separate()` function.
 #[no_mangle] pub extern "C" fn AzGl_stencilOpSeparate(gl: &AzGl, face: u32, sfail: u32, dpfail: u32, dppass: u32) { gl.stencil_op_separate(face, sfail, dpfail, dppass) }
 /// Equivalent to the Rust `Gl::egl_image_target_texture2d_oes()` function.
-#[no_mangle] pub extern "C" fn AzGl_eglImageTargetTexture2DOes(gl: &AzGl, target: u32, image: *const c_void) { gl.egl_image_target_texture2d_oes(target, image) }
+#[no_mangle] pub extern "C" fn AzGl_eglImageTargetTexture2DOes(gl: &AzGl, target: u32, image: AzGlVoidPtrConst) { gl.egl_image_target_texture2d_oes(target, image) }
 /// Equivalent to the Rust `Gl::generate_mipmap()` function.
 #[no_mangle] pub extern "C" fn AzGl_generateMipmap(gl: &AzGl, target: u32) { gl.generate_mipmap(target) }
 /// Equivalent to the Rust `Gl::insert_event_marker_ext()` function.
@@ -1879,13 +1887,13 @@ pub use AzGlTT as AzGl;
 /// Equivalent to the Rust `Gl::copy_sub_texture_chromium()` function.
 #[no_mangle] pub extern "C" fn AzGl_copySubTextureChromium(gl: &AzGl, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, x: i32, y: i32, width: i32, height: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { gl.copy_sub_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
 /// Equivalent to the Rust `Gl::egl_image_target_renderbuffer_storage_oes()` function.
-#[no_mangle] pub extern "C" fn AzGl_eglImageTargetRenderbufferStorageOes(gl: &AzGl, target: u32, image: *const c_void) { gl.egl_image_target_renderbuffer_storage_oes(target, image) }
+#[no_mangle] pub extern "C" fn AzGl_eglImageTargetRenderbufferStorageOes(gl: &AzGl, target: u32, image: AzGlVoidPtrConst) { gl.egl_image_target_renderbuffer_storage_oes(target, image) }
 /// Equivalent to the Rust `Gl::copy_texture_3d_angle()` function.
 #[no_mangle] pub extern "C" fn AzGl_copyTexture3DAngle(gl: &AzGl, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { gl.copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
 /// Equivalent to the Rust `Gl::copy_sub_texture_3d_angle()` function.
 #[no_mangle] pub extern "C" fn AzGl_copySubTexture3DAngle(gl: &AzGl, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { gl.copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
 /// Equivalent to the Rust `Gl::buffer_storage()` function.
-#[no_mangle] pub extern "C" fn AzGl_bufferStorage(gl: &AzGl, target: u32, size: isize, data: *const c_void, flags: u32) { gl.buffer_storage(target, size, data, flags) }
+#[no_mangle] pub extern "C" fn AzGl_bufferStorage(gl: &AzGl, target: u32, size: isize, data: AzGlVoidPtrConst, flags: u32) { gl.buffer_storage(target, size, data, flags) }
 /// Equivalent to the Rust `Gl::flush_mapped_buffer_range()` function.
 #[no_mangle] pub extern "C" fn AzGl_flushMappedBufferRange(gl: &AzGl, target: u32, offset: isize, length: isize) { gl.flush_mapped_buffer_range(target, offset, length) }
 /// Destructor: Takes ownership of the `Gl` pointer and deletes it.
@@ -4576,6 +4584,18 @@ mod test_sizes {
         pub(crate) ptr: *mut c_void,
     }
 
+    /// Re-export of rust-allocated (stack based) `GlVoidPtrConst` struct
+    #[repr(C)]
+    pub struct AzGlVoidPtrConst {
+        pub(crate) ptr: *const c_void,
+    }
+
+    /// Re-export of rust-allocated (stack based) `GlVoidPtrMut` struct
+    #[repr(C)]
+    pub struct AzGlVoidPtrMut {
+        pub(crate) ptr: *mut c_void,
+    }
+
     /// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
     #[repr(C)]
     pub struct AzGlShaderPrecisionFormatReturn {
@@ -6944,8 +6964,6 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzGl {
         pub(crate) ptr: *const c_void,
-        pub svg_shader: u32,
-        pub fxaa_shader: u32,
         pub renderer_type: AzRendererType,
     }
 
@@ -9279,6 +9297,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeState>(), "AzStyledNodeState"), (Layout::new::<AzStyledNodeState>(), "AzStyledNodeState"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzTagId>(), "AzTagId"), (Layout::new::<AzTagId>(), "AzTagId"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::CssPropertyCachePtr>(), "AzCssPropertyCache"), (Layout::new::<AzCssPropertyCache>(), "AzCssPropertyCache"));
+        assert_eq!((Layout::new::<azul_impl::gl::GlVoidPtrConst>(), "AzGlVoidPtrConst"), (Layout::new::<AzGlVoidPtrConst>(), "AzGlVoidPtrConst"));
+        assert_eq!((Layout::new::<azul_impl::gl::GlVoidPtrMut>(), "AzGlVoidPtrMut"), (Layout::new::<AzGlVoidPtrMut>(), "AzGlVoidPtrMut"));
         assert_eq!((Layout::new::<azul_impl::gl::GlShaderPrecisionFormatReturn>(), "AzGlShaderPrecisionFormatReturn"), (Layout::new::<AzGlShaderPrecisionFormatReturn>(), "AzGlShaderPrecisionFormatReturn"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttributeType>(), "AzVertexAttributeType"), (Layout::new::<AzVertexAttributeType>(), "AzVertexAttributeType"));
         assert_eq!((Layout::new::<azul_impl::gl::IndexBufferFormat>(), "AzIndexBufferFormat"), (Layout::new::<AzIndexBufferFormat>(), "AzIndexBufferFormat"));

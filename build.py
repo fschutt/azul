@@ -1192,7 +1192,7 @@ def generate_python_api(api_data, structs_map, functions_map):
                                 return_type_str = return_type
                             pyo3_code += "    #[staticmethod]\r\n"
                             pyo3_code += "    fn " + constructor_name + "(" + py_args + ") -> " + return_type_str + " {\r\n"
-                            pyo3_code += "        " + format_py_body(module_name, class_name, constructor_name, fn_args, api_data[version], returns_option, returns_error, constructor=True) + "\r\n"
+                            pyo3_code += "        " + format_py_body(module_name, class_name, constructor_name, fn_args, api_data[version], return_type_str, returns_option, returns_error, constructor=True) + "\r\n"
                             pyo3_code += "    }\r\n"
 
                     if "functions" in struct.keys():
@@ -1224,7 +1224,7 @@ def generate_python_api(api_data, structs_map, functions_map):
                             if not(return_type is None):
                                 return_type_str = return_type
                             pyo3_code += "    fn " + function_name + "(" + self_arg + format_py_args(fn_args, api_data[version], constructor=False) + ") -> " + return_type_str + " {\r\n"
-                            pyo3_code += "        " + format_py_body(module_name, class_name, function_name, fn_args, api_data[version], returns_option, returns_error, constructor=False) + "\r\n"
+                            pyo3_code += "        " + format_py_body(module_name, class_name, function_name, fn_args, api_data[version], return_type_str, returns_option, returns_error, constructor=False) + "\r\n"
                             pyo3_code += "    }\r\n"
 
                     pyo3_code += "}\r\n"
@@ -1324,9 +1324,9 @@ def format_py_args(fn_args, api_data, constructor=False):
         f_type = analyzed_fn_type[1]
 
         ref = ""
-        if analyzed_fn_type[0] == "*const":
-            ref = "& "
-        elif analyzed_fn_type[0] == "*mut":
+        if analyzed_fn_type[0].strip() == "*const":
+            ref = "&"
+        elif analyzed_fn_type[0].strip() == "*mut":
             ref = "&mut "
 
         f_real_type = ""
@@ -1391,7 +1391,7 @@ def format_py_return(return_type, api_data, errlist, constructor=False):
                 return_type_str = return_type_str + "EnumWrapper"
             return (return_type_str, None, None)
 
-def format_py_body(module_name, class_name, function_name, fn_args, api_data, returns_option=None, returns_error=None, constructor=False):
+def format_py_body(module_name, class_name, function_name, fn_args, api_data, return_type_str, returns_option=None, returns_error=None, constructor=False):
 
     # convert input "String" into azul-internal AzStrings
     string_conversions = ""
@@ -1415,7 +1415,12 @@ def format_py_body(module_name, class_name, function_name, fn_args, api_data, re
         # function throws an error: cannot transmute, use match Err { ... }
         fn_body += "let m: " + prefix + returns_option + " = unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) };\r\n"
         fn_body += "        match m {\r\n"
-        fn_body += "            " + prefix + returns_option + "::Some(s) => Some(unsafe { mem::transmute(s) }),\r\n"
+        fn_body += "            " + prefix + returns_option + "::Some(s) => Some("
+        if returns_option == "OptionString":
+            fn_body += "{ let s: AzString = unsafe { mem::transmute(s) }; s.into() }"
+        else:
+            fn_body += "unsafe { mem::transmute(s) }"
+        fn_body += "),\r\n"
         fn_body += "            " + prefix + returns_option + "::None => None,\r\n"
         fn_body += "        }\r\n"
     elif not(returns_error is None):
@@ -1426,7 +1431,10 @@ def format_py_body(module_name, class_name, function_name, fn_args, api_data, re
         fn_body += "            " + prefix + returns_error + "::Err(e) => Err(e.into()),\r\n"
         fn_body += "        }\r\n"
     else:
-        fn_body += "unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) }"
+        if return_type_str == "String":
+            fn_body += "let s: AzString = unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) }; s.into()"
+        else:
+            fn_body += "unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) }"
     return fn_body
 
 
