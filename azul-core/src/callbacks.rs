@@ -191,7 +191,7 @@ pub struct RefAny {
     pub sharing_info: RefCount,
 }
 
-impl_option!(RefAny, OptionRefAny, copy = false, [Debug, Hash, PartialEq, PartialOrd, Ord, Eq]);
+impl_option!(RefAny, OptionRefAny, copy = false, [Debug, Hash, Clone, PartialEq, PartialOrd, Ord, Eq]);
 
 // the refcount of RefAny is atomic, therefore `RefAny` is not `Sync`, but it is `Send`
 unsafe impl Send for RefAny { }
@@ -1797,7 +1797,7 @@ impl IFrameCallbackInfo {
     fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache { unsafe { &*self.image_cache } }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct IFrameCallbackReturn {
     pub dom: StyledDom,

@@ -9592,7 +9592,7 @@ impl AzApp {
             mem::transmute(window),
         )) }
     }
-    fn add_image(&mut self, id: String, image: AzImageRef) -> () {
+    fn add_image(&mut self, id: AzString, image: AzImageRef) -> () {
         let id: AzString = id.into();
         unsafe { mem::transmute(crate::AzApp_addImage(
             mem::transmute(self),
@@ -10468,7 +10468,7 @@ impl AzCallbackInfo {
             mem::transmute(scroll_position),
         )) }
     }
-    fn set_string_contents(&mut self, node_id: AzDomNodeId, string: String) -> () {
+    fn set_string_contents(&mut self, node_id: AzDomNodeId, string: AzString) -> () {
         let string: AzString = string.into();
         unsafe { mem::transmute(crate::AzCallbackInfo_setStringContents(
             mem::transmute(self),
@@ -10476,7 +10476,7 @@ impl AzCallbackInfo {
             mem::transmute(string),
         )) }
     }
-    fn add_image(&mut self, id: String, image: AzImageRef) -> () {
+    fn add_image(&mut self, id: AzString, image: AzImageRef) -> () {
         let id: AzString = id.into();
         unsafe { mem::transmute(crate::AzCallbackInfo_addImage(
             mem::transmute(self),
@@ -10484,14 +10484,14 @@ impl AzCallbackInfo {
             mem::transmute(image),
         )) }
     }
-    fn has_image(&self, id: String) -> bool {
+    fn has_image(&self, id: AzString) -> bool {
         let id: AzString = id.into();
         unsafe { mem::transmute(crate::AzCallbackInfo_hasImage(
             mem::transmute(self),
             mem::transmute(id),
         )) }
     }
-    fn get_image(&self, id: String) -> Option<AzImageRef> {
+    fn get_image(&self, id: AzString) -> Option<AzImageRef> {
         let id: AzString = id.into();
         let m: AzOptionImageRef = unsafe { mem::transmute(crate::AzCallbackInfo_getImage(
             mem::transmute(self),
@@ -10510,7 +10510,7 @@ impl AzCallbackInfo {
             mem::transmute(new_image),
         )) }
     }
-    fn delete_image(&mut self, id: String) -> () {
+    fn delete_image(&mut self, id: AzString) -> () {
         let id: AzString = id.into();
         unsafe { mem::transmute(crate::AzCallbackInfo_deleteImage(
             mem::transmute(self),
@@ -10844,10 +10844,10 @@ impl AzRefAny {
             mem::transmute(self),
         )) }
     }
-    fn get_type_name(&self) -> String {
-        let s: AzString = unsafe { mem::transmute(crate::AzRefAny_getTypeName(
+    fn get_type_name(&self) -> AzString {
+        unsafe { mem::transmute(crate::AzRefAny_getTypeName(
             mem::transmute(self),
-        )) }; s.into()
+        )) }
     }
 }
 
@@ -10868,7 +10868,7 @@ impl AzLayoutCallbackInfo {
             mem::transmute(self),
         )) }
     }
-    fn get_image(&self, id: String) -> Option<AzImageRef> {
+    fn get_image(&self, id: AzString) -> Option<AzImageRef> {
         let id: AzString = id.into();
         let m: AzOptionImageRef = unsafe { mem::transmute(crate::AzLayoutCallbackInfo_getImage(
             mem::transmute(self),
@@ -11264,7 +11264,7 @@ impl AzCss {
         unsafe { mem::transmute(crate::AzCss_empty()) }
     }
     #[staticmethod]
-    fn from_string(s: String) -> AzCss {
+    fn from_string(s: AzString) -> AzCss {
         let s: AzString = s.into();
         unsafe { mem::transmute(crate::AzCss_fromString(
             mem::transmute(s),
@@ -11439,16 +11439,16 @@ impl AzAnimationInterpolationFunctionEnumWrapper {
 #[pymethods]
 impl AzColorU {
     #[staticmethod]
-    fn from_str(string: String) -> AzColorU {
+    fn from_str(string: AzString) -> AzColorU {
         let string: AzString = string.into();
         unsafe { mem::transmute(crate::AzColorU_fromStr(
             mem::transmute(string),
         )) }
     }
-    fn to_hash(&self) -> String {
-        let s: AzString = unsafe { mem::transmute(crate::AzColorU_toHash(
+    fn to_hash(&self) -> AzString {
+        unsafe { mem::transmute(crate::AzColorU_toHash(
             mem::transmute(self),
-        )) }; s.into()
+        )) }
     }
 }
 
@@ -12968,14 +12968,14 @@ impl AzStyledDom {
         unsafe { mem::transmute(crate::AzStyledDom_default()) }
     }
     #[staticmethod]
-    fn from_xml(xml_string: String) -> AzStyledDom {
+    fn from_xml(xml_string: AzString) -> AzStyledDom {
         let xml_string: AzString = xml_string.into();
         unsafe { mem::transmute(crate::AzStyledDom_fromXml(
             mem::transmute(xml_string),
         )) }
     }
     #[staticmethod]
-    fn from_file(xml_file_path: String) -> AzStyledDom {
+    fn from_file(xml_file_path: AzString) -> AzStyledDom {
         let xml_file_path: AzString = xml_file_path.into();
         unsafe { mem::transmute(crate::AzStyledDom_fromFile(
             mem::transmute(xml_file_path),
@@ -12998,10 +12998,10 @@ impl AzStyledDom {
             mem::transmute(self),
         )) }
     }
-    fn get_html_string(&self) -> String {
-        let s: AzString = unsafe { mem::transmute(crate::AzStyledDom_getHtmlString(
+    fn get_html_string(&self) -> AzString {
+        unsafe { mem::transmute(crate::AzStyledDom_getHtmlString(
             mem::transmute(self),
-        )) }; s.into()
+        )) }
     }
 }
 
@@ -13095,7 +13095,8 @@ impl AzGl {
             mem::transmute(mode),
         )) }
     }
-    fn read_pixels_into_buffer(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32, dst_buffer: AzU8VecRefMut) -> () {
+    fn read_pixels_into_buffer(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32, dst_buffer: &mut Vec<u8>) -> () {
+        let dst_buffer: &mut Vec<u8> = dst_buffer.into();
         unsafe { mem::transmute(crate::AzGl_readPixelsIntoBuffer(
             mem::transmute(self),
             mem::transmute(x),
@@ -13234,37 +13235,43 @@ impl AzGl {
             mem::transmute(pname),
         )) }
     }
-    fn delete_queries(&self, queries: AzGLuintVecRef) -> () {
+    fn delete_queries(&self, queries: &Vec<u32>) -> () {
+        let queries: &Vec<u32> = queries.into();
         unsafe { mem::transmute(crate::AzGl_deleteQueries(
             mem::transmute(self),
             mem::transmute(queries),
         )) }
     }
-    fn delete_vertex_arrays(&self, vertex_arrays: AzGLuintVecRef) -> () {
+    fn delete_vertex_arrays(&self, vertex_arrays: &Vec<u32>) -> () {
+        let vertex_arrays: &Vec<u32> = vertex_arrays.into();
         unsafe { mem::transmute(crate::AzGl_deleteVertexArrays(
             mem::transmute(self),
             mem::transmute(vertex_arrays),
         )) }
     }
-    fn delete_buffers(&self, buffers: AzGLuintVecRef) -> () {
+    fn delete_buffers(&self, buffers: &Vec<u32>) -> () {
+        let buffers: &Vec<u32> = buffers.into();
         unsafe { mem::transmute(crate::AzGl_deleteBuffers(
             mem::transmute(self),
             mem::transmute(buffers),
         )) }
     }
-    fn delete_renderbuffers(&self, renderbuffers: AzGLuintVecRef) -> () {
+    fn delete_renderbuffers(&self, renderbuffers: &Vec<u32>) -> () {
+        let renderbuffers: &Vec<u32> = renderbuffers.into();
         unsafe { mem::transmute(crate::AzGl_deleteRenderbuffers(
             mem::transmute(self),
             mem::transmute(renderbuffers),
         )) }
     }
-    fn delete_framebuffers(&self, framebuffers: AzGLuintVecRef) -> () {
+    fn delete_framebuffers(&self, framebuffers: &Vec<u32>) -> () {
+        let framebuffers: &Vec<u32> = framebuffers.into();
         unsafe { mem::transmute(crate::AzGl_deleteFramebuffers(
             mem::transmute(self),
             mem::transmute(framebuffers),
         )) }
     }
-    fn delete_textures(&self, textures: AzGLuintVecRef) -> () {
+    fn delete_textures(&self, textures: &Vec<u32>) -> () {
+        let textures: &Vec<u32> = textures.into();
         unsafe { mem::transmute(crate::AzGl_deleteTextures(
             mem::transmute(self),
             mem::transmute(textures),
@@ -13307,7 +13314,8 @@ impl AzGl {
             mem::transmute(shader),
         )) }
     }
-    fn bind_attrib_location(&self, program: u32, index: u32, name: AzRefstr) -> () {
+    fn bind_attrib_location(&self, program: u32, index: u32, name: &str) -> () {
+        let name: &str = name.into();
         unsafe { mem::transmute(crate::AzGl_bindAttribLocation(
             mem::transmute(self),
             mem::transmute(program),
@@ -13323,7 +13331,8 @@ impl AzGl {
             mem::transmute(result),
         )) }
     }
-    fn get_uniform_fv(&self, program: u32, location: i32, result: AzGLfloatVecRefMut) -> () {
+    fn get_uniform_fv(&self, program: u32, location: i32, result: &mut Vec<f32>) -> () {
+        let result: &mut Vec<f32> = result.into();
         unsafe { mem::transmute(crate::AzGl_getUniformFv(
             mem::transmute(self),
             mem::transmute(program),
@@ -13331,14 +13340,16 @@ impl AzGl {
             mem::transmute(result),
         )) }
     }
-    fn get_uniform_block_index(&self, program: u32, name: AzRefstr) -> u32 {
+    fn get_uniform_block_index(&self, program: u32, name: &str) -> u32 {
+        let name: &str = name.into();
         unsafe { mem::transmute(crate::AzGl_getUniformBlockIndex(
             mem::transmute(self),
             mem::transmute(program),
             mem::transmute(name),
         )) }
     }
-    fn get_uniform_indices(&self, program: u32, names: AzRefstrVecRef) -> AzGLuintVec {
+    fn get_uniform_indices(&self, program: u32, names: &Vec<&str>) -> AzGLuintVec {
+        let names: &Vec<&str> = names.into();
         unsafe { mem::transmute(crate::AzGl_getUniformIndices(
             mem::transmute(self),
             mem::transmute(program),
@@ -13425,7 +13436,8 @@ impl AzGl {
             mem::transmute(opt_data),
         )) }
     }
-    fn compressed_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, width: i32, height: i32, border: i32, data: AzU8VecRef) -> () {
+    fn compressed_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, width: i32, height: i32, border: i32, data: &Vec<u8>) -> () {
+        let data: &Vec<u8> = data.into();
         unsafe { mem::transmute(crate::AzGl_compressedTexImage2D(
             mem::transmute(self),
             mem::transmute(target),
@@ -13437,7 +13449,8 @@ impl AzGl {
             mem::transmute(data),
         )) }
     }
-    fn compressed_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, data: AzU8VecRef) -> () {
+    fn compressed_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, data: &Vec<u8>) -> () {
+        let data: &Vec<u8> = data.into();
         unsafe { mem::transmute(crate::AzGl_compressedTexSubImage2D(
             mem::transmute(self),
             mem::transmute(target),
@@ -13505,7 +13518,8 @@ impl AzGl {
             mem::transmute(height),
         )) }
     }
-    fn tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, data: AzU8VecRef) -> () {
+    fn tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, data: &Vec<u8>) -> () {
+        let data: &Vec<u8> = data.into();
         unsafe { mem::transmute(crate::AzGl_texSubImage2D(
             mem::transmute(self),
             mem::transmute(target),
@@ -13533,7 +13547,8 @@ impl AzGl {
             mem::transmute(offset),
         )) }
     }
-    fn tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: AzU8VecRef) -> () {
+    fn tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: &Vec<u8>) -> () {
+        let data: &Vec<u8> = data.into();
         unsafe { mem::transmute(crate::AzGl_texSubImage3D(
             mem::transmute(self),
             mem::transmute(target),
@@ -13586,7 +13601,8 @@ impl AzGl {
             mem::transmute(depth),
         )) }
     }
-    fn get_tex_image_into_buffer(&self, target: u32, level: i32, format: u32, ty: u32, output: AzU8VecRefMut) -> () {
+    fn get_tex_image_into_buffer(&self, target: u32, level: i32, format: u32, ty: u32, output: &mut Vec<u8>) -> () {
+        let output: &mut Vec<u8> = output.into();
         unsafe { mem::transmute(crate::AzGl_getTexImageIntoBuffer(
             mem::transmute(self),
             mem::transmute(target),
@@ -13671,7 +13687,8 @@ impl AzGl {
             mem::transmute(result),
         )) }
     }
-    fn get_float_v(&self, name: u32, result: AzGLfloatVecRefMut) -> () {
+    fn get_float_v(&self, name: u32, result: &mut Vec<f32>) -> () {
+        let result: &mut Vec<f32> = result.into();
         unsafe { mem::transmute(crate::AzGl_getFloatV(
             mem::transmute(self),
             mem::transmute(name),
@@ -14011,7 +14028,8 @@ impl AzGl {
             mem::transmute(v0),
         )) }
     }
-    fn uniform_1fv(&self, location: i32, values: AzF32VecRef) -> () {
+    fn uniform_1fv(&self, location: i32, values: &Vec<f32>) -> () {
+        let values: &Vec<f32> = values.into();
         unsafe { mem::transmute(crate::AzGl_uniform1Fv(
             mem::transmute(self),
             mem::transmute(location),
@@ -14047,7 +14065,8 @@ impl AzGl {
             mem::transmute(v1),
         )) }
     }
-    fn uniform_2fv(&self, location: i32, values: AzF32VecRef) -> () {
+    fn uniform_2fv(&self, location: i32, values: &Vec<f32>) -> () {
+        let values: &Vec<f32> = values.into();
         unsafe { mem::transmute(crate::AzGl_uniform2Fv(
             mem::transmute(self),
             mem::transmute(location),
@@ -14086,7 +14105,8 @@ impl AzGl {
             mem::transmute(v2),
         )) }
     }
-    fn uniform_3fv(&self, location: i32, values: AzF32VecRef) -> () {
+    fn uniform_3fv(&self, location: i32, values: &Vec<f32>) -> () {
+        let values: &Vec<f32> = values.into();
         unsafe { mem::transmute(crate::AzGl_uniform3Fv(
             mem::transmute(self),
             mem::transmute(location),
@@ -14155,14 +14175,16 @@ impl AzGl {
             mem::transmute(w),
         )) }
     }
-    fn uniform_4fv(&self, location: i32, values: AzF32VecRef) -> () {
+    fn uniform_4fv(&self, location: i32, values: &Vec<f32>) -> () {
+        let values: &Vec<f32> = values.into();
         unsafe { mem::transmute(crate::AzGl_uniform4Fv(
             mem::transmute(self),
             mem::transmute(location),
             mem::transmute(values),
         )) }
     }
-    fn uniform_matrix_2fv(&self, location: i32, transpose: bool, value: AzF32VecRef) -> () {
+    fn uniform_matrix_2fv(&self, location: i32, transpose: bool, value: &Vec<f32>) -> () {
+        let value: &Vec<f32> = value.into();
         unsafe { mem::transmute(crate::AzGl_uniformMatrix2Fv(
             mem::transmute(self),
             mem::transmute(location),
@@ -14170,7 +14192,8 @@ impl AzGl {
             mem::transmute(value),
         )) }
     }
-    fn uniform_matrix_3fv(&self, location: i32, transpose: bool, value: AzF32VecRef) -> () {
+    fn uniform_matrix_3fv(&self, location: i32, transpose: bool, value: &Vec<f32>) -> () {
+        let value: &Vec<f32> = value.into();
         unsafe { mem::transmute(crate::AzGl_uniformMatrix3Fv(
             mem::transmute(self),
             mem::transmute(location),
@@ -14178,7 +14201,8 @@ impl AzGl {
             mem::transmute(value),
         )) }
     }
-    fn uniform_matrix_4fv(&self, location: i32, transpose: bool, value: AzF32VecRef) -> () {
+    fn uniform_matrix_4fv(&self, location: i32, transpose: bool, value: &Vec<f32>) -> () {
+        let value: &Vec<f32> = value.into();
         unsafe { mem::transmute(crate::AzGl_uniformMatrix4Fv(
             mem::transmute(self),
             mem::transmute(location),
@@ -14237,39 +14261,42 @@ impl AzGl {
             mem::transmute(pname),
         )) }
     }
-    fn get_active_uniform_block_name(&self, program: u32, index: u32) -> String {
-        let s: AzString = unsafe { mem::transmute(crate::AzGl_getActiveUniformBlockName(
+    fn get_active_uniform_block_name(&self, program: u32, index: u32) -> AzString {
+        unsafe { mem::transmute(crate::AzGl_getActiveUniformBlockName(
             mem::transmute(self),
             mem::transmute(program),
             mem::transmute(index),
-        )) }; s.into()
+        )) }
     }
-    fn get_attrib_location(&self, program: u32, name: AzRefstr) -> i32 {
+    fn get_attrib_location(&self, program: u32, name: &str) -> i32 {
+        let name: &str = name.into();
         unsafe { mem::transmute(crate::AzGl_getAttribLocation(
             mem::transmute(self),
             mem::transmute(program),
             mem::transmute(name),
         )) }
     }
-    fn get_frag_data_location(&self, program: u32, name: AzRefstr) -> i32 {
+    fn get_frag_data_location(&self, program: u32, name: &str) -> i32 {
+        let name: &str = name.into();
         unsafe { mem::transmute(crate::AzGl_getFragDataLocation(
             mem::transmute(self),
             mem::transmute(program),
             mem::transmute(name),
         )) }
     }
-    fn get_uniform_location(&self, program: u32, name: AzRefstr) -> i32 {
+    fn get_uniform_location(&self, program: u32, name: &str) -> i32 {
+        let name: &str = name.into();
         unsafe { mem::transmute(crate::AzGl_getUniformLocation(
             mem::transmute(self),
             mem::transmute(program),
             mem::transmute(name),
         )) }
     }
-    fn get_program_info_log(&self, program: u32) -> String {
-        let s: AzString = unsafe { mem::transmute(crate::AzGl_getProgramInfoLog(
+    fn get_program_info_log(&self, program: u32) -> AzString {
+        unsafe { mem::transmute(crate::AzGl_getProgramInfoLog(
             mem::transmute(self),
             mem::transmute(program),
-        )) }; s.into()
+        )) }
     }
     fn get_program_iv(&self, program: u32, pname: u32, result: AzGLintVecRefMut) -> () {
         unsafe { mem::transmute(crate::AzGl_getProgramIv(
@@ -14285,7 +14312,8 @@ impl AzGl {
             mem::transmute(program),
         )) }
     }
-    fn program_binary(&self, program: u32, format: u32, binary: AzU8VecRef) -> () {
+    fn program_binary(&self, program: u32, format: u32, binary: &Vec<u8>) -> () {
+        let binary: &Vec<u8> = binary.into();
         unsafe { mem::transmute(crate::AzGl_programBinary(
             mem::transmute(self),
             mem::transmute(program),
@@ -14309,7 +14337,8 @@ impl AzGl {
             mem::transmute(result),
         )) }
     }
-    fn get_vertex_attrib_fv(&self, index: u32, pname: u32, result: AzGLfloatVecRefMut) -> () {
+    fn get_vertex_attrib_fv(&self, index: u32, pname: u32, result: &mut Vec<f32>) -> () {
+        let result: &mut Vec<f32> = result.into();
         unsafe { mem::transmute(crate::AzGl_getVertexAttribFv(
             mem::transmute(self),
             mem::transmute(index),
@@ -14331,24 +14360,24 @@ impl AzGl {
             mem::transmute(pname),
         )) }
     }
-    fn get_shader_info_log(&self, shader: u32) -> String {
-        let s: AzString = unsafe { mem::transmute(crate::AzGl_getShaderInfoLog(
+    fn get_shader_info_log(&self, shader: u32) -> AzString {
+        unsafe { mem::transmute(crate::AzGl_getShaderInfoLog(
             mem::transmute(self),
             mem::transmute(shader),
-        )) }; s.into()
+        )) }
     }
-    fn get_string(&self, which: u32) -> String {
-        let s: AzString = unsafe { mem::transmute(crate::AzGl_getString(
+    fn get_string(&self, which: u32) -> AzString {
+        unsafe { mem::transmute(crate::AzGl_getString(
             mem::transmute(self),
             mem::transmute(which),
-        )) }; s.into()
+        )) }
     }
-    fn get_string_i(&self, which: u32, index: u32) -> String {
-        let s: AzString = unsafe { mem::transmute(crate::AzGl_getStringI(
+    fn get_string_i(&self, which: u32, index: u32) -> AzString {
+        unsafe { mem::transmute(crate::AzGl_getStringI(
             mem::transmute(self),
             mem::transmute(which),
             mem::transmute(index),
-        )) }; s.into()
+        )) }
     }
     fn get_shader_iv(&self, shader: u32, pname: u32, result: AzGLintVecRefMut) -> () {
         unsafe { mem::transmute(crate::AzGl_getShaderIv(
@@ -14509,13 +14538,15 @@ impl AzGl {
             mem::transmute(target),
         )) }
     }
-    fn insert_event_marker_ext(&self, message: AzRefstr) -> () {
+    fn insert_event_marker_ext(&self, message: &str) -> () {
+        let message: &str = message.into();
         unsafe { mem::transmute(crate::AzGl_insertEventMarkerExt(
             mem::transmute(self),
             mem::transmute(message),
         )) }
     }
-    fn push_group_marker_ext(&self, message: AzRefstr) -> () {
+    fn push_group_marker_ext(&self, message: &str) -> () {
+        let message: &str = message.into();
         unsafe { mem::transmute(crate::AzGl_pushGroupMarkerExt(
             mem::transmute(self),
             mem::transmute(message),
@@ -14526,7 +14557,8 @@ impl AzGl {
             mem::transmute(self),
         )) }
     }
-    fn debug_message_insert_khr(&self, source: u32, type_: u32, id: u32, severity: u32, message: AzRefstr) -> () {
+    fn debug_message_insert_khr(&self, source: u32, type_: u32, id: u32, severity: u32, message: &str) -> () {
+        let message: &str = message.into();
         unsafe { mem::transmute(crate::AzGl_debugMessageInsertKhr(
             mem::transmute(self),
             mem::transmute(source),
@@ -14536,7 +14568,8 @@ impl AzGl {
             mem::transmute(message),
         )) }
     }
-    fn push_debug_group_khr(&self, source: u32, id: u32, message: AzRefstr) -> () {
+    fn push_debug_group_khr(&self, source: u32, id: u32, message: &str) -> () {
+        let message: &str = message.into();
         unsafe { mem::transmute(crate::AzGl_pushDebugGroupKhr(
             mem::transmute(self),
             mem::transmute(source),
@@ -14578,7 +14611,8 @@ impl AzGl {
             mem::transmute(sync),
         )) }
     }
-    fn texture_range_apple(&self, target: u32, data: AzU8VecRef) -> () {
+    fn texture_range_apple(&self, target: u32, data: &Vec<u8>) -> () {
+        let data: &Vec<u8> = data.into();
         unsafe { mem::transmute(crate::AzGl_textureRangeApple(
             mem::transmute(self),
             mem::transmute(target),
@@ -14591,7 +14625,8 @@ impl AzGl {
             mem::transmute(n),
         )) }
     }
-    fn delete_fences_apple(&self, fences: AzGLuintVecRef) -> () {
+    fn delete_fences_apple(&self, fences: &Vec<u32>) -> () {
+        let fences: &Vec<u32> = fences.into();
         unsafe { mem::transmute(crate::AzGl_deleteFencesApple(
             mem::transmute(self),
             mem::transmute(fences),
@@ -14629,7 +14664,8 @@ impl AzGl {
             mem::transmute(name),
         )) }
     }
-    fn get_frag_data_index(&self, program: u32, name: AzRefstr) -> i32 {
+    fn get_frag_data_index(&self, program: u32, name: &str) -> i32 {
+        let name: &str = name.into();
         unsafe { mem::transmute(crate::AzGl_getFragDataIndex(
             mem::transmute(self),
             mem::transmute(program),
@@ -14641,7 +14677,8 @@ impl AzGl {
             mem::transmute(self),
         )) }
     }
-    fn bind_frag_data_location_indexed(&self, program: u32, color_number: u32, index: u32, name: AzRefstr) -> () {
+    fn bind_frag_data_location_indexed(&self, program: u32, color_number: u32, index: u32, name: &str) -> () {
+        let name: &str = name.into();
         unsafe { mem::transmute(crate::AzGl_bindFragDataLocationIndexed(
             mem::transmute(self),
             mem::transmute(program),
@@ -14673,7 +14710,8 @@ impl AzGl {
             mem::transmute(vao),
         )) }
     }
-    fn delete_vertex_arrays_apple(&self, vertex_arrays: AzGLuintVecRef) -> () {
+    fn delete_vertex_arrays_apple(&self, vertex_arrays: &Vec<u32>) -> () {
+        let vertex_arrays: &Vec<u32> = vertex_arrays.into();
         unsafe { mem::transmute(crate::AzGl_deleteVertexArraysApple(
             mem::transmute(self),
             mem::transmute(vertex_arrays),
@@ -14896,7 +14934,8 @@ impl AzRawImage {
         )) }
     }
     #[staticmethod]
-    fn decode_image_bytes_any(bytes: AzU8VecRef) -> Result<AzRawImage, PyErr> {
+    fn decode_image_bytes_any(bytes: &Vec<u8>) -> Result<AzRawImage, PyErr> {
+        let bytes: &Vec<u8> = bytes.into();
         let m: AzResultRawImageDecodeImageError = unsafe { mem::transmute(crate::AzRawImage_decodeImageBytesAny(
             mem::transmute(bytes),
         )) };
@@ -15062,7 +15101,7 @@ impl AzFontRef {
 #[pymethods]
 impl AzSvg {
     #[staticmethod]
-    fn from_string(svg_string: String, parse_options: AzSvgParseOptions) -> Result<AzSvg, PyErr> {
+    fn from_string(svg_string: AzString, parse_options: AzSvgParseOptions) -> Result<AzSvg, PyErr> {
         let svg_string: AzString = svg_string.into();
         let m: AzResultSvgSvgParseError = unsafe { mem::transmute(crate::AzSvg_fromString(
             mem::transmute(svg_string),
@@ -15075,7 +15114,8 @@ impl AzSvg {
 
     }
     #[staticmethod]
-    fn from_bytes(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> Result<AzSvg, PyErr> {
+    fn from_bytes(svg_bytes: &Vec<u8>, parse_options: AzSvgParseOptions) -> Result<AzSvg, PyErr> {
+        let svg_bytes: &Vec<u8> = svg_bytes.into();
         let m: AzResultSvgSvgParseError = unsafe { mem::transmute(crate::AzSvg_fromBytes(
             mem::transmute(svg_bytes),
             mem::transmute(parse_options),
@@ -15102,18 +15142,19 @@ impl AzSvg {
         }
 
     }
-    fn to_string(&self, options: AzSvgStringFormatOptions) -> String {
-        let s: AzString = unsafe { mem::transmute(crate::AzSvg_toString(
+    fn to_string(&self, options: AzSvgStringFormatOptions) -> AzString {
+        unsafe { mem::transmute(crate::AzSvg_toString(
             mem::transmute(self),
             mem::transmute(options),
-        )) }; s.into()
+        )) }
     }
 }
 
 #[pymethods]
 impl AzSvgXmlNode {
     #[staticmethod]
-    fn parse_from(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> Result<AzSvgXmlNode, PyErr> {
+    fn parse_from(svg_bytes: &Vec<u8>, parse_options: AzSvgParseOptions) -> Result<AzSvgXmlNode, PyErr> {
+        let svg_bytes: &Vec<u8> = svg_bytes.into();
         let m: AzResultSvgXmlNodeSvgParseError = unsafe { mem::transmute(crate::AzSvgXmlNode_parseFrom(
             mem::transmute(svg_bytes),
             mem::transmute(parse_options),
@@ -15135,11 +15176,11 @@ impl AzSvgXmlNode {
         }
 
     }
-    fn to_string(&self, options: AzSvgStringFormatOptions) -> String {
-        let s: AzString = unsafe { mem::transmute(crate::AzSvgXmlNode_toString(
+    fn to_string(&self, options: AzSvgStringFormatOptions) -> AzString {
+        unsafe { mem::transmute(crate::AzSvgXmlNode_toString(
             mem::transmute(self),
             mem::transmute(options),
-        )) }; s.into()
+        )) }
     }
 }
 
@@ -15247,7 +15288,8 @@ impl AzTesselatedSvgNode {
         unsafe { mem::transmute(crate::AzTesselatedSvgNode_empty()) }
     }
     #[staticmethod]
-    fn from_nodes(nodes: AzTesselatedSvgNodeVecRef) -> AzTesselatedSvgNode {
+    fn from_nodes(nodes: &[AzTesselatedSvgNode]) -> AzTesselatedSvgNode {
+        let nodes: &[AzTesselatedSvgNode] = nodes.into();
         unsafe { mem::transmute(crate::AzTesselatedSvgNode_fromNodes(
             mem::transmute(nodes),
         )) }
@@ -15369,7 +15411,8 @@ impl AzSvgLineCapEnumWrapper {
 #[pymethods]
 impl AzXml {
     #[staticmethod]
-    fn from_str(xml_string: AzRefstr) -> Result<AzXml, PyErr> {
+    fn from_str(xml_string: &str) -> Result<AzXml, PyErr> {
+        let xml_string: &str = xml_string.into();
         let m: AzResultXmlXmlError = unsafe { mem::transmute(crate::AzXml_fromStr(
             mem::transmute(xml_string),
         )) };
@@ -15384,7 +15427,7 @@ impl AzXml {
 #[pymethods]
 impl AzFile {
     #[staticmethod]
-    fn open(path: String) -> Option<AzFile> {
+    fn open(path: AzString) -> Option<AzFile> {
         let path: AzString = path.into();
         let m: AzOptionFile = unsafe { mem::transmute(crate::AzFile_open(
             mem::transmute(path),
@@ -15396,7 +15439,7 @@ impl AzFile {
 
     }
     #[staticmethod]
-    fn create(path: String) -> Option<AzFile> {
+    fn create(path: AzString) -> Option<AzFile> {
         let path: AzString = path.into();
         let m: AzOptionFile = unsafe { mem::transmute(crate::AzFile_create(
             mem::transmute(path),
@@ -15427,13 +15470,15 @@ impl AzFile {
         }
 
     }
-    fn write_string(&mut self, bytes: AzRefstr) -> bool {
+    fn write_string(&mut self, bytes: &str) -> bool {
+        let bytes: &str = bytes.into();
         unsafe { mem::transmute(crate::AzFile_writeString(
             mem::transmute(self),
             mem::transmute(bytes),
         )) }
     }
-    fn write_bytes(&mut self, bytes: AzU8VecRef) -> bool {
+    fn write_bytes(&mut self, bytes: &Vec<u8>) -> bool {
+        let bytes: &Vec<u8> = bytes.into();
         unsafe { mem::transmute(crate::AzFile_writeBytes(
             mem::transmute(self),
             mem::transmute(bytes),
@@ -15449,7 +15494,7 @@ impl AzFile {
 #[pymethods]
 impl AzMsgBox {
     #[staticmethod]
-    fn ok(icon: AzMsgBoxIconEnumWrapper, title: String, message: String) -> bool {
+    fn ok(icon: AzMsgBoxIconEnumWrapper, title: AzString, message: AzString) -> bool {
         let title: AzString = title.into();
         let message: AzString = message.into();
         unsafe { mem::transmute(crate::AzMsgBox_ok(
@@ -15459,7 +15504,7 @@ impl AzMsgBox {
         )) }
     }
     #[staticmethod]
-    fn ok_cancel(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxOkCancelEnumWrapper) -> AzMsgBoxOkCancelEnumWrapper {
+    fn ok_cancel(icon: AzMsgBoxIconEnumWrapper, title: AzString, message: AzString, default_value: AzMsgBoxOkCancelEnumWrapper) -> AzMsgBoxOkCancelEnumWrapper {
         let title: AzString = title.into();
         let message: AzString = message.into();
         unsafe { mem::transmute(crate::AzMsgBox_okCancel(
@@ -15470,7 +15515,7 @@ impl AzMsgBox {
         )) }
     }
     #[staticmethod]
-    fn yes_no(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxYesNoEnumWrapper) -> AzMsgBoxYesNoEnumWrapper {
+    fn yes_no(icon: AzMsgBoxIconEnumWrapper, title: AzString, message: AzString, default_value: AzMsgBoxYesNoEnumWrapper) -> AzMsgBoxYesNoEnumWrapper {
         let title: AzString = title.into();
         let message: AzString = message.into();
         unsafe { mem::transmute(crate::AzMsgBox_yesNo(
@@ -15513,7 +15558,7 @@ impl AzMsgBoxOkCancelEnumWrapper {
 #[pymethods]
 impl AzFileDialog {
     #[staticmethod]
-    fn select_file(title: String, default_path: AzOptionStringEnumWrapper, filter_list: AzOptionFileTypeListEnumWrapper) -> Option<String> {
+    fn select_file(title: AzString, default_path: AzOptionStringEnumWrapper, filter_list: AzOptionFileTypeListEnumWrapper) -> Option<String> {
         let title: AzString = title.into();
         let m: AzOptionString = unsafe { mem::transmute(crate::AzFileDialog_selectFile(
             mem::transmute(title),
@@ -15527,7 +15572,7 @@ impl AzFileDialog {
 
     }
     #[staticmethod]
-    fn select_multiple_files(title: String, default_path: AzOptionStringEnumWrapper, filter_list: AzOptionFileTypeListEnumWrapper) -> Option<AzStringVec> {
+    fn select_multiple_files(title: AzString, default_path: AzOptionStringEnumWrapper, filter_list: AzOptionFileTypeListEnumWrapper) -> Option<AzStringVec> {
         let title: AzString = title.into();
         let m: AzOptionStringVec = unsafe { mem::transmute(crate::AzFileDialog_selectMultipleFiles(
             mem::transmute(title),
@@ -15541,7 +15586,7 @@ impl AzFileDialog {
 
     }
     #[staticmethod]
-    fn select_folder(title: String, default_path: AzOptionStringEnumWrapper) -> Option<String> {
+    fn select_folder(title: AzString, default_path: AzOptionStringEnumWrapper) -> Option<String> {
         let title: AzString = title.into();
         let m: AzOptionString = unsafe { mem::transmute(crate::AzFileDialog_selectFolder(
             mem::transmute(title),
@@ -15554,7 +15599,7 @@ impl AzFileDialog {
 
     }
     #[staticmethod]
-    fn save_file(title: String, default_path: AzOptionStringEnumWrapper) -> Option<String> {
+    fn save_file(title: AzString, default_path: AzOptionStringEnumWrapper) -> Option<String> {
         let title: AzString = title.into();
         let m: AzOptionString = unsafe { mem::transmute(crate::AzFileDialog_saveFile(
             mem::transmute(title),
@@ -15571,7 +15616,7 @@ impl AzFileDialog {
 #[pymethods]
 impl AzColorPickerDialog {
     #[staticmethod]
-    fn open(title: String, default_color: AzOptionColorUEnumWrapper) -> Option<AzColorU> {
+    fn open(title: AzString, default_color: AzOptionColorUEnumWrapper) -> Option<AzColorU> {
         let title: AzString = title.into();
         let m: AzOptionColorU = unsafe { mem::transmute(crate::AzColorPickerDialog_open(
             mem::transmute(title),
@@ -15606,7 +15651,7 @@ impl AzSystemClipboard {
         }
 
     }
-    fn set_string_contents(&mut self, contents: String) -> bool {
+    fn set_string_contents(&mut self, contents: AzString) -> bool {
         let contents: AzString = contents.into();
         unsafe { mem::transmute(crate::AzSystemClipboard_setStringContents(
             mem::transmute(self),
@@ -15740,19 +15785,19 @@ impl AzFmtValueEnumWrapper {
 #[pymethods]
 impl AzString {
     #[staticmethod]
-    fn format(format: String, args: AzFmtArgVec) -> AzString {
+    fn format(format: AzString, args: AzFmtArgVec) -> AzString {
         let format: AzString = format.into();
         unsafe { mem::transmute(crate::AzString_format(
             mem::transmute(format),
             mem::transmute(args),
         )) }
     }
-    fn trim(&self) -> String {
-        let s: AzString = unsafe { mem::transmute(crate::AzString_trim(
+    fn trim(&self) -> AzString {
+        unsafe { mem::transmute(crate::AzString_trim(
             mem::transmute(self),
-        )) }; s.into()
+        )) }
     }
-    fn as_refstr(&self) -> AzRefstr {
+    fn as_refstr(&self) -> &str {
         unsafe { mem::transmute(crate::AzString_asRefstr(
             mem::transmute(self),
         )) }
@@ -15761,7 +15806,7 @@ impl AzString {
 
 #[pymethods]
 impl AzTesselatedSvgNodeVec {
-    fn as_ref_vec(&self) -> AzTesselatedSvgNodeVecRef {
+    fn as_ref_vec(&self) -> &[AzTesselatedSvgNode] {
         unsafe { mem::transmute(crate::AzTesselatedSvgNodeVec_asRefVec(
             mem::transmute(self),
         )) }
@@ -15770,7 +15815,7 @@ impl AzTesselatedSvgNodeVec {
 
 #[pymethods]
 impl AzU8Vec {
-    fn as_ref_vec(&self) -> AzU8VecRef {
+    fn as_ref_vec(&self) -> &Vec<u8> {
         unsafe { mem::transmute(crate::AzU8Vec_asRefVec(
             mem::transmute(self),
         )) }

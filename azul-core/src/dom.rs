@@ -92,7 +92,7 @@ impl ::core::fmt::Debug for DomNodeHash {
 }
 
 /// List of core DOM node types built-into by `azul`.
-#[derive(Debug, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum NodeType {
     /// Same as div, but only for the root node
@@ -529,7 +529,7 @@ pub enum ApplicationEventFilter {
     // ... TODO: more events
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct IFrameNode {
     pub callback: IFrameCallback,

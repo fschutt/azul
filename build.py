@@ -1077,6 +1077,30 @@ def generate_python_api(api_data, structs_map, functions_map):
     """
     pyo3_code += "\r\n"
 
+    # Functions that have to be implemented manually
+    manual_implementations = [
+        ("app", "App", "new"),
+        ("callbacks", "RefAny", "new_c"),
+        ("window", "WindowCreateOptions", "new"),
+        ("window", "WindowState", "new"),
+        ("task", "Timer", "new"),
+    ]
+
+    python_replacements = {
+        "String": ("AzString", "String", "pystring_to_azstring", "azstring_to_pystring"),
+        "Refstr": ("&str", "&str", "", ""),
+        "U8VecRefMut": ("&mut Vec<u8>", "&mut PyBytes", "pybytesrefmut_to_vecu8refmut", ""),
+        "U8VecRef": ("&Vec<u8>", "&PyBytes", "pybytesref_to_vecu8_ref", ""),
+        "F32VecRef": ("&Vec<f32>", "&PyList<f32>", "py", "pylist_f32_to_rust", "pylist_f32_from_rust"),
+        "GLuintVecRef": ("&Vec<u32>", "&PyList<u32>", "pylist_u32_to_rust", "pylist_u32_from_rust"),
+        "GLintVecRef": ("&Vec<i32>", "&PyList<i32>", "pylist_i32_to_rust", "pylist_i32_from_rust"),
+        "GLint64VecRef": ("&Vec<i64>", "&PyList<i64>", "", ""),
+        "GlbooleanVecRef": ("&Vec<bool>", "&PyList<bool>", "", ""),
+        "GLfloatVecRefMut": ("&mut Vec<f32>", "&PyList<f32>", "", ""),
+        "RefstrVecRef": ("&Vec<&str>", "&PyList<&str>", "", ""),
+        "TesselatedSvgNodeVecRef": ("&[AzTesselatedSvgNode]", "", ""),
+    }
+
     new_struct_map = dict(structs_map)
     raw_pointer_structs = {}
 
@@ -1145,15 +1169,6 @@ def generate_python_api(api_data, structs_map, functions_map):
             pyo3_code += "impl Clone for " + struct_name + "EnumWrapper { fn clone(&self) -> Self { let r: &" + struct["external"]+ " = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }\r\n"
     pyo3_code += "\r\n"
 
-    # Functions that have to be implemented manually
-    manual_implementations = [
-        ("app", "App", "new"),
-        ("callbacks", "RefAny", "new_c"),
-        ("window", "WindowCreateOptions", "new"),
-        ("window", "WindowState", "new"),
-        ("task", "Timer", "new"),
-    ]
-
     # List of types that are returned as errors, have to implement py03::Error
     errlist = []
 
@@ -1176,14 +1191,14 @@ def generate_python_api(api_data, structs_map, functions_map):
                             if not("fn_args" in constructor.keys()):
                                 print("wrong format: constructor " + class_name + "::" + constructor_name)
                             fn_args = constructor["fn_args"]
-                            py_args = format_py_args(fn_args, api_data[version], constructor=True)
+                            py_args = format_py_args(python_replacements, fn_args, api_data[version], constructor=True)
                             return_type = None
                             return_type_match = ""
                             returns_option = None
                             returns_error = None
                             if "returns" in constructor.keys():
                                 return_type_match = constructor["returns"]["type"]
-                                r = format_py_return(constructor["returns"], api_data[version], errlist, constructor=True)
+                                r = format_py_return(python_replacements, constructor["returns"], api_data[version], errlist, constructor=True)
                                 return_type = r[0]
                                 returns_option = r[1]
                                 returns_error = r[2]
@@ -1192,7 +1207,7 @@ def generate_python_api(api_data, structs_map, functions_map):
                                 return_type_str = return_type
                             pyo3_code += "    #[staticmethod]\r\n"
                             pyo3_code += "    fn " + constructor_name + "(" + py_args + ") -> " + return_type_str + " {\r\n"
-                            pyo3_code += "        " + format_py_body(module_name, class_name, constructor_name, fn_args, api_data[version], return_type_str, returns_option, returns_error, constructor=True) + "\r\n"
+                            pyo3_code += "        " + format_py_body(python_replacements, module_name, class_name, constructor_name, fn_args, api_data[version], return_type_str, returns_option, returns_error, constructor=True) + "\r\n"
                             pyo3_code += "    }\r\n"
 
                     if "functions" in struct.keys():
@@ -1216,15 +1231,15 @@ def generate_python_api(api_data, structs_map, functions_map):
                             returns_error = None
                             if "returns" in function.keys():
                                 return_type_match = function["returns"]["type"]
-                                r = format_py_return(function["returns"], api_data[version], errlist, constructor=False)
+                                r = format_py_return(python_replacements, function["returns"], api_data[version], errlist, constructor=False)
                                 return_type = r[0]
                                 returns_option = r[1]
                                 returns_error = r[2]
                             return_type_str = "()"
                             if not(return_type is None):
                                 return_type_str = return_type
-                            pyo3_code += "    fn " + function_name + "(" + self_arg + format_py_args(fn_args, api_data[version], constructor=False) + ") -> " + return_type_str + " {\r\n"
-                            pyo3_code += "        " + format_py_body(module_name, class_name, function_name, fn_args, api_data[version], return_type_str, returns_option, returns_error, constructor=False) + "\r\n"
+                            pyo3_code += "    fn " + function_name + "(" + self_arg + format_py_args(python_replacements, fn_args, api_data[version], constructor=False) + ") -> " + return_type_str + " {\r\n"
+                            pyo3_code += "        " + format_py_body(python_replacements, module_name, class_name, function_name, fn_args, api_data[version], return_type_str, returns_option, returns_error, constructor=False) + "\r\n"
                             pyo3_code += "    }\r\n"
 
                     pyo3_code += "}\r\n"
@@ -1310,7 +1325,7 @@ def generate_python_api(api_data, structs_map, functions_map):
     return pyo3_code
 
 # Formats the input function arguments for the python DLL
-def format_py_args(fn_args, api_data, constructor=False):
+def format_py_args(python_replacements, fn_args, api_data, constructor=False):
 
     fn_args_string = ""
 
@@ -1338,8 +1353,8 @@ def format_py_args(fn_args, api_data, constructor=False):
                 f_real_type = ref + prefix + f_type + "EnumWrapper"
             elif "struct_fields" in f_class.keys():
                 f_real_type = ref + prefix + f_type
-                if f_type == "String":
-                    f_real_type = ref + "String"
+                if f_type in python_replacements.keys():
+                    f_real_type = ref + python_replacements[f_type]
             else:
                 raise Exception("cannot use type " + f_name + ": " + f_type + " as a Python function argument")
 
@@ -1355,16 +1370,16 @@ def format_py_args(fn_args, api_data, constructor=False):
 
 # Formats the return type for the python DLL
 # returns the (return type, class_is_option, class_throws)
-def format_py_return(return_type, api_data, errlist, constructor=False):
+def format_py_return(python_replacements, return_type, api_data, errlist, constructor=False):
     if return_type["type"].startswith("Result"):
         found_c = quick_get_class(api_data, return_type["type"])
         ret_type_ok = found_c["enum_fields"][0]["Ok"]["type"]
         return_type_ok = ret_type_ok
-        if ret_type_ok != "String":
+        if not(ret_type_ok in python_replacements.keys()):
             return_type_ok = prefix + ret_type_ok
         ret_type_err = found_c["enum_fields"][1]["Err"]["type"]
         return_type_err = ret_type_err
-        if ret_type_err != "String":
+        if not(ret_type_err in python_replacements.keys()):
             return_type_err = prefix + ret_type_err
         errlist.append(return_type_err)
         return ("Result<" + return_type_ok + ", PyErr>", None, return_type["type"])
@@ -1372,14 +1387,14 @@ def format_py_return(return_type, api_data, errlist, constructor=False):
         found_c = quick_get_class(api_data, return_type["type"])
         ret_type = found_c["enum_fields"][1]["Some"]["type"]
         return_type_opt = ret_type
-        if ret_type != "String":
+        if not(ret_type in python_replacements.keys()):
             return_type_opt = prefix + ret_type
             ret_type_c = quick_get_class(api_data, ret_type)
             if "enum_fields" in ret_type_c.keys():
                 return_type_opt = return_type_opt + "EnumWrapper"
         return ("Option<" + return_type_opt + ">", return_type["type"], None)
-    elif return_type["type"] == "String":
-        return ("String", None, None)
+    elif return_type["type"] in python_replacements.keys():
+        return (python_replacements[return_type["type"]], None, None)
     else:
         # TODO: PyBuffer / Vec conversion
         if is_primitive_arg(return_type["type"]):
@@ -1391,15 +1406,15 @@ def format_py_return(return_type, api_data, errlist, constructor=False):
                 return_type_str = return_type_str + "EnumWrapper"
             return (return_type_str, None, None)
 
-def format_py_body(module_name, class_name, function_name, fn_args, api_data, return_type_str, returns_option=None, returns_error=None, constructor=False):
+def format_py_body(python_replacements, module_name, class_name, function_name, fn_args, api_data, return_type_str, returns_option=None, returns_error=None, constructor=False):
 
     # convert input "String" into azul-internal AzStrings
     string_conversions = ""
     for f in fn_args:
         f_name = list(f.keys())[0]
         f_type = f[f_name]
-        if f_type == "String":
-            string_conversions += "let " + f_name + ": AzString = " + f_name + ".into();\r\n        "
+        if f_type in python_replacements.keys():
+            string_conversions += "let " + f_name + ": " + python_replacements[f_type] + " = " + f_name + ".into();\r\n        "
 
     fn_args_invoke = ""
     for f in fn_args:
@@ -1416,10 +1431,19 @@ def format_py_body(module_name, class_name, function_name, fn_args, api_data, re
         fn_body += "let m: " + prefix + returns_option + " = unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) };\r\n"
         fn_body += "        match m {\r\n"
         fn_body += "            " + prefix + returns_option + "::Some(s) => Some("
-        if returns_option == "OptionString":
-            fn_body += "{ let s: AzString = unsafe { mem::transmute(s) }; s.into() }"
+
+        replace_option = ""
+
+        # if function returns OptionString, OptionVecRefMut, ...
+        for entry in python_replacements.keys():
+            if returns_option == "Option" + entry:
+                replace_option = entry
+
+        if len(replace_option) != 0:
+            fn_body += "{ let s: " + prefix + replace_option + " = unsafe { mem::transmute(s) }; s.into() }"
         else:
             fn_body += "unsafe { mem::transmute(s) }"
+
         fn_body += "),\r\n"
         fn_body += "            " + prefix + returns_option + "::None => None,\r\n"
         fn_body += "        }\r\n"
@@ -1431,8 +1455,8 @@ def format_py_body(module_name, class_name, function_name, fn_args, api_data, re
         fn_body += "            " + prefix + returns_error + "::Err(e) => Err(e.into()),\r\n"
         fn_body += "        }\r\n"
     else:
-        if return_type_str == "String":
-            fn_body += "let s: AzString = unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) }; s.into()"
+        if return_type_str in python_replacements.keys():
+            fn_body += "let s: " + prefix + python_replacements[return_type_str] + " = unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) }; s.into()"
         else:
             fn_body += "unsafe { mem::transmute(crate::" + prefix + class_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args_invoke + ")) }"
     return fn_body
