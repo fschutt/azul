@@ -19,6 +19,8 @@ use std::time::Instant as StdInstant;
 #[cfg(feature = "std")]
 use std::time::Duration as StdDuration;
 
+use std::sync::Mutex;
+
 use crate::{
     FastHashMap,
     callbacks::{
@@ -675,16 +677,16 @@ pub enum ThreadSendMsg {
 impl_option!(ThreadSendMsg, OptionThreadSendMsg, copy = false, [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
 
 // Message that is received from the running thread
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C, u8)]
 pub enum ThreadReceiveMsg {
     WriteBack(ThreadWriteBackMsg),
     Update(UpdateScreen),
 }
 
-impl_option!(ThreadReceiveMsg, OptionThreadReceiveMsg, copy = false, clone = false, [Debug, PartialEq, PartialOrd, Eq, Ord, Hash]);
+impl_option!(ThreadReceiveMsg, OptionThreadReceiveMsg, copy = false, [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct ThreadWriteBackMsg {
     // The data to write back into. Will be passed as the second argument to the thread
@@ -699,10 +701,47 @@ impl ThreadWriteBackMsg {
     }
 }
 
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct ThreadSender {
+    pub ptr: Box<Arc<Mutex<ThreadSenderInner>>>,
+}
+
+impl ThreadSender {
+    pub fn new(t: ThreadSenderInner) -> Self { Self { ptr: Box::new(Arc::new(Mutex::new(t))) } }
+    // send data from the user thread to the main thread
+    pub fn send(&mut self, msg: ThreadReceiveMsg) -> bool {
+        let ts = match self.ptr.lock().ok() {
+            Some(s) => s,
+            None => return false,
+        };
+        (ts.send_fn.cb)(&ts.ptr as *const _ as *const c_void, msg)
+    }
+}
+
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct ThreadReceiver {
+    pub ptr: Box<Arc<Mutex<ThreadReceiverInner>>>,
+}
+
+impl ThreadReceiver {
+    pub fn new(t: ThreadReceiverInner) -> Self { Self { ptr: Box::new(Arc::new(Mutex::new(t))) } }
+    // receive data from the main thread
+    pub fn recv(&mut self) -> OptionThreadSendMsg {
+        let ts = match self.ptr.lock().ok() {
+            Some(s) => s,
+            None => return None.into(),
+        };
+        (ts.recv_fn.cb)(ts.ptr.as_ref() as *const _ as *const c_void)
+    }
+}
+
+
 #[derive(Debug)]
 #[cfg_attr(not(feature = "std"), derive(PartialEq, PartialOrd, Eq, Ord))]
 #[repr(C)]
-pub struct ThreadSender {
+pub struct ThreadSenderInner {
     #[cfg(feature = "std")]
     pub ptr: Box<Sender<ThreadReceiveMsg>>,
     #[cfg(not(feature = "std"))]
@@ -712,47 +751,40 @@ pub struct ThreadSender {
 }
 
 #[cfg(not(feature = "std"))]
-unsafe impl Send for ThreadSender { }
-
-impl ThreadSender {
-    // send data from the user thread to the main thread
-    pub fn send(&mut self, msg: ThreadReceiveMsg) -> bool {
-        (self.send_fn.cb)(&self.ptr as *const _ as *const c_void, msg)
-    }
-}
+unsafe impl Send for ThreadSenderInner { }
 
 #[cfg(feature = "std")]
-impl core::hash::Hash for ThreadSender {
+impl core::hash::Hash for ThreadSenderInner {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         (self.ptr.as_ref() as *const _ as usize).hash(state);
     }
 }
 
 #[cfg(feature = "std")]
-impl PartialEq for ThreadSender {
+impl PartialEq for ThreadSenderInner {
     fn eq(&self, other: &Self) -> bool {
         (self.ptr.as_ref() as *const _ as usize) == (other.ptr.as_ref() as *const _ as usize)
     }
 }
 
 #[cfg(feature = "std")]
-impl Eq for ThreadSender { }
+impl Eq for ThreadSenderInner { }
 
 #[cfg(feature = "std")]
-impl PartialOrd for ThreadSender {
+impl PartialOrd for ThreadSenderInner {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some((self.ptr.as_ref() as *const _ as usize).cmp(&(other.ptr.as_ref() as *const _ as usize)))
     }
 }
 
 #[cfg(feature = "std")]
-impl Ord for ThreadSender {
+impl Ord for ThreadSenderInner {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         (self.ptr.as_ref() as *const _ as usize).cmp(&(other.ptr.as_ref() as *const _ as usize))
     }
 }
 
-impl Drop for ThreadSender {
+impl Drop for ThreadSenderInner {
     fn drop(&mut self) {
         (self.destructor.cb)(self);
     }
@@ -761,7 +793,7 @@ impl Drop for ThreadSender {
 #[derive(Debug)]
 #[cfg_attr(not(feature = "std"), derive(PartialEq, PartialOrd, Eq, Ord))]
 #[repr(C)]
-pub struct ThreadReceiver {
+pub struct ThreadReceiverInner {
     #[cfg(feature = "std")]
     pub ptr: Box<Receiver<ThreadSendMsg>>,
     #[cfg(not(feature = "std"))]
@@ -771,47 +803,40 @@ pub struct ThreadReceiver {
 }
 
 #[cfg(not(feature = "std"))]
-unsafe impl Send for ThreadReceiver { }
-
-impl ThreadReceiver {
-    // receive data from the main thread
-    pub fn recv(&mut self) -> OptionThreadSendMsg {
-        (self.recv_fn.cb)(self.ptr.as_ref() as *const _ as *const c_void)
-    }
-}
+unsafe impl Send for ThreadReceiverInner { }
 
 #[cfg(feature = "std")]
-impl core::hash::Hash for ThreadReceiver {
+impl core::hash::Hash for ThreadReceiverInner {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         (self.ptr.as_ref() as *const _ as usize).hash(state);
     }
 }
 
 #[cfg(feature = "std")]
-impl PartialEq for ThreadReceiver {
+impl PartialEq for ThreadReceiverInner {
     fn eq(&self, other: &Self) -> bool {
         (self.ptr.as_ref() as *const _ as usize) == (other.ptr.as_ref() as *const _ as usize)
     }
 }
 
 #[cfg(feature = "std")]
-impl Eq for ThreadReceiver { }
+impl Eq for ThreadReceiverInner { }
 
 #[cfg(feature = "std")]
-impl PartialOrd for ThreadReceiver {
+impl PartialOrd for ThreadReceiverInner {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some((self.ptr.as_ref() as *const _ as usize).cmp(&(other.ptr.as_ref() as *const _ as usize)))
     }
 }
 
 #[cfg(feature = "std")]
-impl Ord for ThreadReceiver {
+impl Ord for ThreadReceiverInner {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         (self.ptr.as_ref() as *const _ as usize).cmp(&(other.ptr.as_ref() as *const _ as usize))
     }
 }
 
-impl Drop for ThreadReceiver {
+impl Drop for ThreadReceiverInner {
     fn drop(&mut self) {
         (self.destructor.cb)(self);
     }
@@ -875,19 +900,45 @@ pub type ThreadSendCallbackType = extern "C" fn(/* sender.ptr */*const c_void, T
 impl_callback!(ThreadSendCallback);
 
 // function called on Thread::drop()
-pub type ThreadDestructorCallbackType = extern "C" fn(*mut Thread);
+pub type ThreadDestructorCallbackType = extern "C" fn(*mut ThreadInner);
 #[repr(C)] pub struct ThreadDestructorCallback { pub cb: ThreadDestructorCallbackType }
 impl_callback!(ThreadDestructorCallback);
 
 // destructor of the ThreadReceiver
-pub type ThreadReceiverDestructorCallbackType = extern "C" fn(*mut ThreadReceiver);
+pub type ThreadReceiverDestructorCallbackType = extern "C" fn(*mut ThreadReceiverInner);
 #[repr(C)] pub struct ThreadReceiverDestructorCallback { pub cb: ThreadReceiverDestructorCallbackType }
 impl_callback!(ThreadReceiverDestructorCallback);
 
 // destructor of the ThreadSender
-pub type ThreadSenderDestructorCallbackType = extern "C" fn(*mut ThreadSender);
+pub type ThreadSenderDestructorCallbackType = extern "C" fn(*mut ThreadSenderInner);
 #[repr(C)] pub struct ThreadSenderDestructorCallback { pub cb: ThreadSenderDestructorCallbackType }
 impl_callback!(ThreadSenderDestructorCallback);
+
+/// Wrapper around Thread because Thread needs to be clone-able for Python
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct Thread {
+    pub ptr: Box<Arc<Mutex<ThreadInner>>>,
+}
+
+impl Thread {
+    pub fn new(ti: ThreadInner) -> Self { Self { ptr: Box::new(Arc::new(Mutex::new(ti))) } }
+}
+
+impl ThreadInner {
+    /// Returns true if the Thread has been finished, false otherwise
+    pub(crate) fn is_finished(&self) -> bool {
+        (self.check_thread_finished_fn.cb)(&self.dropcheck as *const _ as *const c_void)
+    }
+
+    pub(crate) fn sender_send(&mut self, msg: ThreadSendMsg) -> bool {
+        (self.send_thread_msg_fn.cb)(self.sender.as_ref() as *const _ as *const c_void, msg)
+    }
+
+    pub(crate) fn receiver_try_recv(&mut self) -> OptionThreadReceiveMsg {
+        (self.receive_thread_msg_fn.cb)(self.receiver.as_ref() as *const _ as *const c_void)
+    }
+}
 
 /// A `Thread` is a seperate thread that is owned by the framework.
 ///
@@ -899,7 +950,7 @@ impl_callback!(ThreadSenderDestructorCallback);
 /// Azul will join the thread automatically after it is finished (joining won't block the UI).
 #[derive(Debug)]
 #[repr(C)]
-pub struct Thread {
+pub struct ThreadInner {
 
     // Thread handle of the currently in-progress Thread
     #[cfg(feature = "std")]
@@ -940,18 +991,18 @@ pub extern "C" fn create_thread_libstd(
 ) -> Thread {
 
     let (sender_receiver, receiver_receiver) = std::sync::mpsc::channel::<ThreadReceiveMsg>();
-    let sender_receiver = ThreadSender {
+    let sender_receiver = ThreadSender::new(ThreadSenderInner {
         ptr: Box::new(sender_receiver),
         send_fn: ThreadSendCallback { cb: default_send_thread_msg_fn },
         destructor: ThreadSenderDestructorCallback { cb: thread_sender_drop },
-    };
+    });
 
     let (sender_sender, receiver_sender) = std::sync::mpsc::channel::<ThreadSendMsg>();
-    let receiver_sender = ThreadReceiver {
+    let receiver_sender = ThreadReceiver::new(ThreadReceiverInner {
         ptr: Box::new(receiver_sender),
         recv_fn: ThreadRecvCallback { cb: default_receive_thread_msg_fn },
         destructor: ThreadReceiverDestructorCallback { cb: thread_receiver_drop },
-    };
+    });
 
     let thread_check = Arc::new(());
     let dropcheck = Arc::downgrade(&thread_check);
@@ -967,7 +1018,7 @@ pub extern "C" fn create_thread_libstd(
     let receiver: Box<Receiver<ThreadReceiveMsg>> = Box::new(receiver_receiver);
     let dropcheck: Box<Weak<()>> = Box::new(dropcheck);
 
-    Thread {
+    Thread::new(ThreadInner {
         thread_handle,
         sender,
         receiver,
@@ -977,32 +1028,17 @@ pub extern "C" fn create_thread_libstd(
         check_thread_finished_fn: CheckThreadFinishedCallback { cb: default_check_thread_finished },
         send_thread_msg_fn: LibrarySendThreadMsgCallback { cb: library_send_thread_msg_fn },
         receive_thread_msg_fn: LibraryReceiveThreadMsgCallback { cb: library_receive_thread_msg_fn },
-    }
+    })
 }
 
-impl Thread {
-    /// Returns true if the Thread has been finished, false otherwise
-    pub(crate) fn is_finished(&self) -> bool {
-        (self.check_thread_finished_fn.cb)(&self.dropcheck as *const _ as *const c_void)
-    }
-
-    pub(crate) fn sender_send(&mut self, msg: ThreadSendMsg) -> bool {
-        (self.send_thread_msg_fn.cb)(self.sender.as_ref() as *const _ as *const c_void, msg)
-    }
-
-    pub(crate) fn receiver_try_recv(&mut self) -> OptionThreadReceiveMsg {
-        (self.receive_thread_msg_fn.cb)(self.receiver.as_ref() as *const _ as *const c_void)
-    }
-}
-
-impl Drop for Thread {
+impl Drop for ThreadInner {
     fn drop(&mut self) {
         (self.thread_destructor_fn.cb)(self);
     }
 }
 
 #[cfg(feature = "std")]
-extern "C" fn default_thread_destructor_fn(thread: *mut Thread) {
+extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
 
     let thread = unsafe { &mut *thread };
 
@@ -1038,10 +1074,10 @@ extern "C" fn default_check_thread_finished(dropcheck: *const c_void) -> bool {
 }
 
 #[cfg(feature = "std")]
-extern "C" fn thread_sender_drop(_: *mut ThreadSender) { }
+extern "C" fn thread_sender_drop(_: *mut ThreadSenderInner) { }
 
 #[cfg(feature = "std")]
-extern "C" fn thread_receiver_drop(_: *mut ThreadReceiver) { }
+extern "C" fn thread_receiver_drop(_: *mut ThreadReceiverInner) { }
 
 /// Run all currently registered timers
 #[must_use = "the UpdateScreen result of running timers should not be ignored"]
@@ -1192,6 +1228,14 @@ pub fn clean_up_finished_threads<'a, 'b>(
     let mut thread_ids_to_remove = Vec::new();
 
     for (thread_id, thread) in cleanup_threads.iter_mut() {
+
+        let thread = &mut *match thread.ptr.lock().ok() {
+            Some(s) => s,
+            None => {
+                thread_ids_to_remove.push(*thread_id);
+                continue
+            },
+        };
 
         let _ = thread.sender_send(ThreadSendMsg::Tick);
 

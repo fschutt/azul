@@ -221,6 +221,15 @@ pub struct TesselatedSvgNodeVecRef {
     pub len: usize,
 }
 
+impl Clone for TesselatedSvgNodeVecRef {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr,
+            len: self.len,
+        }
+    }
+}
+
 impl TesselatedSvgNodeVecRef {
     pub fn as_slice<'a>(&'a self) -> &'a [TesselatedSvgNode] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }

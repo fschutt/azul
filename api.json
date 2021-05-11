@@ -967,7 +967,6 @@
                 },
                 "CallbackInfo": {
                     "external": "azul_impl::callbacks::CallbackInfo",
-                    "clone": false,
                     "struct_fields": [
                         {"css_property_cache": {"type": "*const c_void"}},
                         {"styled_node_states": {"type": "*const c_void"}},
@@ -1631,7 +1630,6 @@
                 },
                 "IFrameCallbackInfo": {
                     "external": "azul_impl::callbacks::IFrameCallbackInfo",
-                    "clone": false,
                     "struct_fields": [
                         {"system_fonts": {"type": "*const c_void", "doc": "Pointer to system fonts"}},
                         {"image_cache": {"type": "*const c_void", "doc": "Pointer to the image cache"}},
@@ -1647,7 +1645,6 @@
                 },
                 "IFrameCallbackReturn": {
                     "external": "azul_impl::callbacks::IFrameCallbackReturn",
-                    "clone": false,
                     "doc": "<img src=\"../images/scrollbounds.png\"/>",
                     "struct_fields": [
                         {"dom": { "type": "StyledDom", "doc": "The DOM that is currently visible in the `HidpiAdjustedBounds`." }},
@@ -1675,7 +1672,6 @@
                 },
                 "RenderImageCallbackInfo": {
                     "external": "azul_impl::callbacks::RenderImageCallbackInfo",
-                    "clone": false,
                     "struct_fields": [
                         {"callback_node_id": {"type": "DomNodeId"}},
                         {"bounds": {"type": "HidpiAdjustedBounds"}},
@@ -1799,7 +1795,6 @@
                 },
                 "TimerCallbackInfo": {
                     "external": "azul_impl::callbacks::TimerCallbackInfo",
-                    "clone": false,
                     "struct_fields": [
                         {"callback_info": {"type": "CallbackInfo"}},
                         {"node_id": {"type": "OptionDomNodeId", "doc": "If the timer is attached to a NodeId, stores the node ID"}},
@@ -1941,7 +1936,6 @@
                 },
                 "LayoutCallbackInfo": {
                     "external": "azul_impl::callbacks::LayoutCallbackInfo",
-                    "clone": false,
                     "struct_fields": [
                         {"window_size": {"type": "WindowSize"}},
                         {"theme": {"type": "WindowTheme"}},
@@ -4355,7 +4349,6 @@
             "classes": {
                 "Texture": {
                     "external": "azul_impl::gl::Texture",
-                    "clone": false,
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"texture_id": {"type": "u32", "doc": "Raw OpenGL texture ID"}},
@@ -7911,7 +7904,6 @@
                 },
                 "VertexArrayObject": {
                     "external": "azul_impl::gl::VertexArrayObject",
-                    "clone": false,
                     "struct_fields": [
                         {"vertex_layout": {"type": "VertexLayout"}},
                         {"vao_id": {"type": "u32"}},
@@ -7932,7 +7924,6 @@
                 },
                 "VertexBuffer": {
                     "external": "azul_impl::gl::VertexBuffer",
-                    "clone": false,
                     "struct_fields": [
                         {"vertex_buffer_id": {"type": "u32"}},
                         {"vertex_buffer_len": {"type": "usize"}},
@@ -7963,7 +7954,6 @@
                 "U8VecRef": {
                     "external": "azul_impl::gl::U8VecRef",
                     "doc": "C-ABI stable reexport of `&[u8]`",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*const u8"}},
                         {"len": {"type": "usize"}}
@@ -7972,7 +7962,6 @@
                 "U8VecRefMut": {
                     "external": "azul_impl::gl::U8VecRefMut",
                     "doc": "C-ABI stable reexport of `&mut [u8]`",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*mut u8"}},
                         {"len": {"type": "usize"}}
@@ -7981,7 +7970,6 @@
                 "F32VecRef": {
                     "external": "azul_impl::gl::F32VecRef",
                     "doc": "C-ABI stable reexport of `&[f32]`",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*const f32"}},
                         {"len": {"type": "usize"}}
@@ -7990,7 +7978,6 @@
                 "I32VecRef": {
                     "external": "azul_impl::gl::I32VecRef",
                     "doc": "C-ABI stable reexport of `&[i32]`",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*const i32"}},
                         {"len": {"type": "usize"}}
@@ -7999,7 +7986,6 @@
                 "GLuintVecRef": {
                     "external": "azul_impl::gl::GLuintVecRef",
                     "doc": "C-ABI stable reexport of `&[GLuint]` aka `&[u32]`",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*const u32"}},
                         {"len": {"type": "usize"}}
@@ -8008,7 +7994,6 @@
                 "GLenumVecRef": {
                     "external": "azul_impl::gl::GLenumVecRef",
                     "doc": "C-ABI stable reexport of `&[GLenum]` aka `&[u32]`",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*const u32"}},
                         {"len": {"type": "usize"}}
@@ -8017,7 +8002,6 @@
                 "GLintVecRefMut": {
                     "external": "azul_impl::gl::GLintVecRefMut",
                     "doc": "C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*mut i32"}},
                         {"len": {"type": "usize"}}
@@ -8026,7 +8010,6 @@
                 "GLint64VecRefMut": {
                     "external": "azul_impl::gl::GLint64VecRefMut",
                     "doc": "C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*mut i64"}},
                         {"len": {"type": "usize"}}
@@ -8035,7 +8018,6 @@
                 "GLbooleanVecRefMut": {
                     "external": "azul_impl::gl::GLbooleanVecRefMut",
                     "doc": "C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*mut u8"}},
                         {"len": {"type": "usize"}}
@@ -8044,7 +8026,6 @@
                 "GLfloatVecRefMut": {
                     "external": "azul_impl::gl::GLfloatVecRefMut",
                     "doc": "C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*mut f32"}},
                         {"len": {"type": "usize"}}
@@ -8053,7 +8034,6 @@
                 "RefstrVecRef": {
                     "external": "azul_impl::gl::RefstrVecRef",
                     "doc": "C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*const Refstr"}},
                         {"len": {"type": "usize"}}
@@ -8062,7 +8042,6 @@
                 "Refstr": {
                     "external": "azul_impl::gl::Refstr",
                     "doc": "C-ABI stable reexport of `&str`",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*const u8"}},
                         {"len": {"type": "usize"}}
@@ -8089,7 +8068,6 @@
                     "external": "azul_impl::gl::GLsyncPtr",
                     "doc": "C-ABI stable reexport of `*const gleam::gl::GLsync`",
                     "is_boxed_object": true,
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*const c_void"}}
                     ]
@@ -8796,7 +8774,6 @@
                 "TesselatedSvgNodeVecRef": {
                     "doc": "Rust wrapper over a `&[TesselatedSvgNode]` or `&Vec<TesselatedSvgNode>`",
                     "external": "azul_impl::svg::TesselatedSvgNodeVecRef",
-                    "clone": false,
                     "struct_fields": [
                         {"ptr": {"type": "*const TesselatedSvgNode"}},
                         {"len": {"type": "usize"}}
@@ -9464,27 +9441,16 @@
                 },
                 "Thread": {
                     "external": "azul_impl::task::Thread",
-                    "clone": false,
+                    "is_boxed_object": true,
                     "struct_fields": [
-                        {"thread_handle": {"type": "*const c_void" }},
-                        {"sender": {"type": "*const c_void" }},
-                        {"receiver": {"type": "*const c_void" }},
-                        {"dropcheck": {"type": "*const c_void" }},
-                        {"writeback_data": {"type": "RefAny" }},
-                        {"check_thread_finished_fn": {"type": "CheckThreadFinishedFn" }},
-                        {"send_thread_msg_fn": {"type": "LibrarySendThreadMsgFn" }},
-                        {"receive_thread_msg_fn": {"type": "LibraryReceiveThreadMsgFn" }},
-                        {"thread_destructor_fn": {"type": "ThreadDestructorFn" }}
+                        {"ptr": {"type": "*const c_void" }}
                     ]
                 },
                 "ThreadSender": {
                     "external": "azul_impl::task::ThreadSender",
-                    "clone": false,
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*const c_void"}},
-                        {"send_fn": {"type": "ThreadSendFn"}},
-                        {"destructor": {"type": "ThreadSenderDestructorFn"}}
+                        {"ptr": {"type": "*const c_void"}}
                     ],
                     "functions": {
                         "send": {
@@ -9499,12 +9465,9 @@
                 },
                 "ThreadReceiver": {
                     "external": "azul_impl::task::ThreadReceiver",
-                    "clone": false,
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*const c_void"}},
-                        {"recv_fn": {"type": "ThreadRecvFn"}},
-                        {"destructor": {"type": "ThreadReceiverDestructorFn"}}
+                        {"ptr": {"type": "*const c_void"}}
                     ],
                     "functions": {
                         "receive": {
@@ -9518,7 +9481,6 @@
                 },
                 "ThreadSendMsg": {
                     "external": "azul_impl::task::ThreadSendMsg",
-                    "clone": false,
                     "enum_fields": [
                         {"TerminateThread": {}},
                         {"Tick": {}},
@@ -9527,7 +9489,6 @@
                 },
                 "ThreadReceiveMsg": {
                     "external": "azul_impl::task::ThreadReceiveMsg",
-                    "clone": false,
                     "enum_fields": [
                         {"WriteBack": {"type": "ThreadWriteBackMsg"}},
                         {"Update": {"type": "UpdateScreen"}}
@@ -9535,7 +9496,6 @@
                 },
                 "ThreadWriteBackMsg": {
                     "external": "azul_impl::task::ThreadWriteBackMsg",
-                    "clone": false,
                     "struct_fields": [
                         {"data": {"type": "RefAny"}},
                         {"callback": {"type": "WriteBackCallback"}}
@@ -11201,7 +11161,6 @@
                 },
                 "OptionSystemClipboard": {
                     "external": "azul_impl::window::OptionClipboard",
-                    "clone": false,
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "SystemClipboard" }}
@@ -11258,7 +11217,6 @@
                 },
                 "OptionThreadReceiveMsg": {
                     "external": "azul_impl::task::OptionThreadReceiveMsg",
-                    "clone": false,
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "ThreadReceiveMsg" }}
@@ -11298,7 +11256,6 @@
                 },
                 "OptionThreadSendMsg": {
                     "external": "azul_impl::task::OptionThreadSendMsg",
-                    "clone": false,
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "ThreadSendMsg" }}
@@ -11500,7 +11457,6 @@
                 },
                 "OptionDom": {
                     "external": "azul_impl::dom::OptionDom",
-                    "clone": false,
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "Dom" }}
@@ -11508,7 +11464,6 @@
                 },
                 "OptionTexture": {
                     "external": "azul_impl::gl::OptionTexture",
-                    "clone": false,
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "Texture" }}
@@ -11569,7 +11524,6 @@
                 },
                 "OptionU8VecRef": {
                     "external": "azul_impl::gl::OptionU8VecRef",
-                    "clone": false,
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "U8VecRef" }}

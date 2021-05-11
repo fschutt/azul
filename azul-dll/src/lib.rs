@@ -1442,6 +1442,8 @@ pub use AzTextureTT as AzTexture;
 #[no_mangle] pub extern "C" fn AzTexture_applyFxaa(texture: &mut AzTexture) -> bool { azul_impl::svg::apply_fxaa(texture).is_some() }
 /// Destructor: Takes ownership of the `Texture` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzTexture_delete(object: &mut AzTexture) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn AzTexture_deepCopy(object: &AzTexture) -> AzTexture { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `GlVoidPtrConst` struct
 pub type AzGlVoidPtrConstTT = azul_impl::gl::GlVoidPtrConst;
@@ -1998,6 +2000,8 @@ pub type AzGLsyncPtrTT = azul_impl::gl::GLsyncPtr;
 pub use AzGLsyncPtrTT as AzGLsyncPtr;
 /// Destructor: Takes ownership of the `GLsyncPtr` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzGLsyncPtr_delete(object: &mut AzGLsyncPtr) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn AzGLsyncPtr_deepCopy(object: &AzGLsyncPtr) -> AzGLsyncPtr { object.clone() }
 
 /// C-ABI stable reexport of `(i32, u32, AzString)`
 pub type AzGetActiveUniformReturnTT = azul_impl::gl::GetActiveUniformReturn;
@@ -2455,6 +2459,10 @@ pub use AzThreadIdTT as AzThreadId;
 /// Re-export of rust-allocated (stack based) `Thread` struct
 pub type AzThreadTT = azul_impl::task::Thread;
 pub use AzThreadTT as AzThread;
+/// Destructor: Takes ownership of the `Thread` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzThread_delete(object: &mut AzThread) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn AzThread_deepCopy(object: &AzThread) -> AzThread { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `ThreadSender` struct
 pub type AzThreadSenderTT = azul_impl::task::ThreadSender;
@@ -2463,6 +2471,8 @@ pub use AzThreadSenderTT as AzThreadSender;
 #[no_mangle] pub extern "C" fn AzThreadSender_send(threadsender: &mut AzThreadSender, msg: AzThreadReceiveMsg) -> bool { threadsender.send(msg) }
 /// Destructor: Takes ownership of the `ThreadSender` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzThreadSender_delete(object: &mut AzThreadSender) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn AzThreadSender_deepCopy(object: &AzThreadSender) -> AzThreadSender { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
 pub type AzThreadReceiverTT = azul_impl::task::ThreadReceiver;
@@ -2471,6 +2481,8 @@ pub use AzThreadReceiverTT as AzThreadReceiver;
 #[no_mangle] pub extern "C" fn AzThreadReceiver_receive(threadreceiver: &mut AzThreadReceiver) -> AzOptionThreadSendMsg { threadreceiver.recv().into() }
 /// Destructor: Takes ownership of the `ThreadReceiver` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzThreadReceiver_delete(object: &mut AzThreadReceiver) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn AzThreadReceiver_deepCopy(object: &AzThreadReceiver) -> AzThreadReceiver { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `ThreadSendMsg` struct
 pub type AzThreadSendMsgTT = azul_impl::task::ThreadSendMsg;
@@ -5020,6 +5032,24 @@ mod test_sizes {
         pub id: usize,
     }
 
+    /// Re-export of rust-allocated (stack based) `Thread` struct
+    #[repr(C)]
+    pub struct AzThread {
+        pub(crate) ptr: *const c_void,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ThreadSender` struct
+    #[repr(C)]
+    pub struct AzThreadSender {
+        pub(crate) ptr: *const c_void,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
+    #[repr(C)]
+    pub struct AzThreadReceiver {
+        pub(crate) ptr: *const c_void,
+    }
+
     /// `AzCreateThreadFnType` struct
     pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallback) -> AzThread;
 
@@ -7099,36 +7129,6 @@ mod test_sizes {
     pub enum AzDuration {
         System(AzSystemTimeDiff),
         Tick(AzSystemTickDiff),
-    }
-
-    /// Re-export of rust-allocated (stack based) `Thread` struct
-    #[repr(C)]
-    pub struct AzThread {
-        pub thread_handle: *const c_void,
-        pub sender: *const c_void,
-        pub receiver: *const c_void,
-        pub dropcheck: *const c_void,
-        pub writeback_data: AzRefAny,
-        pub check_thread_finished_fn: AzCheckThreadFinishedFn,
-        pub send_thread_msg_fn: AzLibrarySendThreadMsgFn,
-        pub receive_thread_msg_fn: AzLibraryReceiveThreadMsgFn,
-        pub thread_destructor_fn: AzThreadDestructorFn,
-    }
-
-    /// Re-export of rust-allocated (stack based) `ThreadSender` struct
-    #[repr(C)]
-    pub struct AzThreadSender {
-        pub(crate) ptr: *const c_void,
-        pub send_fn: AzThreadSendFn,
-        pub destructor: AzThreadSenderDestructorFn,
-    }
-
-    /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
-    #[repr(C)]
-    pub struct AzThreadReceiver {
-        pub(crate) ptr: *const c_void,
-        pub recv_fn: AzThreadRecvFn,
-        pub destructor: AzThreadReceiverDestructorFn,
     }
 
     /// Re-export of rust-allocated (stack based) `ThreadSendMsg` struct
@@ -9354,6 +9354,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::TimerId>(), "AzTimerId"), (Layout::new::<AzTimerId>(), "AzTimerId"));
         assert_eq!((Layout::new::<azul_impl::task::TerminateTimer>(), "AzTerminateTimer"), (Layout::new::<AzTerminateTimer>(), "AzTerminateTimer"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadId>(), "AzThreadId"), (Layout::new::<AzThreadId>(), "AzThreadId"));
+        assert_eq!((Layout::new::<azul_impl::task::Thread>(), "AzThread"), (Layout::new::<AzThread>(), "AzThread"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadSender>(), "AzThreadSender"), (Layout::new::<AzThreadSender>(), "AzThreadSender"));
+        assert_eq!((Layout::new::<azul_impl::task::ThreadReceiver>(), "AzThreadReceiver"), (Layout::new::<AzThreadReceiver>(), "AzThreadReceiver"));
         assert_eq!((Layout::new::<azul_impl::task::CreateThreadCallback>(), "AzCreateThreadFn"), (Layout::new::<AzCreateThreadFn>(), "AzCreateThreadFn"));
         assert_eq!((Layout::new::<azul_impl::task::GetSystemTimeCallback>(), "AzGetSystemTimeFn"), (Layout::new::<AzGetSystemTimeFn>(), "AzGetSystemTimeFn"));
         assert_eq!((Layout::new::<azul_impl::task::CheckThreadFinishedCallback>(), "AzCheckThreadFinishedFn"), (Layout::new::<AzCheckThreadFinishedFn>(), "AzCheckThreadFinishedFn"));
@@ -9582,9 +9585,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgFillStyle>(), "AzSvgFillStyle"), (Layout::new::<AzSvgFillStyle>(), "AzSvgFillStyle"));
         assert_eq!((Layout::new::<azul_impl::task::AzInstantPtr>(), "AzInstantPtr"), (Layout::new::<AzInstantPtr>(), "AzInstantPtr"));
         assert_eq!((Layout::new::<azul_impl::task::Duration>(), "AzDuration"), (Layout::new::<AzDuration>(), "AzDuration"));
-        assert_eq!((Layout::new::<azul_impl::task::Thread>(), "AzThread"), (Layout::new::<AzThread>(), "AzThread"));
-        assert_eq!((Layout::new::<azul_impl::task::ThreadSender>(), "AzThreadSender"), (Layout::new::<AzThreadSender>(), "AzThreadSender"));
-        assert_eq!((Layout::new::<azul_impl::task::ThreadReceiver>(), "AzThreadReceiver"), (Layout::new::<AzThreadReceiver>(), "AzThreadReceiver"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSendMsg>(), "AzThreadSendMsg"), (Layout::new::<AzThreadSendMsg>(), "AzThreadSendMsg"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadWriteBackMsg>(), "AzThreadWriteBackMsg"), (Layout::new::<AzThreadWriteBackMsg>(), "AzThreadWriteBackMsg"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNodeVec>(), "AzXmlNodeVec"), (Layout::new::<AzXmlNodeVec>(), "AzXmlNodeVec"));

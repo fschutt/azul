@@ -1732,6 +1732,21 @@ struct AzThreadId {
 };
 typedef struct AzThreadId AzThreadId;
 
+struct AzThread {
+    void* ptr;
+};
+typedef struct AzThread AzThread;
+
+struct AzThreadSender {
+    void* ptr;
+};
+typedef struct AzThreadSender AzThreadSender;
+
+struct AzThreadReceiver {
+    void* ptr;
+};
+typedef struct AzThreadReceiver AzThreadReceiver;
+
 struct AzCreateThreadFn {
     AzCreateThreadFnType cb;
 };
@@ -5961,33 +5976,6 @@ typedef union AzDuration AzDuration;
 #define AzDuration_System(v) { .System = { .tag = AzDurationTag_System, .payload = v } }
 #define AzDuration_Tick(v) { .Tick = { .tag = AzDurationTag_Tick, .payload = v } }
 
-struct AzThread {
-    void* thread_handle;
-    void* sender;
-    void* receiver;
-    void* dropcheck;
-    AzRefAny writeback_data;
-    AzCheckThreadFinishedFn check_thread_finished_fn;
-    AzLibrarySendThreadMsgFn send_thread_msg_fn;
-    AzLibraryReceiveThreadMsgFn receive_thread_msg_fn;
-    AzThreadDestructorFn thread_destructor_fn;
-};
-typedef struct AzThread AzThread;
-
-struct AzThreadSender {
-    void* ptr;
-    AzThreadSendFn send_fn;
-    AzThreadSenderDestructorFn destructor;
-};
-typedef struct AzThreadSender AzThreadSender;
-
-struct AzThreadReceiver {
-    void* ptr;
-    AzThreadRecvFn recv_fn;
-    AzThreadReceiverDestructorFn destructor;
-};
-typedef struct AzThreadReceiver AzThreadReceiver;
-
 enum AzThreadSendMsgTag {
    AzThreadSendMsgTag_TerminateThread,
    AzThreadSendMsgTag_Tick,
@@ -10047,6 +10035,7 @@ extern DLLIMPORT AzTexture AzTexture_allocateClipMask(AzGl  gl, AzLayoutSize  si
 extern DLLIMPORT bool  AzTexture_drawClipMask(AzTexture* restrict texture, AzTesselatedSvgNode * node);
 extern DLLIMPORT bool  AzTexture_applyFxaa(AzTexture* restrict texture);
 extern DLLIMPORT void AzTexture_delete(AzTexture* restrict instance);
+extern DLLIMPORT AzTexture AzTexture_deepCopy(AzTexture* const instance);
 extern DLLIMPORT AzGlType AzGl_getType(AzGl* const gl);
 extern DLLIMPORT void AzGl_bufferDataUntyped(AzGl* const gl, uint32_t target, ssize_t size, AzGlVoidPtrConst  data, uint32_t usage);
 extern DLLIMPORT void AzGl_bufferSubDataUntyped(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t size, AzGlVoidPtrConst  data);
@@ -10271,6 +10260,7 @@ extern DLLIMPORT void AzGl_flushMappedBufferRange(AzGl* const gl, uint32_t targe
 extern DLLIMPORT void AzGl_delete(AzGl* restrict instance);
 extern DLLIMPORT AzGl AzGl_deepCopy(AzGl* const instance);
 extern DLLIMPORT void AzGLsyncPtr_delete(AzGLsyncPtr* restrict instance);
+extern DLLIMPORT AzGLsyncPtr AzGLsyncPtr_deepCopy(AzGLsyncPtr* const instance);
 extern DLLIMPORT AzTextureFlags AzTextureFlags_default();
 extern DLLIMPORT AzImageRef AzImageRef_invalid(size_t width, size_t height, AzRawImageFormat  format);
 extern DLLIMPORT AzImageRef AzImageRef_rawImage(AzRawImage  data);
@@ -10357,10 +10347,14 @@ extern DLLIMPORT AzTimer AzTimer_new(AzRefAny  timer_data, AzTimerCallbackType  
 extern DLLIMPORT AzTimer AzTimer_withDelay(AzTimer* const timer, AzDuration  delay);
 extern DLLIMPORT AzTimer AzTimer_withInterval(AzTimer* const timer, AzDuration  interval);
 extern DLLIMPORT AzTimer AzTimer_withTimeout(AzTimer* const timer, AzDuration  timeout);
+extern DLLIMPORT void AzThread_delete(AzThread* restrict instance);
+extern DLLIMPORT AzThread AzThread_deepCopy(AzThread* const instance);
 extern DLLIMPORT bool  AzThreadSender_send(AzThreadSender* restrict threadsender, AzThreadReceiveMsg  msg);
 extern DLLIMPORT void AzThreadSender_delete(AzThreadSender* restrict instance);
+extern DLLIMPORT AzThreadSender AzThreadSender_deepCopy(AzThreadSender* const instance);
 extern DLLIMPORT AzOptionThreadSendMsg AzThreadReceiver_receive(AzThreadReceiver* restrict threadreceiver);
 extern DLLIMPORT void AzThreadReceiver_delete(AzThreadReceiver* restrict instance);
+extern DLLIMPORT AzThreadReceiver AzThreadReceiver_deepCopy(AzThreadReceiver* const instance);
 extern DLLIMPORT AzString AzString_format(AzString  format, AzFmtArgVec  args);
 extern DLLIMPORT AzString AzString_trim(AzString* const string);
 extern DLLIMPORT AzRefstr AzString_asRefstr(AzString* const string);

@@ -49,12 +49,12 @@ pub struct App {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct AzAppPtr {
-    pub ptr: Arc<Mutex<App>>
+    pub ptr: Box<Arc<Mutex<App>>>
 }
 
 impl AzAppPtr {
     pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
-        Self { ptr: Arc::new(Mutex::new(App::new(initial_data, app_config))) }
+        Self { ptr: Box::new(Arc::new(Mutex::new(App::new(initial_data, app_config)))) }
     }
 
     pub fn add_window(&mut self, create_options: WindowCreateOptions) {

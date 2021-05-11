@@ -2089,6 +2089,7 @@ mod dll {
     /// C-ABI stable reexport of `&mut [u8]`
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzU8VecRefMut {
         pub(crate) ptr: *mut u8,
@@ -2098,6 +2099,7 @@ mod dll {
     /// C-ABI stable reexport of `&[f32]`
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzF32VecRef {
         pub(crate) ptr: *const f32,
@@ -2107,6 +2109,7 @@ mod dll {
     /// C-ABI stable reexport of `&[i32]`
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzI32VecRef {
         pub(crate) ptr: *const i32,
@@ -2116,6 +2119,7 @@ mod dll {
     /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzGLuintVecRef {
         pub(crate) ptr: *const u32,
@@ -2125,6 +2129,7 @@ mod dll {
     /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzGLenumVecRef {
         pub(crate) ptr: *const u32,
@@ -2134,6 +2139,7 @@ mod dll {
     /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzGLintVecRefMut {
         pub(crate) ptr: *mut i32,
@@ -2143,6 +2149,7 @@ mod dll {
     /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzGLint64VecRefMut {
         pub(crate) ptr: *mut i64,
@@ -2152,6 +2159,7 @@ mod dll {
     /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzGLbooleanVecRefMut {
         pub(crate) ptr: *mut u8,
@@ -2161,6 +2169,7 @@ mod dll {
     /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzGLfloatVecRefMut {
         pub(crate) ptr: *mut f32,
@@ -2170,6 +2179,7 @@ mod dll {
     /// C-ABI stable reexport of `&str`
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzRefstr {
         pub(crate) ptr: *const u8,
@@ -2620,6 +2630,30 @@ mod dll {
     #[derive(Copy)]
     pub struct AzThreadId {
         pub id: usize,
+    }
+
+    /// Re-export of rust-allocated (stack based) `Thread` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzThread {
+        pub(crate) ptr: *const c_void,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ThreadSender` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzThreadSender {
+        pub(crate) ptr: *const c_void,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzThreadReceiver {
+        pub(crate) ptr: *const c_void,
     }
 
     /// `AzCreateThreadFnType` struct
@@ -3671,6 +3705,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzIFrameCallbackInfo {
         pub system_fonts: *const c_void,
@@ -5298,6 +5333,7 @@ mod dll {
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzRefstrVecRef {
         pub(crate) ptr: *const AzRefstr,
@@ -5462,45 +5498,10 @@ mod dll {
         Tick(AzSystemTickDiff),
     }
 
-    /// Re-export of rust-allocated (stack based) `Thread` struct
-    #[repr(C)]
-    #[derive(Debug)]
-    #[derive(PartialEq, PartialOrd)]
-    pub struct AzThread {
-        pub thread_handle: *const c_void,
-        pub sender: *const c_void,
-        pub receiver: *const c_void,
-        pub dropcheck: *const c_void,
-        pub writeback_data: AzRefAny,
-        pub check_thread_finished_fn: AzCheckThreadFinishedFn,
-        pub send_thread_msg_fn: AzLibrarySendThreadMsgFn,
-        pub receive_thread_msg_fn: AzLibraryReceiveThreadMsgFn,
-        pub thread_destructor_fn: AzThreadDestructorFn,
-    }
-
-    /// Re-export of rust-allocated (stack based) `ThreadSender` struct
-    #[repr(C)]
-    #[derive(Debug)]
-    #[derive(PartialEq, PartialOrd)]
-    pub struct AzThreadSender {
-        pub(crate) ptr: *const c_void,
-        pub send_fn: AzThreadSendFn,
-        pub destructor: AzThreadSenderDestructorFn,
-    }
-
-    /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
-    #[repr(C)]
-    #[derive(Debug)]
-    #[derive(PartialEq, PartialOrd)]
-    pub struct AzThreadReceiver {
-        pub(crate) ptr: *const c_void,
-        pub recv_fn: AzThreadRecvFn,
-        pub destructor: AzThreadReceiverDestructorFn,
-    }
-
     /// Re-export of rust-allocated (stack based) `ThreadSendMsg` struct
     #[repr(C, u8)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzThreadSendMsg {
         TerminateThread,
@@ -5511,6 +5512,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `ThreadWriteBackMsg` struct
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzThreadWriteBackMsg {
         pub data: AzRefAny,
@@ -5786,6 +5788,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `OptionSystemClipboard` struct
     #[repr(C, u8)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzOptionSystemClipboard {
         None,
@@ -5859,6 +5862,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
     #[repr(C, u8)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzOptionThreadSendMsg {
         None,
@@ -6074,6 +6078,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
     #[repr(C, u8)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzOptionU8VecRef {
         None,
@@ -6273,6 +6278,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `RenderImageCallbackInfo` struct
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzRenderImageCallbackInfo {
         pub callback_node_id: AzDomNodeId,
@@ -6292,6 +6298,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `LayoutCallbackInfo` struct
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzLayoutCallbackInfo {
         pub window_size: AzWindowSize,
@@ -6558,6 +6565,7 @@ mod dll {
     /// Rust wrapper over a `&[TesselatedSvgNode]` or `&Vec<TesselatedSvgNode>`
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzTesselatedSvgNodeVecRef {
         pub(crate) ptr: *const AzTesselatedSvgNode,
@@ -6617,6 +6625,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `ThreadReceiveMsg` struct
     #[repr(C, u8)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzThreadReceiveMsg {
         WriteBack(AzThreadWriteBackMsg),
@@ -6719,6 +6728,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
     #[repr(C, u8)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzOptionThreadReceiveMsg {
         None,
@@ -6758,6 +6768,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `OptionTexture` struct
     #[repr(C, u8)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzOptionTexture {
         None,
@@ -7555,6 +7566,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzVertexArrayObject {
         pub vertex_layout: AzVertexLayout,
@@ -7565,6 +7577,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzVertexBuffer {
         pub vertex_buffer_id: u32,
@@ -7682,6 +7695,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzCallbackInfo {
         pub css_property_cache: *const c_void,
@@ -7759,6 +7773,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzTimerCallbackInfo {
         pub callback_info: AzCallbackInfo,
@@ -8009,6 +8024,7 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `OptionDom` struct
     #[repr(C, u8)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzOptionDom {
         None,
@@ -8042,6 +8058,7 @@ mod dll {
     /// <img src="../images/scrollbounds.png"/>
     #[repr(C)]
     #[derive(Debug)]
+    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzIFrameCallbackReturn {
         pub dom: AzStyledDom,
@@ -8211,6 +8228,7 @@ mod dll {
         pub(crate) fn AzTexture_drawClipMask(_:  &mut AzTexture, _:  *const AzTesselatedSvgNode) -> bool;
         pub(crate) fn AzTexture_applyFxaa(_:  &mut AzTexture) -> bool;
         pub(crate) fn AzTexture_delete(_:  &mut AzTexture);
+        pub(crate) fn AzTexture_deepCopy(_:  &AzTexture) -> AzTexture;
         pub(crate) fn AzGl_getType(_:  &AzGl) -> AzGlType;
         pub(crate) fn AzGl_bufferDataUntyped(_:  &AzGl, _:  u32, _:  isize, _:  AzGlVoidPtrConst, _:  u32);
         pub(crate) fn AzGl_bufferSubDataUntyped(_:  &AzGl, _:  u32, _:  isize, _:  isize, _:  AzGlVoidPtrConst);
@@ -8435,6 +8453,7 @@ mod dll {
         pub(crate) fn AzGl_delete(_:  &mut AzGl);
         pub(crate) fn AzGl_deepCopy(_:  &AzGl) -> AzGl;
         pub(crate) fn AzGLsyncPtr_delete(_:  &mut AzGLsyncPtr);
+        pub(crate) fn AzGLsyncPtr_deepCopy(_:  &AzGLsyncPtr) -> AzGLsyncPtr;
         pub(crate) fn AzTextureFlags_default() -> AzTextureFlags;
         pub(crate) fn AzImageRef_invalid(_:  usize, _:  usize, _:  AzRawImageFormat) -> AzImageRef;
         pub(crate) fn AzImageRef_rawImage(_:  AzRawImage) -> AzOptionImageRef;
@@ -8521,10 +8540,14 @@ mod dll {
         pub(crate) fn AzTimer_withDelay(_:  &AzTimer, _:  AzDuration) -> AzTimer;
         pub(crate) fn AzTimer_withInterval(_:  &AzTimer, _:  AzDuration) -> AzTimer;
         pub(crate) fn AzTimer_withTimeout(_:  &AzTimer, _:  AzDuration) -> AzTimer;
+        pub(crate) fn AzThread_delete(_:  &mut AzThread);
+        pub(crate) fn AzThread_deepCopy(_:  &AzThread) -> AzThread;
         pub(crate) fn AzThreadSender_send(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool;
         pub(crate) fn AzThreadSender_delete(_:  &mut AzThreadSender);
+        pub(crate) fn AzThreadSender_deepCopy(_:  &AzThreadSender) -> AzThreadSender;
         pub(crate) fn AzThreadReceiver_receive(_:  &mut AzThreadReceiver) -> AzOptionThreadSendMsg;
         pub(crate) fn AzThreadReceiver_delete(_:  &mut AzThreadReceiver);
+        pub(crate) fn AzThreadReceiver_deepCopy(_:  &AzThreadReceiver) -> AzThreadReceiver;
         pub(crate) fn AzString_format(_:  AzString, _:  AzFmtArgVec) -> AzString;
         pub(crate) fn AzString_trim(_:  &AzString) -> AzString;
         pub(crate) fn AzString_asRefstr(_:  &AzString) -> AzRefstr;
@@ -11268,6 +11291,7 @@ pub mod gl {
         pub fn apply_fxaa(&mut self)  -> bool { unsafe { crate::dll::AzTexture_applyFxaa(self) } }
     }
 
+    impl Clone for Texture { fn clone(&self) -> Self { unsafe { crate::dll::AzTexture_deepCopy(self) } } }
     impl Drop for Texture { fn drop(&mut self) { unsafe { crate::dll::AzTexture_delete(self) } } }
     /// `GlVoidPtrConst` struct
     
@@ -11797,6 +11821,7 @@ pub mod gl {
     /// C-ABI stable reexport of `*const gleam::gl::GLsync`
     
 #[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
+    impl Clone for GLsyncPtr { fn clone(&self) -> Self { unsafe { crate::dll::AzGLsyncPtr_deepCopy(self) } } }
     impl Drop for GLsyncPtr { fn drop(&mut self) { unsafe { crate::dll::AzGLsyncPtr_delete(self) } } }
     /// C-ABI stable reexport of `(i32, u32, AzString)`
     
@@ -12318,6 +12343,8 @@ pub mod task {
     /// `Thread` struct
     
 #[doc(inline)] pub use crate::dll::AzThread as Thread;
+    impl Clone for Thread { fn clone(&self) -> Self { unsafe { crate::dll::AzThread_deepCopy(self) } } }
+    impl Drop for Thread { fn drop(&mut self) { unsafe { crate::dll::AzThread_delete(self) } } }
     /// `ThreadSender` struct
     
 #[doc(inline)] pub use crate::dll::AzThreadSender as ThreadSender;
@@ -12326,6 +12353,7 @@ pub mod task {
         pub fn send(&mut self, msg: ThreadReceiveMsg)  -> bool { unsafe { crate::dll::AzThreadSender_send(self, msg) } }
     }
 
+    impl Clone for ThreadSender { fn clone(&self) -> Self { unsafe { crate::dll::AzThreadSender_deepCopy(self) } } }
     impl Drop for ThreadSender { fn drop(&mut self) { unsafe { crate::dll::AzThreadSender_delete(self) } } }
     /// `ThreadReceiver` struct
     
@@ -12335,6 +12363,7 @@ pub mod task {
         pub fn receive(&mut self)  -> crate::option::OptionThreadSendMsg { unsafe { crate::dll::AzThreadReceiver_receive(self) } }
     }
 
+    impl Clone for ThreadReceiver { fn clone(&self) -> Self { unsafe { crate::dll::AzThreadReceiver_deepCopy(self) } } }
     impl Drop for ThreadReceiver { fn drop(&mut self) { unsafe { crate::dll::AzThreadReceiver_delete(self) } } }
     /// `ThreadSendMsg` struct
     

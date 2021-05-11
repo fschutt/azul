@@ -1289,8 +1289,11 @@ impl CallbackInfo {
 
     pub fn send_thread_msg(&mut self, thread_id: ThreadId, msg: ThreadSendMsg) -> bool {
         if let Some(thread) = self.internal_get_threads().get_mut(&thread_id) {
-            thread.sender.send(msg);
-            true
+            if let Some(s) = thread.ptr.lock().ok() {
+                s.sender.send(msg).is_ok()
+            } else {
+                false
+            }
         } else {
             false
         }
@@ -1445,6 +1448,45 @@ impl CallbackInfo {
 
     }
     */
+}
+
+impl Clone for CallbackInfo {
+    fn clone(&self) -> Self {
+        Self {
+            css_property_cache: self.css_property_cache,
+            styled_node_states: self.styled_node_states,
+            previous_window_state: self.previous_window_state,
+            current_window_state: self.current_window_state,
+            modifiable_window_state: self.modifiable_window_state,
+            gl_context: self.gl_context,
+            image_cache: self.image_cache,
+            system_fonts: self.system_fonts,
+            timers: self.timers,
+            threads: self.threads,
+            new_windows: self.new_windows,
+            current_window_handle: self.current_window_handle,
+            node_hierarchy: self.node_hierarchy,
+            system_callbacks: self.system_callbacks,
+            dataset_map: self.dataset_map,
+            stop_propagation: self.stop_propagation,
+            focus_target: self.focus_target,
+            words_cache: self.words_cache,
+            shaped_words_cache: self.shaped_words_cache,
+            positioned_words_cache: self.positioned_words_cache,
+            positioned_rects: self.positioned_rects,
+            words_changed_in_callbacks: self.words_changed_in_callbacks,
+            images_changed_in_callbacks: self.images_changed_in_callbacks,
+            image_masks_changed_in_callbacks: self.image_masks_changed_in_callbacks,
+            css_properties_changed_in_callbacks: self.css_properties_changed_in_callbacks,
+            current_scroll_states: self.current_scroll_states,
+            nodes_scrolled_in_callback: self.nodes_scrolled_in_callback,
+            hit_dom_node: self.hit_dom_node,
+            cursor_relative_to_item: self.cursor_relative_to_item,
+            cursor_in_viewport: self.cursor_in_viewport,
+            _abi_ref: self._abi_ref,
+            _abi_mut: self._abi_mut,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1610,6 +1652,25 @@ pub struct RenderImageCallbackInfo {
 }
 
 // same as the implementations on CallbackInfo, just slightly adjusted for the RenderImageCallbackInfo
+impl Clone for RenderImageCallbackInfo {
+    fn clone(&self) -> Self {
+        Self {
+            callback_node_id: self.callback_node_id,
+            bounds: self.bounds,
+            gl_context: self.gl_context,
+            image_cache: self.image_cache,
+            system_fonts: self.system_fonts,
+            node_hierarchy: self.node_hierarchy,
+            words_cache: self.words_cache,
+            shaped_words_cache: self.shaped_words_cache,
+            positioned_words_cache: self.positioned_words_cache,
+            positioned_rects: self.positioned_rects,
+            _abi_ref: self._abi_ref,
+            _abi_mut: self._abi_mut,
+        }
+    }
+}
+
 impl RenderImageCallbackInfo {
 
     #[cfg(feature = "opengl")]
@@ -1763,6 +1824,23 @@ pub struct IFrameCallbackInfo {
     _abi_mut: *mut c_void,
 }
 
+impl Clone for IFrameCallbackInfo {
+    fn clone(&self) -> Self {
+        Self {
+            system_fonts: self.system_fonts,
+            image_cache: self.image_cache,
+            window_theme: self.window_theme,
+            bounds: self.bounds,
+            scroll_size: self.scroll_size,
+            scroll_offset: self.scroll_offset,
+            virtual_scroll_size: self.virtual_scroll_size,
+            virtual_scroll_offset: self.virtual_scroll_offset,
+            _abi_ref: self._abi_ref,
+            _abi_mut: self._abi_mut,
+        }
+    }
+}
+
 impl IFrameCallbackInfo {
     pub fn new<'a>(
        system_fonts: &'a FcFontCache,
@@ -1853,6 +1931,20 @@ pub struct TimerCallbackInfo {
     pub(crate) _abi_mut: *mut c_void,
 }
 
+impl Clone for TimerCallbackInfo {
+    fn clone(&self) -> Self {
+        Self {
+            callback_info: self.callback_info.clone(),
+            node_id: self.node_id,
+            frame_start: self.frame_start.clone(),
+            call_count: self.call_count,
+            is_about_to_finish: self.is_about_to_finish,
+            _abi_ref: self._abi_ref,
+            _abi_mut: self._abi_mut,
+        }
+    }
+}
+
 pub type WriteBackCallbackType = extern "C" fn(/* original data */ &mut RefAny, /*data to write back*/ RefAny, CallbackInfo) -> UpdateScreen;
 
 /// Callback that can runs when a thread receives a `WriteBack` message
@@ -1890,6 +1982,20 @@ pub struct LayoutCallbackInfo {
     _abi_ref: *const c_void,
     /// Extension for future ABI stability (mutable data)
     _abi_mut: *mut c_void,
+}
+
+impl Clone for LayoutCallbackInfo {
+    fn clone(&self) -> Self {
+        Self {
+            window_size: self.window_size,
+            theme: self.theme,
+            image_cache: self.image_cache,
+            gl_context: self.gl_context,
+            system_fonts: self.system_fonts,
+            _abi_ref: self._abi_ref,
+            _abi_mut: self._abi_mut,
+        }
+    }
 }
 
 impl LayoutCallbackInfo {

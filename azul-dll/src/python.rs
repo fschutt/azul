@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 extern crate azul_core;
 
 #[cfg(target_arch = "wasm32")]
@@ -8,9 +10,66 @@ extern crate azul_desktop as azul_impl;
 use core::ffi::c_void;
 use core::mem;
 use pyo3::prelude::*;
+use pyo3::types::*;
 use pyo3::exceptions::PyException;
 
 
+
+        fn pystring_to_azstring(input: &String) -> AzString {
+            AzString {
+                vec: AzU8Vec {
+                    ptr: input.as_ptr(),
+                    len: input.len(),
+                    cap: input.capacity(),
+                    // prevent the String (which is just a reference) from dropping
+                    destructor: AzU8VecDestructorEnumWrapper::NoDestructor(),
+                }
+            }
+        }
+        fn az_string_to_py_string(input: AzString) -> String { input.into() }
+        fn pystring_to_refstr(input: &str) -> AzRefstr {
+            AzRefstr {
+                ptr: input.as_ptr(),
+                len: input.len(),
+            }
+        }
+        fn az_vecu8_to_py_vecu8(input: AzU8Vec) -> Vec<u8> {
+            let input: azul_impl::css::U8Vec = unsafe { mem::transmute(input) };
+            input.into_library_owned_vec()
+        }
+        fn vec_string_to_vec_refstr(input: &Vec<&str>) -> Vec<AzRefstr> {
+            input.iter().map(|i| pystring_to_refstr(i)).collect()
+        }
+        fn pybytesrefmut_to_vecu8refmut(input: &mut Vec<u8>) -> AzU8VecRefMut {
+            AzU8VecRefMut { ptr: input.as_mut_ptr(), len: input.len() }
+        }
+        fn pybytesref_to_vecu8_ref(input: &Vec<u8>) -> AzU8VecRef {
+            AzU8VecRef { ptr: input.as_ptr(), len: input.len() }
+        }
+        fn pylist_f32_to_rust(input: &Vec<f32>) -> AzF32VecRef {
+            AzF32VecRef { ptr: input.as_ptr(), len: input.len() }
+        }
+        fn pylist_u32_to_rust(input: &Vec<u32>) -> AzGLuintVecRef {
+            AzGLuintVecRef { ptr: input.as_ptr(), len: input.len() }
+        }
+        fn pylist_i32_to_rust(input: &mut Vec<i32>) -> AzGLintVecRefMut {
+            AzGLintVecRefMut { ptr: input.as_mut_ptr(), len: input.len() }
+        }
+        fn pylist_i64_to_rust(input: &mut Vec<i64>) -> AzGLint64VecRefMut {
+            AzGLint64VecRefMut { ptr: input.as_mut_ptr(), len: input.len() }
+        }
+        fn pylist_bool_to_rust(input: &mut Vec<u8>) -> AzGLbooleanVecRefMut {
+            AzGLbooleanVecRefMut { ptr: input.as_mut_ptr(), len: input.len() }
+        }
+        fn pylist_glfoat_to_rust(input: &mut Vec<f32>) -> AzGLfloatVecRefMut {
+            AzGLfloatVecRefMut { ptr: input.as_mut_ptr(), len: input.len() }
+        }
+        fn pylist_str_to_rust(input: &Vec<AzRefstr>) -> AzRefstrVecRef {
+            AzRefstrVecRef { ptr: input.as_ptr(), len: input.len() }
+        }
+        fn pylist_tesselated_svg_node(input: &Vec<AzTesselatedSvgNode>) -> AzTesselatedSvgNodeVecRef {
+            AzTesselatedSvgNodeVecRef { ptr: input.as_ptr(), len: input.len() }
+        }
 
         impl From<String> for AzString {
             fn from(s: String) -> AzString {
@@ -22,6 +81,14 @@ use pyo3::exceptions::PyException;
             fn from(s: AzString) -> String {
                 let s: azul_impl::css::AzString = unsafe { mem::transmute(s) };
                 s.into_library_owned_string()
+            }
+        }
+
+        // AzU8Vec
+        impl From<AzU8Vec> for Vec<u8> {
+            fn from(input: AzU8Vec) -> Vec<u8> {
+                let input: azul_impl::css::U8Vec = unsafe { mem::transmute(input) };
+                input.into_library_owned_vec()
             }
         }
 
@@ -1776,6 +1843,27 @@ pub enum AzTerminateTimer {
 pub struct AzThreadId {
     #[pyo3(get, set)]
     pub id: usize,
+}
+
+/// Re-export of rust-allocated (stack based) `Thread` struct
+#[repr(C)]
+#[pyclass(name = "Thread")]
+pub struct AzThread {
+    pub ptr: *const c_void,
+}
+
+/// Re-export of rust-allocated (stack based) `ThreadSender` struct
+#[repr(C)]
+#[pyclass(name = "ThreadSender")]
+pub struct AzThreadSender {
+    pub ptr: *const c_void,
+}
+
+/// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
+#[repr(C)]
+#[pyclass(name = "ThreadReceiver")]
+pub struct AzThreadReceiver {
+    pub ptr: *const c_void,
 }
 
 /// `AzCreateThreadFnType` struct
@@ -4187,48 +4275,6 @@ pub struct AzInstantPtr {
 pub enum AzDuration {
     System(AzSystemTimeDiff),
     Tick(AzSystemTickDiff),
-}
-
-/// Re-export of rust-allocated (stack based) `Thread` struct
-#[repr(C)]
-#[pyclass(name = "Thread")]
-pub struct AzThread {
-    pub thread_handle: *const c_void,
-    pub sender: *const c_void,
-    pub receiver: *const c_void,
-    pub dropcheck: *const c_void,
-    #[pyo3(get, set)]
-    pub writeback_data: AzRefAny,
-    #[pyo3(get, set)]
-    pub check_thread_finished_fn: AzCheckThreadFinishedFn,
-    #[pyo3(get, set)]
-    pub send_thread_msg_fn: AzLibrarySendThreadMsgFn,
-    #[pyo3(get, set)]
-    pub receive_thread_msg_fn: AzLibraryReceiveThreadMsgFn,
-    #[pyo3(get, set)]
-    pub thread_destructor_fn: AzThreadDestructorFn,
-}
-
-/// Re-export of rust-allocated (stack based) `ThreadSender` struct
-#[repr(C)]
-#[pyclass(name = "ThreadSender")]
-pub struct AzThreadSender {
-    pub ptr: *const c_void,
-    #[pyo3(get, set)]
-    pub send_fn: AzThreadSendFn,
-    #[pyo3(get, set)]
-    pub destructor: AzThreadSenderDestructorFn,
-}
-
-/// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
-#[repr(C)]
-#[pyclass(name = "ThreadReceiver")]
-pub struct AzThreadReceiver {
-    pub ptr: *const c_void,
-    #[pyo3(get, set)]
-    pub recv_fn: AzThreadRecvFn,
-    #[pyo3(get, set)]
-    pub destructor: AzThreadReceiverDestructorFn,
 }
 
 /// Re-export of rust-allocated (stack based) `ThreadSendMsg` struct
@@ -8917,6 +8963,9 @@ unsafe impl Send for AzSvg { }
 unsafe impl Send for AzSvgXmlNode { }
 unsafe impl Send for AzFile { }
 unsafe impl Send for AzSystemClipboard { }
+unsafe impl Send for AzThread { }
+unsafe impl Send for AzThreadSender { }
+unsafe impl Send for AzThreadReceiver { }
 unsafe impl Send for AzOptionHwndHandle { }
 unsafe impl Send for AzOptionX11Visual { }
 unsafe impl Send for AzIFrameCallbackInfo { }
@@ -8927,9 +8976,6 @@ unsafe impl Send for AzGl { }
 unsafe impl Send for AzRefstrVecRef { }
 unsafe impl Send for AzFontMetrics { }
 unsafe impl Send for AzInstantPtr { }
-unsafe impl Send for AzThread { }
-unsafe impl Send for AzThreadSender { }
-unsafe impl Send for AzThreadReceiver { }
 unsafe impl Send for AzXmlNodeVec { }
 unsafe impl Send for AzInlineGlyphVec { }
 unsafe impl Send for AzInlineTextHitVec { }
@@ -9131,6 +9177,9 @@ impl Clone for AzSystemTickDiff { fn clone(&self) -> Self { let r: &azul_impl::t
 impl Clone for AzTimerId { fn clone(&self) -> Self { let r: &azul_impl::task::TimerId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTerminateTimerEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::TerminateTimer = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadId { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzThread { fn clone(&self) -> Self { let r: &azul_impl::task::Thread = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzThreadSender { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadSender = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzThreadReceiver { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadReceiver = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCreateThreadFn { fn clone(&self) -> Self { let r: &azul_impl::task::CreateThreadCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGetSystemTimeFn { fn clone(&self) -> Self { let r: &azul_impl::task::GetSystemTimeCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCheckThreadFinishedFn { fn clone(&self) -> Self { let r: &azul_impl::task::CheckThreadFinishedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9359,9 +9408,6 @@ impl Clone for AzSvgStringFormatOptions { fn clone(&self) -> Self { let r: &azul
 impl Clone for AzSvgFillStyle { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgFillStyle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInstantPtr { fn clone(&self) -> Self { let r: &azul_impl::task::AzInstantPtr = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDurationEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::Duration = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzThread { fn clone(&self) -> Self { let r: &azul_impl::task::Thread = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzThreadSender { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadSender = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzThreadReceiver { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadReceiver = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadSendMsgEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadSendMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadWriteBackMsg { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadWriteBackMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNodeVec { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9583,6 +9629,75 @@ impl Clone for AzResultSvgXmlNodeSvgParseErrorEnumWrapper { fn clone(&self) -> S
 impl Clone for AzResultSvgSvgParseErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::ResultSvgSvgParseError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCss { fn clone(&self) -> Self { let r: &azul_impl::css::Css = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 
+// Implement Drop for all objects with drop constructors
+impl Drop for AzApp { fn drop(&mut self) { crate::AzApp_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzRefCount { fn drop(&mut self) { crate::AzRefCount_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzCssPropertyCache { fn drop(&mut self) { crate::AzCssPropertyCache_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzGLsyncPtr { fn drop(&mut self) { crate::AzGLsyncPtr_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzImageRef { fn drop(&mut self) { crate::AzImageRef_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzFontRef { fn drop(&mut self) { crate::AzFontRef_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzSvg { fn drop(&mut self) { crate::AzSvg_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzSvgXmlNode { fn drop(&mut self) { crate::AzSvgXmlNode_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzFile { fn drop(&mut self) { crate::AzFile_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzSystemClipboard { fn drop(&mut self) { crate::AzSystemClipboard_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzThread { fn drop(&mut self) { crate::AzThread_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzThreadSender { fn drop(&mut self) { crate::AzThreadSender_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzThreadReceiver { fn drop(&mut self) { crate::AzThreadReceiver_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzRefAny { fn drop(&mut self) { crate::AzRefAny_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzGl { fn drop(&mut self) { crate::AzGl_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzInstantPtr { fn drop(&mut self) { crate::AzInstantPtr_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzXmlNodeVec { fn drop(&mut self) { crate::AzXmlNodeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzInlineGlyphVec { fn drop(&mut self) { crate::AzInlineGlyphVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzInlineTextHitVec { fn drop(&mut self) { crate::AzInlineTextHitVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzVideoModeVec { fn drop(&mut self) { crate::AzVideoModeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzDomVec { fn drop(&mut self) { crate::AzDomVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzStyleBackgroundPositionVec { fn drop(&mut self) { crate::AzStyleBackgroundPositionVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzStyleBackgroundRepeatVec { fn drop(&mut self) { crate::AzStyleBackgroundRepeatVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzStyleBackgroundSizeVec { fn drop(&mut self) { crate::AzStyleBackgroundSizeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzSvgVertexVec { fn drop(&mut self) { crate::AzSvgVertexVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzU32Vec { fn drop(&mut self) { crate::AzU32Vec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzXWindowTypeVec { fn drop(&mut self) { crate::AzXWindowTypeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzVirtualKeyCodeVec { fn drop(&mut self) { crate::AzVirtualKeyCodeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzCascadeInfoVec { fn drop(&mut self) { crate::AzCascadeInfoVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzScanCodeVec { fn drop(&mut self) { crate::AzScanCodeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzU16Vec { fn drop(&mut self) { crate::AzU16Vec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzF32Vec { fn drop(&mut self) { crate::AzF32Vec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzU8Vec { fn drop(&mut self) { crate::AzU8Vec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzGLuintVec { fn drop(&mut self) { crate::AzGLuintVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzGLintVec { fn drop(&mut self) { crate::AzGLintVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzNormalizedLinearColorStopVec { fn drop(&mut self) { crate::AzNormalizedLinearColorStopVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzNormalizedRadialColorStopVec { fn drop(&mut self) { crate::AzNormalizedRadialColorStopVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzNodeIdVec { fn drop(&mut self) { crate::AzNodeIdVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzNodeVec { fn drop(&mut self) { crate::AzNodeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzParentWithNodeDepthVec { fn drop(&mut self) { crate::AzParentWithNodeDepthVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzTexture { fn drop(&mut self) { crate::AzTexture_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzTesselatedSvgNodeVec { fn drop(&mut self) { crate::AzTesselatedSvgNodeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzStyleTransformVec { fn drop(&mut self) { crate::AzStyleTransformVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzSvgPathElementVec { fn drop(&mut self) { crate::AzSvgPathElementVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzStringVec { fn drop(&mut self) { crate::AzStringVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzStyledNodeVec { fn drop(&mut self) { crate::AzStyledNodeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzTagIdsToNodeIdsMappingVec { fn drop(&mut self) { crate::AzTagIdsToNodeIdsMappingVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzStyleFontFamilyVec { fn drop(&mut self) { crate::AzStyleFontFamilyVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzFmtArgVec { fn drop(&mut self) { crate::AzFmtArgVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzInlineWordVec { fn drop(&mut self) { crate::AzInlineWordVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzMonitorVec { fn drop(&mut self) { crate::AzMonitorVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzIdOrClassVec { fn drop(&mut self) { crate::AzIdOrClassVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzStyleBackgroundContentVec { fn drop(&mut self) { crate::AzStyleBackgroundContentVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzSvgPathVec { fn drop(&mut self) { crate::AzSvgPathVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzVertexAttributeVec { fn drop(&mut self) { crate::AzVertexAttributeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzCssPathSelectorVec { fn drop(&mut self) { crate::AzCssPathSelectorVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzCallbackDataVec { fn drop(&mut self) { crate::AzCallbackDataVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzDebugMessageVec { fn drop(&mut self) { crate::AzDebugMessageVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzStringPairVec { fn drop(&mut self) { crate::AzStringPairVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzInlineLineVec { fn drop(&mut self) { crate::AzInlineLineVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzCssPropertyVec { fn drop(&mut self) { crate::AzCssPropertyVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzSvgMultiPolygonVec { fn drop(&mut self) { crate::AzSvgMultiPolygonVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzNodeDataInlineCssPropertyVec { fn drop(&mut self) { crate::AzNodeDataInlineCssPropertyVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzCssDeclarationVec { fn drop(&mut self) { crate::AzCssDeclarationVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzNodeDataVec { fn drop(&mut self) { crate::AzNodeDataVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzCssRuleBlockVec { fn drop(&mut self) { crate::AzCssRuleBlockVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzStylesheetVec { fn drop(&mut self) { crate::AzStylesheetVec_delete(unsafe { mem::transmute(self) }); } }
+
 
 #[pymethods]
 impl AzApp {
@@ -9592,8 +9707,8 @@ impl AzApp {
             mem::transmute(window),
         )) }
     }
-    fn add_image(&mut self, id: AzString, image: AzImageRef) -> () {
-        let id: AzString = id.into();
+    fn add_image(&mut self, id: String, image: AzImageRef) -> () {
+        let id = pystring_to_azstring(&id);
         unsafe { mem::transmute(crate::AzApp_addImage(
             mem::transmute(self),
             mem::transmute(id),
@@ -10468,31 +10583,31 @@ impl AzCallbackInfo {
             mem::transmute(scroll_position),
         )) }
     }
-    fn set_string_contents(&mut self, node_id: AzDomNodeId, string: AzString) -> () {
-        let string: AzString = string.into();
+    fn set_string_contents(&mut self, node_id: AzDomNodeId, string: String) -> () {
+        let string = pystring_to_azstring(&string);
         unsafe { mem::transmute(crate::AzCallbackInfo_setStringContents(
             mem::transmute(self),
             mem::transmute(node_id),
             mem::transmute(string),
         )) }
     }
-    fn add_image(&mut self, id: AzString, image: AzImageRef) -> () {
-        let id: AzString = id.into();
+    fn add_image(&mut self, id: String, image: AzImageRef) -> () {
+        let id = pystring_to_azstring(&id);
         unsafe { mem::transmute(crate::AzCallbackInfo_addImage(
             mem::transmute(self),
             mem::transmute(id),
             mem::transmute(image),
         )) }
     }
-    fn has_image(&self, id: AzString) -> bool {
-        let id: AzString = id.into();
+    fn has_image(&self, id: String) -> bool {
+        let id = pystring_to_azstring(&id);
         unsafe { mem::transmute(crate::AzCallbackInfo_hasImage(
             mem::transmute(self),
             mem::transmute(id),
         )) }
     }
-    fn get_image(&self, id: AzString) -> Option<AzImageRef> {
-        let id: AzString = id.into();
+    fn get_image(&self, id: String) -> Option<AzImageRef> {
+        let id = pystring_to_azstring(&id);
         let m: AzOptionImageRef = unsafe { mem::transmute(crate::AzCallbackInfo_getImage(
             mem::transmute(self),
             mem::transmute(id),
@@ -10510,8 +10625,8 @@ impl AzCallbackInfo {
             mem::transmute(new_image),
         )) }
     }
-    fn delete_image(&mut self, id: AzString) -> () {
-        let id: AzString = id.into();
+    fn delete_image(&mut self, id: String) -> () {
+        let id = pystring_to_azstring(&id);
         unsafe { mem::transmute(crate::AzCallbackInfo_deleteImage(
             mem::transmute(self),
             mem::transmute(id),
@@ -10844,10 +10959,10 @@ impl AzRefAny {
             mem::transmute(self),
         )) }
     }
-    fn get_type_name(&self) -> AzString {
-        unsafe { mem::transmute(crate::AzRefAny_getTypeName(
+    fn get_type_name(&self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzRefAny_getTypeName(
             mem::transmute(self),
-        )) }
+        )) })
     }
 }
 
@@ -10868,8 +10983,8 @@ impl AzLayoutCallbackInfo {
             mem::transmute(self),
         )) }
     }
-    fn get_image(&self, id: AzString) -> Option<AzImageRef> {
-        let id: AzString = id.into();
+    fn get_image(&self, id: String) -> Option<AzImageRef> {
+        let id = pystring_to_azstring(&id);
         let m: AzOptionImageRef = unsafe { mem::transmute(crate::AzLayoutCallbackInfo_getImage(
             mem::transmute(self),
             mem::transmute(id),
@@ -11264,8 +11379,8 @@ impl AzCss {
         unsafe { mem::transmute(crate::AzCss_empty()) }
     }
     #[staticmethod]
-    fn from_string(s: AzString) -> AzCss {
-        let s: AzString = s.into();
+    fn from_string(s: String) -> AzCss {
+        let s = pystring_to_azstring(&s);
         unsafe { mem::transmute(crate::AzCss_fromString(
             mem::transmute(s),
         )) }
@@ -11439,16 +11554,16 @@ impl AzAnimationInterpolationFunctionEnumWrapper {
 #[pymethods]
 impl AzColorU {
     #[staticmethod]
-    fn from_str(string: AzString) -> AzColorU {
-        let string: AzString = string.into();
+    fn from_str(string: String) -> AzColorU {
+        let string = pystring_to_azstring(&string);
         unsafe { mem::transmute(crate::AzColorU_fromStr(
             mem::transmute(string),
         )) }
     }
-    fn to_hash(&self) -> AzString {
-        unsafe { mem::transmute(crate::AzColorU_toHash(
+    fn to_hash(&self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzColorU_toHash(
             mem::transmute(self),
-        )) }
+        )) })
     }
 }
 
@@ -12968,15 +13083,15 @@ impl AzStyledDom {
         unsafe { mem::transmute(crate::AzStyledDom_default()) }
     }
     #[staticmethod]
-    fn from_xml(xml_string: AzString) -> AzStyledDom {
-        let xml_string: AzString = xml_string.into();
+    fn from_xml(xml_string: String) -> AzStyledDom {
+        let xml_string = pystring_to_azstring(&xml_string);
         unsafe { mem::transmute(crate::AzStyledDom_fromXml(
             mem::transmute(xml_string),
         )) }
     }
     #[staticmethod]
-    fn from_file(xml_file_path: AzString) -> AzStyledDom {
-        let xml_file_path: AzString = xml_file_path.into();
+    fn from_file(xml_file_path: String) -> AzStyledDom {
+        let xml_file_path = pystring_to_azstring(&xml_file_path);
         unsafe { mem::transmute(crate::AzStyledDom_fromFile(
             mem::transmute(xml_file_path),
         )) }
@@ -12998,10 +13113,10 @@ impl AzStyledDom {
             mem::transmute(self),
         )) }
     }
-    fn get_html_string(&self) -> AzString {
-        unsafe { mem::transmute(crate::AzStyledDom_getHtmlString(
+    fn get_html_string(&self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzStyledDom_getHtmlString(
             mem::transmute(self),
-        )) }
+        )) })
     }
 }
 
@@ -13095,8 +13210,8 @@ impl AzGl {
             mem::transmute(mode),
         )) }
     }
-    fn read_pixels_into_buffer(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32, dst_buffer: &mut Vec<u8>) -> () {
-        let dst_buffer: &mut Vec<u8> = dst_buffer.into();
+    fn read_pixels_into_buffer(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32, mut dst_buffer: Vec<u8>) -> () {
+        let dst_buffer = pybytesrefmut_to_vecu8refmut(&mut dst_buffer);
         unsafe { mem::transmute(crate::AzGl_readPixelsIntoBuffer(
             mem::transmute(self),
             mem::transmute(x),
@@ -13108,8 +13223,8 @@ impl AzGl {
             mem::transmute(dst_buffer),
         )) }
     }
-    fn read_pixels(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32) -> AzU8Vec {
-        unsafe { mem::transmute(crate::AzGl_readPixels(
+    fn read_pixels(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32) -> Vec<u8> {
+        az_vecu8_to_py_vecu8(unsafe { mem::transmute(crate::AzGl_readPixels(
             mem::transmute(self),
             mem::transmute(x),
             mem::transmute(y),
@@ -13117,7 +13232,7 @@ impl AzGl {
             mem::transmute(height),
             mem::transmute(format),
             mem::transmute(pixel_type),
-        )) }
+        )) })
     }
     fn read_pixels_into_pbo(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32) -> () {
         unsafe { mem::transmute(crate::AzGl_readPixelsIntoPbo(
@@ -13235,43 +13350,43 @@ impl AzGl {
             mem::transmute(pname),
         )) }
     }
-    fn delete_queries(&self, queries: &Vec<u32>) -> () {
-        let queries: &Vec<u32> = queries.into();
+    fn delete_queries(&self, queries: Vec<u32>) -> () {
+        let queries = pylist_u32_to_rust(&queries);
         unsafe { mem::transmute(crate::AzGl_deleteQueries(
             mem::transmute(self),
             mem::transmute(queries),
         )) }
     }
-    fn delete_vertex_arrays(&self, vertex_arrays: &Vec<u32>) -> () {
-        let vertex_arrays: &Vec<u32> = vertex_arrays.into();
+    fn delete_vertex_arrays(&self, vertex_arrays: Vec<u32>) -> () {
+        let vertex_arrays = pylist_u32_to_rust(&vertex_arrays);
         unsafe { mem::transmute(crate::AzGl_deleteVertexArrays(
             mem::transmute(self),
             mem::transmute(vertex_arrays),
         )) }
     }
-    fn delete_buffers(&self, buffers: &Vec<u32>) -> () {
-        let buffers: &Vec<u32> = buffers.into();
+    fn delete_buffers(&self, buffers: Vec<u32>) -> () {
+        let buffers = pylist_u32_to_rust(&buffers);
         unsafe { mem::transmute(crate::AzGl_deleteBuffers(
             mem::transmute(self),
             mem::transmute(buffers),
         )) }
     }
-    fn delete_renderbuffers(&self, renderbuffers: &Vec<u32>) -> () {
-        let renderbuffers: &Vec<u32> = renderbuffers.into();
+    fn delete_renderbuffers(&self, renderbuffers: Vec<u32>) -> () {
+        let renderbuffers = pylist_u32_to_rust(&renderbuffers);
         unsafe { mem::transmute(crate::AzGl_deleteRenderbuffers(
             mem::transmute(self),
             mem::transmute(renderbuffers),
         )) }
     }
-    fn delete_framebuffers(&self, framebuffers: &Vec<u32>) -> () {
-        let framebuffers: &Vec<u32> = framebuffers.into();
+    fn delete_framebuffers(&self, framebuffers: Vec<u32>) -> () {
+        let framebuffers = pylist_u32_to_rust(&framebuffers);
         unsafe { mem::transmute(crate::AzGl_deleteFramebuffers(
             mem::transmute(self),
             mem::transmute(framebuffers),
         )) }
     }
-    fn delete_textures(&self, textures: &Vec<u32>) -> () {
-        let textures: &Vec<u32> = textures.into();
+    fn delete_textures(&self, textures: Vec<u32>) -> () {
+        let textures = pylist_u32_to_rust(&textures);
         unsafe { mem::transmute(crate::AzGl_deleteTextures(
             mem::transmute(self),
             mem::transmute(textures),
@@ -13315,7 +13430,7 @@ impl AzGl {
         )) }
     }
     fn bind_attrib_location(&self, program: u32, index: u32, name: &str) -> () {
-        let name: &str = name.into();
+        let name = pystring_to_refstr(&name);
         unsafe { mem::transmute(crate::AzGl_bindAttribLocation(
             mem::transmute(self),
             mem::transmute(program),
@@ -13323,7 +13438,8 @@ impl AzGl {
             mem::transmute(name),
         )) }
     }
-    fn get_uniform_iv(&self, program: u32, location: i32, result: AzGLintVecRefMut) -> () {
+    fn get_uniform_iv(&self, program: u32, location: i32, mut result: Vec<i32>) -> () {
+        let result = pylist_i32_to_rust(&mut result);
         unsafe { mem::transmute(crate::AzGl_getUniformIv(
             mem::transmute(self),
             mem::transmute(program),
@@ -13331,8 +13447,8 @@ impl AzGl {
             mem::transmute(result),
         )) }
     }
-    fn get_uniform_fv(&self, program: u32, location: i32, result: &mut Vec<f32>) -> () {
-        let result: &mut Vec<f32> = result.into();
+    fn get_uniform_fv(&self, program: u32, location: i32, mut result: Vec<f32>) -> () {
+        let result = pylist_glfoat_to_rust(&mut result);
         unsafe { mem::transmute(crate::AzGl_getUniformFv(
             mem::transmute(self),
             mem::transmute(program),
@@ -13341,15 +13457,16 @@ impl AzGl {
         )) }
     }
     fn get_uniform_block_index(&self, program: u32, name: &str) -> u32 {
-        let name: &str = name.into();
+        let name = pystring_to_refstr(&name);
         unsafe { mem::transmute(crate::AzGl_getUniformBlockIndex(
             mem::transmute(self),
             mem::transmute(program),
             mem::transmute(name),
         )) }
     }
-    fn get_uniform_indices(&self, program: u32, names: &Vec<&str>) -> AzGLuintVec {
-        let names: &Vec<&str> = names.into();
+    fn get_uniform_indices(&self, program: u32, names: Vec<&str>) -> AzGLuintVec {
+        let names = vec_string_to_vec_refstr(&names);
+        let names = pylist_str_to_rust(&names);
         unsafe { mem::transmute(crate::AzGl_getUniformIndices(
             mem::transmute(self),
             mem::transmute(program),
@@ -13436,8 +13553,8 @@ impl AzGl {
             mem::transmute(opt_data),
         )) }
     }
-    fn compressed_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, width: i32, height: i32, border: i32, data: &Vec<u8>) -> () {
-        let data: &Vec<u8> = data.into();
+    fn compressed_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, width: i32, height: i32, border: i32, data: Vec<u8>) -> () {
+        let data = pybytesref_to_vecu8_ref(&data);
         unsafe { mem::transmute(crate::AzGl_compressedTexImage2D(
             mem::transmute(self),
             mem::transmute(target),
@@ -13449,8 +13566,8 @@ impl AzGl {
             mem::transmute(data),
         )) }
     }
-    fn compressed_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, data: &Vec<u8>) -> () {
-        let data: &Vec<u8> = data.into();
+    fn compressed_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, data: Vec<u8>) -> () {
+        let data = pybytesref_to_vecu8_ref(&data);
         unsafe { mem::transmute(crate::AzGl_compressedTexSubImage2D(
             mem::transmute(self),
             mem::transmute(target),
@@ -13518,8 +13635,8 @@ impl AzGl {
             mem::transmute(height),
         )) }
     }
-    fn tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, data: &Vec<u8>) -> () {
-        let data: &Vec<u8> = data.into();
+    fn tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, data: Vec<u8>) -> () {
+        let data = pybytesref_to_vecu8_ref(&data);
         unsafe { mem::transmute(crate::AzGl_texSubImage2D(
             mem::transmute(self),
             mem::transmute(target),
@@ -13547,8 +13664,8 @@ impl AzGl {
             mem::transmute(offset),
         )) }
     }
-    fn tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: &Vec<u8>) -> () {
-        let data: &Vec<u8> = data.into();
+    fn tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: Vec<u8>) -> () {
+        let data = pybytesref_to_vecu8_ref(&data);
         unsafe { mem::transmute(crate::AzGl_texSubImage3D(
             mem::transmute(self),
             mem::transmute(target),
@@ -13601,8 +13718,8 @@ impl AzGl {
             mem::transmute(depth),
         )) }
     }
-    fn get_tex_image_into_buffer(&self, target: u32, level: i32, format: u32, ty: u32, output: &mut Vec<u8>) -> () {
-        let output: &mut Vec<u8> = output.into();
+    fn get_tex_image_into_buffer(&self, target: u32, level: i32, format: u32, ty: u32, mut output: Vec<u8>) -> () {
+        let output = pybytesrefmut_to_vecu8refmut(&mut output);
         unsafe { mem::transmute(crate::AzGl_getTexImageIntoBuffer(
             mem::transmute(self),
             mem::transmute(target),
@@ -13650,21 +13767,24 @@ impl AzGl {
             mem::transmute(height),
         )) }
     }
-    fn get_integer_v(&self, name: u32, result: AzGLintVecRefMut) -> () {
+    fn get_integer_v(&self, name: u32, mut result: Vec<i32>) -> () {
+        let result = pylist_i32_to_rust(&mut result);
         unsafe { mem::transmute(crate::AzGl_getIntegerV(
             mem::transmute(self),
             mem::transmute(name),
             mem::transmute(result),
         )) }
     }
-    fn get_integer_64v(&self, name: u32, result: AzGLint64VecRefMut) -> () {
+    fn get_integer_64v(&self, name: u32, mut result: Vec<i64>) -> () {
+        let result = pylist_i64_to_rust(&mut result);
         unsafe { mem::transmute(crate::AzGl_getInteger64V(
             mem::transmute(self),
             mem::transmute(name),
             mem::transmute(result),
         )) }
     }
-    fn get_integer_iv(&self, name: u32, index: u32, result: AzGLintVecRefMut) -> () {
+    fn get_integer_iv(&self, name: u32, index: u32, mut result: Vec<i32>) -> () {
+        let result = pylist_i32_to_rust(&mut result);
         unsafe { mem::transmute(crate::AzGl_getIntegerIv(
             mem::transmute(self),
             mem::transmute(name),
@@ -13672,7 +13792,8 @@ impl AzGl {
             mem::transmute(result),
         )) }
     }
-    fn get_integer_64iv(&self, name: u32, index: u32, result: AzGLint64VecRefMut) -> () {
+    fn get_integer_64iv(&self, name: u32, index: u32, mut result: Vec<i64>) -> () {
+        let result = pylist_i64_to_rust(&mut result);
         unsafe { mem::transmute(crate::AzGl_getInteger64Iv(
             mem::transmute(self),
             mem::transmute(name),
@@ -13680,15 +13801,16 @@ impl AzGl {
             mem::transmute(result),
         )) }
     }
-    fn get_boolean_v(&self, name: u32, result: AzGLbooleanVecRefMut) -> () {
+    fn get_boolean_v(&self, name: u32, mut result: Vec<u8>) -> () {
+        let result = pylist_bool_to_rust(&mut result);
         unsafe { mem::transmute(crate::AzGl_getBooleanV(
             mem::transmute(self),
             mem::transmute(name),
             mem::transmute(result),
         )) }
     }
-    fn get_float_v(&self, name: u32, result: &mut Vec<f32>) -> () {
-        let result: &mut Vec<f32> = result.into();
+    fn get_float_v(&self, name: u32, mut result: Vec<f32>) -> () {
+        let result = pylist_glfoat_to_rust(&mut result);
         unsafe { mem::transmute(crate::AzGl_getFloatV(
             mem::transmute(self),
             mem::transmute(name),
@@ -14028,8 +14150,8 @@ impl AzGl {
             mem::transmute(v0),
         )) }
     }
-    fn uniform_1fv(&self, location: i32, values: &Vec<f32>) -> () {
-        let values: &Vec<f32> = values.into();
+    fn uniform_1fv(&self, location: i32, values: Vec<f32>) -> () {
+        let values = pylist_f32_to_rust(&values);
         unsafe { mem::transmute(crate::AzGl_uniform1Fv(
             mem::transmute(self),
             mem::transmute(location),
@@ -14065,8 +14187,8 @@ impl AzGl {
             mem::transmute(v1),
         )) }
     }
-    fn uniform_2fv(&self, location: i32, values: &Vec<f32>) -> () {
-        let values: &Vec<f32> = values.into();
+    fn uniform_2fv(&self, location: i32, values: Vec<f32>) -> () {
+        let values = pylist_f32_to_rust(&values);
         unsafe { mem::transmute(crate::AzGl_uniform2Fv(
             mem::transmute(self),
             mem::transmute(location),
@@ -14105,8 +14227,8 @@ impl AzGl {
             mem::transmute(v2),
         )) }
     }
-    fn uniform_3fv(&self, location: i32, values: &Vec<f32>) -> () {
-        let values: &Vec<f32> = values.into();
+    fn uniform_3fv(&self, location: i32, values: Vec<f32>) -> () {
+        let values = pylist_f32_to_rust(&values);
         unsafe { mem::transmute(crate::AzGl_uniform3Fv(
             mem::transmute(self),
             mem::transmute(location),
@@ -14175,16 +14297,16 @@ impl AzGl {
             mem::transmute(w),
         )) }
     }
-    fn uniform_4fv(&self, location: i32, values: &Vec<f32>) -> () {
-        let values: &Vec<f32> = values.into();
+    fn uniform_4fv(&self, location: i32, values: Vec<f32>) -> () {
+        let values = pylist_f32_to_rust(&values);
         unsafe { mem::transmute(crate::AzGl_uniform4Fv(
             mem::transmute(self),
             mem::transmute(location),
             mem::transmute(values),
         )) }
     }
-    fn uniform_matrix_2fv(&self, location: i32, transpose: bool, value: &Vec<f32>) -> () {
-        let value: &Vec<f32> = value.into();
+    fn uniform_matrix_2fv(&self, location: i32, transpose: bool, value: Vec<f32>) -> () {
+        let value = pylist_f32_to_rust(&value);
         unsafe { mem::transmute(crate::AzGl_uniformMatrix2Fv(
             mem::transmute(self),
             mem::transmute(location),
@@ -14192,8 +14314,8 @@ impl AzGl {
             mem::transmute(value),
         )) }
     }
-    fn uniform_matrix_3fv(&self, location: i32, transpose: bool, value: &Vec<f32>) -> () {
-        let value: &Vec<f32> = value.into();
+    fn uniform_matrix_3fv(&self, location: i32, transpose: bool, value: Vec<f32>) -> () {
+        let value = pylist_f32_to_rust(&value);
         unsafe { mem::transmute(crate::AzGl_uniformMatrix3Fv(
             mem::transmute(self),
             mem::transmute(location),
@@ -14201,8 +14323,8 @@ impl AzGl {
             mem::transmute(value),
         )) }
     }
-    fn uniform_matrix_4fv(&self, location: i32, transpose: bool, value: &Vec<f32>) -> () {
-        let value: &Vec<f32> = value.into();
+    fn uniform_matrix_4fv(&self, location: i32, transpose: bool, value: Vec<f32>) -> () {
+        let value = pylist_f32_to_rust(&value);
         unsafe { mem::transmute(crate::AzGl_uniformMatrix4Fv(
             mem::transmute(self),
             mem::transmute(location),
@@ -14261,15 +14383,15 @@ impl AzGl {
             mem::transmute(pname),
         )) }
     }
-    fn get_active_uniform_block_name(&self, program: u32, index: u32) -> AzString {
-        unsafe { mem::transmute(crate::AzGl_getActiveUniformBlockName(
+    fn get_active_uniform_block_name(&self, program: u32, index: u32) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzGl_getActiveUniformBlockName(
             mem::transmute(self),
             mem::transmute(program),
             mem::transmute(index),
-        )) }
+        )) })
     }
     fn get_attrib_location(&self, program: u32, name: &str) -> i32 {
-        let name: &str = name.into();
+        let name = pystring_to_refstr(&name);
         unsafe { mem::transmute(crate::AzGl_getAttribLocation(
             mem::transmute(self),
             mem::transmute(program),
@@ -14277,7 +14399,7 @@ impl AzGl {
         )) }
     }
     fn get_frag_data_location(&self, program: u32, name: &str) -> i32 {
-        let name: &str = name.into();
+        let name = pystring_to_refstr(&name);
         unsafe { mem::transmute(crate::AzGl_getFragDataLocation(
             mem::transmute(self),
             mem::transmute(program),
@@ -14285,20 +14407,21 @@ impl AzGl {
         )) }
     }
     fn get_uniform_location(&self, program: u32, name: &str) -> i32 {
-        let name: &str = name.into();
+        let name = pystring_to_refstr(&name);
         unsafe { mem::transmute(crate::AzGl_getUniformLocation(
             mem::transmute(self),
             mem::transmute(program),
             mem::transmute(name),
         )) }
     }
-    fn get_program_info_log(&self, program: u32) -> AzString {
-        unsafe { mem::transmute(crate::AzGl_getProgramInfoLog(
+    fn get_program_info_log(&self, program: u32) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzGl_getProgramInfoLog(
             mem::transmute(self),
             mem::transmute(program),
-        )) }
+        )) })
     }
-    fn get_program_iv(&self, program: u32, pname: u32, result: AzGLintVecRefMut) -> () {
+    fn get_program_iv(&self, program: u32, pname: u32, mut result: Vec<i32>) -> () {
+        let result = pylist_i32_to_rust(&mut result);
         unsafe { mem::transmute(crate::AzGl_getProgramIv(
             mem::transmute(self),
             mem::transmute(program),
@@ -14312,8 +14435,8 @@ impl AzGl {
             mem::transmute(program),
         )) }
     }
-    fn program_binary(&self, program: u32, format: u32, binary: &Vec<u8>) -> () {
-        let binary: &Vec<u8> = binary.into();
+    fn program_binary(&self, program: u32, format: u32, binary: Vec<u8>) -> () {
+        let binary = pybytesref_to_vecu8_ref(&binary);
         unsafe { mem::transmute(crate::AzGl_programBinary(
             mem::transmute(self),
             mem::transmute(program),
@@ -14329,7 +14452,8 @@ impl AzGl {
             mem::transmute(value),
         )) }
     }
-    fn get_vertex_attrib_iv(&self, index: u32, pname: u32, result: AzGLintVecRefMut) -> () {
+    fn get_vertex_attrib_iv(&self, index: u32, pname: u32, mut result: Vec<i32>) -> () {
+        let result = pylist_i32_to_rust(&mut result);
         unsafe { mem::transmute(crate::AzGl_getVertexAttribIv(
             mem::transmute(self),
             mem::transmute(index),
@@ -14337,8 +14461,8 @@ impl AzGl {
             mem::transmute(result),
         )) }
     }
-    fn get_vertex_attrib_fv(&self, index: u32, pname: u32, result: &mut Vec<f32>) -> () {
-        let result: &mut Vec<f32> = result.into();
+    fn get_vertex_attrib_fv(&self, index: u32, pname: u32, mut result: Vec<f32>) -> () {
+        let result = pylist_glfoat_to_rust(&mut result);
         unsafe { mem::transmute(crate::AzGl_getVertexAttribFv(
             mem::transmute(self),
             mem::transmute(index),
@@ -14360,26 +14484,27 @@ impl AzGl {
             mem::transmute(pname),
         )) }
     }
-    fn get_shader_info_log(&self, shader: u32) -> AzString {
-        unsafe { mem::transmute(crate::AzGl_getShaderInfoLog(
+    fn get_shader_info_log(&self, shader: u32) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzGl_getShaderInfoLog(
             mem::transmute(self),
             mem::transmute(shader),
-        )) }
+        )) })
     }
-    fn get_string(&self, which: u32) -> AzString {
-        unsafe { mem::transmute(crate::AzGl_getString(
+    fn get_string(&self, which: u32) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzGl_getString(
             mem::transmute(self),
             mem::transmute(which),
-        )) }
+        )) })
     }
-    fn get_string_i(&self, which: u32, index: u32) -> AzString {
-        unsafe { mem::transmute(crate::AzGl_getStringI(
+    fn get_string_i(&self, which: u32, index: u32) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzGl_getStringI(
             mem::transmute(self),
             mem::transmute(which),
             mem::transmute(index),
-        )) }
+        )) })
     }
-    fn get_shader_iv(&self, shader: u32, pname: u32, result: AzGLintVecRefMut) -> () {
+    fn get_shader_iv(&self, shader: u32, pname: u32, mut result: Vec<i32>) -> () {
+        let result = pylist_i32_to_rust(&mut result);
         unsafe { mem::transmute(crate::AzGl_getShaderIv(
             mem::transmute(self),
             mem::transmute(shader),
@@ -14539,14 +14664,14 @@ impl AzGl {
         )) }
     }
     fn insert_event_marker_ext(&self, message: &str) -> () {
-        let message: &str = message.into();
+        let message = pystring_to_refstr(&message);
         unsafe { mem::transmute(crate::AzGl_insertEventMarkerExt(
             mem::transmute(self),
             mem::transmute(message),
         )) }
     }
     fn push_group_marker_ext(&self, message: &str) -> () {
-        let message: &str = message.into();
+        let message = pystring_to_refstr(&message);
         unsafe { mem::transmute(crate::AzGl_pushGroupMarkerExt(
             mem::transmute(self),
             mem::transmute(message),
@@ -14558,7 +14683,7 @@ impl AzGl {
         )) }
     }
     fn debug_message_insert_khr(&self, source: u32, type_: u32, id: u32, severity: u32, message: &str) -> () {
-        let message: &str = message.into();
+        let message = pystring_to_refstr(&message);
         unsafe { mem::transmute(crate::AzGl_debugMessageInsertKhr(
             mem::transmute(self),
             mem::transmute(source),
@@ -14569,7 +14694,7 @@ impl AzGl {
         )) }
     }
     fn push_debug_group_khr(&self, source: u32, id: u32, message: &str) -> () {
-        let message: &str = message.into();
+        let message = pystring_to_refstr(&message);
         unsafe { mem::transmute(crate::AzGl_pushDebugGroupKhr(
             mem::transmute(self),
             mem::transmute(source),
@@ -14611,8 +14736,8 @@ impl AzGl {
             mem::transmute(sync),
         )) }
     }
-    fn texture_range_apple(&self, target: u32, data: &Vec<u8>) -> () {
-        let data: &Vec<u8> = data.into();
+    fn texture_range_apple(&self, target: u32, data: Vec<u8>) -> () {
+        let data = pybytesref_to_vecu8_ref(&data);
         unsafe { mem::transmute(crate::AzGl_textureRangeApple(
             mem::transmute(self),
             mem::transmute(target),
@@ -14625,8 +14750,8 @@ impl AzGl {
             mem::transmute(n),
         )) }
     }
-    fn delete_fences_apple(&self, fences: &Vec<u32>) -> () {
-        let fences: &Vec<u32> = fences.into();
+    fn delete_fences_apple(&self, fences: Vec<u32>) -> () {
+        let fences = pylist_u32_to_rust(&fences);
         unsafe { mem::transmute(crate::AzGl_deleteFencesApple(
             mem::transmute(self),
             mem::transmute(fences),
@@ -14665,7 +14790,7 @@ impl AzGl {
         )) }
     }
     fn get_frag_data_index(&self, program: u32, name: &str) -> i32 {
-        let name: &str = name.into();
+        let name = pystring_to_refstr(&name);
         unsafe { mem::transmute(crate::AzGl_getFragDataIndex(
             mem::transmute(self),
             mem::transmute(program),
@@ -14678,7 +14803,7 @@ impl AzGl {
         )) }
     }
     fn bind_frag_data_location_indexed(&self, program: u32, color_number: u32, index: u32, name: &str) -> () {
-        let name: &str = name.into();
+        let name = pystring_to_refstr(&name);
         unsafe { mem::transmute(crate::AzGl_bindFragDataLocationIndexed(
             mem::transmute(self),
             mem::transmute(program),
@@ -14710,8 +14835,8 @@ impl AzGl {
             mem::transmute(vao),
         )) }
     }
-    fn delete_vertex_arrays_apple(&self, vertex_arrays: &Vec<u32>) -> () {
-        let vertex_arrays: &Vec<u32> = vertex_arrays.into();
+    fn delete_vertex_arrays_apple(&self, vertex_arrays: Vec<u32>) -> () {
+        let vertex_arrays = pylist_u32_to_rust(&vertex_arrays);
         unsafe { mem::transmute(crate::AzGl_deleteVertexArraysApple(
             mem::transmute(self),
             mem::transmute(vertex_arrays),
@@ -14934,13 +15059,13 @@ impl AzRawImage {
         )) }
     }
     #[staticmethod]
-    fn decode_image_bytes_any(bytes: &Vec<u8>) -> Result<AzRawImage, PyErr> {
-        let bytes: &Vec<u8> = bytes.into();
+    fn decode_image_bytes_any(bytes: Vec<u8>) -> Result<AzRawImage, PyErr> {
+        let bytes = pybytesref_to_vecu8_ref(&bytes);
         let m: AzResultRawImageDecodeImageError = unsafe { mem::transmute(crate::AzRawImage_decodeImageBytesAny(
             mem::transmute(bytes),
         )) };
         match m {
-            AzResultRawImageDecodeImageError::Ok(o) => Ok(o),
+            AzResultRawImageDecodeImageError::Ok(o) => Ok(o.into()),
             AzResultRawImageDecodeImageError::Err(e) => Err(e.into()),
         }
 
@@ -14952,72 +15077,72 @@ impl AzRawImage {
             mem::transmute(style),
         )) }
     }
-    fn encode_bmp(&self) -> Result<AzU8Vec, PyErr> {
+    fn encode_bmp(&self) -> Result<Vec<u8>, PyErr> {
         let m: AzResultU8VecEncodeImageError = unsafe { mem::transmute(crate::AzRawImage_encodeBmp(
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
     }
-    fn encode_png(&self) -> Result<AzU8Vec, PyErr> {
+    fn encode_png(&self) -> Result<Vec<u8>, PyErr> {
         let m: AzResultU8VecEncodeImageError = unsafe { mem::transmute(crate::AzRawImage_encodePng(
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
     }
-    fn encode_jpeg(&self) -> Result<AzU8Vec, PyErr> {
+    fn encode_jpeg(&self) -> Result<Vec<u8>, PyErr> {
         let m: AzResultU8VecEncodeImageError = unsafe { mem::transmute(crate::AzRawImage_encodeJpeg(
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
     }
-    fn encode_tga(&self) -> Result<AzU8Vec, PyErr> {
+    fn encode_tga(&self) -> Result<Vec<u8>, PyErr> {
         let m: AzResultU8VecEncodeImageError = unsafe { mem::transmute(crate::AzRawImage_encodeTga(
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
     }
-    fn encode_pnm(&self) -> Result<AzU8Vec, PyErr> {
+    fn encode_pnm(&self) -> Result<Vec<u8>, PyErr> {
         let m: AzResultU8VecEncodeImageError = unsafe { mem::transmute(crate::AzRawImage_encodePnm(
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
     }
-    fn encode_gif(&self) -> Result<AzU8Vec, PyErr> {
+    fn encode_gif(&self) -> Result<Vec<u8>, PyErr> {
         let m: AzResultU8VecEncodeImageError = unsafe { mem::transmute(crate::AzRawImage_encodeGif(
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
     }
-    fn encode_tiff(&self) -> Result<AzU8Vec, PyErr> {
+    fn encode_tiff(&self) -> Result<Vec<u8>, PyErr> {
         let m: AzResultU8VecEncodeImageError = unsafe { mem::transmute(crate::AzRawImage_encodeTiff(
             mem::transmute(self),
         )) };
         match m {
-            AzResultU8VecEncodeImageError::Ok(o) => Ok(o),
+            AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
             AzResultU8VecEncodeImageError::Err(e) => Err(e.into()),
         }
 
@@ -15101,27 +15226,27 @@ impl AzFontRef {
 #[pymethods]
 impl AzSvg {
     #[staticmethod]
-    fn from_string(svg_string: AzString, parse_options: AzSvgParseOptions) -> Result<AzSvg, PyErr> {
-        let svg_string: AzString = svg_string.into();
+    fn from_string(svg_string: String, parse_options: AzSvgParseOptions) -> Result<AzSvg, PyErr> {
+        let svg_string = pystring_to_azstring(&svg_string);
         let m: AzResultSvgSvgParseError = unsafe { mem::transmute(crate::AzSvg_fromString(
             mem::transmute(svg_string),
             mem::transmute(parse_options),
         )) };
         match m {
-            AzResultSvgSvgParseError::Ok(o) => Ok(o),
+            AzResultSvgSvgParseError::Ok(o) => Ok(o.into()),
             AzResultSvgSvgParseError::Err(e) => Err(e.into()),
         }
 
     }
     #[staticmethod]
-    fn from_bytes(svg_bytes: &Vec<u8>, parse_options: AzSvgParseOptions) -> Result<AzSvg, PyErr> {
-        let svg_bytes: &Vec<u8> = svg_bytes.into();
+    fn from_bytes(svg_bytes: Vec<u8>, parse_options: AzSvgParseOptions) -> Result<AzSvg, PyErr> {
+        let svg_bytes = pybytesref_to_vecu8_ref(&svg_bytes);
         let m: AzResultSvgSvgParseError = unsafe { mem::transmute(crate::AzSvg_fromBytes(
             mem::transmute(svg_bytes),
             mem::transmute(parse_options),
         )) };
         match m {
-            AzResultSvgSvgParseError::Ok(o) => Ok(o),
+            AzResultSvgSvgParseError::Ok(o) => Ok(o.into()),
             AzResultSvgSvgParseError::Err(e) => Err(e.into()),
         }
 
@@ -15142,25 +15267,25 @@ impl AzSvg {
         }
 
     }
-    fn to_string(&self, options: AzSvgStringFormatOptions) -> AzString {
-        unsafe { mem::transmute(crate::AzSvg_toString(
+    fn to_string(&self, options: AzSvgStringFormatOptions) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzSvg_toString(
             mem::transmute(self),
             mem::transmute(options),
-        )) }
+        )) })
     }
 }
 
 #[pymethods]
 impl AzSvgXmlNode {
     #[staticmethod]
-    fn parse_from(svg_bytes: &Vec<u8>, parse_options: AzSvgParseOptions) -> Result<AzSvgXmlNode, PyErr> {
-        let svg_bytes: &Vec<u8> = svg_bytes.into();
+    fn parse_from(svg_bytes: Vec<u8>, parse_options: AzSvgParseOptions) -> Result<AzSvgXmlNode, PyErr> {
+        let svg_bytes = pybytesref_to_vecu8_ref(&svg_bytes);
         let m: AzResultSvgXmlNodeSvgParseError = unsafe { mem::transmute(crate::AzSvgXmlNode_parseFrom(
             mem::transmute(svg_bytes),
             mem::transmute(parse_options),
         )) };
         match m {
-            AzResultSvgXmlNodeSvgParseError::Ok(o) => Ok(o),
+            AzResultSvgXmlNodeSvgParseError::Ok(o) => Ok(o.into()),
             AzResultSvgXmlNodeSvgParseError::Err(e) => Err(e.into()),
         }
 
@@ -15176,11 +15301,11 @@ impl AzSvgXmlNode {
         }
 
     }
-    fn to_string(&self, options: AzSvgStringFormatOptions) -> AzString {
-        unsafe { mem::transmute(crate::AzSvgXmlNode_toString(
+    fn to_string(&self, options: AzSvgStringFormatOptions) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzSvgXmlNode_toString(
             mem::transmute(self),
             mem::transmute(options),
-        )) }
+        )) })
     }
 }
 
@@ -15288,8 +15413,8 @@ impl AzTesselatedSvgNode {
         unsafe { mem::transmute(crate::AzTesselatedSvgNode_empty()) }
     }
     #[staticmethod]
-    fn from_nodes(nodes: &[AzTesselatedSvgNode]) -> AzTesselatedSvgNode {
-        let nodes: &[AzTesselatedSvgNode] = nodes.into();
+    fn from_nodes(nodes: Vec<AzTesselatedSvgNode>) -> AzTesselatedSvgNode {
+        let nodes = pylist_tesselated_svg_node(&nodes);
         unsafe { mem::transmute(crate::AzTesselatedSvgNode_fromNodes(
             mem::transmute(nodes),
         )) }
@@ -15412,12 +15537,12 @@ impl AzSvgLineCapEnumWrapper {
 impl AzXml {
     #[staticmethod]
     fn from_str(xml_string: &str) -> Result<AzXml, PyErr> {
-        let xml_string: &str = xml_string.into();
+        let xml_string = pystring_to_refstr(&xml_string);
         let m: AzResultXmlXmlError = unsafe { mem::transmute(crate::AzXml_fromStr(
             mem::transmute(xml_string),
         )) };
         match m {
-            AzResultXmlXmlError::Ok(o) => Ok(o),
+            AzResultXmlXmlError::Ok(o) => Ok(o.into()),
             AzResultXmlXmlError::Err(e) => Err(e.into()),
         }
 
@@ -15427,8 +15552,8 @@ impl AzXml {
 #[pymethods]
 impl AzFile {
     #[staticmethod]
-    fn open(path: AzString) -> Option<AzFile> {
-        let path: AzString = path.into();
+    fn open(path: String) -> Option<AzFile> {
+        let path = pystring_to_azstring(&path);
         let m: AzOptionFile = unsafe { mem::transmute(crate::AzFile_open(
             mem::transmute(path),
         )) };
@@ -15439,8 +15564,8 @@ impl AzFile {
 
     }
     #[staticmethod]
-    fn create(path: AzString) -> Option<AzFile> {
-        let path: AzString = path.into();
+    fn create(path: String) -> Option<AzFile> {
+        let path = pystring_to_azstring(&path);
         let m: AzOptionFile = unsafe { mem::transmute(crate::AzFile_create(
             mem::transmute(path),
         )) };
@@ -15460,25 +15585,25 @@ impl AzFile {
         }
 
     }
-    fn read_to_bytes(&mut self) -> Option<AzU8Vec> {
+    fn read_to_bytes(&mut self) -> Option<Vec<u8>> {
         let m: AzOptionU8Vec = unsafe { mem::transmute(crate::AzFile_readToBytes(
             mem::transmute(self),
         )) };
         match m {
-            AzOptionU8Vec::Some(s) => Some(unsafe { mem::transmute(s) }),
+            AzOptionU8Vec::Some(s) => Some({ let s: AzU8Vec = unsafe { mem::transmute(s) }; s.into() }),
             AzOptionU8Vec::None => None,
         }
 
     }
     fn write_string(&mut self, bytes: &str) -> bool {
-        let bytes: &str = bytes.into();
+        let bytes = pystring_to_refstr(&bytes);
         unsafe { mem::transmute(crate::AzFile_writeString(
             mem::transmute(self),
             mem::transmute(bytes),
         )) }
     }
-    fn write_bytes(&mut self, bytes: &Vec<u8>) -> bool {
-        let bytes: &Vec<u8> = bytes.into();
+    fn write_bytes(&mut self, bytes: Vec<u8>) -> bool {
+        let bytes = pybytesref_to_vecu8_ref(&bytes);
         unsafe { mem::transmute(crate::AzFile_writeBytes(
             mem::transmute(self),
             mem::transmute(bytes),
@@ -15494,9 +15619,9 @@ impl AzFile {
 #[pymethods]
 impl AzMsgBox {
     #[staticmethod]
-    fn ok(icon: AzMsgBoxIconEnumWrapper, title: AzString, message: AzString) -> bool {
-        let title: AzString = title.into();
-        let message: AzString = message.into();
+    fn ok(icon: AzMsgBoxIconEnumWrapper, title: String, message: String) -> bool {
+        let title = pystring_to_azstring(&title);
+        let message = pystring_to_azstring(&message);
         unsafe { mem::transmute(crate::AzMsgBox_ok(
             mem::transmute(icon),
             mem::transmute(title),
@@ -15504,9 +15629,9 @@ impl AzMsgBox {
         )) }
     }
     #[staticmethod]
-    fn ok_cancel(icon: AzMsgBoxIconEnumWrapper, title: AzString, message: AzString, default_value: AzMsgBoxOkCancelEnumWrapper) -> AzMsgBoxOkCancelEnumWrapper {
-        let title: AzString = title.into();
-        let message: AzString = message.into();
+    fn ok_cancel(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxOkCancelEnumWrapper) -> AzMsgBoxOkCancelEnumWrapper {
+        let title = pystring_to_azstring(&title);
+        let message = pystring_to_azstring(&message);
         unsafe { mem::transmute(crate::AzMsgBox_okCancel(
             mem::transmute(icon),
             mem::transmute(title),
@@ -15515,9 +15640,9 @@ impl AzMsgBox {
         )) }
     }
     #[staticmethod]
-    fn yes_no(icon: AzMsgBoxIconEnumWrapper, title: AzString, message: AzString, default_value: AzMsgBoxYesNoEnumWrapper) -> AzMsgBoxYesNoEnumWrapper {
-        let title: AzString = title.into();
-        let message: AzString = message.into();
+    fn yes_no(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxYesNoEnumWrapper) -> AzMsgBoxYesNoEnumWrapper {
+        let title = pystring_to_azstring(&title);
+        let message = pystring_to_azstring(&message);
         unsafe { mem::transmute(crate::AzMsgBox_yesNo(
             mem::transmute(icon),
             mem::transmute(title),
@@ -15558,8 +15683,8 @@ impl AzMsgBoxOkCancelEnumWrapper {
 #[pymethods]
 impl AzFileDialog {
     #[staticmethod]
-    fn select_file(title: AzString, default_path: AzOptionStringEnumWrapper, filter_list: AzOptionFileTypeListEnumWrapper) -> Option<String> {
-        let title: AzString = title.into();
+    fn select_file(title: String, default_path: AzOptionStringEnumWrapper, filter_list: AzOptionFileTypeListEnumWrapper) -> Option<String> {
+        let title = pystring_to_azstring(&title);
         let m: AzOptionString = unsafe { mem::transmute(crate::AzFileDialog_selectFile(
             mem::transmute(title),
             mem::transmute(default_path),
@@ -15572,8 +15697,8 @@ impl AzFileDialog {
 
     }
     #[staticmethod]
-    fn select_multiple_files(title: AzString, default_path: AzOptionStringEnumWrapper, filter_list: AzOptionFileTypeListEnumWrapper) -> Option<AzStringVec> {
-        let title: AzString = title.into();
+    fn select_multiple_files(title: String, default_path: AzOptionStringEnumWrapper, filter_list: AzOptionFileTypeListEnumWrapper) -> Option<AzStringVec> {
+        let title = pystring_to_azstring(&title);
         let m: AzOptionStringVec = unsafe { mem::transmute(crate::AzFileDialog_selectMultipleFiles(
             mem::transmute(title),
             mem::transmute(default_path),
@@ -15586,8 +15711,8 @@ impl AzFileDialog {
 
     }
     #[staticmethod]
-    fn select_folder(title: AzString, default_path: AzOptionStringEnumWrapper) -> Option<String> {
-        let title: AzString = title.into();
+    fn select_folder(title: String, default_path: AzOptionStringEnumWrapper) -> Option<String> {
+        let title = pystring_to_azstring(&title);
         let m: AzOptionString = unsafe { mem::transmute(crate::AzFileDialog_selectFolder(
             mem::transmute(title),
             mem::transmute(default_path),
@@ -15599,8 +15724,8 @@ impl AzFileDialog {
 
     }
     #[staticmethod]
-    fn save_file(title: AzString, default_path: AzOptionStringEnumWrapper) -> Option<String> {
-        let title: AzString = title.into();
+    fn save_file(title: String, default_path: AzOptionStringEnumWrapper) -> Option<String> {
+        let title = pystring_to_azstring(&title);
         let m: AzOptionString = unsafe { mem::transmute(crate::AzFileDialog_saveFile(
             mem::transmute(title),
             mem::transmute(default_path),
@@ -15616,8 +15741,8 @@ impl AzFileDialog {
 #[pymethods]
 impl AzColorPickerDialog {
     #[staticmethod]
-    fn open(title: AzString, default_color: AzOptionColorUEnumWrapper) -> Option<AzColorU> {
-        let title: AzString = title.into();
+    fn open(title: String, default_color: AzOptionColorUEnumWrapper) -> Option<AzColorU> {
+        let title = pystring_to_azstring(&title);
         let m: AzOptionColorU = unsafe { mem::transmute(crate::AzColorPickerDialog_open(
             mem::transmute(title),
             mem::transmute(default_color),
@@ -15651,8 +15776,8 @@ impl AzSystemClipboard {
         }
 
     }
-    fn set_string_contents(&mut self, contents: AzString) -> bool {
-        let contents: AzString = contents.into();
+    fn set_string_contents(&mut self, contents: String) -> bool {
+        let contents = pystring_to_azstring(&contents);
         unsafe { mem::transmute(crate::AzSystemClipboard_setStringContents(
             mem::transmute(self),
             mem::transmute(contents),
@@ -15785,41 +15910,26 @@ impl AzFmtValueEnumWrapper {
 #[pymethods]
 impl AzString {
     #[staticmethod]
-    fn format(format: AzString, args: AzFmtArgVec) -> AzString {
-        let format: AzString = format.into();
+    fn format(format: String, args: AzFmtArgVec) -> AzString {
+        let format = pystring_to_azstring(&format);
         unsafe { mem::transmute(crate::AzString_format(
             mem::transmute(format),
             mem::transmute(args),
         )) }
     }
-    fn trim(&self) -> AzString {
-        unsafe { mem::transmute(crate::AzString_trim(
+    fn trim(&self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzString_trim(
             mem::transmute(self),
-        )) }
-    }
-    fn as_refstr(&self) -> &str {
-        unsafe { mem::transmute(crate::AzString_asRefstr(
-            mem::transmute(self),
-        )) }
+        )) })
     }
 }
 
 #[pymethods]
 impl AzTesselatedSvgNodeVec {
-    fn as_ref_vec(&self) -> &[AzTesselatedSvgNode] {
-        unsafe { mem::transmute(crate::AzTesselatedSvgNodeVec_asRefVec(
-            mem::transmute(self),
-        )) }
-    }
 }
 
 #[pymethods]
 impl AzU8Vec {
-    fn as_ref_vec(&self) -> &Vec<u8> {
-        unsafe { mem::transmute(crate::AzU8Vec_asRefVec(
-            mem::transmute(self),
-        )) }
-    }
 }
 
 #[pymethods]

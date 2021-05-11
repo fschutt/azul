@@ -1318,7 +1318,7 @@ impl Drop for Window {
 #[repr(C)]
 #[derive(Clone)]
 pub struct Clipboard {
-    pub _native: Arc<Mutex<SystemClipboard>>,
+    pub _native: Box<Arc<Mutex<SystemClipboard>>>,
 }
 
 impl_option!(Clipboard, OptionClipboard, copy = false, [Clone]);
@@ -1327,17 +1327,17 @@ impl Clipboard {
 
     pub fn new() -> Option<Self> {
         let clipboard = SystemClipboard::new().ok()?;
-        Some(Self { _native: Arc::new(Mutex::new(clipboard)) })
+        Some(Self { _native: Box::new(Arc::new(Mutex::new(clipboard))) })
     }
 
     /// Returns the contents of the system clipboard
     pub fn get_clipboard_string(&self) -> Option<AzString> {
-        self._native.try_lock().ok()?.get_string_contents().map(|o| o.into()).ok()
+        self._native.lock().ok()?.get_string_contents().map(|o| o.into()).ok()
     }
 
     /// Sets the contents of the system clipboard
     pub fn set_clipboard_string(&mut self, contents: AzString) -> Option<()> {
-        Arc::get_mut(&mut self._native)?.get_mut().ok()?.set_string_contents(contents.into_library_owned_string()).ok()?;
+        Arc::get_mut(&mut *self._native)?.get_mut().ok()?.set_string_contents(contents.into_library_owned_string()).ok()?;
         Some(())
     }
 }

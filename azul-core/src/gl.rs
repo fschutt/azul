@@ -102,6 +102,8 @@ pub struct Refstr {
     pub len: usize,
 }
 
+impl Clone for Refstr { fn clone(&self) -> Self { Self { ptr: self.ptr, len: self.len }}}
+
 impl core::fmt::Debug for Refstr {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_str().fmt(f)
@@ -125,6 +127,8 @@ pub struct RefstrVecRef {
     pub len: usize,
 }
 
+impl Clone for RefstrVecRef { fn clone(&self) -> Self { Self { ptr: self.ptr, len: self.len }}}
+
 impl core::fmt::Debug for RefstrVecRef {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
@@ -147,6 +151,8 @@ pub struct GLint64VecRefMut {
     pub ptr: *mut i64,
     pub len: usize,
 }
+
+impl Clone for GLint64VecRefMut { fn clone(&self) -> Self { Self { ptr: self.ptr, len: self.len }}}
 
 impl core::fmt::Debug for GLint64VecRefMut {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -172,6 +178,8 @@ pub struct GLfloatVecRefMut {
     pub len: usize,
 }
 
+impl Clone for GLfloatVecRefMut { fn clone(&self) -> Self { Self { ptr: self.ptr, len: self.len }}}
+
 impl core::fmt::Debug for GLfloatVecRefMut {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
@@ -195,6 +203,8 @@ pub struct GLintVecRefMut {
     pub ptr: *mut i32,
     pub len: usize,
 }
+
+impl Clone for GLintVecRefMut { fn clone(&self) -> Self { Self { ptr: self.ptr, len: self.len }}}
 
 impl core::fmt::Debug for GLintVecRefMut {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -220,6 +230,8 @@ pub struct GLuintVecRef {
     pub len: usize,
 }
 
+impl Clone for GLuintVecRef { fn clone(&self) -> Self { Self { ptr: self.ptr, len: self.len }}}
+
 impl core::fmt::Debug for GLuintVecRef {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
@@ -242,6 +254,8 @@ pub struct GLenumVecRef {
     pub ptr: *const u32,
     pub len: usize,
 }
+
+impl Clone for GLenumVecRef { fn clone(&self) -> Self { Self { ptr: self.ptr, len: self.len }}}
 
 impl core::fmt::Debug for GLenumVecRef {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -266,6 +280,8 @@ pub struct U8VecRef {
     pub ptr: *const u8,
     pub len: usize,
 }
+
+impl Clone for U8VecRef { fn clone(&self) -> Self { Self { ptr: self.ptr, len: self.len }}}
 
 impl From<&[u8]> for U8VecRef {
     fn from(s: &[u8]) -> Self {
@@ -316,6 +332,8 @@ pub struct F32VecRef {
     pub len: usize,
 }
 
+impl Clone for F32VecRef { fn clone(&self) -> Self { Self { ptr: self.ptr, len: self.len }}}
+
 impl core::fmt::Debug for F32VecRef {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
@@ -339,6 +357,8 @@ pub struct I32VecRef {
     pub len: usize,
 }
 
+impl Clone for I32VecRef { fn clone(&self) -> Self { Self { ptr: self.ptr, len: self.len }}}
+
 impl core::fmt::Debug for I32VecRef {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
@@ -361,6 +381,8 @@ pub struct GLbooleanVecRefMut {
     pub ptr: *mut u8,
     pub len: usize,
 }
+
+impl Clone for GLbooleanVecRefMut { fn clone(&self) -> Self { Self { ptr: self.ptr, len: self.len }}}
 
 impl core::fmt::Debug for GLbooleanVecRefMut {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -386,6 +408,8 @@ pub struct U8VecRefMut {
     pub len: usize,
 }
 
+impl Clone for U8VecRefMut { fn clone(&self) -> Self { Self { ptr: self.ptr, len: self.len }}}
+
 impl core::fmt::Debug for U8VecRefMut {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.as_slice().fmt(f)
@@ -403,7 +427,7 @@ impl U8VecRefMut {
     fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
-impl_option!(U8VecRef, OptionU8VecRef, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(U8VecRef, OptionU8VecRef, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
@@ -488,6 +512,14 @@ pub struct GetActiveUniformReturn {
 #[repr(C)]
 pub struct GLsyncPtr {
     pub ptr: *const c_void, /* *const __GLsync */
+}
+
+impl Clone for GLsyncPtr {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr,
+        }
+    }
 }
 
 impl core::fmt::Debug for GLsyncPtr {
@@ -618,7 +650,7 @@ pub struct GlShaderPrecisionFormatReturn {
 #[repr(C)]
 #[derive(Clone)]
 pub struct GlContextPtr {
-    pub ptr: Rc<GlContextPtrInner>,
+    pub ptr: Box<Rc<GlContextPtrInner>>,
     /// Whether to force a hardware or software renderer
     pub renderer_type: RendererType,
 }
@@ -894,11 +926,11 @@ impl GlContextPtr {
         gl_context.delete_shader(fragment_shader_object);
 
         Self {
-            ptr: Rc::new(GlContextPtrInner {
+            ptr: Box::new(Rc::new(GlContextPtrInner {
                 svg_shader: svg_program_id,
                 fxaa_shader: fxaa_program_id,
                 ptr: gl_context,
-            }),
+            })),
             renderer_type,
         }
     }
@@ -1163,6 +1195,7 @@ impl Ord for GlContextPtr {
 
 /// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
 #[repr(C)]
+#[derive(Clone)]
 pub struct Texture {
     /// Raw OpenGL texture ID
     pub texture_id: GLuint,
@@ -1176,7 +1209,7 @@ pub struct Texture {
     pub gl_context: GlContextPtr,
 }
 
-impl_option!(Texture, OptionTexture, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(Texture, OptionTexture, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl Texture {
     // Special "clone()" function that is only available inside of this library
@@ -1460,7 +1493,7 @@ pub trait VertexLayoutDescription {
     fn get_description() -> VertexLayout;
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct VertexArrayObject {
     pub vertex_layout: VertexLayout,
@@ -1474,6 +1507,7 @@ impl Drop for VertexArrayObject {
     }
 }
 
+#[derive(Clone)]
 #[repr(C)]
 pub struct VertexBuffer {
     pub vertex_buffer_id: GLuint,
