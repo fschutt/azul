@@ -40,7 +40,8 @@ incremental = false
 
 [dependencies]
 azul-core = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }
-pyo3 = { version = "0.13.2", default-features = false, features = ["extension-module", "macros"], optional = true }
+pyo3 = { version = "0.13.2", default-features = false, features = ["extension-module", "macros", "auto-initialize"], optional = true }
+log  = { version = "0.4.8",  default-features = false, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 azul-desktop = { path = "../azul-desktop", version = "0.0.5", default-features = false }
@@ -60,7 +61,7 @@ default = [
     "png", "tiff", "bmp", "cdylib"
 ]
 std = ["azul-core/std", "azul-desktop/std", "azul-core/multithreading"]
-logging = ["azul-desktop/logging"]
+logging = ["azul-desktop/logging", "log"]
 css_parser = ["azul-desktop/css_parser"]
 image_loading = ["azul-desktop/image_loading"]
 gif = ["image_loading", "azul-desktop/gif"]
