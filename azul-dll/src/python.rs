@@ -652,10 +652,20 @@ pub struct AzTouchState {
     pub unused: u8,
 }
 
+/// C-ABI stable wrapper over a `MarshaledLayoutCallbackInner`
+#[repr(C)]
+#[pyclass(name = "MarshaledLayoutCallbackInner")]
+pub struct AzMarshaledLayoutCallbackInner {
+    pub cb: AzMarshaledLayoutCallbackType,
+}
+
+/// `AzMarshaledLayoutCallbackType` struct
+pub type AzMarshaledLayoutCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzLayoutCallbackInfo) -> AzStyledDom;
+
 /// C-ABI stable wrapper over a `LayoutCallbackType`
 #[repr(C)]
-#[pyclass(name = "LayoutCallback")]
-pub struct AzLayoutCallback {
+#[pyclass(name = "LayoutCallbackInner")]
+pub struct AzLayoutCallbackInner {
     pub cb: AzLayoutCallbackType,
 }
 
@@ -5014,6 +5024,15 @@ pub struct AzMouseState {
     pub scroll_y: AzOptionF32EnumWrapper,
 }
 
+/// C-ABI stable wrapper over a `MarshaledLayoutCallback`
+#[repr(C)]
+#[pyclass(name = "MarshaledLayoutCallback")]
+pub struct AzMarshaledLayoutCallback {
+    #[pyo3(get, set)]
+    pub marshal_data: AzRefAny,
+    pub cb: AzMarshaledLayoutCallbackInner,
+}
+
 /// Re-export of rust-allocated (stack based) `InlineTextContents` struct
 #[repr(C)]
 #[pyclass(name = "InlineTextContents")]
@@ -5683,6 +5702,13 @@ pub struct AzMonitor {
     pub video_modes: AzVideoModeVec,
     #[pyo3(get, set)]
     pub is_primary_monitor: bool,
+}
+
+/// Re-export of rust-allocated (stack based) `LayoutCallback` struct
+#[repr(C, u8)]
+pub enum AzLayoutCallback {
+    Raw(AzLayoutCallbackInner),
+    Marshaled(AzMarshaledLayoutCallback),
 }
 
 /// Re-export of rust-allocated (stack based) `InlineWord` struct
@@ -6496,7 +6522,7 @@ pub struct AzWindowState {
     #[pyo3(get, set)]
     pub background_color: AzColorU,
     #[pyo3(get, set)]
-    pub layout_callback: AzLayoutCallback,
+    pub layout_callback: AzLayoutCallbackEnumWrapper,
     #[pyo3(get, set)]
     pub close_callback: AzOptionCallbackEnumWrapper,
 }
@@ -8700,6 +8726,13 @@ pub struct AzOptionInstantEnumWrapper {
     pub inner: AzOptionInstant,
 }
 
+/// `AzLayoutCallbackEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "LayoutCallback")]
+pub struct AzLayoutCallbackEnumWrapper {
+    pub inner: AzLayoutCallback,
+}
+
 /// `AzInlineWordEnumWrapper` struct
 #[repr(transparent)]
 #[pyclass(name = "InlineWord")]
@@ -9067,7 +9100,8 @@ impl Clone for AzWasmWindowOptions { fn clone(&self) -> Self { let r: &azul_impl
 impl Clone for AzFullScreenModeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::FullScreenMode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzWindowThemeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::WindowTheme = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTouchState { fn clone(&self) -> Self { let r: &azul_impl::window::TouchState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzLayoutCallback { fn clone(&self) -> Self { let r: &azul_impl::callbacks::LayoutCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMarshaledLayoutCallbackInner { fn clone(&self) -> Self { let r: &azul_impl::callbacks::MarshaledLayoutCallbackInner = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzLayoutCallbackInner { fn clone(&self) -> Self { let r: &azul_impl::callbacks::LayoutCallbackInner = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCallback { fn clone(&self) -> Self { let r: &azul_impl::callbacks::Callback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzUpdateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::UpdateScreen = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeId { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9481,6 +9515,7 @@ impl Clone for AzTaskBarIcon { fn clone(&self) -> Self { let r: &azul_impl::wind
 impl Clone for AzWindowSize { fn clone(&self) -> Self { let r: &azul_impl::window::WindowSize = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzKeyboardState { fn clone(&self) -> Self { let r: &azul_impl::window::KeyboardState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMouseState { fn clone(&self) -> Self { let r: &azul_impl::window::MouseState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMarshaledLayoutCallback { fn clone(&self) -> Self { let r: &azul_impl::callbacks::MarshaledLayoutCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineTextContents { fn clone(&self) -> Self { let r: &azul_core::callbacks::InlineTextContents = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAnimationEasingEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::AnimationInterpolationFunction = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzRenderImageCallbackInfo { fn clone(&self) -> Self { let r: &azul_impl::callbacks::RenderImageCallbackInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9536,6 +9571,7 @@ impl Clone for AzWindowsWindowOptions { fn clone(&self) -> Self { let r: &azul_i
 impl Clone for AzWaylandTheme { fn clone(&self) -> Self { let r: &azul_impl::window::WaylandTheme = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStringPair { fn clone(&self) -> Self { let r: &azul_impl::window::AzStringPair = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMonitor { fn clone(&self) -> Self { let r: &azul_impl::window::Monitor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzLayoutCallbackEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::LayoutCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineWordEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::callbacks::InlineWord = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCallbackData { fn clone(&self) -> Self { let r: &azul_impl::dom::CallbackData = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10324,6 +10360,14 @@ impl AzWindowState {
     fn default() -> AzWindowState {
         unsafe { mem::transmute(crate::AzWindowState_default()) }
     }
+}
+
+#[pymethods]
+impl AzLayoutCallbackEnumWrapper {
+    #[staticmethod]
+    fn Raw(v: AzLayoutCallbackInner) -> AzLayoutCallbackEnumWrapper { AzLayoutCallbackEnumWrapper { inner: AzLayoutCallback::Raw(v) } }
+    #[staticmethod]
+    fn Marshaled(v: AzMarshaledLayoutCallback) -> AzLayoutCallbackEnumWrapper { AzLayoutCallbackEnumWrapper { inner: AzLayoutCallback::Marshaled(v) } }
 }
 
 #[pymethods]
@@ -17030,7 +17074,10 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzVideoMode>()?;
     m.add_class::<AzWindowState>()?;
 
-    m.add_class::<AzLayoutCallback>()?;
+    m.add_class::<AzLayoutCallbackEnumWrapper>()?;
+    m.add_class::<AzMarshaledLayoutCallback>()?;
+    m.add_class::<AzMarshaledLayoutCallbackInner>()?;
+    m.add_class::<AzLayoutCallbackInner>()?;
     m.add_class::<AzCallback>()?;
     m.add_class::<AzCallbackInfo>()?;
     m.add_class::<AzUpdateEnumWrapper>()?;

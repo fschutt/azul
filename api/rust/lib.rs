@@ -1198,11 +1198,22 @@ mod dll {
         pub unused: u8,
     }
 
+    /// C-ABI stable wrapper over a `MarshaledLayoutCallbackInner`
+    #[repr(C)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub struct AzMarshaledLayoutCallbackInner {
+        pub cb: AzMarshaledLayoutCallbackType,
+    }
+
+    /// `AzMarshaledLayoutCallbackType` struct
+    pub type AzMarshaledLayoutCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzLayoutCallbackInfo) -> AzStyledDom;
+
     /// C-ABI stable wrapper over a `LayoutCallbackType`
     #[repr(C)]
     #[derive(Clone)]
     #[derive(Copy)]
-    pub struct AzLayoutCallback {
+    pub struct AzLayoutCallbackInner {
         pub cb: AzLayoutCallbackType,
     }
 
@@ -6251,6 +6262,16 @@ mod dll {
         pub scroll_y: AzOptionF32,
     }
 
+    /// C-ABI stable wrapper over a `MarshaledLayoutCallback`
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzMarshaledLayoutCallback {
+        pub marshal_data: AzRefAny,
+        pub cb: AzMarshaledLayoutCallbackInner,
+    }
+
     /// Re-export of rust-allocated (stack based) `InlineTextContents` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -6934,6 +6955,16 @@ mod dll {
         pub scale_factor: f64,
         pub video_modes: AzVideoModeVec,
         pub is_primary_monitor: bool,
+    }
+
+    /// Re-export of rust-allocated (stack based) `LayoutCallback` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzLayoutCallback {
+        Raw(AzLayoutCallbackInner),
+        Marshaled(AzMarshaledLayoutCallback),
     }
 
     /// Re-export of rust-allocated (stack based) `InlineWord` struct
@@ -9079,9 +9110,21 @@ pub mod callbacks {
     use crate::str::String;
     use crate::image::{ImageMask, ImageRef};
     use crate::task::{ThreadId, ThreadSendMsg, Timer, TimerId};
-    /// C-ABI stable wrapper over a `LayoutCallbackType`
+    /// `LayoutCallback` struct
     
 #[doc(inline)] pub use crate::dll::AzLayoutCallback as LayoutCallback;
+    /// C-ABI stable wrapper over a `MarshaledLayoutCallback`
+    
+#[doc(inline)] pub use crate::dll::AzMarshaledLayoutCallback as MarshaledLayoutCallback;
+    /// C-ABI stable wrapper over a `MarshaledLayoutCallbackInner`
+    
+#[doc(inline)] pub use crate::dll::AzMarshaledLayoutCallbackInner as MarshaledLayoutCallbackInner;
+    /// Marshaled version of LayoutCallback, carrys an extra "marshal_data" containing the (usually external) function object
+    
+#[doc(inline)] pub use crate::dll::AzMarshaledLayoutCallbackType as MarshaledLayoutCallbackType;
+    /// C-ABI stable wrapper over a `LayoutCallbackType`
+    
+#[doc(inline)] pub use crate::dll::AzLayoutCallbackInner as LayoutCallbackInner;
     /// Main callback to layout the UI. azul will only call this callback when necessary (usually when one of the callback or timer returns `RegenerateStyledDomForCurrentWindow`), however azul may also call this callback at any given time, so it should be performant. This is the main entry point for your app UI.
     
 #[doc(inline)] pub use crate::dll::AzLayoutCallbackType as LayoutCallbackType;

@@ -42,6 +42,8 @@ struct AzLayoutCallbackInfo;
 typedef struct AzLayoutCallbackInfo AzLayoutCallbackInfo;
 struct AzStyledDom;
 typedef struct AzStyledDom AzStyledDom;
+typedef AzStyledDom (*AzMarshaledLayoutCallbackType)(AzRefAny* restrict A, AzRefAny* restrict B, AzLayoutCallbackInfo C);
+
 typedef AzStyledDom (*AzLayoutCallbackType)(AzRefAny* restrict A, AzLayoutCallbackInfo B);
 
 struct AzCallbackInfo;
@@ -752,10 +754,15 @@ struct AzTouchState {
 };
 typedef struct AzTouchState AzTouchState;
 
-struct AzLayoutCallback {
+struct AzMarshaledLayoutCallbackInner {
+    AzMarshaledLayoutCallbackType cb;
+};
+typedef struct AzMarshaledLayoutCallbackInner AzMarshaledLayoutCallbackInner;
+
+struct AzLayoutCallbackInner {
     AzLayoutCallbackType cb;
 };
-typedef struct AzLayoutCallback AzLayoutCallback;
+typedef struct AzLayoutCallbackInner AzLayoutCallbackInner;
 
 struct AzCallback {
     AzCallbackType cb;
@@ -6924,6 +6931,12 @@ struct AzMouseState {
 };
 typedef struct AzMouseState AzMouseState;
 
+struct AzMarshaledLayoutCallback {
+    AzRefAny marshal_data;
+    AzMarshaledLayoutCallbackInner cb;
+};
+typedef struct AzMarshaledLayoutCallback AzMarshaledLayoutCallback;
+
 struct AzInlineTextContents {
     AzInlineGlyphVec glyphs;
     AzLogicalRect bounds;
@@ -7836,6 +7849,24 @@ struct AzMonitor {
     bool  is_primary_monitor;
 };
 typedef struct AzMonitor AzMonitor;
+
+enum AzLayoutCallbackTag {
+   AzLayoutCallbackTag_Raw,
+   AzLayoutCallbackTag_Marshaled,
+};
+typedef enum AzLayoutCallbackTag AzLayoutCallbackTag;
+
+struct AzLayoutCallbackVariant_Raw { AzLayoutCallbackTag tag; AzLayoutCallbackInner payload; };
+typedef struct AzLayoutCallbackVariant_Raw AzLayoutCallbackVariant_Raw;
+struct AzLayoutCallbackVariant_Marshaled { AzLayoutCallbackTag tag; AzMarshaledLayoutCallback payload; };
+typedef struct AzLayoutCallbackVariant_Marshaled AzLayoutCallbackVariant_Marshaled;
+union AzLayoutCallback {
+    AzLayoutCallbackVariant_Raw Raw;
+    AzLayoutCallbackVariant_Marshaled Marshaled;
+};
+typedef union AzLayoutCallback AzLayoutCallback;
+#define AzLayoutCallback_Raw(v) { .Raw = { .tag = AzLayoutCallbackTag_Raw, .payload = v } }
+#define AzLayoutCallback_Marshaled(v) { .Marshaled = { .tag = AzLayoutCallbackTag_Marshaled, .payload = v } }
 
 enum AzInlineWordTag {
    AzInlineWordTag_Tab,

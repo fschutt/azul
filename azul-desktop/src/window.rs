@@ -864,7 +864,6 @@ impl Window {
         if self.internal.current_window_state.ime_position != new_state.ime_position.into() {
             if let ImePosition::Initialized(new_ime_position) = new_state.ime_position {
                 self.display.window().set_ime_position(translate_logical_position(new_ime_position.into()));
-                self.internal.current_window_state.ime_position = new_state.ime_position;
             }
         }
 
@@ -922,12 +921,10 @@ impl Window {
         }
 
         if self.internal.current_window_state.layout_callback != new_state.layout_callback {
-            self.internal.current_window_state.layout_callback = new_state.layout_callback;
             window_was_updated = true;
         }
 
         if self.internal.current_window_state.close_callback != new_state.close_callback {
-            self.internal.current_window_state.close_callback = new_state.close_callback;
             window_was_updated = true;
         }
 

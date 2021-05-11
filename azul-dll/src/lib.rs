@@ -271,9 +271,22 @@ pub use AzWindowStateTT as AzWindowState;
 /// Creates a default WindowState with an empty layout callback - useful only if you use the Rust `WindowState { .. WindowState::default() }` intialization syntax.
 #[no_mangle] pub extern "C" fn AzWindowState_default() -> AzWindowState { AzWindowState::default() }
 
-/// C-ABI stable wrapper over a `LayoutCallbackType`
+/// Re-export of rust-allocated (stack based) `LayoutCallback` struct
 pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
 pub use AzLayoutCallbackTT as AzLayoutCallback;
+
+/// C-ABI stable wrapper over a `MarshaledLayoutCallback`
+pub type AzMarshaledLayoutCallbackTT = azul_impl::callbacks::MarshaledLayoutCallback;
+pub use AzMarshaledLayoutCallbackTT as AzMarshaledLayoutCallback;
+
+/// C-ABI stable wrapper over a `MarshaledLayoutCallbackInner`
+pub type AzMarshaledLayoutCallbackInnerTT = azul_impl::callbacks::MarshaledLayoutCallbackInner;
+pub use AzMarshaledLayoutCallbackInnerTT as AzMarshaledLayoutCallbackInner;
+
+pub type AzMarshaledLayoutCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzLayoutCallbackInfo) -> AzStyledDom;
+/// C-ABI stable wrapper over a `LayoutCallbackType`
+pub type AzLayoutCallbackInnerTT = azul_impl::callbacks::LayoutCallbackInner;
+pub use AzLayoutCallbackInnerTT as AzLayoutCallbackInner;
 
 pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutCallbackInfo) -> AzStyledDom;
 /// C-ABI stable wrapper over a `CallbackType`
@@ -3973,9 +3986,18 @@ mod test_sizes {
         pub unused: u8,
     }
 
+    /// C-ABI stable wrapper over a `MarshaledLayoutCallbackInner`
+    #[repr(C)]
+    pub struct AzMarshaledLayoutCallbackInner {
+        pub cb: AzMarshaledLayoutCallbackType,
+    }
+
+    /// `AzMarshaledLayoutCallbackType` struct
+    pub type AzMarshaledLayoutCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzLayoutCallbackInfo) -> AzStyledDom;
+
     /// C-ABI stable wrapper over a `LayoutCallbackType`
     #[repr(C)]
-    pub struct AzLayoutCallback {
+    pub struct AzLayoutCallbackInner {
         pub cb: AzLayoutCallbackType,
     }
 
@@ -7712,6 +7734,13 @@ mod test_sizes {
         pub scroll_y: AzOptionF32,
     }
 
+    /// C-ABI stable wrapper over a `MarshaledLayoutCallback`
+    #[repr(C)]
+    pub struct AzMarshaledLayoutCallback {
+        pub marshal_data: AzRefAny,
+        pub cb: AzMarshaledLayoutCallbackInner,
+    }
+
     /// Re-export of rust-allocated (stack based) `InlineTextContents` struct
     #[repr(C)]
     pub struct AzInlineTextContents {
@@ -8242,6 +8271,13 @@ mod test_sizes {
         pub scale_factor: f64,
         pub video_modes: AzVideoModeVec,
         pub is_primary_monitor: bool,
+    }
+
+    /// Re-export of rust-allocated (stack based) `LayoutCallback` struct
+    #[repr(C, u8)]
+    pub enum AzLayoutCallback {
+        Raw(AzLayoutCallbackInner),
+        Marshaled(AzMarshaledLayoutCallback),
     }
 
     /// Re-export of rust-allocated (stack based) `InlineWord` struct
@@ -9244,7 +9280,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::FullScreenMode>(), "AzFullScreenMode"), (Layout::new::<AzFullScreenMode>(), "AzFullScreenMode"));
         assert_eq!((Layout::new::<azul_impl::window::WindowTheme>(), "AzWindowTheme"), (Layout::new::<AzWindowTheme>(), "AzWindowTheme"));
         assert_eq!((Layout::new::<azul_impl::window::TouchState>(), "AzTouchState"), (Layout::new::<AzTouchState>(), "AzTouchState"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallback>(), "AzLayoutCallback"), (Layout::new::<AzLayoutCallback>(), "AzLayoutCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::MarshaledLayoutCallbackInner>(), "AzMarshaledLayoutCallbackInner"), (Layout::new::<AzMarshaledLayoutCallbackInner>(), "AzMarshaledLayoutCallbackInner"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallbackInner>(), "AzLayoutCallbackInner"), (Layout::new::<AzLayoutCallbackInner>(), "AzLayoutCallbackInner"));
         assert_eq!((Layout::new::<azul_impl::callbacks::Callback>(), "AzCallback"), (Layout::new::<AzCallback>(), "AzCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::UpdateScreen>(), "AzUpdate"), (Layout::new::<AzUpdate>(), "AzUpdate"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeId>(), "AzNodeId"), (Layout::new::<AzNodeId>(), "AzNodeId"));
@@ -9658,6 +9695,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::WindowSize>(), "AzWindowSize"), (Layout::new::<AzWindowSize>(), "AzWindowSize"));
         assert_eq!((Layout::new::<azul_impl::window::KeyboardState>(), "AzKeyboardState"), (Layout::new::<AzKeyboardState>(), "AzKeyboardState"));
         assert_eq!((Layout::new::<azul_impl::window::MouseState>(), "AzMouseState"), (Layout::new::<AzMouseState>(), "AzMouseState"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::MarshaledLayoutCallback>(), "AzMarshaledLayoutCallback"), (Layout::new::<AzMarshaledLayoutCallback>(), "AzMarshaledLayoutCallback"));
         assert_eq!((Layout::new::<azul_core::callbacks::InlineTextContents>(), "AzInlineTextContents"), (Layout::new::<AzInlineTextContents>(), "AzInlineTextContents"));
         assert_eq!((Layout::new::<azul_impl::css::AnimationInterpolationFunction>(), "AzAnimationEasing"), (Layout::new::<AzAnimationEasing>(), "AzAnimationEasing"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RenderImageCallbackInfo>(), "AzRenderImageCallbackInfo"), (Layout::new::<AzRenderImageCallbackInfo>(), "AzRenderImageCallbackInfo"));
@@ -9713,6 +9751,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::WaylandTheme>(), "AzWaylandTheme"), (Layout::new::<AzWaylandTheme>(), "AzWaylandTheme"));
         assert_eq!((Layout::new::<azul_impl::window::AzStringPair>(), "AzStringPair"), (Layout::new::<AzStringPair>(), "AzStringPair"));
         assert_eq!((Layout::new::<azul_impl::window::Monitor>(), "AzMonitor"), (Layout::new::<AzMonitor>(), "AzMonitor"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallback>(), "AzLayoutCallback"), (Layout::new::<AzLayoutCallback>(), "AzLayoutCallback"));
         assert_eq!((Layout::new::<azul_core::callbacks::InlineWord>(), "AzInlineWord"), (Layout::new::<AzInlineWord>(), "AzInlineWord"));
         assert_eq!((Layout::new::<azul_impl::dom::CallbackData>(), "AzCallbackData"), (Layout::new::<AzCallbackData>(), "AzCallbackData"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeType>(), "AzNodeType"), (Layout::new::<AzNodeType>(), "AzNodeType"));

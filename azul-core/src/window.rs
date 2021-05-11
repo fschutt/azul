@@ -689,7 +689,7 @@ impl WindowInternal {
     /// Initializes the `WindowInternal` on window creation. Calls the layout() method once to initializes the layout
     #[cfg(all(feature = "opengl", feature = "multithreading", feature = "std"))]
     pub fn new<F>(
-        init: WindowInternalInit,
+        mut init: WindowInternalInit,
         data: &mut RefAny,
         image_cache: &ImageCache,
         gl_context: &OptionGlContextPtr,
@@ -707,23 +707,30 @@ impl WindowInternal {
 
         let mut inital_renderer_resources = RendererResources::default();
 
-        let mut current_window_state: FullWindowState = init.window_create_options.state.into();
-
         let epoch = Epoch(0);
 
         let styled_dom = {
 
-            let layout_callback = current_window_state.layout_callback.clone();
+            let layout_callback = &mut init.window_create_options.state.layout_callback;
             let layout_info = LayoutCallbackInfo::new(
-                current_window_state.size,
-                current_window_state.theme,
+                init.window_create_options.state.size,
+                init.window_create_options.state.theme,
                 image_cache,
                 gl_context,
                 &fc_cache_real,
             );
 
-            (layout_callback.cb)(data, layout_info)
+            match layout_callback {
+                LayoutCallback::Raw(r) => (r.cb)(data, layout_info),
+                LayoutCallback::Marshaled(m) => {
+                    let marshal_data = &mut m.marshal_data;
+                    (m.cb.cb)(marshal_data, data, layout_info)
+                }
+            }
+
         };
+
+        let mut current_window_state: FullWindowState = init.window_create_options.state.into();
 
         let SolvedLayout { mut layout_results } = SolvedLayout::new(
             styled_dom,
@@ -811,7 +818,7 @@ impl WindowInternal {
 
         let styled_dom = {
 
-            let layout_callback = self.current_window_state.layout_callback.clone();
+            let layout_callback = &mut self.current_window_state.layout_callback;
             let layout_info = LayoutCallbackInfo::new(
                 self.current_window_state.size,
                 self.current_window_state.theme,
@@ -820,7 +827,13 @@ impl WindowInternal {
                 &fc_cache_real,
             );
 
-            (layout_callback.cb)(data, layout_info)
+            match layout_callback {
+                LayoutCallback::Raw(r) => (r.cb)(data, layout_info),
+                LayoutCallback::Marshaled(m) => {
+                    let marshal_data = &mut m.marshal_data;
+                    (m.cb.cb)(marshal_data, data, layout_info)
+                }
+            }
         };
 
         let SolvedLayout {
@@ -1574,7 +1587,15 @@ pub struct WasmWindowOptions {
 impl WindowState {
 
     /// Creates a new, default `WindowState` with the given CSS style
-    pub fn new(callback: LayoutCallbackType) -> Self { Self { layout_callback: LayoutCallback { cb: callback }, .. Default::default() } }
+    pub fn new(callback: LayoutCallbackType) -> Self {
+        use crate::callbacks::LayoutCallbackInner;
+        Self {
+            layout_callback: LayoutCallback::Raw(
+                LayoutCallbackInner { cb: callback }
+            ),
+            .. Default::default()
+        }
+    }
 
     /// Returns the current keyboard keyboard state. We don't want the library
     /// user to be able to modify this state, only to read it.

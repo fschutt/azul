@@ -930,8 +930,42 @@
             "doc": "Callback type definitions + struct definitions of `CallbackInfo`s",
             "classes": {
                 "LayoutCallback": {
-                    "doc": "C-ABI stable wrapper over a `LayoutCallbackType`",
                     "external": "azul_impl::callbacks::LayoutCallback",
+                    "enum_fields": [
+                        {"Raw": {"type": "LayoutCallbackInner"}},
+                        {"Marshaled": {"type": "MarshaledLayoutCallback"}}
+                    ]
+                },
+                "MarshaledLayoutCallback": {
+                    "doc": "C-ABI stable wrapper over a `MarshaledLayoutCallback`",
+                    "external": "azul_impl::callbacks::MarshaledLayoutCallback",
+                    "struct_fields": [
+                        {"marshal_data": {"type": "RefAny"}},
+                        {"cb": {"type": "MarshaledLayoutCallbackInner"}}
+                    ]
+                },
+                "MarshaledLayoutCallbackInner": {
+                    "doc": "C-ABI stable wrapper over a `MarshaledLayoutCallbackInner`",
+                    "external": "azul_impl::callbacks::MarshaledLayoutCallbackInner",
+                    "derive": ["Copy"],
+                    "struct_fields": [
+                        {"cb": {"type": "MarshaledLayoutCallbackType"}}
+                    ]
+                },
+                "MarshaledLayoutCallbackType": {
+                    "doc": "Marshaled version of LayoutCallback, carrys an extra \"marshal_data\" containing the (usually external) function object",
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut", "doc": "Marshal-local data (the `marshal_data` of the `MarshaledLayoutCallback` struct)"},
+                            {"type": "RefAny", "ref": "refmut", "doc": "Application state of the `App`"},
+                            {"type": "LayoutCallbackInfo", "ref": "value", "doc": "Useful information to contitionally return the structure of the DOM based on the width / height of the window" }
+                        ],
+                        "returns": {"type": "StyledDom", "doc": "The styled DOM rendered from the application state"}
+                    }
+                },
+                "LayoutCallbackInner": {
+                    "doc": "C-ABI stable wrapper over a `LayoutCallbackType`",
+                    "external": "azul_impl::callbacks::LayoutCallbackInner",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"cb": {"type": "LayoutCallbackType"}}

@@ -586,16 +586,47 @@ impl DomNodeId {
 pub type LayoutCallbackType = extern "C" fn(&mut RefAny, LayoutCallbackInfo) -> StyledDom;
 
 #[repr(C)]
-pub struct LayoutCallback { pub cb: LayoutCallbackType }
-impl_callback!(LayoutCallback);
+pub struct LayoutCallbackInner { pub cb: LayoutCallbackType }
+impl_callback!(LayoutCallbackInner);
 
 extern "C" fn default_layout_callback(_: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom { StyledDom::default() }
 
+/// In order to interact with external VMs (Java, Python, etc.)
+/// the callback is often stored as a "function object"
+///
+/// In order to callback into external languages, the layout
+/// callback has to be able to carry some extra data
+/// (the first argument), which usually contains the function object
+/// i.e. in the Python VM a PyCallable / PyAny
+///
+pub type MarshaledLayoutCallbackType = extern "C" fn(/* marshal_data*/ &mut RefAny, /* app_data */ &mut RefAny, LayoutCallbackInfo) -> StyledDom;
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum LayoutCallback {
+    Raw(LayoutCallbackInner),
+    Marshaled(MarshaledLayoutCallback)
+}
+
 impl Default for LayoutCallback {
     fn default() -> Self {
-        Self { cb: default_layout_callback }
+        Self::Raw(LayoutCallbackInner { cb: default_layout_callback })
     }
 }
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct MarshaledLayoutCallback {
+    pub marshal_data: RefAny,
+    pub cb: MarshaledLayoutCallbackInner,
+}
+
+#[repr(C)]
+pub struct MarshaledLayoutCallbackInner {
+    pub cb: MarshaledLayoutCallbackType,
+}
+
+impl_callback!(MarshaledLayoutCallbackInner);
 
 // -- normal callback
 
