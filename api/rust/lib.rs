@@ -2023,7 +2023,6 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `GlVoidPtrConst` struct
     #[repr(C)]
     #[derive(Debug)]
-    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzGlVoidPtrConst {
         pub(crate) ptr: *const c_void,
@@ -8261,6 +8260,8 @@ mod dll {
         pub(crate) fn AzTexture_applyFxaa(_:  &mut AzTexture) -> bool;
         pub(crate) fn AzTexture_delete(_:  &mut AzTexture);
         pub(crate) fn AzTexture_deepCopy(_:  &AzTexture) -> AzTexture;
+        pub(crate) fn AzGlVoidPtrConst_delete(_:  &mut AzGlVoidPtrConst);
+        pub(crate) fn AzGlVoidPtrConst_deepCopy(_:  &AzGlVoidPtrConst) -> AzGlVoidPtrConst;
         pub(crate) fn AzGl_getType(_:  &AzGl) -> AzGlType;
         pub(crate) fn AzGl_bufferDataUntyped(_:  &AzGl, _:  u32, _:  isize, _:  AzGlVoidPtrConst, _:  u32);
         pub(crate) fn AzGl_bufferSubDataUntyped(_:  &AzGl, _:  u32, _:  isize, _:  isize, _:  AzGlVoidPtrConst);
@@ -11261,6 +11262,8 @@ pub mod gl {
     /// `GlVoidPtrConst` struct
     
 #[doc(inline)] pub use crate::dll::AzGlVoidPtrConst as GlVoidPtrConst;
+    impl Clone for GlVoidPtrConst { fn clone(&self) -> Self { unsafe { crate::dll::AzGlVoidPtrConst_deepCopy(self) } } }
+    impl Drop for GlVoidPtrConst { fn drop(&mut self) { unsafe { crate::dll::AzGlVoidPtrConst_delete(self) } } }
     /// `GlVoidPtrMut` struct
     
 #[doc(inline)] pub use crate::dll::AzGlVoidPtrMut as GlVoidPtrMut;

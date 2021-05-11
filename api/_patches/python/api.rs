@@ -2,17 +2,11 @@
 use pyo3::{PyVisit, PyTraverseError, PyGCProtocol};
 
 fn pystring_to_azstring(input: &String) -> AzString {
-    AzString {
-        vec: AzU8Vec {
-            ptr: input.as_ptr(),
-            len: input.len(),
-            cap: input.capacity(),
-            // prevent the String (which is just a reference) from dropping
-            destructor: AzU8VecDestructorEnumWrapper::NoDestructor(),
-        }
-    }
+    input.clone().into()
 }
-fn az_string_to_py_string(input: AzString) -> String { input.into() }
+fn az_string_to_py_string(input: AzString) -> String {
+    input.into()
+}
 fn pystring_to_refstr(input: &str) -> AzRefstr {
     AzRefstr {
         ptr: input.as_ptr(),
@@ -177,12 +171,14 @@ impl AzLayoutCallbackEnumWrapper {
             }
         }
 
-        Ok(unsafe { mem::transmute(Self::Marshaled(AzMarshaledLayoutCallback {
-            marshal_data: mem::transmute(azul_impl::callbacks::RefAny::new(LayoutCallbackTy {
-                _py_layout_callback: Some(cb)
-            })),
-            cb: AzMarshaledLayoutCallbackInner { cb: invoke_py_marshaled_layout_callback },
-        }))})
+        Ok(Self {
+            inner: AzLayoutCallback::Marshaled(AzMarshaledLayoutCallback {
+                marshal_data: unsafe { mem::transmute(azul_impl::callbacks::RefAny::new(LayoutCallbackTy {
+                    _py_layout_callback: Some(cb)
+                })) },
+                cb: AzMarshaledLayoutCallbackInner { cb: invoke_py_marshaled_layout_callback },
+            }),
+        })
     }
 }
 

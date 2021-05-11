@@ -1463,6 +1463,10 @@ pub use AzTextureTT as AzTexture;
 /// Re-export of rust-allocated (stack based) `GlVoidPtrConst` struct
 pub type AzGlVoidPtrConstTT = azul_impl::gl::GlVoidPtrConst;
 pub use AzGlVoidPtrConstTT as AzGlVoidPtrConst;
+/// Destructor: Takes ownership of the `GlVoidPtrConst` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzGlVoidPtrConst_delete(object: &mut AzGlVoidPtrConst) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn AzGlVoidPtrConst_deepCopy(object: &AzGlVoidPtrConst) -> AzGlVoidPtrConst { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `GlVoidPtrMut` struct
 pub type AzGlVoidPtrMutTT = azul_impl::gl::GlVoidPtrMut;

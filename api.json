@@ -4432,6 +4432,7 @@
                 },
                 "GlVoidPtrConst": {
                     "external": "azul_impl::gl::GlVoidPtrConst",
+                    "is_boxed_object": true,
                     "struct_fields": [
                         {"ptr": {"type": "*const c_void"}}
                     ]

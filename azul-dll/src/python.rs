@@ -18,17 +18,11 @@ use pyo3::exceptions::PyException;
 use pyo3::{PyVisit, PyTraverseError, PyGCProtocol};
 
 fn pystring_to_azstring(input: &String) -> AzString {
-    AzString {
-        vec: AzU8Vec {
-            ptr: input.as_ptr(),
-            len: input.len(),
-            cap: input.capacity(),
-            // prevent the String (which is just a reference) from dropping
-            destructor: AzU8VecDestructorEnumWrapper::NoDestructor(),
-        }
-    }
+    input.clone().into()
 }
-fn az_string_to_py_string(input: AzString) -> String { input.into() }
+fn az_string_to_py_string(input: AzString) -> String {
+    input.into()
+}
 fn pystring_to_refstr(input: &str) -> AzRefstr {
     AzRefstr {
         ptr: input.as_ptr(),
@@ -193,12 +187,14 @@ impl AzLayoutCallbackEnumWrapper {
             }
         }
 
-        Ok(unsafe { mem::transmute(Self::Marshaled(AzMarshaledLayoutCallback {
-            marshal_data: mem::transmute(azul_impl::callbacks::RefAny::new(LayoutCallbackTy {
-                _py_layout_callback: Some(cb)
-            })),
-            cb: AzMarshaledLayoutCallbackInner { cb: invoke_py_marshaled_layout_callback },
-        }))})
+        Ok(Self {
+            inner: AzLayoutCallback::Marshaled(AzMarshaledLayoutCallback {
+                marshal_data: unsafe { mem::transmute(azul_impl::callbacks::RefAny::new(LayoutCallbackTy {
+                    _py_layout_callback: Some(cb)
+                })) },
+                cb: AzMarshaledLayoutCallbackInner { cb: invoke_py_marshaled_layout_callback },
+            }),
+        })
     }
 }
 
@@ -9888,6 +9884,7 @@ impl Clone for AzCss { fn clone(&self) -> Self { let r: &azul_impl::css::Css = u
 impl Drop for AzApp { fn drop(&mut self) { crate::AzApp_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzRefCount { fn drop(&mut self) { crate::AzRefCount_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzCssPropertyCache { fn drop(&mut self) { crate::AzCssPropertyCache_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzGlVoidPtrConst { fn drop(&mut self) { crate::AzGlVoidPtrConst_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzGLsyncPtr { fn drop(&mut self) { crate::AzGLsyncPtr_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzImageRef { fn drop(&mut self) { crate::AzImageRef_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzFontRef { fn drop(&mut self) { crate::AzFontRef_delete(unsafe { mem::transmute(self) }); } }

@@ -10068,6 +10068,8 @@ extern DLLIMPORT bool  AzTexture_drawClipMask(AzTexture* restrict texture, AzTes
 extern DLLIMPORT bool  AzTexture_applyFxaa(AzTexture* restrict texture);
 extern DLLIMPORT void AzTexture_delete(AzTexture* restrict instance);
 extern DLLIMPORT AzTexture AzTexture_deepCopy(AzTexture* const instance);
+extern DLLIMPORT void AzGlVoidPtrConst_delete(AzGlVoidPtrConst* restrict instance);
+extern DLLIMPORT AzGlVoidPtrConst AzGlVoidPtrConst_deepCopy(AzGlVoidPtrConst* const instance);
 extern DLLIMPORT AzGlType AzGl_getType(AzGl* const gl);
 extern DLLIMPORT void AzGl_bufferDataUntyped(AzGl* const gl, uint32_t target, ssize_t size, AzGlVoidPtrConst  data, uint32_t usage);
 extern DLLIMPORT void AzGl_bufferSubDataUntyped(AzGl* const gl, uint32_t target, ssize_t offset, ssize_t size, AzGlVoidPtrConst  data);
