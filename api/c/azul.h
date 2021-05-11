@@ -46,9 +46,9 @@ typedef AzStyledDom (*AzLayoutCallbackType)(AzRefAny* restrict A, AzLayoutCallba
 
 struct AzCallbackInfo;
 typedef struct AzCallbackInfo AzCallbackInfo;
-enum AzUpdateScreen;
-typedef enum AzUpdateScreen AzUpdateScreen;
-typedef AzUpdateScreen (*AzCallbackType)(AzRefAny* restrict A, AzCallbackInfo B);
+enum AzUpdate;
+typedef enum AzUpdate AzUpdate;
+typedef AzUpdate (*AzCallbackType)(AzRefAny* restrict A, AzCallbackInfo B);
 
 struct AzIFrameCallbackInfo;
 typedef struct AzIFrameCallbackInfo AzIFrameCallbackInfo;
@@ -68,7 +68,7 @@ struct AzTimerCallbackReturn;
 typedef struct AzTimerCallbackReturn AzTimerCallbackReturn;
 typedef AzTimerCallbackReturn (*AzTimerCallbackType)(AzRefAny* restrict A, AzRefAny* restrict B, AzTimerCallbackInfo C);
 
-typedef AzUpdateScreen (*AzWriteBackCallbackType)(AzRefAny* restrict A, AzRefAny B, AzCallbackInfo C);
+typedef AzUpdate (*AzWriteBackCallbackType)(AzRefAny* restrict A, AzRefAny B, AzCallbackInfo C);
 
 struct AzThreadSender;
 typedef struct AzThreadSender AzThreadSender;
@@ -762,12 +762,12 @@ struct AzCallback {
 };
 typedef struct AzCallback AzCallback;
 
-enum AzUpdateScreen {
-   AzUpdateScreen_DoNothing,
-   AzUpdateScreen_RegenerateStyledDomForCurrentWindow,
-   AzUpdateScreen_RegenerateStyledDomForAllWindows,
+enum AzUpdate {
+   AzUpdate_DoNothing,
+   AzUpdate_RefreshDom,
+   AzUpdate_RefreshDomAllWindows,
 };
-typedef enum AzUpdateScreen AzUpdateScreen;
+typedef enum AzUpdate AzUpdate;
 
 struct AzNodeId {
     size_t inner;
@@ -3369,7 +3369,7 @@ struct AzIFrameCallbackInfo {
 typedef struct AzIFrameCallbackInfo AzIFrameCallbackInfo;
 
 struct AzTimerCallbackReturn {
-    AzUpdateScreen should_update;
+    AzUpdate should_update;
     AzTerminateTimer should_terminate;
 };
 typedef struct AzTimerCallbackReturn AzTimerCallbackReturn;
@@ -7501,7 +7501,7 @@ typedef enum AzThreadReceiveMsgTag AzThreadReceiveMsgTag;
 
 struct AzThreadReceiveMsgVariant_WriteBack { AzThreadReceiveMsgTag tag; AzThreadWriteBackMsg payload; };
 typedef struct AzThreadReceiveMsgVariant_WriteBack AzThreadReceiveMsgVariant_WriteBack;
-struct AzThreadReceiveMsgVariant_Update { AzThreadReceiveMsgTag tag; AzUpdateScreen payload; };
+struct AzThreadReceiveMsgVariant_Update { AzThreadReceiveMsgTag tag; AzUpdate payload; };
 typedef struct AzThreadReceiveMsgVariant_Update AzThreadReceiveMsgVariant_Update;
 union AzThreadReceiveMsg {
     AzThreadReceiveMsgVariant_WriteBack WriteBack;

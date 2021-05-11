@@ -1218,7 +1218,7 @@ mod dll {
     }
 
     /// `AzCallbackType` struct
-    pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
+    pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdate;
 
     /// Specifies if the screen should be updated after the callback function has returned
     #[repr(C)]
@@ -1226,10 +1226,10 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-    pub enum AzUpdateScreen {
+    pub enum AzUpdate {
         DoNothing,
-        RegenerateStyledDomForCurrentWindow,
-        RegenerateStyledDomForAllWindows,
+        RefreshDom,
+        RefreshDomAllWindows,
     }
 
     /// Index of a Node in the internal `NodeDataContainer`
@@ -1319,7 +1319,7 @@ mod dll {
     pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzTimerCallbackInfo) -> AzTimerCallbackReturn;
 
     /// `AzWriteBackCallbackType` struct
-    pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
+    pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
     #[repr(C)]
@@ -3726,7 +3726,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzTimerCallbackReturn {
-        pub should_update: AzUpdateScreen,
+        pub should_update: AzUpdate,
         pub should_terminate: AzTerminateTimer,
     }
 
@@ -6629,7 +6629,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub enum AzThreadReceiveMsg {
         WriteBack(AzThreadWriteBackMsg),
-        Update(AzUpdateScreen),
+        Update(AzUpdate),
     }
 
     /// Re-export of rust-allocated (stack based) `String` struct
@@ -9187,7 +9187,7 @@ pub mod callbacks {
 
     /// Specifies if the screen should be updated after the callback function has returned
     
-#[doc(inline)] pub use crate::dll::AzUpdateScreen as UpdateScreen;
+#[doc(inline)] pub use crate::dll::AzUpdate as Update;
     /// Index of a Node in the internal `NodeDataContainer`
     
 #[doc(inline)] pub use crate::dll::AzNodeId as NodeId;

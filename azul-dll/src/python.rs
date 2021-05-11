@@ -670,14 +670,14 @@ pub struct AzCallback {
 }
 
 /// `AzCallbackType` struct
-pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
+pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdate;
 
 /// Specifies if the screen should be updated after the callback function has returned
 #[repr(C)]
-pub enum AzUpdateScreen {
+pub enum AzUpdate {
     DoNothing,
-    RegenerateStyledDomForCurrentWindow,
-    RegenerateStyledDomForAllWindows,
+    RefreshDom,
+    RefreshDomAllWindows,
 }
 
 /// Index of a Node in the internal `NodeDataContainer`
@@ -756,7 +756,7 @@ pub struct AzTimerCallback {
 pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzTimerCallbackInfo) -> AzTimerCallbackReturn;
 
 /// `AzWriteBackCallbackType` struct
-pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
+pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdate;
 
 /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
 #[repr(C)]
@@ -2794,7 +2794,7 @@ pub struct AzIFrameCallbackInfo {
 #[pyclass(name = "TimerCallbackReturn")]
 pub struct AzTimerCallbackReturn {
     #[pyo3(get, set)]
-    pub should_update: AzUpdateScreenEnumWrapper,
+    pub should_update: AzUpdateEnumWrapper,
     #[pyo3(get, set)]
     pub should_terminate: AzTerminateTimerEnumWrapper,
 }
@@ -5373,7 +5373,7 @@ pub enum AzInstant {
 #[repr(C, u8)]
 pub enum AzThreadReceiveMsg {
     WriteBack(AzThreadWriteBackMsg),
-    Update(AzUpdateScreen),
+    Update(AzUpdate),
 }
 
 /// Re-export of rust-allocated (stack based) `String` struct
@@ -7013,11 +7013,11 @@ pub struct AzWindowThemeEnumWrapper {
     pub inner: AzWindowTheme,
 }
 
-/// `AzUpdateScreenEnumWrapper` struct
+/// `AzUpdateEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "UpdateScreen")]
-pub struct AzUpdateScreenEnumWrapper {
-    pub inner: AzUpdateScreen,
+#[pyclass(name = "Update")]
+pub struct AzUpdateEnumWrapper {
+    pub inner: AzUpdate,
 }
 
 /// `AzAnimationRepeatEnumWrapper` struct
@@ -9069,7 +9069,7 @@ impl Clone for AzWindowThemeEnumWrapper { fn clone(&self) -> Self { let r: &azul
 impl Clone for AzTouchState { fn clone(&self) -> Self { let r: &azul_impl::window::TouchState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLayoutCallback { fn clone(&self) -> Self { let r: &azul_impl::callbacks::LayoutCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCallback { fn clone(&self) -> Self { let r: &azul_impl::callbacks::Callback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzUpdateScreenEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::UpdateScreen = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzUpdateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::UpdateScreen = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeId { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDomId { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::DomId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzPositionInfoInner { fn clone(&self) -> Self { let r: &azul_impl::ui_solver::PositionInfoInner = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10708,13 +10708,13 @@ impl AzCallbackInfo {
 }
 
 #[pymethods]
-impl AzUpdateScreenEnumWrapper {
+impl AzUpdateEnumWrapper {
     #[classattr]
-    fn DoNothing() -> AzUpdateScreenEnumWrapper { AzUpdateScreenEnumWrapper { inner: AzUpdateScreen::DoNothing } }
+    fn DoNothing() -> AzUpdateEnumWrapper { AzUpdateEnumWrapper { inner: AzUpdate::DoNothing } }
     #[classattr]
-    fn RegenerateStyledDomForCurrentWindow() -> AzUpdateScreenEnumWrapper { AzUpdateScreenEnumWrapper { inner: AzUpdateScreen::RegenerateStyledDomForCurrentWindow } }
+    fn RefreshDom() -> AzUpdateEnumWrapper { AzUpdateEnumWrapper { inner: AzUpdate::RefreshDom } }
     #[classattr]
-    fn RegenerateStyledDomForAllWindows() -> AzUpdateScreenEnumWrapper { AzUpdateScreenEnumWrapper { inner: AzUpdateScreen::RegenerateStyledDomForAllWindows } }
+    fn RefreshDomAllWindows() -> AzUpdateEnumWrapper { AzUpdateEnumWrapper { inner: AzUpdate::RefreshDomAllWindows } }
 }
 
 #[pymethods]
@@ -15870,7 +15870,7 @@ impl AzThreadReceiveMsgEnumWrapper {
     #[staticmethod]
     fn WriteBack(v: AzThreadWriteBackMsg) -> AzThreadReceiveMsgEnumWrapper { AzThreadReceiveMsgEnumWrapper { inner: AzThreadReceiveMsg::WriteBack(v) } }
     #[staticmethod]
-    fn Update(v: AzUpdateScreenEnumWrapper) -> AzThreadReceiveMsgEnumWrapper { AzThreadReceiveMsgEnumWrapper { inner: AzThreadReceiveMsg::Update(unsafe { mem::transmute(v) }) } }
+    fn Update(v: AzUpdateEnumWrapper) -> AzThreadReceiveMsgEnumWrapper { AzThreadReceiveMsgEnumWrapper { inner: AzThreadReceiveMsg::Update(unsafe { mem::transmute(v) }) } }
 }
 
 #[pymethods]
@@ -17033,7 +17033,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzLayoutCallback>()?;
     m.add_class::<AzCallback>()?;
     m.add_class::<AzCallbackInfo>()?;
-    m.add_class::<AzUpdateScreenEnumWrapper>()?;
+    m.add_class::<AzUpdateEnumWrapper>()?;
     m.add_class::<AzNodeId>()?;
     m.add_class::<AzDomId>()?;
     m.add_class::<AzDomNodeId>()?;

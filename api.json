@@ -962,7 +962,7 @@
                             {"type": "RefAny", "ref": "refmut", "doc": "Reference counted opaque pointer to the data set in the `CallbackData` for the hit DOM node"},
                             {"type": "CallbackInfo", "ref": "value", "doc": "Context struct to allow the callback to manipulate UI structures"}
                         ],
-                        "returns": {"type": "UpdateScreen", "doc": "Whether this callback has modified the application state in such a way that a full UI redraw is unavoidable. If any callback returns true, the `LayoutCallback` of the window will be called again to render the next frame."}
+                        "returns": {"type": "Update", "doc": "Whether this callback has modified the application state in such a way that a full UI redraw is unavoidable. If any callback returns true, the `LayoutCallback` of the window will be called again to render the next frame."}
                     }
                 },
                 "CallbackInfo": {
@@ -1387,14 +1387,14 @@
                         }
                     }
                 },
-                "UpdateScreen": {
+                "Update": {
                     "doc": "Specifies if the screen should be updated after the callback function has returned",
                     "external": "azul_impl::callbacks::UpdateScreen",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DoNothing": {"doc": "The screen does not need to redraw after the callback has been called"}},
-                        {"RegenerateStyledDomForCurrentWindow": {"doc": "After the callback is called, the screen needs to redraw (layout() function being called again)"}},
-                        {"RegenerateStyledDomForAllWindows": {"doc": "After the callback is called, the layout() function needs to be called again for ALL windows"}}
+                        {"RefreshDom": {"doc": "After the callback is called, the screen needs to redraw (layout() function being called again)"}},
+                        {"RefreshDomAllWindows": {"doc": "After the callback is called, the layout() function needs to be called again for ALL windows"}}
                     ]
                 },
                 "NodeId": {
@@ -1808,7 +1808,7 @@
                 "TimerCallbackReturn": {
                     "external": "azul_impl::callbacks::TimerCallbackReturn",
                     "struct_fields": [
-                        {"should_update": {"type": "UpdateScreen", "doc": "Whether the timer affects the screen in any way"}},
+                        {"should_update": {"type": "Update", "doc": "Whether the timer affects the screen in any way"}},
                         {"should_terminate": {"type": "TerminateTimer", "doc": "Whether the timer should terminate itself"}}
                     ]
                 },
@@ -1819,7 +1819,7 @@
                             {"type": "RefAny", "ref": "value"},
                             {"type": "CallbackInfo", "ref": "value"}
                         ],
-                        "returns": {"type": "UpdateScreen"}
+                        "returns": {"type": "Update"}
                     }
                 },
                 "WriteBackCallback": {
@@ -9491,7 +9491,7 @@
                     "external": "azul_impl::task::ThreadReceiveMsg",
                     "enum_fields": [
                         {"WriteBack": {"type": "ThreadWriteBackMsg"}},
-                        {"Update": {"type": "UpdateScreen"}}
+                        {"Update": {"type": "Update"}}
                     ]
                 },
                 "ThreadWriteBackMsg": {

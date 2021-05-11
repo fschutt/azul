@@ -280,7 +280,7 @@ pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutCallbackInf
 pub type AzCallbackTT = azul_impl::callbacks::Callback;
 pub use AzCallbackTT as AzCallback;
 
-pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
+pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
 pub type AzCallbackInfoTT = azul_impl::callbacks::CallbackInfo;
 pub use AzCallbackInfoTT as AzCallbackInfo;
@@ -374,8 +374,8 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 #[no_mangle] pub extern "C" fn AzCallbackInfo_stopThread(callbackinfo: &mut AzCallbackInfo, thread_id: AzThreadId) -> bool { callbackinfo.stop_thread(thread_id) }
 
 /// Specifies if the screen should be updated after the callback function has returned
-pub type AzUpdateScreenTT = azul_impl::callbacks::UpdateScreen;
-pub use AzUpdateScreenTT as AzUpdateScreen;
+pub type AzUpdateTT = azul_impl::callbacks::UpdateScreen;
+pub use AzUpdateTT as AzUpdate;
 
 /// Index of a Node in the internal `NodeDataContainer`
 pub type AzNodeIdTT = azul_impl::styled_dom::AzNodeId;
@@ -512,7 +512,7 @@ pub use AzTimerCallbackInfoTT as AzTimerCallbackInfo;
 pub type AzTimerCallbackReturnTT = azul_impl::callbacks::TimerCallbackReturn;
 pub use AzTimerCallbackReturnTT as AzTimerCallbackReturn;
 
-pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
+pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
 pub type AzWriteBackCallbackTT = azul_impl::callbacks::WriteBackCallback;
 pub use AzWriteBackCallbackTT as AzWriteBackCallback;
@@ -3989,14 +3989,14 @@ mod test_sizes {
     }
 
     /// `AzCallbackType` struct
-    pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
+    pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdate;
 
     /// Specifies if the screen should be updated after the callback function has returned
     #[repr(C)]
-    pub enum AzUpdateScreen {
+    pub enum AzUpdate {
         DoNothing,
-        RegenerateStyledDomForCurrentWindow,
-        RegenerateStyledDomForAllWindows,
+        RefreshDom,
+        RefreshDomAllWindows,
     }
 
     /// Index of a Node in the internal `NodeDataContainer`
@@ -4063,7 +4063,7 @@ mod test_sizes {
     pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzTimerCallbackInfo) -> AzTimerCallbackReturn;
 
     /// `AzWriteBackCallbackType` struct
-    pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
+    pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
     #[repr(C)]
@@ -5912,7 +5912,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `TimerCallbackReturn` struct
     #[repr(C)]
     pub struct AzTimerCallbackReturn {
-        pub should_update: AzUpdateScreen,
+        pub should_update: AzUpdate,
         pub should_terminate: AzTerminateTimer,
     }
 
@@ -7997,7 +7997,7 @@ mod test_sizes {
     #[repr(C, u8)]
     pub enum AzThreadReceiveMsg {
         WriteBack(AzThreadWriteBackMsg),
-        Update(AzUpdateScreen),
+        Update(AzUpdate),
     }
 
     /// Re-export of rust-allocated (stack based) `String` struct
@@ -9246,7 +9246,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::TouchState>(), "AzTouchState"), (Layout::new::<AzTouchState>(), "AzTouchState"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallback>(), "AzLayoutCallback"), (Layout::new::<AzLayoutCallback>(), "AzLayoutCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::Callback>(), "AzCallback"), (Layout::new::<AzCallback>(), "AzCallback"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::UpdateScreen>(), "AzUpdateScreen"), (Layout::new::<AzUpdateScreen>(), "AzUpdateScreen"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::UpdateScreen>(), "AzUpdate"), (Layout::new::<AzUpdate>(), "AzUpdate"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeId>(), "AzNodeId"), (Layout::new::<AzNodeId>(), "AzNodeId"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::DomId>(), "AzDomId"), (Layout::new::<AzDomId>(), "AzDomId"));
         assert_eq!((Layout::new::<azul_impl::ui_solver::PositionInfoInner>(), "AzPositionInfoInner"), (Layout::new::<AzPositionInfoInner>(), "AzPositionInfoInner"));
