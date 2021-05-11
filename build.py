@@ -51,7 +51,6 @@ basic_types = [ # note: "char" is not a primitive type! - use u32 instead
 license = read_file(root_folder + "/LICENSE")
 
 rust_api_patches = {
-    tuple(['app']): read_file(root_folder + "/api/_patches/azul.rs/app.rs"),
     tuple(['str']): read_file(root_folder + "/api/_patches/azul.rs/string.rs"),
     tuple(['vec']): read_file(root_folder + "/api/_patches/azul.rs/vec.rs"),
     tuple(['option']): read_file(root_folder + "/api/_patches/azul.rs/option.rs"),

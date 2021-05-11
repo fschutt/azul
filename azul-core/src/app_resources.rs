@@ -50,6 +50,19 @@ pub struct AppConfig {
     pub system_callbacks: ExternalSystemCallbacks,
 }
 
+impl AppConfig {
+    pub fn default(layout_solver: LayoutSolverVersion) -> Self {
+        Self {
+            layout_solver,
+            log_level: AppLogLevel::Error,
+            enable_visual_panic_hook: true,
+            enable_logging_on_panic: true,
+            enable_tab_navigation: true,
+            system_callbacks: ExternalSystemCallbacks::rust_internal(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutSolverVersion {

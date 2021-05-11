@@ -338,10 +338,10 @@ enum AzAppLogLevel {
 };
 typedef enum AzAppLogLevel AzAppLogLevel;
 
-enum AzLayoutSolverVersion {
-   AzLayoutSolverVersion_March2021,
+enum AzLayoutSolver {
+   AzLayoutSolver_Default,
 };
-typedef enum AzLayoutSolverVersion AzLayoutSolverVersion;
+typedef enum AzLayoutSolver AzLayoutSolver;
 
 enum AzVsync {
    AzVsync_Enabled,
@@ -6853,7 +6853,7 @@ struct AzInvalidSpaceError {
 typedef struct AzInvalidSpaceError AzInvalidSpaceError;
 
 struct AzAppConfig {
-    AzLayoutSolverVersion layout_solver;
+    AzLayoutSolver layout_solver;
     AzAppLogLevel log_level;
     bool  enable_visual_panic_hook;
     bool  enable_logging_on_panic;
@@ -9963,6 +9963,7 @@ extern DLLIMPORT AzMonitorVec AzApp_getMonitors(AzApp* const app);
 extern DLLIMPORT void AzApp_run(AzApp* const app, AzWindowCreateOptions  window);
 extern DLLIMPORT void AzApp_delete(AzApp* restrict instance);
 extern DLLIMPORT AzApp AzApp_deepCopy(AzApp* const instance);
+extern DLLIMPORT AzAppConfig AzAppConfig_new(AzLayoutSolver  layout_solver);
 extern DLLIMPORT AzSystemCallbacks AzSystemCallbacks_libraryInternal();
 extern DLLIMPORT AzWindowCreateOptions AzWindowCreateOptions_new(AzLayoutCallbackType  layout_callback);
 extern DLLIMPORT AzWindowState AzWindowState_new(AzLayoutCallbackType  layout_callback);

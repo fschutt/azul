@@ -350,8 +350,8 @@ pub enum AzAppLogLevel {
 
 /// Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.
 #[repr(C)]
-pub enum AzLayoutSolverVersion {
-    March2021,
+pub enum AzLayoutSolver {
+    Default,
 }
 
 /// Whether the renderer has VSync enabled
@@ -5133,7 +5133,7 @@ pub struct AzInvalidSpaceError {
 #[pyclass(name = "AppConfig")]
 pub struct AzAppConfig {
     #[pyo3(get, set)]
-    pub layout_solver: AzLayoutSolverVersionEnumWrapper,
+    pub layout_solver: AzLayoutSolverEnumWrapper,
     #[pyo3(get, set)]
     pub log_level: AzAppLogLevelEnumWrapper,
     #[pyo3(get, set)]
@@ -7188,11 +7188,11 @@ pub struct AzAppLogLevelEnumWrapper {
     pub inner: AzAppLogLevel,
 }
 
-/// `AzLayoutSolverVersionEnumWrapper` struct
+/// `AzLayoutSolverEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutSolverVersion")]
-pub struct AzLayoutSolverVersionEnumWrapper {
-    pub inner: AzLayoutSolverVersion,
+#[pyclass(name = "LayoutSolver")]
+pub struct AzLayoutSolverEnumWrapper {
+    pub inner: AzLayoutSolver,
 }
 
 /// `AzVsyncEnumWrapper` struct
@@ -9289,7 +9289,7 @@ unsafe impl Send for AzStylesheetVec { }
 // Python objects must implement Clone at minimum
 impl Clone for AzApp { fn clone(&self) -> Self { let r: &azul_impl::app::AzAppPtr = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAppLogLevelEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::resources::AppLogLevel = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzLayoutSolverVersionEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::resources::LayoutSolverVersion = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzLayoutSolverEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::resources::LayoutSolverVersion = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVsyncEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::Vsync = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSrgbEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::Srgb = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzHwAccelerationEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::HwAcceleration = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9984,6 +9984,16 @@ impl AzApp {
 }
 
 #[pymethods]
+impl AzAppConfig {
+    #[staticmethod]
+    fn new(layout_solver: AzLayoutSolverEnumWrapper) -> AzAppConfig {
+        unsafe { mem::transmute(crate::AzAppConfig_new(
+            mem::transmute(layout_solver),
+        )) }
+    }
+}
+
+#[pymethods]
 impl AzAppLogLevelEnumWrapper {
     #[classattr]
     fn Off() -> AzAppLogLevelEnumWrapper { AzAppLogLevelEnumWrapper { inner: AzAppLogLevel::Off } }
@@ -10000,9 +10010,9 @@ impl AzAppLogLevelEnumWrapper {
 }
 
 #[pymethods]
-impl AzLayoutSolverVersionEnumWrapper {
+impl AzLayoutSolverEnumWrapper {
     #[classattr]
-    fn March2021() -> AzLayoutSolverVersionEnumWrapper { AzLayoutSolverVersionEnumWrapper { inner: AzLayoutSolverVersion::March2021 } }
+    fn Default() -> AzLayoutSolverEnumWrapper { AzLayoutSolverEnumWrapper { inner: AzLayoutSolver::Default } }
 }
 
 #[pymethods]
@@ -17236,7 +17246,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzApp>()?;
     m.add_class::<AzAppConfig>()?;
     m.add_class::<AzAppLogLevelEnumWrapper>()?;
-    m.add_class::<AzLayoutSolverVersionEnumWrapper>()?;
+    m.add_class::<AzLayoutSolverEnumWrapper>()?;
     m.add_class::<AzSystemCallbacks>()?;
 
     m.add_class::<AzWindowCreateOptions>()?;

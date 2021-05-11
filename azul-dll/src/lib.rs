@@ -38,14 +38,16 @@ pub use AzAppTT as AzApp;
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 pub type AzAppConfigTT = azul_impl::resources::AppConfig;
 pub use AzAppConfigTT as AzAppConfig;
+/// Constructs a default `AppConfig`, uses the layout solver currently available
+#[no_mangle] pub extern "C" fn AzAppConfig_new(layout_solver: AzLayoutSolver) -> AzAppConfig { AzAppConfig::default(layout_solver) }
 
 /// Configuration to set which messages should be logged.
 pub type AzAppLogLevelTT = azul_impl::resources::AppLogLevel;
 pub use AzAppLogLevelTT as AzAppLogLevel;
 
 /// Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.
-pub type AzLayoutSolverVersionTT = azul_impl::resources::LayoutSolverVersion;
-pub use AzLayoutSolverVersionTT as AzLayoutSolverVersion;
+pub type AzLayoutSolverTT = azul_impl::resources::LayoutSolverVersion;
+pub use AzLayoutSolverTT as AzLayoutSolver;
 
 /// External system callbacks to get the system time or create / manage threads
 pub type AzSystemCallbacksTT = azul_impl::task::ExternalSystemCallbacks;
@@ -3542,8 +3544,8 @@ mod test_sizes {
 
     /// Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.
     #[repr(C)]
-    pub enum AzLayoutSolverVersion {
-        March2021,
+    pub enum AzLayoutSolver {
+        Default,
     }
 
     /// Whether the renderer has VSync enabled
@@ -7662,7 +7664,7 @@ mod test_sizes {
     /// Configuration for optional features, such as whether to enable logging or panic hooks
     #[repr(C)]
     pub struct AzAppConfig {
-        pub layout_solver: AzLayoutSolverVersion,
+        pub layout_solver: AzLayoutSolver,
         pub log_level: AzAppLogLevel,
         pub enable_visual_panic_hook: bool,
         pub enable_logging_on_panic: bool,
@@ -9250,7 +9252,7 @@ mod test_sizes {
          use core::alloc::Layout;
         assert_eq!((Layout::new::<azul_impl::app::AzAppPtr>(), "AzApp"), (Layout::new::<AzApp>(), "AzApp"));
         assert_eq!((Layout::new::<azul_impl::resources::AppLogLevel>(), "AzAppLogLevel"), (Layout::new::<AzAppLogLevel>(), "AzAppLogLevel"));
-        assert_eq!((Layout::new::<azul_impl::resources::LayoutSolverVersion>(), "AzLayoutSolverVersion"), (Layout::new::<AzLayoutSolverVersion>(), "AzLayoutSolverVersion"));
+        assert_eq!((Layout::new::<azul_impl::resources::LayoutSolverVersion>(), "AzLayoutSolver"), (Layout::new::<AzLayoutSolver>(), "AzLayoutSolver"));
         assert_eq!((Layout::new::<azul_impl::window::Vsync>(), "AzVsync"), (Layout::new::<AzVsync>(), "AzVsync"));
         assert_eq!((Layout::new::<azul_impl::window::Srgb>(), "AzSrgb"), (Layout::new::<AzSrgb>(), "AzSrgb"));
         assert_eq!((Layout::new::<azul_impl::window::HwAcceleration>(), "AzHwAcceleration"), (Layout::new::<AzHwAcceleration>(), "AzHwAcceleration"));
