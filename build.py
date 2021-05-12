@@ -1043,6 +1043,7 @@ def generate_python_api(api_data, structs_map, functions_map):
     pyo3_code += "use pyo3::PyObjectProtocol;\r\n"
     pyo3_code += "use pyo3::types::*;\r\n"
     pyo3_code += "use pyo3::exceptions::PyException;\r\n"
+    pyo3_code += "use pyo3::pyclass::PyClassAlloc;\r\n"
 
     # This should be done properly, but right now it works
 
@@ -1083,6 +1084,13 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("vec", "U8Vec", "as_ref_vec"),
     ]
 
+    inject_impls = {
+        ("app", "App"): read_file(root_folder + "/api/_patches/python/app.rs"),
+        ("callbacks", "LayoutCallback"): read_file(root_folder + "/api/_patches/python/layout_callback.rs"),
+        ("window", "WindowCreateOptions"): read_file(root_folder + "/api/_patches/python/window_create_options.rs"),
+        ("window", "WindowState"): read_file(root_folder + "/api/_patches/python/window_state.rs"),
+    }
+
     staticmethods = [
         ("File", "open"),
         ("File", "create"),
@@ -1100,6 +1108,9 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("FontRef", "parse"),
         ("ColorPickerDialog", "open"),
         ("SystemClipboard", "new"),
+        ("Css", "empty"),
+        ("Css", "from_string"),
+        ("WindowState", "default"),
     ]
 
     not_default_constructable = {
@@ -1310,7 +1321,7 @@ def generate_python_api(api_data, structs_map, functions_map):
                         return_type_str = prefix + class_name
                         if not(return_type is None):
                             return_type_str = return_type
-                        if not(tuple((class_name, constructor_name)) in staticmethods):
+                        if ((constructor_name == "new" or len(struct["constructors"]) == 1) and not("returns" in constructor.keys())):
                             pyo3_code += "    #[new]\r\n"
                         else:
                             pyo3_code += "    #[staticmethod]\r\n"
@@ -1411,6 +1422,8 @@ def generate_python_api(api_data, structs_map, functions_map):
                         pyo3_code += "    }\r\n"
 
 
+                if tuple((module_name, class_name)) in inject_impls:
+                    pyo3_code += inject_impls[tuple((module_name, class_name))]
                 pyo3_code += "}\r\n"
 
                 pyo3_code += "\r\n"
@@ -1466,6 +1479,9 @@ def generate_python_api(api_data, structs_map, functions_map):
                             pyo3_code += "(v)"
                     pyo3_code += " } }\r\n"
 
+                if tuple((module_name, class_name)) in inject_impls:
+                    pyo3_code += inject_impls[tuple((module_name, class_name))]
+
                 pyo3_code += "}\r\n"
 
                 external = struct["external"]
@@ -1513,10 +1529,16 @@ def generate_python_api(api_data, structs_map, functions_map):
     pyo3_code += "        if std::env::var(\"AZUL_PY_LOGLEVEL_TRACE\").is_ok() { filter = log::LevelFilter ::Trace; }\r\n"
     pyo3_code += "        if std::env::var(\"AZUL_PY_LOGLEVEL_OFF\").is_ok() { filter = log::LevelFilter ::Off; }\r\n"
     pyo3_code += "\r\n"
-    pyo3_code += "        match pyo3_log::Logger::new(py.clone(), pyo3_log::Caching::LoggersAndLevels)?.filter(filter).install() {\r\n"
-    pyo3_code += "            Ok(_) => { }, \r\n"
-    pyo3_code += "            Err(e) => { println!(\"Could not initialize Python logger, (continuing execution): {}\", e); }, \r\n"
-    pyo3_code += "        }\r\n"
+
+    # pyo3_code += "        match pyo3_log::Logger::new(py.clone(), pyo3_log::Caching::LoggersAndLevels) {\r\n"
+    # pyo3_code += "            Ok(o) => {\r\n"
+    # pyo3_code += "                match o.filter(filter).install() {\r\n"
+    # pyo3_code += "                    Ok(_) => { }, \r\n"
+    # pyo3_code += "                    Err(e) => { println!(\"Could not initialize Python logger, (continuing execution): {}\", e); }, \r\n"
+    # pyo3_code += "                }\r\n"
+    # pyo3_code += "            },\r\n"
+    # pyo3_code += "            Err(e) => { println!(\"Could not create Python logger (continuing execution)\"); },\r\n"
+    # pyo3_code += "        }\r\n"
 
     # pyo3_code += "        pyo3_log::init();\r\n"
     pyo3_code += "    }\r\n"

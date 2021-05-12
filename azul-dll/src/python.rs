@@ -13,6 +13,7 @@ use pyo3::prelude::*;
 use pyo3::PyObjectProtocol;
 use pyo3::types::*;
 use pyo3::exceptions::PyException;
+use pyo3::pyclass::PyClassAlloc;
 type GLuint = u32; type AzGLuint = GLuint;
 type GLint = i32; type AzGLint = GLint;
 type GLint64 = i64; type AzGLint64 = GLint64;
@@ -128,21 +129,6 @@ impl From<Vec<u8>> for AzU8Vec {
 // manually implement App::new, WindowState::new,
 // WindowCreateOptions::new and LayoutCallback::new
 
-#[pymethods]
-impl AzApp {
-    #[new]
-    pub fn new(py: Python, data: PyObject, config: AzAppConfig) -> Result<Self, PyErr> {
-        use pyo3::type_object::PyTypeInfo;
-
-        if data.as_ref(py).is_callable() {
-            return Err(PyException::new_err(format!("ERROR in App.new: - argument \"data\" is a function callback, expected class")));
-        }
-
-        let app_refany = azul_impl::callbacks::RefAny::new(AppDataTy { _py_app_data: Some(data) });
-        Ok(unsafe { mem::transmute(crate::AzApp_new(app_refany, mem::transmute(config))) })
-    }
-}
-
 #[pyproto]
 impl PyGCProtocol for AzApp {
     fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
@@ -186,33 +172,6 @@ impl PyGCProtocol for AzApp {
 
         // Clear reference, this decrements Python ref counter.
         data._py_app_data = None;
-    }
-}
-
-#[pymethods]
-impl AzLayoutCallbackEnumWrapper {
-    #[new]
-    pub fn new(py: Python, cb: PyObject) -> Result<Self, PyErr> {
-        use pyo3::type_object::PyTypeInfo;
-
-        {
-            let cb_any = cb.as_ref(py);
-            if !cb_any.is_callable() {
-                let type_name = cb_any.get_type().name().unwrap_or("<unknown>");
-                return Err(PyException::new_err(format!("ERROR in LayoutCallback.new: - argument \"cb\" is of type \"{}\", expected function", type_name)));
-            }
-        }
-
-        println!("creating layout callback: {:#?}", cb);
-
-        Ok(Self {
-            inner: AzLayoutCallback::Marshaled(AzMarshaledLayoutCallback {
-                marshal_data: unsafe { mem::transmute(azul_impl::callbacks::RefAny::new(LayoutCallbackTy {
-                    _py_layout_callback: Some(cb)
-                })) },
-                cb: AzMarshaledLayoutCallbackInner { cb: invoke_py_marshaled_layout_callback },
-            }),
-        })
     }
 }
 
@@ -320,30 +279,6 @@ impl PyGCProtocol for AzMarshaledLayoutCallback {
     }
 }
 
-#[pymethods]
-impl AzWindowCreateOptions {
-    #[new]
-    pub fn new(py: Python, cb: PyObject) -> Result<Self, PyErr> {
-        let window = azul_impl::window::WindowCreateOptions {
-            state: unsafe { mem::transmute(AzWindowState::new(py, cb)?) },
-            .. Default::default()
-        };
-        Ok(unsafe { mem::transmute(window) })
-    }
-}
-
-#[pymethods]
-impl AzWindowState {
-    #[new]
-    pub fn new(py: Python, cb: PyObject) -> Result<Self, PyErr> {
-        let layout_callback = AzLayoutCallbackEnumWrapper::new(py, cb)?;
-        let window = azul_impl::window::WindowState {
-            layout_callback: unsafe { mem::transmute(layout_callback) },
-            .. Default::default()
-        };
-        Ok(unsafe { mem::transmute(window) })
-    }
-}
 /// Main application class
 #[repr(C)]
 #[pyclass(name = "App")]
@@ -9998,7 +9933,19 @@ impl AzApp {
             mem::transmute(window),
         )) }
     }
-}
+    // impl App {
+
+    #[new]
+    pub fn new(py: Python, data: PyObject, config: AzAppConfig) -> Result<Self, PyErr> {
+        use pyo3::type_object::PyTypeInfo;
+
+        if data.as_ref(py).is_callable() {
+            return Err(PyException::new_err(format!("ERROR in App.new: - argument \"data\" is a function callback, expected class")));
+        }
+
+        let app_refany = azul_impl::callbacks::RefAny::new(AppDataTy { _py_app_data: Some(data) });
+        Ok(unsafe { mem::transmute(crate::AzApp_new(app_refany, mem::transmute(config))) })
+    }}
 
 #[pyproto]
 impl PyObjectProtocol for AzApp {
@@ -10092,7 +10039,16 @@ impl PyObjectProtocol for AzSystemCallbacks {
 
 #[pymethods]
 impl AzWindowCreateOptions {
-}
+    // impl WindowCreateOptions {
+
+    #[new]
+    pub fn __new__(py: Python, cb: PyObject) -> Result<Self, PyErr> {
+        let window = azul_impl::window::WindowCreateOptions {
+            state: unsafe { mem::transmute(AzWindowState::__new__(py, cb)?) },
+            .. Default::default()
+        };
+        Ok(unsafe { mem::transmute(window) })
+    }}
 
 #[pyproto]
 impl PyObjectProtocol for AzWindowCreateOptions {
@@ -11606,11 +11562,21 @@ impl PyObjectProtocol for AzVideoMode {
 
 #[pymethods]
 impl AzWindowState {
-    #[new]
+    #[staticmethod]
     fn default() -> AzWindowState {
         unsafe { mem::transmute(crate::AzWindowState_default()) }
     }
-}
+    // impl AzWindowState {
+
+    #[new]
+    pub fn __new__(py: Python, cb: PyObject) -> Result<Self, PyErr> {
+        let layout_callback = AzLayoutCallbackEnumWrapper::__new__(py, cb)?;
+        let window = azul_impl::window::WindowState {
+            layout_callback: unsafe { mem::transmute(layout_callback) },
+            .. Default::default()
+        };
+        Ok(unsafe { mem::transmute(window) })
+    }}
 
 #[pyproto]
 impl PyObjectProtocol for AzWindowState {
@@ -11628,7 +11594,29 @@ impl AzLayoutCallbackEnumWrapper {
     fn Raw(v: AzLayoutCallbackInner) -> AzLayoutCallbackEnumWrapper { AzLayoutCallbackEnumWrapper { inner: AzLayoutCallback::Raw(v) } }
     #[staticmethod]
     fn Marshaled(v: AzMarshaledLayoutCallback) -> AzLayoutCallbackEnumWrapper { AzLayoutCallbackEnumWrapper { inner: AzLayoutCallback::Marshaled(v) } }
-}
+    // impl LayoutCallbackEnumWrapper { ...
+
+    #[new]
+    pub fn __new__(py: Python, cb: PyObject) -> Result<Self, PyErr> {
+        use pyo3::type_object::PyTypeInfo;
+
+        {
+            let cb_any = cb.as_ref(py);
+            if !cb_any.is_callable() {
+                let type_name = cb_any.get_type().name().unwrap_or("<unknown>");
+                return Err(PyException::new_err(format!("ERROR in LayoutCallback.new: - argument \"cb\" is of type \"{}\", expected function", type_name)));
+            }
+        }
+
+        Ok(Self {
+            inner: AzLayoutCallback::Marshaled(AzMarshaledLayoutCallback {
+                marshal_data: unsafe { mem::transmute(azul_impl::callbacks::RefAny::new(LayoutCallbackTy {
+                    _py_layout_callback: Some(cb)
+                })) },
+                cb: AzMarshaledLayoutCallbackInner { cb: invoke_py_marshaled_layout_callback },
+            }),
+        })
+    }}
 
 #[pyproto]
 impl PyObjectProtocol for AzLayoutCallbackEnumWrapper {
@@ -13665,11 +13653,11 @@ impl PyObjectProtocol for AzStylesheet {
 
 #[pymethods]
 impl AzCss {
-    #[new]
+    #[staticmethod]
     fn empty() -> AzCss {
         unsafe { mem::transmute(crate::AzCss_empty()) }
     }
-    #[new]
+    #[staticmethod]
     fn from_string(s: String) -> AzCss {
         let s = pystring_to_azstring(&s);
         unsafe { mem::transmute(crate::AzCss_fromString(
@@ -18053,18 +18041,18 @@ impl AzStyledDom {
             mem::transmute(css),
         )) }
     }
-    #[new]
+    #[staticmethod]
     fn default() -> AzStyledDom {
         unsafe { mem::transmute(crate::AzStyledDom_default()) }
     }
-    #[new]
+    #[staticmethod]
     fn from_xml(xml_string: String) -> AzStyledDom {
         let xml_string = pystring_to_azstring(&xml_string);
         unsafe { mem::transmute(crate::AzStyledDom_fromXml(
             mem::transmute(xml_string),
         )) }
     }
-    #[new]
+    #[staticmethod]
     fn from_file(xml_file_path: String) -> AzStyledDom {
         let xml_file_path = pystring_to_azstring(&xml_file_path);
         unsafe { mem::transmute(crate::AzStyledDom_fromFile(
@@ -20523,17 +20511,17 @@ impl PyObjectProtocol for AzImageRef {
 
 #[pymethods]
 impl AzRawImage {
-    #[new]
+    #[staticmethod]
     fn empty() -> AzRawImage {
         unsafe { mem::transmute(crate::AzRawImage_empty()) }
     }
-    #[new]
+    #[staticmethod]
     fn allocate_clip_mask(size: AzLayoutSize) -> AzRawImage {
         unsafe { mem::transmute(crate::AzRawImage_allocateClipMask(
             mem::transmute(size),
         )) }
     }
-    #[new]
+    #[staticmethod]
     fn decode_image_bytes_any(bytes: Vec<u8>) -> Result<AzRawImage, PyErr> {
         let bytes = pybytesref_to_vecu8_ref(&bytes);
         let m: AzResultRawImageDecodeImageError = unsafe { mem::transmute(crate::AzRawImage_decodeImageBytesAny(
@@ -20820,7 +20808,7 @@ impl PyObjectProtocol for AzFontRef {
 
 #[pymethods]
 impl AzSvg {
-    #[new]
+    #[staticmethod]
     fn from_string(svg_string: String, parse_options: AzSvgParseOptions) -> Result<AzSvg, PyErr> {
         let svg_string = pystring_to_azstring(&svg_string);
         let m: AzResultSvgSvgParseError = unsafe { mem::transmute(crate::AzSvg_fromString(
@@ -20833,7 +20821,7 @@ impl AzSvg {
         }
 
     }
-    #[new]
+    #[staticmethod]
     fn from_bytes(svg_bytes: Vec<u8>, parse_options: AzSvgParseOptions) -> Result<AzSvg, PyErr> {
         let svg_bytes = pybytesref_to_vecu8_ref(&svg_bytes);
         let m: AzResultSvgSvgParseError = unsafe { mem::transmute(crate::AzSvg_fromBytes(
@@ -20882,7 +20870,7 @@ impl PyObjectProtocol for AzSvg {
 
 #[pymethods]
 impl AzSvgXmlNode {
-    #[new]
+    #[staticmethod]
     fn parse_from(svg_bytes: Vec<u8>, parse_options: AzSvgParseOptions) -> Result<AzSvgXmlNode, PyErr> {
         let svg_bytes = pybytesref_to_vecu8_ref(&svg_bytes);
         let m: AzResultSvgXmlNodeSvgParseError = unsafe { mem::transmute(crate::AzSvgXmlNode_parseFrom(
@@ -21251,11 +21239,11 @@ impl PyObjectProtocol for AzSvgVertex {
 
 #[pymethods]
 impl AzTesselatedSvgNode {
-    #[new]
+    #[staticmethod]
     fn empty() -> AzTesselatedSvgNode {
         unsafe { mem::transmute(crate::AzTesselatedSvgNode_empty()) }
     }
-    #[new]
+    #[staticmethod]
     fn from_nodes(nodes: Vec<AzTesselatedSvgNode>) -> AzTesselatedSvgNode {
         let nodes = pylist_tesselated_svg_node(&nodes);
         unsafe { mem::transmute(crate::AzTesselatedSvgNode_fromNodes(
@@ -21656,7 +21644,7 @@ impl PyObjectProtocol for AzSvgDashPattern {
 
 #[pymethods]
 impl AzXml {
-    #[new]
+    #[staticmethod]
     fn from_str(xml_string: &str) -> Result<AzXml, PyErr> {
         let xml_string = pystring_to_refstr(&xml_string);
         let m: AzResultXmlXmlError = unsafe { mem::transmute(crate::AzXml_fromStr(
@@ -26362,10 +26350,6 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
         if std::env::var("AZUL_PY_LOGLEVEL_TRACE").is_ok() { filter = log::LevelFilter ::Trace; }
         if std::env::var("AZUL_PY_LOGLEVEL_OFF").is_ok() { filter = log::LevelFilter ::Off; }
 
-        match pyo3_log::Logger::new(py.clone(), pyo3_log::Caching::LoggersAndLevels)?.filter(filter).install() {
-            Ok(_) => { }, 
-            Err(e) => { println!("Could not initialize Python logger, (continuing execution): {}", e); }, 
-        }
     }
 
     m.add_class::<AzApp>()?;

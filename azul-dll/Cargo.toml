@@ -40,7 +40,7 @@ incremental = true
 
 [dependencies]
 azul-core = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }
-pyo3 = { version = "0.13.2", default-features = false, features = ["extension-module", "macros", "auto-initialize"], optional = true }
+pyo3 = { git = "https://github.com/PyO3/pyo3", rev = "1ae3d8797315419e9843b7922a7a658b01dfe52a", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros", "auto-initialize"], optional = true }
 log  = { version = "0.4.8",  default-features = false, optional = true }
 pyo3-log = { version = "0.3.1", default-features = false, optional = true }
 
@@ -90,11 +90,21 @@ desktop-cdylib = [
     "cdylib", "use_fern_logger" # use fern, build as DLL
 ]
 desktop-staticlib = [
-    "cdylib", "use_fern_logger" # use fern, build as staticlib
+    "staticlib", "use_fern_logger" # use fern, build as staticlib
 ]
 rust-static = [
-    "cdylib", "use_fern_logger" # use fern, build as rust dependency (rlib)
+    "rlib", "use_fern_logger" # use fern, build as rust dependency (rlib)
 ]
 python-extension = [
     "cdylib", "pyo3", "use_pyo3_logger" # use pyo3-log, build as DLL, enable python
 ]
+
+[package.metadata.docs.rs]
+no-default-features = true
+features = [
+    "std", "logging", "css_parser", "image_loading", "ico", "tga",
+    "hdr", "jpeg", "dxt", "webp", "pnm", "font_loading",
+    "text_layout", "svg", "xml", "gif", "jpeg", "png", "tiff", "bmp",
+    "rlib", "use_fern_logger"
+]
+# rustdoc-args = ["--cfg", "docsrs"]

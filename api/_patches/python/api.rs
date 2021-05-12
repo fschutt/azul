@@ -94,21 +94,6 @@ impl From<Vec<u8>> for AzU8Vec {
 // manually implement App::new, WindowState::new,
 // WindowCreateOptions::new and LayoutCallback::new
 
-#[pymethods]
-impl AzApp {
-    #[new]
-    pub fn new(py: Python, data: PyObject, config: AzAppConfig) -> Result<Self, PyErr> {
-        use pyo3::type_object::PyTypeInfo;
-
-        if data.as_ref(py).is_callable() {
-            return Err(PyException::new_err(format!("ERROR in App.new: - argument \"data\" is a function callback, expected class")));
-        }
-
-        let app_refany = azul_impl::callbacks::RefAny::new(AppDataTy { _py_app_data: Some(data) });
-        Ok(unsafe { mem::transmute(crate::AzApp_new(app_refany, mem::transmute(config))) })
-    }
-}
-
 #[pyproto]
 impl PyGCProtocol for AzApp {
     fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
@@ -152,33 +137,6 @@ impl PyGCProtocol for AzApp {
 
         // Clear reference, this decrements Python ref counter.
         data._py_app_data = None;
-    }
-}
-
-#[pymethods]
-impl AzLayoutCallbackEnumWrapper {
-    #[new]
-    pub fn new(py: Python, cb: PyObject) -> Result<Self, PyErr> {
-        use pyo3::type_object::PyTypeInfo;
-
-        {
-            let cb_any = cb.as_ref(py);
-            if !cb_any.is_callable() {
-                let type_name = cb_any.get_type().name().unwrap_or("<unknown>");
-                return Err(PyException::new_err(format!("ERROR in LayoutCallback.new: - argument \"cb\" is of type \"{}\", expected function", type_name)));
-            }
-        }
-
-        println!("creating layout callback: {:#?}", cb);
-
-        Ok(Self {
-            inner: AzLayoutCallback::Marshaled(AzMarshaledLayoutCallback {
-                marshal_data: unsafe { mem::transmute(azul_impl::callbacks::RefAny::new(LayoutCallbackTy {
-                    _py_layout_callback: Some(cb)
-                })) },
-                cb: AzMarshaledLayoutCallbackInner { cb: invoke_py_marshaled_layout_callback },
-            }),
-        })
     }
 }
 
@@ -283,30 +241,5 @@ impl PyGCProtocol for AzMarshaledLayoutCallback {
             // Clear reference, this decrements Python ref counter.
             data._py_layout_callback = None;
         }
-    }
-}
-
-#[pymethods]
-impl AzWindowCreateOptions {
-    #[new]
-    pub fn new(py: Python, cb: PyObject) -> Result<Self, PyErr> {
-        let window = azul_impl::window::WindowCreateOptions {
-            state: unsafe { mem::transmute(AzWindowState::new(py, cb)?) },
-            .. Default::default()
-        };
-        Ok(unsafe { mem::transmute(window) })
-    }
-}
-
-#[pymethods]
-impl AzWindowState {
-    #[new]
-    pub fn new(py: Python, cb: PyObject) -> Result<Self, PyErr> {
-        let layout_callback = AzLayoutCallbackEnumWrapper::new(py, cb)?;
-        let window = azul_impl::window::WindowState {
-            layout_callback: unsafe { mem::transmute(layout_callback) },
-            .. Default::default()
-        };
-        Ok(unsafe { mem::transmute(window) })
     }
 }
