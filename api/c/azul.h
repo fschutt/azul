@@ -10065,7 +10065,7 @@ extern DLLIMPORT void AzStyledDom_restyle(AzStyledDom* restrict styleddom, AzCss
 extern DLLIMPORT size_t AzStyledDom_nodeCount(AzStyledDom* const styleddom);
 extern DLLIMPORT AzString AzStyledDom_getHtmlString(AzStyledDom* const styleddom);
 extern DLLIMPORT AzTexture AzTexture_allocateClipMask(AzGl  gl, AzLayoutSize  size);
-extern DLLIMPORT bool  AzTexture_drawClipMask(AzTexture* restrict texture, AzTesselatedSvgNode * node);
+extern DLLIMPORT bool  AzTexture_drawClipMask(AzTexture* restrict texture, AzTesselatedSvgNode  node);
 extern DLLIMPORT bool  AzTexture_applyFxaa(AzTexture* restrict texture);
 extern DLLIMPORT void AzTexture_delete(AzTexture* restrict instance);
 extern DLLIMPORT AzTexture AzTexture_deepCopy(AzTexture* const instance);
@@ -10311,7 +10311,7 @@ extern DLLIMPORT AzImageRef AzImageRef_deepCopy(AzImageRef* const instance);
 extern DLLIMPORT AzRawImage AzRawImage_empty();
 extern DLLIMPORT AzRawImage AzRawImage_allocateClipMask(AzLayoutSize  size);
 extern DLLIMPORT AzRawImage AzRawImage_decodeImageBytesAny(AzU8VecRef  bytes);
-extern DLLIMPORT bool  AzRawImage_drawClipMask(AzRawImage* restrict rawimage, AzSvgNode * node, AzSvgStyle  style);
+extern DLLIMPORT bool  AzRawImage_drawClipMask(AzRawImage* restrict rawimage, AzSvgNode  node, AzSvgStyle  style);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeBmp(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePng(AzRawImage* const rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeJpeg(AzRawImage* const rawimage);
@@ -10391,6 +10391,7 @@ extern DLLIMPORT AzOptionThreadSendMsg AzThreadReceiver_receive(AzThreadReceiver
 extern DLLIMPORT void AzThreadReceiver_delete(AzThreadReceiver* restrict instance);
 extern DLLIMPORT AzThreadReceiver AzThreadReceiver_deepCopy(AzThreadReceiver* const instance);
 extern DLLIMPORT AzString AzString_format(AzString  format, AzFmtArgVec  args);
+extern DLLIMPORT AzString AzString_copyFromBytes(uint8_t* ptr, size_t start, size_t len);
 extern DLLIMPORT AzString AzString_trim(AzString* const string);
 extern DLLIMPORT AzRefstr AzString_asRefstr(AzString* const string);
 extern DLLIMPORT AzTesselatedSvgNodeVecRef AzTesselatedSvgNodeVec_asRefVec(AzTesselatedSvgNodeVec* const tesselatedsvgnodevec);
@@ -10429,6 +10430,7 @@ extern DLLIMPORT void AzStylesheetVec_delete(AzStylesheetVec* restrict instance)
 extern DLLIMPORT void AzCssRuleBlockVec_delete(AzCssRuleBlockVec* restrict instance);
 extern DLLIMPORT void AzU16Vec_delete(AzU16Vec* restrict instance);
 extern DLLIMPORT void AzF32Vec_delete(AzF32Vec* restrict instance);
+extern DLLIMPORT AzU8Vec AzU8Vec_copyFromBytes(uint8_t* ptr, size_t start, size_t len);
 extern DLLIMPORT AzU8VecRef AzU8Vec_asRefVec(AzU8Vec* const u8vec);
 extern DLLIMPORT void AzU8Vec_delete(AzU8Vec* restrict instance);
 extern DLLIMPORT void AzCallbackDataVec_delete(AzCallbackDataVec* restrict instance);

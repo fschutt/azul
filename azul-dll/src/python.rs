@@ -10021,7 +10021,7 @@ impl PyObjectProtocol for AzLayoutSolverEnumWrapper {
 
 #[pymethods]
 impl AzSystemCallbacks {
-    #[new]
+    #[staticmethod]
     fn library_internal() -> AzSystemCallbacks {
         unsafe { mem::transmute(crate::AzSystemCallbacks_libraryInternal()) }
     }
@@ -11562,7 +11562,7 @@ impl PyObjectProtocol for AzVideoMode {
 
 #[pymethods]
 impl AzWindowState {
-    #[staticmethod]
+    #[new]
     fn default() -> AzWindowState {
         unsafe { mem::transmute(crate::AzWindowState_default()) }
     }
@@ -12044,19 +12044,6 @@ impl AzCallbackInfo {
             mem::transmute(self),
             mem::transmute(timer_id),
         )) }
-    }
-    fn start_thread(&mut self, thread_initialize_data: AzRefAny, writeback_data: AzRefAny, callback: AzThreadCallback) -> Option<AzThreadId> {
-        let m: AzOptionThreadId = unsafe { mem::transmute(crate::AzCallbackInfo_startThread(
-            mem::transmute(self),
-            mem::transmute(thread_initialize_data),
-            mem::transmute(writeback_data),
-            mem::transmute(callback),
-        )) };
-        match m {
-            AzOptionThreadId::Some(s) => Some(unsafe { mem::transmute(s) }),
-            AzOptionThreadId::None => None,
-        }
-
     }
     fn send_thread_msg(&mut self, thread_id: AzThreadId, msg: AzThreadSendMsgEnumWrapper) -> bool {
         unsafe { mem::transmute(crate::AzCallbackInfo_sendThreadMsg(
@@ -13887,7 +13874,7 @@ impl PyObjectProtocol for AzInterpolateContext {
 
 #[pymethods]
 impl AzColorU {
-    #[new]
+    #[staticmethod]
     fn from_str(string: String) -> AzColorU {
         let string = pystring_to_azstring(&string);
         unsafe { mem::transmute(crate::AzColorU_fromStr(
@@ -18041,7 +18028,7 @@ impl AzStyledDom {
             mem::transmute(css),
         )) }
     }
-    #[staticmethod]
+    #[new]
     fn default() -> AzStyledDom {
         unsafe { mem::transmute(crate::AzStyledDom_default()) }
     }
@@ -18095,14 +18082,14 @@ impl PyObjectProtocol for AzStyledDom {
 
 #[pymethods]
 impl AzTexture {
-    #[new]
+    #[staticmethod]
     fn allocate_clip_mask(gl: AzGl, size: AzLayoutSize) -> AzTexture {
         unsafe { mem::transmute(crate::AzTexture_allocateClipMask(
             mem::transmute(gl),
             mem::transmute(size),
         )) }
     }
-    fn draw_clip_mask(&mut self, node: &AzTesselatedSvgNode) -> bool {
+    fn draw_clip_mask(&mut self, node: AzTesselatedSvgNode) -> bool {
         unsafe { mem::transmute(crate::AzTexture_drawClipMask(
             mem::transmute(self),
             mem::transmute(node),
@@ -20465,13 +20452,6 @@ impl AzImageRef {
             mem::transmute(texture),
         )) }
     }
-    #[staticmethod]
-    fn callback(callback: AzRenderImageCallback, data: AzRefAny) -> AzImageRef {
-        unsafe { mem::transmute(crate::AzImageRef_callback(
-            mem::transmute(callback),
-            mem::transmute(data),
-        )) }
-    }
     fn clone_bytes(&self) -> AzImageRef {
         unsafe { mem::transmute(crate::AzImageRef_cloneBytes(
             mem::transmute(self),
@@ -20533,7 +20513,7 @@ impl AzRawImage {
         }
 
     }
-    fn draw_clip_mask(&mut self, node: &AzSvgNodeEnumWrapper, style: AzSvgStyleEnumWrapper) -> bool {
+    fn draw_clip_mask(&mut self, node: AzSvgNodeEnumWrapper, style: AzSvgStyleEnumWrapper) -> bool {
         unsafe { mem::transmute(crate::AzRawImage_drawClipMask(
             mem::transmute(self),
             mem::transmute(node),
@@ -21992,7 +21972,7 @@ impl PyObjectProtocol for AzColorPickerDialog {
 
 #[pymethods]
 impl AzSystemClipboard {
-    #[staticmethod]
+    #[new]
     fn new() -> Option<AzSystemClipboard> {
         let m: AzOptionSystemClipboard = unsafe { mem::transmute(crate::AzSystemClipboard_new()) };
         match m {
@@ -22590,7 +22570,7 @@ impl PyObjectProtocol for AzFmtArg {
 
 #[pymethods]
 impl AzString {
-    #[new]
+    #[staticmethod]
     fn format(format: String, args: AzFmtArgVec) -> AzString {
         let format = pystring_to_azstring(&format);
         unsafe { mem::transmute(crate::AzString_format(

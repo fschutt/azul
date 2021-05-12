@@ -1307,6 +1307,16 @@ def generate_python_api(api_data, structs_map, functions_map):
                         if not("fn_args" in constructor.keys()):
                             print("wrong format: constructor " + class_name + "::" + constructor_name)
                         fn_args = constructor["fn_args"]
+                        break_outer_flag = False
+                        for f in fn_args:
+                            arg_name = list(f.keys())[0]
+                            arg_type = f[arg_name]
+                            analyzed = analyze_type(arg_type)
+                            if len(analyzed[0]) != 0 or arg_type == "RefAny":
+                                break_outer_flag = True
+                                continue # no constructor can take pointers in the Python API
+                        if break_outer_flag:
+                            continue # break outer loop
                         py_args = format_py_args(python_replacements, fn_args, api_data[version], constructor=True)
                         return_type = None
                         return_type_match = ""
@@ -1321,7 +1331,7 @@ def generate_python_api(api_data, structs_map, functions_map):
                         return_type_str = prefix + class_name
                         if not(return_type is None):
                             return_type_str = return_type
-                        if ((constructor_name == "new" or len(struct["constructors"]) == 1) and not("returns" in constructor.keys())):
+                        if (constructor_name == "new" or constructor_name == "default" and not("returns" in constructor.keys())):
                             pyo3_code += "    #[new]\r\n"
                         else:
                             pyo3_code += "    #[staticmethod]\r\n"
@@ -1397,6 +1407,16 @@ def generate_python_api(api_data, structs_map, functions_map):
                         if not("fn_args" in function.keys()):
                             print("wrong format: " + class_name + "::" + function_name)
                         fn_args = function["fn_args"]
+                        break_outer_flag = False
+                        for f in fn_args:
+                            arg_name = list(f.keys())[0]
+                            arg_type = f[arg_name]
+                            analyzed = analyze_type(arg_type)
+                            if len(analyzed[0]) != 0 or arg_type == "RefAny":
+                                break_outer_flag = True
+                                continue # no constructor can take pointers in the Python API
+                        if break_outer_flag:
+                            continue # break outer loop
                         self_arg = "&self" # TODO
                         self_needs_clone = False
                         if fn_args[0]["self"] == "refmut":

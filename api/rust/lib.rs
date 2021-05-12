@@ -8257,7 +8257,7 @@ mod dll {
         pub(crate) fn AzStyledDom_nodeCount(_:  &AzStyledDom) -> usize;
         pub(crate) fn AzStyledDom_getHtmlString(_:  &AzStyledDom) -> AzString;
         pub(crate) fn AzTexture_allocateClipMask(_:  AzGl, _:  AzLayoutSize) -> AzTexture;
-        pub(crate) fn AzTexture_drawClipMask(_:  &mut AzTexture, _:  *const AzTesselatedSvgNode) -> bool;
+        pub(crate) fn AzTexture_drawClipMask(_:  &mut AzTexture, _:  AzTesselatedSvgNode) -> bool;
         pub(crate) fn AzTexture_applyFxaa(_:  &mut AzTexture) -> bool;
         pub(crate) fn AzTexture_delete(_:  &mut AzTexture);
         pub(crate) fn AzTexture_deepCopy(_:  &AzTexture) -> AzTexture;
@@ -8503,7 +8503,7 @@ mod dll {
         pub(crate) fn AzRawImage_empty() -> AzRawImage;
         pub(crate) fn AzRawImage_allocateClipMask(_:  AzLayoutSize) -> AzRawImage;
         pub(crate) fn AzRawImage_decodeImageBytesAny(_:  AzU8VecRef) -> AzResultRawImageDecodeImageError;
-        pub(crate) fn AzRawImage_drawClipMask(_:  &mut AzRawImage, _:  *const AzSvgNode, _:  AzSvgStyle) -> bool;
+        pub(crate) fn AzRawImage_drawClipMask(_:  &mut AzRawImage, _:  AzSvgNode, _:  AzSvgStyle) -> bool;
         pub(crate) fn AzRawImage_encodeBmp(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodePng(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeJpeg(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
@@ -8583,6 +8583,7 @@ mod dll {
         pub(crate) fn AzThreadReceiver_delete(_:  &mut AzThreadReceiver);
         pub(crate) fn AzThreadReceiver_deepCopy(_:  &AzThreadReceiver) -> AzThreadReceiver;
         pub(crate) fn AzString_format(_:  AzString, _:  AzFmtArgVec) -> AzString;
+        pub(crate) fn AzString_copyFromBytes(_:  *const u8, _:  usize, _:  usize) -> AzString;
         pub(crate) fn AzString_trim(_:  &AzString) -> AzString;
         pub(crate) fn AzString_asRefstr(_:  &AzString) -> AzRefstr;
         pub(crate) fn AzTesselatedSvgNodeVec_asRefVec(_:  &AzTesselatedSvgNodeVec) -> AzTesselatedSvgNodeVecRef;
@@ -8621,6 +8622,7 @@ mod dll {
         pub(crate) fn AzCssRuleBlockVec_delete(_:  &mut AzCssRuleBlockVec);
         pub(crate) fn AzU16Vec_delete(_:  &mut AzU16Vec);
         pub(crate) fn AzF32Vec_delete(_:  &mut AzF32Vec);
+        pub(crate) fn AzU8Vec_copyFromBytes(_:  *const u8, _:  usize, _:  usize) -> AzU8Vec;
         pub(crate) fn AzU8Vec_asRefVec(_:  &AzU8Vec) -> AzU8VecRef;
         pub(crate) fn AzU8Vec_delete(_:  &mut AzU8Vec);
         pub(crate) fn AzCallbackDataVec_delete(_:  &mut AzCallbackDataVec);
@@ -11270,7 +11272,7 @@ pub mod gl {
         /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
         pub fn allocate_clip_mask(gl: Gl, size: LayoutSize) -> Self { unsafe { crate::dll::AzTexture_allocateClipMask(gl, size) } }
         /// Draws a vertex / index buffer (aka. `&TesselatedSvgNode`) to the texture
-        pub fn draw_clip_mask(&mut self, node: *const AzTesselatedSvgNode)  -> bool { unsafe { crate::dll::AzTexture_drawClipMask(self, node) } }
+        pub fn draw_clip_mask(&mut self, node: TesselatedSvgNode)  -> bool { unsafe { crate::dll::AzTexture_drawClipMask(self, node) } }
         /// Applies an FXAA filter to the texture
         pub fn apply_fxaa(&mut self)  -> bool { unsafe { crate::dll::AzTexture_applyFxaa(self) } }
     }
@@ -11868,7 +11870,7 @@ pub mod image {
         /// Decodes a RawImage from any supported image format - automatically guesses the format based on magic header
         pub fn decode_image_bytes_any(bytes: U8VecRef) ->  crate::error::ResultRawImageDecodeImageError { unsafe { crate::dll::AzRawImage_decodeImageBytesAny(bytes) } }
         /// Calls the `RawImage::draw_clip_mask` function.
-        pub fn draw_clip_mask(&mut self, node: *const AzSvgNode, style: SvgStyle)  -> bool { unsafe { crate::dll::AzRawImage_drawClipMask(self, node, style) } }
+        pub fn draw_clip_mask(&mut self, node: SvgNode, style: SvgStyle)  -> bool { unsafe { crate::dll::AzRawImage_drawClipMask(self, node, style) } }
         /// Encodes the RawImage in the BMP image format
         pub fn encode_bmp(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeBmp(self) } }
         /// Encodes the RawImage in the PNG image format
@@ -12483,6 +12485,8 @@ pub mod str {
     impl String {
         /// Creates a dynamically formatted String from a fomat string + named arguments
         pub fn format(format: String, args: FmtArgVec) -> Self { unsafe { crate::dll::AzString_format(format, args) } }
+        /// Creates a new String from an arbitary pointer, a start offset (bytes from the start pointer, usually 0) and a length (in bytes). The bytes are expected to point to a UTF-8 encoded string, no error checking is performed.
+        pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self { unsafe { crate::dll::AzString_copyFromBytes(ptr, start, len) } }
         /// Trims whitespace from the start / end of the string
         pub fn trim(&self)  -> crate::str::String { unsafe { crate::dll::AzString_trim(self) } }
         /// Returns a reference to the string - NOTE: the returned value is a reference to `self`, you MUST NOT drop the `String` object that the `Refstr` references
@@ -12921,6 +12925,8 @@ pub mod vec {
     
 #[doc(inline)] pub use crate::dll::AzU8Vec as U8Vec;
     impl U8Vec {
+        /// Creates a new, heap-allocated U8Vec by copying the memory into Rust (heap allocation)
+        pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self { unsafe { crate::dll::AzU8Vec_copyFromBytes(ptr, start, len) } }
         /// Returns the `U8Vec` as a non-owning slice, NOTE: The `U8Vec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`
         pub fn as_ref_vec(&self)  -> crate::gl::U8VecRef { unsafe { crate::dll::AzU8Vec_asRefVec(self) } }
     }

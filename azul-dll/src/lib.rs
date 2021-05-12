@@ -1452,7 +1452,7 @@ pub use AzTextureTT as AzTexture;
 /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
 #[no_mangle] pub extern "C" fn AzTexture_allocateClipMask(gl: AzGl, size: AzLayoutSize) -> AzTexture { azul_impl::svg::allocate_clipmask_texture(gl, size) }
 /// Draws a vertex / index buffer (aka. `&TesselatedSvgNode`) to the texture
-#[no_mangle] pub extern "C" fn AzTexture_drawClipMask(texture: &mut AzTexture, node: *const AzTesselatedSvgNode) -> bool { azul_impl::svg::render_tesselated_node_gpu(texture, unsafe { &*node }).is_some() }
+#[no_mangle] pub extern "C" fn AzTexture_drawClipMask(texture: &mut AzTexture, node: AzTesselatedSvgNode) -> bool { azul_impl::svg::render_tesselated_node_gpu(texture, &node).is_some() }
 /// Applies an FXAA filter to the texture
 #[no_mangle] pub extern "C" fn AzTexture_applyFxaa(texture: &mut AzTexture) -> bool { azul_impl::svg::apply_fxaa(texture).is_some() }
 /// Destructor: Takes ownership of the `Texture` pointer and deletes it.
@@ -2068,7 +2068,7 @@ pub use AzRawImageTT as AzRawImage;
 /// Decodes a RawImage from any supported image format - automatically guesses the format based on magic header
 #[no_mangle] pub extern "C" fn AzRawImage_decodeImageBytesAny(bytes: AzU8VecRef) -> AzResultRawImageDecodeImageError { azul_impl::resources::decode::decode_raw_image_from_any_bytes(bytes.as_slice()) }
 /// Equivalent to the Rust `RawImage::draw_clip_mask()` function.
-#[no_mangle] pub extern "C" fn AzRawImage_drawClipMask(rawimage: &mut AzRawImage, node: *const AzSvgNode, style: AzSvgStyle) -> bool { azul_impl::svg::render_node_clipmask_cpu(rawimage, unsafe { &*node }, style).is_some() }
+#[no_mangle] pub extern "C" fn AzRawImage_drawClipMask(rawimage: &mut AzRawImage, node: AzSvgNode, style: AzSvgStyle) -> bool { azul_impl::svg::render_node_clipmask_cpu(rawimage, &node, style).is_some() }
 /// Encodes the RawImage in the BMP image format
 #[no_mangle] pub extern "C" fn AzRawImage_encodeBmp(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError { azul_impl::resources::encode::encode_bmp(rawimage) }
 /// Encodes the RawImage in the PNG image format
@@ -2578,6 +2578,8 @@ pub type AzStringTT = azul_impl::css::AzString;
 pub use AzStringTT as AzString;
 /// Creates a dynamically formatted String from a fomat string + named arguments
 #[no_mangle] pub extern "C" fn AzString_format(format: AzString, args: AzFmtArgVec) -> AzString { azul_impl::str::fmt_string(format, args).into() }
+/// Creates a new String from an arbitary pointer, a start offset (bytes from the start pointer, usually 0) and a length (in bytes). The bytes are expected to point to a UTF-8 encoded string, no error checking is performed.
+#[no_mangle] pub extern "C" fn AzString_copyFromBytes(ptr: *const u8, start: usize, len: usize) -> AzString { { unsafe { let start_ptr = ptr.offset(start); let s = core::str::from_slice_unchecked(core::slice::from_raw_parts(start_ptr, self.len)); s.to_string().into() } }
 /// Trims whitespace from the start / end of the string
 #[no_mangle] pub extern "C" fn AzString_trim(string: &AzString) -> AzString { string.as_str().trim().to_string().into() }
 /// Returns a reference to the string - NOTE: the returned value is a reference to `self`, you MUST NOT drop the `String` object that the `Refstr` references
@@ -2798,6 +2800,8 @@ pub use AzF32VecTT as AzF32Vec;
 /// Wrapper over a Rust-allocated `U8Vec`
 pub type AzU8VecTT = azul_impl::css::U8Vec;
 pub use AzU8VecTT as AzU8Vec;
+/// Creates a new, heap-allocated U8Vec by copying the memory into Rust (heap allocation)
+#[no_mangle] pub extern "C" fn AzU8Vec_copyFromBytes(ptr: *const u8, start: usize, len: usize) -> AzU8Vec { { unsafe { let start_ptr = ptr.offset(start); let s = core::slice::from_raw_parts(start_ptr, self.len); s.to_vec().into() } }
 /// Returns the `U8Vec` as a non-owning slice, NOTE: The `U8Vec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`
 #[no_mangle] pub extern "C" fn AzU8Vec_asRefVec(u8vec: &AzU8Vec) -> AzU8VecRef { u8vec.as_ref().into() }
 /// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
