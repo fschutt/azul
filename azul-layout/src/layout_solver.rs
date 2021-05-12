@@ -2283,23 +2283,23 @@ fn create_word_positions<'a>(
 fn determine_text_alignment(
     align_items: LayoutAlignItems,
     justify_content: LayoutJustifyContent,
-    text_align: Option<CssPropertyValue<StyleTextAlignmentHorz>>,
+    text_align: Option<CssPropertyValue<StyleTextAlign>>,
 )
-    -> (StyleTextAlignmentHorz, StyleTextAlignmentVert)
+    -> (StyleTextAlign, StyleVerticalAlign)
 {
     // Vertical text alignment
     let vert_alignment = match align_items {
-        LayoutAlignItems::FlexStart => StyleTextAlignmentVert::Top,
-        LayoutAlignItems::FlexEnd => StyleTextAlignmentVert::Bottom,
+        LayoutAlignItems::FlexStart => StyleVerticalAlign::Top,
+        LayoutAlignItems::FlexEnd => StyleVerticalAlign::Bottom,
         // technically stretch = blocktext, but we don't have that yet
-        _ => StyleTextAlignmentVert::Center,
+        _ => StyleVerticalAlign::Center,
     };
 
     // Horizontal text alignment
     let mut horz_alignment = match justify_content {
-        LayoutJustifyContent::Start => StyleTextAlignmentHorz::Left,
-        LayoutJustifyContent::End => StyleTextAlignmentHorz::Right,
-        _ => StyleTextAlignmentHorz::Center,
+        LayoutJustifyContent::Start => StyleTextAlign::Left,
+        LayoutJustifyContent::End => StyleTextAlign::Right,
+        _ => StyleTextAlign::Center,
     };
 
     if let Some(text_align) = text_align.as_ref().and_then(|ta| ta.get_property().copied()) {

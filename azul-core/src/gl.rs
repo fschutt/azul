@@ -66,6 +66,7 @@ pub type GLeglImageOES = *const c_void;
 /// Passing *const c_void is not easily possible when generating APIs,
 /// so this wrapper struct is for easier API generation
 #[repr(C)]
+#[derive(Debug)]
 pub struct GlVoidPtrConst {
     pub ptr: *const c_void,
 }
@@ -83,6 +84,7 @@ impl Clone for GlVoidPtrConst {
 /// Because of Python, every object has to be clone-able,
 /// so yes there may exist more than one mutable reference
 #[repr(C)]
+#[derive(Debug)]
 pub struct GlVoidPtrMut {
     pub ptr: *mut c_void,
 }

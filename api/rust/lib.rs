@@ -2480,14 +2480,6 @@ mod dll {
         pub gap_3: f32,
     }
 
-    /// **Reference-counted** file handle
-    #[repr(C)]
-    #[derive(Debug)]
-    #[derive(PartialEq, PartialOrd)]
-    pub struct AzFile {
-        pub(crate) ptr: *const c_void,
-    }
-
     /// Re-export of rust-allocated (stack based) `MsgBox` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -3377,18 +3369,18 @@ mod dll {
     /// `AzStyledNodeVecDestructorType` struct
     pub type AzStyledNodeVecDestructorType = extern "C" fn(&mut AzStyledNodeVec);
 
-    /// Re-export of rust-allocated (stack based) `TagIdsToNodeIdsMappingVecDestructor` struct
+    /// Re-export of rust-allocated (stack based) `TagIdToNodeIdMappingVecDestructor` struct
     #[repr(C, u8)]
     #[derive(Clone)]
     #[derive(Copy)]
-    pub enum AzTagIdsToNodeIdsMappingVecDestructor {
+    pub enum AzTagIdToNodeIdMappingVecDestructor {
         DefaultRust,
         NoDestructor,
-        External(AzTagIdsToNodeIdsMappingVecDestructorType),
+        External(AzTagIdToNodeIdMappingVecDestructorType),
     }
 
-    /// `AzTagIdsToNodeIdsMappingVecDestructorType` struct
-    pub type AzTagIdsToNodeIdsMappingVecDestructorType = extern "C" fn(&mut AzTagIdsToNodeIdsMappingVec);
+    /// `AzTagIdToNodeIdMappingVecDestructorType` struct
+    pub type AzTagIdToNodeIdMappingVecDestructorType = extern "C" fn(&mut AzTagIdToNodeIdMappingVec);
 
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepthVecDestructor` struct
     #[repr(C, u8)]
@@ -5805,16 +5797,6 @@ mod dll {
         Some(AzSystemClipboard),
     }
 
-    /// Re-export of rust-allocated (stack based) `OptionFile` struct
-    #[repr(C, u8)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-    pub enum AzOptionFile {
-        None,
-        Some(AzFile),
-    }
-
     /// Re-export of rust-allocated (stack based) `OptionGl` struct
     #[repr(C, u8)]
     #[derive(Debug)]
@@ -6706,13 +6688,13 @@ mod dll {
         pub destructor: AzStyledNodeVecDestructor,
     }
 
-    /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
+    /// Wrapper over a Rust-allocated `TagIdToNodeIdMappingVec`
     #[repr(C)]
-    pub struct AzTagIdsToNodeIdsMappingVec {
+    pub struct AzTagIdToNodeIdMappingVec {
         pub(crate) ptr: *const AzTagIdToNodeIdMapping,
         pub len: usize,
         pub cap: usize,
-        pub destructor: AzTagIdsToNodeIdsMappingVecDestructor,
+        pub destructor: AzTagIdToNodeIdMappingVecDestructor,
     }
 
     /// Re-export of rust-allocated (stack based) `OptionMouseState` struct
@@ -7202,6 +7184,15 @@ mod dll {
         Stroke(AzSvgStrokeStyle),
     }
 
+    /// **Reference-counted** file handle
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzFile {
+        pub(crate) ptr: *const c_void,
+        pub path: AzString,
+    }
+
     /// Re-export of rust-allocated (stack based) `FileTypeList` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -7378,6 +7369,16 @@ mod dll {
     pub enum AzOptionFileTypeList {
         None,
         Some(AzFileTypeList),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionFile` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionFile {
+        None,
+        Some(AzFile),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionRawImage` struct
@@ -8037,7 +8038,7 @@ mod dll {
         pub nodes_with_window_callbacks: AzNodeIdVec,
         pub nodes_with_not_callbacks: AzNodeIdVec,
         pub nodes_with_datasets_and_callbacks: AzNodeIdVec,
-        pub tag_ids_to_node_ids: AzTagIdsToNodeIdsMappingVec,
+        pub tag_ids_to_node_ids: AzTagIdToNodeIdMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub css_property_cache: AzCssPropertyCache,
     }
@@ -8633,7 +8634,7 @@ mod dll {
         pub(crate) fn AzNodeIdVec_delete(_:  &mut AzNodeIdVec);
         pub(crate) fn AzNodeVec_delete(_:  &mut AzNodeVec);
         pub(crate) fn AzStyledNodeVec_delete(_:  &mut AzStyledNodeVec);
-        pub(crate) fn AzTagIdsToNodeIdsMappingVec_delete(_:  &mut AzTagIdsToNodeIdsMappingVec);
+        pub(crate) fn AzTagIdToNodeIdMappingVec_delete(_:  &mut AzTagIdToNodeIdMappingVec);
         pub(crate) fn AzParentWithNodeDepthVec_delete(_:  &mut AzParentWithNodeDepthVec);
         pub(crate) fn AzNodeDataVec_delete(_:  &mut AzNodeDataVec);
     }
@@ -10294,6 +10295,18 @@ pub mod css {
                 Self { inner: PixelValue::from_metric(metric, value) }
             }
         }
+
+        impl ::core::fmt::Display for $struct {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}", self.inner)
+            }
+        }
+
+        impl ::core::fmt::Debug for $struct {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{:?}", self.inner)
+            }
+        }
     )}
 
     impl_pixel_value!(StyleBorderTopLeftRadius);
@@ -10357,6 +10370,11 @@ pub mod css {
         impl ::core::fmt::Display for $struct {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{}%", self.inner.get())
+            }
+        }
+        impl ::core::fmt::Debug for $struct {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}", self)
             }
         }
         impl $struct {
@@ -12762,8 +12780,8 @@ pub mod vec {
     impl_vec_clone!(AzNode, AzNodeVec, AzNodeVecDestructor);
     impl_vec!(AzStyledNode, AzStyledNodeVec, AzStyledNodeVecDestructor, az_styled_node_vec_destructor, AzStyledNodeVec_delete);
     impl_vec_clone!(AzStyledNode, AzStyledNodeVec, AzStyledNodeVecDestructor);
-    impl_vec!(AzTagIdToNodeIdMapping, AzTagIdsToNodeIdsMappingVec, AzTagIdsToNodeIdsMappingVecDestructor, az_tag_ids_to_node_ids_mapping_vec_destructor, AzTagIdsToNodeIdsMappingVec_delete);
-    impl_vec_clone!(AzTagIdToNodeIdMapping, AzTagIdsToNodeIdsMappingVec, AzTagIdsToNodeIdsMappingVecDestructor);
+    impl_vec!(AzTagIdToNodeIdMapping, AzTagIdToNodeIdMappingVec, AzTagIdToNodeIdMappingVecDestructor, az_tag_id_to_node_id_mapping_vec_destructor, AzTagIdToNodeIdMappingVec_delete);
+    impl_vec_clone!(AzTagIdToNodeIdMapping, AzTagIdToNodeIdMappingVec, AzTagIdToNodeIdMappingVecDestructor);
     impl_vec!(AzParentWithNodeDepth, AzParentWithNodeDepthVec, AzParentWithNodeDepthVecDestructor, az_parent_with_node_depth_vec_destructor, AzParentWithNodeDepthVec_delete);
     impl_vec_clone!(AzParentWithNodeDepth, AzParentWithNodeDepthVec, AzParentWithNodeDepthVecDestructor);
     impl_vec!(AzNodeData, AzNodeDataVec, AzNodeDataVecDestructor, az_node_data_vec_destructor, AzNodeDataVec_delete);
@@ -12940,9 +12958,9 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `StyledNodeVec`
     
 #[doc(inline)] pub use crate::dll::AzStyledNodeVec as StyledNodeVec;
-    /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
+    /// Wrapper over a Rust-allocated `TagIdToNodeIdMappingVec`
     
-#[doc(inline)] pub use crate::dll::AzTagIdsToNodeIdsMappingVec as TagIdsToNodeIdsMappingVec;
+#[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMappingVec as TagIdToNodeIdMappingVec;
     /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
     
 #[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVec as ParentWithNodeDepthVec;
@@ -13231,12 +13249,12 @@ pub mod vec {
     /// `StyledNodeVecDestructorType` struct
     
 #[doc(inline)] pub use crate::dll::AzStyledNodeVecDestructorType as StyledNodeVecDestructorType;
-    /// `TagIdsToNodeIdsMappingVecDestructor` struct
+    /// `TagIdToNodeIdMappingVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzTagIdsToNodeIdsMappingVecDestructor as TagIdsToNodeIdsMappingVecDestructor;
-    /// `TagIdsToNodeIdsMappingVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMappingVecDestructor as TagIdToNodeIdMappingVecDestructor;
+    /// `TagIdToNodeIdMappingVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzTagIdsToNodeIdsMappingVecDestructorType as TagIdsToNodeIdsMappingVecDestructorType;
+#[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMappingVecDestructorType as TagIdToNodeIdMappingVecDestructorType;
     /// `ParentWithNodeDepthVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVecDestructor as ParentWithNodeDepthVecDestructor;

@@ -96,7 +96,7 @@ impl From<Vec<u8>> for AzU8Vec {
 
 #[pymethods]
 impl AzApp {
-    #[staticmethod]
+    #[new]
     pub fn new(py: Python, data: PyObject, config: AzAppConfig) -> Result<Self, PyErr> {
         use pyo3::type_object::PyTypeInfo;
 
@@ -150,16 +150,14 @@ impl PyGCProtocol for AzApp {
             None => return,
         };
 
-        if data._py_app_data.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_app_data = None;
-        }
+        // Clear reference, this decrements Python ref counter.
+        data._py_app_data = None;
     }
 }
 
 #[pymethods]
 impl AzLayoutCallbackEnumWrapper {
-    #[staticmethod]
+    #[new]
     pub fn new(py: Python, cb: PyObject) -> Result<Self, PyErr> {
         use pyo3::type_object::PyTypeInfo;
 
@@ -170,6 +168,8 @@ impl AzLayoutCallbackEnumWrapper {
                 return Err(PyException::new_err(format!("ERROR in LayoutCallback.new: - argument \"cb\" is of type \"{}\", expected function", type_name)));
             }
         }
+
+        println!("creating layout callback: {:#?}", cb);
 
         Ok(Self {
             inner: AzLayoutCallback::Marshaled(AzMarshaledLayoutCallback {
@@ -246,7 +246,7 @@ extern "C" fn invoke_py_marshaled_layout_callback(
         }
     });
 
-    unsafe { mem::transmute(s) }
+    s
 }
 
 #[pyproto]
@@ -288,7 +288,7 @@ impl PyGCProtocol for AzMarshaledLayoutCallback {
 
 #[pymethods]
 impl AzWindowCreateOptions {
-    #[staticmethod]
+    #[new]
     pub fn new(py: Python, cb: PyObject) -> Result<Self, PyErr> {
         let window = azul_impl::window::WindowCreateOptions {
             state: unsafe { mem::transmute(AzWindowState::new(py, cb)?) },
@@ -300,7 +300,7 @@ impl AzWindowCreateOptions {
 
 #[pymethods]
 impl AzWindowState {
-    #[staticmethod]
+    #[new]
     pub fn new(py: Python, cb: PyObject) -> Result<Self, PyErr> {
         let layout_callback = AzLayoutCallbackEnumWrapper::new(py, cb)?;
         let window = azul_impl::window::WindowState {

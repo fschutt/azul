@@ -9,7 +9,7 @@ use azul_css::{
     StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
     StyleBackgroundSizeVecValue, StyleBackgroundRepeatVecValue,
     StyleFontSizeValue, StyleFontFamily, StyleFontFamilyVec, StyleFontFamilyVecValue,
-    StyleTextAlignmentHorzValue, StyleLineHeightValue, StyleLetterSpacingValue,
+    StyleTextAlignValue, StyleLineHeightValue, StyleLetterSpacingValue,
     StyleWordSpacingValue, StyleTabWidthValue, StyleCursorValue,
     StyleBoxShadowValue, StyleBorderTopColorValue, StyleBorderLeftColorValue,
     StyleBorderRightColorValue, StyleBorderBottomColorValue,
@@ -837,7 +837,7 @@ impl CssPropertyCache {
     pub fn get_text_color<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleTextColorValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::TextColor).and_then(|p| p.as_text_color())
     }
-    pub fn get_text_align<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleTextAlignmentHorzValue> {
+    pub fn get_text_align<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleTextAlignValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::TextAlign).and_then(|p| p.as_text_align())
     }
     pub fn get_line_height<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleLineHeightValue> {
@@ -1184,12 +1184,12 @@ pub struct TagIdToNodeIdMapping {
     pub parent_node_ids: NodeIdVec,
 }
 
-impl_vec!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec, TagIdToNodeIdMappingVecDestructor);
-impl_vec_mut!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
-impl_vec_debug!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
-impl_vec_partialord!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
-impl_vec_clone!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec, TagIdToNodeIdMappingVecDestructor);
-impl_vec_partialeq!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
+impl_vec!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec, TagIdToNodeIdMappingVecDestructor);
+impl_vec_mut!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec);
+impl_vec_debug!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec);
+impl_vec_partialord!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec);
+impl_vec_clone!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec, TagIdToNodeIdMappingVecDestructor);
+impl_vec_partialeq!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec);
 
 
 
@@ -1223,7 +1223,7 @@ pub struct StyledDom {
     pub nodes_with_window_callbacks: NodeIdVec,
     pub nodes_with_not_callbacks: NodeIdVec,
     pub nodes_with_datasets: NodeIdVec,
-    pub tag_ids_to_node_ids: TagIdsToNodeIdsMappingVec,
+    pub tag_ids_to_node_ids: TagIdToNodeIdMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
     pub css_property_cache: CssPropertyCachePtr,
 }

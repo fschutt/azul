@@ -22,12 +22,12 @@ impl PrintAsCssValue for StyleFontFamilyVec {
     }
 }
 
-impl PrintAsCssValue for StyleTextAlignmentHorz {
+impl PrintAsCssValue for StyleTextAlign {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
-            StyleTextAlignmentHorz::Left => "left",
-            StyleTextAlignmentHorz::Center => "center",
-            StyleTextAlignmentHorz::Right => "right",
+            StyleTextAlign::Left => "left",
+            StyleTextAlign::Center => "center",
+            StyleTextAlign::Right => "right",
         })
     }
 }

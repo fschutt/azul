@@ -58,6 +58,9 @@ pub struct FmtArg {
 
 impl_vec!(FmtArg, FmtArgVec, FmtArgVecDestructor);
 impl_vec_clone!(FmtArg, FmtArgVec, FmtArgVecDestructor);
+impl_vec_debug!(FmtArg, FmtArgVec);
+impl_vec_partialeq!(FmtArg, FmtArgVec);
+impl_vec_partialord!(FmtArg, FmtArgVec);
 
 pub fn fmt_string(format: AzString, args: FmtArgVec) -> String {
     use strfmt::Format;

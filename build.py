@@ -1040,8 +1040,30 @@ def generate_python_api(api_data, structs_map, functions_map):
     pyo3_code += "\r\n"
     pyo3_code += "use core::mem;\r\n"
     pyo3_code += "use pyo3::prelude::*;\r\n"
+    pyo3_code += "use pyo3::PyObjectProtocol;\r\n"
     pyo3_code += "use pyo3::types::*;\r\n"
     pyo3_code += "use pyo3::exceptions::PyException;\r\n"
+
+    # This should be done properly, but right now it works
+
+    pyo3_code += "type GLuint = u32; type AzGLuint = GLuint;\r\n"
+    pyo3_code += "type GLint = i32; type AzGLint = GLint;\r\n"
+    pyo3_code += "type GLint64 = i64; type AzGLint64 = GLint64;\r\n"
+    pyo3_code += "type GLuint64 = u64; type AzGLuint64 = GLuint64;\r\n"
+    pyo3_code += "type GLenum = u32; type AzGLenum = GLenum;\r\n"
+    pyo3_code += "type GLintptr = isize; type AzGLintptr = GLintptr;\r\n"
+    pyo3_code += "type GLboolean = u8; type AzGLboolean = GLboolean;\r\n"
+    pyo3_code += "type GLsizeiptr = isize; type AzGLsizeiptr = GLsizeiptr;\r\n"
+    pyo3_code += "type GLvoid = c_void; type AzGLvoid = GLvoid;\r\n"
+    pyo3_code += "type GLbitfield = u32; type AzGLbitfield = GLbitfield;\r\n"
+    pyo3_code += "type GLsizei = i32; type AzGLsizei = GLsizei;\r\n"
+    pyo3_code += "type GLclampf = f32; type AzGLclampf = GLclampf;\r\n"
+    pyo3_code += "type GLfloat = f32; type AzGLfloat = GLfloat;\r\n"
+    pyo3_code += "type AzF32 = f32;\r\n"
+    pyo3_code += "type AzU16 = u16;\r\n"
+    pyo3_code += "type AzU32 = u32;\r\n"
+    pyo3_code += "type AzScanCode = u32;\r\n"
+
     pyo3_code += "\r\n"
     pyo3_code += "\r\n"
     pyo3_code += read_file(root_folder + "/api/_patches/python/api.rs")
@@ -1060,6 +1082,89 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("vec", "TesselatedSvgNodeVec", "as_ref_vec"),
         ("vec", "U8Vec", "as_ref_vec"),
     ]
+
+    staticmethods = [
+        ("File", "open"),
+        ("File", "create"),
+        ("MsgBox", "ok"),
+        ("MsgBox", "ok_cancel"),
+        ("MsgBox", "yes_no"),
+        ("FileDialog", "select_file"),
+        ("FileDialog", "select_multiple_files"),
+        ("FileDialog", "select_folder"),
+        ("FileDialog", "save_file"),
+        ("ImageRef", "invalid"),
+        ("ImageRef", "raw_image"),
+        ("ImageRef", "gl_texture"),
+        ("ImageRef", "callback"),
+        ("FontRef", "parse"),
+        ("ColorPickerDialog", "open"),
+        ("SystemClipboard", "new"),
+    ]
+
+    not_default_constructable = {
+        "Gl": {},
+        "ThreadSender": {},
+        "ThreadReceiver": {},
+        "Thread": {},
+        "TesselatedSvgNodeVec": {},
+        "U8Vec": {},
+        "CallbackInfo": {},
+        "IFrameCallbackInfo": {},
+        "RenderImageCallbackInfo": {},
+        "TimerCallbackInfo": {},
+        "LayoutCallbackInfo": {},
+        "RefAny": {},
+        "RefCount": {},
+        "IOSHandle": {},
+        "MacOSHandle": {},
+        "XlibHandle": {},
+        "XcbHandle": {},
+        "WaylandHandle": {},
+        "WindowsHandle": {},
+        "AndroidHandle": {},
+        "WaylandTheme": {},
+        "MarshaledLayoutCallbackInner": {},
+        "LayoutCallbackInner": {},
+        "Callback": {},
+        "IFrameCallback": {},
+        "RenderImageCallback": {},
+        "TimerCallback": {},
+        "WriteBackCallback": {},
+        "ThreadCallback": {},
+        "StyleBoxShadow": {},
+        "CssPropertyCache": {},
+        "GlVoidPtrConst": {},
+        "GlVoidPtrMut": {},
+        "U8VecRef": {},
+        "U8VecRefMut": {},
+        "F32VecRef": {},
+        "I32VecRef": {},
+        "GLuintVecRef": {},
+        "GLenumVecRef": {},
+        "GLintVecRefMut": {},
+        "GLint64VecRefMut": {},
+        "GLbooleanVecRefMut": {},
+        "GLfloatVecRefMut": {},
+        "RefstrVecRef": {},
+        "Refstr": {},
+        "GLsyncPtr": {},
+        "TesselatedSvgNodeVecRef": {},
+        "InstantPtr": {},
+        "InstantPtrCloneFn": {},
+        "InstantPtrDestructorFn": {},
+        "CreateThreadFn": {},
+        "GetSystemTimeFn": {},
+        "CheckThreadFinishedFn": {},
+        "LibrarySendThreadMsgFn": {},
+        "LibraryReceiveThreadMsgFn": {},
+        "ThreadRecvFn": {},
+        "ThreadSendFn": {},
+        "ThreadDestructorFn": {},
+        "ThreadReceiverDestructorFn": {},
+        "ThreadSenderDestructorFn": {},
+        "FontMetrics": {},
+    }
 
     python_replacements = {
         "String": ("String", "pystring_to_azstring", "az_string_to_py_string"),
@@ -1177,72 +1282,148 @@ def generate_python_api(api_data, structs_map, functions_map):
         for class_name in module["classes"].keys():
             struct = module["classes"][class_name]
             if "struct_fields" in struct.keys():
-                should_emit_impl = "constructors" in struct.keys() or "functions" in struct.keys()
-                if should_emit_impl:
-                    pyo3_code += "\r\n"
-                    pyo3_code += "#[pymethods]\r\n"
-                    pyo3_code += "impl " + prefix + class_name + " {\r\n"
 
-                    if "constructors" in struct.keys():
-                        for constructor_name in struct["constructors"]:
-                            if (module_name, class_name, constructor_name) in manual_implementations:
-                                continue
-                            constructor = struct["constructors"][constructor_name]
-                            if not("fn_args" in constructor.keys()):
-                                print("wrong format: constructor " + class_name + "::" + constructor_name)
-                            fn_args = constructor["fn_args"]
-                            py_args = format_py_args(python_replacements, fn_args, api_data[version], constructor=True)
-                            return_type = None
-                            return_type_match = ""
-                            returns_option = None
-                            returns_error = None
-                            if "returns" in constructor.keys():
-                                return_type_match = constructor["returns"]["type"]
-                                r = format_py_return(python_replacements, constructor["returns"], api_data[version], errlist, constructor=True)
-                                return_type = r[0]
-                                returns_option = r[1]
-                                returns_error = r[2]
-                            return_type_str = prefix + class_name
-                            if not(return_type is None):
-                                return_type_str = return_type
+                pyo3_code += "\r\n"
+                pyo3_code += "#[pymethods]\r\n"
+                pyo3_code += "impl " + prefix + class_name + " {\r\n"
+                external = struct["external"]
+
+                if "constructors" in struct.keys():
+                    for constructor_name in struct["constructors"]:
+                        if (module_name, class_name, constructor_name) in manual_implementations:
+                            continue
+                        constructor = struct["constructors"][constructor_name]
+                        if not("fn_args" in constructor.keys()):
+                            print("wrong format: constructor " + class_name + "::" + constructor_name)
+                        fn_args = constructor["fn_args"]
+                        py_args = format_py_args(python_replacements, fn_args, api_data[version], constructor=True)
+                        return_type = None
+                        return_type_match = ""
+                        returns_option = None
+                        returns_error = None
+                        if "returns" in constructor.keys():
+                            return_type_match = constructor["returns"]["type"]
+                            r = format_py_return(python_replacements, constructor["returns"], api_data[version], errlist, constructor=True)
+                            return_type = r[0]
+                            returns_option = r[1]
+                            returns_error = r[2]
+                        return_type_str = prefix + class_name
+                        if not(return_type is None):
+                            return_type_str = return_type
+                        if not(tuple((class_name, constructor_name)) in staticmethods):
+                            pyo3_code += "    #[new]\r\n"
+                        else:
                             pyo3_code += "    #[staticmethod]\r\n"
-                            pyo3_code += "    fn " + constructor_name + "(" + py_args + ") -> " + return_type_str + " {\r\n"
-                            pyo3_code += "        " + format_py_body(python_replacements, module_name, class_name, constructor_name, fn_args, api_data[version], return_type_match, returns_option, returns_error, constructor=True) + "\r\n"
+                        pyo3_code += "    fn " + constructor_name + "(" + py_args + ") -> " + return_type_str + " {\r\n"
+                        pyo3_code += "        " + format_py_body(python_replacements, module_name, class_name, constructor_name, fn_args, api_data[version], return_type_match, returns_option, returns_error, constructor=True) + "\r\n"
+                        pyo3_code += "    }\r\n"
+
+                # Generate constructors
+                class_is_vec = class_name.endswith("Vec")
+                while True:
+                    if (not("constructors") in struct.keys() or len(struct["constructors"]) == 0) and not(class_name in not_default_constructable.keys()):
+                        py_new_constructor = ""
+                        py_func_args = ""
+                        for field in struct["struct_fields"]:
+                            field_name = list(field.keys())[0]
+                            if field_name == "ptr":
+                                break # don't generate code
+                            field_type = field[field_name]["type"]
+                            analyzed_type = analyze_type(field_type)
+                            if len(analyzed_type[0]) != 0:
+                                break # don't generate code for structs with raw pointers
+                            if is_primitive_arg(analyzed_type[1]):
+                                py_func_args += field_name + ": " + field_type + ", "
+                                py_new_constructor += "            " + field_name + ",\r\n"
+                            else:
+                                f_class = quick_get_class(api_data[version], analyzed_type[1])
+                                if "enum_fields" in f_class.keys():
+                                    py_func_args += field_name + ": " + prefix + field_type + "EnumWrapper, "
+                                    py_new_constructor += "            " + field_name + ",\r\n"
+                                elif "struct_fields" in f_class.keys():
+                                    py_func_args += field_name + ": " + prefix + field_type + ", "
+                                    py_new_constructor += "            " + field_name + ",\r\n"
+                                else:
+                                    break
+
+                        if not(len(py_func_args) == 0):
+                            py_func_args = py_func_args[:-2] # strip final ", "
+
+                        if class_is_vec:
+                            vec_type = class_name[:-3]
+                            vec_ty_excluded = ["ScanCode", "U16", "U32", "I32", "F32", "GLuint", "GLint"]
+                            if not(vec_type in vec_ty_excluded):
+                                vec_class = quick_get_class(api_data[version], vec_type)
+                                if "enum_fields" in vec_class.keys():
+                                    vec_type = vec_type + "EnumWrapper"
+                            pyo3_code += "    /// Creates a new `" + vec_type + "Vec` from a Python array\r\n"
+                            pyo3_code += "    #[new]\r\n"
+                            pyo3_code += "    fn __new__(input: Vec<" + prefix + vec_type + ">) -> Self {\r\n"
+                            pyo3_code += "        let m: " + external + " = " + external + "::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }\r\n"
+
                             pyo3_code += "    }\r\n"
-
-                    if "functions" in struct.keys():
-                        for function_name in struct["functions"]:
-                            function = struct["functions"][function_name]
-                            if (module_name, class_name, function_name) in manual_implementations:
-                                continue
-                            if not("fn_args" in function.keys()):
-                                print("wrong format: " + class_name + "::" + function_name)
-                            fn_args = function["fn_args"]
-                            self_arg = "&self" # TODO
-                            self_needs_clone = False
-                            if fn_args[0]["self"] == "refmut":
-                                self_arg = "&mut self"
-                            elif fn_args[0]["self"] == "value":
-                                self_arg = "self" # TODO: possible?
-
-                            return_type = None # TODO
-                            return_type_match = ""
-                            returns_option = None
-                            returns_error = None
-                            if "returns" in function.keys():
-                                return_type_match = function["returns"]["type"]
-                                r = format_py_return(python_replacements, function["returns"], api_data[version], errlist, constructor=False)
-                                return_type = r[0]
-                                returns_option = r[1]
-                                returns_error = r[2]
-                            return_type_str = "()"
-                            if not(return_type is None):
-                                return_type_str = return_type
-                            pyo3_code += "    fn " + function_name + "(" + self_arg + format_py_args(python_replacements, fn_args, api_data[version], constructor=False) + ") -> " + return_type_str + " {\r\n"
-                            pyo3_code += "        " + format_py_body(python_replacements, module_name, class_name, function_name, fn_args, api_data[version], return_type_match, returns_option, returns_error, constructor=False) + "\r\n"
+                            pyo3_code += "    \r\n"
+                            pyo3_code += "    /// Returns the " + vec_type + " as a Python array\r\n"
+                            pyo3_code += "    fn array(&self) -> Vec<" + prefix + vec_type + "> {\r\n"
+                            pyo3_code += "        let m: &" + external + " = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }\r\n"
                             pyo3_code += "    }\r\n"
+                        else:
+                            pyo3_code += "    #[new]\r\n"
+                            pyo3_code += "    fn __new__(" + py_func_args + ") -> Self {\r\n"
+                            pyo3_code += "        Self {\r\n"
+                            pyo3_code += py_new_constructor
+                            pyo3_code += "        }\r\n"
+                            pyo3_code += "    }\r\n"
+                        pyo3_code += "\r\n"
 
-                    pyo3_code += "}\r\n"
+                    break
+
+                if "functions" in struct.keys():
+                    for function_name in struct["functions"]:
+                        function = struct["functions"][function_name]
+                        if (module_name, class_name, function_name) in manual_implementations:
+                            continue
+                        if not("fn_args" in function.keys()):
+                            print("wrong format: " + class_name + "::" + function_name)
+                        fn_args = function["fn_args"]
+                        self_arg = "&self" # TODO
+                        self_needs_clone = False
+                        if fn_args[0]["self"] == "refmut":
+                            self_arg = "&mut self"
+                        elif fn_args[0]["self"] == "value":
+                            self_arg = "self" # TODO: possible?
+
+                        return_type = None # TODO
+                        return_type_match = ""
+                        returns_option = None
+                        returns_error = None
+                        if "returns" in function.keys():
+                            return_type_match = function["returns"]["type"]
+                            r = format_py_return(python_replacements, function["returns"], api_data[version], errlist, constructor=False)
+                            return_type = r[0]
+                            returns_option = r[1]
+                            returns_error = r[2]
+                        return_type_str = "()"
+                        if not(return_type is None):
+                            return_type_str = return_type
+                        pyo3_code += "    fn " + function_name + "(" + self_arg + format_py_args(python_replacements, fn_args, api_data[version], constructor=False) + ") -> " + return_type_str + " {\r\n"
+                        pyo3_code += "        " + format_py_body(python_replacements, module_name, class_name, function_name, fn_args, api_data[version], return_type_match, returns_option, returns_error, constructor=False) + "\r\n"
+                        pyo3_code += "    }\r\n"
+
+
+                pyo3_code += "}\r\n"
+
+                pyo3_code += "\r\n"
+                pyo3_code += "#[pyproto]\r\n"
+                pyo3_code += "impl PyObjectProtocol for " + prefix + class_name + " {\r\n"
+                pyo3_code += "    fn __str__(&self) -> Result<String, PyErr> { \r\n"
+                pyo3_code += "        let m: &" + external + " = unsafe { mem::transmute(self) }; Ok(format!(\"{:#?}\", m))\r\n"
+                pyo3_code += "    }\r\n"
+                pyo3_code += "    fn __repr__(&self) -> Result<String, PyErr> { \r\n"
+                pyo3_code += "        let m: &" + external + " = unsafe { mem::transmute(self) }; Ok(format!(\"{:#?}\", m))\r\n"
+                pyo3_code += "    }\r\n"
+                pyo3_code += "}\r\n"
+
             elif "enum_fields" in struct.keys():
                 pyo3_code += "\r\n"
                 pyo3_code += "#[pymethods]\r\n"
@@ -1285,6 +1466,18 @@ def generate_python_api(api_data, structs_map, functions_map):
                             pyo3_code += "(v)"
                     pyo3_code += " } }\r\n"
 
+                pyo3_code += "}\r\n"
+
+                external = struct["external"]
+                pyo3_code += "\r\n"
+                pyo3_code += "#[pyproto]\r\n"
+                pyo3_code += "impl PyObjectProtocol for " + prefix + class_name + "EnumWrapper {\r\n"
+                pyo3_code += "    fn __str__(&self) -> Result<String, PyErr> { \r\n"
+                pyo3_code += "        let m: &" + external + " = unsafe { mem::transmute(&self.inner) }; Ok(format!(\"{:#?}\", m))\r\n"
+                pyo3_code += "    }\r\n"
+                pyo3_code += "    fn __repr__(&self) -> Result<String, PyErr> { \r\n"
+                pyo3_code += "        let m: &" + external + " = unsafe { mem::transmute(&self.inner) }; Ok(format!(\"{:#?}\", m))\r\n"
+                pyo3_code += "    }\r\n"
                 pyo3_code += "}\r\n"
 
     errlist_dict = {}

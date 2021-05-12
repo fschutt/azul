@@ -310,9 +310,9 @@ struct AzStyledNodeVec;
 typedef struct AzStyledNodeVec AzStyledNodeVec;
 typedef void (*AzStyledNodeVecDestructorType)(AzStyledNodeVec* restrict A);
 
-struct AzTagIdsToNodeIdsMappingVec;
-typedef struct AzTagIdsToNodeIdsMappingVec AzTagIdsToNodeIdsMappingVec;
-typedef void (*AzTagIdsToNodeIdsMappingVecDestructorType)(AzTagIdsToNodeIdsMappingVec* restrict A);
+struct AzTagIdToNodeIdMappingVec;
+typedef struct AzTagIdToNodeIdMappingVec AzTagIdToNodeIdMappingVec;
+typedef void (*AzTagIdToNodeIdMappingVecDestructorType)(AzTagIdToNodeIdMappingVec* restrict A);
 
 struct AzParentWithNodeDepthVec;
 typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
@@ -1652,11 +1652,6 @@ struct AzSvgDashPattern {
 };
 typedef struct AzSvgDashPattern AzSvgDashPattern;
 
-struct AzFile {
-    void* ptr;
-};
-typedef struct AzFile AzFile;
-
 struct AzMsgBox {
     size_t _reserved;
 };
@@ -2885,28 +2880,28 @@ typedef union AzStyledNodeVecDestructor AzStyledNodeVecDestructor;
 #define AzStyledNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyledNodeVecDestructorTag_NoDestructor } }
 #define AzStyledNodeVecDestructor_External(v) { .External = { .tag = AzStyledNodeVecDestructorTag_External, .payload = v } }
 
-enum AzTagIdsToNodeIdsMappingVecDestructorTag {
-   AzTagIdsToNodeIdsMappingVecDestructorTag_DefaultRust,
-   AzTagIdsToNodeIdsMappingVecDestructorTag_NoDestructor,
-   AzTagIdsToNodeIdsMappingVecDestructorTag_External,
+enum AzTagIdToNodeIdMappingVecDestructorTag {
+   AzTagIdToNodeIdMappingVecDestructorTag_DefaultRust,
+   AzTagIdToNodeIdMappingVecDestructorTag_NoDestructor,
+   AzTagIdToNodeIdMappingVecDestructorTag_External,
 };
-typedef enum AzTagIdsToNodeIdsMappingVecDestructorTag AzTagIdsToNodeIdsMappingVecDestructorTag;
+typedef enum AzTagIdToNodeIdMappingVecDestructorTag AzTagIdToNodeIdMappingVecDestructorTag;
 
-struct AzTagIdsToNodeIdsMappingVecDestructorVariant_DefaultRust { AzTagIdsToNodeIdsMappingVecDestructorTag tag; };
-typedef struct AzTagIdsToNodeIdsMappingVecDestructorVariant_DefaultRust AzTagIdsToNodeIdsMappingVecDestructorVariant_DefaultRust;
-struct AzTagIdsToNodeIdsMappingVecDestructorVariant_NoDestructor { AzTagIdsToNodeIdsMappingVecDestructorTag tag; };
-typedef struct AzTagIdsToNodeIdsMappingVecDestructorVariant_NoDestructor AzTagIdsToNodeIdsMappingVecDestructorVariant_NoDestructor;
-struct AzTagIdsToNodeIdsMappingVecDestructorVariant_External { AzTagIdsToNodeIdsMappingVecDestructorTag tag; AzTagIdsToNodeIdsMappingVecDestructorType payload; };
-typedef struct AzTagIdsToNodeIdsMappingVecDestructorVariant_External AzTagIdsToNodeIdsMappingVecDestructorVariant_External;
-union AzTagIdsToNodeIdsMappingVecDestructor {
-    AzTagIdsToNodeIdsMappingVecDestructorVariant_DefaultRust DefaultRust;
-    AzTagIdsToNodeIdsMappingVecDestructorVariant_NoDestructor NoDestructor;
-    AzTagIdsToNodeIdsMappingVecDestructorVariant_External External;
+struct AzTagIdToNodeIdMappingVecDestructorVariant_DefaultRust { AzTagIdToNodeIdMappingVecDestructorTag tag; };
+typedef struct AzTagIdToNodeIdMappingVecDestructorVariant_DefaultRust AzTagIdToNodeIdMappingVecDestructorVariant_DefaultRust;
+struct AzTagIdToNodeIdMappingVecDestructorVariant_NoDestructor { AzTagIdToNodeIdMappingVecDestructorTag tag; };
+typedef struct AzTagIdToNodeIdMappingVecDestructorVariant_NoDestructor AzTagIdToNodeIdMappingVecDestructorVariant_NoDestructor;
+struct AzTagIdToNodeIdMappingVecDestructorVariant_External { AzTagIdToNodeIdMappingVecDestructorTag tag; AzTagIdToNodeIdMappingVecDestructorType payload; };
+typedef struct AzTagIdToNodeIdMappingVecDestructorVariant_External AzTagIdToNodeIdMappingVecDestructorVariant_External;
+union AzTagIdToNodeIdMappingVecDestructor {
+    AzTagIdToNodeIdMappingVecDestructorVariant_DefaultRust DefaultRust;
+    AzTagIdToNodeIdMappingVecDestructorVariant_NoDestructor NoDestructor;
+    AzTagIdToNodeIdMappingVecDestructorVariant_External External;
 };
-typedef union AzTagIdsToNodeIdsMappingVecDestructor AzTagIdsToNodeIdsMappingVecDestructor;
-#define AzTagIdsToNodeIdsMappingVecDestructor_DefaultRust { .DefaultRust = { .tag = AzTagIdsToNodeIdsMappingVecDestructorTag_DefaultRust } }
-#define AzTagIdsToNodeIdsMappingVecDestructor_NoDestructor { .NoDestructor = { .tag = AzTagIdsToNodeIdsMappingVecDestructorTag_NoDestructor } }
-#define AzTagIdsToNodeIdsMappingVecDestructor_External(v) { .External = { .tag = AzTagIdsToNodeIdsMappingVecDestructorTag_External, .payload = v } }
+typedef union AzTagIdToNodeIdMappingVecDestructor AzTagIdToNodeIdMappingVecDestructor;
+#define AzTagIdToNodeIdMappingVecDestructor_DefaultRust { .DefaultRust = { .tag = AzTagIdToNodeIdMappingVecDestructorTag_DefaultRust } }
+#define AzTagIdToNodeIdMappingVecDestructor_NoDestructor { .NoDestructor = { .tag = AzTagIdToNodeIdMappingVecDestructorTag_NoDestructor } }
+#define AzTagIdToNodeIdMappingVecDestructor_External(v) { .External = { .tag = AzTagIdToNodeIdMappingVecDestructorTag_External, .payload = v } }
 
 enum AzParentWithNodeDepthVecDestructorTag {
    AzParentWithNodeDepthVecDestructorTag_DefaultRust,
@@ -6316,24 +6311,6 @@ typedef union AzOptionSystemClipboard AzOptionSystemClipboard;
 #define AzOptionSystemClipboard_None { .None = { .tag = AzOptionSystemClipboardTag_None } }
 #define AzOptionSystemClipboard_Some(v) { .Some = { .tag = AzOptionSystemClipboardTag_Some, .payload = v } }
 
-enum AzOptionFileTag {
-   AzOptionFileTag_None,
-   AzOptionFileTag_Some,
-};
-typedef enum AzOptionFileTag AzOptionFileTag;
-
-struct AzOptionFileVariant_None { AzOptionFileTag tag; };
-typedef struct AzOptionFileVariant_None AzOptionFileVariant_None;
-struct AzOptionFileVariant_Some { AzOptionFileTag tag; AzFile payload; };
-typedef struct AzOptionFileVariant_Some AzOptionFileVariant_Some;
-union AzOptionFile {
-    AzOptionFileVariant_None None;
-    AzOptionFileVariant_Some Some;
-};
-typedef union AzOptionFile AzOptionFile;
-#define AzOptionFile_None { .None = { .tag = AzOptionFileTag_None } }
-#define AzOptionFile_Some(v) { .Some = { .tag = AzOptionFileTag_Some, .payload = v } }
-
 enum AzOptionGlTag {
    AzOptionGlTag_None,
    AzOptionGlTag_Some,
@@ -7569,13 +7546,13 @@ struct AzStyledNodeVec {
 };
 typedef struct AzStyledNodeVec AzStyledNodeVec;
 
-struct AzTagIdsToNodeIdsMappingVec {
+struct AzTagIdToNodeIdMappingVec {
     AzTagIdToNodeIdMapping* ptr;
     size_t len;
     size_t cap;
-    AzTagIdsToNodeIdsMappingVecDestructor destructor;
+    AzTagIdToNodeIdMappingVecDestructor destructor;
 };
-typedef struct AzTagIdsToNodeIdsMappingVec AzTagIdsToNodeIdsMappingVec;
+typedef struct AzTagIdToNodeIdMappingVec AzTagIdToNodeIdMappingVec;
 
 enum AzOptionMouseStateTag {
    AzOptionMouseStateTag_None,
@@ -8219,6 +8196,12 @@ typedef union AzSvgStyle AzSvgStyle;
 #define AzSvgStyle_Fill(v) { .Fill = { .tag = AzSvgStyleTag_Fill, .payload = v } }
 #define AzSvgStyle_Stroke(v) { .Stroke = { .tag = AzSvgStyleTag_Stroke, .payload = v } }
 
+struct AzFile {
+    void* ptr;
+    AzString path;
+};
+typedef struct AzFile AzFile;
+
 struct AzFileTypeList {
     AzStringVec document_types;
     AzString document_descriptor;
@@ -8440,6 +8423,24 @@ union AzOptionFileTypeList {
 typedef union AzOptionFileTypeList AzOptionFileTypeList;
 #define AzOptionFileTypeList_None { .None = { .tag = AzOptionFileTypeListTag_None } }
 #define AzOptionFileTypeList_Some(v) { .Some = { .tag = AzOptionFileTypeListTag_Some, .payload = v } }
+
+enum AzOptionFileTag {
+   AzOptionFileTag_None,
+   AzOptionFileTag_Some,
+};
+typedef enum AzOptionFileTag AzOptionFileTag;
+
+struct AzOptionFileVariant_None { AzOptionFileTag tag; };
+typedef struct AzOptionFileVariant_None AzOptionFileVariant_None;
+struct AzOptionFileVariant_Some { AzOptionFileTag tag; AzFile payload; };
+typedef struct AzOptionFileVariant_Some AzOptionFileVariant_Some;
+union AzOptionFile {
+    AzOptionFileVariant_None None;
+    AzOptionFileVariant_Some Some;
+};
+typedef union AzOptionFile AzOptionFile;
+#define AzOptionFile_None { .None = { .tag = AzOptionFileTag_None } }
+#define AzOptionFile_Some(v) { .Some = { .tag = AzOptionFileTag_Some, .payload = v } }
 
 enum AzOptionRawImageTag {
    AzOptionRawImageTag_None,
@@ -9603,7 +9604,7 @@ struct AzStyledDom {
     AzNodeIdVec nodes_with_window_callbacks;
     AzNodeIdVec nodes_with_not_callbacks;
     AzNodeIdVec nodes_with_datasets_and_callbacks;
-    AzTagIdsToNodeIdsMappingVec tag_ids_to_node_ids;
+    AzTagIdToNodeIdMappingVec tag_ids_to_node_ids;
     AzParentWithNodeDepthVec non_leaf_nodes;
     AzCssPropertyCache css_property_cache;
 };
@@ -9942,9 +9943,9 @@ AzStyledNode AzStyledNodeVecArray[] = {};
 #define AzStyledNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStyledNode), .cap = sizeof(v) / sizeof(AzStyledNode), .destructor = { .NoDestructor = { .tag = AzStyledNodeVecDestructorTag_NoDestructor, }, }, }
 #define AzStyledNodeVec_empty { .ptr = &AzStyledNodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStyledNodeVecDestructorTag_NoDestructor, }, }, }
 
-AzTagIdToNodeIdMapping AzTagIdsToNodeIdsMappingVecArray[] = {};
-#define AzTagIdsToNodeIdsMappingVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzTagIdsToNodeIdsMapping), .cap = sizeof(v) / sizeof(AzTagIdsToNodeIdsMapping), .destructor = { .NoDestructor = { .tag = AzTagIdsToNodeIdsMappingVecDestructorTag_NoDestructor, }, }, }
-#define AzTagIdsToNodeIdsMappingVec_empty { .ptr = &AzTagIdsToNodeIdsMappingVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzTagIdsToNodeIdsMappingVecDestructorTag_NoDestructor, }, }, }
+AzTagIdToNodeIdMapping AzTagIdToNodeIdMappingVecArray[] = {};
+#define AzTagIdToNodeIdMappingVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzTagIdToNodeIdMapping), .cap = sizeof(v) / sizeof(AzTagIdToNodeIdMapping), .destructor = { .NoDestructor = { .tag = AzTagIdToNodeIdMappingVecDestructorTag_NoDestructor, }, }, }
+#define AzTagIdToNodeIdMappingVec_empty { .ptr = &AzTagIdToNodeIdMappingVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzTagIdToNodeIdMappingVecDestructorTag_NoDestructor, }, }, }
 
 AzParentWithNodeDepth AzParentWithNodeDepthVecArray[] = {};
 #define AzParentWithNodeDepthVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzParentWithNodeDepth), .cap = sizeof(v) / sizeof(AzParentWithNodeDepth), .destructor = { .NoDestructor = { .tag = AzParentWithNodeDepthVecDestructorTag_NoDestructor, }, }, }
@@ -10441,7 +10442,7 @@ extern DLLIMPORT void AzNormalizedRadialColorStopVec_delete(AzNormalizedRadialCo
 extern DLLIMPORT void AzNodeIdVec_delete(AzNodeIdVec* restrict instance);
 extern DLLIMPORT void AzNodeVec_delete(AzNodeVec* restrict instance);
 extern DLLIMPORT void AzStyledNodeVec_delete(AzStyledNodeVec* restrict instance);
-extern DLLIMPORT void AzTagIdsToNodeIdsMappingVec_delete(AzTagIdsToNodeIdsMappingVec* restrict instance);
+extern DLLIMPORT void AzTagIdToNodeIdMappingVec_delete(AzTagIdToNodeIdMappingVec* restrict instance);
 extern DLLIMPORT void AzParentWithNodeDepthVec_delete(AzParentWithNodeDepthVec* restrict instance);
 extern DLLIMPORT void AzNodeDataVec_delete(AzNodeDataVec* restrict instance);
 

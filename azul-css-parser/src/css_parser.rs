@@ -16,7 +16,7 @@ use azul_css::{
     BackgroundPositionHorizontal, BackgroundPositionVertical, ScrollbarStyle,
     RadialGradientSize, AzString, NormalizedLinearColorStop, NormalizedRadialColorStop,
 
-    StyleTextColor, StyleFontSize, StyleFontFamily, StyleTextAlignmentHorz,
+    StyleTextColor, StyleFontSize, StyleFontFamily, StyleTextAlign,
     StyleLetterSpacing, StyleLineHeight, StyleWordSpacing, StyleTabWidth,
     StyleCursor, StyleBackgroundContent, StyleBackgroundPosition, StyleBackgroundSize,
     StyleBackgroundRepeat, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
@@ -3010,7 +3010,7 @@ multi_type_parser!(parse_layout_overflow, LayoutOverflow,
                     ["visible", Visible],
                     ["hidden", Hidden]);
 
-multi_type_parser!(parse_layout_text_align, StyleTextAlignmentHorz,
+multi_type_parser!(parse_layout_text_align, StyleTextAlign,
                     ["center", Center],
                     ["left", Left],
                     ["right", Right]);

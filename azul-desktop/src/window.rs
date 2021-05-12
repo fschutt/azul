@@ -1318,7 +1318,13 @@ pub struct Clipboard {
     pub _native: Box<Arc<Mutex<SystemClipboard>>>,
 }
 
-impl_option!(Clipboard, OptionClipboard, copy = false, [Clone]);
+impl fmt::Debug for Clipboard {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Clipboard {{ ... }}")
+    }
+}
+
+impl_option!(Clipboard, OptionClipboard, copy = false, [Clone, Debug]);
 
 impl Clipboard {
 

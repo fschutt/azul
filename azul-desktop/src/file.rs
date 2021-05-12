@@ -1,4 +1,5 @@
 use std::fs;
+use core::fmt;
 use azul_css::{U8Vec, AzString};
 use std::io::{Read, Write};
 use alloc::sync::Arc;
@@ -7,18 +8,50 @@ use std::sync::Mutex;
 #[repr(C)]
 #[derive(Clone)]
 pub struct File {
-    ptr: Box<Arc<Mutex<fs::File>>>,
+    pub ptr: Box<Arc<Mutex<fs::File>>>,
+    pub path: AzString,
 }
 
-impl_option!(File, OptionFile, copy = false, [Clone]);
+impl fmt::Debug for File {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.path.as_str())
+    }
+}
+
+impl fmt::Display for File {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.path.as_str())
+    }
+}
+
+impl PartialEq for File {
+    fn eq(&self, other: &Self) -> bool {
+        self.path.as_str().eq(other.path.as_str())
+    }
+}
+
+impl Eq for File { }
+
+impl PartialOrd for File {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.path.as_str().partial_cmp(other.path.as_str())
+    }
+}
+
+impl_option!(File, OptionFile, copy = false, [Clone, Debug]);
 
 impl File {
-    fn new(f: fs::File) -> Self { Self { ptr: Box::new(Arc::new(Mutex::new(f))) } }
+    fn new(f: fs::File, path: AzString) -> Self {
+        Self {
+            ptr: Box::new(Arc::new(Mutex::new(f))),
+            path,
+        }
+    }
     pub fn open(path: &str) -> Option<Self> {
-        Some(Self::new(fs::File::open(path).ok()?))
+        Some(Self::new(fs::File::open(path).ok()?, path.to_string().into()))
     }
     pub fn create(path: &str) -> Option<Self> {
-        Some(Self::new(fs::File::create(path).ok()?))
+        Some(Self::new(fs::File::create(path).ok()?, path.to_string().into()))
     }
     pub fn read_to_string(&mut self) -> Option<AzString> {
         let mut contents = String::new();

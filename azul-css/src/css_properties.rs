@@ -963,76 +963,76 @@ impl fmt::Display for CssPropertyType {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum CssProperty {
-    TextColor(CssPropertyValue<StyleTextColor>),
-    FontSize(CssPropertyValue<StyleFontSize>),
-    FontFamily(CssPropertyValue<StyleFontFamilyVec>),
-    TextAlign(CssPropertyValue<StyleTextAlignmentHorz>),
-    LetterSpacing(CssPropertyValue<StyleLetterSpacing>),
-    LineHeight(CssPropertyValue<StyleLineHeight>),
-    WordSpacing(CssPropertyValue<StyleWordSpacing>),
-    TabWidth(CssPropertyValue<StyleTabWidth>),
-    Cursor(CssPropertyValue<StyleCursor>),
-    Display(CssPropertyValue<LayoutDisplay>),
-    Float(CssPropertyValue<LayoutFloat>),
-    BoxSizing(CssPropertyValue<LayoutBoxSizing>),
-    Width(CssPropertyValue<LayoutWidth>),
-    Height(CssPropertyValue<LayoutHeight>),
-    MinWidth(CssPropertyValue<LayoutMinWidth>),
-    MinHeight(CssPropertyValue<LayoutMinHeight>),
-    MaxWidth(CssPropertyValue<LayoutMaxWidth>),
-    MaxHeight(CssPropertyValue<LayoutMaxHeight>),
-    Position(CssPropertyValue<LayoutPosition>),
-    Top(CssPropertyValue<LayoutTop>),
-    Right(CssPropertyValue<LayoutRight>),
-    Left(CssPropertyValue<LayoutLeft>),
-    Bottom(CssPropertyValue<LayoutBottom>),
-    FlexWrap(CssPropertyValue<LayoutFlexWrap>),
-    FlexDirection(CssPropertyValue<LayoutFlexDirection>),
-    FlexGrow(CssPropertyValue<LayoutFlexGrow>),
-    FlexShrink(CssPropertyValue<LayoutFlexShrink>),
-    JustifyContent(CssPropertyValue<LayoutJustifyContent>),
-    AlignItems(CssPropertyValue<LayoutAlignItems>),
-    AlignContent(CssPropertyValue<LayoutAlignContent>),
-    BackgroundContent(CssPropertyValue<StyleBackgroundContentVec>),
-    BackgroundPosition(CssPropertyValue<StyleBackgroundPositionVec>),
-    BackgroundSize(CssPropertyValue<StyleBackgroundSizeVec>),
-    BackgroundRepeat(CssPropertyValue<StyleBackgroundRepeatVec>),
-    OverflowX(CssPropertyValue<LayoutOverflow>),
-    OverflowY(CssPropertyValue<LayoutOverflow>),
-    PaddingTop(CssPropertyValue<LayoutPaddingTop>),
-    PaddingLeft(CssPropertyValue<LayoutPaddingLeft>),
-    PaddingRight(CssPropertyValue<LayoutPaddingRight>),
-    PaddingBottom(CssPropertyValue<LayoutPaddingBottom>),
-    MarginTop(CssPropertyValue<LayoutMarginTop>),
-    MarginLeft(CssPropertyValue<LayoutMarginLeft>),
-    MarginRight(CssPropertyValue<LayoutMarginRight>),
-    MarginBottom(CssPropertyValue<LayoutMarginBottom>),
-    BorderTopLeftRadius(CssPropertyValue<StyleBorderTopLeftRadius>),
-    BorderTopRightRadius(CssPropertyValue<StyleBorderTopRightRadius>),
-    BorderBottomLeftRadius(CssPropertyValue<StyleBorderBottomLeftRadius>),
-    BorderBottomRightRadius(CssPropertyValue<StyleBorderBottomRightRadius>),
-    BorderTopColor(CssPropertyValue<StyleBorderTopColor>),
-    BorderRightColor(CssPropertyValue<StyleBorderRightColor>),
-    BorderLeftColor(CssPropertyValue<StyleBorderLeftColor>),
-    BorderBottomColor(CssPropertyValue<StyleBorderBottomColor>),
-    BorderTopStyle(CssPropertyValue<StyleBorderTopStyle>),
-    BorderRightStyle(CssPropertyValue<StyleBorderRightStyle>),
-    BorderLeftStyle(CssPropertyValue<StyleBorderLeftStyle>),
-    BorderBottomStyle(CssPropertyValue<StyleBorderBottomStyle>),
-    BorderTopWidth(CssPropertyValue<LayoutBorderTopWidth>),
-    BorderRightWidth(CssPropertyValue<LayoutBorderRightWidth>),
-    BorderLeftWidth(CssPropertyValue<LayoutBorderLeftWidth>),
-    BorderBottomWidth(CssPropertyValue<LayoutBorderBottomWidth>),
-    BoxShadowLeft(CssPropertyValue<StyleBoxShadow>),
-    BoxShadowRight(CssPropertyValue<StyleBoxShadow>),
-    BoxShadowTop(CssPropertyValue<StyleBoxShadow>),
-    BoxShadowBottom(CssPropertyValue<StyleBoxShadow>),
-    ScrollbarStyle(CssPropertyValue<ScrollbarStyle>),
-    Opacity(CssPropertyValue<StyleOpacity>),
-    Transform(CssPropertyValue<StyleTransformVec>),
-    TransformOrigin(CssPropertyValue<StyleTransformOrigin>),
-    PerspectiveOrigin(CssPropertyValue<StylePerspectiveOrigin>),
-    BackfaceVisibility(CssPropertyValue<StyleBackfaceVisibility>),
+    TextColor(StyleTextColorValue),
+    FontSize(StyleFontSizeValue),
+    FontFamily(StyleFontFamilyVecValue),
+    TextAlign(StyleTextAlignValue),
+    LetterSpacing(StyleLetterSpacingValue),
+    LineHeight(StyleLineHeightValue),
+    WordSpacing(StyleWordSpacingValue),
+    TabWidth(StyleTabWidthValue),
+    Cursor(StyleCursorValue),
+    Display(LayoutDisplayValue),
+    Float(LayoutFloatValue),
+    BoxSizing(LayoutBoxSizingValue),
+    Width(LayoutWidthValue),
+    Height(LayoutHeightValue),
+    MinWidth(LayoutMinWidthValue),
+    MinHeight(LayoutMinHeightValue),
+    MaxWidth(LayoutMaxWidthValue),
+    MaxHeight(LayoutMaxHeightValue),
+    Position(LayoutPositionValue),
+    Top(LayoutTopValue),
+    Right(LayoutRightValue),
+    Left(LayoutLeftValue),
+    Bottom(LayoutBottomValue),
+    FlexWrap(LayoutFlexWrapValue),
+    FlexDirection(LayoutFlexDirectionValue),
+    FlexGrow(LayoutFlexGrowValue),
+    FlexShrink(LayoutFlexShrinkValue),
+    JustifyContent(LayoutJustifyContentValue),
+    AlignItems(LayoutAlignItemsValue),
+    AlignContent(LayoutAlignContentValue),
+    BackgroundContent(StyleBackgroundContentVecValue),
+    BackgroundPosition(StyleBackgroundPositionVecValue),
+    BackgroundSize(StyleBackgroundSizeVecValue),
+    BackgroundRepeat(StyleBackgroundRepeatVecValue),
+    OverflowX(LayoutOverflowValue),
+    OverflowY(LayoutOverflowValue),
+    PaddingTop(LayoutPaddingTopValue),
+    PaddingLeft(LayoutPaddingLeftValue),
+    PaddingRight(LayoutPaddingRightValue),
+    PaddingBottom(LayoutPaddingBottomValue),
+    MarginTop(LayoutMarginTopValue),
+    MarginLeft(LayoutMarginLeftValue),
+    MarginRight(LayoutMarginRightValue),
+    MarginBottom(LayoutMarginBottomValue),
+    BorderTopLeftRadius(StyleBorderTopLeftRadiusValue),
+    BorderTopRightRadius(StyleBorderTopRightRadiusValue),
+    BorderBottomLeftRadius(StyleBorderBottomLeftRadiusValue),
+    BorderBottomRightRadius(StyleBorderBottomRightRadiusValue),
+    BorderTopColor(StyleBorderTopColorValue),
+    BorderRightColor(StyleBorderRightColorValue),
+    BorderLeftColor(StyleBorderLeftColorValue),
+    BorderBottomColor(StyleBorderBottomColorValue),
+    BorderTopStyle(StyleBorderTopStyleValue),
+    BorderRightStyle(StyleBorderRightStyleValue),
+    BorderLeftStyle(StyleBorderLeftStyleValue),
+    BorderBottomStyle(StyleBorderBottomStyleValue),
+    BorderTopWidth(LayoutBorderTopWidthValue),
+    BorderRightWidth(LayoutBorderRightWidthValue),
+    BorderLeftWidth(LayoutBorderLeftWidthValue),
+    BorderBottomWidth(LayoutBorderBottomWidthValue),
+    BoxShadowLeft(StyleBoxShadowValue),
+    BoxShadowRight(StyleBoxShadowValue),
+    BoxShadowTop(StyleBoxShadowValue),
+    BoxShadowBottom(StyleBoxShadowValue),
+    ScrollbarStyle(ScrollbarStyleValue),
+    Opacity(StyleOpacityValue),
+    Transform(StyleTransformVecValue),
+    TransformOrigin(StyleTransformOriginValue),
+    PerspectiveOrigin(StylePerspectiveOriginValue),
+    BackfaceVisibility(StyleBackfaceVisibilityValue),
 }
 
 impl_option!(CssProperty, OptionCssProperty, copy = false, [Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]);
@@ -1730,7 +1730,7 @@ impl CssProperty {
     pub const fn text_color(input: StyleTextColor) -> Self { CssProperty::TextColor(CssPropertyValue::Exact(input)) }
     pub const fn font_size(input: StyleFontSize) -> Self { CssProperty::FontSize(CssPropertyValue::Exact(input)) }
     pub const fn font_family(input: StyleFontFamilyVec) -> Self { CssProperty::FontFamily(CssPropertyValue::Exact(input)) }
-    pub const fn text_align(input: StyleTextAlignmentHorz) -> Self { CssProperty::TextAlign(CssPropertyValue::Exact(input)) }
+    pub const fn text_align(input: StyleTextAlign) -> Self { CssProperty::TextAlign(CssPropertyValue::Exact(input)) }
     pub const fn letter_spacing(input: StyleLetterSpacing) -> Self { CssProperty::LetterSpacing(CssPropertyValue::Exact(input)) }
     pub const fn line_height(input: StyleLineHeight) -> Self { CssProperty::LineHeight(CssPropertyValue::Exact(input)) }
     pub const fn word_spacing(input: StyleWordSpacing) -> Self { CssProperty::WordSpacing(CssPropertyValue::Exact(input)) }
@@ -1806,7 +1806,7 @@ impl CssProperty {
     pub const fn as_font_size(&self) -> Option<&StyleFontSizeValue> { match self { CssProperty::FontSize(f) => Some(f), _ => None, } }
     pub const fn as_font_family(&self) -> Option<&StyleFontFamilyVecValue> { match self { CssProperty::FontFamily(f) => Some(f), _ => None, } }
     pub const fn as_text_color(&self) -> Option<&StyleTextColorValue> { match self { CssProperty::TextColor(f) => Some(f), _ => None, } }
-    pub const fn as_text_align(&self) -> Option<&StyleTextAlignmentHorzValue> { match self { CssProperty::TextAlign(f) => Some(f), _ => None, } }
+    pub const fn as_text_align(&self) -> Option<&StyleTextAlignValue> { match self { CssProperty::TextAlign(f) => Some(f), _ => None, } }
     pub const fn as_line_height(&self) -> Option<&StyleLineHeightValue> { match self { CssProperty::LineHeight(f) => Some(f), _ => None, } }
     pub const fn as_letter_spacing(&self) -> Option<&StyleLetterSpacingValue> { match self { CssProperty::LetterSpacing(f) => Some(f), _ => None, } }
     pub const fn as_word_spacing(&self) -> Option<&StyleWordSpacingValue> { match self { CssProperty::WordSpacing(f) => Some(f), _ => None, } }
@@ -1886,7 +1886,7 @@ macro_rules! impl_from_css_prop {
 impl_from_css_prop!(StyleTextColor, CssProperty::TextColor);
 impl_from_css_prop!(StyleFontSize, CssProperty::FontSize);
 impl_from_css_prop!(StyleFontFamilyVec, CssProperty::FontFamily);
-impl_from_css_prop!(StyleTextAlignmentHorz, CssProperty::TextAlign);
+impl_from_css_prop!(StyleTextAlign, CssProperty::TextAlign);
 impl_from_css_prop!(StyleLetterSpacing, CssProperty::LetterSpacing);
 impl_from_css_prop!(StyleLineHeight, CssProperty::LineHeight);
 impl_from_css_prop!(StyleWordSpacing, CssProperty::WordSpacing);
@@ -1957,13 +1957,19 @@ const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
 const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
 
 /// Same as PixelValue, but doesn't allow a "%" sign
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct PixelValueNoPercent { pub inner: PixelValue }
 
 impl fmt::Display for PixelValueNoPercent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.inner)
+    }
+}
+
+impl ::core::fmt::Debug for PixelValueNoPercent {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self)
     }
 }
 
@@ -1985,7 +1991,7 @@ impl_option!(AngleValue, OptionAngleValue, [Debug, Copy, Clone, PartialEq, Eq, P
 
 impl fmt::Debug for AngleValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}{}", self.number, self.metric)
+        write!(f, "{}", self)
     }
 }
 
@@ -2304,7 +2310,7 @@ impl PercentageValue {
 
 /// Wrapper around an f32 value that is internally casted to an isize,
 /// in order to provide hash-ability (to avoid numerical instability).
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct FloatValue {
     pub number: isize,
@@ -2313,6 +2319,12 @@ pub struct FloatValue {
 impl fmt::Display for FloatValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.get())
+    }
+}
+
+impl ::core::fmt::Debug for FloatValue {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self)
     }
 }
 
@@ -3560,30 +3572,30 @@ impl LayoutOverflow {
 /// Horizontal text alignment enum (left, center, right) - default: `Center`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub enum StyleTextAlignmentHorz {
+pub enum StyleTextAlign {
     Left,
     Center,
     Right,
 }
 
-impl Default for StyleTextAlignmentHorz {
+impl Default for StyleTextAlign {
     fn default() -> Self {
-        StyleTextAlignmentHorz::Left
+        StyleTextAlign::Left
     }
 }
 
 /// Vertical text alignment enum (top, center, bottom) - default: `Center`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub enum StyleTextAlignmentVert {
+pub enum StyleVerticalAlign {
     Top,
     Center,
     Bottom,
 }
 
-impl Default for StyleTextAlignmentVert {
+impl Default for StyleVerticalAlign {
     fn default() -> Self {
-        StyleTextAlignmentVert::Top
+        StyleVerticalAlign::Top
     }
 }
 
@@ -3783,7 +3795,7 @@ pub type StyleBackgroundRepeatVecValue = CssPropertyValue<StyleBackgroundRepeatV
 pub type StyleFontSizeValue = CssPropertyValue<StyleFontSize>;
 pub type StyleFontFamilyVecValue = CssPropertyValue<StyleFontFamilyVec>;
 pub type StyleTextColorValue = CssPropertyValue<StyleTextColor>;
-pub type StyleTextAlignmentHorzValue = CssPropertyValue<StyleTextAlignmentHorz>;
+pub type StyleTextAlignValue = CssPropertyValue<StyleTextAlign>;
 pub type StyleLineHeightValue = CssPropertyValue<StyleLineHeight>;
 pub type StyleLetterSpacingValue = CssPropertyValue<StyleLetterSpacing>;
 pub type StyleWordSpacingValue = CssPropertyValue<StyleWordSpacing>;
@@ -3807,6 +3819,7 @@ pub type StyleTransformVecValue = CssPropertyValue<StyleTransformVec>;
 pub type StyleTransformOriginValue = CssPropertyValue<StyleTransformOrigin>;
 pub type StylePerspectiveOriginValue = CssPropertyValue<StylePerspectiveOrigin>;
 pub type StyleBackfaceVisibilityValue = CssPropertyValue<StyleBackfaceVisibility>;
+pub type ScrollbarStyleValue = CssPropertyValue<ScrollbarStyle>;
 pub type LayoutDisplayValue = CssPropertyValue<LayoutDisplay>;
 impl_option!(LayoutDisplayValue, OptionLayoutDisplayValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 pub type LayoutFloatValue = CssPropertyValue<LayoutFloat>;

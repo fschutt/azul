@@ -8,6 +8,7 @@ use crate::gl::{
 };
 use alloc::string::String;
 use azul_css::U32Vec;
+use core::fmt;
 pub use azul_css::{SvgCubicCurve, SvgPoint};
 
 const DEFAULT_MITER_LIMIT: f32 = 4.0;
@@ -211,6 +212,12 @@ impl TesselatedSvgNodeVec {
             ptr: slice.as_ptr(),
             len: slice.len(),
         }
+    }
+}
+
+impl fmt::Debug for TesselatedSvgNodeVecRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.as_slice().fmt(f)
     }
 }
 

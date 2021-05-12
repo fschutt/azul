@@ -564,6 +564,18 @@
                 Self { inner: PixelValue::from_metric(metric, value) }
             }
         }
+
+        impl ::core::fmt::Display for $struct {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}", self.inner)
+            }
+        }
+
+        impl ::core::fmt::Debug for $struct {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{:?}", self.inner)
+            }
+        }
     )}
 
     impl_pixel_value!(StyleBorderTopLeftRadius);
@@ -627,6 +639,11 @@
         impl ::core::fmt::Display for $struct {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{}%", self.inner.get())
+            }
+        }
+        impl ::core::fmt::Debug for $struct {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}", self)
             }
         }
         impl $struct {

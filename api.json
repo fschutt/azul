@@ -305,7 +305,7 @@
                 },
                 "PhysicalPositionI32": {
                     "doc": "Same as `LayoutPoint`, but uses `i32` instead of `isize`",
-                    "external": "azul_impl::window::PhysicalPosition<i32>",
+                    "external": "azul_impl::window::PhysicalPositionI32",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"x": {"type": "i32"}},
@@ -314,7 +314,7 @@
                 },
                 "PhysicalSizeU32": {
                     "doc": "Same as `LayoutPoint`, but uses `u32` instead of `isize`",
-                    "external": "azul_impl::window::PhysicalSize<u32>",
+                    "external": "azul_impl::window::PhysicalSizeU32",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"width": {"type": "u32"}},
@@ -3374,7 +3374,7 @@
                     ]
                 },
                 "StyleTextAlign": {
-                    "external": "azul_impl::css::StyleTextAlignmentHorz",
+                    "external": "azul_impl::css::StyleTextAlign",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Left": {}},
@@ -3397,7 +3397,7 @@
                     ]
                 },
                 "StyleBoxShadowValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBoxShadow>",
+                    "external": "azul_impl::css::StyleBoxShadowValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3408,7 +3408,7 @@
                     ]
                 },
                 "LayoutAlignContentValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutAlignContent>",
+                    "external": "azul_impl::css::LayoutAlignContentValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3419,7 +3419,7 @@
                     ]
                 },
                 "LayoutAlignItemsValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutAlignItems>",
+                    "external": "azul_impl::css::LayoutAlignItemsValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3430,7 +3430,7 @@
                     ]
                 },
                 "LayoutBottomValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutBottom>",
+                    "external": "azul_impl::css::LayoutBottomValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3441,7 +3441,7 @@
                     ]
                 },
                 "LayoutBoxSizingValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutBoxSizing>",
+                    "external": "azul_impl::css::LayoutBoxSizingValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3452,7 +3452,7 @@
                     ]
                 },
                 "LayoutFlexDirectionValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutFlexDirection>",
+                    "external": "azul_impl::css::LayoutFlexDirectionValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3463,7 +3463,7 @@
                     ]
                 },
                 "LayoutDisplayValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutDisplay>",
+                    "external": "azul_impl::css::LayoutDisplayValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3474,7 +3474,7 @@
                     ]
                 },
                 "LayoutFlexGrowValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutFlexGrow>",
+                    "external": "azul_impl::css::LayoutFlexGrowValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3485,7 +3485,7 @@
                     ]
                 },
                 "LayoutFlexShrinkValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutFlexShrink>",
+                    "external": "azul_impl::css::LayoutFlexShrinkValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3496,7 +3496,7 @@
                     ]
                 },
                 "LayoutFloatValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutFloat>",
+                    "external": "azul_impl::css::LayoutFloatValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3507,7 +3507,7 @@
                     ]
                 },
                 "LayoutHeightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutHeight>",
+                    "external": "azul_impl::css::LayoutHeightValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3518,7 +3518,7 @@
                     ]
                 },
                 "LayoutJustifyContentValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutJustifyContent>",
+                    "external": "azul_impl::css::LayoutJustifyContentValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3529,7 +3529,7 @@
                     ]
                 },
                 "LayoutLeftValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutLeft>",
+                    "external": "azul_impl::css::LayoutLeftValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3540,7 +3540,7 @@
                     ]
                 },
                 "LayoutMarginBottomValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMarginBottom>",
+                    "external": "azul_impl::css::LayoutMarginBottomValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3551,7 +3551,7 @@
                     ]
                 },
                 "LayoutMarginLeftValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMarginLeft>",
+                    "external": "azul_impl::css::LayoutMarginLeftValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3562,7 +3562,7 @@
                     ]
                 },
                 "LayoutMarginRightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMarginRight>",
+                    "external": "azul_impl::css::LayoutMarginRightValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3573,7 +3573,7 @@
                     ]
                 },
                 "LayoutMarginTopValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMarginTop>",
+                    "external": "azul_impl::css::LayoutMarginTopValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3584,7 +3584,7 @@
                     ]
                 },
                 "LayoutMaxHeightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMaxHeight>",
+                    "external": "azul_impl::css::LayoutMaxHeightValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3595,7 +3595,7 @@
                     ]
                 },
                 "LayoutMaxWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMaxWidth>",
+                    "external": "azul_impl::css::LayoutMaxWidthValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3606,7 +3606,7 @@
                     ]
                 },
                 "LayoutMinHeightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMinHeight>",
+                    "external": "azul_impl::css::LayoutMinHeightValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3617,7 +3617,7 @@
                     ]
                 },
                 "LayoutMinWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutMinWidth>",
+                    "external": "azul_impl::css::LayoutMinWidthValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3628,7 +3628,7 @@
                     ]
                 },
                 "LayoutPaddingBottomValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutPaddingBottom>",
+                    "external": "azul_impl::css::LayoutPaddingBottomValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3639,7 +3639,7 @@
                     ]
                 },
                 "LayoutPaddingLeftValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutPaddingLeft>",
+                    "external": "azul_impl::css::LayoutPaddingLeftValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3650,7 +3650,7 @@
                     ]
                 },
                 "LayoutPaddingRightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutPaddingRight>",
+                    "external": "azul_impl::css::LayoutPaddingRightValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3661,7 +3661,7 @@
                     ]
                 },
                 "LayoutPaddingTopValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutPaddingTop>",
+                    "external": "azul_impl::css::LayoutPaddingTopValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3672,7 +3672,7 @@
                     ]
                 },
                 "LayoutPositionValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutPosition>",
+                    "external": "azul_impl::css::LayoutPositionValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3683,7 +3683,7 @@
                     ]
                 },
                 "LayoutRightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutRight>",
+                    "external": "azul_impl::css::LayoutRightValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3694,7 +3694,7 @@
                     ]
                 },
                 "LayoutTopValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutTop>",
+                    "external": "azul_impl::css::LayoutTopValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3705,7 +3705,7 @@
                     ]
                 },
                 "LayoutWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutWidth>",
+                    "external": "azul_impl::css::LayoutWidthValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3716,7 +3716,7 @@
                     ]
                 },
                 "LayoutFlexWrapValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutFlexWrap>",
+                    "external": "azul_impl::css::LayoutFlexWrapValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3727,7 +3727,7 @@
                     ]
                 },
                 "LayoutOverflowValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutOverflow>",
+                    "external": "azul_impl::css::LayoutOverflowValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3738,7 +3738,7 @@
                     ]
                 },
                 "ScrollbarStyleValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzScrollbarStyle>",
+                    "external": "azul_impl::css::ScrollbarStyleValue",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3748,7 +3748,7 @@
                     ]
                 },
                 "StyleBackgroundContentVecValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBackgroundContentVec>",
+                    "external": "azul_impl::css::StyleBackgroundContentVecValue",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3758,7 +3758,7 @@
                     ]
                 },
                 "StyleBackgroundPositionVecValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBackgroundPositionVec>",
+                    "external": "azul_impl::css::StyleBackgroundPositionVecValue",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3768,7 +3768,7 @@
                     ]
                 },
                 "StyleBackgroundRepeatVecValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBackgroundRepeatVec>",
+                    "external": "azul_impl::css::StyleBackgroundRepeatVecValue",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3778,7 +3778,7 @@
                     ]
                 },
                 "StyleBackgroundSizeVecValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBackgroundSizeVec>",
+                    "external": "azul_impl::css::StyleBackgroundSizeVecValue",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3788,7 +3788,7 @@
                     ]
                 },
                 "StyleBorderBottomColorValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderBottomColor>",
+                    "external": "azul_impl::css::StyleBorderBottomColorValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3799,7 +3799,7 @@
                     ]
                 },
                 "StyleBorderBottomLeftRadiusValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderBottomLeftRadius>",
+                    "external": "azul_impl::css::StyleBorderBottomLeftRadiusValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3810,7 +3810,7 @@
                     ]
                 },
                 "StyleBorderBottomRightRadiusValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderBottomRightRadius>",
+                    "external": "azul_impl::css::StyleBorderBottomRightRadiusValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3821,7 +3821,7 @@
                     ]
                 },
                 "StyleBorderBottomStyleValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderBottomStyle>",
+                    "external": "azul_impl::css::StyleBorderBottomStyleValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3832,7 +3832,7 @@
                     ]
                 },
                 "LayoutBorderBottomWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutBorderBottomWidth>",
+                    "external": "azul_impl::css::LayoutBorderBottomWidthValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3843,7 +3843,7 @@
                     ]
                 },
                 "StyleBorderLeftColorValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderLeftColor>",
+                    "external": "azul_impl::css::StyleBorderLeftColorValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3854,7 +3854,7 @@
                     ]
                 },
                 "StyleBorderLeftStyleValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderLeftStyle>",
+                    "external": "azul_impl::css::StyleBorderLeftStyleValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3865,7 +3865,7 @@
                     ]
                 },
                 "LayoutBorderLeftWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutBorderLeftWidth>",
+                    "external": "azul_impl::css::LayoutBorderLeftWidthValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3876,7 +3876,7 @@
                     ]
                 },
                 "StyleBorderRightColorValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderRightColor>",
+                    "external": "azul_impl::css::StyleBorderRightColorValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3887,7 +3887,7 @@
                     ]
                 },
                 "StyleBorderRightStyleValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderRightStyle>",
+                    "external": "azul_impl::css::StyleBorderRightStyleValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3898,7 +3898,7 @@
                     ]
                 },
                 "LayoutBorderRightWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutBorderRightWidth>",
+                    "external": "azul_impl::css::LayoutBorderRightWidthValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3909,7 +3909,7 @@
                     ]
                 },
                 "StyleBorderTopColorValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderTopColor>",
+                    "external": "azul_impl::css::StyleBorderTopColorValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3920,7 +3920,7 @@
                     ]
                 },
                 "StyleBorderTopLeftRadiusValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderTopLeftRadius>",
+                    "external": "azul_impl::css::StyleBorderTopLeftRadiusValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3931,7 +3931,7 @@
                     ]
                 },
                 "StyleBorderTopRightRadiusValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderTopRightRadius>",
+                    "external": "azul_impl::css::StyleBorderTopRightRadiusValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3942,7 +3942,7 @@
                     ]
                 },
                 "StyleBorderTopStyleValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBorderTopStyle>",
+                    "external": "azul_impl::css::StyleBorderTopStyleValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3953,7 +3953,7 @@
                     ]
                 },
                 "LayoutBorderTopWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzLayoutBorderTopWidth>",
+                    "external": "azul_impl::css::LayoutBorderTopWidthValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3964,7 +3964,7 @@
                     ]
                 },
                 "StyleCursorValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleCursor>",
+                    "external": "azul_impl::css::StyleCursorValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3975,7 +3975,7 @@
                     ]
                 },
                 "StyleFontFamilyVecValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleFontFamilyVec>",
+                    "external": "azul_impl::css::StyleFontFamilyVecValue",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -3985,7 +3985,7 @@
                     ]
                 },
                 "StyleFontSizeValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleFontSize>",
+                    "external": "azul_impl::css::StyleFontSizeValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -3996,7 +3996,7 @@
                     ]
                 },
                 "StyleLetterSpacingValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleLetterSpacing>",
+                    "external": "azul_impl::css::StyleLetterSpacingValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -4007,7 +4007,7 @@
                     ]
                 },
                 "StyleLineHeightValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleLineHeight>",
+                    "external": "azul_impl::css::StyleLineHeightValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -4018,7 +4018,7 @@
                     ]
                 },
                 "StyleTabWidthValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleTabWidth>",
+                    "external": "azul_impl::css::StyleTabWidthValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -4029,7 +4029,7 @@
                     ]
                 },
                 "StyleTextAlignValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleTextAlign>",
+                    "external": "azul_impl::css::StyleTextAlignValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -4040,7 +4040,7 @@
                     ]
                 },
                 "StyleTextColorValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleTextColor>",
+                    "external": "azul_impl::css::StyleTextColorValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -4051,7 +4051,7 @@
                     ]
                 },
                 "StyleWordSpacingValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleWordSpacing>",
+                    "external": "azul_impl::css::StyleWordSpacingValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -4062,7 +4062,7 @@
                     ]
                 },
                 "StyleOpacityValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleOpacity>",
+                    "external": "azul_impl::css::StyleOpacityValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -4073,7 +4073,7 @@
                     ]
                 },
                 "StyleTransformVecValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleTransformVec>",
+                    "external": "azul_impl::css::StyleTransformVecValue",
                     "enum_fields": [
                         { "Auto": { }} ,
                         { "None": { }} ,
@@ -4083,7 +4083,7 @@
                     ]
                 },
                 "StyleTransformOriginValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleTransformOrigin>",
+                    "external": "azul_impl::css::StyleTransformOriginValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -4094,7 +4094,7 @@
                     ]
                 },
                 "StylePerspectiveOriginValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStylePerspectiveOrigin>",
+                    "external": "azul_impl::css::StylePerspectiveOriginValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -4105,7 +4105,7 @@
                     ]
                 },
                 "StyleBackfaceVisibilityValue": {
-                    "external": "azul_impl::css::CssPropertyValue::<AzStyleBackfaceVisibility>",
+                    "external": "azul_impl::css::StyleBackfaceVisibilityValue",
                     "derive": ["Copy"],
                     "enum_fields": [
                         { "Auto": { }} ,
@@ -4317,7 +4317,7 @@
                         {"nodes_with_window_callbacks": {"type": "NodeIdVec" }},
                         {"nodes_with_not_callbacks": {"type": "NodeIdVec" }},
                         {"nodes_with_datasets_and_callbacks": {"type": "NodeIdVec" }},
-                        {"tag_ids_to_node_ids": {"type": "TagIdsToNodeIdsMappingVec" }},
+                        {"tag_ids_to_node_ids": {"type": "TagIdToNodeIdMappingVec" }},
                         {"non_leaf_nodes": {"type": "ParentWithNodeDepthVec" }},
                         {"css_property_cache": {"type": "CssPropertyCache" }}
                     ],
@@ -9048,7 +9048,8 @@
                     "external": "azul_impl::file::File",
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*const c_void"}}
+                        {"ptr": {"type": "*const c_void"}},
+                        {"path": {"type": "String"}}
                     ],
                     "constructors": {
                         "open": {
@@ -10302,15 +10303,15 @@
                         { "destructor": { "type": "StyledNodeVecDestructor" } }
                     ]
                 },
-                "TagIdsToNodeIdsMappingVec": {
-                    "doc": "Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`",
+                "TagIdToNodeIdMappingVec": {
+                    "doc": "Wrapper over a Rust-allocated `TagIdToNodeIdMappingVec`",
                     "custom_destructor": true,
-                    "external": "azul_impl::styled_dom::TagIdsToNodeIdsMappingVec",
+                    "external": "azul_impl::styled_dom::TagIdToNodeIdMappingVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const TagIdToNodeIdMapping" } },
                         { "len": { "type": "usize" } },
                         { "cap": { "type": "usize" } },
-                        { "destructor": { "type": "TagIdsToNodeIdsMappingVecDestructor" } }
+                        { "destructor": { "type": "TagIdToNodeIdMappingVecDestructor" } }
                     ]
                 },
                 "ParentWithNodeDepthVec": {
@@ -11087,19 +11088,19 @@
                         ]
                     }
                 },
-                "TagIdsToNodeIdsMappingVecDestructor": {
+                "TagIdToNodeIdMappingVecDestructor": {
                     "external": "azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
                         {"NoDestructor": {}},
-                        {"External": {"type": "TagIdsToNodeIdsMappingVecDestructorType"}}
+                        {"External": {"type": "TagIdToNodeIdMappingVecDestructorType"}}
                     ]
                 },
-                "TagIdsToNodeIdsMappingVecDestructorType": {
+                "TagIdToNodeIdMappingVecDestructorType": {
                     "callback_typedef": {
                         "fn_args": [
-                            {"type": "TagIdsToNodeIdsMappingVec", "ref": "refmut"}
+                            {"type": "TagIdToNodeIdMappingVec", "ref": "refmut"}
                         ]
                     }
                 },

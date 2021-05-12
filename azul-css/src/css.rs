@@ -147,7 +147,7 @@ pub struct DynamicCssProperty {
     pub default_value: CssProperty,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)] // necessary for ABI stability
 pub enum CssPropertyValue<T> {
     Auto,
@@ -169,19 +169,6 @@ impl<T: PrintAsCssValue> CssPropertyValue<T> {
             CssPropertyValue::Initial => format!("initial"),
             CssPropertyValue::Inherit => format!("inherit"),
             CssPropertyValue::Exact(e) => e.print_as_css_value(),
-        }
-    }
-}
-
-impl<T: fmt::Debug> fmt::Debug for CssPropertyValue<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::CssPropertyValue::*;
-        match self {
-            Auto => write!(f, "auto"),
-            None => write!(f, "none"),
-            Initial => write!(f, "initial"),
-            Inherit => write!(f, "inherit"),
-            Exact(e) => write!(f, "{:?}", e),
         }
     }
 }

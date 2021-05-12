@@ -513,7 +513,7 @@ impl_enum_fmt!(LayoutOverflow,
     Hidden
 );
 
-impl_enum_fmt!(StyleTextAlignmentHorz,
+impl_enum_fmt!(StyleTextAlign,
     Center,
     Left,
     Right

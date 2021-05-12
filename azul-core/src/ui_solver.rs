@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use azul_css::{
     LayoutRect, LayoutRectVec, LayoutPoint, LayoutSize, PixelValue, StyleFontSize,
     StyleTextColor, ColorU as StyleColorU, OptionF32, LayoutOverflow, LayoutDisplay,
-    StyleTextAlignmentHorz, StyleTextAlignmentVert, LayoutPosition,
+    StyleTextAlign, StyleVerticalAlign, LayoutPosition,
     CssPropertyValue, LayoutMarginTop, LayoutMarginRight, LayoutMarginLeft, LayoutMarginBottom,
     LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingBottom,
     LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, LayoutFlexDirection, LayoutJustifyContent,
@@ -102,7 +102,7 @@ impl InlineTextLayout {
     pub fn align_children_horizontal(
         &mut self,
         parent_size: &LogicalSize,
-        horizontal_alignment: StyleTextAlignmentHorz
+        horizontal_alignment: StyleTextAlign
     ) {
         let shift_multiplier = match calculate_horizontal_shift_multiplier(horizontal_alignment) {
             None =>  return,
@@ -118,7 +118,7 @@ impl InlineTextLayout {
     pub fn align_children_vertical_in_parent_bounds(
         &mut self,
         parent_size: &LogicalSize,
-        vertical_alignment: StyleTextAlignmentVert
+        vertical_alignment: StyleVerticalAlign
     ) {
 
         let shift_multiplier = match calculate_vertical_shift_multiplier(vertical_alignment) {
@@ -136,8 +136,8 @@ impl InlineTextLayout {
 }
 
 #[inline]
-pub fn calculate_horizontal_shift_multiplier(horizontal_alignment: StyleTextAlignmentHorz) -> Option<f32> {
-    use azul_css::StyleTextAlignmentHorz::*;
+pub fn calculate_horizontal_shift_multiplier(horizontal_alignment: StyleTextAlign) -> Option<f32> {
+    use azul_css::StyleTextAlign::*;
     match horizontal_alignment {
         Left => None,
         Center => Some(0.5), // move the line by the half width
@@ -146,8 +146,8 @@ pub fn calculate_horizontal_shift_multiplier(horizontal_alignment: StyleTextAlig
 }
 
 #[inline]
-pub fn calculate_vertical_shift_multiplier(vertical_alignment: StyleTextAlignmentVert) -> Option<f32> {
-    use azul_css::StyleTextAlignmentVert::*;
+pub fn calculate_vertical_shift_multiplier(vertical_alignment: StyleVerticalAlign) -> Option<f32> {
+    use azul_css::StyleVerticalAlign::*;
     match vertical_alignment {
         Top => None,
         Center => Some(0.5), // move the line by the half width
@@ -1155,7 +1155,7 @@ impl ::core::fmt::Debug for PositionInfo {
 
 impl_option!(PositionInfo, OptionPositionInfo, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
-#[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct PositionInfoInner {
     pub x_offset: f32,

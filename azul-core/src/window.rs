@@ -994,6 +994,7 @@ pub struct Monitor {
 }
 
 impl_vec!(Monitor, MonitorVec, MonitorVecDestructor);
+impl_vec_debug!(Monitor, MonitorVec);
 impl_vec_clone!(Monitor, MonitorVec, MonitorVecDestructor);
 impl_vec_partialeq!(Monitor, MonitorVec);
 impl_vec_partialord!(Monitor, MonitorVec);
@@ -2034,7 +2035,7 @@ impl<T: ::core::fmt::Display> ::core::fmt::Debug for PhysicalPosition<T> {
     }
 }
 
-type PhysicalPositionI32 = PhysicalPosition<i32>;
+pub type PhysicalPositionI32 = PhysicalPosition<i32>;
 impl_option!(PhysicalPositionI32, OptionPhysicalPositionI32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 #[derive(Ord, Hash, Eq, Copy, Clone, PartialEq, PartialOrd)]
