@@ -104,6 +104,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4d7d63395147b81a9e570bcc6243aaf71c017bd666d4909cfef0085bdda8d73"
+
+[[package]]
 name = "arrayref"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -191,6 +197,7 @@ dependencies = [
  "flate2",
  "log",
  "pyo3",
+ "pyo3-log",
  "tar",
 ]
 
@@ -1851,6 +1858,17 @@ dependencies = [
  "paste",
  "pyo3-macros",
  "unindent",
+]
+
+[[package]]
+name = "pyo3-log"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f2965889c13ef9401c9483965c4a9e5737df9cc7ab53f3893abadf481b2977f"
+dependencies = [
+ "arc-swap",
+ "log",
+ "pyo3",
 ]
 
 [[package]]

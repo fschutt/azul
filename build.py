@@ -450,7 +450,7 @@ def generate_rust_dll(api_data):
     code += "#![cfg_attr(feature =\"rlib\", crate_type = \"rlib\")]\r\n"
     code += "#![deny(improper_ctypes_definitions)]\r\n"
     code += "\r\n"
-    code += "#[cfg(all(feature = \"python3\", feature = \"cdylib\"))]\r\n"
+    code += "#[cfg(feature = \"python-extension\")]\r\n"
     code += "pub mod python;\r\n"
     code += "\r\n"
 
@@ -1305,6 +1305,28 @@ def generate_python_api(api_data, structs_map, functions_map):
     pyo3_code += "\r\n"
     pyo3_code += "#[pymodule]\r\n"
     pyo3_code += "fn azul(py: Python, m: &PyModule) -> PyResult<()> {\r\n"
+    pyo3_code += "\r\n"
+    pyo3_code += "    #[cfg(all(feature = \"use_pyo3_logger\", not(feature = \"use_fern_logger\")))] {\r\n"
+
+    # Since we can't get access to the AppConfig
+    # here, use environment variables for configuration
+
+    pyo3_code += "        let mut filter = log::LevelFilter ::Warn;\r\n"
+    pyo3_code += "\r\n"
+    pyo3_code += "        if std::env::var(\"AZUL_PY_LOGLEVEL_ERROR\").is_ok() { filter = log::LevelFilter ::Error; }\r\n"
+    pyo3_code += "        if std::env::var(\"AZUL_PY_LOGLEVEL_WARN\").is_ok() { filter = log::LevelFilter ::Warn; }\r\n"
+    pyo3_code += "        if std::env::var(\"AZUL_PY_LOGLEVEL_INFO\").is_ok() { filter = log::LevelFilter ::Info; }\r\n"
+    pyo3_code += "        if std::env::var(\"AZUL_PY_LOGLEVEL_DEBUG\").is_ok() { filter = log::LevelFilter ::Debug; }\r\n"
+    pyo3_code += "        if std::env::var(\"AZUL_PY_LOGLEVEL_TRACE\").is_ok() { filter = log::LevelFilter ::Trace; }\r\n"
+    pyo3_code += "        if std::env::var(\"AZUL_PY_LOGLEVEL_OFF\").is_ok() { filter = log::LevelFilter ::Off; }\r\n"
+    pyo3_code += "\r\n"
+    pyo3_code += "        match pyo3_log::Logger::new(py.clone(), pyo3_log::Caching::LoggersAndLevels)?.filter(filter).install() {\r\n"
+    pyo3_code += "            Ok(_) => { }, \r\n"
+    pyo3_code += "            Err(e) => { println!(\"Could not initialize Python logger, (continuing execution): {}\", e); }, \r\n"
+    pyo3_code += "        }\r\n"
+
+    # pyo3_code += "        pyo3_log::init();\r\n"
+    pyo3_code += "    }\r\n"
     pyo3_code += "\r\n"
 
     for module_name in api_data[version].keys():

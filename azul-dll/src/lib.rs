@@ -5,7 +5,7 @@
 #![cfg_attr(feature ="rlib", crate_type = "rlib")]
 #![deny(improper_ctypes_definitions)]
 
-#[cfg(all(feature = "python3", feature = "cdylib"))]
+#[cfg(feature = "python-extension")]
 pub mod python;
 
 extern crate azul_core;

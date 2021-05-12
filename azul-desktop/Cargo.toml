@@ -43,10 +43,13 @@ core-foundation = { version = "0.9.0",     default-features = false, features = 
 default = [
     "std", "logging", "css_parser",
     "font_loading", "text_layout", "svg", "xml",
-    "image_loading", "gif", "jpeg", "png", "tiff", "bmp"
+    "image_loading", "gif", "jpeg", "png", "tiff", "bmp",
+    "use_fern_logger"
 ]
 std = ["azul-core/multithreading", "azul-core/std", "backtrace"]
-logging = ["fern", "backtrace", "log"]
+use_pyo3_logger = []
+use_fern_logger = ["fern"]
+logging = ["backtrace", "log"]
 css_parser = ["azul-core/css_parser", "azul-css-parser"]
 font_loading = ["azulc/font_loading"]
 text_layout = ["azulc/text_layout"]

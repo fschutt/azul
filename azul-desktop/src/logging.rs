@@ -4,6 +4,7 @@ use crate::dialogs::msg_box_ok;
 
 pub(crate) static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
 
+#[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
 pub(crate) fn set_up_logging(log_level: LevelFilter) {
 
     use fern::InitError;

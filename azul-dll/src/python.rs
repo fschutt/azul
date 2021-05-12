@@ -17240,6 +17240,22 @@ impl core::convert::From<AzXmlError> for PyErr {
 #[pymodule]
 fn azul(py: Python, m: &PyModule) -> PyResult<()> {
 
+    #[cfg(all(feature = "use_pyo3_logger", not(feature = "use_fern_logger")))] {
+        let mut filter = log::LevelFilter ::Warn;
+
+        if std::env::var("AZUL_PY_LOGLEVEL_ERROR").is_ok() { filter = log::LevelFilter ::Error; }
+        if std::env::var("AZUL_PY_LOGLEVEL_WARN").is_ok() { filter = log::LevelFilter ::Warn; }
+        if std::env::var("AZUL_PY_LOGLEVEL_INFO").is_ok() { filter = log::LevelFilter ::Info; }
+        if std::env::var("AZUL_PY_LOGLEVEL_DEBUG").is_ok() { filter = log::LevelFilter ::Debug; }
+        if std::env::var("AZUL_PY_LOGLEVEL_TRACE").is_ok() { filter = log::LevelFilter ::Trace; }
+        if std::env::var("AZUL_PY_LOGLEVEL_OFF").is_ok() { filter = log::LevelFilter ::Off; }
+
+        match pyo3_log::Logger::new(py.clone(), pyo3_log::Caching::LoggersAndLevels)?.filter(filter).install() {
+            Ok(_) => { }, 
+            Err(e) => { println!("Could not initialize Python logger, (continuing execution): {}", e); }, 
+        }
+    }
+
     m.add_class::<AzApp>()?;
     m.add_class::<AzAppConfig>()?;
     m.add_class::<AzAppLogLevelEnumWrapper>()?;

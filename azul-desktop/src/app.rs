@@ -96,19 +96,21 @@ impl App {
         let fc_cache = LazyFcCache::InProgress(Some(thread::spawn(move || FcFontCache::build())));
 
         #[cfg(feature = "logging")] {
+            #[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))] {
 
-            const fn translate_log_level(log_level: azul_core::app_resources::AppLogLevel) -> log::LevelFilter {
-                match log_level {
-                    azul_core::app_resources::AppLogLevel::Off => log::LevelFilter::Off,
-                    azul_core::app_resources::AppLogLevel::Error => log::LevelFilter::Error,
-                    azul_core::app_resources::AppLogLevel::Warn => log::LevelFilter::Warn,
-                    azul_core::app_resources::AppLogLevel::Info => log::LevelFilter::Info,
-                    azul_core::app_resources::AppLogLevel::Debug => log::LevelFilter::Debug,
-                    azul_core::app_resources::AppLogLevel::Trace => log::LevelFilter::Trace,
+                const fn translate_log_level(log_level: azul_core::app_resources::AppLogLevel) -> log::LevelFilter {
+                    match log_level {
+                        azul_core::app_resources::AppLogLevel::Off => log::LevelFilter::Off,
+                        azul_core::app_resources::AppLogLevel::Error => log::LevelFilter::Error,
+                        azul_core::app_resources::AppLogLevel::Warn => log::LevelFilter::Warn,
+                        azul_core::app_resources::AppLogLevel::Info => log::LevelFilter::Info,
+                        azul_core::app_resources::AppLogLevel::Debug => log::LevelFilter::Debug,
+                        azul_core::app_resources::AppLogLevel::Trace => log::LevelFilter::Trace,
+                    }
                 }
-            }
 
-            crate::logging::set_up_logging(translate_log_level(app_config.log_level));
+                crate::logging::set_up_logging(translate_log_level(app_config.log_level));
+            }
 
             if app_config.enable_logging_on_panic {
                 crate::logging::set_up_panic_hooks();

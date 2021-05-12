@@ -34,7 +34,7 @@ extern crate azul_css_parser;
 #[cfg(feature = "logging")]
 #[cfg_attr(feature = "logging", macro_use(error, warn))]
 extern crate log;
-#[cfg(feature = "logging")]
+#[cfg(all(feature = "use_fern_logger"))]
 extern crate fern;
 #[cfg(feature = "logging")]
 extern crate backtrace;
