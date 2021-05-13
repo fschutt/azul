@@ -5,6 +5,7 @@ import os
 import subprocess
 import shutil
 from sys import platform
+import time
 
 # dict that keeps the order of insertion
 from collections import OrderedDict
@@ -3133,9 +3134,11 @@ def main():
     # print("verifying that LLVM / clang-cl is installed...")
     # verify_clang_is_installed()
     print("generating API...")
-    generate_api()
+    # generate_api()
     print("generating documentation in /target/html...")
-    generate_docs()
+    while True:
+        generate_docs()
+        time.sleep(1)
 
     print("building azulc (release mode)...")
     # build_azulc()
